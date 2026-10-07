@@ -1,158 +1,164 @@
 # Backlog de Horus Flow
 
-Cómo se organiza el backlog. El plan de sprints está en [`../roadmap.md`](../roadmap.md); las
-épicas en [`epics.md`](epics.md); el reparto entre flujos paralelos en [`team.md`](team.md).
+Cómo se organiza el backlog tras las decisiones del PO ([`../po-decisions.md`](../po-decisions.md)):
+**IA + 1 persona** (D7) y **incrementos en lugar de sprints** (D9). El plan está en
+[`../roadmap.md`](../roadmap.md); las épicas en [`epics.md`](epics.md); el reparto entre agentes
+en [`team.md`](team.md).
 
 ## 1. Estructura
 
 ```
 docs/backlog/
 ├── README.md        ← este documento (reglas)
-├── epics.md         ← todas las épicas del proyecto (EP-xx y transversales EP-Tx)
-├── team.md          ← flujos de trabajo paralelos y contratos
-├── sprint-00.md     ← historias detalladas por sprint
-├── sprint-01.md
-├── sprint-02.md
-└── sprint-03.md     ← los sprints ≥ 4 se detallan en el planning del sprint anterior
+├── epics.md         ← épicas del proyecto y en qué incremento cae cada una
+├── team.md          ← agentes, contratos congelados, ramas, PRs e integración
+├── increment-0.md   ← historias de I0 (cimientos)
+└── increment-1.md   ← historias de I1 (primer entregable)
 ```
 
-Solo se detallan los próximos 3–4 sprints (horizonte de planificación). Los demás viven como
-épicas con alcance, y se refinan en el *backlog refinement* de la segunda semana del sprint previo.
+Solo se detallan el incremento en curso y el siguiente. Los demás viven como épicas con alcance
+en [`epics.md`](epics.md) y en [`../roadmap.md`](../roadmap.md) §3; el agente integrador detalla
+`increment-N+1.md` cuando el incremento N entra en su última ola.
 
-Cuando el proyecto adopte un gestor (GitHub Projects/Issues o GitLab Issues, según
-`vision.md` §10), cada historia de estos archivos se convierte en un issue con el mismo ID; el
-Markdown deja de ser la fuente de verdad para el estado, pero sigue siendo la de los criterios de
-aceptación hasta que se migren.
+**Archivos retirados.** `sprint-00.md` a `sprint-03.md` se **eliminaron** en la ronda 2:
+`sprint-00` describía el trabajo de documentación ya hecho (su resultado es `docs/`), y
+`sprint-01..03` respondían a un plan de sprints que ya no existe. Las historias que siguen siendo
+válidas se **convirtieron** a `increment-0.md` (CI, compose, plantilla Go, login, layout, e2e de
+humo); el resto se retiró o quedó como alcance de I2/I3 en [`epics.md`](epics.md). Siguen
+disponibles en el historial de Git. Trazabilidad completa en [`../roadmap.md`](../roadmap.md) §6.
 
-## 2. Jerarquía e identificadores
+Cuando el proyecto use GitHub Issues, cada historia se convierte en un issue con el mismo ID y
+etiquetas; el Markdown sigue siendo la fuente de los criterios de aceptación.
+
+## 2. Identificadores
 
 | Nivel | ID | Ejemplo | Vive en |
 | --- | --- | --- | --- |
-| Épica | `EP-NN` (producto) / `EP-TN` (transversal) | `EP-05 Inventario` | `epics.md` |
-| Historia | `SNN-MM` (sprint, número) | `S03-04` | `sprint-NN.md` |
-| Tarea técnica / spike | `SNN-MM` con tipo `task` o `spike` | `S03-14` (spike WireGuard) | `sprint-NN.md` |
-| Bug | `BUG-NNN` | | gestor de issues |
+| Épica | `EP-NN` (producto) / `EP-TN` (transversal) | `EP-10 Colección de flujos` | `epics.md` |
+| Historia, tarea o spike | `IN-NN` (incremento, número) | `I1-07` | `increment-N.md` |
+| Bug | `BUG-NNN` | | GitHub Issues |
 
-Una historia que no se termina **no se renumera**: pasa al siguiente sprint conservando su ID y
-se anota "arrastrada desde SNN".
+Una historia que no se termina en su incremento **no se renumera**: pasa al siguiente con nota
+"arrastrada desde IN".
 
-## 3. Formato de historia
+## 3. Formato de historia (pensado para agentes de IA)
+
+Cada historia debe poder ejecutarla un agente **sin preguntar**: contexto suficiente, archivos
+implicados y una comprobación automática de terminado.
 
 ```markdown
-### S01-07 · Login con usuario y contraseña
-- **Épica:** EP-03 · **Área:** frontend, backend · **Servicio:** auth, api-gateway
-- **Tipo:** story · **Puntos:** 5 · **Prioridad:** Must
-- **Depende de:** S01-03, S01-05
+### I1-07 · Detector de contacto con C2 conocido
+- **Agente:** SEC · **Área:** data, security · **Tamaño:** M · **Épica:** EP-14
+- **Depende de:** I0-17, I1-02 · **Contratos:** esquema de hallazgo v0, esquema CH v0
 
-**Como** operador del NOC **quiero** iniciar sesión con mi usuario y contraseña
-**para** acceder a la plataforma de forma segura.
+**Como** analista de seguridad del ISP **quiero** … **para** …
+
+**Contexto:** qué hay que saber y dónde leerlo (docs y secciones concretas), supuestos.
+**Archivos:** carpetas/archivos que crea o modifica (solo dentro de su propiedad, team.md §2).
 
 **Criterios de aceptación**
-1. **Dado** un usuario activo con contraseña válida, **cuando** envía el formulario,
-   **entonces** accede al dashboard y recibe un access token de vida corta y un refresh token.
-2. **Dado** …, **cuando** …, **entonces** …
+1. **Dado** …, **cuando** …, **entonces** …
+2. **Dado** … (caso negativo) …
 
-**Notas técnicas:** enlaces a `api.md`, `security.md`, decisiones, fuera de alcance.
+**Hecho cuando:** `make test-detection && make accept-i1 SCENARIO=c2` en verde en CI.
+**Fuera de alcance:** …
 ```
 
 Reglas:
 
-- El **rol** ("como…") es una persona real del producto: *administrador de plataforma*,
-  *operador NOC*, *técnico de campo*, *analista de seguridad*, *gerente*, *ejecutivo comercial*,
-  *ingeniero de plataforma* (para historias técnicas). No se usa "como usuario" genérico.
-  Las personas se validan con el PO (pregunta P-03 en
-  [`../open-questions/product.md`](../open-questions/product.md)).
-- Las **tareas técnicas** sin usuario final (CI, compose) pueden escribirse como
-  "Como ingeniero de plataforma quiero… para…" o como tarea con objetivo y criterios; ambos
-  requieren criterios verificables.
-- **Prioridad** MoSCoW dentro del sprint: *Must* (sin ella no hay objetivo de sprint), *Should*,
-  *Could*. Lo *Could* es lo primero que sale si el sprint se desborda.
+- **Rol** ("como…") es una persona real: *superadministrador de plataforma*, *administrador del
+  ISP*, *operador NOC*, *analista de seguridad*, *gerente del ISP*, *pantalla NOC* (para el
+  kiosco), *agente de IA* o *ingeniero de plataforma* (para historias técnicas).
+- **Agente** es el responsable según [`team.md`](team.md): `INT` (integrador), `PLAT`, `CORE`,
+  `FLOW`, `SEC`, `UI`; `PERSONA` para lo que solo puede hacer la persona.
+- **Contexto** cita documentos con sección. Si el documento no responde algo, el agente aplica
+  la regla de [`team.md`](team.md) §6.4 (supuesto explícito y reversible + pregunta registrada).
+- **Archivos** limita el radio de acción: un agente no toca carpetas de otro sin PR de contrato.
+- **Hecho cuando** es un comando o job de CI reproducible. Si algo solo se puede comprobar con
+  el router real, la historia lo marca como **verificación de la persona** y además tiene una
+  versión automática con el simulador.
 
-## 4. Criterios de aceptación (Given/When/Then)
+## 4. Criterios de aceptación (Dado / Cuando / Entonces)
 
-- En español: **Dado / Cuando / Entonces** (equivalente a Given/When/Then), numerados.
-- Cada criterio es verificable por un test automatizado o una demo concreta. "Rápido", "intuitivo"
-  o "seguro" no son criterios; "responde en < 300 ms p95 con 100 routers" sí.
-- Incluir siempre al menos **un caso negativo** (permiso denegado, entrada inválida, dependencia
-  caída) además del camino feliz.
-- Los criterios de frontend incluyen los **estados** de [`../frontend.md`](../frontend.md) §8
-  (carga, vacío, error, degradado) cuando aplican.
-- Los criterios de API referencian el endpoint y el código HTTP; el contrato completo vive en
-  [`../api.md`](../api.md). Los de eventos, el subject `horus.<dominio>.<entidad>.<evento>` de
-  [`../events.md`](../events.md).
+- Numerados, en español, cada uno verificable por un test automatizado. "Rápido", "intuitivo" o
+  "seguro" no son criterios; "responde en < 300 ms p95 con 1 000 clientes" sí.
+- Siempre **al menos un caso negativo** (permiso denegado, ISP ajeno, entrada inválida,
+  dependencia caída).
+- Todo criterio que lea o escriba datos de un ISP incluye el **caso de aislamiento**: otro ISP no
+  ve ni modifica nada (respuesta `404`, nunca `403`, para no revelar existencia).
+- Frontend: incluye los estados de [`../frontend.md`](../frontend.md) §9 (carga, vacío, error,
+  degradado) y, si es un widget, su comportamiento en modo kiosco.
+- API: referencia endpoint y código HTTP; el contrato completo vive en [`../api.md`](../api.md)
+  y en `packages/schemas`. Eventos: subject de [`../events.md`](../events.md).
 
-## 5. Estimación
+## 5. Tamaño
 
-- **Story points**, escala Fibonacci modificada: 1, 2, 3, 5, 8, 13.
-  - 1 = cambio trivial y conocido (½ día o menos).
-  - 3 = historia típica bien entendida (1–2 días de una persona).
-  - 8 = grande; aceptable pero se revisa si se puede partir.
-  - **13 = no entra en un sprint tal cual: se divide antes del planning.**
-- Los **spikes** se estiman en tiempo fijo (time-box) y se anotan con sus puntos equivalentes
-  para no distorsionar la velocidad.
-- Velocidad de referencia inicial (hasta medir 2 sprints): **~20–25 puntos por flujo y sprint**
-  con 1–2 personas o agentes por flujo. S1 se planifica al 70 % de esa cifra por el arranque.
-- Se estima en *planning poker* por el flujo responsable; si dos flujos participan, la historia se
-  divide por flujo o se estima en conjunto.
+Sin story points ni velocidad (D9). Tallas relativas:
 
-## 6. Etiquetas
+| Talla | Significado | Regla |
+| --- | --- | --- |
+| **S** | Cambio acotado, un área, < ~300 líneas | Un PR |
+| **M** | Una funcionalidad completa en un área | 1–3 PRs pequeños |
+| **L** | Cruza dos áreas o tiene incertidumbre técnica | **Se divide** antes de asignarse, salvo spikes con límite explícito |
+
+Los **spikes** llevan un límite de alcance ("como máximo un prototipo y una nota en `docs/`") y
+terminan en una decisión escrita.
+
+## 6. Etiquetas (GitHub)
 
 | Grupo | Valores | Uso |
 | --- | --- | --- |
-| `area:` | `frontend`, `backend`, `infra`, `data`, `security` | Obligatoria, una o más. `infra` incluye DevOps/CI/observabilidad; `data` incluye colectores, ClickHouse y pipelines; `security` se añade a todo lo que toque autenticación, autorización, secretos, criptografía o datos personales (dispara revisión de seguridad) |
-| `service:` | `api-gateway`, `auth`, `devices`, `wireguard`, `snmp`, `flows`, `traffic-intelligence`, `reputation`, `detection`, `alerts`, `analytics`, `reporting`, `frontend` | Servicio(s) afectados |
+| `inc:` | `i0`, `i1`, `i2`… | Incremento |
+| `agent:` | `int`, `plat`, `core`, `flow`, `sec`, `ui`, `persona` | Responsable |
+| `area:` | `frontend`, `backend`, `infra`, `data`, `security` | `security` se añade a todo lo que toque autenticación, autorización, tenants, secretos o datos de clientes: exige aprobación de la persona |
+| `contract:` | `openapi`, `event`, `schema`, `clickhouse`, `widget`, `ws` | Cambia un contrato congelado: exige versión nueva y aprobación del consumidor y de la persona |
 | `type:` | `story`, `task`, `spike`, `bug`, `chore` | |
-| `stream:` | `platform`, `backend`, `frontend`, `data` | Flujo responsable (ver [`team.md`](team.md)) |
-| `contract:` | `openapi`, `event`, `schema`, `proto`, `ws` | La historia crea o cambia un contrato compartido → requiere aprobación del flujo consumidor |
-| `priority:` | `must`, `should`, `could` | MoSCoW del sprint |
+| `needs:` | `persona`, `hardware` | Bloqueada esperando a la persona o al router real |
 
 ## 7. Definición de Listo (DoR)
 
-Una historia entra al sprint si:
+Una historia se asigna a un agente si:
 
-1. Tiene rol, objetivo y beneficio claros, y épica asignada.
-2. Tiene criterios Dado/Cuando/Entonces con al menos un caso negativo.
-3. Está estimada en ≤ 8 puntos.
-4. Sus dependencias están terminadas o planificadas antes en el mismo sprint.
-5. Los contratos que consume (OpenAPI, evento, esquema) están publicados al menos en borrador
-   aprobado (ver [`team.md`](team.md) §3).
-6. Si tiene UI, existe boceto o referencia al patrón de [`../frontend.md`](../frontend.md).
+1. Tiene rol, objetivo, épica, agente y talla ≤ M (o es un spike con límite).
+2. Tiene contexto con enlaces, archivos implicados y comando de "hecho cuando".
+3. Tiene criterios Dado/Cuando/Entonces con un caso negativo y, si aplica, de aislamiento.
+4. Sus dependencias están mergeadas en `main` **o** consume solo contratos congelados (puede
+   trabajar contra mocks/simulador).
+5. Si tiene UI, referencia el patrón o widget de [`../frontend.md`](../frontend.md).
 
 ## 8. Definición de Terminado (DoD)
 
-La DoD de `vision.md` §13 se aplica a **cada historia**. Esta tabla dice cómo se verifica cada
-punto; el revisor del PR marca la lista (plantilla de PR, ver [`../conventions.md`](../conventions.md)).
+Con IA + 1 persona (D7) la DoD tiene que ser **verificable por máquina**. La comprueba CI y el
+agente revisor; la persona solo interviene en lo marcado.
 
-| Punto de `vision.md` §13 | Cómo se verifica | N/A cuando |
+| Punto | Cómo se verifica (automático) | N/A cuando |
 | --- | --- | --- |
-| Código | Merge a `main` vía PR según el Git workflow de [`../conventions.md`](../conventions.md) | — |
-| Tests | Unitarios (`go test`, Vitest) en CI; integración contra compose para servicios; Playwright para flujos de UI de criterios de aceptación. Cobertura de líneas nueva ≥ 70 % en backend | Solo documentación |
-| Manejo de errores | Errores con el formato estándar de [`../api.md`](../api.md); la UI muestra el estado de error de [`../frontend.md`](../frontend.md) §8 | — |
-| Logs | Logs estructurados JSON con `trace_id`, sin secretos ni datos personales en claro ([`../observability.md`](../observability.md)) | — |
-| Métricas | Métricas RED (rate, errors, duration) del endpoint/consumidor nuevo en Prometheus y panel en Grafana | Cambio solo de UI estática |
-| Seguridad | Permiso `recurso.accion` aplicado en backend; `govulncheck`/`npm audit`/escaneo de imagen sin críticos; revisión de seguridad si tiene etiqueta `area:security` ([`../security.md`](../security.md)) | — |
-| Documentación | README del servicio o sección de `docs/` actualizada; decisiones relevantes en ADR | — |
-| API documentada | OpenAPI actualizado y validado en CI; eventos registrados en el catálogo de [`../events.md`](../events.md) | Sin API ni eventos |
-| Migración DB | Migración versionada, reversible, probada en CI sobre base vacía y sobre la versión anterior | Sin cambios de esquema |
-| Docker | Imagen construida en CI, servicio en `docker compose` con variables documentadas | Solo frontend de componente |
-| CI/CD | Pipeline verde: lint → unit → integración → security check → build (`vision.md` §12) | — |
-| Health check | `/healthz` (vida) y `/readyz` (dependencias) del servicio respondiendo; compose usa `healthcheck` | Sin servicio nuevo |
-| Backup si aplica | Datos nuevos persistentes incluidos en la política de backup y en la prueba de restauración ([`../disaster-recovery.md`](../disaster-recovery.md)) | Sin datos persistentes nuevos |
-| Revisión | ≥ 1 aprobación de otra persona/agente de un flujo distinto si cambia un contrato; demo en la review del sprint | — |
+| Código en `main` | PR squash-merge con CI verde, según [`team.md`](team.md) §5 y [`../conventions.md`](../conventions.md) | — |
+| Tests | Unitarios (`go test -race`, Vitest) + integración contra compose; Playwright para criterios de UI; el comando "hecho cuando" pasa en CI | Solo docs |
+| Aislamiento por ISP | Suite de matriz de tenants ampliada con los endpoints/temas nuevos | Sin datos de ISP |
+| Errores | Formato de [`../api.md`](../api.md); la UI muestra los estados de [`../frontend.md`](../frontend.md) §9 | — |
+| Logs y métricas | Logs JSON con `trace_id` y `tenant_id`, sin IPs de clientes en claro en logs de nivel info; métricas RED del endpoint/consumidor nuevo | UI estática |
+| Seguridad | Permiso aplicado en backend (test 403/404); `govulncheck`/`npm audit`/Trivy sin críticos; gitleaks limpio | — |
+| Contratos | OpenAPI/esquemas validados en CI; pruebas de contrato productor/consumidor | Sin contratos |
+| Migraciones | Versionadas, probadas sobre base vacía y sobre la versión anterior; squawk sin errores | Sin esquema |
+| Docker / health | Imagen construida; `healthz`/`readyz`; servicio en compose | Sin proceso nuevo |
+| Backup | Datos persistentes nuevos incluidos en backup y en la prueba de restauración | Sin datos nuevos |
+| Documentación | `docs/` o README del módulo actualizado en el mismo PR | — |
+| Revisión | Aprobación de un agente revisor **distinto** del autor; además **la persona** si el PR lleva `area:security` o `contract:*` | — |
 
-Además, para frontend: accesibilidad verificada (axe sin violaciones serias + navegación por
-teclado del flujo), tema claro y oscuro revisados, textos en el sistema de i18n.
+Frontend además: axe sin violaciones serias, navegación por teclado del flujo, tema claro y
+oscuro, textos en i18n y captura de pantalla adjunta al PR (también en modo kiosco si es un
+widget).
 
-Para historias generadas por agentes de IA: el agente adjunta en el PR la salida de los tests y la
-lista DoD marcada; un humano o el agente coordinador aprueba antes del merge.
+El agente autor adjunta en el PR: salida de tests, la lista DoD marcada y, para UI, capturas.
 
-## 9. Ceremonias (resumen de `vision.md` §12)
+## 9. Ritmo de trabajo (sustituye a las ceremonias Scrum)
 
-| Ceremonia | Cuándo | Entrada / salida |
-| --- | --- | --- |
-| Planning | Día 1 | Objetivo de sprint, historias comprometidas por flujo, riesgos y dependencias cruzadas |
-| Daily | Diaria, ≤ 15 min (asíncrona para agentes: entrada en el canal del sprint) | ¿Qué hice? ¿Qué haré? ¿Qué me bloquea? |
-| Sync de contratos | Martes de la semana 1 | Contratos del sprint siguiente en borrador ([`team.md`](team.md) §4) |
-| Refinement | Miércoles de la semana 2 | Historias del sprint siguiente cumplen DoR |
-| Review | Último día | Demo con funcionalidad real en el entorno compose (no diapositivas) |
-| Retro | Último día | 1–3 acciones de mejora con dueño |
+| Antes (Scrum) | Ahora (IA + 1 persona) |
+| --- | --- |
+| Planning | El integrador asigna historias "listas" a cada agente al abrir la ola (team.md §4) |
+| Daily | Estado en el tablero de GitHub + comentario automático del integrador con bloqueos (`needs:persona`) |
+| Sync de contratos | PR con `contract:*` aprobado por consumidores y persona |
+| Refinement | El integrador redacta `increment-N+1.md`; la persona lo lee junto con la demo |
+| Review | **Demo del incremento**: `make accept-iN` + prueba con el MikroTik real de la persona |
+| Retro | Nota breve del integrador en el PR de cierre del incremento: qué bloqueó y qué se cambia |
