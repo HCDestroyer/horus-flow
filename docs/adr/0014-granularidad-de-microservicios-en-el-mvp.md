@@ -1,6 +1,6 @@
 # 0014 — Granularidad de microservicios en el MVP
 
-- Estado: Propuesta (recomendada)
+- Estado: Sustituido por ADR-0025
 - Fecha: 2026-10-07
 
 ## Contexto

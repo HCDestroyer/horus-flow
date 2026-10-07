@@ -1,6 +1,6 @@
 # 0008 — ClickHouse para analítica y telemetría
 
-- Estado: Aceptada
+- Estado: Aceptada (ampliada por ADR-0021: desde el primer incremento; ADR-0017: tenant)
 - Fecha: 2026-10-07
 
 ## Contexto

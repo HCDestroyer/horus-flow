@@ -1,6 +1,6 @@
 # 0009 — Redis como caché y almacén efímero
 
-- Estado: Aceptada
+- Estado: Sustituido por ADR-0020
 - Fecha: 2026-10-07
 
 ## Contexto

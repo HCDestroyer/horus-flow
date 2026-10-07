@@ -1,6 +1,6 @@
 # 0002 — Monorepo
 
-- Estado: Aceptada
+- Estado: Aceptada (modificada por ADR-0025: un solo `go.mod` para el backend)
 - Fecha: 2026-10-07
 
 ## Contexto

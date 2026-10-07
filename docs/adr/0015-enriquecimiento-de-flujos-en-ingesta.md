@@ -1,6 +1,6 @@
 # 0015 — Enriquecimiento de flujos en la ingesta con snapshot del catálogo
 
-- Estado: Propuesta (recomendada)
+- Estado: Propuesta (recomendada; ajustada por ADR-0019: snapshot en NATS Object Store)
 - Fecha: 2026-10-07
 
 ## Contexto

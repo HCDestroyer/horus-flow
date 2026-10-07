@@ -1,6 +1,6 @@
 # 0013 — API Gateway propio (Go) detrás de Traefik, frente a Traefik/Kong/Envoy
 
-- Estado: Propuesta (recomendada)
+- Estado: Propuesta (recomendada; ajustada por ADR-0025: rol del binario modular)
 - Fecha: 2026-10-07
 
 ## Contexto

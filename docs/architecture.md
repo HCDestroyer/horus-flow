@@ -1,13 +1,32 @@
 # Horus Flow — Arquitectura general
 
-> Estado: **propuesta Sprint 0** · Dueño: Agente 1 (Arquitecto de sistema) · Fuente: [vision.md](vision.md)
+> Estado: **ronda 2 (tras decisiones del PO)** · Dueño: Agente A (arquitectura) · Fuentes:
+> [po-decisions.md](po-decisions.md) (D1–D10, **prevalecen**), [vision.md](vision.md)
 >
-> Documentos relacionados: [services.md](services.md) (catálogo de servicios), [adr/](adr/README.md)
-> (decisiones), [database.md](database.md) y [traffic-model.md](traffic-model.md) y
-> [storage.md](storage.md) (Agente 2), [api.md](api.md) y [events.md](events.md) (Agente 3),
-> [security.md](security.md), [observability.md](observability.md),
-> [disaster-recovery.md](disaster-recovery.md) y [conventions.md](conventions.md) (Agente 4),
-> [roadmap.md](roadmap.md) (Agente 5), [open-questions/architecture.md](open-questions/architecture.md).
+> Documentos relacionados: [services.md](services.md) (módulos y roles), [adr/](adr/README.md)
+> (decisiones; 0017–0025 registran D1–D10), [database.md](database.md),
+> [traffic-model.md](traffic-model.md), [storage.md](storage.md), [api.md](api.md),
+> [events.md](events.md), [security.md](security.md), [observability.md](observability.md),
+> [disaster-recovery.md](disaster-recovery.md), [conventions.md](conventions.md),
+> [roadmap.md](roadmap.md), [vendors/mikrotik.md](vendors/mikrotik.md),
+> [open-questions/architecture.md](open-questions/architecture.md).
+
+---
+
+## 0. Qué cambió en la ronda 2
+
+| PO | Cambio de arquitectura | ADR |
+| --- | --- | --- |
+| D1 | El cliente es la IP: se **descubre automáticamente** desde los flujos; identidad (tenant, realm, IP); sin CRM/RADIUS. | [0018](adr/0018-la-ip-es-el-cliente.md) |
+| D2, D3 | Almacenamiento **local** primario; destino remoto **opcional** (SFTP primero, luego Drive/MEGA/Dropbox) con rclone. **Sin MinIO, sin NAS obligatorio, sin servidor S3.** | [0019](adr/0019-almacenamiento-local-y-destino-remoto.md) |
+| D3 | **Valkey** en lugar de Redis. | [0020](adr/0020-valkey-en-lugar-de-redis.md) |
+| D4 | **ClickHouse desde el primer incremento** con series o flujos; sin tabla puente en PostgreSQL. | [0021](adr/0021-clickhouse-desde-el-primer-incremento.md) |
+| D5 | **Detección de clientes en botnets** como objetivo de primer nivel. | [0024](adr/0024-deteccion-de-botnets-como-objetivo-principal.md) |
+| D6 | **Multi-tenant desde v1**: tenant = ISP; ISP → nodo → router principal → IPs de clientes. | [0017](adr/0017-multi-tenant-desde-v1.md) |
+| D7, D9 | Incrementos de valor en lugar de 16 sprints; agentes de IA + 1 persona; calidad por puertas automáticas. | [0023](adr/0023-entrega-por-incrementos-y-equipo-ia.md) |
+| D7 | **Un binario modular `horus` con roles**; 3 contenedores propios en el despliegue mínimo (antes 6 procesos en el MVP). | [0025](adr/0025-binario-modular-con-roles.md) |
+| D8 | Dashboards por widgets y modo kiosco/NOC (impacto en `analytics` y frontend). | [frontend.md](frontend.md) |
+| D10 | **MikroTik RouterOS v7** (≥ 7.12) primero; adaptadores por capacidad; alta con token de un solo uso. | [0022](adr/0022-mikrotik-routeros-v7-primer-fabricante.md) |
 
 ---
 
@@ -18,15 +37,19 @@ requiere ADR.
 
 | # | Principio | Consecuencia práctica |
 | --- | --- | --- |
-| P1 | **El plano de administración no depende del plano analítico.** | Login, inventario, WireGuard y configuración funcionan con ClickHouse, el pipeline de flujos y el NAS caídos (requisito explícito del Sprint 14). |
-| P2 | **Cada dato tiene un único dueño.** | Ningún servicio lee ni escribe tablas PostgreSQL de otro. Se comunican por REST/gRPC (consulta) o NATS (hechos). En ClickHouse cada tabla tiene **un único escritor**; las lecturas analíticas están permitidas sobre tablas publicadas (ver §6.3 y [ADR-0008](adr/0008-clickhouse-para-analitica.md)). |
-| P3 | **Los colectores nunca esperan a nadie.** | SNMP y flujos publican en NATS y siguen; si el destino está caído, NATS amortigua. Un colector no hace llamadas síncronas en su camino caliente. |
-| P4 | **Ausencia de datos ≠ dato cero.** | Si el colector SNMP está caído, los routers pasan a `unknown`/`stale`, no a `offline`. Los huecos en series se guardan como huecos, no como ceros. |
-| P5 | **El frontend solo habla con el API Gateway.** | Nunca con PostgreSQL, ClickHouse, NATS, SNMP o WireGuard (vision §1). |
-| P6 | **Estado deseado vs estado observado.** | `devices` y `wireguard` guardan lo que *debería* ser; `snmp`, `flows` y el agente WireGuard reportan lo que *es*. La reconciliación es explícita. |
-| P7 | **Todo servicio es desplegable en Kubernetes sin rediseño.** | Configuración por variables de entorno, sin estado en disco local en servicios stateless, `/healthz` + `/readyz`, apagado ordenado (SIGTERM), logs a stdout. |
-| P8 | **Ningún evento de dominio se pierde por un fallo de NATS.** | Los servicios con PostgreSQL publican mediante *transactional outbox* ([ADR-0016](adr/0016-transactional-outbox.md)). La telemetría (flujos, métricas) sí puede perderse de forma acotada y **medida**. |
-| P9 | **Una organización en v1, multi-tenant posible después.** | Toda entidad raíz lleva `organization_id` (UUIDv7) desde el día uno aunque solo exista una fila. Ver [preguntas abiertas](open-questions/architecture.md#q1). |
+| P1 | **El plano de administración no depende del plano analítico.** | Login, inventario, WireGuard y configuración funcionan con ClickHouse, el pipeline de flujos o el destino remoto caídos. En el binario modular esto se garantiza con límites por rol y contenedores separados para collector y agente WG ([ADR-0025](adr/0025-binario-modular-con-roles.md)). |
+| P2 | **Cada dato tiene un único dueño.** | Cada módulo posee su esquema PostgreSQL y su usuario de BD; los demás lo consultan por contrato (interfaz/gRPC) o lo conocen por eventos. En ClickHouse cada tabla tiene **un único escritor**; las lecturas analíticas se permiten sobre tablas publicadas ([ADR-0008](adr/0008-clickhouse-para-analitica.md)). |
+| P3 | **Los colectores nunca esperan a nadie.** | SNMP y flujos publican en NATS y siguen. El descubrimiento de clientes también es asíncrono (el ingester no escribe en PostgreSQL). |
+| P4 | **Ausencia de datos ≠ dato cero.** | Routers sin monitoreo → `stale`, no `offline`; huecos de series y de flujos (incluida la ceguera por *offload* de hardware) se registran como cobertura incompleta, no como consumo bajo. |
+| P5 | **El frontend solo habla con el gateway.** | Nunca con PostgreSQL, ClickHouse, NATS, SNMP o WireGuard. |
+| P6 | **Estado deseado vs estado observado.** | `devices` y `wireguard` guardan lo que *debería* ser; `snmp`, `flows` y `wg-agent` reportan lo que *es*. |
+| P7 | **Todo rol es desplegable en Kubernetes sin rediseño.** | Config por entorno, probes por rol, SIGTERM, sin estado local salvo el almacén de archivos declarado ([ADR-0019](adr/0019-almacenamiento-local-y-destino-remoto.md)). |
+| P8 | **Ningún evento de dominio se pierde por un fallo de NATS.** | Outbox ([ADR-0016](adr/0016-transactional-outbox.md)), también entre módulos del mismo proceso. La telemetría puede perderse de forma acotada y **medida**. |
+| P9 | **Multi-tenant desde v1; el tenant sale del token, nunca del cliente.** | `tenant_id` en todo dato de tenant, RLS en PostgreSQL, row policies en ClickHouse, `Horus-Tenant` en todo mensaje, prefijo en Valkey ([ADR-0017](adr/0017-multi-tenant-desde-v1.md)). |
+| P10 | **Nada depende de almacenamiento remoto.** | El primario es local; el NAS o la nube son copias opcionales. Un destino remoto caído solo aumenta el retraso de la copia ([ADR-0019](adr/0019-almacenamiento-local-y-destino-remoto.md)). |
+| P11 | **La IP es el cliente.** | Atribución por (tenant, realm, IP) desde el primer flujo; ninguna función depende de un sistema externo de clientes ([ADR-0018](adr/0018-la-ip-es-el-cliente.md)). |
+| P12 | **Horus solo lee de los routers.** | Credenciales de solo lectura; el aprovisionamiento es un script que aplica el técnico ([ADR-0022](adr/0022-mikrotik-routeros-v7-primer-fabricante.md)). |
+| P13 | **Simplicidad operativa: lo opera una persona.** | Menos procesos, un servidor al inicio, una herramienta por problema, todo verificable por CI ([ADR-0023](adr/0023-entrega-por-incrementos-y-equipo-ia.md)). |
 
 ---
 
@@ -36,126 +59,128 @@ requiere ADR.
 C4Context
     title Horus Flow — Contexto (C4 nivel 1)
 
-    Person(noc, "Operador NOC", "Monitorea routers, tráfico y alertas")
-    Person(admin, "Administrador ISP", "Gestiona usuarios, inventario, WireGuard")
-    Person(analyst, "Analista / Comercial", "Consumo, reportes, clientes comerciales")
+    Person(platop, "Operador de plataforma", "Superadmin: alta de ISP, almacenamiento, catálogo")
+    Person(noc, "NOC / seguridad del ISP", "Estado de nodos, hallazgos de botnets, alertas, kiosco")
+    Person(admin, "Administrador del ISP", "Usuarios del ISP, nodos, routers, prefijos de clientes")
+    Person(analyst, "Analista del ISP", "Consumo por IP, residencial/comercial, reportes")
 
-    System(horus, "Horus Flow", "Plataforma de inteligencia de red del ISP")
+    System(horus, "Horus Flow", "Plataforma multi-ISP de inteligencia y seguridad de red")
 
-    System_Ext(routers, "Routers del ISP", "MikroTik, Cisco, Huawei, Juniper: agente SNMP, exportador NetFlow/IPFIX/sFlow, peer WireGuard")
-    System_Ext(nas, "NAS", "Almacenamiento de objetos vía MinIO, backups y archivo")
-    System_Ext(intel, "Fuentes de datos externas", "Tablas IP→ASN (RIR/BGP), PeeringDB, listas de reputación")
+    System_Ext(routers, "Router principal de cada nodo (MikroTik RouterOS v7)", "IPFIX, SNMPv3, API 8729/REST, peer WireGuard iniciador")
+    System_Ext(remote, "Destino remoto opcional", "SFTP (NAS/servidor), luego Google Drive, MEGA, Dropbox")
+    System_Ext(intel, "Fuentes externas", "IP→ASN (RIR/BGP), PeeringDB, feeds de reputación/C2")
     System_Ext(notify, "Canales de notificación", "SMTP, Telegram; después WhatsApp, SMS, Webhook")
-    System_Ext(idp, "IdP OIDC (futuro)", "Federación de identidad")
 
+    Rel(platop, horus, "HTTPS")
     Rel(noc, horus, "HTTPS / WebSocket")
-    Rel(admin, horus, "HTTPS / WebSocket")
+    Rel(admin, horus, "HTTPS")
     Rel(analyst, horus, "HTTPS")
-    Rel(horus, routers, "SNMP v2c/v3 (UDP 161), ICMP, WireGuard (UDP)")
-    Rel(routers, horus, "NetFlow/IPFIX/sFlow (UDP), handshakes WG")
-    Rel(horus, nas, "S3 API vía MinIO")
+    Rel(routers, horus, "WireGuard (UDP) → por el túnel: IPFIX, respuestas SNMP/API; HTTPS de enrolment")
+    Rel(horus, routers, "Por el túnel: SNMP, ICMP, API de solo lectura")
+    Rel(horus, remote, "rclone (SFTP / HTTPS), cifrado")
     Rel(horus, intel, "HTTPS, descarga periódica")
     Rel(horus, notify, "SMTP / HTTPS")
-    Rel(horus, idp, "OIDC (futuro)")
 ```
 
-Versión ASCII equivalente:
+Versión ASCII:
 
 ```
-  [Operador NOC]  [Admin ISP]  [Analista]
-         \             |            /
-          \     HTTPS / WebSocket  /
-           v           v          v
-        ┌──────────────────────────────┐        HTTPS (pull periódico)
-        │          HORUS FLOW          │ ─────────────────────────────► [Fuentes externas:
-        │ inteligencia de red del ISP  │                                  IP→ASN, PeeringDB,
-        └──────────────────────────────┘                                  listas reputación]
-          │  ▲            │        │
-   SNMP,  │  │ NetFlow/   │ S3     │ SMTP / HTTPS
-   ICMP,  │  │ IPFIX/sFlow│ (MinIO)│
-   WG     ▼  │ handshakes ▼        ▼
-     [Routers del ISP]   [NAS]   [Email / Telegram / ...]
+ [Operador plataforma]  [Admin ISP A] [NOC ISP A]   [Admin ISP B] ...
+            \                 |           |              /
+             \           HTTPS / WebSocket (token por tenant)
+              v               v           v             v
+           ┌───────────────────────────────────────────────────┐   HTTPS   [Fuentes externas:
+           │                   HORUS FLOW                      │ ────────► IP→ASN, PeeringDB,
+           │  multi-ISP: aislamiento por tenant en cada capa   │           feeds reputación/C2]
+           └───────────────────────────────────────────────────┘
+             ▲  hub WireGuard (UDP)        │ rclone (opcional)   │ SMTP/HTTPS
+             │  túneles iniciados por      ▼                     ▼
+             │  los routers           [SFTP/NAS, Drive,    [Email/Telegram]
+   ┌─────────┴───────────┐             MEGA, Dropbox]
+   ISP A                  ISP B
+   ├─ nodo 1: router MikroTik ── IPs de clientes (realm)
+   └─ nodo 2: router MikroTik ── IPs de clientes (realm)
 ```
 
-**Supuesto de red crítico** (validar con PO, [Q3](open-questions/architecture.md#q3)): la mayoría
-de routers no tienen IP pública alcanzable (CGNAT, sitios remotos) y se gestionan **a través de
-túneles WireGuard** hacia un hub central. Por tanto SNMP, ICMP y la exportación de flujos viajan
-por el túnel. Esto convierte al hub WireGuard en una dependencia del plano de recolección (ver
-§9.4 y §9.9).
+**Conectividad** ([ADR-0022](adr/0022-mikrotik-routeros-v7-primer-fabricante.md),
+[vendors/mikrotik.md](vendors/mikrotik.md)): cada router principal **inicia** un túnel WireGuard
+hacia el hub de Horus (keepalive 25 s, funciona con IP dinámica o NAT). SNMP, API, ICMP y la
+exportación IPFIX viajan por el túnel. La IP de túnel de cada router es única en toda la
+plataforma e identifica router y tenant. Supuesto del PO a confirmar
+([Q3](open-questions/architecture.md#q3)).
 
 ---
 
 ## 3. Contenedores (C4 nivel 2)
 
+Desde la ronda 2 el backend es **un binario modular `horus`** con roles
+([ADR-0025](adr/0025-binario-modular-con-roles.md)). El diagrama muestra el **perfil mínimo**
+(un servidor).
+
 ```mermaid
 flowchart TB
     subgraph Clientes
-        FE["Frontend Nuxt 4<br/>(SSR/SPA, Nuxt UI, ECharts)"]
+        FE["Frontend Nuxt 4<br/>(SPA, widgets, modo kiosco)"]
     end
 
     subgraph Edge
-        RP["Reverse proxy de borde<br/>(Traefik: TLS, HTTP/2, estáticos)"]
+        RP["Traefik<br/>TLS, estáticos"]
     end
 
-    subgraph Plano_de_administracion["Plano de administración (MVP)"]
-        GW["api-gateway<br/>authN, rate limit, routing, WebSocket fan-out"]
-        AUTH["auth<br/>usuarios, roles, sesiones, tokens, auditoría"]
-        DEV["devices<br/>sitios, routers, interfaces, credenciales"]
-        WG["wireguard (control)<br/>servidores, peers, claves, IPAM túneles"]
-        WGA["wireguard-agent<br/>aplica config al kernel (netlink)"]
+    subgraph APP["horus-app (un proceso, varios roles)"]
+        GW["gateway<br/>authN, tenant del token, rate limit, WS"]
+        AUTH["auth<br/>usuarios, tenants, membresías, auditoría"]
+        DEV["devices<br/>nodos, routers, realms, credenciales,<br/>clientes descubiertos"]
+        WG["wireguard<br/>IPAM de plataforma, peers, enrolment"]
+        SNMP["snmp<br/>pollers SNMP/ICMP, estado observado"]
+        TI["traffic<br/>catálogo IP→ASN→Servicio→Categoría"]
+        DET["detection<br/>reputación, botnets, scoring"]
+        AL["alerts<br/>reglas, notificaciones"]
+        AN["analytics<br/>consultas, widgets"]
+        REP["reporting"]
+        ING["ingester<br/>flujos + métricas → ClickHouse,<br/>enriquecimiento, IPs nuevas"]
+        JOBS["jobs<br/>archivo, rclone, mantenimiento"]
     end
 
-    subgraph Plano_de_recoleccion["Plano de recolección"]
-        SNMP["snmp<br/>pollers SNMP + ICMP, estado observado"]
-        FLC["flows (collector)<br/>UDP NetFlow/IPFIX/sFlow"]
-        FLI["flows (ingester)<br/>enriquecimiento + inserción por lotes"]
-    end
-
-    subgraph Plano_analitico["Plano analítico / inteligencia"]
-        TI["traffic-intelligence<br/>catálogo IP→ASN→Org→Servicio→Categoría"]
-        DET["detection (+reputation)<br/>reputación, correlación, scoring"]
-        AN["analytics (+reporting)<br/>consultas, dashboards, reportes"]
-        AL["alerts<br/>reglas, alertas, notificaciones"]
-    end
+    COL["horus-collector<br/>UDP IPFIX/NetFlow/sFlow"]
+    WGA["horus-wg-agent<br/>hub WireGuard (NET_ADMIN, host net)"]
 
     subgraph Datos
-        PG[("PostgreSQL<br/>fuente de verdad transaccional")]
+        PG[("PostgreSQL<br/>esquema por módulo, RLS")]
         CH[("ClickHouse<br/>flujos, métricas, agregados")]
-        RD[("Redis<br/>caché, rate limit")]
-        NATS{{"NATS JetStream<br/>eventos + KV"}}
-        MINIO[("MinIO")]
-        NAS[("NAS")]
+        VK[("Valkey<br/>caché, rate limit")]
+        NATS{{"NATS JetStream<br/>eventos, telemetría, KV,<br/>Object Store (snapshots)"}}
+        FS[("Almacén local<br/>backups, archivo, reportes")]
     end
+    REMOTE[("Destino remoto opcional<br/>SFTP / nube")]
 
     FE -->|HTTPS/WSS| RP --> GW
-    GW -->|HTTP reverse proxy| AUTH & DEV & WG & AN & AL & DET & TI
-    GW -.->|suscripción NATS core| NATS
-    DEV & WG & AUTH & AL & DET & TI -->|outbox| NATS
-    SNMP & FLC --> NATS
-    NATS --> FLI --> CH
-    NATS --> SNMP
-    SNMP -->|métricas| NATS
-    NATS --> DET & AL
-    WG <-->|gRPC| WGA
-    AN --> CH
-    DET --> CH
-    AUTH & DEV & WG & AL & DET & TI --> PG
-    GW --> RD
-    AN & DET & TI --> MINIO --> NAS
+    GW -->|en proceso| AUTH & DEV & WG & AN & AL & DET & TI & SNMP
+    COL -->|lotes por exportador| NATS
+    SNMP -->|métricas, estado| NATS
+    NATS --> ING --> CH
+    ING -->|client.first_seen| NATS --> DEV
+    TI & DET -->|snapshots| NATS
+    AUTH & DEV & WG & AL & DET & TI & AN -->|outbox| NATS
+    WG <-->|gRPC mTLS| WGA
+    AN & DET & AL --> CH
+    AUTH & DEV & WG & AL & DET & TI & AN --> PG
+    GW --> VK
+    REP & JOBS --> FS
+    JOBS -->|rclone| REMOTE
 ```
 
 Notas:
 
-- Cada servicio con PostgreSQL usa **su propio esquema y su propio usuario de BD** dentro de la
-  misma instancia PostgreSQL en v1 (`auth`, `devices`, `wireguard`, …). El aislamiento es lógico
-  (permisos `GRANT`), no físico. Detalle de esquemas en [database.md](database.md).
-- `wireguard-agent` es el mismo binario que `wireguard` en "modo agente"; corre con `network_mode:
-  host` y `CAP_NET_ADMIN` en el host del hub (ver [services.md](services.md#wireguard)).
-- `flows` corre en dos roles (collector e ingester) del mismo binario para poder escalarlos por
-  separado ([ADR-0015](adr/0015-enriquecimiento-de-flujos-en-ingesta.md)).
-- `reputation` y `reporting` nacen como **módulos** dentro de `detection` y `analytics`
-  respectivamente; sus carpetas en `services/` se crean al separarlos
-  ([ADR-0014](adr/0014-granularidad-de-microservicios-en-el-mvp.md)).
+- Cada módulo usa **su propio esquema y usuario PostgreSQL** (aislamiento lógico) y, además, RLS
+  por tenant ([ADR-0017](adr/0017-multi-tenant-desde-v1.md)). Detalle en [database.md](database.md).
+- Entre módulos del mismo proceso, las llamadas síncronas van por interfaces en memoria y los
+  eventos **siempre por NATS con outbox**; al separar roles en otro proceso, la llamada pasa a
+  gRPC sin cambiar el llamador.
+- `horus-collector` y `horus-wg-agent` son el mismo binario con otro rol; van aparte por
+  aislamiento de carga (UDP) y de privilegios (kernel).
+- Snapshots del catálogo y de reputación se distribuyen por **NATS Object Store**; no hay servidor
+  S3 ([ADR-0019](adr/0019-almacenamiento-local-y-destino-remoto.md)).
 
 ---
 
@@ -163,34 +188,35 @@ Notas:
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ 1. Presentación     Nuxt 4 (SSR para shell + SPA), ECharts, WebSocket    │
+│ 1. Presentación     Nuxt 4 (SPA), widgets, kiosco/NOC, WebSocket          │
 ├──────────────────────────────────────────────────────────────────────────┤
 │ 2. Borde            Traefik: TLS, HTTP/2, compresión, cabeceras, estáticos│
 ├──────────────────────────────────────────────────────────────────────────┤
-│ 3. Gateway          api-gateway: authN, rate limit, routing, WS fan-out  │
+│ 3. Gateway (rol)    authN, contexto de tenant, rate limit, WS fan-out     │
 ├──────────────────────────────────────────────────────────────────────────┤
-│ 4. Dominio          auth, devices, wireguard, alerts, traffic-intel,     │
-│                     detection, analytics  (REST público + gRPC interno)  │
+│ 4. Dominio (roles)  auth, devices, wireguard, traffic, detection,         │
+│                     alerts, analytics, reporting                          │
 ├──────────────────────────────────────────────────────────────────────────┤
-│ 5. Recolección      snmp, flows (collector/ingester), wireguard-agent    │
+│ 5. Recolección      collector, snmp, ingester, wg-agent                   │
 ├──────────────────────────────────────────────────────────────────────────┤
-│ 6. Mensajería       NATS JetStream (streams, consumers durables, KV)     │
+│ 6. Mensajería       NATS JetStream (streams, KV, Object Store)            │
 ├──────────────────────────────────────────────────────────────────────────┤
-│ 7. Persistencia     PostgreSQL · ClickHouse · Redis · MinIO → NAS        │
+│ 7. Persistencia     PostgreSQL · ClickHouse · Valkey · almacén local      │
+│                     (→ rclone → destino remoto opcional)                  │
 ├──────────────────────────────────────────────────────────────────────────┤
-│ Transversal         OpenTelemetry, Prometheus, Loki, Grafana             │
+│ Transversal         OpenTelemetry, Prometheus, Loki, Grafana              │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
-Estructura interna de cada servicio Go (hexagonal ligera; detalle en
-[conventions.md](conventions.md)):
+Estructura interna de cada módulo (hexagonal ligera; detalle en [conventions.md](conventions.md)):
 
 ```
-services/<svc>/
-  cmd/<svc>/          main: wiring, config, señales
+services/<módulo>/
+  api/                contrato público (interfaces generadas de Protobuf, tipos de eventos)
   internal/domain/    entidades y reglas puras (sin I/O)
-  internal/app/       casos de uso (orquestan domain + puertos)
-  internal/adapters/  http (Chi), grpc, postgres, nats, clickhouse, snmp...
+  internal/app/       casos de uso
+  internal/adapters/  http (Chi), grpc, postgres, nats, clickhouse, vendor/<fabricante>...
+services/cmd/horus/   main: compone los módulos según HORUS_ROLES
 ```
 
 ---
@@ -201,80 +227,89 @@ services/<svc>/
 
 | Usar | Cuándo | Ejemplos |
 | --- | --- | --- |
-| **REST (JSON, Chi)** | Frontend → gateway → servicio. Siempre público, versionado `/api/v1`. | Crear router, listar peers, consultar consumo. |
-| **gRPC (Protobuf)** | Servicio → servicio cuando el llamador **necesita la respuesta para continuar** y la operación es una consulta o un comando acotado. | `snmp` pide credenciales SNMP descifradas a `devices`; `wireguard` → `wireguard-agent` aplica estado; `analytics` pide nombres de routers a `devices`; `gateway` valida sesión con `auth`. |
-| **NATS JetStream (eventos)** | Comunicar **hechos ya ocurridos** a quien le interese, sin acoplar en tiempo; telemetría de alto volumen. | `horus.devices.router.created`, métricas SNMP, lotes de flujos, cambios de estado. |
-| **NATS core (sin persistencia)** | Notificaciones efímeras hacia la UI donde perder una no importa. | Fan-out WebSocket de "router X cambió a warning". |
-| **NATS KV** | Coordinación ligera: asignación de shards de colectores, heartbeats, snapshots pequeños. | `snmp` reparte routers entre pollers. |
+| **REST (JSON, Chi)** | Frontend → gateway → módulo. Público, `/api/v1`. | Crear router, listar clientes, consultar consumo. |
+| **Contrato síncrono** (interfaz en proceso o gRPC) | Módulo → módulo cuando el llamador **necesita la respuesta para continuar** y la operación es una consulta o un comando acotado. | `snmp` pide credenciales a `devices`; `wireguard` → `wg-agent`; `analytics` resuelve nombres. |
+| **NATS JetStream (eventos)** | Hechos ya ocurridos; telemetría de alto volumen. | `horus.devices.router.created.<id>`, lotes de flujos, `horus.flows.client.first_seen.<realm_id>`. |
+| **NATS core** | Notificaciones efímeras a la UI. | Fan-out WebSocket filtrado por tenant. |
+| **NATS KV / Object Store** | Coordinación ligera; distribución de snapshots. | Leases de pollers; snapshot de catálogo y de reputación. |
 
 Reglas duras:
 
-1. **Ninguna cadena síncrona de más de 2 saltos** detrás del gateway (gateway → A → B como máximo).
-   Si se necesita más, el dato debe estar replicado localmente vía eventos.
-2. **Los consumidores de eventos son idempotentes** (dedupe por `event_id` UUIDv7; contrato en
-   [events.md](events.md)).
-3. **Los servicios mantienen proyecciones locales** de datos ajenos que necesitan en caliente
-   (p. ej. `snmp` tiene en memoria + caché local la lista de routers a sondear, construida a
-   partir de eventos `horus.devices.router.*` y de un *snapshot* gRPC al arrancar). Así sobreviven a
-   la caída de `devices`/PostgreSQL.
+1. **Ninguna cadena síncrona de más de 2 saltos** detrás del gateway.
+2. **Consumidores idempotentes** (dedupe por `event_id` UUIDv7; contrato en [events.md](events.md)).
+3. **Proyecciones locales** de datos ajenos necesarios en caliente (snapshot al arrancar + eventos).
+4. **Todo mensaje lleva `tenant_id`** en el sobre y la cabecera `Horus-Tenant`; los subjects
+   siguen `horus.<dominio>.<entidad>.<evento>.<entity_id>` **sin** token de tenant
+   ([ADR-0017](adr/0017-multi-tenant-desde-v1.md) §6).
 
 ### 5.2 Flujo síncrono típico (crear router)
 
 ```mermaid
 sequenceDiagram
     participant FE as Nuxt
-    participant GW as api-gateway
-    participant DEV as devices
+    participant GW as gateway (rol)
+    participant DEV as devices (rol)
     participant PG as PostgreSQL
     participant OB as outbox relay
     participant N as NATS
     participant S as snmp
 
-    FE->>GW: POST /api/v1/routers (Bearer JWT)
-    GW->>GW: valida JWT, revocación (Redis→auth), rate limit
-    GW->>DEV: POST /api/v1/routers (+ traceparent, JWT)
-    DEV->>DEV: autoriza devices.create
-    DEV->>PG: BEGIN; INSERT router; INSERT outbox; COMMIT
-    DEV-->>GW: 201 Created
+    FE->>GW: POST /api/v1/routers (Bearer JWT con tid)
+    GW->>GW: valida JWT, revocación (Valkey→auth), rate limit
+    GW->>DEV: handler en proceso (contexto: usuario, tid, permisos)
+    DEV->>DEV: autoriza devices.routers.create en el tenant
+    DEV->>PG: BEGIN; SET LOCAL horus.tenant_id; INSERT router; INSERT outbox; COMMIT
+    DEV-->>GW: 201 Created (+ script RouterOS con token de enrolment)
     GW-->>FE: 201 Created
-    OB->>PG: lee outbox pendiente
-    OB->>N: publish horus.devices.router.created
+    OB->>N: publish horus.devices.router.created.<id> (Horus-Tenant)
     N-->>S: entrega (consumer durable)
-    S->>DEV: gRPC GetPollingTarget(router_id) (credenciales)
-    S->>S: asigna a shard, empieza a sondear
-    N-->>GW: (NATS core) evento UI → WebSocket a clientes suscritos
+    S->>DEV: GetPollingTarget(router_id) (credenciales)
+    S->>S: asigna a shard; empieza a sondear cuando el túnel tenga handshake
 ```
 
 ### 5.3 Flujos asíncronos principales
 
 ```
-SNMP:      snmp poller ──► horus.snmp.metrics.* (JetStream, lotes) ──► metrics-writer (en snmp) ──► ClickHouse
-                     └──► horus.snmp.router.state_changed ──► devices (status cache), alerts, gateway(WS)
+Alta:      script RouterOS ──/tool fetch──► POST /api/v1/enroll/wireguard (token un solo uso)
+                         ──► wireguard ──gRPC──► wg-agent (peer en el hub) ──► handshake ──► active
 
-Flujos:    router ──UDP──► flows collector ──► stream FLOWS (lotes protobuf, ~500 flujos/msg)
-                                                  └──► flows ingester (enriquece con snapshot de
-                                                       traffic-intelligence) ──► ClickHouse (lotes ≥50k filas o 5 s)
+SNMP:      snmp poller ──► horus.snmp.metrics.* (JetStream) ──► ingester ──► ClickHouse
+                     └──► horus.snmp.router.state_changed ──► devices (proyección), alerts, gateway(WS)
 
-Catálogo:  traffic-intelligence ──► snapshot (MinIO) + horus.traffic.catalog.published ──► flows ingester recarga
+Flujos:    router ──IPFIX/túnel──► collector (exportador → router → tenant; desconocido = descarte)
+                                      └──► stream FLOWS (lotes por exportador)
+                                           └──► ingester: enriquece (catálogo + reputación + realm)
+                                                ──► ClickHouse (lotes ≥ 50k filas o 5 s)
+                                                └─► IP de cliente nueva ──► horus.flows.client.first_seen
 
-Seguridad: ClickHouse (consultas periódicas) + horus.traffic.* ──► detection ──► horus.detection.finding.created ──► alerts
+Clientes:  horus.flows.client.first_seen ──► devices (upsert por tenant+realm+IP)
+                                         ──► horus.devices.customer.discovered ──► ingester, analytics
 
-Alertas:   horus.snmp.router.state_changed / horus.detection.* / horus.analytics.* ──► alerts ──► notificaciones
+Snapshots: traffic ──► Object Store catalog-snapshots + horus.traffic.catalog.published ──► ingester
+           detection ──► Object Store reputation-snapshots + …reputation.snapshot_published ──► ingester
+
+Seguridad: ClickHouse (agregados 1–5 min, reputation_hit) ──► detection ──► horus.detection.finding.created ──► alerts
+           detection (scoring) ──► horus.detection.customer.kind_suggested ──► devices (tipo de cliente)
+
+Cobertura: jobs (hora) compara bytes de flujos vs contadores SNMP ──► flow_coverage_low ──► alerts
+
+Copias:    pgBackRest/clickhouse-backup ──► almacén local ──► jobs (rclone) ──► destino remoto (si existe)
 ```
 
-Los nombres de subjects aquí son ilustrativos de alto nivel; el contrato normativo (streams,
-retención, esquemas Protobuf/JSON, versionado) lo define el Agente 3 en [events.md](events.md).
+Subjects ilustrativos; el contrato normativo es [events.md](events.md).
 
 ### 5.4 Presupuestos de latencia (objetivos v1)
 
 | Camino | Objetivo |
 | --- | --- |
-| REST lectura (p95) a través del gateway | < 300 ms |
+| REST lectura (p95) | < 300 ms |
 | REST escritura (p95) | < 500 ms |
-| Cambio de estado de router → UI (WebSocket) | < 5 s desde la detección |
-| Detección de router caído | ≤ 90 s (3 sondeos ICMP fallidos a 30 s, o 2 ciclos SNMP) |
-| Flujo exportado → visible en dashboard | < 90 s (timeout activo del router 60 s + batch 5 s + query) |
-| Métrica SNMP → visible en dashboard | < 75 s (intervalo 60 s + pipeline) |
+| Cambio de estado de router → UI | < 5 s desde la detección |
+| Detección de router caído | ≤ 90 s |
+| Flujo exportado → visible en dashboard | < 90 s (timeout activo 60 s + lote 5 s + consulta) |
+| IP nueva → cliente visible en la UI | < 2 min |
+| Señal de botnet (escaneo/DDoS) → hallazgo | < 5 min (ventanas de 1 min) |
+| Métrica SNMP → visible | < 75 s |
 
 ---
 
@@ -282,442 +317,424 @@ retención, esquemas Protobuf/JSON, versionado) lo define el Agente 3 en [events
 
 ### 6.1 Matriz de responsabilidades
 
-| Responsabilidad | Dueño | Nota |
+| Responsabilidad | Dueño (módulo/rol) | Nota |
 | --- | --- | --- |
-| Terminación TLS, HTTP/2, estáticos | Traefik (borde) | No en Go. |
-| Autenticación de requests (validar access token, sesión revocada) | api-gateway | Usa JWKS de `auth` + caché de revocación. |
-| Emisión de tokens, login, TOTP, refresh, sesiones | auth | |
-| Autorización fina (`devices.update` sobre router X) | Cada servicio de dominio | El gateway solo hace control grueso (¿token válido? ¿permiso de la familia de ruta?). |
-| Usuarios, roles, permisos, ACL | auth | |
-| Auditoría (almacén) | auth (v1) | Cada servicio publica `horus.<dominio>.audit.recorded`; `auth` persiste. Ver [Q8](open-questions/architecture.md#q8). |
-| Sitios, routers, interfaces (inventario), credenciales cifradas, vendors/modelos | devices | |
-| Estado observado del router (reachability, uptime, último contacto SNMP) | snmp | `devices` mantiene una copia de solo lectura (`status_cache`) alimentada por eventos para filtrar/listar. |
-| Servidores WG, peers, claves, IPAM de túneles | wireguard | Absorbe "network-service" ([ADR-0014](adr/0014-granularidad-de-microservicios-en-el-mvp.md)). |
-| Aplicar configuración WG en el kernel, leer handshakes | wireguard-agent | Reconciliación cada 15 s. |
-| Sondeo SNMP, ICMP, normalización por fabricante | snmp | |
-| Recepción y decodificación NetFlow/IPFIX/sFlow | flows (collector) | |
-| Enriquecimiento de flujos (IP→ASN→Servicio→Categoría, IP→cliente/router) | flows (ingester) usando catálogo de traffic-intelligence | [ADR-0015](adr/0015-enriquecimiento-de-flujos-en-ingesta.md). |
-| Catálogo de clasificación (prefijos, ASN, organizaciones, servicios, categorías, reglas) | traffic-intelligence | |
-| Mapa IP de cliente → cliente/sitio/router (para atribuir flujos) | devices (dueño) → proyectado en el snapshot del ingester | Ver [Q5](open-questions/architecture.md#q5): ¿de dónde sale el mapa cliente↔IP (RADIUS/PPPoE, DHCP, estático)? |
-| Reputación de IPs, correlación, scoring residencial/comercial | detection (+módulo reputation) | |
+| TLS, HTTP/2, estáticos | Traefik | |
+| Autenticación de requests, contexto de tenant (`tid`), rate limit | gateway | El tenant sale del token, nunca del cliente. |
+| Login, sesiones, tokens por tenant, TOTP | auth | Sesión de usuario; access token por tenant. |
+| Tenants (ISP), usuarios de plataforma, membresías, roles, ACL | auth | [ADR-0017](adr/0017-multi-tenant-desde-v1.md). |
+| Auditoría (almacén) | auth | Con `tenant_id` y `via_platform`. |
+| Nodos, routers, interfaces, credenciales, fabricantes, matriz de capacidades | devices | |
+| Realms y prefijos de clientes (sugeridos desde el router) | devices | Base de la atribución. |
+| **Clientes (IPs) descubiertos**: alta, tipo, alias, ciclo de vida | devices (módulo `customers`) | [ADR-0018](adr/0018-la-ip-es-el-cliente.md). |
+| Detección de IP de cliente nueva | ingester | Publica `first_seen`; no escribe en PostgreSQL. |
+| IPAM de túneles (plataforma), peers, claves públicas, enrolment, scripts RouterOS | wireguard | [ADR-0022](adr/0022-mikrotik-routeros-v7-primer-fabricante.md). |
+| Aplicar WG en el kernel, handshakes | wg-agent | |
+| Sondeo SNMP/ICMP, estado observado | snmp | |
+| Recepción y decodificación de flujos, identificación del exportador, límites por tenant | collector | |
+| Enriquecimiento (catálogo, reputación, realm) e inserción en ClickHouse | ingester | [ADR-0015](adr/0015-enriquecimiento-de-flujos-en-ingesta.md). |
+| Catálogo de clasificación (plataforma) | traffic | |
+| Feeds de reputación (plataforma), detección de botnets, hallazgos (tenant), scoring | detection | [ADR-0024](adr/0024-deteccion-de-botnets-como-objetivo-principal.md). |
 | Reglas de alerta, alertas, notificaciones | alerts | |
-| Consultas analíticas, dashboards, reportes y exportaciones | analytics (+módulo reporting) | |
-| Retención/archivado ClickHouse → MinIO | analytics (job de archivo) | Política en [storage.md](storage.md). |
-| Backups PostgreSQL/ClickHouse | Infraestructura (scripts/jobs), no un microservicio | [disaster-recovery.md](disaster-recovery.md). |
+| Consultas analíticas, widgets, layouts de dashboard, kiosco | analytics | D8. |
+| Reportes | reporting | Archivos en el almacén local. |
+| Archivo ClickHouse → Parquet local; copia remota con rclone; cobertura de flujos | jobs | [ADR-0019](adr/0019-almacenamiento-local-y-destino-remoto.md). |
+| Backups PostgreSQL/ClickHouse | Infraestructura (pgBackRest, clickhouse-backup) + jobs (copia remota) | [disaster-recovery.md](disaster-recovery.md). |
 
 ### 6.2 Plano de control vs plano de datos
 
 ```
 Plano de control (bajo volumen, transaccional, PostgreSQL):
-  auth · devices · wireguard · alerts(reglas) · traffic-intelligence(catálogo) · detection(config)
+  auth · devices(+customers) · wireguard · alerts(reglas) · traffic(catálogo) · detection(config, hallazgos)
 
 Plano de datos (alto volumen, append-only, ClickHouse):
-  snmp(métricas) · flows · detection(hallazgos masivos) · analytics(lectura)
+  collector · ingester · snmp(métricas) · detection(consultas) · analytics(lectura)
 ```
 
 ### 6.3 Reglas de propiedad en ClickHouse
 
-ClickHouse se usa como **almacén analítico compartido con tablas publicadas**:
+- Cada tabla tiene **exactamente un escritor** (p. ej. `flows_raw` → ingester; métricas SNMP →
+  ingester en nombre de `snmp`; `detection_scores` → detection).
+- Las tablas *publicadas* ([database.md](database.md)) tienen esquema versionado y pueden ser
+  leídas por `analytics`, `detection`, `alerts` y `jobs`.
+- `tenant_id` es la primera columna del `ORDER BY`; los usuarios de lectura tienen **row policies**
+  por tenant ([ADR-0017](adr/0017-multi-tenant-desde-v1.md) §5).
 
-- Cada tabla tiene **exactamente un servicio escritor** (p. ej. `flows_raw` → flows ingester;
-  `snmp_interface_metrics` → snmp; `detection_scores` → detection).
-- Las tablas y vistas materializadas marcadas como *publicadas* en [database.md](database.md)
-  tienen un esquema versionado (contrato) y pueden ser **leídas** por `analytics`, `detection` y
-  `alerts`. Esto es una excepción deliberada a "ningún servicio lee la BD de otro", justificada en
-  [ADR-0008](adr/0008-clickhouse-para-analitica.md): replicar miles de millones de filas por
-  eventos o gRPC no tiene sentido.
-- Ningún servicio lee tablas no publicadas de otro. Los cambios de esquema de una tabla
-  publicada siguen la política de compatibilidad (añadir columnas sí; renombrar/eliminar con
-  período de convivencia).
+### 6.4 Aislamiento por tenant, capa por capa
+
+| Capa | Mecanismo |
+| --- | --- |
+| API | Access token por tenant (`tid`); rutas `/api/v1/platform/*` solo con ámbito de plataforma. |
+| PostgreSQL | `tenant_id` en toda tabla de tenant + RLS (`SET LOCAL horus.tenant_id`); rol de app sin `BYPASSRLS`. |
+| ClickHouse | `tenant_id` primero en `ORDER BY`; row policies con `SQL_horus_tenant`; límites por tenant en `analytics`. |
+| NATS | `tenant_id` en sobre y cabecera; una cuenta; filtrado por tenant en el fan-out WS; límite de flujos/s por tenant en el collector. |
+| Valkey | Prefijo `t:<tenant_id>:`. |
+| Red | IPAM de túneles de plataforma (IP única por router); sin tráfico entre peers en el hub. |
+| Almacén local | Rutas `archive/<tenant_id>/`, `reports/<tenant_id>/`; backups son de plataforma. |
+| UI | Selector de ISP, rutas `/t/{slug}/…`, kiosco por tenant. |
 
 ---
 
-## 7. API Gateway
+## 7. API Gateway (rol `gateway`)
 
-Recomendación (ver [ADR-0013](adr/0013-api-gateway-propio.md)): **Traefik como proxy de borde +
-`api-gateway` propio en Go (Chi)** detrás.
+Traefik en el borde + rol `gateway` del binario ([ADR-0013](adr/0013-api-gateway-propio.md),
+ajustado por [ADR-0025](adr/0025-binario-modular-con-roles.md)).
 
 ### 7.1 Qué hace
 
 | Función | Detalle |
 | --- | --- |
-| **Autenticación** | Valida firma y expiración del access token (JWT, clave pública EdDSA/ES256 vía JWKS de `auth`, caché local). Comprueba revocación de sesión (`sid`) contra Redis; si Redis no responde, gRPC a `auth` con caché en proceso de 30 s. Rutas públicas explícitas: `/api/v1/auth/login`, `/auth/refresh`, `/healthz`. Detalle de tokens en [security.md](security.md). |
-| **Autorización gruesa** | Rechaza con 403 si el token no contiene **ningún** permiso del recurso de la ruta (p. ej. `/api/v1/routers/**` exige algún `devices.*`). La decisión fina la toma el servicio. |
-| **Enrutamiento** | Tabla estática `/api/v1/<recurso>` → servicio (config declarativa, versionada en el repo). Reverse proxy HTTP/1.1 keep-alive hacia el REST del servicio. **No traduce REST↔gRPC** (cada servicio expone su propio REST con Chi; ver §7.3). |
-| **Rate limiting** | Token bucket por usuario (`sub`) y por IP; contadores en Redis (GCRA). Límite estricto en `/auth/login` (p. ej. 5/min por IP+usuario). Si Redis cae: limitador en memoria por réplica (degradación aceptable). |
-| **WebSocket fan-out** | Endpoint único `/api/v1/ws`. Autentica en el *upgrade* (token en subprotocolo o cookie, nunca en query string). El cliente se suscribe a *topics* lógicos (`routers.status`, `alerts`, `wireguard.peers`). El gateway se suscribe a subjects NATS **core** (no durables) y reenvía filtrando por permisos del usuario. Sin estado compartido entre réplicas: cada réplica se suscribe a NATS de forma independiente, lo que permite escalar horizontalmente. |
-| **Transversal** | Request ID, propagación W3C `traceparent` (OpenTelemetry), logs de acceso estructurados, métricas RED por ruta, límites de tamaño de body, timeouts por ruta, CORS. |
+| **Autenticación** | Valida firma y expiración del access token (JWKS de `auth`), revocación por `sid` en Valkey (fallback a `auth` con caché de 30 s). Rutas públicas: login, refresh, `POST /api/v1/enroll/wireguard` (token de un solo uso, rate limit estricto), `/healthz`. |
+| **Contexto de tenant** | Toma `tid` del token y lo pone en el contexto de la petición; rechaza un `tenant_id` del body distinto de `tid`; las rutas de plataforma exigen ámbito `platform`. |
+| **Autorización gruesa** | 403 si el token no tiene ningún permiso de la familia de la ruta; la fina la hace el módulo. |
+| **Enrutamiento** | Módulo local → **handler montado en proceso** (sin salto HTTP). Módulo en otro proceso (perfil estándar) → reverse proxy HTTP con mTLS. Tabla de rutas declarativa. |
+| **Rate limiting** | Por usuario y por IP en Valkey (GCRA); límite estricto en login y enrolment; límite de concurrencia por tenant en rutas de `analytics`. |
+| **WebSocket fan-out** | `/api/v1/ws`; autentica en el *upgrade*; la conexión queda ligada al `tid` del token; reenvía eventos NATS core cuyo `Horus-Tenant` coincide y que el usuario tiene permiso de ver. Pantallas de kiosco: misma ruta con token de sesión de kiosco (detalle en [security.md](security.md)). |
+| **Transversal** | Request ID, `traceparent`, logs de acceso con `tenant_id`, métricas RED por ruta, límites de body, timeouts, CORS. |
 
 ### 7.2 Qué NO hace
 
-- **No contiene lógica de negocio** ni agrega respuestas de varios servicios (sin BFF en v1; si
-  el frontend necesita una vista compuesta, la expone el servicio dueño o `analytics`).
-- **No accede a PostgreSQL ni ClickHouse.**
-- **No emite tokens** (eso es `auth`); solo los valida.
-- **No hace TLS público** (Traefik), aunque sí puede usar mTLS hacia servicios internos más
-  adelante.
-- **No garantiza entrega de eventos a la UI**: el WebSocket es *best effort*; al reconectar, el
-  frontend recarga el estado por REST (patrón "snapshot + deltas").
-- **No recibe telemetría de routers** (SNMP/flujos no pasan por el gateway).
+- Lógica de negocio ni agregación de respuestas (sin BFF).
+- Acceso a PostgreSQL o ClickHouse.
+- Emitir tokens (es `auth`).
+- TLS público (Traefik).
+- Garantizar entrega de eventos a la UI (best effort; snapshot + deltas al reconectar).
+- Recibir telemetría de routers.
 
-### 7.3 ¿Por qué cada servicio expone su propio REST?
+### 7.3 ¿Por qué cada módulo expone su propio REST?
 
-Alternativa descartada: gateway que traduce REST→gRPC (grpc-gateway). Duplica el modelo
-(OpenAPI + proto con anotaciones), obliga a redeplegar el gateway con cada cambio de API y
-concentra acoplamiento. Con REST por servicio, el gateway es un proxy genérico y el contrato
-público vive junto al dominio. gRPC queda para servicio↔servicio. Contrato REST en [api.md](api.md).
+El contrato público vive junto al dominio (Chi + OpenAPI por módulo); el gateway es genérico y en
+el perfil mínimo ni siquiera añade un salto de red. Contrato en [api.md](api.md).
 
 ---
 
 ## 8. Despliegue: Docker Compose hoy, Kubernetes mañana
 
-### 8.1 Topología v1 (Docker Compose)
+### 8.1 Perfiles de despliegue
 
-Para ≤ 100 routers, recomendado **2 hosts + NAS** (mínimo viable: 1 host para ≤ 20 routers):
+**Perfil mínimo — un servidor** (desarrollo, demo y producción inicial hasta escala **S**, y M con
+holgura de hardware; §9):
 
 ```
-Host A "control" (8 vCPU, 32 GB, SSD 500 GB)         Host B "analytics" (16 vCPU, 64 GB, NVMe 4 TB)
-  traefik, api-gateway, auth, devices,                 clickhouse
-  wireguard (+agent, host network, hub WG)             flows collector + ingester
-  snmp, alerts, traffic-intelligence,                  analytics, detection
-  postgresql, redis, nats (JetStream en SSD)
-  prometheus, loki, grafana                            NAS: minio (en el NAS o con volumen iSCSI)
+Servidor único (16 vCPU, 64 GB, SSD/NVMe 2 TB para BD + disco separado 2–4 TB para almacén local)
+  traefik
+  horus-app        (roles: gateway, auth, devices, wireguard, snmp, traffic, detection,
+                    alerts, analytics, reporting, ingester, jobs)
+  horus-collector  (rol collector, UDP)
+  horus-wg-agent   (rol wg-agent, host network, CAP_NET_ADMIN; hub WireGuard)
+  postgresql, clickhouse (memoria limitada), nats (JetStream en SSD), valkey
+  prometheus, loki, grafana (o equivalente ligero)
+  almacén local: /var/lib/horus/store  ──rclone──►  destino remoto (opcional)
 ```
 
-Razones: ClickHouse e ingestión de flujos son los únicos componentes con presión real de CPU/IO
-y no deben competir con el plano de administración (P1). NATS va con el plano de control porque
-también transporta eventos de dominio; su almacenamiento JetStream debe estar en SSD local,
-**nunca en el NAS**. Ver [Q4](open-questions/architecture.md#q4) sobre MinIO.
+**Perfil estándar — dos hosts** (escala **M**; o cuando ClickHouse compita con el login):
+
+```
+Host A "control" (8 vCPU, 32 GB, SSD 500 GB)        Host B "datos" (16–32 vCPU, 64–128 GB, NVMe 4–8 TB)
+  traefik                                            clickhouse
+  horus-core  (gateway, auth, devices, wireguard,    horus-data (ingester, analytics, reporting,
+               snmp, traffic, alerts)                            detection, jobs)
+  horus-collector, horus-wg-agent (hub WG)           almacén local (disco separado)
+  postgresql, nats, valkey, observabilidad
+```
+
+Separar es cambiar `HORUS_ROLES` en el compose. NATS y PostgreSQL van con el plano de control
+porque transportan/almacenan dominio; JetStream siempre en SSD local. Ningún componente monta el
+NAS.
 
 ### 8.2 Reglas que hacen posible la migración a Kubernetes
 
-| Regla (desde Sprint 1) | Equivalente en K8s |
+| Regla (desde el primer incremento) | Equivalente en K8s |
 | --- | --- |
-| Config solo por variables de entorno y secretos montados como archivo | ConfigMap / Secret |
-| `/healthz` (liveness) y `/readyz` (readiness: dependencias críticas OK) | probes |
-| SIGTERM → dejar de aceptar, drenar (30 s), cerrar consumers NATS | `terminationGracePeriodSeconds` |
-| Servicios stateless sin volúmenes; estado en PG/CH/NATS/Redis/MinIO | Deployment + HPA |
-| Descubrimiento por nombre DNS (`devices:8080`, `devices:9090` gRPC) | Service ClusterIP |
-| Imágenes inmutables, una por servicio, etiquetadas por commit | igual |
-| Migraciones de BD como job separado (`<svc> migrate`), no al arrancar varias réplicas | Job / init |
-| Coordinación de colectores vía NATS KV (no por nombre de host) | funciona con N pods |
+| Config solo por entorno y secretos montados como archivo; roles por `HORUS_ROLES` | ConfigMap / Secret; un Deployment por conjunto de roles |
+| `/healthz` y `/readyz` **por rol** | probes |
+| SIGTERM → drenar (30 s), cerrar consumers | `terminationGracePeriodSeconds` |
+| Sin estado local salvo el almacén de archivos declarado (`BlobStore`) | PVC, o adaptador `s3` si hay réplicas ([ADR-0019](adr/0019-almacenamiento-local-y-destino-remoto.md)) |
+| Descubrimiento por DNS | Service |
+| Una imagen, etiquetada por commit | igual |
+| Migraciones como job (`horus migrate --module=<m>`) | Job |
+| Coordinación por NATS KV | funciona con N pods |
 
 ### 8.3 Componentes con tratamiento especial en K8s
 
 | Componente | Problema | Solución prevista |
 | --- | --- | --- |
-| `wireguard-agent` | Necesita `CAP_NET_ADMIN`, red del host, IP pública fija y UDP estable | DaemonSet con `nodeSelector` sobre los nodos hub, `hostNetwork: true`. O mantenerlo fuera del clúster (VM dedicada) — recomendado. |
-| `flows` collector | UDP; plantillas NetFlow v9/IPFIX son **por exportador**, así que un exportador debe caer siempre en la misma réplica | Service `LoadBalancer` UDP con `externalTrafficPolicy: Local` y afinidad por IP origen, o asignar a cada router un puerto/IP de colector distinto. |
-| `snmp` pollers | Reparto de routers entre réplicas | Shards virtuales (K=64) con *leases* en NATS KV; cada réplica toma shards, rebalanceo automático al escalar. |
-| PostgreSQL, ClickHouse, NATS | Stateful | Recomendado mantenerlos **fuera** del clúster en VMs al principio; si se mueven: CloudNativePG, Altinity ClickHouse Operator, chart oficial NATS (cluster de 3). |
-| SNMP/ICMP a través del túnel WG | Los pods deben enrutar hacia las redes de gestión | Rutas en los nodos hacia el hub WG o pollers en `hostNetwork` en el nodo hub. |
+| `wg-agent` (hub) | `CAP_NET_ADMIN`, red del host, endpoint público estable | Fuera del clúster en una VM dedicada (recomendado) o DaemonSet con `hostNetwork` en nodos hub. |
+| `collector` | UDP; plantillas IPFIX por exportador | Afinidad por IP origen o colector en el nodo hub (`hostNetwork`). |
+| `snmp` | Reparto de routers | Shards virtuales (K=64) con leases en NATS KV. |
+| PostgreSQL, ClickHouse, NATS | Stateful | Fuera del clúster al principio. |
+| Tráfico por el túnel | Pods deben alcanzar la red de túneles | Rutas en los nodos hacia el hub o pollers en el nodo hub. |
 
 ### 8.4 Cuándo migrar
 
-Disparadores (cualquiera): más de ~300 routers; necesidad de HA real (RTO < 15 min sin
-intervención manual); más de 3 hosts que administrar; despliegues diarios con zero-downtime.
-Antes de eso, Compose + scripts reproducibles es más barato ([ADR-0011](adr/0011-docker-compose-antes-que-kubernetes.md)).
+Disparadores: escala **L** o más (§9), HA real exigida (RTO < 15 min sin intervención), más de 3
+hosts, o despliegues diarios sin corte. Antes, Compose ([ADR-0011](adr/0011-docker-compose-antes-que-kubernetes.md)).
 
 ---
 
 ## 9. Límites de escala esperados
 
-### 9.1 Supuestos (explícitos, a validar con PO — [Q2](open-questions/architecture.md#q2))
+### 9.1 Supuestos (a validar con datos reales — [Q2](open-questions/architecture.md#q2))
+
+Con multi-tenant ([D6](po-decisions.md)) la unidad de dimensionamiento ya no es "routers × 300
+suscriptores" sino el **total de IPs de clientes activas** en todos los ISP: el router principal de
+un nodo agrega a todos los clientes del nodo (cientos a miles).
 
 | Supuesto | Valor | Comentario |
 | --- | --- | --- |
-| Suscriptores por router | 300 | Router de sitio/concentrador PPPoE típico de ISP regional. |
-| Registros de flujo/s por suscriptor en hora pico | 5 (bajo) – 10 (alto) | Timeout activo 60 s, inactivo 15 s, **sin muestreo**. QUIC/HTTPS/DNS generan muchos flujos cortos. |
-| Relación media/pico | 0,4 | Curva diaria residencial (pico 20–23 h). |
-| Tamaño de registro en el cable | ~50 B | NetFlow v9/IPFIX con campos estándar. |
-| Tamaño en ClickHouse comprimido | ~20 B/fila | MergeTree con LZ4/ZSTD y codecs Delta/T64; a validar en Sprint 6. |
-| Tamaño en NATS | ~60 B/flujo | Protobuf en lotes de 500 flujos, sin comprimir. |
-| SNMP | 1 sondeo sistema (10 OIDs) + 20 interfaces × 8 contadores = **~170 valores/ciclo**, ciclo 60 s | Interfaces físicas y VLAN. **Excluye** interfaces PPPoE dinámicas (≈1 por suscriptor). |
-| ICMP | 1 ping/30 s por router | |
-| Operadores concurrentes en UI | 20–50 | |
+| Registros de flujo/s por IP de cliente en hora pico | 5 (bajo) – 10 (alto) | Timeout activo 60 s, inactivo 15 s, **sin muestreo** (requisito de detección, [vendors/mikrotik.md](vendors/mikrotik.md)). |
+| Relación media/pico | 0,4 | |
+| Tamaño en el cable | ~50 B/registro | IPFIX. |
+| Tamaño en ClickHouse | ~20 B/fila | A medir en el incremento de tráfico. |
+| Tamaño en NATS | ~60 B/flujo | Protobuf en lotes. |
+| SNMP | ~170 valores/ciclo por router, 60 s | Sin interfaces PPPoE dinámicas. |
+| Agregados de 1 min para detección | ~1 fila por IP activa × puerto/proto relevante × minuto | Retención corta (7 días). |
+| Operadores concurrentes | 20–50 por instalación + pantallas de kiosco | |
 
-### 9.2 Estimaciones (órdenes de magnitud)
+### 9.2 Escenarios
 
-| Routers | Flujos/s pico | Flujos/s medio | Ancho de banda de export (pico) | Filas CH/día | Disco CH/día (raw) | Raw 30 días | Métricas SNMP/s | SNMP incl. PPPoE dinámicas |
-| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 10 | 15k – 30k | 6k – 12k | 6 – 12 Mbit/s | 0,5 – 1 mil M | 10 – 21 GB | 0,3 – 0,6 TB | ~30 | ~400 |
-| 100 | 150k – 300k | 60k – 120k | 60 – 120 Mbit/s | 5 – 10 mil M | 100 – 210 GB | 3 – 6 TB | ~280 | ~4k |
-| 500 | 0,75M – 1,5M | 0,3M – 0,6M | 0,3 – 0,6 Gbit/s | 26 – 52 mil M | 0,5 – 1 TB | 15 – 31 TB | ~1,4k | ~20k |
-| 1000 | 1,5M – 3M | 0,6M – 1,2M | 0,6 – 1,2 Gbit/s | 52 – 104 mil M | 1 – 2 TB | 31 – 62 TB | ~2,8k | ~40k |
+| Escenario | Ejemplo | IPs de clientes | Flujos/s pico | Flujos/s medio | Export (pico) | Filas CH/día | Disco raw/día | Raw 7 días | NATS pico |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| **S** | 3 ISP × 3 nodos | 10k | 50k – 100k | 20k – 40k | 20 – 40 Mbit/s | 1,7 – 3,5 mil M | 35 – 70 GB | 0,25 – 0,5 TB | 3 – 6 MB/s |
+| **M** | 10 ISP × 3–5 nodos | 30k | 150k – 300k | 60k – 120k | 60 – 120 Mbit/s | 5 – 10 mil M | 100 – 210 GB | 0,7 – 1,5 TB | 9 – 18 MB/s |
+| **L** | 30 ISP, ~100 nodos | 100k | 0,5M – 1M | 0,2M – 0,4M | 200 – 400 Mbit/s | 17 – 35 mil M | 0,35 – 0,7 TB | 2,4 – 4,8 TB | 30 – 60 MB/s |
+| **XL** | 100+ ISP | 300k+ | 1,5M – 3M | 0,6M – 1,2M | 0,6 – 1,2 Gbit/s | 52 – 104 mil M | 1 – 2 TB | 7 – 14 TB | 90 – 180 MB/s |
 
-Cálculos: flujos/s pico = routers × 300 × (5..10). Filas/día = medio × 86 400. Disco = filas × 20 B.
-SNMP = routers × 170 / 60 (o × ~2 400 / 60 con 300 interfaces PPPoE).
+Cálculos: pico = IPs × (5..10); medio = pico × 0,4; filas/día = medio × 86 400; disco = filas ×
+20 B; export = pico × 50 B × 8; NATS = pico × 60 B. SNMP: con decenas o cientos de routers
+principales, < 1 000 valores/s en cualquier escenario — trivial.
 
-### 9.3 Conclusiones de escala (lo que esto implica para el diseño)
+### 9.3 Conclusiones de escala
 
-1. **SNMP no es un problema de escala**: incluso 40k valores/s a 1000 routers es trivial para
-   ClickHouse y para un poller Go (≈ 1000 routers × ~5 PDUs GetBulk/min). El límite real es la
-   latencia del túnel y los timeouts; se resuelve con concurrencia (pool de 256–1024 goroutines).
-   Las interfaces PPPoE dinámicas **no** deben sondearse por SNMP por defecto: el consumo por
-   suscriptor se obtiene de los flujos.
-2. **Flujos raw sin muestreo solo son viables hasta ~100 routers en un nodo ClickHouse.** Un nodo
-   (16 vCPU, NVMe) ingiere de forma sostenida ~300k–1M filas/s en lotes grandes; a 100 routers
-   (pico 300k/s) estamos en el límite bajo y con 3–6 TB de raw a 30 días. Por eso:
-   - Retención raw por defecto **7 días** (no 30) hasta medir; agregados de 1 min y 1 h vía
-     vistas materializadas (reducen 10–50×) para 6–12 meses (ver [storage.md](storage.md) y
-     [traffic-model.md](traffic-model.md)).
-   - **A partir de ~200 routers**: muestreo 1:N configurable por router (en el exportador o en el
-     collector) y/o clúster ClickHouse de 2–4 shards.
-   - A 1000 routers sin muestreo (3M flujos/s, ~1,2 Gbit/s de export) se requieren varios
-     collectors, clúster ClickHouse y probablemente dejar de persistir el stream de flujos en
-     JetStream (ver punto 3). Esto debe ser una decisión de producto, no un accidente.
-3. **NATS JetStream como buffer de flujos**: a 10 routers el stream FLOWS mueve ~1,8 MB/s pico; a
-   100, ~18 MB/s (cómodo); a 1000, ~180 MB/s con persistencia en disco (exigente para un único
-   nodo). Por encima de ~300 routers se evalúa: clúster NATS de 3 nodos con stream particionado
-   por subject (`horus.flows.batch.<shard>`), o flujos por NATS core con ingesters en *queue
-   group* aceptando pérdida durante caídas de ClickHouse.
-4. **El hub WireGuard**: a 1000 routers, 0,6–1,2 Gbit/s de export de flujos + SNMP atravesando un
-   único hub WG es significativo (WG en kernel maneja varios Gbit/s por núcleo, pero es un SPOF).
-   Para > 300 routers: 2 hubs WG o exportar flujos fuera del túnel cuando el router tenga IP
-   alcanzable.
-5. **Gateway y WebSocket** no son cuello de botella: 50 conexiones WS y < 100 req/s de UI. Los
-   eventos de estado hacia la UI se agregan/limitan (máx. 1 actualización/s por topic por
-   cliente).
+1. **SNMP no es un problema de escala** (pocos routers principales por ISP). El límite es la
+   latencia del túnel; se resuelve con concurrencia.
+2. **Flujos sin muestreo en un nodo ClickHouse: cómodo en S, viable en M** (pico 300k filas/s, en
+   el límite bajo de un nodo de 16 vCPU con NVMe), **L requiere** 2–4 shards o muestreo. El
+   muestreo degrada la detección de escaneos (flujos cortos), por eso la preferencia es escalar
+   ClickHouse antes que muestrear ([ADR-0024](adr/0024-deteccion-de-botnets-como-objetivo-principal.md)).
+3. **Perfil mínimo (un servidor) hasta S**; M con el perfil estándar; L en adelante con clúster
+   ClickHouse, clúster NATS y probablemente Kubernetes.
+4. **NATS como buffer**: S y M cómodos en un nodo; L exige clúster de 3 y stream particionado por
+   subject; XL obliga a evaluar flujos por NATS core aceptando pérdida durante caídas de
+   ClickHouse.
+5. **Hub WireGuard**: el ancho de banda (≤ 400 Mbit/s en L) cabe en un núcleo; el problema es que
+   es **punto único de fallo** de la recolección de **todos los ISP** (§10.9).
+6. **Vecinos ruidosos**: en M+ un ISP grande puede dominar ClickHouse y el stream FLOWS; límites
+   de flujos/s por tenant en el collector, concurrencia por tenant en `analytics` y métricas por
+   tenant (§10.12).
+7. **Clientes en PostgreSQL**: 100k–300k filas `customer` es trivial; el riesgo es la tasa de
+   altas por escaneos/IPs falsificadas, acotada por el *throttling* de descubrimiento (§10.13).
+8. **Gateway y WebSocket**: no son cuello de botella; eventos a la UI limitados a 1/s por topic.
 
 ### 9.4 Capacidad de buffer ante caída de ClickHouse
 
-Con un stream FLOWS de `max_bytes = 50 GB` en el SSD del host de control (política
-`discard: old`):
+Stream FLOWS con `max_bytes = 50 GB` en SSD (`discard: old`):
 
-| Routers | Tasa NATS pico | Autonomía aprox. (pico → media) |
-| ---: | ---: | --- |
-| 10 | 1,8 MB/s | ~7,7 h → ~19 h |
-| 100 | 18 MB/s | ~46 min → ~2 h |
-| 1000 | 180 MB/s | ~5 min → ~12 min (insuficiente; ver §9.3 punto 3) |
-
-Métricas SNMP: ~170 valores × 1000 routers/min ≈ 30 MB/h → días de autonomía con 5 GB.
+| Escenario | Tasa NATS pico | Autonomía aprox. (pico → media) |
+| --- | ---: | --- |
+| S | 3 – 6 MB/s | ~2,3 – 4,6 h → ~6 – 12 h |
+| M | 9 – 18 MB/s | ~46 – 93 min → ~2 – 4 h |
+| L | 30 – 60 MB/s | ~14 – 28 min → ~35 – 70 min |
 
 ---
 
 ## 10. Modos de fallo y degradación
 
-Convenciones de esta sección: **RPO** = datos que pueden perderse; "detección" = cómo lo vemos en
-la observabilidad ([observability.md](observability.md)); recuperación detallada en
-[disaster-recovery.md](disaster-recovery.md). Todos los escenarios se ejercitan deliberadamente en
-el Sprint 14.
+Convenciones: **RPO** = datos que pueden perderse; detección según
+[observability.md](observability.md); recuperación en [disaster-recovery.md](disaster-recovery.md).
+Todos los escenarios se ejercitan en el incremento de endurecimiento.
 
 ### 10.0 Resumen
 
-| Componente caído | Login | Inventario / WG admin | Túneles WG (data plane) | Sondeo SNMP | Captura flujos | Dashboards tráfico | Alertas | Pérdida de datos |
+| Componente caído | Login | Inventario / WG admin | Túneles WG | Sondeo SNMP | Captura flujos | Dashboards tráfico | Alertas | Pérdida de datos |
 | --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | --- |
 | ClickHouse | ✅ | ✅ | ✅ | ✅ (buffer) | ✅ (buffer) | ❌ | ⚠️ solo estado/SNMP | Ninguna si dura < autonomía del buffer |
-| Servicio `snmp` | ✅ | ✅ | ✅ | ❌ | ✅ | ⚠️ sin métricas nuevas | ⚠️ routers → `stale` | Huecos de métricas del período |
-| NATS | ✅* | ✅ (outbox acumula) | ✅ | ⚠️ buffer en memoria | ⚠️ buffer en memoria | ✅ (datos previos) | ❌ nuevas | Flujos/métricas más allá del buffer en memoria |
-| Un router | ✅ | ✅ | — | ❌ ese router | ❌ ese router | ✅ | ✅ (genera alerta) | Lo que el router no exportó |
-| NAS / MinIO | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (datos calientes) | ✅ | Ninguna inmediata; riesgo de disco lleno |
-| PostgreSQL | ❌ nuevo / ✅ sesiones vigentes | ❌ | ✅ | ✅ (caché) | ✅ | ⚠️ sin nombres nuevos | ⚠️ | Ninguna (salvo RPO de restauración si es pérdida de disco) |
-| Redis | ✅ (más lento) | ✅ | ✅ | ✅ | ✅ | ✅ (más lento) | ✅ | Ninguna |
+| Rol `snmp` | ✅ | ✅ | ✅ | ❌ | ✅ | ⚠️ sin métricas nuevas | ⚠️ routers → `stale` | Huecos de métricas |
+| NATS | ✅* | ✅ (outbox acumula) | ✅ | ⚠️ buffer en memoria | ⚠️ buffer en memoria | ✅ (datos previos) | ❌ nuevas | Telemetría más allá del buffer |
+| Un router | ✅ | ✅ | — | ❌ ese router | ❌ ese router | ✅ | ✅ (alerta) | Lo no exportado |
+| **Hub WireGuard** | ✅ | ✅ | ❌ todos | ❌ todos | ❌ todos | ✅ (datos previos) | ✅ (una alerta) | Flujos y métricas de **todos los ISP** durante la caída |
+| **Destino remoto** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | Ninguna; crece el retraso de la copia remota |
+| **Almacén local lleno** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | Ninguna inmediata; se pausan archivo/reportes; riesgo para backups |
+| PostgreSQL | ❌ nuevo / ✅ sesiones vigentes | ❌ | ✅ | ✅ (caché) | ✅ | ⚠️ sin nombres nuevos | ⚠️ | Ninguna (salvo restauración) |
+| Valkey | ✅ (más lento) | ✅ | ✅ | ✅ | ✅ | ✅ (más lento) | ✅ | Ninguna |
+| Proceso `horus-app` (perfil mínimo) | ❌ | ❌ | ✅ | ❌ | ✅ (collector aparte, buffer NATS) | ❌ | ❌ | Ninguna de dominio; reinicio automático |
 
 \* El login no depende de NATS; el evento de auditoría queda en el outbox.
 
 ### 10.1 ClickHouse se cae
 
-- **Sigue funcionando:** login, usuarios, roles, inventario, WireGuard (admin y túneles),
-  configuración, catálogo de clasificación, reglas de alerta, estado online/offline de routers
-  (sale de `snmp` → eventos → `devices`/`alerts`, no de ClickHouse), notificaciones de alertas de
-  estado. La recolección continúa: `snmp` y `flows collector` siguen publicando en NATS.
-- **Se degrada:** dashboards de tráfico, consumo, top ASN/servicios, gráficas históricas de CPU/
-  interfaces, reportes, detección basada en consultas (scoring residencial/comercial, anomalías).
-  `analytics` responde `503` con código `analytics_unavailable` y el frontend muestra un estado
-  "datos analíticos no disponibles temporalmente" sin romper la página. Los ingesters dejan de
-  confirmar (`ack`) mensajes y JetStream acumula.
-- **Detección:** `/readyz` de `analytics` y de los ingesters falla; métrica
-  `horus_clickhouse_up == 0`; *consumer lag* de `flows-ingester` y `snmp-metrics-writer` creciendo
-  (`nats_consumer_num_pending`); alerta de infraestructura "ClickHouse down > 2 min" y "buffer FLOWS
-  > 70 %".
-- **Recuperación:** reinicio automático del contenedor (`restart: unless-stopped`). Al volver, los
-  consumers durables reanudan desde el último `ack` y drenan el backlog (el ingester debe poder
-  insertar a ≥ 3× la tasa de entrada para recuperarse en un tiempo razonable). **Sin duplicados**:
-  cada lote se inserta con `insert_deduplication_token` = ID del lote NATS, y las tablas usan
-  `non_replicated_deduplication_window` (o la ventana de dedupe de Replicated*). Si el disco de
-  ClickHouse se pierde: restaurar desde backup (ver DR); los agregados se recalculan desde raw si
-  el raw sigue en el stream o en el archivo de MinIO.
-- **Datos que pueden perderse:** ninguno mientras la caída dure menos que la autonomía del buffer
-  (§9.4: ~8 h a 10 routers, ~45 min a 100 routers en pico). Pasado ese límite, JetStream descarta
-  los lotes **más antiguos** (`discard: old`) y se pierde ese tramo de flujos; se registra
-  `horus_flows_dropped_total{reason="stream_full"}` y el período se marca como hueco en
-  `analytics` (tabla de cobertura), para que los reportes digan "datos incompletos" en vez de
-  mostrar consumo bajo.
+- **Sigue funcionando:** login, usuarios, tenants, inventario, WireGuard, configuración, catálogo,
+  reglas de alerta, estado de routers (sale de `snmp` por eventos), alertas de estado. La
+  recolección sigue publicando en NATS. El descubrimiento de clientes sigue (el ingester no
+  confirma lotes, pero `first_seen` se calcula antes de insertar).
+- **Se degrada:** dashboards de tráfico, widgets de kiosco de tráfico (muestran "datos no
+  disponibles" sin romper la pantalla), reportes, **detección de botnets** (sin hallazgos nuevos;
+  al volver, `detection` reprocesa las ventanas pendientes desde el último *watermark*), scoring.
+  `analytics` responde `503 analytics_unavailable`.
+- **Detección:** `/readyz` de los roles `analytics`/`ingester` degradado (sin tumbar el proceso);
+  `horus_clickhouse_up == 0`; lag del consumer del ingester creciendo; alerta "ClickHouse down > 2
+  min" y "buffer FLOWS > 70 %".
+- **Recuperación:** reinicio automático; los consumers durables drenan el backlog (ingester ≥ 3×
+  la tasa de entrada); inserción idempotente con `insert_deduplication_token` = ID del lote.
+- **Datos perdidos:** ninguno dentro de la autonomía del buffer (§9.4). Pasado el límite,
+  JetStream descarta lo más antiguo; `horus_flows_dropped_total{reason="stream_full"}` y la tabla
+  de cobertura marca el hueco por tenant.
 
 ### 10.2 SNMP deja de funcionar
 
-Dos casos distintos:
+**(a) El rol `snmp` se cae o se cuelga.** Sigue todo lo demás. Los routers **no** pasan a
+`offline`: pasan a `stale` tras 3 intervalos (P4). Detección por heartbeat
+`horus.snmp.poller.heartbeat` y `up` en Prometheus (alerta evaluada por Alertmanager, no por
+`alerts`). Recuperación: reinicio; reconstruye objetivos desde `devices` o caché local; los leases
+huérfanos expiran en 30 s. Datos perdidos: muestras del período (los contadores recuperan el
+volumen por delta salvo reinicio o *wrap*).
 
-**(a) El servicio `snmp` se cae o se cuelga.**
-- **Sigue funcionando:** todo el plano de administración, flujos y analítica de tráfico,
-  dashboards históricos.
-- **Se degrada:** no hay métricas nuevas (CPU, RAM, interfaces), ni detección de router caído por
-  SNMP/ICMP. Crucial (P4): **los routers no se marcan `offline`**; `devices` y la UI los muestran
-  como `stale` ("sin datos de monitoreo desde hh:mm") cuando el `last_observed_at` supera 3
-  intervalos, porque la ausencia de monitoreo no es evidencia de caída.
-- **Detección:** heartbeat `horus.snmp.poller.heartbeat` cada 15 s (consumido por `alerts` y
-  `gateway`); `up{job="snmp"} == 0` en Prometheus; métrica `horus_snmp_polls_total` plana. Alerta de
-  infraestructura "monitoreo SNMP detenido" (esta alerta la evalúa Prometheus/Alertmanager, no
-  `alerts`, para no depender del propio pipeline).
-- **Recuperación:** reinicio automático. Al arrancar, reconstruye la lista de objetivos desde
-  snapshot gRPC de `devices` (o caché local en disco si `devices` no responde) y retoma. Con varias
-  réplicas, los shards huérfanos se reasignan cuando expira el lease en NATS KV (TTL 30 s).
-- **Datos perdidos:** las muestras del período sin sondeo (SNMP no tiene histórico en el router
-  para gauges). Para **contadores** (octetos, errores) no se pierde el total: el primer sondeo
-  tras la recuperación calcula el delta acumulado, que se reparte como un único intervalo largo
-  (se pierde resolución, no volumen), salvo que el router se haya reiniciado (`sysUpTime` menor) o
-  el contador haya dado la vuelta (Counter32), en cuyo caso el intervalo se descarta.
-
-**(b) SNMP falla en un router concreto (credenciales, ACL, agente colgado) pero el router responde a ICMP.**
-- Estado `degraded` con razón `snmp_unreachable` (no `offline`). Alerta de severidad `warning`.
-  Los flujos de ese router siguen llegando.
+**(b) SNMP falla en un router concreto** pero responde a ICMP → `degraded`
+(`snmp_unreachable`), alerta `warning`; los flujos siguen.
 
 ### 10.3 NATS se reinicia (o cae)
 
-- **Supuesto:** NATS en nodo único con JetStream en almacenamiento de archivo (`file`) en SSD local
-  (v1). Un reinicio planificado tarda segundos; los streams y la posición de los consumers
-  durables **persisten** en disco.
-- **Sigue funcionando:** todas las operaciones REST síncronas (login, CRUD de inventario,
-  WireGuard). Las escrituras de dominio se completan porque el evento va primero a la tabla
-  **outbox** en la misma transacción PostgreSQL; el relay reintenta con backoff y publica cuando
-  NATS vuelve, en orden por agregado ([ADR-0016](adr/0016-transactional-outbox.md)). Los túneles
-  WG y la aplicación de config WG (gRPC directo, no NATS) siguen. Dashboards sobre datos ya
-  almacenados siguen.
-- **Se degrada:** WebSocket sin eventos en vivo (el gateway avisa al frontend `realtime:
-  degraded` y el frontend hace *polling* REST cada 30 s); propagación de cambios entre servicios
-  (p. ej. un router recién creado no empieza a sondearse hasta que NATS vuelve); alertas nuevas;
-  ingestión a ClickHouse detenida.
-- **Colectores:** el cliente NATS de Go reconecta automáticamente y mantiene un *reconnect
-  buffer*. `flows collector` y `snmp` usan además un buffer acotado propio en memoria
-  (configurable, p. ej. 256 MB para flujos ≈ 2,3 min a 100 routers en pico; 32 MB para SNMP ≈
-  horas). UDP no permite backpressure: al llenarse el buffer se descartan los lotes nuevos y se
-  cuenta en `horus_flows_dropped_total{reason="bus_unavailable"}`.
-- **Detección:** `nats_up == 0`, errores de publish en todos los servicios, `horus_outbox_pending`
-  creciendo, `/readyz` de colectores en estado degradado.
-- **Recuperación:** automática. Tras el reinicio, consumers durables retoman desde su último ack;
-  el relay del outbox drena; los consumers deduplican por `event_id` (entrega *at-least-once*).
-- **Datos que pueden perderse:** **eventos de dominio: ninguno** (outbox). Mensajes JetStream ya
-  persistidos: ninguno (salvo corrupción de disco; JetStream con `sync` por defecto puede perder
-  los últimos ~2 min de escrituras no sincronizadas ante un corte eléctrico — aceptable para
-  telemetría, irrelevante para dominio gracias al outbox). Telemetría: lo que exceda los buffers en
-  memoria de los colectores. Mensajes NATS core (fan-out UI): se pierden, por diseño.
-- **Evolución:** clúster de 3 nodos con streams replicados (R3) cuando se pida HA (Sprint 14 o al
-  migrar a K8s).
+- Nodo único con JetStream en archivo; streams y posiciones persisten.
+- **Sigue:** REST síncrono (las escrituras van al outbox), túneles y control WG (gRPC directo),
+  dashboards sobre datos almacenados.
+- **Se degrada:** WebSocket sin eventos (frontend en *polling* 30 s; el kiosco muestra el
+  indicador "tiempo real degradado"), propagación entre módulos (incluido el descubrimiento de
+  clientes y la recarga de snapshots), alertas nuevas, ingesta.
+- **Colectores:** buffer propio acotado (p. ej. 256 MB en el collector ≈ 40–85 s en S y ≈ 15–30 s
+  en M en pico; configurable, o en disco local si se necesita más autonomía); al llenarse, `horus_flows_dropped_total{reason="bus_unavailable"}`.
+- **Recuperación:** automática; outbox drena; consumidores deduplican.
+- **Datos perdidos:** eventos de dominio ninguno; telemetría lo que exceda los buffers.
 
 ### 10.4 Un router desaparece
 
-- **Detección (correlación de tres señales, dueño `snmp`):**
-  1. ICMP: 3 pings fallidos consecutivos (30 s) → sospecha.
-  2. SNMP: 2 ciclos sin respuesta.
-  3. WireGuard: `latest_handshake` del peer > 180 s (WG renegocia cada 120 s con tráfico) —
-     reportado por `wireguard-agent` → `horus.wireguard.peer.handshake_stale`.
-  4. Flujos (señal secundaria): `flows` publica `horus.flows.exporter.silent` si un exportador que
-     enviaba deja de hacerlo > 5 min.
-- **Clasificación del estado** (`horus.snmp.router.state_changed`):
-  - ICMP ✗ + SNMP ✗ + WG stale → `offline`, razón `tunnel_down` (problema de enlace/energía del sitio).
-  - ICMP ✗ + SNMP ✗ + WG OK → `offline`, razón `host_unreachable_via_tunnel` (ruta/firewall).
-  - ICMP ✓ + SNMP ✗ → `degraded` (`snmp_unreachable`).
-  - Todas OK → `online`; umbrales de CPU/temp → `warning`/`critical`.
-  Se aplica histéresis (2 observaciones para cambiar de estado) para evitar *flapping*.
-- **Sigue funcionando:** todo lo demás. El router permanece en el inventario (desaparecer de la red
-  no lo borra). Sus datos históricos siguen consultables.
-- **Se degrada:** sin métricas ni flujos de ese router; su consumo se muestra con huecos (no
-  ceros) y la tabla de cobertura lo marca.
-- **Alerta:** `alerts` genera alerta `router.offline` (con la razón), notifica, y la cierra
-  automáticamente al volver a `online`.
-- **Al volver:** si `sysUpTime` es menor que el anterior, se registra `horus.snmp.router.rebooted`
-  y no se calculan deltas a través del reinicio. Las plantillas NetFlow v9/IPFIX se reaprenden;
-  los flujos recibidos antes de la plantilla se descartan (contados).
-- **Datos perdidos:** las métricas del período; flujos que el router no pudo exportar (los routers
-  no reintentan NetFlow). Contadores de interfaz: el volumen total se recupera vía delta si no hubo
-  reinicio.
+- **Correlación de señales** (dueño `snmp`): ICMP (3 fallos a 30 s), SNMP (2 ciclos), handshake
+  WG del peer > 180 s (`horus.wireguard.peer.handshake_stale`), exportador silencioso > 5 min
+  (`horus.flows.exporter.silent`).
+- **Estados:** ICMP ✗ + SNMP ✗ + WG stale → `offline` (`tunnel_down`); ICMP ✗ + SNMP ✗ + WG OK →
+  `offline` (`host_unreachable_via_tunnel`); ICMP ✓ + SNMP ✗ → `degraded`; todo OK → `online`
+  (umbrales → `warning`/`critical`). Histéresis de 2 observaciones.
+- El router permanece en el inventario; sus clientes no se borran (pasan a `inactive` solo tras N
+  días sin tráfico, [ADR-0018](adr/0018-la-ip-es-el-cliente.md)).
+- **Al volver:** reinicio detectado por `sysUptime`; plantillas IPFIX se reaprenden. Como el router
+  es el iniciador del túnel, reconecta solo.
+- **Datos perdidos:** métricas y flujos del período (los routers no reintentan IPFIX).
 
-### 10.5 El NAS deja de responder
+### 10.5 El destino remoto no está disponible (antes: "el NAS deja de responder")
 
-- **Supuesto clave:** el NAS solo está detrás de MinIO; **ningún componente en caliente**
-  (PostgreSQL, ClickHouse, NATS) tiene sus datos activos en el NAS. ClickHouse **no** usa el NAS
-  como disco de tiering en v1 ([ADR-0010](adr/0010-minio-sobre-nas.md)).
-- **Sigue funcionando:** todo el producto interactivo: login, inventario, WireGuard, SNMP, flujos,
-  dashboards (datos calientes en ClickHouse), alertas.
-- **Se degrada:**
-  - Exportación de reportes (PDF/CSV/Excel): los trabajos quedan en `pending` y se reintentan; la
-    UI muestra "almacenamiento no disponible".
-  - Archivado ClickHouse → MinIO: se pausa; las particiones que debían archivarse **no se borran**
-    hasta confirmar el archivo (la TTL de borrado depende de la confirmación). ClickHouse crece por
-    encima de lo previsto.
-  - Backups (pg_basebackup, archivado WAL, backups ClickHouse): fallan. **Riesgo principal:** si el
-    archivado de WAL de PostgreSQL apunta a MinIO, `pg_wal` crece en el disco local hasta
-    llenarlo y **detener PostgreSQL**. Mitigación: alerta `pg_wal_size > 20 GB` y
-    `archive_command` con fallos > 15 min; límite `max_slot_wal_keep_size`; procedimiento de
-    "desactivar archivado temporalmente" en el runbook.
-  - Snapshots de catálogo de traffic-intelligence: el ingester sigue usando el último snapshot que
-    tiene en disco local; no hay actualizaciones de catálogo hasta que vuelva.
-  - Descarga de archivos históricos fríos (> retención caliente): no disponible.
-- **Detección:** `minio_cluster_health == 0` / `/minio/health/live` falla; errores S3 en
-  `analytics`/backups; alerta "backup no completado en 26 h".
-- **Recuperación:** al volver el NAS, MinIO se reconecta; los trabajos pendientes se reintentan;
-  el archivado se pone al día; ejecutar un backup completo manual si el período sin backup
-  excedió el RPO de [disaster-recovery.md](disaster-recovery.md).
-- **Datos perdidos:** ninguno inmediato. El riesgo es indirecto: ventana sin backups (aumenta el
-  RPO efectivo) y disco lleno en hosts si la caída es larga.
+- **Supuesto clave** ([ADR-0019](adr/0019-almacenamiento-local-y-destino-remoto.md)): el destino
+  remoto (SFTP/NAS, Drive, MEGA, Dropbox) **solo recibe copias**; ningún componente lo usa en
+  caliente ni espera por él. Puede incluso no existir.
+- **Sigue funcionando:** todo el producto, incluidos backups locales (pgBackRest a repositorio
+  local, WAL incluido), archivado de particiones a Parquet local y reportes.
+- **Se degrada:** solo la **copia fuera del servidor**: `jobs` reintenta con backoff; los archivos
+  pendientes se acumulan en el almacén local (ya estaban ahí). El RPO *remoto* crece.
+- **Detección:** `horus_remote_sync_lag_seconds` por destino > umbral (p. ej. 26 h),
+  `horus_remote_sync_failures_total`; banner en la consola de plataforma "copia remota retrasada
+  desde hh:mm". Sin destino configurado: aviso permanente "sin copia fuera del servidor".
+- **Recuperación:** automática al volver (`rclone copy` reanuda; `rclone check` verifica). Si el
+  retraso superó la política, la consola lo indica para ejecutar una copia completa manual.
+- **Datos perdidos:** ninguno. Riesgo indirecto: si en esa ventana se pierde el servidor entero,
+  se pierde lo no copiado (ver [disaster-recovery.md](disaster-recovery.md)).
+- **Ya no aplica** el riesgo del Sprint 0 de que el WAL llene el disco de PostgreSQL por caída del
+  NAS: el WAL se archiva en local.
 
 ### 10.6 PostgreSQL se cae
 
-- **Sigue funcionando:**
-  - Usuarios con sesión activa pueden seguir **leyendo** endpoints que no tocan PostgreSQL
-    (dashboards de `analytics` sobre ClickHouse) mientras su access token (vida corta, p. ej.
-    10 min) sea válido; el gateway valida el JWT localmente y la revocación en Redis.
-  - Túneles WireGuard: el kernel conserva la configuración; `wireguard-agent` **nunca** elimina
-    peers por no poder leer el estado deseado (solo aplica cambios explícitos).
-  - `snmp` sigue sondeando con su lista de objetivos en memoria/caché local; `flows` sigue
-    capturando y enriqueciendo con su snapshot; ClickHouse sigue recibiendo.
-- **Se degrada:** login y refresh de tokens (fallan → tras expirar el access token los usuarios
-  deben esperar), todo CRUD (inventario, WG, usuarios, reglas), creación de alertas persistidas
-  (alerts acumula en JetStream sin ack y las procesa al volver), nombres/etiquetas recientes en
-  dashboards (analytics usa caché de nombres).
-- **Detección:** `pg_up == 0`, `/readyz` de auth/devices/wireguard/alerts en fallo, gateway
-  devolviendo 503 en esas rutas.
-- **Recuperación:** reinicio automático; si es pérdida de disco: restaurar base + WAL desde MinIO
-  (PITR) según [disaster-recovery.md](disaster-recovery.md). Tras restaurar, el outbox puede
-  reenviar eventos ya publicados → los consumidores deduplican.
-- **Datos perdidos:** ninguno en caída de proceso. En pérdida de disco: hasta el último WAL
-  archivado (objetivo RPO ≤ 5 min, a fijar por el Agente 4).
+- **Sigue:** lecturas analíticas con access token vigente (JWT local + revocación en Valkey);
+  túneles WG (`wg-agent` es *fail-static*: nunca borra peers por no leer el estado deseado);
+  `snmp` con objetivos en memoria; collector e ingester con snapshots; ClickHouse recibiendo. Las
+  IPs nuevas se siguen publicando (`first_seen`) y se crean al volver PostgreSQL.
+- **Se degrada:** login/refresh, todo CRUD, persistencia de alertas y hallazgos (se acumulan en
+  JetStream sin ack), enrolment de routers.
+- **Recuperación:** reinicio; pérdida de disco → PITR desde el repositorio pgBackRest **local**
+  (o desde el remoto si se perdió también el disco del almacén). El outbox puede reenviar eventos →
+  idempotencia.
+- **Datos perdidos:** ninguno en caída de proceso; en pérdida de disco, hasta el último WAL
+  archivado (objetivo RPO ≤ 5 min con el repositorio local en otro disco).
 
-### 10.7 Redis se cae
+### 10.7 Valkey se cae
 
-- **Principio:** Redis no contiene nada que no se pueda reconstruir ([ADR-0009](adr/0009-redis.md)).
-  La fuente de verdad de sesiones es PostgreSQL (`auth`); las *leases* de colectores están en
-  NATS KV, no en Redis.
-- **Sigue funcionando:** todo.
-- **Se degrada:** latencia (verificación de revocación va a `auth` por gRPC con caché en proceso
-  de 30 s → una sesión revocada puede seguir siendo aceptada hasta 30 s más); rate limiting pasa a
-  limitador en memoria por réplica (límites efectivos × N réplicas; aceptable); cachés de
-  analytics frías (más carga en ClickHouse).
-- **Detección:** `redis_up == 0`, logs de *fallback* en gateway.
-- **Recuperación:** reinicio; cachés se rellenan solas. Sin persistencia obligatoria (AOF opcional).
-- **Datos perdidos:** ninguno relevante (contadores de rate limit, cachés).
+- Valkey no contiene nada irreconstruible ([ADR-0020](adr/0020-valkey-en-lugar-de-redis.md)).
+- **Se degrada:** latencia; revocación vía `auth` con caché de 30 s (una sesión revocada puede
+  durar 30 s más); rate limit en memoria; cachés de analytics frías.
+- **Recuperación:** reinicio; las cachés se rellenan.
 
-### 10.8 MinIO cae (con el NAS sano)
+### 10.8 El almacén local se llena (sustituye a "MinIO cae")
 
-Mismo comportamiento que §10.5 (el NAS es transparente detrás de MinIO). Diferencia: la
-recuperación es reiniciar el contenedor/servicio MinIO; si MinIO corre en el propio NAS, ver
-[Q4](open-questions/architecture.md#q4).
+- **Causas:** retención local mal dimensionada, archivo sin rotación, destino remoto ausente con
+  política de retención basada en "copiado".
+- **Comportamiento por umbral** del volumen `HORUS_DATA_DIR`: 70 % aviso; 85 % alerta y se
+  **pausan reportes nuevos**; 95 % se **pausa el archivado** (las particiones de ClickHouse que
+  debían archivarse no se borran: ClickHouse crece) y se aplica la retención local mínima
+  garantizada. Nunca se borran backups por debajo del mínimo.
+- **Aislamiento:** el almacén está en un disco distinto de PostgreSQL/ClickHouse/NATS: llenarlo
+  no detiene las bases de datos.
+- **Detección:** `node_filesystem_avail_bytes` del volumen, `horus_blobstore_*`.
+- **Recuperación:** ampliar disco o retención; el archivado y los reportes se reanudan solos.
 
-### 10.9 El hub WireGuard se cae (escenario derivado del supuesto §2)
+### 10.9 El hub WireGuard se cae (punto único de fallo de la recolección)
 
-- Todos los routers gestionados por túnel quedan inalcanzables a la vez → `snmp` vería un
-  "apagón masivo". Para no generar cientos de alertas, `snmp` detecta la caída del hub (interfaz
-  WG local caída o > 50 % de peers stale simultáneamente) y emite **una** alerta
-  `wireguard.hub.down`, suprimiendo las alertas individuales `router.offline` con razón
-  `tunnel_down` (correlación). Los flujos que viajan por el túnel también se pierden durante la
-  caída.
+Todos los routers de **todos los ISP** llegan por el hub; es el SPOF más importante del sistema.
 
-### 10.10 Caída de un servicio de dominio (genérico)
+- **Casos:** (a) cae el contenedor `horus-wg-agent`; (b) se reinicia el host; (c) se pierde el
+  host o su IP pública; (d) falla la red del proveedor del servidor.
+- **Qué deja de funcionar:** SNMP, ICMP, API y flujos de todos los routers. El plano de
+  administración y los datos históricos siguen.
+- **Supresión de tormenta de alertas:** `snmp` detecta la caída (interfaz WG local caída o > 50 %
+  de peers *stale* a la vez) y emite **una** alerta `wireguard.hub.down`; `alerts` suprime los
+  `router.offline` con razón `tunnel_down` mientras dure. Como esa cadena pasa por el propio
+  sistema, Prometheus/Alertmanager evalúa además una regla independiente sobre la métrica del
+  hub (`horus_wg_hub_up`, peers con handshake reciente).
+- **Recuperación:**
+  - (a)/(b): reinicio automático; `wg-agent` reaplica el último estado desde su archivo local y
+    los routers, que son **iniciadores con keepalive de 25 s**, reconectan solos sin intervención.
+  - (c): reconstruir el hub en otro host con **la misma clave privada del hub** (cifrada en
+    PostgreSQL y en los backups) y **el mismo endpoint**. Por eso el endpoint del hub en los scripts
+    de los routers es **un nombre DNS con TTL bajo**, nunca una IP literal: cambiar el DNS basta
+    para que todos los routers vuelvan sin tocarlos.
+- **Datos perdidos:** flujos y métricas de todo el período (los routers no reintentan IPFIX);
+  huecos marcados en la cobertura por tenant.
+- **Evolución (cuando se exija HA):** hub **activo/pasivo** con la misma clave y una IP flotante o
+  DNS conmutado (los routers no cambian). Un segundo hub activo/activo exigiría dos túneles por
+  router; se descarta salvo necesidad.
 
-Cada servicio stateless se reinicia automáticamente; durante la caída el gateway devuelve `503`
-con `Retry-After` solo para sus rutas (circuit breaker por servicio: abre con 50 % de errores en
-10 s, semiabierto a los 15 s). Los eventos que debía consumir se acumulan en su consumer durable.
-Ningún otro servicio falla en cascada porque no hay cadenas síncronas largas (§5.1).
+### 10.10 Caída de un rol o del proceso `horus-app`
+
+- En el perfil mínimo, un fallo fatal del proceso `horus-app` afecta a todos sus roles: el
+  collector (contenedor aparte) sigue recibiendo y publicando en NATS, y el hub WG sigue; el resto
+  vuelve con el reinicio automático (segundos). Se mitiga con límites por rol (concurrencia de
+  `reporting`/`analytics`, `GOMEMLIMIT`), y si se repite, se pasa al perfil estándar
+  ([ADR-0025](adr/0025-binario-modular-con-roles.md)).
+- Un rol degradado (p. ej. `analytics` sin ClickHouse) no marca el proceso como no listo para los
+  demás roles. Rutas de un rol separado en otro proceso: el gateway responde `503` con
+  `Retry-After` y circuit breaker por destino.
+
+### 10.11 Cobertura de flujos insuficiente
+
+- **Causa típica:** aceleración por hardware en el router (bridge HW, L3HW en CCR2116/2216,
+  FastTrack por hardware): ese tráfico no genera flujos ([vendors/mikrotik.md](vendors/mikrotik.md)).
+  También: exportación mal configurada, CPU del router saturada, interfaces sin Traffic Flow.
+- **Detección:** el rol `jobs` compara cada hora, por router, los bytes de flujos atribuidos con
+  los contadores SNMP (`ifHCInOctets/ifHCOutOctets`) de sus interfaces; cobertura < 80 % →
+  alerta `flow_coverage_low` (tenant del router) y el período se marca como incompleto.
+- **Efecto:** los dashboards y reportes muestran "cobertura parcial" en lugar de consumo bajo
+  (P4), y la detección de botnets baja la confianza de los hallazgos de ese router.
+
+### 10.12 Un ISP satura recursos compartidos (vecino ruidoso)
+
+- **Síntomas:** lag del ingester, buffer FLOWS creciendo, consultas lentas para todos.
+- **Contención:** límite de flujos/s por exportador y por tenant en el collector (exceso descartado
+  y contado por tenant), concurrencia y memoria de consulta por tenant en `analytics`, colas de
+  reportes por tenant.
+- **Detección:** métricas por tenant (flujos/s, descartes, lag, tiempo de consulta).
+
+### 10.13 Avalancha de IPs nuevas (escaneo o direcciones falsificadas)
+
+- Solo se crean clientes dentro de los **prefijos de clientes** del realm
+  ([ADR-0018](adr/0018-la-ip-es-el-cliente.md)); el ingester limita los `first_seen` por realm y
+  minuto, y `devices` limita las altas por realm. El exceso se cuenta y genera una alerta de
+  plataforma; los flujos se siguen guardando (atribuidos por IP aunque el cliente aún no exista en
+  PostgreSQL).
 
 ---
 
@@ -725,9 +742,14 @@ Ningún otro servicio falla en cascada porque no hay cadenas síncronas largas (
 
 | Riesgo | Impacto | Mitigación |
 | --- | --- | --- |
-| Volumen de flujos subestimado | Disco y CPU de ClickHouse desbordados | Medir en Sprint 6 con routers reales; retención raw 7 días; muestreo configurable; agregados. |
-| Atribución flujo → cliente imposible sin mapa IP↔cliente (PPPoE dinámico, CGNAT) | El valor principal (consumo por cliente, detección comercial) no funciona | Resolver [Q5](open-questions/architecture.md#q5) antes del Sprint 6. |
-| Hub WireGuard como SPOF del plano de recolección | Pérdida total de visibilidad | Alerta correlacionada; segundo hub en Sprint 14. |
-| Demasiados microservicios para el tamaño del equipo | Lentitud, coste operativo | Fusiones iniciales de [ADR-0014](adr/0014-granularidad-de-microservicios-en-el-mvp.md). |
-| Archivado de WAL en MinIO/NAS llena el disco de PostgreSQL | Caída del plano de administración | Alertas y límites (§10.5). |
-| CGNAT del ISP: IP de cliente en flujos es privada/compartida | Atribución incorrecta | Recolectar flujos en el lado interno del NAT o correlacionar con logs NAT ([Q6](open-questions/architecture.md#q6)). |
+| Fuga de datos entre ISP por un filtro olvidado | Incidente de privacidad grave | Token por tenant + repositorio con tenant obligatorio + RLS + row policies; tests de aislamiento generados en CI ([ADR-0017](adr/0017-multi-tenant-desde-v1.md), [ADR-0023](adr/0023-entrega-por-incrementos-y-equipo-ia.md)). |
+| Hub WireGuard como SPOF de todos los ISP | Pérdida total de visibilidad | Alerta única correlacionada + regla independiente en Alertmanager; endpoint DNS y clave del hub respaldada; activo/pasivo cuando se exija HA (§10.9). |
+| Flujos post-NAT o CGNAT en otro equipo | La IP no identifica al cliente (D1 no se cumple) | Verificar por ISP en el alta (NAT leído por API); exportar desde el equipo correcto ([Q6](open-questions/architecture.md#q6)). |
+| Ceguera por *offload* de hardware | Consumo y detección subestimados | Alerta `flow_coverage_low` (§10.11). |
+| Prefijos de clientes mal declarados | Clientes falsos o no atribuidos | Sugerencia automática desde el router + vista de tráfico no atribuido. |
+| Volumen de flujos subestimado | Disco y CPU de ClickHouse | Medir con el primer ISP real; escenarios S/M/L; escalar ClickHouse antes que muestrear. |
+| Vecino ruidoso | Degradación para todos los ISP | Límites por tenant (§10.12). |
+| Un solo proceso `horus-app` | Un fallo afecta a todos sus roles | Collector y agente WG separados; límites por rol; perfil estándar como salida. |
+| Sin destino remoto configurado | Desastre del servidor = pérdida total | Aviso permanente en consola de plataforma; almacén local en disco separado; SFTP en el incremento de almacenamiento. |
+| Endpoint público de enrolment | Superficie de ataque sin sesión | Token de un solo uso, hash, TTL 24 h, rate limit, solo acepta claves públicas, auditoría ([ADR-0022](adr/0022-mikrotik-routeros-v7-primer-fabricante.md)). |
+| Calidad sin revisores humanos | Defectos y deriva arquitectónica | Puertas automáticas que bloquean el merge ([ADR-0023](adr/0023-entrega-por-incrementos-y-equipo-ia.md)). |

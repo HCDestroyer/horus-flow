@@ -1,6 +1,6 @@
 # 0010 — MinIO (S3) sobre el NAS para objetos, archivo y backups
 
-- Estado: Aceptada
+- Estado: Sustituido por ADR-0019
 - Fecha: 2026-10-07
 
 ## Contexto

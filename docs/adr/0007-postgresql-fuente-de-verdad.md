@@ -1,6 +1,6 @@
 # 0007 — PostgreSQL como fuente de verdad transaccional
 
-- Estado: Aceptada
+- Estado: Aceptada (ajustada por ADR-0017: `tenant_id` + RLS; y ADR-0019: WAL a repositorio local)
 - Fecha: 2026-10-07
 
 ## Contexto
