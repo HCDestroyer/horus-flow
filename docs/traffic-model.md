@@ -42,16 +42,20 @@ como tipos de regla para el futuro (§6.2).
 
 ## 2. Pipeline y responsabilidades por etapa
 
+Alineado con [ADR-0015](adr/0015-enriquecimiento-de-flujos-en-ingesta.md): `traffic-intelligence`
+es dueño del catálogo y **no** está en el camino caliente; el rol **ingester** de `flows` enriquece
+con un snapshot en memoria y es el escritor único de `flows.flows_raw`.
+
 ```mermaid
 flowchart LR
-  R[Routers] -- "UDP 2055/4739/6343" --> F[flows<br/>colector + normalizador]
-  F -- "lote de flujos canónicos<br/>(JetStream)" --> TI[traffic-intelligence<br/>enriquecimiento + escritor CH]
-  TI --> CH[(ClickHouse<br/>traffic.flows_raw<br/>+ MVs)]
-  REP[reputation] -- "snapshot indicadores<br/>(evento/gRPC)" --> TI
-  DEV[devices] -- "ip_assignment.*<br/>interface.updated" --> TI
-  CAT[catálogo publicado<br/>PG + MinIO] --> TI
-  CH --> AN[analytics / reporting / detection]
-  TI -- "flujos sospechosos<br/>(muestra)" --> DET[detection]
+  R[Routers] -- "UDP 2055/4739/6343" --> C[flows collector<br/>decodifica + normaliza]
+  C -- "horus.flows.batch.received<br/>(JetStream)" --> I[flows ingester<br/>enriquece + escritor CH]
+  I --> CH[(ClickHouse<br/>flows.flows_raw<br/>+ MVs)]
+  TI[traffic-intelligence<br/>catálogo PG] -- "snapshot vN<br/>(MinIO + catalog.published)" --> I
+  DEV[devices] -- "customer.assigned/unassigned,<br/>router/interface.* + gRPC snapshot" --> I
+  CH --> AN[analytics<br/>+ reporting]
+  CH --> DET[detection<br/>+ reputation]
+  DET -- "dim.reputation (IP_TRIE)" --> CH
 ```
 
 | # | Paso | Servicio | Momento | Fuente de verdad | Resultado en la fila |
@@ -60,26 +64,30 @@ flowchart LR
 | 2 | Corregir muestreo | `flows` | ingesta | sampling del paquete/plantilla/opción; si falta, `flows.exporter.declared_sampling_rate` | `bytes`, `packets` escalados; `sampling_rate` |
 | 3 | Identificar exportador → `router_id`, ifIndex → `interface_id`, `observation_role` | `flows` | ingesta | `devices` (cache local por eventos) | `router_id`, `site_id`, `interface_id`, `observation_role` |
 | 4 | Pre-agregación opcional (60 s) | `flows` | ingesta | config | menos filas (§11) |
-| 5 | **Atribución a cliente** + dirección | `traffic-intelligence` | ingesta | asignaciones IP temporales (`devices`) | `subscriber_id`, `subscriber_ip`, `remote_ip`, `direction`, `attribution_status` |
-| 6 | IP remota → prefijo → ASN | `traffic-intelligence` | ingesta | trie en memoria del catálogo publicado | `remote_prefix`, `remote_asn`, `remote_country` |
-| 7 | ASN → organización | `traffic-intelligence` | ingesta (ID) / consulta (nombre) | catálogo | `remote_org_id` |
-| 8 | Reglas → servicio | `traffic-intelligence` | ingesta | catálogo versión N | `service_id`, `classification_method`, `classification_confidence`, `catalog_version` |
-| 9 | Servicio → categoría | — | **consulta** | `dim.service` (catálogo vigente) | — (no se guarda) |
-| 10 | Reputación de la IP remota | `traffic-intelligence` (lookup) / `reputation` (dueño de datos) | ingesta (snapshot) | indicadores vigentes | `reputation_score` |
-| 11 | Agregación tiempo (5 min/1 h/1 d) | ClickHouse MVs | inserción | — | tablas `traffic.*_5m/_1h/_1d` |
+| 5 | **Atribución a cliente** + dirección | `flows` (ingester) | ingesta | asignaciones IP temporales (`devices`) | `customer_id`, `customer_ip`, `remote_ip`, `direction`, `attribution_status` |
+| 6 | IP remota → prefijo → ASN | `flows` (ingester) con snapshot de `traffic-intelligence` | ingesta | trie en memoria del catálogo publicado | `remote_prefix`, `remote_asn`, `remote_country` |
+| 7 | ASN → organización | `flows` (ingester) | ingesta (ID) / consulta (nombre) | catálogo | `remote_org_id` |
+| 8 | Reglas → servicio | `flows` (ingester) | ingesta | catálogo versión N | `service_id`, `classification_method`, `classification_confidence`, `catalog_version` |
+| 9 | Servicio → categoría | `flows` (ingester) para auditoría; **consulta** para reportes | ingesta + consulta | snapshot vN / `dim.service` (catálogo vigente) | `category_id` (la de vN); los reportes agregan por `service_id` y resuelven la categoría vigente |
+| 10 | Reputación de la IP remota | `detection` (módulo reputation) | **asíncrono / consulta** | indicadores vigentes (`dim.reputation`) | no se guarda en la fila; cruces en `detection.reputation_hits` |
+| 11 | Agregación tiempo (5 min/1 h/1 d) | ClickHouse MVs | inserción | — | tablas `flows.*_5m/_1h/_1d` |
 | 12 | Correlación de seguridad, scoring residencial/comercial | `detection` | asíncrono (sobre agregados y crudo) | ClickHouse | `detection.*` |
 
-**¿Por qué el enriquecimiento está en `traffic-intelligence` y no en `flows`?** `flows` debe ser
-tonto, rápido y sin dependencias (no perder UDP). Si `traffic-intelligence` cae, JetStream retiene
-los lotes (límite por tamaño, propuesta: 6 h de pico, ver [`events.md`](events.md) /
-[`disaster-recovery.md`](disaster-recovery.md)) y se procesan al volver; los flujos crudos no se
-pierden mientras el retraso no exceda ese límite.
+**Por qué así**: el collector queda tonto y rápido (no perder UDP); el ingester enriquece en
+memoria sin saltos de red extra (un solo paso por NATS). Si `traffic-intelligence` cae, el ingester
+sigue con el último snapshot; si el ingester o ClickHouse caen, JetStream retiene los lotes
+(límite por tamaño, propuesta ≥ 6 h de pico, ver [`events.md`](events.md) /
+[`disaster-recovery.md`](disaster-recovery.md)) y se procesan al volver.
+
+**Por qué la reputación no va en la fila**: evita que el ingester dependa de un tercer snapshot y
+evita congelar una reputación que cambia a diario; `detection` la cruza sobre la ventana reciente
+(ver §12).
 
 ---
 
 ## 3. Registro canónico de flujo normalizado
 
-Es el contrato del lote `flows → traffic-intelligence` (el sobre y el subject los define el
+Es el contrato del lote `flows collector → flows ingester` (`horus.flows.batch.received`; el sobre y el subject los define el
 Agente 3; los campos son esta tabla). Columnas "enriquecidas" se añaden en el paso 5–10.
 
 | Campo | Tipo | NetFlow v5 | NetFlow v9 / IPFIX (IE) | sFlow v5 | Notas |
@@ -126,7 +134,7 @@ Campos que **no** se garantizan (se guardan si vienen, nunca se requieren): `src
     alto.
   - sFlow: no hay flujo, solo paquetes muestreados; `flow_start = ts`, duración 0, `flows` cuenta
     muestras, no conexiones.
-- **Recomendación**: en interfaces `subscriber_edge` usar NetFlow/IPFIX **sin muestreo** (1:1) si la
+- **Recomendación**: en interfaces `customer_edge` usar NetFlow/IPFIX **sin muestreo** (1:1) si la
   CPU del router lo permite (MikroTik Traffic-Flow no muestrea); muestreo solo en `upstream` de
   alto volumen. Ver open questions Q5.
 
@@ -148,14 +156,14 @@ Campos que **no** se garantizan (se guardan si vienen, nunca se requieren): `src
 
 **Proceso de importación** (job de `traffic-intelligence`, diario):
 
-1. Descargar fuentes → guardar original en MinIO (`horus-datasets`, [`storage.md`](storage.md)) +
-   `traffic_intel.source_snapshot` con SHA-256.
+1. Descargar fuentes → guardar original en MinIO (`datasets`, [`storage.md`](storage.md)) +
+   `traffic.source_snapshot` con SHA-256.
 2. Consolidar prefijo→ASN: BGP (RIS/RouteViews, mayoría de colectores) > iptoasn > RIR. Prefijos
    MOAS se marcan `is_moas`; se elige el origen visto por más colectores.
 3. Diff contra la tabla vigente: si cambia > X % de prefijos (propuesta 5 %) **no** se aplica
    automáticamente ⇒ alerta y revisión (protección contra fuentes corruptas).
 4. Prefijos y ASN **no** requieren nueva versión del catálogo de reglas (son "hechos del mundo"), pero
-   sí generan un nuevo artefacto de datos (`prefix_snapshot_id`) que `traffic-intelligence` recarga.
+   sí generan un nuevo snapshot (`prefix_snapshot_id`) que el ingester de `flows` recarga.
 
 ---
 
@@ -223,9 +231,9 @@ stateDiagram-v2
    reporta el % de bytes que cambia de servicio respecto a la versión vigente ("diff de impacto").
 3. **Publicación**: se genera un **artefacto inmutable** (JSON/Protobuf comprimido con reglas + IDs
    de servicio/categoría + `prefix_snapshot_id`), se sube a MinIO
-   `horus-catalog/traffic/v{N}/catalog.pb.zst` con SHA-256, se marca `published` y se emite
-   `horus.traffic_intel.catalog.published` (dependencia Agente 3). Todas las réplicas de
-   `traffic-intelligence` lo cargan y conmutan atómicamente (puntero a estructura nueva). Desde ese
+   `catalog-snapshots/traffic/v{N}/catalog.pb.zst` con SHA-256, se marca `published` y se emite
+   `horus.traffic.catalog.published` (dependencia Agente 3). Todas las réplicas del **ingester
+   de `flows`** lo cargan y conmutan atómicamente (puntero a estructura nueva). Desde ese
    instante, filas nuevas llevan `catalog_version = N`.
 4. **Rollback** = publicar de nuevo una versión anterior como versión N+1 (no se "despublica";
    la numeración es monotónica y auditable).
@@ -236,10 +244,10 @@ stateDiagram-v2
 
 | Cambio | Efecto en histórico | Mecanismo |
 |--------|---------------------|-----------|
-| Servicio cambia de **categoría** (p. ej. TikTok de `social` a `video_streaming`) | **Sí, automático** | La categoría no se guarda en hechos; `dim.service` refleja el catálogo vigente. |
+| Servicio cambia de **categoría** (p. ej. TikTok de `social` a `video_streaming`) | **Sí, automático** | Los agregados están por `service_id` y la categoría se resuelve con `dim.service` (catálogo vigente). `flows_raw.category_id` conserva la categoría de vN solo para auditoría. |
 | Renombrar servicio/organización | Sí, automático | Diccionarios. |
 | Una regla cambia el **servicio** asignado a flujos | **No por defecto** | Las filas conservan `service_id` + `catalog_version` (lo que se sabía entonces). |
-| Reclasificación explícita (opcional, por solicitud) | Solo dentro de la retención cruda (7–30 d) | Job que recalcula `service_id` sobre `flows_raw` y **reconstruye** las particiones afectadas de `*_5m`/`*_1h`/`*_1d` para esos días (`INSERT … SELECT` en tabla temporal + `REPLACE PARTITION`). Más allá de la retención cruda no es posible: se documenta en el reporte ("datos anteriores al dd/mm clasificados con catálogo vN"). |
+| Reclasificación explícita (opcional, por solicitud) | Solo dentro de la retención cruda (7–30 d) | Job (dueño según ADR-0015: `analytics`; como las tablas `flows.*` tienen escritor único `flows`, se propone que `analytics` lo **solicite** y el ejecutor sea un comando del binario `flows`) que recalcula `service_id` **leyendo** `flows_raw` (no lo reescribe) y **reconstruye** las particiones afectadas de `*_5m`/`*_1h`/`*_1d` para esos días (`INSERT … SELECT` en tabla temporal + `REPLACE PARTITION`). Más allá de la retención cruda no es posible: se documenta en el reporte ("datos anteriores al dd/mm clasificados con catálogo vN"). |
 
 Justificación: reescribir años de agregados por cada ajuste de regla es caro y hace que los reportes
 cambien "solos"; la fila conserva la verdad histórica con su versión, y la categoría (lo que más
@@ -290,7 +298,7 @@ Flujo: cliente `10.20.3.15` (PPPoE, router R1) ↔ `157.240.14.63:443/TCP`, 18 M
 
 | Paso | Valor |
 |------|-------|
-| Atribución | `10.20.3.15` en realm privado de R1, asignación PPPoE vigente ⇒ `subscriber_id = S-1234`; IP del cliente es destino ⇒ `direction = download` |
+| Atribución | `10.20.3.15` en realm privado de R1, asignación PPPoE vigente ⇒ `customer_id = S-1234`; IP del cliente es destino ⇒ `direction = download` |
 | Prefijo → ASN | `157.240.0.0/16` → AS32934 |
 | Organización | Meta Platforms |
 | Reglas candidatas | `asn=32934 → meta_generic (prio 400, conf 90)`; no hay regla de prefijo específica de Instagram |
@@ -320,7 +328,7 @@ interno o subred dedicada).
 | Prefijo → ASN | prefijo del ISP → ASN propio (o ninguno si es privado) — no sirve para clasificar. |
 | Regla | `local_override prefix=<subred OCA> → netflix` (prio 990, conf 99), creada por el ISP. |
 | Resultado | `netflix`, `video_streaming`. |
-| Consecuencia | `traffic.border_1h` **no** ve este tráfico (no cruza el upstream) ⇒ reporte "ahorro de tránsito por caches" = bytes de servicios con `local_override` de caches. Sin la regla local, el tráfico aparecería como "propio/desconocido". |
+| Consecuencia | `flows.border_1h` **no** ve este tráfico (no cruza el upstream) ⇒ reporte "ahorro de tránsito por caches" = bytes de servicios con `local_override` de caches. Sin la regla local, el tráfico aparecería como "propio/desconocido". |
 | Fuera del OCA | IPs de AS2906/AS40027 (Netflix) ⇒ `asn → netflix`, conf 95. |
 
 ### 8.4 Steam
@@ -349,7 +357,7 @@ Flujo: cliente ↔ `104.16.x.x:443` (AS13335).
 ### 9.1 Modelo
 
 La atribución responde: *¿qué cliente tenía la IP `x` en el realm `r` en el instante `t`?* usando
-`devices.subscriber_ip_assignment` (`realm_id`, `prefix`, `valid tstzrange`) — ver
+`devices.customer_ip_assignment` (`realm_id`, `prefix`, `valid tstzrange`) — ver
 [`database.md` §2.2.2](database.md).
 
 - **Realm**: una IP privada (`10.20.3.15`) puede repetirse en routers distintos. El realm se
@@ -358,8 +366,8 @@ La atribución responde: *¿qué cliente tenía la IP `x` en el realm `r` en el 
 - **Instante**: se usa `flow_start` (o el punto medio del flujo). Si un flujo largo cruza un cambio de
   asignación (raro: PPPoE se reconecta y cambia IP ⇒ la conexión TCP muere), se atribuye por
   `flow_start`.
-- **Estructura en memoria** (en `traffic-intelligence`): por realm, un trie de prefijos cuyas hojas
-  contienen la lista ordenada de intervalos `[desde, hasta) → subscriber_id`. Cargado al arrancar
+- **Estructura en memoria** (en el ingester de `flows`): por realm, un trie de prefijos cuyas hojas
+  contienen la lista ordenada de intervalos `[desde, hasta) → customer_id`. Cargado al arrancar
   desde `devices` (gRPC, solo asignaciones de las últimas 48 h + vigentes) y mantenido por eventos.
   Tamaño: 100 k clientes × ~3 intervalos × ~64 B ≈ 20 MB.
 - **Tolerancia de reloj**: si no hay asignación exacta pero sí una que empieza/termina en ±60 s, se
@@ -370,10 +378,10 @@ La atribución responde: *¿qué cliente tenía la IP `x` en el realm `r` en el 
 | Escenario | Qué ve el flujo | Cómo se atribuye | Requisito |
 |-----------|-----------------|------------------|-----------|
 | **IP pública por cliente** (PPPoE/DHCP/estática) | IP pública del cliente | `realm public` + asignación vigente | asignaciones con validez temporal (RADIUS accounting o leases) |
-| **IP privada en el BNG/router + NAT en el router del ISP** | Depende de dónde se exporta | Exportar en la **interfaz del lado cliente** (pre-NAT) ⇒ IP privada única en el realm del router | `flow_role = subscriber_edge` en esa interfaz |
+| **IP privada en el BNG/router + NAT en el router del ISP** | Depende de dónde se exporta | Exportar en la **interfaz del lado cliente** (pre-NAT) ⇒ IP privada única en el realm del router | `flow_role = customer_edge` en esa interfaz |
 | **CGNAT (100.64.0.0/10) en un equipo central** | Post-NAT: muchas personas con la misma IP pública | Pre-NAT: igual que el anterior (realm del BNG). Post-NAT: **solo** con logs de NAT (IPFIX NAT events IE 225–228 / NEL / syslog de asignación de bloques de puertos) ⇒ tabla `(ip_pública, rango_puertos, validez) → ip_privada` | Decidir con el PO (Q3). Recomendado: exportar pre-NAT; logs de NAT solo para cumplimiento legal. |
 | **NAT en el CPE del cliente** (lo normal en residencial) | Una IP (la WAN del CPE) por cliente | Se atribuye al cliente; los dispositivos detrás **no** son visibles | `detection` estima "dispositivos detrás del CPE" por señales indirectas (variedad de TTL/puertos/OS fingerprints no disponibles en flujo ⇒ limitado; ver Q11). |
-| **IPv6** | Prefijo delegado (`/56`, `/64`) + IP WAN | `subscriber_ip_assignment.prefix` con el prefijo delegado; match por contención | DHCPv6-PD o RADIUS `Delegated-IPv6-Prefix` |
+| **IPv6** | Prefijo delegado (`/56`, `/64`) + IP WAN | `customer_ip_assignment.prefix` con el prefijo delegado; match por contención | DHCPv6-PD o RADIUS `Delegated-IPv6-Prefix` |
 | **IP de infraestructura** (router, OLT, servidores del ISP) | IP de `devices.ip_address` | `attribution_status = infrastructure` | inventario |
 
 ### 9.3 Fuentes de asignaciones (ingesta en `devices`)
@@ -392,18 +400,18 @@ Cuál aplica depende del ISP (Q2). Todas producen el mismo registro y el mismo e
 
 Se calcula respecto al cliente, no con `flowDirection` del router:
 
-| Condición | `direction` | `subscriber_ip` / `remote_ip` |
+| Condición | `direction` | `customer_ip` / `remote_ip` |
 |-----------|-------------|-------------------------------|
 | `src_ip` ∈ cliente, `dst_ip` ∉ cliente | `upload` | src / dst |
 | `dst_ip` ∈ cliente, `src_ip` ∉ cliente | `download` | dst / src |
 | ambos ∈ clientes (distintos o el mismo) | `internal` | src / dst; se registra **una** fila (para el cliente origen) para no duplicar; `detection` puede leer `internal` para P2P local |
 | ninguno ∈ cliente, alguno ∈ infraestructura | `unknown`, `attribution_status = infrastructure` | |
-| ninguno | `unknown`, `attribution_status = transit` o `unknown` | se agrega en `traffic.unattributed_1h` para auditar asignaciones faltantes |
+| ninguno | `unknown`, `attribution_status = transit` o `unknown` | se agrega en `flows.unattributed_1h` para auditar asignaciones faltantes |
 
 ### 9.5 Reatribución
 
 Si faltaban asignaciones (RADIUS caído, cliente importado tarde), un job opcional relee
-`flows_raw` de las IPs en `traffic.unattributed_1h` dentro de la retención cruda, aplica
+`flows_raw` de las IPs en `flows.unattributed_1h` dentro de la retención cruda, aplica
 las asignaciones corregidas y reconstruye particiones de agregados de esos días (mismo mecanismo
 que §6.4).
 
@@ -417,18 +425,18 @@ todos exportan NetFlow, el mismo tráfico se cuenta 2–4 veces.
 **Decisión: deduplicación por diseño (punto de observación), no por coincidencia de 5-tuplas.**
 
 1. Cada interfaz tiene `flow_role` ([`database.md` §2.2.1](database.md)):
-   `subscriber_edge` (de cara al cliente), `upstream` (tránsito), `peering` (IXP/PNI), `core`,
+   `customer_edge` (de cara al cliente), `upstream` (tránsito), `peering` (IXP/PNI), `core`,
    `management`, `none`.
 2. `flows` etiqueta cada registro con `observation_role` según la interfaz de **entrada** si es
-   `subscriber_edge` (upload) o de **salida** si es `subscriber_edge` (download). Para routers que
+   `customer_edge` (upload) o de **salida** si es `customer_edge` (download). Para routers que
    exportan solo ingress, se exporta en ambas interfaces (cliente y uplink) y se toma el lado cliente.
-3. Los agregados de **clientes** (`subscriber_*`, `site_*`) usan **solo** `subscriber_edge`.
+3. Los agregados de **clientes** (`customer_*`, `site_*`) usan **solo** `customer_edge`.
 4. Los agregados de **borde** (`border_1h`: ASN de tránsito, peering) usan **solo**
    `upstream/peering`.
 5. Registros de interfaces `core`/`none` se descartan en `flows` (configurable) — ahorran volumen.
-6. Si dos routers declaran la misma subred de clientes como `subscriber_edge` (error de
-   configuración o redundancia activa-activa), el job de calidad compara por `subscriber_id` y hora
-   el `bytes` de cada exportador y alerta (`horus.traffic_intel.attribution.duplicated_exporter`,
+6. Si dos routers declaran la misma subred de clientes como `customer_edge` (error de
+   configuración o redundancia activa-activa), el job de calidad compara por `customer_id` y hora
+   el `bytes` de cada exportador y alerta (`horus.traffic.attribution.duplicated_exporter`,
    nombre a confirmar).
 
 **Alternativa descartada**: dedup por (5-tupla, ventana ±N s, bytes similares) entre exportadores.
@@ -451,12 +459,16 @@ Configurable por exportador (default **off** hasta ~100 routers):
 
 ## 12. Reputación en el pipeline
 
-- `reputation` es dueño de feeds e indicadores ([`database.md` §2.6](database.md)) y publica
-  snapshots compactos (lista de prefijos con score y categoría, versión) — evento
-  `horus.reputation.snapshot.published` (dependencia Agente 3) + artefacto en MinIO.
-- `traffic-intelligence` hace lookup LPM en ingesta y guarda `reputation_score` (0–100, 0 = sin
-  indicador). Es un **snapshot**: la reputación de una IP hoy no reescribe el pasado.
-- `detection` **no** concluye "malware" por `reputation_score > 0` (vision.md Sprint 8): combina
+- El módulo reputation de `detection` es dueño de fuentes e indicadores
+  (`detection.reputation_entry` en PostgreSQL, [`database.md` §2.6](database.md)) y compila un
+  snapshot (prefijos con score, categoría, versión) que se publica en MinIO y se carga en ClickHouse
+  como diccionario `IP_TRIE` `dim.reputation` (evento `horus.reputation.feed.refreshed` de
+  [`events.md`](events.md) o equivalente).
+- Un job de `detection` cruza periódicamente (cada 5 min) los flujos recientes de `flows.flows_raw`
+  con `dim.reputation` y escribe `detection.reputation_hits` (cliente, IP remota, indicador,
+  versión, bytes, primera/última vez). Así el hit queda fechado con la reputación vigente **en ese
+  momento**, sin reescribir el pasado.
+- `detection` **no** concluye "malware" por un hit de reputación (vision.md Sprint 8): combina
   reputación + comportamiento (volumen, periodicidad tipo beacon, puertos, fan-out de destinos) +
   contexto del cliente, y emite su veredicto con razones y confianza.
 
@@ -466,7 +478,7 @@ Configurable por exportador (default **off** hasta ~100 routers):
 
 | Con | Tema |
 |-----|------|
-| Agente 3 | Lote canónico `flows → traffic-intelligence` (§3) con `batch_id`; `horus.devices.ip_assignment.started/ended`; `horus.traffic_intel.catalog.published`; `horus.reputation.snapshot.published`; tamaño/edad máxima del stream de flujos en JetStream (propuesta ≥ 6 h de pico). |
-| Agente 1 | `traffic-intelligence` como escritor de `traffic.flows_raw` en ClickHouse; `flows` sin acceso a ClickHouse. |
+| Agente 3 | Lote canónico `horus.flows.batch.received` (§3) con `batch_id` y `sampling_rate`; `horus.devices.customer.assigned/unassigned`; `horus.traffic.catalog.published` (en `events.md` aparece como `ruleset.published`); snapshot de reputación; tamaño/edad máxima del stream de flujos (propuesta ≥ 6 h de pico). `events.md` todavía describe un enriquecedor en traffic-intelligence (`TLM_FLOWS_ENRICHED`): con ADR-0015 ese stream no existe. Sobre el muestreo: `events.md` propone que lo escale el enriquecedor (`bytes_estimated`); aquí lo escala el ingester (paso 2 puede vivir en collector o ingester: lo importante es que `sampling_rate` viaje en el lote). |
+| Agente 1 | Coherente con ADR-0015 (ingester de `flows` escribe `flows.flows_raw`). Diferencias: granularidad fina 5 min vs 1 min; reclasificación histórica: job en `analytics` (ADR-0015) — aquí se describe el mecanismo, el dueño es `analytics`. |
 | Agente 4 | Permisos `traffic.catalog.write` / `traffic.catalog.publish`; tratamiento de logs NAT/RADIUS como datos sensibles (retención legal). |
 | Agente 5 | Historias: ingesta de asignaciones (RADIUS/API router), catálogo inicial con ~15 servicios del Sprint 7, UI de reglas locales, job de importación de fuentes. |

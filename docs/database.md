@@ -21,13 +21,13 @@
 | D1 | Un clúster PostgreSQL, **una base `horus`, un esquema por servicio**, un rol de BD por servicio con permisos solo sobre su esquema. | Aislamiento de propiedad sin el costo operativo de N instancias; permite separar a instancias distintas después sin cambiar el modelo. |
 | D2 | **Sin FK ni joins entre esquemas.** Referencias cruzadas = UUID "suelto" + sincronización por eventos NATS. | Cada servicio puede desplegarse, migrarse y caerse de forma independiente. |
 | D3 | IDs **UUIDv7** generados en la aplicación (Go). `DEFAULT uuidv7()` solo como red de seguridad si se usa PostgreSQL ≥ 18. | Ordenables por tiempo (índices B-tree compactos), generables offline (colectores), iguales en PG y ClickHouse. |
-| D4 | `tenant_id uuid NOT NULL` en las tablas raíz desde v1, con un único tenant sembrado. Sin RLS en v1. | Añadir la columna después en tablas con históricos de años es caro; mantenerla constante hoy es casi gratis. |
+| D4 | `tenant_id uuid NOT NULL` en las tablas raíz desde v1, con un único tenant sembrado. Sin RLS en v1. | Añadir la columna después en tablas con históricos de años es caro; mantenerla constante hoy es casi gratis. **Nombre**: `architecture.md` P9 lo llama `organization_id`; aquí se usa `tenant_id` porque `organization` ya es una entidad del dominio de clasificación (Meta, Google…) y `organization_id` aparece en cada fila de flujo con ese significado. Pendiente de unificar (ver §10). |
 | D5 | Borrado **lógico** (`deleted_at`) para entidades referenciadas por históricos (sitios, routers, interfaces, suscriptores, servicios del catálogo, usuarios). Borrado **físico** para datos efímeros (sesiones, refresh tokens, códigos de recuperación usados, asignaciones caducadas fuera de retención). | ClickHouse guarda UUIDs durante años; el nombre de un router borrado debe seguir resolviéndose en un reporte de hace 2 años. |
 | D6 | Migraciones con **goose** (SQL puro, embebido en el binario Go), **forward-only** en producción, patrón **expand/contract**. Mismo tooling para ClickHouse. | Una sola herramienta para PG y CH, sin DSL propio, SQL revisable en PR. |
-| D7 | Dimensiones en ClickHouse vía **diccionarios con fuente PostgreSQL** leyendo **vistas de exportación** (`<esquema>.v_export_*`) con un rol de solo lectura. Hechos (flujos, métricas) se enriquecen con **IDs** en ingesta; los **nombres** se resuelven en consulta. | Nombres mutables no se congelan en miles de millones de filas; consistencia eventual ≤ 5 min; si PostgreSQL cae, ClickHouse conserva la última carga del diccionario. |
+| D7 | Dimensiones en ClickHouse como **tablas `dim.*` alimentadas por eventos** (escritor único: `analytics`, consumer `analytics-dimensions` de [`events.md`](events.md)) y expuestas como **diccionarios con fuente ClickHouse**. Hechos (flujos, métricas) se enriquecen con **IDs** en ingesta; los **nombres** se resuelven en consulta con `dictGet`. | Respeta P2 de [`architecture.md`](architecture.md) (ClickHouse no lee PostgreSQL); nombres mutables no se congelan en miles de millones de filas; consistencia eventual de segundos a ≤ 5 min; si PostgreSQL o NATS caen, las dimensiones siguen con su último estado. |
 | D8 | **Métricas SNMP de red → ClickHouse** (fuente de verdad histórica). **Prometheus solo para la salud de la plataforma** (incluidas métricas agregadas del colector SNMP, sin etiquetas por interfaz). | Cardinalidad (router × interfaz) y retención de años no encajan en Prometheus; los reportes cruzan SNMP con flujos. Ver §9. |
-| D9 | Flujos: una tabla cruda enriquecida (`traffic.flows_raw`) + agregados 5 min / 1 h / 1 día alimentados por **materialized views en abanico desde la tabla cruda** (no en cascada). | Simplicidad y robustez: cada MV es independiente, el TTL de la cruda no afecta a los agregados. |
-| D10 | Categoría **no** se guarda en los hechos de ClickHouse; se guarda `service_id` (+ `catalog_version`). La categoría se resuelve con diccionario. | Si el catálogo mueve un servicio de categoría, el histórico se reinterpreta sin reescribir filas. Ver [`traffic-model.md` §6.4](traffic-model.md). |
+| D9 | Flujos: una tabla cruda enriquecida (`flows.flows_raw`, escritor único: rol *ingester* de `flows`, [ADR-0015](adr/0015-enriquecimiento-de-flujos-en-ingesta.md)) + agregados 5 min / 1 h / 1 día alimentados por **materialized views en abanico desde la tabla cruda** (no en cascada). | Simplicidad y robustez: cada MV es independiente, el TTL de la cruda no afecta a los agregados. ([ADR-0008](adr/0008-clickhouse-para-analitica.md) menciona 1 min/1 h/1 d; aquí se propone 5 min como granularidad fina — ver §6.2.) |
+| D10 | Los agregados se indexan por `service_id` (+ `catalog_version` en crudo); la **categoría se resuelve con diccionario** del catálogo vigente. `flows_raw` guarda además `category_id` de la versión usada, solo como auditoría (ADR-0015). | Si el catálogo mueve un servicio de categoría, el histórico se reinterpreta sin reescribir filas. Ver [`traffic-model.md` §6.4](traffic-model.md). |
 
 ---
 
@@ -74,22 +74,22 @@ CREATE INDEX ix_outbox__pending ON <schema>.outbox (id) WHERE published_at IS NU
 | `auth` | auth | 1–2 | usuarios, roles, permisos, ACL, sesiones, TOTP, auditoría |
 | `devices` | devices | 3 | sitios, routers, interfaces, IPs, credenciales, catálogo de fabricantes, tags, grupos, **suscriptores y asignaciones de IP** |
 | `wireguard` | wireguard | 4 | servidores, peers, pools, claves (cifradas), estado de handshake |
-| `snmp` | snmp | 5 | perfiles de sondeo, OIDs por fabricante, estado actual del último sondeo |
 | `flows` | flows | 6 | exportadores registrados, plantillas, configuración de muestreo |
-| `traffic_intel` | traffic-intelligence | 7 | catálogo de clasificación versionado, ASN, organizaciones, prefijos |
-| `reputation` | reputation | 8 | fuentes de reputación, indicadores |
-| `detection` | detection | 8/10 | modelos de scoring, parámetros, veredictos confirmados |
+| `traffic` | traffic-intelligence | 7 | catálogo de clasificación versionado, ASN, organizaciones, prefijos |
+| `detection` | detection (con módulo *reputation*) | 8/10 | fuentes e indicadores de reputación, hallazgos, modelos de scoring, veredictos confirmados |
 | `alerts` | alerts | 11 | reglas, alertas, notificaciones, canales, silencios |
-| `reporting` | reporting | 12 | definiciones y ejecuciones de reportes (archivos en MinIO) |
+| `analytics` | analytics (con rol *reporting-worker* y job *archiver*) | 9/12/13 | dashboards guardados, definiciones y ejecuciones de reportes, ledger de archivado |
 
-`api-gateway` y `analytics` **no tienen esquema PG** en v1 (gateway sin estado propio salvo Redis;
-analytics lee ClickHouse). `analytics` puede tener un esquema `analytics` si se guardan dashboards
-personalizados (pendiente, ver open questions).
+Sin esquema PG: `api-gateway` (sin estado propio salvo Redis) y `snmp` (su estado operativo —
+leases de shards, último sondeo, últimos contadores para calcular deltas— vive en **NATS KV**
+`snmp_router_state`, y el estado resumido se proyecta a `devices.router_status`; ver
+[`services.md`](services.md)).
 
-> **Nota sobre "Network Service"**: `vision.md` §8 menciona *Network Service / WireGuard* y el
-> Sprint 4 *network-service, wireguard-service*. La lista de servicios acordada no incluye
-> `network`; este modelo asume que todo lo de WireGuard vive en `wireguard`. Si el Agente 1 crea un
-> servicio `network`, solo cambia el dueño del esquema.
+> Fusiones del MVP ([ADR-0014](adr/0014-granularidad-de-microservicios-en-el-mvp.md)):
+> *network* → `wireguard`; *security + reputation + detection* → `detection`; *reporting* →
+> `analytics`; auditoría → `auth`. Cada módulo usa un **prefijo de tabla** dentro del esquema del
+> servicio anfitrión (`detection.reputation_*`, `analytics.report_*`) para poder extraerlo después
+> a su propio esquema con un simple `ALTER TABLE … SET SCHEMA`.
 
 ---
 
@@ -122,7 +122,7 @@ erDiagram
 | `permission` | `key text PK` (`devices.read`, `traffic.read`…), `description`, `resource`, `action` | `ck(key = resource || '.' || action)` | — catálogo sembrado por migración; nunca se borra, se marca `deprecated_at` |
 | `role_permission` | `role_id`, `permission_key` | PK compuesta | físico |
 | `user_role` | `user_id`, `role_id`, `granted_by`, `granted_at`, `expires_at` | PK compuesta; `ix(role_id)` | físico (queda en auditoría) |
-| `acl_entry` | `id`, `tenant_id`, `subject_type` (`user`/`role`), `subject_id`, `resource_type` (`site`/`router`/`device_group`/`subscriber_group`/`wireguard_server`), `resource_id uuid` (**sin FK**, vive en otro esquema), `effect` (`allow`/`deny`), `permissions text[]` (subconjunto de permisos que aplica; vacío = todos los del rol) | `ux(subject_type, subject_id, resource_type, resource_id)`; `ix(resource_type, resource_id)` | físico |
+| `acl_entry` | `id`, `tenant_id`, `subject_type` (`user`/`role`), `subject_id`, `resource_type` (`site`/`router`/`device_group`/`customer_group`/`wireguard_server`), `resource_id uuid` (**sin FK**, vive en otro esquema), `effect` (`allow`/`deny`), `permissions text[]` (subconjunto de permisos que aplica; vacío = todos los del rol) | `ux(subject_type, subject_id, resource_type, resource_id)`; `ix(resource_type, resource_id)` | físico |
 | `session` | `id`, `user_id`, `created_at`, `last_seen_at`, `expires_at`, `revoked_at`, `revoked_reason`, `ip inet`, `user_agent`, `mfa_verified_at` | `ix(user_id) WHERE revoked_at IS NULL` | físico tras `expires_at + 30 d` (su rastro queda en `audit_log`) |
 | `refresh_token` | `id`, `session_id`, `token_hash bytea` (SHA-256; el token **nunca** se guarda en claro), `family_id` (detección de reutilización), `issued_at`, `expires_at`, `used_at`, `replaced_by` | `ux(token_hash)`; `ix(session_id)` | físico tras expiración |
 | `totp_secret` | `user_id PK`, `secret_ciphertext bytea`, `key_version int`, `confirmed_at`, `last_used_step bigint` (anti-replay) | — | físico al desactivar 2FA |
@@ -163,13 +163,13 @@ erDiagram
   router ||--o{ router_credential : usa
   credential ||--o{ router_credential : ""
   router ||--o{ ip_realm : "realm privado"
-  ip_realm ||--o{ subscriber_ip_assignment : ""
-  subscriber ||--o{ subscriber_service_link : ""
-  subscriber ||--o{ subscriber_ip_assignment : "IP en el tiempo"
-  subscriber ||--o{ cpe : tiene
+  ip_realm ||--o{ customer_ip_assignment : ""
+  customer ||--o{ customer_service_link : ""
+  customer ||--o{ customer_ip_assignment : "IP en el tiempo"
+  customer ||--o{ cpe : tiene
   cpe }o--|| device : "es un"
-  router ||--o{ subscriber_service_link : "atiende vía"
-  interface ||--o{ subscriber_service_link : "puerto/vlan/pppoe"
+  router ||--o{ customer_service_link : "atiende vía"
+  interface ||--o{ customer_service_link : "puerto/vlan/pppoe"
   group ||--o{ group_member : ""
   tag ||--o{ tag_assignment : ""
 ```
@@ -184,14 +184,14 @@ erDiagram
 | `firmware` | `id`, `vendor_id`, `model_id NULL`, `version`, `release_date`, `eol_date`, `notes`, `is_vulnerable bool` | `ux(vendor_id, model_id, version)` | lógico |
 | `router` | `id`, `tenant_id`, `site_id`, `model_id`, `firmware_id`, `hostname`, `display_name`, `serial_number`, `mgmt_address inet` (dirección de gestión, típicamente la IP WireGuard), `mgmt_wireguard_peer_id uuid NULL` (sin FK, esquema `wireguard`), `role` (`edge`/`border`/`core`/`aggregation`/`bng`), `admin_state` (`active`/`maintenance`/`decommissioned`), `snmp_profile_id uuid NULL` (esquema `snmp`, sin FK), `flow_export_enabled bool`, `flow_sampling_rate int NULL` (declarado; el real llega en el flujo), `sys_object_id`, `sys_descr`, `metadata jsonb` | `ux(tenant_id, hostname) WHERE deleted_at IS NULL`; `ux(serial_number) WHERE deleted_at IS NULL AND serial_number IS NOT NULL`; `ix(site_id)`; `ix GIN(display_name gin_trgm_ops)` | lógico |
 | `device` | Equipos no-router (switch, OLT, AP, servidor, **CPE**): `id`, `tenant_id`, `site_id NULL`, `model_id`, `kind`, `name`, `serial_number`, `mac_address macaddr`, `mgmt_address inet`, `admin_state` | `ux(tenant_id, mac_address) WHERE deleted_at IS NULL AND mac_address IS NOT NULL` | lógico |
-| `interface` | `id`, `router_id`, `parent_interface_id NULL`, `if_index int`, `name` (ifName), `descr` (ifDescr), `alias` (ifAlias), `kind` (`ethernet`/`vlan`/`bond`/`pppoe_server`/`wireguard`/`bridge`/`loopback`/`other`), `vlan_id int NULL`, `speed_bps bigint`, `mtu int`, `mac_address`, `flow_role` (`subscriber_edge`/`upstream`/`peering`/`core`/`management`/`none`) — **clave para la deduplicación de flujos**, ver [`traffic-model.md` §10](traffic-model.md), `monitored bool`, `discovered_at`, `last_seen_at` | `ux(router_id, if_index) WHERE deleted_at IS NULL`; `ux(router_id, name) WHERE deleted_at IS NULL` | lógico (los ifIndex cambian tras reboot en algunos equipos: se re-concilia por `name` y se conserva el `id`) |
+| `interface` | `id`, `router_id`, `parent_interface_id NULL`, `if_index int`, `name` (ifName), `descr` (ifDescr), `alias` (ifAlias), `kind` (`ethernet`/`vlan`/`bond`/`pppoe_server`/`wireguard`/`bridge`/`loopback`/`other`), `vlan_id int NULL`, `speed_bps bigint`, `mtu int`, `mac_address`, `flow_role` (`customer_edge`/`upstream`/`peering`/`core`/`management`/`none`) — **clave para la deduplicación de flujos**, ver [`traffic-model.md` §10](traffic-model.md), `monitored bool`, `discovered_at`, `last_seen_at` | `ux(router_id, if_index) WHERE deleted_at IS NULL`; `ux(router_id, name) WHERE deleted_at IS NULL` | lógico (los ifIndex cambian tras reboot en algunos equipos: se re-concilia por `name` y se conserva el `id`) |
 | `ip_address` | IPs **configuradas en interfaces** del equipo (no de clientes): `id`, `interface_id`, `address inet` (con máscara), `realm_id`, `is_primary bool` | `ux(realm_id, address)`; `ix GiST(address inet_ops)` | físico (re-descubrible) |
 | `credential` | `id`, `tenant_id`, `name`, `kind` (`snmp_v2c`/`snmp_v3`/`ssh`/`routeros_api`/`netconf`/`http_api`), `username text NULL` (no secreto), `snmp_v3_auth_proto`, `snmp_v3_priv_proto`, `secret_ciphertext bytea`, `secret_nonce bytea`, `dek_wrapped bytea`, `kek_id text` (o bien `secret_ref text` si se usa un gestor externo — ver nota), `rotated_at`, `last_used_at` | `ux(tenant_id, name) WHERE deleted_at IS NULL`; `ck(secret_ciphertext IS NOT NULL OR secret_ref IS NOT NULL)` | lógico, pero el material cifrado se **sobrescribe con NULL** al borrar (crypto-shredding) |
 | `router_credential` | `router_id`, `credential_id`, `purpose` (`snmp`/`api`/`ssh`), `priority` | PK `(router_id, purpose, priority)` | físico |
 | `ip_realm` | Espacio de direccionamiento donde una IP es única: `id`, `tenant_id`, `kind` (`public` = global del ISP / `private` = detrás de un router o VRF / `cgnat` = 100.64.0.0/10 compartido), `router_id NULL`, `vrf_name NULL`, `name` | `ux(tenant_id) WHERE kind='public'` (uno solo); `ux(router_id, vrf_name)` | lógico |
 | `tag` | `id`, `tenant_id`, `key`, `value`, `color` | `ux(tenant_id, key, value)` | físico |
-| `tag_assignment` | `tag_id`, `resource_type` (`site`/`router`/`device`/`interface`/`subscriber`), `resource_id` | PK compuesta; `ix(resource_type, resource_id)` | físico |
-| `group` | Grupos para ACL y reportes: `id`, `tenant_id`, `kind` (`device_group`/`subscriber_group`), `name`, `dynamic_filter jsonb NULL` (grupo dinámico por tags/sitio) | `ux(tenant_id, kind, name)` | lógico |
+| `tag_assignment` | `tag_id`, `resource_type` (`site`/`router`/`device`/`interface`/`customer`), `resource_id` | PK compuesta; `ix(resource_type, resource_id)` | físico |
+| `group` | Grupos para ACL y reportes: `id`, `tenant_id`, `kind` (`device_group`/`customer_group`), `name`, `dynamic_filter jsonb NULL` (grupo dinámico por tags/sitio) | `ux(tenant_id, kind, name)` | lógico |
 | `group_member` | `group_id`, `member_type`, `member_id` | PK compuesta | físico |
 | `router_status` | Estado operacional actual (proyección de eventos SNMP/ICMP/WireGuard): `router_id PK`, `status` (`online`/`offline`/`warning`/`critical`/`unknown`), `reason`, `since`, `last_poll_at`, `last_seen_at` | `ix(status)` | — (1 fila por router) |
 
@@ -216,21 +216,23 @@ facturación/CRM, se mantiene aquí la **proyección** con `external_ref` (ver o
 
 | Tabla | Campos clave | Constraints / índices | Borrado |
 |-------|--------------|-----------------------|---------|
-| `subscriber` | `id`, `tenant_id`, `external_ref text NULL` (ID en CRM/facturación), `code` (nº de cliente), `name`, `kind_declared` (`residential`/`business`/`unknown` — lo contratado; el detectado vive en `detection`), `plan_name`, `plan_down_bps`, `plan_up_bps`, `status` (`active`/`suspended`/`terminated`), `site_id NULL`, `address`, `latitude`, `longitude`, `contact jsonb` (PII: email/teléfono; ver nota) | `ux(tenant_id, code) WHERE deleted_at IS NULL`; `ux(tenant_id, external_ref) WHERE external_ref IS NOT NULL AND deleted_at IS NULL`; GIN trigram en `name` | lógico; PII anonimizada a los N días de `terminated` (política a definir) |
-| `cpe` | `id`, `subscriber_id`, `device_id NULL` (si se gestiona como equipo), `mac_address`, `serial_number`, `model_text`, `installed_at`, `removed_at` | `ix(subscriber_id)`; `ux(mac_address) WHERE removed_at IS NULL` | lógico (`removed_at`) |
-| `subscriber_service_link` | Cómo se conecta el cliente a la red (puede cambiar en el tiempo): `id`, `subscriber_id`, `router_id`, `interface_id NULL` (puerto/VLAN/interfaz PPPoE server), `access_type` (`pppoe`/`ipoe_dhcp`/`static`/`gpon`/`wireless`), `pppoe_username NULL`, `vlan_id NULL`, `valid tstzrange NOT NULL` | `EXCLUDE USING gist (subscriber_id WITH =, valid WITH &&)` (una sola conexión activa por cliente en v1); `ux(router_id, pppoe_username) WHERE upper_inf(valid)` | nunca se borra; se cierra el rango |
-| `subscriber_ip_assignment` | **Tabla crítica para la atribución.** `id`, `tenant_id`, `subscriber_id`, `realm_id`, `prefix inet` (una IP `/32`/`/128` o un prefijo delegado IPv6 `/56`, `/64`), `source` (`static`/`dhcp`/`pppoe_radius`/`pppoe_router_api`/`cgnat_log`/`manual`), `router_id NULL`, `valid tstzrange NOT NULL` (`[inicio, fin)`; fin abierto = vigente), `session_ref text NULL` (Acct-Session-Id, lease id), `observed_at` | `EXCLUDE USING gist (realm_id WITH =, prefix inet_ops WITH &&, valid WITH &&)` — **una IP/prefijo no puede pertenecer a dos clientes a la vez en el mismo realm**; `ix GiST(realm_id, prefix inet_ops, valid)`; `ix(subscriber_id, lower(valid))` | físico solo pasado el horizonte de retención de flujos crudos + agregados que la usen (propuesta: 13 meses); nunca se actualiza el pasado salvo corrección auditada |
+| `customer` | `id`, `tenant_id`, `external_ref text NULL` (ID en CRM/facturación), `code` (nº de cliente), `name`, `kind_declared` (`residential`/`business`/`unknown` — lo contratado; el detectado vive en `detection`), `plan_name`, `plan_down_bps`, `plan_up_bps`, `status` (`active`/`suspended`/`terminated`), `site_id NULL`, `address`, `latitude`, `longitude`, `contact jsonb` (PII: email/teléfono; ver nota) | `ux(tenant_id, code) WHERE deleted_at IS NULL`; `ux(tenant_id, external_ref) WHERE external_ref IS NOT NULL AND deleted_at IS NULL`; GIN trigram en `name` | lógico; PII anonimizada a los N días de `terminated` (política a definir) |
+| `cpe` | `id`, `customer_id`, `device_id NULL` (si se gestiona como equipo), `mac_address`, `serial_number`, `model_text`, `installed_at`, `removed_at` | `ix(customer_id)`; `ux(mac_address) WHERE removed_at IS NULL` | lógico (`removed_at`) |
+| `customer_service_link` | Cómo se conecta el cliente a la red (puede cambiar en el tiempo): `id`, `customer_id`, `router_id`, `interface_id NULL` (puerto/VLAN/interfaz PPPoE server), `access_type` (`pppoe`/`ipoe_dhcp`/`static`/`gpon`/`wireless`), `pppoe_username NULL`, `vlan_id NULL`, `valid tstzrange NOT NULL` | `EXCLUDE USING gist (customer_id WITH =, valid WITH &&)` (una sola conexión activa por cliente en v1); `ux(router_id, pppoe_username) WHERE upper_inf(valid)` | nunca se borra; se cierra el rango |
+| `customer_ip_assignment` | **Tabla crítica para la atribución.** `id`, `tenant_id`, `customer_id`, `realm_id`, `prefix inet` (una IP `/32`/`/128` o un prefijo delegado IPv6 `/56`, `/64`), `source` (`static`/`dhcp`/`pppoe_radius`/`pppoe_router_api`/`cgnat_log`/`manual`), `router_id NULL`, `valid tstzrange NOT NULL` (`[inicio, fin)`; fin abierto = vigente), `session_ref text NULL` (Acct-Session-Id, lease id), `observed_at` | `EXCLUDE USING gist (realm_id WITH =, prefix inet_ops WITH &&, valid WITH &&)` — **una IP/prefijo no puede pertenecer a dos clientes a la vez en el mismo realm**; `ix GiST(realm_id, prefix inet_ops, valid)`; `ix(customer_id, lower(valid))` | físico solo pasado el horizonte de retención de flujos crudos + agregados que la usen (propuesta: 13 meses); nunca se actualiza el pasado salvo corrección auditada |
 
-Notas sobre `subscriber_ip_assignment`:
+Notas sobre `customer_ip_assignment`:
 
 - PostgreSQL ≥ 18 permite `UNIQUE (realm_id, prefix, valid WITHOUT OVERLAPS)`; el `EXCLUDE` con
   `btree_gist` es el equivalente portable y es el que se recomienda escribir.
 - Volumen: con PPPoE/DHCP dinámico, ~1–3 cambios por cliente por día ⇒ 100 k clientes ≈ 300 k
   filas/día ≈ 110 M filas/año. Se **particiona por mes** sobre `lower(valid)` cuando supere ~50 M
   filas (Sprint 15).
-- Las asignaciones se publican como eventos (`horus.devices.ip_assignment.started` /
-  `.ended`) para que `traffic-intelligence` mantenga su tabla de atribución en memoria. **Dependencia
-  Agente 3**: payload con `assignment_id, subscriber_id, realm_id, prefix, valid_from, valid_to,
+- Las asignaciones se publican como eventos (`horus.devices.customer.assigned` /
+  `horus.devices.customer.unassigned`, nombres de [`services.md`](services.md)) y se exponen por
+  gRPC (`ListCustomerAddressMap`) para que el **ingester de `flows`** mantenga su tabla de
+  atribución en memoria. **Dependencia
+  Agente 3**: payload con `assignment_id, customer_id, realm_id, prefix, valid_from, valid_to,
   source, router_id`.
 
 ### 2.3 `wireguard`
@@ -300,7 +302,7 @@ erDiagram
 | `notification` | `id`, `alert_id`, `channel_id`, `status` (`pending`/`sent`/`failed`/`dead`), `attempts`, `next_attempt_at`, `sent_at`, `provider_message_id`, `error` | `ix(status, next_attempt_at) WHERE status IN ('pending','failed')` | físico > 90 días |
 | `silence` | `id`, `matchers jsonb`, `starts_at`, `ends_at`, `created_by`, `comment` (ventanas de mantenimiento) | `ix(ends_at)` | físico > 1 año |
 
-### 2.5 `traffic_intel` (catálogo de clasificación)
+### 2.5 `traffic` (catálogo de clasificación)
 
 El diseño funcional (reglas, prioridad, confianza, publicación, CDN) está en
 [`traffic-model.md` §6–§8](traffic-model.md). Aquí solo el modelo físico.
@@ -333,22 +335,32 @@ erDiagram
 
 ### 2.6 Esquemas secundarios (borrador ligero; se detallan en su sprint)
 
-- **`snmp`**: `poll_profile` (intervalos, OIDs), `vendor_oid_map` (por fabricante/modelo:
-  CPU, RAM, temperatura), `poll_target_state` (último sondeo por router: `router_id PK`,
-  `last_success_at`, `last_error`, `consecutive_failures`, último `sysUpTime` y contadores
-  `ifHC*` previos — necesarios para calcular deltas y detectar wrap/reinicio). Las series van a
-  ClickHouse (§6.3).
+- **`snmp` (sin PostgreSQL)**: el estado por router (`last_success_at`, `last_error`,
+  `consecutive_failures`, último `sysUpTime` y contadores `ifHC*` previos para calcular deltas y
+  detectar wrap/reinicio) vive en NATS KV `snmp_router_state`. Perfiles de sondeo y mapa de OIDs
+  por fabricante/modelo (CPU, RAM, temperatura) se versionan como **archivos en el repositorio**
+  (`services/snmp/profiles/`) o, si deben ser editables desde la UI, como tablas
+  `devices.snmp_profile` (decisión de Sprint 5). Las series van a ClickHouse (§6.3).
 - **`flows`**: `exporter` (`id`, `router_id`, `source_ip inet`, `observation_domain_id`,
   `protocol`, `declared_sampling_rate`, `last_packet_at`), `template_cache` (plantillas v9/IPFIX
   persistidas para no perder decodificación tras reinicio del colector).
-- **`reputation`**: `feed` (`key`, `license`, `kind`, `weight`), `indicator` (`value inet/cidr`,
-  `feed_id`, `category` (`scanner`/`botnet_cc`/`spam`/`tor_exit`…), `score`, `first_seen`,
-  `last_seen`, `expires_at`; `ix GiST(value)`; físico al expirar).
-- **`detection`**: `model` (versión de scoring, pesos, parámetros), `verdict_feedback` (confirmación
-  humana "es comercial / no lo es" para recalibrar). Los scores por cliente y período viven en
-  ClickHouse (`detection.subscriber_scores_1d`).
-- **`reporting`**: `report_definition`, `report_run` (`status`, `parameters jsonb`,
-  `object_key` en MinIO, `sha256`, `expires_at`, `requested_by`).
+- **`detection`** (incluye módulo reputation):
+  - `reputation_source` (`key`, `license`, `kind`, `weight`, `refresh_interval`) y
+    `reputation_entry` (`value cidr`, `source_id`, `category` (`scanner`/`botnet_cc`/`spam`/
+    `tor_exit`/`vpn_proxy`…), `score`, `first_seen`, `last_seen`, `expires_at`;
+    `ux(source_id, value)`, `ix GiST(value inet_ops)`; borrado físico al expirar).
+    **Decisión: `reputation_entry` en PostgreSQL**: volumen esperado 1–5 M entradas (feeds
+    públicos típicos), consultas puntuales por IP con GiST, altas/bajas frecuentes (mal caso para
+    ClickHouse). Para cruzar con flujos se compila un snapshot que se carga en ClickHouse como
+    diccionario `IP_TRIE` (`dim.reputation`) y detection escribe los cruces en
+    `detection.reputation_hits` (CH). Se reevalúa a > 10 M entradas.
+  - `finding`, `finding_evidence`, `scoring_model` (versión, pesos, parámetros),
+    `verdict_feedback` (confirmación humana "es comercial / no lo es" para recalibrar). Los scores
+    por cliente y período viven en ClickHouse (`detection.customer_scores_1d`).
+- **`analytics`** (incluye reporting y archiver): `dashboard` (vistas guardadas por usuario),
+  `report_definition`, `report_run` (`status`, `parameters jsonb`, `object_key` en MinIO,
+  `sha256`, `expires_at`, `requested_by`), `archive_manifest` (ledger de particiones de ClickHouse
+  archivadas en MinIO, ver [`storage.md` §6](storage.md)).
 
 ---
 
@@ -397,85 +409,101 @@ pero añade un DSL/licencia y lo declarativo choca con expand/contract manual).
 
 ```mermaid
 flowchart LR
-  subgraph PG[PostgreSQL]
-    D[devices.v_export_*]
-    T[traffic_intel.v_export_*]
-    W[wireguard.v_export_*]
+  subgraph PG[PostgreSQL - fuente de verdad]
+    D[devices]
+    T[traffic - catálogo]
+    W[wireguard]
   end
+  NATS((NATS JetStream))
+  D -- outbox --> NATS
+  T -- outbox --> NATS
+  W -- outbox --> NATS
+  T -- "snapshot catálogo" --> M[(MinIO)]
   subgraph CH[ClickHouse]
-    DICT[(diccionarios dim.*)]
-    F[traffic.flows_raw + agregados]
+    DIM[(tablas dim.* ReplacingMergeTree)]
+    DICT[(diccionarios dim.*_dict<br/>fuente CLICKHOUSE)]
+    F[flows.flows_raw + agregados]
     S[snmp.* series]
   end
-  D -- "fuente POSTGRESQL, LIFETIME 60–300 s" --> DICT
-  T --> DICT
-  W --> DICT
-  TI[traffic-intelligence] -- "IDs en ingesta" --> F
-  NATS((NATS)) -- "ip_assignment.*, catalog.published" --> TI
-  PG -. "eventos outbox" .-> NATS
+  NATS -- "analytics-dimensions" --> AN[analytics] -- "escritor único" --> DIM
+  DIM --> DICT
+  NATS -- "customer.assigned/unassigned,<br/>catalog.published" --> ING[flows ingester]
+  M --> ING
+  D -. "gRPC ListCustomerAddressMap<br/>(arranque/reconciliación)" .-> ING
+  ING -- "IDs en ingesta" --> F
   F -- "dictGet() en consulta" --> DICT
 ```
 
 ### 4.1 Principios
 
-1. **Los hechos llevan IDs, no nombres.** Una fila de flujo guarda `subscriber_id`, `router_id`,
-   `site_id`, `interface_id`, `service_id`, `remote_asn`. Nunca `router_name` ni `category_name`.
+1. **Los hechos llevan IDs, no nombres.** Una fila de flujo guarda `customer_id`, `router_id`,
+   `site_id`, `interface_id`, `service_id`, `remote_asn`, `remote_org_id`. Nunca `router_name`.
+   (El evento enriquecido de [`events.md`](events.md) §8.6 lleva `remote_org` y `service` como
+   texto: en ClickHouse se guardan sus IDs.)
 2. **Lo temporal se resuelve en ingesta.** La atribución IP→cliente depende del instante
-   (asignaciones dinámicas). Se resuelve una sola vez, cuando llega el flujo, en
-   `traffic-intelligence`, con su tabla en memoria alimentada por eventos
-   `horus.devices.ip_assignment.*` + snapshot inicial por gRPC a `devices`. Resolverlo en consulta
-   con un diccionario `RANGE_HASHED` sería posible pero caro sobre miles de millones de filas y
-   frágil si la tabla de asignaciones se purga.
-3. **Lo descriptivo y mutable se resuelve en consulta** con diccionarios:
+   (asignaciones dinámicas). Se resuelve una sola vez, cuando llega el flujo, en el **rol ingester
+   de `flows`** ([ADR-0015](adr/0015-enriquecimiento-de-flujos-en-ingesta.md)), con su tabla en
+   memoria alimentada por eventos `horus.devices.customer.assigned/unassigned` + snapshot inicial
+   por gRPC a `devices` (`ListCustomerAddressMap`). Resolverlo en consulta con un diccionario
+   `RANGE_HASHED` sería posible pero caro sobre miles de millones de filas y frágil si la tabla de
+   asignaciones se purga.
+3. **Lo descriptivo y mutable se resuelve en consulta** con diccionarios cuya fuente son tablas
+   `dim.*` **dentro de ClickHouse**:
 
-| Diccionario CH | Fuente (vista PG, dueño) | Layout | LIFETIME | Uso |
-|----------------|--------------------------|--------|----------|-----|
-| `dim.site` | `devices.v_export_site` | `HASHED` (UUID) | 60–300 s | nombre, padre, timezone |
-| `dim.router` | `devices.v_export_router` | `HASHED` | 60–300 s | nombre, sitio, rol |
-| `dim.interface` | `devices.v_export_interface` | `HASHED` | 60–300 s | nombre, speed_bps, flow_role |
-| `dim.subscriber` | `devices.v_export_subscriber` (sin PII: id, code, name, kind_declared, plan, site_id, status) | `HASHED` | 300 s | nombre/código del cliente, plan |
-| `dim.service` | `traffic_intel.v_export_service` (versión publicada) | `HASHED` | 300 s | nombre, `category_id`, padre |
-| `dim.category` | `traffic_intel.v_export_category` | `HASHED` | 300 s | nombre, color |
-| `dim.organization` | `traffic_intel.v_export_organization` | `HASHED` | 300 s | nombre |
-| `dim.asn` | `traffic_intel.v_export_asn` | `HASHED` (UInt64) | 3600 s | AS-name, organización, país |
-| `dim.wg_peer` | `wireguard.v_export_peer` | `HASHED` | 300 s | nombre del peer |
-| `dim.prefix_asn` (opcional, consultas ad-hoc) | tabla CH `dim.prefix_asn_src` cargada desde el artefacto del catálogo | `IP_TRIE` | al publicar | buscar ASN de una IP en consultas forenses |
+| Tabla `dim.*` (ReplacingMergeTree(`version`)) | Evento de origen (dueño) | Diccionario | LIFETIME | Uso |
+|-----------------------------------------------|--------------------------|-------------|----------|-----|
+| `dim.site` | `horus.devices.site.*` | `HASHED` (UUID) | 60–300 s | nombre, padre, timezone |
+| `dim.router` | `horus.devices.router.*` | `HASHED` | 60–300 s | nombre, sitio, rol |
+| `dim.interface` | `horus.devices.interface.*` | `HASHED` | 60–300 s | nombre, speed_bps, flow_role |
+| `dim.customer` | `horus.devices.customer.*` (**sin PII**: id, code, name, kind_declared, plan, site_id, status) | `HASHED` | 300 s | nombre/código del cliente, plan |
+| `dim.service`, `dim.category`, `dim.organization`, `dim.asn` | `horus.traffic.catalog.published` (analytics lee el snapshot de MinIO y vuelca las tablas de la versión) | `HASHED` | 300 s | nombres, `category_id` vigente de cada servicio, AS-name |
+| `dim.wg_peer` | `horus.wireguard.peer.*` | `HASHED` | 300 s | nombre del peer |
+| `dim.prefix_asn` | snapshot del catálogo | `IP_TRIE` | al publicar | "¿qué es esta IP?" con el catálogo actual (ADR-0015) |
+| `dim.reputation` | snapshot de reputación de `detection` | `IP_TRIE` | al publicar | cruce de flujos con reputación vigente |
 
-- Las vistas `v_export_*` son el **contrato público de lectura** de cada servicio hacia ClickHouse
-  (como una API): el servicio dueño las versiona y puede cambiar sus tablas internas sin romper
-  ClickHouse. El rol `clickhouse_dict_reader` solo tiene `SELECT` sobre esas vistas. **Esto es una
-  excepción controlada a "sin acceso entre esquemas"** — se propone registrarla como ADR
-  (dependencia Agente 1).
-- Se incluyen filas borradas lógicamente (con `deleted_at`) para que los históricos sigan
+- Escritor único de `dim.*`: `analytics` (consumer `analytics-dimensions` de
+  [`events.md`](events.md)). Las tablas son publicadas (las leen detection y alerts).
+- **Arranque y reconciliación**: al iniciar, y cada noche, `analytics` pide un snapshot completo por
+  gRPC (`devices`, `wireguard`) y reescribe las dimensiones (corrige eventos perdidos o
+  desordenados; `ReplacingMergeTree(version)` con la `version` del agregado garantiza que gana la
+  más reciente).
+- Se incluyen entidades borradas lógicamente (con `deleted_at`) para que los históricos sigan
   resolviendo nombres.
-- Diccionarios con `update_field = updated_at` para cargas incrementales cuando el volumen lo
-  justifique (suscriptores > 100 k).
+- **Requisito para Agente 3**: los eventos `*.created/updated/deleted` de entidades dimensionales
+  deben llevar **el estado completo** de los campos de la tabla anterior (no solo el diff) y la
+  `version` del agregado.
 
-### 4.2 Alternativa descartada para v1: dimensiones por eventos
+### 4.2 Alternativa descartada: diccionarios con fuente PostgreSQL
 
-Consumir `horus.devices.*.updated` y escribir tablas `ReplacingMergeTree` de dimensiones en CH. Es
-más "puro" (sin conexión CH→PG), pero obliga a manejar orden de eventos, re-sincronización inicial y
-`FINAL` en consultas. Se reconsidera si PG y CH se separan en redes/instancias donde CH no deba
-alcanzar PG, o en multi-tenant.
+Diccionarios ClickHouse leyendo vistas `v_export_*` de cada esquema PG con un rol de solo lectura.
+Más simple (sin consumer ni snapshots), pero crea una conexión ClickHouse→PostgreSQL que viola P2 de
+[`architecture.md`](architecture.md) y acopla el contrato a vistas SQL. Si el consumer de
+dimensiones resultara frágil, se puede adoptar con un ADR (propuesto como ADR-0017 si llegara a
+hacer falta).
 
 ### 4.3 Consistencia esperada
 
-| Dato | Latencia hasta reflejarse en CH | Si PostgreSQL está caído |
-|------|----------------------------------|--------------------------|
-| Renombrar router/sitio/cliente | ≤ LIFETIME del diccionario (≤ 5 min) | CH sigue con la última carga válida; los dashboards funcionan con nombres posiblemente viejos. |
-| Nueva asignación IP→cliente | ~segundos (evento NATS → memoria de traffic-intelligence) | traffic-intelligence sigue con su tabla en memoria (y snapshot local en disco). Flujos de IPs con asignaciones nuevas no vistas ⇒ `subscriber_id` nulo (UUID cero) con marca `attribution_status='unknown'`; job de reatribución posterior opcional sobre datos crudos (ver [`traffic-model.md` §9.5](traffic-model.md)). |
-| Nueva versión del catálogo | al publicar: evento `horus.traffic_intel.catalog.published` (nombre a confirmar) ⇒ recarga en caliente en traffic-intelligence; `dim.service` en ≤ 5 min | se usa la última versión cargada (cache local). |
+| Dato | Latencia hasta reflejarse en CH | Si PostgreSQL / NATS está caído |
+|------|----------------------------------|----------------------------------|
+| Renombrar router/sitio/cliente | evento (segundos) + LIFETIME del diccionario (≤ 5 min) | CH sigue con el último estado; dashboards con nombres posiblemente viejos. |
+| Nueva asignación IP→cliente | ~segundos (evento → memoria del ingester) | El ingester sigue con su tabla en memoria (y copia local en disco). Flujos de IPs con asignaciones no vistas ⇒ `customer_id` = UUID cero con `attribution_status='unknown'`; reatribución opcional sobre crudo ([`traffic-model.md` §9.5](traffic-model.md)). |
+| Nueva versión del catálogo | evento `horus.traffic.catalog.published` ⇒ recarga en caliente en ingesters; `dim.service` en ≤ 5 min | se usa la última versión cargada (cache local). |
 | Borrar un router | inmediato en PG; CH conserva sus datos hasta TTL | — |
 
 ---
 
 ## 5. ClickHouse — principios del modelo
 
-- **Bases (databases) por dueño**: `traffic` (escribe traffic-intelligence; lee analytics,
-  reporting, detection), `snmp` (escribe snmp), `wireguard` (escribe wireguard), `detection`
-  (escribe detection), `dim` (diccionarios, infraestructura). Un usuario CH por servicio con
-  `INSERT` solo en su base y `SELECT` donde lo necesite.
-- **Inserciones por lotes**: 10 k–100 k filas o cada 1–5 s por escritor (lo que ocurra primero);
+- **Bases (databases) por escritor único** ([ADR-0008](adr/0008-clickhouse-para-analitica.md),
+  [`architecture.md` §6.3](architecture.md)): `flows` (escribe el ingester de `flows`), `snmp`
+  (escribe el rol *metrics-writer* de `snmp`), `wireguard` (escribe `wireguard`), `detection`
+  (escribe `detection`), `dim` y `analytics` (escribe `analytics`). Un usuario CH por servicio con
+  `INSERT` solo en su base y `SELECT` solo en tablas **publicadas**.
+- **Tablas publicadas** (contrato versionado, legibles por `analytics`, `detection`, `alerts`):
+  `flows.flows_raw`, todos los agregados `flows.*_5m/_1h/_1d`, `snmp.*_metrics` y sus agregados,
+  `wireguard.peer_metrics*`, `detection.customer_scores_1d`, `detection.reputation_hits`, `dim.*`.
+  Privadas: tablas temporales de reconstrucción (`*_rebuild`) y de staging.
+- **Inserciones por lotes**: ≥ 50 k filas o cada 5 s por escritor (lo que ocurra primero; ADR-0008);
   nunca fila a fila. `async_insert=1` solo como respaldo. Idempotencia: cada lote lleva un
   `insert_deduplication_token` derivado del ID del mensaje/lote de JetStream, así un reintento tras
   caída no duplica (deduplicación de bloques de `MergeTree`, ventana `replicated_deduplication_window` /
@@ -499,13 +527,13 @@ alcanzar PG, o en multi-tenant.
 
 ## 6. ClickHouse — tablas
 
-### 6.1 Flujos crudos enriquecidos: `traffic.flows_raw`
+### 6.1 Flujos crudos enriquecidos: `flows.flows_raw`
 
 Registro canónico definido en [`traffic-model.md` §3](traffic-model.md); aquí su forma física.
 
 ```sql
 -- borrador
-CREATE TABLE traffic.flows_raw
+CREATE TABLE flows.flows_raw
 (
     tenant_id              UUID,
     ts                     DateTime64(3, 'UTC') CODEC(DoubleDelta, ZSTD(1)), -- fin del flujo (o del intervalo activo)
@@ -514,14 +542,14 @@ CREATE TABLE traffic.flows_raw
     site_id                UUID,
     router_id              UUID,                        -- exportador
     interface_id           UUID,                        -- punto de observación (interfaz del cliente)
-    observation_role       Enum8('unknown'=0,'subscriber_edge'=1,'upstream'=2,'peering'=3,'core'=4),
+    observation_role       Enum8('unknown'=0,'customer_edge'=1,'upstream'=2,'peering'=3,'core'=4),
     input_if_index         UInt32 CODEC(T64, ZSTD(1)),
     output_if_index        UInt32 CODEC(T64, ZSTD(1)),
-    subscriber_id          UUID,                        -- UUID cero si no atribuido
+    customer_id          UUID,                        -- UUID cero si no atribuido
     attribution_status     Enum8('unknown'=0,'attributed'=1,'ambiguous'=2,'infrastructure'=3,'transit'=4),
     direction              Enum8('unknown'=0,'upload'=1,'download'=2,'internal'=3),
-    subscriber_ip          IPv6,
-    subscriber_port        UInt16,
+    customer_ip          IPv6,
+    customer_port        UInt16,
     remote_ip              IPv6,
     remote_port            UInt16,
     protocol               UInt8,
@@ -538,23 +566,23 @@ CREATE TABLE traffic.flows_raw
     classification_method  Enum8('none'=0,'local_override'=1,'prefix'=2,'asn_port'=3,'asn'=4,'port'=5,'sni'=6,'dns'=7,'heuristic'=8),
     classification_confidence UInt8,                    -- 0..100
     catalog_version        UInt32,
-    reputation_score       UInt8,                       -- 0 = sin indicador; snapshot en ingesta
+    category_id            UUID,                        -- categoría del servicio según catalog_version (auditoría; los reportes usan la vigente, ver §6.2)
     INDEX ix_remote_ip   remote_ip    TYPE bloom_filter(0.01) GRANULARITY 4,
     INDEX ix_router      router_id    TYPE set(256)          GRANULARITY 4,
     INDEX ix_asn         remote_asn   TYPE set(1024)         GRANULARITY 4,
-    INDEX ix_sub_ip      subscriber_ip TYPE bloom_filter(0.01) GRANULARITY 4
+    INDEX ix_sub_ip      customer_ip TYPE bloom_filter(0.01) GRANULARITY 4
 )
 ENGINE = MergeTree
 PARTITION BY toYYYYMMDD(ts)
-ORDER BY (tenant_id, site_id, subscriber_id, ts)
-TTL toDateTime(ts) + INTERVAL 14 DAY DELETE
+ORDER BY (tenant_id, site_id, customer_id, ts)
+TTL toDateTime(ts) + INTERVAL 7 DAY DELETE
 SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 ```
 
-Justificación del `ORDER BY (tenant_id, site_id, subscriber_id, ts)`:
+Justificación del `ORDER BY (tenant_id, site_id, customer_id, ts)`:
 
 - La consulta cruda más frecuente es **"detalle de un cliente en una ventana"** (drill-down del
-  dashboard de cliente, soporte, investigación de seguridad) ⇒ `subscriber_id` antes que `ts`
+  dashboard de cliente, soporte, investigación de seguridad) ⇒ `customer_id` antes que `ts`
   permite leer solo los gránulos de ese cliente.
 - `site_id` delante agrupa por sitio (consultas "tráfico del sitio X ahora") y tiene baja
   cardinalidad (bueno como prefijo).
@@ -562,33 +590,38 @@ Justificación del `ORDER BY (tenant_id, site_id, subscriber_id, ts)`:
   menos frecuentes sobre crudo porque los agregados las cubren.
 - Las consultas "por tiempo para todo el ISP" no van a la cruda sino a los agregados.
 
-Retención: **TTL 14 días por defecto** (rango del plan: 7–30), configurable por instalación; a
-1000 routers se recomienda 7 días (ver §8).
+Retención: **TTL 7 días por defecto** (rango del plan: 7–30; alineado con
+[`architecture.md` §9](architecture.md)), configurable por instalación; subir a 14–30 días solo
+con disco medido (ver §8).
+
+La reputación **no** se guarda en la fila: la cruza `detection` (módulo reputation) en consulta con
+el diccionario `dim.reputation` y persiste los cruces en `detection.reputation_hits`. Así el
+ingester no depende del servicio de reputación ([`traffic-model.md` §12](traffic-model.md)).
 
 ### 6.2 Agregados de tráfico (materialized views en abanico)
 
-Todas las MV leen de `traffic.flows_raw` en cada `INSERT` y escriben en su tabla destino.
+Todas las MV leen de `flows.flows_raw` en cada `INSERT` y escriben en su tabla destino.
 Engine: `AggregatingMergeTree` con `SimpleAggregateFunction(sum, …)` para sumas (barato, igual que
 `SummingMergeTree`) y `AggregateFunction(uniq…)` solo donde se necesitan distintos.
 
 | Tabla | Granularidad | Claves (ORDER BY tras `tenant_id, bucket`…) | Métricas | Filtro de origen | PARTITION BY | TTL |
 |-------|--------------|----------------------------------------------|----------|------------------|--------------|-----|
-| `traffic.subscriber_5m` | 5 min | `(tenant_id, site_id, subscriber_id, bucket, router_id, service_id, direction)` | bytes, packets, flows, `uniqState(remote_ip)` | `observation_role='subscriber_edge'` y `attribution_status='attributed'` | `toYYYYMM(bucket)` | 90 días |
-| `traffic.subscriber_1h` | 1 h | `(tenant_id, site_id, subscriber_id, bucket, service_id, remote_asn, direction)` | bytes, packets, flows, `uniqState(remote_ip)`, `maxState(bytes/s pico 5 min)` opcional | idem | `toYYYYMM(bucket)` | 13 meses |
-| `traffic.subscriber_1d` | 1 día (UTC) | `(tenant_id, subscriber_id, bucket, service_id, remote_asn, direction)` | bytes, packets, flows, `uniqState(remote_ip)`, `uniqState(remote_asn)` | idem | `toYear(bucket)` | 5 años |
-| `traffic.site_5m` | 5 min | `(tenant_id, site_id, bucket, router_id, interface_id, service_id, remote_asn, direction)` | bytes, packets, flows, `uniqState(subscriber_id)` | `observation_role='subscriber_edge'` (todo, incl. no atribuido) | `toYYYYMM(bucket)` | 90 días |
-| `traffic.site_1h` | 1 h | igual que `site_5m` | idem | idem | `toYYYYMM(bucket)` | 13 meses |
-| `traffic.site_1d` | 1 día | `(tenant_id, site_id, bucket, router_id, service_id, remote_asn, direction)` | idem | idem | `toYear(bucket)` | 5 años |
-| `traffic.border_1h` | 1 h | `(tenant_id, bucket, router_id, interface_id, remote_asn, direction)` | bytes, packets | `observation_role IN ('upstream','peering')` | `toYYYYMM(bucket)` | 13 meses |
-| `traffic.unattributed_1h` | 1 h | `(tenant_id, site_id, bucket, router_id, subscriber_ip)` | bytes, packets | `attribution_status != 'attributed'` y rol edge | `toYYYYMM(bucket)` | 30 días |
+| `flows.customer_5m` | 5 min | `(tenant_id, site_id, customer_id, bucket, router_id, service_id, direction)` | bytes, packets, flows, `uniqState(remote_ip)` | `observation_role='customer_edge'` y `attribution_status='attributed'` | `toYYYYMM(bucket)` | 90 días |
+| `flows.customer_1h` | 1 h | `(tenant_id, site_id, customer_id, bucket, service_id, remote_asn, direction)` | bytes, packets, flows, `uniqState(remote_ip)`, `maxState(bytes/s pico 5 min)` opcional | idem | `toYYYYMM(bucket)` | 13 meses |
+| `flows.customer_1d` | 1 día (UTC) | `(tenant_id, customer_id, bucket, service_id, remote_asn, direction)` | bytes, packets, flows, `uniqState(remote_ip)`, `uniqState(remote_asn)` | idem | `toYear(bucket)` | 5 años |
+| `flows.site_5m` | 5 min | `(tenant_id, site_id, bucket, router_id, interface_id, service_id, remote_asn, direction)` | bytes, packets, flows, `uniqState(customer_id)` | `observation_role='customer_edge'` (todo, incl. no atribuido) | `toYYYYMM(bucket)` | 90 días |
+| `flows.site_1h` | 1 h | igual que `site_5m` | idem | idem | `toYYYYMM(bucket)` | 13 meses |
+| `flows.site_1d` | 1 día | `(tenant_id, site_id, bucket, router_id, service_id, remote_asn, direction)` | idem | idem | `toYear(bucket)` | 5 años |
+| `flows.border_1h` | 1 h | `(tenant_id, bucket, router_id, interface_id, remote_asn, direction)` | bytes, packets | `observation_role IN ('upstream','peering')` | `toYYYYMM(bucket)` | 13 meses |
+| `flows.unattributed_1h` | 1 h | `(tenant_id, site_id, bucket, router_id, customer_ip)` | bytes, packets | `attribution_status != 'attributed'` y rol edge | `toYYYYMM(bucket)` | 30 días |
 
 ```sql
 -- borrador: una de las MV
-CREATE TABLE traffic.subscriber_1h
+CREATE TABLE flows.customer_1h
 (
     tenant_id     UUID,
     site_id       UUID,
-    subscriber_id UUID,
+    customer_id UUID,
     bucket        DateTime('UTC'),
     service_id    UUID,
     remote_asn    UInt32,
@@ -600,17 +633,17 @@ CREATE TABLE traffic.subscriber_1h
 )
 ENGINE = AggregatingMergeTree
 PARTITION BY toYYYYMM(bucket)
-ORDER BY (tenant_id, site_id, subscriber_id, bucket, service_id, remote_asn, direction)
+ORDER BY (tenant_id, site_id, customer_id, bucket, service_id, remote_asn, direction)
 TTL bucket + INTERVAL 13 MONTH DELETE;
 
-CREATE MATERIALIZED VIEW traffic.mv_subscriber_1h TO traffic.subscriber_1h AS
-SELECT tenant_id, site_id, subscriber_id,
+CREATE MATERIALIZED VIEW flows.mv_customer_1h TO flows.customer_1h AS
+SELECT tenant_id, site_id, customer_id,
        toStartOfHour(ts) AS bucket, service_id, remote_asn, direction,
        sum(bytes) AS bytes, sum(packets) AS packets, count() AS flows,
        uniqState(remote_ip) AS remote_ips
-FROM traffic.flows_raw
-WHERE observation_role = 'subscriber_edge' AND attribution_status = 'attributed'
-GROUP BY tenant_id, site_id, subscriber_id, bucket, service_id, remote_asn, direction;
+FROM flows.flows_raw
+WHERE observation_role = 'customer_edge' AND attribution_status = 'attributed'
+GROUP BY tenant_id, site_id, customer_id, bucket, service_id, remote_asn, direction;
 ```
 
 **Por qué en abanico y no en cascada (5m→1h→1d)**: las MV en cascada sobre tablas
@@ -618,24 +651,24 @@ GROUP BY tenant_id, site_id, subscriber_id, bucket, service_id, remote_asn, dire
 abanico, cada MV procesa el mismo bloque insertado (coste ~3–4 agregaciones por bloque, aceptable) y
 cada tabla es reconstruible desde la cruda mientras ésta exista.
 
-**Por qué `site_id` antes que `subscriber_id` en `subscriber_*`**: la consulta estrella del plan
+**Por qué `site_id` antes que `customer_id` en `customer_*`**: la consulta estrella del plan
 ("consumo de los clientes de este sitio en 24 h") filtra por sitio y agrupa por cliente.
-`subscriber_1d` omite `site_id` en el ORDER BY porque su consulta típica es por cliente
+`customer_1d` omite `site_id` en el ORDER BY porque su consulta típica es por cliente
 (consumo mensual) y el cliente puede cambiar de sitio en 5 años.
 
-**Hora vs día**: `subscriber_1d` usa día UTC. Para reportes "por día local del ISP" se usa
-`subscriber_1h` (retención 13 meses cubre "mes actual y anterior" y comparativas anuales); más
+**Hora vs día**: `customer_1d` usa día UTC. Para reportes "por día local del ISP" se usa
+`customer_1h` (retención 13 meses cubre "mes actual y anterior" y comparativas anuales); más
 allá de 13 meses el día UTC es suficientemente preciso (decisión a validar en open questions Q8).
 
 #### Consultas típicas y tabla que las sirve
 
 | Consulta (vision.md) | Tabla | Forma |
 |----------------------|-------|-------|
-| Tráfico de los clientes del sitio X, últimas 24 h | `subscriber_5m` (o `_1h`) | `WHERE tenant_id=? AND site_id=? AND bucket >= now()-INTERVAL 24 HOUR GROUP BY subscriber_id` — lee un rango contiguo del ORDER BY. |
+| Tráfico de los clientes del sitio X, últimas 24 h | `customer_5m` (o `_1h`) | `WHERE tenant_id=? AND site_id=? AND bucket >= now()-INTERVAL 24 HOUR GROUP BY customer_id` — lee un rango contiguo del ORDER BY. |
 | Top ASN del ISP (24 h / 7 d) | `site_1h` | `GROUP BY remote_asn ORDER BY sum(bytes) DESC LIMIT 20`, nombre con `dictGet('dim.asn', 'name', remote_asn)`. |
 | Top categorías del ISP | `site_1h` | `GROUP BY dictGet('dim.service','category_id', service_id)` — agrega primero por `service_id` (cientos de valores) y luego mapea. |
-| Consumo mensual por cliente | `subscriber_1d` | `WHERE subscriber_id=? AND bucket >= toStartOfMonth(today())` (o todos los clientes: `GROUP BY subscriber_id`). |
-| Upload/download diario de un cliente | `subscriber_1d` / `_1h` | `GROUP BY direction, toDate(bucket)` |
+| Consumo mensual por cliente | `customer_1d` | `WHERE customer_id=? AND bucket >= toStartOfMonth(today())` (o todos los clientes: `GROUP BY customer_id`). |
+| Upload/download diario de un cliente | `customer_1d` / `_1h` | `GROUP BY direction, toDate(bucket)` |
 | Tráfico actual del ISP (tiempo real) | `site_5m` último bucket (o stream en memoria de analytics) | `WHERE bucket >= now()-INTERVAL 10 MINUTE` |
 | Destinos de un cliente (IP/puerto) | `flows_raw` | ventana ≤ retención cruda. |
 
@@ -681,7 +714,7 @@ TTL toDateTime(ts) + INTERVAL 90 DAY DELETE;
 ```
 
 - Se guardan **tasas y deltas ya calculados** (no contadores crudos): el servicio `snmp` mantiene el
-  último contador en `snmp.poll_target_state` y maneja wrap de 64/32 bits y reinicios (detectados
+  último contador en NATS KV (`snmp_router_state`) y maneja wrap de 64/32 bits y reinicios (detectados
   por `sysUpTime` decreciente ⇒ muestra descartada). Simplifica todas las consultas y los
   agregados.
 - Agregados: `snmp.interface_metrics_5m` (90 días), `_1h` (13 meses), `_1d` (5 años) con
@@ -696,10 +729,10 @@ TTL toDateTime(ts) + INTERVAL 90 DAY DELETE;
 
 - `wireguard.peer_metrics` — `(tenant_id, peer_id, ts)`, `rx_bytes`, `tx_bytes` (delta),
   `seconds_since_handshake`; TTL 90 días; agregado `_1h` 13 meses.
-- `detection.subscriber_scores_1d` — `ReplacingMergeTree(computed_at)` ORDER BY
-  `(tenant_id, subscriber_id, day, model_version)`, scores residential/commercial/security/anomaly,
+- `detection.customer_scores_1d` — `ReplacingMergeTree(computed_at)` ORDER BY
+  `(tenant_id, customer_id, day, model_version)`, scores residential/commercial/security/anomaly,
   `reasons Array(String)` (claves de razón, no texto libre); TTL 5 años.
-- `traffic.flows_reclassified` (solo si se activa reclasificación; ver
+- `flows.flows_reclassified` (solo si se activa reclasificación; ver
   [`traffic-model.md` §6.4](traffic-model.md)).
 
 ### 6.5 Engines: resumen de elección
@@ -717,7 +750,7 @@ TTL toDateTime(ts) + INTERVAL 90 DAY DELETE;
 
 | Dato | Granularidad | Retención en ClickHouse | Archivo en MinIO |
 |------|--------------|-------------------------|------------------|
-| Flujos crudos | por flujo | 14 d (rango 7–30) | opcional (Parquet diario), ver storage.md |
+| Flujos crudos | por flujo | 7 d (rango 7–30) | opcional (Parquet diario), ver storage.md |
 | Agregados tráfico 5 min | 5 min | 90 d | no |
 | Agregados tráfico 1 h | 1 h | 13 meses (rango 6–12 + mes de margen) | Parquet mensual, 5 años |
 | Agregados tráfico 1 d | 1 día | 5 años (rango 2–5) | Parquet anual |
@@ -748,19 +781,25 @@ TTL toDateTime(ts) + INTERVAL 90 DAY DELETE;
 
 **Flujos crudos** (`flows_raw`): 200 × 86 400 = **17,3 M filas/router/día ≈ 0,69 GB/router/día**.
 
-| Routers | Filas/día | GB/día | En disco con TTL 14 d | Con TTL 7 d | Inserción media / pico |
-|---------|-----------|--------|-----------------------|-------------|------------------------|
-| 10 | 173 M | 6,9 | 97 GB | 48 GB | 2 k / 6 k filas/s |
-| 100 | 1,73 G | 69 | 0,97 TB | 0,48 TB | 20 k / 60 k filas/s |
-| 1000 | 17,3 G | 691 | 9,7 TB | 4,8 TB | 200 k / 600 k filas/s |
+| Routers | Filas/día | GB/día | En disco con TTL 7 d (default) | Con TTL 30 d | Inserción media / pico |
+|---------|-----------|--------|--------------------------------|--------------|------------------------|
+| 10 | 173 M | 6,9 | 48 GB | 0,21 TB | 2 k / 6 k filas/s |
+| 100 | 1,73 G | 69 | 0,48 TB | 2,1 TB | 20 k / 60 k filas/s |
+| 1000 | 17,3 G | 691 | 4,8 TB | 20,7 TB | 200 k / 600 k filas/s |
+
+**Sensibilidad**: el número de flujos/s por router es el supuesto más incierto. `architecture.md`
+§9 trabaja con ~3 000 flujos/s pico por router (3 M/s a 1000 routers); si el **promedio** real
+fuera 1 000 flujos/s, multiplicar las cifras de crudo por 5 (1000 routers: 3,5 TB/día). Por eso
+la medición del Sprint 6 es bloqueante para dimensionar. Nota: ADR-0008 estima ~20 B/fila; aquí se
+usa 40 B porque la fila enriquecida lleva varios UUID e IPv6 (mejor sobrestimar).
 
 **Agregados de tráfico**
 
 | Tabla | Filas/router/día | MB/router/día | 10 routers (en retención) | 100 routers | 1000 routers |
 |-------|------------------|---------------|---------------------------|-------------|--------------|
-| `subscriber_5m` (90 d) | 75×288×8 = 173 k | 6,0 | 5,4 GB | 54 GB | 540 GB |
-| `subscriber_1h` (13 m) | 75×24×30 = 54 k | 2,2 | 8,6 GB | 86 GB | 0,86 TB |
-| `subscriber_1d` (5 a) | 150×80 = 12 k | 0,48 | 8,8 GB | 88 GB | 0,88 TB |
+| `customer_5m` (90 d) | 75×288×8 = 173 k | 6,0 | 5,4 GB | 54 GB | 540 GB |
+| `customer_1h` (13 m) | 75×24×30 = 54 k | 2,2 | 8,6 GB | 86 GB | 0,86 TB |
+| `customer_1d` (5 a) | 150×80 = 12 k | 0,48 | 8,8 GB | 88 GB | 0,88 TB |
 | `site_5m` (90 d) | 400×288 = 115 k | 4,0 | 3,6 GB | 36 GB | 360 GB |
 | `site_1h` (13 m) | 800×24 = 19 k | 0,77 | 3,0 GB | 30 GB | 300 GB |
 | `site_1d` (5 a) | 1 500 | 0,06 | 1,1 GB | 11 GB | 110 GB |
@@ -770,25 +809,25 @@ TTL toDateTime(ts) + INTERVAL 90 DAY DELETE;
 
 **Total aproximado en disco (estado estable)**
 
-| Routers | Crudo (14 d) | Agregados + SNMP | Total | Réplica/backup ×2 |
-|---------|--------------|------------------|-------|-------------------|
-| 10 | ~0,1 TB | ~0,04 TB | **~0,15 TB** | 0,3 TB |
-| 100 | ~1 TB | ~0,35 TB | **~1,4 TB** | 2,8 TB |
-| 1000 | ~9,7 TB (4,8 TB con 7 d) | ~3,2 TB | **~13 TB (8 TB con 7 d)** | 16–26 TB |
+| Routers | Crudo (7 d) | Agregados + SNMP | Total | Con margen de merges/backup local (×1,5) |
+|---------|-------------|------------------|-------|------------------------------------------|
+| 10 | ~0,05 TB | ~0,04 TB | **~0,1 TB** | 0,15 TB |
+| 100 | ~0,5 TB | ~0,35 TB | **~0,85 TB** | 1,3 TB |
+| 1000 | ~4,8 TB | ~3,2 TB | **~8 TB** | 12 TB |
 
 ### 8.3 Conclusiones
 
 1. Hasta **~100–300 routers**, un nodo ClickHouse (16–32 vCPU, 64–128 GB RAM, NVMe 4–8 TB) basta.
 2. A **1000 routers** el crudo domina (≈ 75 % del disco) y la inserción pico (600 k filas/s) está
    en el límite de un nodo. Palancas, en orden de preferencia:
-   - Bajar TTL crudo a 7 días (–50 %).
+   - Mantener TTL crudo en 7 días (ya es el default).
    - **Pre-agregación en el colector** (`flows`): acumular por (IP cliente, IP remota, protocolo,
      puerto de servicio) en ventanas de 60 s antes de publicar ⇒ factor 3–10× menos filas, se pierde
      solo el puerto efímero del cliente y el detalle sub-minuto. Se diseña como modo configurable
      desde Sprint 6.
    - Muestreo en el router (1:N) para enlaces de borde de alto volumen.
    - Sharding ClickHouse por `site_id` (Sprint 14/15).
-3. Los agregados son baratos: los 5 años de `subscriber_1d` a 1000 routers caben en < 1 TB.
+3. Los agregados son baratos: los 5 años de `customer_1d` a 1000 routers caben en < 1 TB.
 
 ---
 
@@ -804,28 +843,30 @@ sin etiqueta por router ni por interfaz).
 | Cardinalidad (1000 routers × 30–200 interfaces = 30 k–200 k series × 8 métricas) | Sin problema (son filas) | 0,2–1,6 M series activas: posible pero pesado; con interfaces efímeras degrada |
 | Retención 2–5 años | Nativa con agregados + TTL | No diseñado para ello (requiere Thanos/Mimir/VictoriaMetrics) |
 | Cruce con flujos, clientes, reportes (SQL) | Sí, misma base | No |
-| Disponibilidad del dashboard de routers sin ClickHouse (Sprint 14) | El **estado actual** vive en PG (`devices.router_status`, `snmp.poll_target_state`) y Redis | — |
+| Disponibilidad del dashboard de routers sin ClickHouse (Sprint 14) | El **estado actual** vive en NATS KV (`snmp_router_state`) y se proyecta a PG (`devices.router_status`) | — |
 | Alerting en tiempo real | `alerts` consume eventos NATS del colector, no consulta series | Alertmanager (reservado a la plataforma) |
 
 **Consecuencias**:
 - ClickHouse entra en el **Sprint 5** (solo base `snmp`, volumen pequeño) en lugar del Sprint 6.
   Esto contradice ligeramente el MVP de `vision.md` §14 (`... → SNMP → PostgreSQL`). Ventaja: se
   valida la operación de ClickHouse (migraciones, backups, diccionarios) con poco volumen antes de
-  los flujos. **Alternativa si el PO exige MVP sin ClickHouse**: tabla `snmp.interface_sample`
-  particionada por día en PostgreSQL con retención de 7 días como puente, migrando a ClickHouse en
-  Sprint 6 (trabajo desechable). Ver open questions Q10. **Requiere ADR (Agente 1) y ajuste de
-  roadmap (Agente 5).**
+  los flujos. **Alternativa si el PO exige MVP sin ClickHouse**: tabla puente
+  `devices.interface_sample` (o un esquema `snmp` temporal) particionada por día en PostgreSQL con retención de 7 días como puente, migrando a ClickHouse en
+  Sprint 6 (trabajo desechable). Ver open questions Q10. Esto **resuelve el conflicto C-03** de
+  [`roadmap.md`](roadmap.md) a favor de ClickHouse en S5 y es coherente con ADR-0008 ("un solo
+  motor para flujos y métricas SNMP"); se propone registrarlo como **ADR-0017** (Agente 1) y ajustar
+  el roadmap (Agente 5).
 - Grafana puede leer ClickHouse (plugin oficial) para vistas NOC internas; la UI de producto usa
   `analytics` vía `api-gateway`.
 
 ---
 
-## 10. Dependencias con otros documentos
+## 10. Dependencias con otros documentos y desacuerdos abiertos
 
-| Con | Qué necesito |
-|-----|--------------|
-| Agente 3 (`events.md`) | Eventos y campos: `horus.devices.ip_assignment.started/ended` (`assignment_id, subscriber_id, realm_id, prefix, valid_from, valid_to, source, router_id`); `horus.devices.{site,router,interface,subscriber}.{created,updated,deleted}` (con `id`, `version`, y para interface `flow_role`, `if_index`, `router_id`); `horus.traffic_intel.catalog.published` (`catalog_version`, `artifact_object_key`, `sha256`); lote de flujos normalizados de `flows` → `traffic-intelligence` con el registro canónico de [`traffic-model.md` §3](traffic-model.md) e `batch_id` (para `insert_deduplication_token`); `horus.snmp.interface.sampled`/`horus.snmp.device.sampled` con tasas ya calculadas; evento de auditoría genérico. |
-| Agente 1 (`architecture.md`, ADR) | ADR: vistas `v_export_*` leídas por diccionarios CH (excepción a "sin acceso entre esquemas"); ADR: ClickHouse desde Sprint 5 para SNMP; confirmar que no existe servicio `network` separado; quién escribe en ClickHouse los flujos (propuesta: `traffic-intelligence`). |
-| Agente 4 (`security.md`) | Mecanismo de cifrado de secretos (envelope + KEK) y crypto-shredding; política de anonimización de PII de suscriptores; `DateTime('UTC')` en buckets de agregados. |
+| Con | Qué necesito / qué difiere |
+|-----|----------------------------|
+| Agente 3 (`events.md`) | (1) `horus.devices.customer.assigned/unassigned` con `assignment_id, customer_id, realm_id, prefix, valid_from, valid_to, source, router_id`. (2) Eventos `horus.devices.{site,router,interface,customer}.{created,updated,deleted}` con **estado completo** + `version` (para `dim.*`); `interface` con `flow_role`, `if_index`, `router_id`. (3) `horus.traffic.catalog.published` (`catalog_version`, `artifact_object_key`, `sha256`) — `events.md` lo llama `horus.traffic.ruleset.published`; unificar. (4) Lote `horus.flows.batch.received` con el registro canónico de [`traffic-model.md` §3](traffic-model.md), `sampling_rate` y `batch_id` (→ `insert_deduplication_token`). (5) Telemetría SNMP con **tasas ya calculadas**. (6) `events.md` §4/§8.6 todavía describe un `traffic-enricher` en traffic-intelligence y un `analytics-flows-writer`: contradice ADR-0015 (enriquece y escribe el ingester de `flows`). (7) `events.md` usa `client_id`; `services.md` y este documento usan `customer_id`. |
+| Agente 1 (`architecture.md`, ADR) | (1) ADR-0017 propuesto: ClickHouse desde S5 para SNMP (resuelve C-03). (2) Nombre de la columna de tenancy: `tenant_id` aquí vs `organization_id` en P9 (colisiona con la organización de red del catálogo). (3) Granularidad fina de agregados: 5 min aquí vs 1 min en ADR-0008/`services.md` (`flows_1m`): 1 min multiplica ×5 las filas del nivel fino; se propone 5 min y, si la UI necesita "tiempo real", servirlo desde el último tramo de `flows_raw`. (4) Nombres de tablas CH: aquí `<base>.<tabla>` (`flows.customer_1h`, `snmp.interface_metrics`) en lugar de `flows_1h`/`snmp_interface_metrics`. |
+| Agente 4 (`security.md`, `conventions.md`) | Mecanismo de cifrado de secretos (envelope + KEK) y crypto-shredding; anonimización de PII de clientes; `DateTime('UTC')` (segundos) en buckets de agregados; tablas PG en singular. |
 | Agente 4 (`disaster-recovery.md`) | RPO/RTO por base para dimensionar backups descritos en [`storage.md`](storage.md). |
-| Agente 5 (`roadmap.md`) | Adelantar ClickHouse a Sprint 5; modo de pre-agregación de flujos en Sprint 6; tabla de asignaciones IP y su ingesta (RADIUS/DHCP) como historia del Sprint 3 o 6. |
+| Agente 5 (`roadmap.md`) | ClickHouse en S5 (C-03); modo de pre-agregación de flujos en S6; tabla de asignaciones IP y su ingesta (RADIUS/API router/DHCP) como historia de S3 (modelo) y S6 (ingesta). |
