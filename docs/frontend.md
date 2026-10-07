@@ -133,25 +133,27 @@ Fuera del sidebar
 
 | Sección | Sprint | MVP | Permiso de lectura | Tiempo real |
 | --- | --- | --- | --- | --- |
-| Resumen | S1 (base), S3 (estado), S9 (ISP) | ✔ | autenticado | ✔ |
-| Inventario › Routers / Sitios / Grupos / Catálogo | S3 | ✔ | `devices.read` | estado ✔ |
-| Inventario › Clientes | S3 (entidad), S9 (consumo) | ✔ (lista básica) | `clients.read`* | — |
-| Detalle de router | S3 → S5 (Métricas, Interfaces), S6+ (Tráfico), S11 (Alertas) | ✔ | `devices.read` | ✔ |
+| Resumen | S1 (base), S3 (estado), S9 (ISP) | ✔ | autenticado (cada tarjeta exige su permiso) | ✔ |
+| Inventario › Routers / Grupos / Catálogo | S3 | ✔ | `devices.read` | estado ✔ |
+| Inventario › Sitios | S3 | ✔ | `sites.read` | — |
+| Inventario › Clientes | S3 (entidad), S9 (consumo) | ✔ (lista básica) | `customers.read`* (consumo por cliente: `traffic.client.read`) | — |
+| Detalle de router | S3 → S5 (Métricas, Interfaces), S6+ (Tráfico), S11 (Alertas) | ✔ | `devices.read` (+ `snmp.read` para Métricas) | ✔ |
 | WireGuard | S4 | ✔ | `wireguard.read` | handshake ✔ |
-| Monitoreo | S5 (estado, interfaces), S12 (disponibilidad) | ✔ (estado, interfaces) | `devices.read` | ✔ |
+| Monitoreo | S5 (estado, interfaces), S12 (disponibilidad) | ✔ (estado, interfaces) | `devices.read`, `snmp.read` | ✔ |
 | Tráfico | S6 (crudo), S7 (servicios, ASN) | — | `traffic.read` | Panorama ✔ |
 | Seguridad | S8 | — | `security.read` | Detecciones ✔ |
-| Analítica | S9, S10 (perfil de uso) | — | `traffic.read` / `analytics.read`* | ISP ✔ |
-| Alertas | S5 (centro de notificaciones mínimo), S11 (completo) | parcial | `alerts.read`* | ✔ |
+| Analítica | S9, S10 (perfil de uso) | — | `traffic.read`; vistas por cliente y perfil de uso: `traffic.client.read` | ISP ✔ |
+| Alertas | S5 (centro de notificaciones mínimo), S11 (completo) | parcial | `alerts.read` | ✔ |
 | Reportes | S12 | — | `reports.read` | estado de generación ✔ |
-| Admin › Usuarios, Roles, Sesiones, Auditoría | S2 | ✔ | `users.read`*, `roles.manage`*, `sessions.manage`*, `audit.read`* | sesiones ✔ |
-| Admin › Clasificación | S7 | — | `traffic.manage`* | — |
-| Admin › Retención | S13 | — | `system.manage`* | — |
-| Admin › Estado del sistema | S5 (básico), S14 | ✔ | `system.read`* | ✔ |
+| Admin › Usuarios, Roles, Sesiones, Auditoría | S2 | ✔ | `users.read`, `roles.read`, `sessions.read`, `audit.read` | sesiones ✔ |
+| Admin › Clasificación | S7 | — | `classification.read` (editar: `classification.manage`) | — |
+| Admin › Retención | S13 | — | `settings.read` (editar: `settings.manage`) | — |
+| Admin › Estado del sistema | S5 (básico), S14 | ✔ | `settings.read` | ✔ |
 | Mi cuenta | S1 (placeholder), S2 | ✔ | autenticado | — |
 
-\* Permisos no presentes en la lista base de `vision.md` §7; propuestos aquí, a confirmar en
-[`security.md`](security.md).
+Permisos según el catálogo de [`security.md`](security.md) §6.1. \* `customers.read` /
+`customers.manage` no existen todavía en ese catálogo; propuesta registrada como C-09 en
+[`roadmap.md`](roadmap.md) §7.
 
 **Regla de aparición progresiva:** una sección solo entra al sidebar en el sprint en que funciona.
 No hay ítems "próximamente" — cada ítem visible debe llevar a algo útil (apple-design §16 ›
@@ -331,6 +333,10 @@ Uso: Resumen, Monitoreo, Tráfico › Panorama, Analítica, Seguridad.
 - **Rendimiento**: renderer canvas, `sampling: 'lttb'` en series largas, agregación en servidor
   según el rango (ClickHouse decide la granularidad), carga diferida de gráficos fuera de pantalla,
   `vue-echarts` con importación modular de ECharts.
+- **Huecos, no ceros**: un periodo sin datos (colector caído, router sin exportar, buffer
+  desbordado) se dibuja como hueco con la marca "Sin datos" y nunca como cero; si la API devuelve
+  `meta.partial = true`, la tarjeta muestra "Datos incompletos en este rango" (principio P4 de
+  [`architecture.md`](architecture.md); tabla de cobertura de `analytics`).
 - **Tiempos**: el backend envía UTC; la UI muestra en la zona horaria del usuario (preferencia, por
   defecto la de la organización — P-09) e indica la zona en ejes y tooltips de rangos > 1 día.
 
@@ -380,23 +386,27 @@ retardos artificiales (apple-design §1 › Response).
 
 ### 7.1 Qué se actualiza en vivo
 
-Un único WebSocket por pestaña (`/api/v1/ws`, protocolo en [`api.md`](api.md)) con suscripción por
+Un único WebSocket por pestaña (`/api/v1/ws`, abierto con un ticket de un uso de
+`POST /api/v1/realtime/tickets`; protocolo en [`api.md`](api.md) §4) con suscripción por
 tema. El gateway hace *fan-out* desde NATS filtrando por permisos y ACL.
 
 | Pantalla | Qué llega en vivo | Fuente (subjects, ver [`events.md`](events.md)) | Sprint |
 | --- | --- | --- | --- |
-| Resumen | Contadores por estado, cambios recientes, alertas activas, tráfico total actual | `horus.devices.router.*`, `horus.snmp.*`, `horus.alerts.*`, agregados de analytics | S3, S5, S9, S11 |
-| Lista de routers | Estado y "visto por última vez" de las filas visibles | `horus.devices.router.status_changed`, `horus.snmp.device.*` | S3 |
-| Detalle de router | Estado, KPIs, interfaces, último punto de las series | `horus.snmp.*` filtrado por router | S5 |
+| Resumen | Contadores por estado, cambios recientes, alertas activas, tráfico total actual | `horus.devices.router.status_changed`, `horus.alerts.alert.*`, agregados de analytics | S3, S5, S9, S11 |
+| Lista de routers | Estado y "visto por última vez" de las filas visibles | `horus.devices.router.status_changed` | S3 |
+| Detalle de router | Estado, KPIs, interfaces, último valor (`GET /routers/{id}/metrics/live` + eventos) | `horus.devices.router.status_changed`, `horus.snmp.router.*`, `horus.snmp.interface.*` filtrados por router | S5 |
 | Monitoreo › Estado de la red | Matriz de estado por sitio/router | idem | S5 |
 | WireGuard | Último handshake, bytes, peer conectado/desconectado | `horus.wireguard.peer.*` | S4 |
 | Tráfico › Panorama | Throughput actual, top servicios (ventana 5 min) | agregados de analytics / traffic-intelligence | S7 |
-| Seguridad › Detecciones | Nuevas detecciones | `horus.detection.*` | S8 |
-| Alertas › Activas, centro de notificaciones | Alta, reconocimiento y resolución | `horus.alerts.*` | S5 (mínimo), S11 |
-| Reportes | Progreso de generación | `horus.reporting.report.*` | S12 |
+| Seguridad › Detecciones | Nuevos hallazgos | `horus.detection.finding.*` | S8 |
+| Centro de notificaciones (S5) | Cambios de estado de routers y peers | `horus.devices.router.status_changed`, `horus.wireguard.peer.handshake_*` | S5 |
+| Alertas › Activas, centro de notificaciones (S11) | Alta, reconocimiento y resolución | `horus.alerts.alert.*` | S11 |
+| Reportes | Progreso de generación | `horus.analytics.report.*` | S12 |
 | Sesiones | Revocación de mi sesión → logout | `horus.auth.session.revoked` | S2 |
 
-No se actualizan en vivo: listas administrativas, auditoría, analítica histórica (botón
+Los subjects son orientativos: la lista de eventos "UI-visibles" que reenvía el gateway la
+define [`events.md`](events.md) (ver C-07 en [`roadmap.md`](roadmap.md)). No se actualizan en
+vivo: listas administrativas, auditoría, analítica histórica (botón
 "Actualizar" y marca de tiempo).
 
 ### 7.2 Frescura de los datos
@@ -507,7 +517,7 @@ Presentación:
 - **Aviso en la sección** (`UAlert` en lugar del contenido afectado) con lo que no funciona, desde
   cuándo y **lo que sí sigue funcionando**.
 - Las acciones que dependen del componente caído se **deshabilitan con explicación** (§9).
-- Para usuarios con `system.read` se muestra el nombre técnico (ClickHouse, NATS); para el resto,
+- Para usuarios con `settings.read` se muestra el nombre técnico (ClickHouse, NATS); para el resto,
   el nombre funcional (`HIG writing.md`: los nombres vienen de lo que la gente reconoce, no de
   cómo está construido el sistema).
 
@@ -516,10 +526,10 @@ definitiva vive en [`architecture.md`](architecture.md) y [`disaster-recovery.md
 
 | Falla | Qué ve el usuario | Sigue funcionando |
 | --- | --- | --- |
-| **ClickHouse caído** | Banner: "Analítica no disponible: el almacén analítico no responde desde 10:42. Inventario, WireGuard, monitoreo y administración siguen operativos. Los flujos se siguen recibiendo y se procesarán al recuperarse." Tráfico, Analítica, Reportes y pestaña Tráfico muestran el aviso en lugar de gráficos; KPIs de tráfico del Resumen muestran "No disponible" | Login, inventario, WG, SNMP en vivo (si sus series no están en ClickHouse, C-03), alertas de estado, administración |
-| **SNMP (servicio) caído** | Aviso en Monitoreo y detalle de router: "El monitoreo SNMP no reporta desde 10:42. Las métricas mostradas son de esa hora." Estados pasan a "Sin datos recientes" (§7.2), **no** a offline | Todo lo demás; ICMP si es un proceso separado |
+| **ClickHouse caído** (API: `503` con `code: ANALYTICS_UNAVAILABLE`) | Banner: "Analítica no disponible: el almacén analítico no responde desde 10:42. Inventario, WireGuard, monitoreo y administración siguen operativos. Los flujos se siguen recibiendo y se procesarán al recuperarse." Tráfico, Analítica, Reportes, pestaña Tráfico y **gráficas históricas de CPU/interfaces** (si C-03 lleva las series SNMP a ClickHouse) muestran el aviso en lugar de gráficos; KPIs de tráfico del Resumen muestran "No disponible" | Login, inventario, WG, **estado de routers y último valor SNMP en vivo** (no dependen de ClickHouse, [`architecture.md`](architecture.md) §10.1), administración |
+| **SNMP (servicio) caído** | Aviso en Monitoreo y detalle de router: "El monitoreo no reporta desde 10:42. Las métricas mostradas son de esa hora." Estados pasan a `stale` "Sin datos recientes" (§7.2), **no** a offline (principio P4 de [`architecture.md`](architecture.md): ausencia de datos ≠ dato cero). ICMP vive en el mismo servicio, así que tampoco hay alcanzabilidad | Todo lo demás |
 | **NATS reiniciando** | Indicador "Reconectando…"; banner si > 1 min: "Las actualizaciones en vivo están en pausa. Los datos se actualizan cada 30 s." | Todo vía REST/polling; los colectores reintentan y nada se pierde (según [`events.md`](events.md)) |
-| **Un router desaparece** | Router → Offline (icono + rojo) tras la histéresis; entrada en cambios recientes y centro de notificaciones; detalle muestra "Sin respuesta desde 10:42 · último dato conocido" | Resto de la red |
+| **Un router desaparece** | Router → Offline (icono + rojo) tras la histéresis, **con la razón** en lenguaje claro: `tunnel_down` → "Sin túnel ni respuesta: posible corte de enlace o energía en el sitio"; `host_unreachable_via_tunnel` → "El túnel está activo pero el router no responde". Si solo falla SNMP → `degraded` "Responde a ping pero no a SNMP: revisa credenciales o ACL". Entrada en cambios recientes y centro de notificaciones; detalle muestra "Sin respuesta desde 10:42 · último dato conocido"; sus gráficas muestran **hueco**, no ceros | Resto de la red |
 | **NAS / MinIO no responde** | Reportes: "No se pueden generar ni descargar reportes ahora: el almacenamiento de archivos no responde." Admin › Retención: archivado en pausa | Todo lo operativo |
 | **Redis caído** | Según [`security.md`](security.md): si sesiones dependen de Redis, posible relogin; rate limiting degradado. La UI muestra el error de login normal | Depende del diseño de sesiones |
 | **PostgreSQL caído** | Pantalla de mantenimiento a nivel app: "Horus Flow no está disponible. Estamos restableciendo el servicio." (es la dependencia central) | Colectores siguen recibiendo y encolando (no visible) |
@@ -581,14 +591,21 @@ paleta de Tailwind en componentes.
 different things"*) y **nunca solo color** (`HIG accessibility.md › Vision`: *"Convey information
 with more than color alone"*):
 
-| Estado | Color semántico | Icono (Lucide) | Texto |
-| --- | --- | --- | --- |
-| online | `success` | `i-lucide-circle-check` | Online |
-| warning | `warning` | `i-lucide-triangle-alert` | Advertencia |
-| critical | `error` | `i-lucide-octagon-alert` | Crítico |
-| offline | `error` | `i-lucide-unplug` | Offline |
-| unknown / sin datos recientes | `neutral` | `i-lucide-circle-dashed` / `i-lucide-clock-alert` | Desconocido / Sin datos recientes |
-| mantenimiento | `info` | `i-lucide-wrench` | Mantenimiento |
+| Estado | Color semántico | Icono (Lucide) | Texto | Significado |
+| --- | --- | --- | --- | --- |
+| `online` | `success` | `i-lucide-circle-check` | Online | Todas las señales OK |
+| `warning` | `warning` | `i-lucide-triangle-alert` | Advertencia | Umbral de CPU/temp/errores superado |
+| `degraded` | `warning` | `i-lucide-circle-alert` | Degradado | Responde a ICMP pero no a SNMP (`snmp_unreachable`) |
+| `critical` | `error` | `i-lucide-octagon-alert` | Crítico | Umbral crítico superado |
+| `offline` | `error` | `i-lucide-unplug` | Offline | Sin respuesta (razón: `tunnel_down`, `host_unreachable_via_tunnel`) |
+| `stale` | `neutral` | `i-lucide-clock-alert` | Sin datos recientes | El monitoreo no reporta; **no** implica caída |
+| `unknown` | `neutral` | `i-lucide-circle-dashed` | Desconocido | Aún no sondeado |
+| `maintenance` | `info` | `i-lucide-wrench` | Mantenimiento | Ventana declarada; no genera alertas |
+
+Enum consolidado de [`architecture.md`](architecture.md) §10.4 y [`api.md`](api.md)
+(`status-summary`); su unificación formal está pendiente (C-06 en [`roadmap.md`](roadmap.md)).
+`warning`/`degraded` y `critical`/`offline` comparten color porque comparten urgencia; se
+distinguen siempre por icono y texto.
 
 `primary` (color de marca, a definir con el PO) se reserva para acciones primarias y selección;
 nunca para estado. Ningún color de estado se usa como color de serie en gráficos.
@@ -703,8 +720,8 @@ apps/frontend/
 
 | Necesito de | Qué | Estado |
 | --- | --- | --- |
-| [`api.md`](api.md) (Agente 3) | Formato de error, paginación, filtros, `GET /auth/me` con permisos, `GET /system/status`, protocolo WS (auth, temas, reanudación) | Pendiente de cruce |
-| [`events.md`](events.md) (Agente 3) | Subjects reales para la tabla de §7.1 | Pendiente de cruce |
-| [`security.md`](security.md) (Agente 4) | Permisos adicionales propuestos (`users.read`, `audit.read`, `alerts.read`, `clients.read`, `system.read`, etc.), almacenamiento de tokens en navegador, CSP compatible con ECharts | Pendiente de cruce |
-| [`architecture.md`](architecture.md) / [`disaster-recovery.md`](disaster-recovery.md) | Confirmar la matriz de §8.4 | Pendiente de cruce |
-| [`database.md`](database.md) (Agente 2) | Dónde viven las series SNMP (afecta a §8.4, fila ClickHouse) | C-03 en [`roadmap.md`](roadmap.md) |
+| [`api.md`](api.md) (Agente 3) | Formato de error `problem+json`, paginación por cursor, filtros, `GET /api/v1/me` con permisos efectivos, tickets y protocolo WS, `GET /routers/status-summary`, `meta.partial` | Alineado. **Falta** `GET /api/v1/system/status` agregado para §8.4 (C-08) |
+| [`events.md`](events.md) (Agente 3) | Lista de eventos UI-visibles para §7.1 | Alineado con `horus.devices.router.status_changed`; ver C-07 |
+| [`security.md`](security.md) (Agente 4) | Catálogo de permisos (§3.2 usa el de §6.1), almacenamiento de tokens en navegador, CSP compatible con ECharts | Alineado; falta `customers.*` (C-09) |
+| [`architecture.md`](architecture.md) §10 | Matriz de §8.4 y modelo de estado | Alineado; enum de estado pendiente de unificar con `api.md` (C-06) |
+| [`database.md`](database.md) (Agente 2) | Dónde viven las series SNMP (afecta a §8.4, fila ClickHouse) | C-03 pendiente del PO |
