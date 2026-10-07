@@ -1,0 +1,433 @@
+# Horus Flow — Convenciones de ingeniería
+
+> Estado: borrador Sprint 0 · Responsable: Agente 4.
+> Fuente: [`vision.md`](vision.md) §1, §2, §10–13. Relacionados: [`architecture.md`](architecture.md)
+> y [`services.md`](services.md) (Agente 1), [`api.md`](api.md) y [`events.md`](events.md)
+> (Agente 3), [`database.md`](database.md) (Agente 2), [`security.md`](security.md),
+> [`observability.md`](observability.md), [`backlog/`](backlog/) (Agente 5).
+
+Este documento fija **cómo se escribe, prueba, integra y publica** el código. Las convenciones
+de API REST, errores y eventos son del Agente 3; las de esquema de BD, del Agente 2.
+
+## 0. Resumen de decisiones
+
+| Tema | Decisión |
+|------|----------|
+| Módulo Go | **Un solo módulo** `github.com/hcdestroyer/horus-flow` en la raíz (con `go.work` solo si un servicio necesita otro ciclo de dependencias) |
+| Layout de servicio | `cmd/` + `internal/{config,domain,app,transport,store,…}`; cableado manual en `main` |
+| DI | Constructores explícitos, sin `wire`/`fx`/`dig` |
+| Config | Variables de entorno 12-factor con prefijo `HORUS_`, `_FILE` para secretos, `caarlos0/env` |
+| Frontend | Nuxt 4 en modo **SPA** (`ssr: false`), estático tras el reverse proxy; gateway como BFF |
+| Cliente API | Generado del OpenAPI con `openapi-typescript` + `openapi-fetch` |
+| Lint/format | golangci-lint v2 (+ gofumpt, goimports), ESLint (`@nuxt/eslint`) + Prettier, `vue-tsc`, buf, hadolint, actionlint, squawk |
+| Tests | `go test -race`; testcontainers-go; contrato OpenAPI/buf/JSON Schema; Playwright; k6 |
+| Git | **Trunk-based** con ramas cortas, squash merge, Conventional Commits |
+| Versionado | **Versión única de producto** SemVer para el monorepo (release-please) |
+| CI | GitHub Actions; detección de servicios afectados por grafo de dependencias Go + filtros de rutas |
+| Imágenes | Multi-stage → `distroless/static:nonroot`; tags `vX.Y.Z` y `sha-<7>`; despliegue por digest |
+
+## 1. Estructura del monorepo (complemento de vision §11)
+
+```
+horus-flow/
+├── go.mod / go.sum                # módulo único Go
+├── apps/frontend/                 # Nuxt 4
+├── services/<servicio>/           # api-gateway, auth, devices, wireguard, snmp, flows, ...
+├── packages/
+│   ├── protobuf/                  # .proto + buf.yaml (código generado en packages/protobuf/gen/go)
+│   ├── events/                    # esquemas de eventos (Agente 3)
+│   ├── schemas/                   # OpenAPI y JSON Schema compartidos
+│   └── go/                        # librerías Go compartidas de plataforma
+│       ├── observability/         # slog, OTel, métricas RED, health, admin server
+│       ├── authz/                 # verificación JWT interno, Require(), interceptores
+│       ├── config/                # helpers de env y _FILE
+│       ├── natsx/                 # publicación/consumo con envelope, outbox relay, trazas
+│       ├── crypto/envelope/       # envelope encryption (security.md §8)
+│       ├── httpx/ grpcx/          # servidores con timeouts, middlewares comunes
+│       └── testkit/               # helpers de testcontainers
+├── infrastructure/ deployments/ scripts/ docs/
+```
+
+Regla: `packages/go/*` **no** contiene lógica de dominio; un servicio nunca importa el
+`internal/` de otro (Go lo impide). La estructura final del repo la confirma el Agente 1.
+
+**¿Por qué un solo módulo Go?** Un solo `go.sum`, una versión de cada dependencia, refactors
+atómicos y detección de afectados con `go list -deps`. Los despliegues siguen siendo
+independientes (un binario/imagen por servicio). Se reconsidera si un servicio necesita
+dependencias incompatibles.
+
+## 2. Servicio Go
+
+### 2.1 Layout
+
+```
+services/devices/
+├── cmd/devices/main.go          # solo: config → wiring → run → exit code
+├── internal/
+│   ├── config/config.go         # struct Config con tags env, Validate()
+│   ├── domain/                  # entidades, value objects, errores de dominio, reglas puras
+│   │   ├── router.go
+│   │   └── errors.go            # ErrRouterNotFound, ErrDuplicateIP …
+│   ├── app/                     # casos de uso (orquestan dominio + puertos)
+│   │   ├── create_router.go
+│   │   └── ports.go             # interfaces que necesita app: RouterRepository, EventPublisher
+│   ├── store/postgres/          # implementación de repositorios (pgx, sqlc opcional)
+│   ├── transport/
+│   │   ├── grpc/                # handlers gRPC ↔ app, mapeo de errores a códigos
+│   │   ├── http/                # (solo api-gateway expone REST público)
+│   │   └── nats/                # consumidores de eventos ↔ app
+│   └── clients/                 # clientes gRPC a otros servicios
+├── migrations/                  # SQL versionado (herramienta: ver database.md)
+├── Dockerfile
+└── README.md                    # propósito, env vars, métricas, eventos que publica/consume
+```
+
+Dependencias permitidas: `transport → app → domain`; `store`/`clients` implementan
+interfaces de `app/ports.go`; `domain` no importa nada del proyecto (ni `context` de
+infraestructura, ni pgx). Se verifica con la regla `depguard` de golangci-lint.
+
+### 2.2 Inyección de dependencias
+
+Cableado manual y explícito en `main`:
+
+```go
+func main() {
+    ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+    defer stop()
+    if err := run(ctx, os.Getenv); err != nil {
+        slog.Error("service failed", "error", err)
+        os.Exit(1)
+    }
+}
+
+func run(ctx context.Context, getenv func(string) string) error {
+    cfg, err := config.Load(getenv)          // falla rápido si falta algo
+    // obs, db, nats := ... (cada uno con Close diferido)
+    // repo := postgres.NewRouterRepository(db)
+    // svc  := app.NewService(repo, publisher, clock)
+    // srv  := grpc.NewServer(svc, authz.Verifier(...))
+    // errgroup: servidor gRPC, servidor admin, consumidores; shutdown ordenado
+}
+```
+
+- Constructores `NewX(deps...) *X` con dependencias explícitas; sin variables globales
+  (salvo el logger por defecto configurado en `main`), sin `init()` con efectos.
+- Interfaces **pequeñas y definidas por el consumidor** (en `app/ports.go`), no por el
+  implementador.
+- Reloj e IDs inyectables (`Clock`, `IDGenerator` UUIDv7) para tests deterministas.
+
+### 2.3 Configuración (12-factor)
+
+- Solo variables de entorno; sin archivos de config obligatorios.
+- Nombres: `HORUS_<CLAVE>` en mayúsculas; las comunes son idénticas en todos los servicios:
+  `HORUS_ENV` (`dev|staging|prod`), `HORUS_LOG_LEVEL`, `HORUS_LOG_FORMAT` (`json|text`),
+  `HORUS_GRPC_ADDR`, `HORUS_HTTP_ADDR`, `HORUS_ADMIN_ADDR`, `HORUS_POSTGRES_DSN`,
+  `HORUS_NATS_URL`, `HORUS_REDIS_URL`, `HORUS_CLICKHOUSE_DSN`, `HORUS_S3_ENDPOINT`, más las
+  `OTEL_*` estándar.
+- Secretos: variante `_FILE` (p. ej. `HORUS_POSTGRES_PASSWORD_FILE=/run/secrets/devices_pg_password`)
+  que tiene prioridad; nunca secretos en la línea de comandos ni en logs.
+- Librería: `github.com/caarlos0/env/v11` (tags `env:"..." envDefault:"..." required`) +
+  `Validate()` propio. Al arrancar se loguea la configuración efectiva **sin secretos**.
+
+### 2.4 Errores
+
+- Envolver con contexto: `fmt.Errorf("create router %s: %w", id, err)`; comparar con
+  `errors.Is/As`; nunca comparar strings.
+- Errores de dominio como valores centinela o tipos (`domain.ErrNotFound`,
+  `*domain.ValidationError{Field, Reason}`).
+- Mapeo a gRPC (`codes.NotFound`, `InvalidArgument`, `PermissionDenied`, `FailedPrecondition`,
+  `Unavailable`, `Internal`) en `transport/grpc`; el gateway mapea a HTTP + Problem Details
+  (formato del Agente 3 en [`api.md`](api.md)). Mensajes internos nunca llegan al cliente.
+- Un error se loguea **una sola vez** (en el borde que lo maneja). Prohibido `panic` para
+  control de flujo; recuperación de pánicos en interceptores/handlers y por paquete UDP.
+
+### 2.5 Contexto, concurrencia y apagado
+
+- `context.Context` es el primer parámetro de toda función con E/S; nunca se guarda en structs.
+- Toda llamada saliente tiene timeout (por defecto: BD 3 s, gRPC 5 s, SNMP 2 s; configurables).
+- Goroutines siempre con dueño (`errgroup`) y cancelables; prohibidas las "fire and forget".
+- Apagado: al `SIGTERM` → `/readyz` 503 → esperar 5 s → dejar de aceptar → drenar en ≤ 25 s
+  (compatible con `terminationGracePeriodSeconds: 30` de Kubernetes) → cerrar NATS/BD.
+- Concurrencia acotada (worker pools, semáforos) en colectores; nunca una goroutine por
+  paquete/router sin límite.
+
+### 2.6 Persistencia y librerías base
+
+- PostgreSQL: `jackc/pgx/v5` (+ `sqlc` para generar código tipado, recomendado); sin ORM.
+- ClickHouse: `ClickHouse/clickhouse-go/v2` con inserción por lotes.
+- NATS: `nats-io/nats.go` (API `jetstream`) envuelto por `packages/go/natsx`.
+- HTTP: `go-chi/chi/v5` (vision §2); gRPC: `google.golang.org/grpc` + `buf` para generación.
+- Logs: `log/slog`. UUIDv7: `github.com/google/uuid` (`uuid.NewV7`).
+- Versión de Go: la última estable menor (fijada en `go.mod` con `toolchain`), actualizada por
+  Renovate.
+
+## 3. Frontend Nuxt 4
+
+### 3.1 Modo de render
+
+**SPA (`ssr: false`)** compilada a estáticos (`nuxi generate`) y servida por el reverse proxy.
+Motivos: es una aplicación interna tras login (SEO irrelevante), el gateway ya actúa como BFF
+con cookie HttpOnly ([`security.md`](security.md) §5), y elimina un servidor Node en producción
+(menos superficie, menos operación). Revisable vía ADR si se necesita SSR.
+
+### 3.2 Estructura (Nuxt 4, directorio `app/`)
+
+```
+apps/frontend/
+├── app/
+│   ├── pages/                  # rutas; mínima lógica, delegan en composables
+│   ├── layouts/                # default (shell con menú), auth (login)
+│   ├── components/
+│   │   ├── ui/                 # wrappers propios sobre Nuxt UI
+│   │   ├── charts/             # componentes ECharts (carga diferida)
+│   │   └── <dominio>/          # devices/, wireguard/, traffic/ …
+│   ├── composables/            # useDevices(), useRealtime(), usePermissions() …
+│   ├── stores/                 # Pinia (solo casos de §3.4)
+│   ├── middleware/             # auth.global.ts, permission.ts
+│   ├── plugins/                # api client, otel, realtime
+│   └── utils/
+├── shared/                     # tipos compartidos (incluye tipos generados del OpenAPI)
+├── tests/ (unit con Vitest) · e2e/ (Playwright)
+└── nuxt.config.ts
+```
+
+### 3.3 Capas
+
+`pages → composables (estado de la vista, llamadas a API) → api client generado`. Los
+componentes de presentación reciben props y emiten eventos; no llaman a la API.
+Datos remotos con `useAsyncData`/`useFetch` envolviendo el cliente generado, o con un
+composable propio con caché por clave; formularios con validación `zod` (los esquemas pueden
+derivarse del OpenAPI).
+
+### 3.4 ¿Cuándo usar Pinia?
+
+Solo para estado **global, compartido entre páginas y de larga vida**:
+- `useSessionStore`: usuario actual, permisos efectivos, token CSRF.
+- `useRealtimeStore`: estado de la conexión WebSocket y suscripciones activas.
+- Preferencias de UI persistentes (tema, sitio seleccionado), si se comparten en varias vistas.
+
+Todo lo demás (listas, detalles, filtros de una página) vive en composables o en el estado de
+la ruta (query params). Regla: si un store solo lo usa una página, no es un store.
+
+### 3.5 Cliente API generado
+
+- Fuente: el OpenAPI que publica el Agente 3 (`packages/schemas/openapi.yaml`).
+- `openapi-typescript` genera tipos en `shared/api/schema.d.ts`; `openapi-fetch` da un cliente
+  tipado de ~6 KB sin runtime pesado. Script `pnpm api:generate`; CI falla si el archivo
+  generado no coincide (`git diff --exit-code`).
+- Plugin `api` configura `credentials: 'include'`, añade `X-CSRF-Token`, `X-Request-Id`
+  opcional, y maneja 401 (redirige a login) y 403 (mensaje), Problem Details → toast.
+
+### 3.6 WebSocket
+
+- Una **única conexión por pestaña** gestionada por `plugins/realtime` + `useRealtime()`.
+- Protocolo de mensajes y temas: definido por el Agente 3 en [`api.md`](api.md)/[`events.md`](events.md).
+- Reconexión con backoff exponencial + jitter (1 s → 30 s máx.), ping/pong cada 25 s.
+- Tras reconectar: re-suscribir y **resincronizar por REST** (los eventos perdidos durante la
+  desconexión no se reproducen); los mensajes llevan `event_id` para descartar duplicados.
+- Al recibir cierre por sesión revocada (código definido por el Agente 3) → ir a login.
+- Suscripciones ligadas al ciclo de vida del componente (`onScopeDispose`).
+
+### 3.7 UI
+
+Nuxt UI + Tailwind; ECharts con `vue-echarts` y *tree-shaking* (`echarts/core`), gráficos
+cargados de forma diferida. Accesibilidad AA en componentes propios. i18n con `@nuxtjs/i18n`
+(español por defecto) — confirmar con el product owner.
+
+## 4. Linters y formateo
+
+| Ámbito | Herramienta | Configuración |
+|--------|-------------|---------------|
+| Go formato | `gofumpt` + `goimports` (sección `formatters` de golangci-lint v2) | `local-prefixes: github.com/hcdestroyer/horus-flow` |
+| Go lint | `golangci-lint` v2 | Linters: `errcheck`, `govet`, `staticcheck`, `unused`, `ineffassign`, `gosec`, `revive`, `errorlint`, `wrapcheck` (solo en límites de paquete), `bodyclose`, `noctx`, `sqlclosecheck`, `rowserrcheck`, `contextcheck`, `containedctx`, `gocritic`, `misspell`, `unparam`, `exhaustive`, `nilerr`, `depguard` (capas, §2.1), `forbidigo` (prohíbe `fmt.Print*`, `log.Print*`, `panic` fuera de main/tests), `sloglint` (claves `snake_case`, sin mezclar estilos), `promlinter` |
+| Protobuf | `buf lint` (estilo `STANDARD`) + `buf breaking --against '.git#branch=main'` | `buf.yaml` en `packages/protobuf` |
+| TS/Vue | ESLint flat config con `@nuxt/eslint` + `eslint-config-prettier`; reglas: `vue/no-v-html: error`, `no-console: warn` | — |
+| Formato TS/Vue/JSON/YAML/MD | Prettier | `printWidth: 100`, comillas simples, sin `;` (decisión de estilo, cerrada) |
+| Tipos | `vue-tsc --noEmit` / `nuxi typecheck` | `strict: true` |
+| SQL migraciones | `squawk` (detecta migraciones peligrosas en PostgreSQL: locks, `NOT NULL` sin default…) | — |
+| Dockerfiles | `hadolint` | — |
+| Workflows | `actionlint` + `zizmor` (seguridad de Actions) | — |
+| Commits | `commitlint` (Conventional Commits) en CI sobre el título del PR | — |
+| Markdown | `markdownlint-cli2` (solo advertencia) | — |
+| Local | `lefthook` (pre-commit: formato + gitleaks en archivos staged); opcional, CI es la fuente de verdad | — |
+
+`.editorconfig` en la raíz: UTF-8, LF, indentación 2 espacios (Go: tabs).
+
+## 5. Estrategia de tests
+
+| Nivel | Qué | Herramientas | Dónde corre | Objetivo |
+|-------|-----|--------------|-------------|----------|
+| Unitarios Go | `domain` y `app` con fakes de puertos; tablas de casos | `go test -race -shuffle=on`, `testing`, `go-cmp` (sin frameworks de mocks pesados; fakes a mano o `mockery` solo si hace falta) | Cada PR | Cobertura ≥ 70 % en `domain`/`app` (no global) |
+| Fuzzing | Parsers de NetFlow/IPFIX/sFlow, SNMP, entradas de config WG | Fuzzing nativo de Go (`go test -fuzz`) | PR: 30 s por objetivo; nocturno: 10 min | Sin pánicos |
+| Unitarios frontend | Composables, utilidades, componentes | Vitest + `@nuxt/test-utils` + Vue Test Utils | Cada PR | Lógica crítica cubierta |
+| Integración | Repositorios contra PostgreSQL/ClickHouse reales, consumidores NATS, Redis, MinIO | `testcontainers-go` (módulos postgres, clickhouse, nats, redis, minio), build tag `integration` | PR (solo servicios afectados) | Todos los repositorios y consumidores |
+| Contrato API | Respuestas del gateway validadas contra el OpenAPI; cliente generado sin diff | `kin-openapi` (validación de request/response en tests de integración del gateway), `openapi-typescript` | PR | 100 % de endpoints |
+| Contrato gRPC | Compatibilidad de `.proto` | `buf breaking` | PR | Sin cambios incompatibles sin ADR |
+| Contrato eventos | Eventos publicados validan contra su JSON Schema / proto (Agente 3); tests de productor y de consumidor usan los mismos ejemplos (*golden files*) | `santhosh-tekuri/jsonschema` o validación proto | PR | Todos los eventos |
+| E2E | Flujos de usuario reales contra el stack compose (login + 2FA, CRUD de routers, WireGuard, permisos) | Playwright (Chromium; Firefox nocturno) | `main` y nocturno; en PR con etiqueta `e2e` | Recorridos críticos del sprint |
+| Carga | API/WebSocket; ingesta de flujos; polling SNMP a 10/100/500/1.000 routers (vision Sprint 15) | **k6** (HTTP/WS), generador de NetFlow/IPFIX en Go (`scripts/`), `snmpsim` | Manual / programado en staging | Umbrales de SLO de [`observability.md`](observability.md) |
+| Caos | Ver [`disaster-recovery.md`](disaster-recovery.md) §6 | Toxiproxy, Pumba | Sprint 14 | — |
+| Seguridad | Autorización por endpoint (403 y alcance), escaneos | Tests de integración + herramientas de [`security.md`](security.md) §12 | PR | — |
+
+Reglas: los tests no dependen del orden ni de la hora real (reloj inyectado); prohibido
+`time.Sleep` para sincronizar (usar `require.Eventually` o canales); datos de prueba
+sintéticos, nunca datos reales de abonados.
+
+## 6. Git workflow
+
+**Recomendación: trunk-based development con ramas de vida corta** (frente a GitFlow).
+Motivos: equipo pequeño, sprints de 2 semanas, CI fuerte y una sola versión de producto;
+GitFlow añade ramas `develop`/`release` de larga vida y merges complejos sin beneficio aquí.
+
+- Rama principal `main`, siempre desplegable.
+- Ramas `tipo/descripcion-corta` (`feat/devices-crud`, `fix/snmp-timeout`), vida ≤ 2–3 días;
+  el trabajo grande se parte en PRs pequeños (< 400 líneas cambiadas como guía) y se oculta con
+  *feature flags* (variables `HORUS_FEATURE_*`) si aún no está terminado.
+- **Squash merge** al cerrar el PR; el título del PR es el mensaje del commit y debe cumplir
+  Conventional Commits.
+- **Conventional Commits:** `tipo(alcance): descripción` con tipos `feat`, `fix`, `perf`,
+  `refactor`, `test`, `docs`, `build`, `ci`, `chore`, `revert`; alcance = nombre de servicio
+  (`devices`, `snmp`…), `frontend`, `protobuf`, `events`, `infra`, `docs`. Cambio
+  incompatible: `!` y pie `BREAKING CHANGE:`. Referencia a la historia: `Refs: HF-123`.
+- **Protección de `main`** (rulesets de GitHub): PR obligatorio, 1 aprobación mínima
+  (2 para `services/auth`, `packages/go/authz`, `packages/go/crypto`, `.github/workflows`
+  vía CODEOWNERS), checks requeridos en verde, rama actualizada, historial lineal, sin
+  force-push, resolución de conversaciones obligatoria, firma de commits recomendada
+  (obligatoria desde Release 1.0).
+- **CODEOWNERS** por carpeta de servicio y para docs de arquitectura/seguridad.
+- **Revisiones:** el autor rellena la plantilla de PR (qué/por qué/cómo se probó/checklist de
+  DoD); el revisor verifica DoD y seguridad; respuesta en < 1 día laboral; se prefiere
+  *merge queue* de GitHub cuando haya > 3 PRs/día.
+- Hotfixes: rama desde `main`, PR normal acelerado, release de parche.
+
+## 7. Versionado y releases
+
+**Recomendación: una versión única de producto (SemVer) para todo el monorepo**, no por
+servicio.
+
+- Motivo: Horus se instala y actualiza como un todo (docker compose); las compatibilidades
+  entre servicios se garantizan por contratos (OpenAPI, buf breaking, esquemas de eventos) y
+  se prueban juntas en e2e. Versionar 12 servicios por separado añade matrices de
+  compatibilidad sin beneficio hasta tener equipos/despliegues independientes (revisable
+  con ADR al migrar a Kubernetes).
+- `0.y.z` hasta la Release 1.0 (Sprint 16); cada sprint termina con un `0.<sprint>.0`
+  candidato.
+- **release-please** (modo simple, raíz) genera la PR de release, el `CHANGELOG.md` desde
+  Conventional Commits y la etiqueta `vX.Y.Z`.
+- Al etiquetar: se construyen **todas** las imágenes con esa versión (aunque un servicio no
+  cambiara), se firman, se adjuntan SBOMs y se publica un `release-manifest.json` con los
+  digests de cada imagen; el compose de `deployments/` referencia ese manifiesto.
+- Versionado independiente para contratos: paquetes proto con versión en el paquete
+  (`horus.devices.v1`), API REST `/api/v1`, eventos con versión de esquema (Agente 3).
+- Migraciones de BD: siempre compatibles hacia atrás durante una versión menor
+  (expand → migrate → contract) para permitir rollback del binario.
+
+## 8. Pipeline CI (GitHub Actions)
+
+Pipeline del plan (vision §12): `Code → Lint → Unit Test → Integration Test → Security Check → Build`.
+
+### 8.1 Workflows
+
+| Workflow | Disparador | Contenido |
+|----------|------------|-----------|
+| `ci.yml` | `pull_request`, `push` a `main`, `merge_group` | Pipeline completo sobre lo afectado |
+| `release.yml` | `push` a `main` (release-please) y tags `v*` | Build de todas las imágenes, firma, SBOM, attestations, GitHub Release |
+| `nightly.yml` | `schedule` diario | Todo el repo: tests completos, fuzz largo, e2e multi-navegador, `trivy image` sobre imágenes publicadas, `govulncheck`, licencias |
+| `codeql.yml` | PR + semanal | Si el plan de GitHub lo permite (ver preguntas abiertas) |
+
+### 8.2 Detección de servicios afectados
+
+1. Job `changes` calcula la lista de objetivos afectados con un script (`scripts/ci/affected.sh`)
+   que combina:
+   - `git diff --name-only <base>...HEAD`;
+   - para Go: por cada `services/<s>/cmd/<s>`, `go list -deps -f '{{.Dir}}'` → si algún archivo
+     cambiado está en un paquete del que depende, el servicio está afectado (cubre
+     `packages/go/*` y código generado de `packages/protobuf`);
+   - reglas fijas: cambios en `go.mod/go.sum` → todos los servicios Go; `packages/schemas/` →
+     gateway + frontend; `packages/events/` → todos los servicios Go; `apps/frontend/**` →
+     frontend; `.github/workflows/**` o `infrastructure/docker/**` → todo.
+2. Salida JSON → `strategy.matrix` de los jobs siguientes. Alternativa más simple aceptada para
+   Sprint 1: `dorny/paths-filter` con filtros por carpeta + "todo" si cambian `packages/` o
+   `go.mod`.
+
+### 8.3 Etapas y herramientas
+
+| Etapa | Go | Frontend | Común | Bloquea |
+|-------|----|----------|-------|---------|
+| **Lint** | `golangci-lint run` (afectados), `go mod tidy -diff` | `eslint`, `prettier --check`, `nuxi typecheck` | `buf lint` + `buf breaking`, `hadolint`, `actionlint`/`zizmor`, `squawk`, commitlint del título de PR, verificación de código generado sin diff | Sí |
+| **Unit Test** | `go test -race -shuffle=on -coverprofile` (afectados) + fuzz corto | `vitest run --coverage` | Cobertura publicada como comentario/artefacto | Sí |
+| **Integration Test** | `go test -tags=integration` con testcontainers (Docker del runner) | — | Validación de contratos OpenAPI/eventos | Sí |
+| **Security Check** | `govulncheck`, `gosec` (vía lint) | `pnpm audit --prod` (advertencia) | `osv-scanner`, `gitleaks`, `trivy fs` + `trivy config`, CodeQL/semgrep | Sí (umbrales de [`security.md`](security.md) §12) |
+| **Build** | `docker buildx build` multi-stage por servicio afectado (con caché `type=gha`); en PR sin push | `pnpm build` + imagen | `trivy image` sobre la imagen construida; en `main`: push a GHCR + `cosign sign` + `syft` SBOM + `attest-build-provenance` | Sí |
+| E2E (opcional en PR) | — | Playwright contra `docker compose up` | — | Requerido en `main` |
+
+Prácticas: Actions fijadas por SHA; `permissions: contents: read` por defecto (solo `release.yml`
+con `packages: write`, `id-token: write`, `attestations: write`); `concurrency` para cancelar
+ejecuciones obsoletas del mismo PR; caché de módulos Go y `pnpm store`; objetivo < 10 min
+para un PR típico. Jobs agregadores `ci-ok` como único check requerido en la protección de rama
+(evita problemas con matrices dinámicas).
+
+## 9. Docker
+
+- **Multi-stage** para Go:
+  ```dockerfile
+  # (referencia de estilo; el Dockerfile real se escribe en Sprint 1)
+  FROM golang:<versión>-bookworm AS build      # fijado por digest
+  # go mod download con caché; CGO_ENABLED=0; go build -trimpath -ldflags "-s -w -X …/version.Version=$VERSION"
+  FROM gcr.io/distroless/static-debian12:nonroot
+  COPY --from=build /out/<servicio> /<servicio>
+  USER 65532:65532
+  ENTRYPOINT ["/<servicio>"]
+  ```
+  Un Dockerfile genérico parametrizado por `SERVICE` en `infrastructure/docker/go.Dockerfile`
+  es preferible a 12 copias.
+- Frontend: build con `node:<lts>-alpine` + pnpm → imagen final con Caddy no-root sirviendo
+  `/.output/public` con cabeceras de seguridad (CSP, HSTS) — o los estáticos se sirven
+  directamente desde el reverse proxy principal.
+- Sin shell ni gestor de paquetes en la imagen final; healthcheck de compose mediante el propio
+  binario (`/<servicio> healthcheck` que llama a `/healthz`), ya que distroless no tiene `curl`.
+- Etiquetas OCI (`org.opencontainers.image.source`, `.revision`, `.version`, `.created`).
+- **Tags:** `ghcr.io/hcdestroyer/horus-flow/<servicio>:vX.Y.Z`, `:sha-<7>`, y `:main` solo
+  para entornos de desarrollo. **Nunca** `latest` en despliegues; producción referencia por
+  **digest** (`@sha256:…`) desde el manifiesto de release.
+- `.dockerignore` estricto (sin `.git`, `node_modules`, `secrets/`, `.env`).
+- Hardening en tiempo de ejecución: [`security.md`](security.md) §10.
+
+## 10. Variables de entorno y secretos en local / compose
+
+- `.env.example` versionado con **todas** las variables y valores de desarrollo no sensibles;
+  `.env` en `.gitignore`.
+- Secretos de desarrollo como archivos en `./secrets/*.txt` (en `.gitignore`), generados por
+  `scripts/dev-secrets.sh` (valores aleatorios), montados con `secrets:` de compose en
+  `/run/secrets/<nombre>` y consumidos con las variables `_FILE`.
+- Mismo mecanismo en producción, con los archivos descifrados desde SOPS+age en el despliegue
+  (y más adelante OpenBao, ver [`security.md`](security.md) §8.3).
+- Nunca secretos en `environment:` del compose versionado, en `ARG`/`ENV` de Dockerfiles, ni en
+  variables de GitHub Actions no marcadas como secretas.
+- Perfiles de compose (`profiles:`) para arrancar solo lo necesario:
+  `core` (gateway, auth, devices, datastores), `observability`, `collectors`, `analytics`.
+
+## 11. Definición de Terminado (checklist verificable)
+
+Una historia está terminada cuando **todas** las casillas aplicables están marcadas en el PR
+(o justificadas como N/A). Mapeo a vision §13.
+
+| # | Criterio (vision §13) | Verificación |
+|---|-----------------------|--------------|
+| 1 | **Código** | PR fusionado a `main` por squash con título Conventional Commit; sin `TODO` sin issue enlazado |
+| 2 | **Tests** | Unitarios de la lógica nueva; integración si toca BD/NATS/externos; contrato si cambia API/proto/eventos; e2e si cambia un recorrido crítico; CI verde |
+| 3 | **Manejo de errores** | Errores envueltos y mapeados (§2.4); casos de error con test; sin pánicos; timeouts en toda E/S |
+| 4 | **Logs** | Logs JSON con campos obligatorios; nada de lo prohibido ([`observability.md`](observability.md) §3.3) |
+| 5 | **Métricas** | RED automáticas + métricas de negocio necesarias con labels permitidos; panel/alerta actualizados si hay nuevo modo de fallo |
+| 6 | **Seguridad** | Checklist de [`security.md`](security.md) §15 completo; escaneos en verde |
+| 7 | **Documentación** | README del servicio actualizado (env vars, métricas, eventos); ADR si hubo decisión de arquitectura; runbook si hay nuevo modo de fallo |
+| 8 | **API documentada** | OpenAPI actualizado (ejemplos y errores), cliente regenerado sin diff; eventos con esquema en `packages/events` |
+| 9 | **Migración DB si aplica** | Migración versionada, reversible o *expand/contract*, pasa `squawk`, probada en integración |
+| 10 | **Docker** | Imagen construye con el Dockerfile común, no root, pasa `trivy image`; compose actualizado |
+| 11 | **CI/CD** | El servicio está en la detección de afectados y en el pipeline; `ci-ok` verde |
+| 12 | **Health check** | `/healthz` y `/readyz` según [`observability.md`](observability.md) §7; `healthcheck` en compose |
+| 13 | **Backup si aplica** | Datos nuevos cubiertos por la política de [`disaster-recovery.md`](disaster-recovery.md) (o justificado como reconstruible) |
+| 14 | **Revisión** | ≥ 1 aprobación (2 en áreas sensibles por CODEOWNERS); demo en la review del sprint con funcionalidad real |
+
+Plantilla de PR (`.github/pull_request_template.md`, la crea quien implemente el Sprint 1)
+con estas 14 casillas.
