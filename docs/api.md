@@ -141,7 +141,7 @@ GET /api/v1/routers?limit=50&status=online,degraded&sort=-last_observed_at
 
 ```json
 {
-  "data": [ { "id": "0192...", "name": "rt-core-01", "observed_state": "online" } ],
+  "data": [ { "id": "0192...", "name": "rt-core-01", "status": "online" } ],
   "page": { "next_cursor": "eyJrIjpbIjIwMjYtMTAtMDdUMTQ6MDM6MTEuMTIzWiIsIjAxOTIuLi4iXX0", "prev_cursor": null, "has_more": true, "limit": 50 }
 }
 ```
@@ -156,8 +156,8 @@ GET /api/v1/routers?limit=50&status=online,degraded&sort=-last_observed_at
 
 ### 1.6 Filtros, búsqueda y ordenamiento
 
-- Igualdad: `?site_id=...&observed_state=online`. Multivalor por comas (OR en el campo, AND entre campos):
-  `?observed_state=offline,degraded`.
+- Igualdad: `?site_id=...&status=online`. Multivalor por comas (OR en el campo, AND entre campos):
+  `?status=offline,degraded`.
 - Rangos con sufijos `_gte`, `_lte`, `_gt`, `_lt`: `?created_at_gte=2026-10-01T00:00:00Z`.
 - Tags: `?tag=core,edge` (todas) · `?tag_any=core,edge` (alguna).
 - Búsqueda libre: `?q=` (prefijo/trigram sobre campos documentados: nombre, IP, descripción).
@@ -344,8 +344,8 @@ gateway. 🔒 = requiere re-autenticación reciente (`REAUTH_REQUIRED`, `securit
 | --- | --- | --- |
 | `GET /sites` · `GET /sites/{id}` | Sitios (filtros `q`, `tag`, `parent_id`). | `sites.read` |
 | `POST /sites` · `PATCH /sites/{id}` · `DELETE /sites/{id}` | Gestión (con routers → `409 SITE_NOT_EMPTY`). | `sites.create` / `sites.update` / `sites.delete` |
-| `GET /routers` | Lista (filtros `site_id`, `observed_state`, `vendor_id`, `tag`, `group_id`, `q`; orden `name`, `observed_state`, `last_observed_at`). Incluye el estado observado proyectado (`router_status_cache`). | `devices.read` |
-| `GET /routers/state-summary` | Conteo por estado observado (`online/warning/critical/degraded/offline/stale/unknown`) y `maintenance`, opcional `site_id`. | `devices.read` |
+| `GET /routers` | Lista (filtros `site_id`, `status`, `observed_state`, `vendor_id`, `tag`, `group_id`, `q`; orden `name`, `status`, `last_observed_at`). Incluye `status`, `observed_state`, `status_reason`, `last_observed_at` (§2.6). | `devices.read` |
+| `GET /routers/status-summary` | Conteo por `status` efectivo (los 8 valores de §2.6), opcional `site_id`/`group_id`. Base del dashboard online/offline/warning/critical. | `devices.read` |
 | `POST /routers` · `GET /routers/{id}` · `PATCH /routers/{id}` · `DELETE /routers/{id}` | Registrar / detalle / editar / baja. | `devices.create` / `devices.read` / `devices.update` / `devices.delete` |
 | `PUT /routers/{id}/snmp-credentials` 🔒 | SNMP v2c/v3 **write-only**; respuesta sin secretos (`configured`, `snmp_version`, `updated_at`). | `devices.credentials.write` |
 | `POST /routers/{id}/snmp-credentials/reveal` 🔒 | Revela en claro (auditado, 2FA). | `devices.credentials.reveal` |
@@ -381,6 +381,66 @@ gateway. 🔒 = requiere re-autenticación reciente (`REAUTH_REQUIRED`, `securit
 > Las series históricas las sirve `analytics` ([`services.md`](./services.md)), que nace en el Sprint 9. Para que el MVP
 > (Sprint 5) tenga gráficas sin cambiar el contrato, la tabla del gateway enruta `/analytics/routers/*` a `snmp` hasta
 > entonces; el frontend no nota el cambio. Ver C-17.
+
+### 2.6 Estado del router: un solo conjunto de valores
+
+Se unifican los estados de [`architecture.md`](./architecture.md) §10.2–§10.4 (`online/degraded/offline/stale`) y los del
+dashboard de [`vision.md`](./vision.md) Sprint 3 (`online/offline/warning/critical`) en **8 valores**, todos con semántica
+distinta. Hay dos campos:
+
+- `observed_state`: lo que **observa** `snmp` (ICMP + SNMP + handshake WG). Sólo 5 valores. Viaja en
+  `horus.snmp.router.state_changed` ([`events.md`](./events.md) §8.4). Dueño: `snmp`.
+- `status`: estado **efectivo** que muestra la UI y por el que se filtra. Lo calcula `devices` (proyección
+  `router_status_cache`) a partir de `observed_state` + frescura de la observación + configuración administrativa.
+  **No se publica un evento propio**: no existe `horus.devices.router.status_changed`. Los consumidores que necesitan el
+  estado reaccionan a `horus.snmp.router.state_changed` (observación) y a `horus.devices.router.maintenance_started/_ended`
+  (administración); la UI recalcula `status` con la misma tabla (función compartida en `packages/`).
+
+| `status` | `observed_state` | Significado | Cuándo |
+| --- | --- | --- | --- |
+| `online` | `online` | Responde y está dentro de umbrales | ICMP ✓, SNMP ✓, WG OK |
+| `warning` | `warning` | Responde pero un umbral de severidad media está superado | CPU/RAM/temperatura/errores sobre umbral *warning* |
+| `critical` | `critical` | Responde pero con un umbral crítico superado | Umbral *critical* (p. ej. temperatura, CPU sostenida 95 %) |
+| `degraded` | `degraded` | Alcanzable pero sin monitoreo completo | ICMP ✓ + SNMP ✗ (`snmp_unreachable`, `snmp_auth_failed`) |
+| `offline` | `offline` | No alcanzable (con razón) | ICMP ✗ + SNMP ✗ (`tunnel_down`, `host_unreachable_via_tunnel`) |
+| `stale` | (el último conocido) | **No sabemos**: la última observación tiene > 3 intervalos o falta el heartbeat del poller | `snmp` caído o atrasado; nunca se marca `offline` por ausencia de monitoreo |
+| `unknown` | — | Nunca observado | Router recién creado, SNMP/ICMP deshabilitado, o antes del Sprint 5 |
+| `maintenance` | (cualquiera) | Ventana de mantenimiento activa; suprime alertas | Flag administrativo de `devices` |
+
+Precedencia al calcular `status`: `maintenance` > `unknown` > `stale` > `observed_state`. La respuesta REST incluye
+siempre `observed_state` (puede ser `null`), `status_reason` y `last_observed_at`, para que la UI explique, p. ej.,
+"en mantenimiento — último estado observado: offline".
+
+### 2.7 Estado del sistema (modos degradados)
+
+`GET /api/v1/system/status` — lo sirve **el propio gateway** (no hace proxy), a partir de sus health checks de
+dependencias (cada 10 s, cacheado), del estado de su conexión NATS y del heartbeat de `snmp`. Permite a la UI mostrar
+banners como "Analítica no disponible" sin esperar a que falle una petición.
+
+Permiso: **cualquier usuario autenticado** obtiene la vista resumida (lo que necesita la UI); el detalle por componente
+(`components[].detail`, latencias, versiones) sólo con `settings.read`. Sin autenticación → `401` (no revela topología).
+
+```json
+{
+  "status": "degraded",
+  "checked_at": "2026-10-07T14:03:20Z",
+  "capabilities": {
+    "auth": "ok", "inventory": "ok", "wireguard": "ok",
+    "monitoring": "stale", "realtime": "ok", "analytics": "unavailable", "reports": "unavailable"
+  },
+  "components": [
+    { "name": "analytics", "status": "down", "since": "2026-10-07T13:50:02Z", "detail": "clickhouse: connection refused" },
+    { "name": "snmp", "status": "degraded", "since": "2026-10-07T14:01:00Z", "detail": "heartbeat ausente 75 s" }
+  ]
+}
+```
+
+- `status` global: `ok` | `degraded` | `down` (sólo `down` si `auth` o el propio gateway no funcionan).
+- `capabilities` es lo que consume la UI (vocabulario estable, `ok` | `degraded` | `stale` | `unavailable`); `components`
+  usa los nombres de servicio y de infraestructura (`postgres`, `redis`, `nats`, `clickhouse`, `minio`) y puede crecer.
+- Cambios de `capabilities` se empujan también por WebSocket en el topic `system` (`{"type":"state","topic":"system",
+  "key":"status","data":{...}}`).
+- Rate limit propio: la UI lo consulta como máximo cada 30 s (o sólo al reconectar el WebSocket).
 
 ---
 
@@ -472,7 +532,7 @@ subjects internos).
 | `wireguard.server.<id>.status` | Handshakes/contadores en vivo del hub | estado | `wireguard.read` | `horus.telemetry.wireguard.peer_status.<id>` |
 | `alerts` | `alert.opened/acknowledged/resolved` (Sprint 11) | evento | `alerts.read` | `horus.alerts.alert.*.*` |
 | `me` | Notificaciones al usuario, reportes listos, exportaciones listas, aviso de cierre de sesión | evento | autenticado (filtro por `user_id`) | `horus.alerts.notification.*.*`, `horus.reporting.report.*.*`, `horus.auth.session.revoked.*` |
-| `system` | Estado del tiempo real (`realtime_status`) y del pipeline SNMP (heartbeat ausente) | estado | autenticado | `horus.snmp.poller.heartbeat.*` |
+| `system` | `capabilities` de `GET /system/status` (§2.7), `realtime_status` y heartbeat del poller SNMP | estado | autenticado | health checks del gateway + `horus.snmp.poller.heartbeat.*` |
 
 - **Evento**: cada mensaje cuenta; se entrega en orden de llegada; puede perderse ante desconexión.
 - **Estado**: sólo importa el último valor por clave; al suscribirse se envía el último snapshot conocido; luego como
@@ -535,7 +595,7 @@ Servidor → cliente:
   `aggregate_version` > versión local (evita la carrera snapshot/evento sin cursores).
 - Sin sticky sessions: cualquier réplica del gateway sirve cualquier conexión.
 - Evolución (no v1): reanudación con cursor usando la secuencia JetStream si la resincronización REST resulta cara
-  (ver C-18).
+  (ver C-04).
 
 ### 4.7 Backpressure
 
