@@ -20,7 +20,7 @@ de datos personales. Este documento fija el modelo de amenazas y los controles m
 | S2 | Contraseñas | Argon2id `m=64 MiB, t=3, p=1`, sal 16 B, salida 32 B, formato PHC; *pepper* opcional vía HMAC. | Recalibrar en Sprint 15 (objetivo 150–400 ms por hash). |
 | S3 | 2FA | TOTP (RFC 6238) obligatorio para roles privilegiados; 10 códigos de recuperación. | WebAuthn/passkeys (después de Sprint 2). |
 | S4 | Tokens del navegador | **Access JWT corto (10 min, EdDSA, emitido por `auth`) en memoria de la SPA, enviado como `Authorization: Bearer`** + **refresh opaco rotativo con detección de reutilización** en cookie `__Secure-hf_rt` (`HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth`). Coincide con ADR-0012 y `api.md`. CSP estricta como defensa principal frente a XSS. | Reevaluar cookies HttpOnly para el access token si una auditoría lo pide. |
-| S5 | Revocación e identidad interna | Cada access token lleva `sid`. El gateway valida firma (JWKS de `auth`) y revocación (`session_revoked:<sid>` en Valkey/Redis → fallback gRPC a `auth`, caché 30 s). **Fuente de verdad: `auth.sessions` en PostgreSQL.** El mismo JWT viaja por gRPC y **cada servicio lo revalida** (firma, `exp`, `aud`). gRPC interno con **mTLS** desde el Sprint 1. Los eventos NATS llevan `actor`, nunca tokens. | Certificados de corta vida automatizados (step-ca) y/o service mesh en Kubernetes. |
+| S5 | Revocación e identidad interna | Cada access token lleva `sid`. El gateway valida firma (JWKS de `auth`) y revocación (`session_revoked:<sid>` en Valkey/Redis → fallback gRPC a `auth`, caché 30 s). **Fuente de verdad: `auth.sessions` en PostgreSQL.** El gateway reenvía el mismo JWT al REST del servicio (proxy HTTP, [ADR-0013](adr/0013-api-gateway-propio.md)) y por gRPC entre servicios, y **cada servicio lo revalida** (firma, `exp`, `aud`). gRPC interno con **mTLS** desde el Sprint 1. Los eventos NATS llevan `actor`, nunca tokens. | Certificados de corta vida automatizados (step-ca) y/o service mesh en Kubernetes. |
 | S6 | Sesiones revocables | Tabla `sessions` (PG) + familias de refresh; revocar = marcar sesión + publicar `horus.auth.session.revoked` (gateway cierra WebSockets). Ventana máxima de aceptación tras revocar: 30 s si Valkey/Redis está caído; inmediata si no. | — |
 | S7 | Autorización | RBAC + ACL por alcance (`global`, `site`, `router_group`). Gateway: autenticación + permiso grueso por ruta. Servicio dueño: permiso + filtrado por alcance (defensa en profundidad). | ABAC puntual si hace falta. |
 | S8 | Auditoría | Tabla append-only en PostgreSQL con cadena de hashes; escritura vía outbox + NATS hacia `auth`; anclaje diario del hash en MinIO con Object Lock. | Exportación a SIEM. |
@@ -64,7 +64,7 @@ de datos personales. Este documento fija el modelo de amenazas y los controles m
  │ reverse proxy│
  └──────┬───────┘
         │ red docker "edge"
- ┌──────▼───────┐   gRPC (red "app")   ┌──────────────────────────────────────┐
+ ┌──────▼───────┐ HTTP+mTLS (red "app")┌──────────────────────────────────────┐
  │ api-gateway  ├─────────────────────►│ auth, devices, wireguard, analytics… │  Zona APP
  └──────────────┘                      └───────────┬──────────────────────────┘
                                                    │ red "data"
@@ -286,7 +286,7 @@ Navegador ──Authorization: Bearer <access JWT>──► Traefik ──► ap
                                                     │ 2. revocación: session_revoked:<sid> en Valkey/Redis
                                                     │    (si no responde: gRPC auth.CheckSession, caché 30 s)
                                                     │ 3. permiso grueso por ruta, rate limit
-                                                    ▼ gRPC + mTLS, metadata authorization: Bearer <mismo JWT>
+                                                    ▼ proxy HTTP al REST del servicio (mTLS), Authorization: Bearer <mismo JWT>
                                          auth / devices / wireguard / … (revalidan firma, exp, aud, permisos)
 ```
 
@@ -431,7 +431,7 @@ tienen `admin` y `catalog_manager`; `analyst` puede proponer cambios (`write`) p
 1. **Gateway (grueso):** autenticación, sesión válida, 2FA cumplido si el rol lo exige, y
    "¿tiene el permiso X en *algún* alcance?" según la tabla declarativa ruta→permiso. Rechaza
    pronto (403) y reduce carga.
-2. **Servicio dueño (fino, obligatorio):** interceptor gRPC común (`packages/go/authz`) que
+2. **Servicio dueño (fino, obligatorio):** middleware HTTP e interceptor gRPC comunes (`packages/go/authz`) que
    valida mTLS + el access JWT (firma, `exp`, `aud`) y expone `authz.Require(ctx, "devices.update", scope)`; el
    **repositorio** filtra por alcance (`WHERE site_id = ANY(@allowed_sites)` o "global"). Esto
    evita IDOR aunque el gateway tenga un error.
@@ -445,7 +445,7 @@ tienen `admin` y `catalog_manager`; `analyst` puede proponer cambios (`write`) p
 | Canal | Mecanismo |
 |-------|-----------|
 | Navegador → gateway | `Authorization: Bearer <access JWT>`; WebSocket con ticket de un uso |
-| Gateway → servicio (gRPC, mTLS) | Metadata `authorization: Bearer <access JWT>` + `traceparent` + `x-request-id` |
+| Gateway → servicio (proxy HTTP al REST del servicio, mTLS; [ADR-0013](adr/0013-api-gateway-propio.md)) | Header `Authorization: Bearer <access JWT>` + `traceparent` + `x-request-id` |
 | Servicio → servicio (gRPC, mTLS) | Reenvía el JWT del usuario si actúa en su nombre; si no, identidad del certificado (y JWT de servicio si hace falta) |
 | Servicio → NATS | Campo `actor` del envelope (definido por el Agente 3 en [`events.md`](events.md)) |
 | Integración → gateway | `Authorization: Bearer hf_pat_…` → el gateway lo cambia por un access JWT de corta vida |
@@ -623,7 +623,7 @@ Aplicable a todos los servicios Go y al frontend (detalles de Dockerfile en
 |-------|-----------------------|------------------------------|
 | Navegador → reverse proxy | TLS 1.2+ (preferente 1.3), Traefik con ACME (Let's Encrypt) si hay dominio público, o certificado de la CA interna del ISP; HSTS `max-age=31536000; includeSubDomains` | Igual |
 | Reverse proxy → gateway | HTTP en red Docker interna `edge` | mTLS |
-| Gateway ↔ servicios y servicio ↔ servicio (gRPC) | **mTLS desde el Sprint 1** ([ADR-0005](adr/0005-grpc-protobuf-interno.md)) con CA interna `step-ca`; certificados de 30 días renovados automáticamente (§5.3) | mTLS con cert-manager o service mesh (Linkerd); certificados de 24 h |
+| Gateway → servicios (HTTP) y servicio ↔ servicio (gRPC) | **mTLS desde el Sprint 1** ([ADR-0005](adr/0005-grpc-protobuf-interno.md)) con CA interna `step-ca`; certificados de 30 días renovados automáticamente (§5.3) | mTLS con cert-manager o service mesh (Linkerd); certificados de 24 h |
 | Servicios → PostgreSQL / ClickHouse / NATS / Valkey | TLS **activado desde Sprint 1** para NATS y PostgreSQL (misma CA interna; coste bajo, evita deuda); ClickHouse/Valkey TLS cuando crucen host | TLS obligatorio en todo |
 | Cualquier tramo que cruce hosts físicos o el NAS | TLS obligatorio (MinIO con TLS) | TLS obligatorio |
 
@@ -669,7 +669,7 @@ Política de vulnerabilidades: CRITICAL ≤ 7 días, HIGH ≤ 30 días, MEDIUM e
 
 1. **Minimización:** solo los campos de flujo necesarios (lista cerrada en
    [`traffic-model.md`](traffic-model.md), Agente 2).
-2. **Seudonimización en el largo plazo:** los agregados > 30 días se asocian a `client_id`
+2. **Seudonimización en el largo plazo:** los agregados > 30 días se asocian a `customer_id`
    (UUID interno), no a IP; la correspondencia IP↔cliente↔tiempo vive en PostgreSQL con acceso
    restringido.
 3. **Retención** (vision Sprint 13; validar con legal): flujo crudo 7–30 días, agregado

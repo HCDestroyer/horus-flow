@@ -592,7 +592,7 @@ Dos casos distintos:
   (configurable, p. ej. 256 MB para flujos ≈ 2,3 min a 100 routers en pico; 32 MB para SNMP ≈
   horas). UDP no permite backpressure: al llenarse el buffer se descartan los lotes nuevos y se
   cuenta en `horus_flows_dropped_total{reason="bus_unavailable"}`.
-- **Detección:** `nats_up == 0`, errores de publish en todos los servicios, `outbox_pending_count`
+- **Detección:** `nats_up == 0`, errores de publish en todos los servicios, `horus_outbox_pending`
   creciendo, `/readyz` de colectores en estado degradado.
 - **Recuperación:** automática. Tras el reinicio, consumers durables retoman desde su último ack;
   el relay del outbox drena; los consumers deduplican por `event_id` (entrega *at-least-once*).

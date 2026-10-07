@@ -396,14 +396,14 @@ tema. El gateway hace *fan-out* desde NATS filtrando por permisos y ACL.
 
 | Pantalla | Qué llega en vivo | Fuente (subjects, ver [`events.md`](events.md)) | Sprint |
 | --- | --- | --- | --- |
-| Resumen | Contadores por estado, cambios recientes, alertas activas, tráfico total actual | `horus.devices.router.status_changed`, `horus.alerts.alert.*`, agregados de analytics | S3, S5, S9, S11 |
-| Lista de routers | Estado y "visto por última vez" de las filas visibles | `horus.devices.router.status_changed` | S3 |
-| Detalle de router | Estado, KPIs, interfaces, último valor (`GET /routers/{id}/metrics/live` + eventos) | `horus.devices.router.status_changed`, `horus.snmp.router.*`, `horus.snmp.interface.*` filtrados por router | S5 |
+| Resumen | Contadores por estado, cambios recientes, alertas activas, tráfico total actual | `horus.snmp.router.state_changed`, `horus.alerts.alert.*`, agregados de analytics | S3, S5, S9, S11 |
+| Lista de routers | Estado y "visto por última vez" de las filas visibles | `horus.snmp.router.state_changed` | S3 |
+| Detalle de router | Estado, KPIs, interfaces, último valor (`GET /routers/{id}/metrics/live` + eventos) | `horus.snmp.router.*`, `horus.snmp.interface.*` filtrados por router | S5 |
 | Monitoreo › Estado de la red | Matriz de estado por sitio/router | idem | S5 |
 | WireGuard | Último handshake, bytes, peer conectado/desconectado | `horus.wireguard.peer.*` | S4 |
 | Tráfico › Panorama | Throughput actual, top servicios (ventana 5 min) | agregados de analytics / traffic-intelligence | S7 |
 | Seguridad › Detecciones | Nuevos hallazgos | `horus.detection.finding.*` | S8 |
-| Centro de notificaciones (S5) | Cambios de estado de routers y peers | `horus.devices.router.status_changed`, `horus.wireguard.peer.handshake_*` | S5 |
+| Centro de notificaciones (S5) | Cambios de estado de routers y peers | `horus.snmp.router.state_changed`, `horus.wireguard.peer.handshake_*` | S5 |
 | Alertas › Activas, centro de notificaciones (S11) | Alta, reconocimiento y resolución | `horus.alerts.alert.*` | S11 |
 | Reportes | Progreso de generación | `horus.analytics.report.*` | S12 |
 | Sesiones | Revocación de mi sesión → logout | `horus.auth.session.revoked` | S2 |
@@ -730,7 +730,7 @@ apps/frontend/
 | Necesito de | Qué | Estado |
 | --- | --- | --- |
 | [`api.md`](api.md) (Agente 3) | Formato de error `problem+json`, paginación por cursor, filtros, `GET /api/v1/me` con permisos efectivos, tickets y protocolo WS, `GET /routers/status-summary`, `meta.partial` | Alineado. **Falta** `GET /api/v1/system/status` agregado para §8.4 (C-08) |
-| [`events.md`](events.md) (Agente 3) | Lista de eventos UI-visibles para §7.1 | Alineado con `horus.devices.router.status_changed`; ver C-07 |
+| [`events.md`](events.md) (Agente 3) | Lista de eventos UI-visibles para §7.1 | Alineado con `horus.snmp.router.state_changed` (C-07 resuelto: no existe `devices.router.status_changed`) |
 | [`security.md`](security.md) (Agente 4) | Catálogo de permisos (§3.2 usa el de §6.1), almacenamiento de tokens en navegador, CSP compatible con ECharts | Alineado: catálogo oficial, tokens (S4), ticket WS, CSP |
 | [`architecture.md`](architecture.md) §10 | Matriz de §8.4 y modelo de estado | Alineado; enum de estado pendiente de unificar con `api.md` (C-06) |
 | [`database.md`](database.md) (Agente 2) | Dónde viven las series SNMP (afecta a §8.4, fila ClickHouse) | C-03 pendiente del PO |

@@ -278,8 +278,8 @@ Además hay dos dependencias ocultas:
 El dashboard de S3 pide routers online/offline/warning/critical, pero SNMP llega en S5.
 **Ajuste (coincide con la propuesta del Agente 1, Q7):** sondeo ICMP en S3 como **primera pieza
 del servicio `snmp`** ([`services.md`](services.md) §1.1: `snmp` incluye ICMP y el estado
-observado). `snmp` publica `horus.snmp.router.*` y `devices` proyecta y emite
-`horus.devices.router.status_changed` ([`events.md`](events.md)), que el gateway reenvía a la UI.
+observado). `snmp` publica `horus.snmp.router.state_changed` ([`events.md`](events.md)); `devices`
+lo proyecta como `status` efectivo y el gateway lo reenvía a la UI (topic `routers.status`).
 `warning`/`critical`/`degraded` se calculan desde S5; en S3 solo existen `online`, `offline`,
 `stale` y `unknown`. Consecuencia: el desplegable `snmp` nace en S3 (no en S5) con solo ICMP.
 
@@ -426,7 +426,7 @@ cada uno, y S1 se alarga a 3 semanas). Recomendación al PO: P-02.
 | C-03 | MVP técnico dice `SNMP → PostgreSQL`; series SNMP en PostgreSQL no escalan | **Pendiente de decisión del PO**: el Agente 2 propone ClickHouse desde S5 (cambia `vision.md` §14 y requiere ADR); alternativa del Agente 2: tabla puente en PostgreSQL particionada por día con 7 días de retención y migración a ClickHouse en S6. Recomiendo ClickHouse en S5: evita migrar datos y el riesgo operativo se adelanta a un sprint con menos volumen |
 | C-04 | Sondeo ICMP en S3: ¿en `devices` o en `snmp`? | **Resuelto**: en `snmp` ([`services.md`](services.md) §1.1); `snmp` nace en S3 con solo ICMP |
 | C-05 | Recuperación de contraseña sin SMTP | Restablecimiento asistido por admin en S2; email en S3/S11 según P-12 |
-| C-06 | Modelo de estado del router inconsistente entre documentos: [`architecture.md`](architecture.md) §10.4 usa `online/degraded/offline/stale` (+ `warning/critical`); [`api.md`](api.md) `GET /routers/status-summary` usa `online/offline/warning/critical/unknown/maintenance` | Unificar en un enum: `online, warning, critical, degraded, offline, stale, unknown, maintenance` (la UI de [`frontend.md`](frontend.md) §10.2 ya lo soporta). Decidir entre Agentes 1 y 3 |
-| C-07 | Subject del cambio de estado: `services.md` dice `horus.snmp.router.state_changed`; `events.md` hace que `devices` emita `horus.devices.router.status_changed` | La UI consume el de `devices` (proyección); confirmar que ambos existen con roles distintos |
-| C-08 | La UI necesita un endpoint agregado de estado de dependencias para mostrar modos degradados ([`frontend.md`](frontend.md) §8.4) | [`security.md`](security.md) ya lo protege con `settings.read` (`GET /system/status`), pero [`api.md`](api.md) no lo define: añadirlo (capacidades por dominio: `analytics`, `realtime`, `monitoring`, `storage`) y decidir si una versión reducida es visible para todo usuario autenticado |
+| C-06 | Modelo de estado del router inconsistente entre documentos: [`architecture.md`](architecture.md) §10.4 usa `online/degraded/offline/stale` (+ `warning/critical`); [`api.md`](api.md) `GET /routers/status-summary` usa `online/offline/warning/critical/unknown/maintenance` | **Resuelto** en [`api.md`](api.md) §2.6: `observed_state` (5 valores, dueño `snmp`) + `status` efectivo de 8 valores calculado por `devices` |
+| C-07 | Subject del cambio de estado: `services.md` dice `horus.snmp.router.state_changed`; `events.md` hace que `devices` emita `horus.devices.router.status_changed` | **Resuelto** en [`events.md`](events.md): solo existe `horus.snmp.router.state_changed` (+ `devices.router.maintenance_started/_ended`) |
+| C-08 | La UI necesita un endpoint agregado de estado de dependencias para mostrar modos degradados ([`frontend.md`](frontend.md) §8.4) | **Resuelto** en [`api.md`](api.md) §2.7: lo sirve el gateway; resumen de capacidades para todo usuario autenticado, detalle con `settings.read`; también por el topic WS `system` |
 | C-09 | Permisos de clientes | **Resuelto** en [`security.md`](security.md) §6.1: `subscribers.read/manage`; tráfico por abonado `traffic.client.read`. La entidad es `customer` en datos/API/eventos |

@@ -136,9 +136,9 @@ llamen los clientes.
    **entonces** cada router recibe N pings y se calcula alcanzable/no alcanzable, RTT y pérdida.
 2. **Dado** que un router cambia de estado tras las observaciones de histéresis
    ([`../architecture.md`](../architecture.md) §10.4), **cuando** ocurre, **entonces** `snmp`
-   publica su evento `horus.snmp.router.*` y `devices` actualiza su proyección y emite
-   `horus.devices.router.status_changed` ([`../events.md`](../events.md)) con estado anterior,
-   nuevo, razón y `time`; el gateway lo reenvía a la UI.
+   publica `horus.snmp.router.state_changed` ([`../events.md`](../events.md)) con estado anterior,
+   nuevo, razón y `time`; `devices` actualiza su proyección `status` ([`../api.md`](../api.md) §2.6)
+   y el gateway reenvía el cambio a la UI por el topic `routers.status`.
 3. **Dado** 1 000 routers simulados, **cuando** corre el sondeo, **entonces** cada ciclo termina en
    < 30 s con < 200 MB de RAM.
 4. **Dado** que el servicio de sondeo se cae, **cuando** pasan 2 intervalos sin datos, **entonces**

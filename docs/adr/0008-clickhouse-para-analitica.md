@@ -17,7 +17,7 @@ analítica:
 
 - Motores `MergeTree` particionados por día, `ORDER BY` pensado para las consultas dominantes
   (detalle en [database.md](../database.md) y [traffic-model.md](../traffic-model.md)); vistas
-  materializadas para agregados 1 min / 1 h / 1 día; TTL por tabla según [storage.md](../storage.md).
+  materializadas para agregados 5 min / 1 h / 1 día (granularidad fijada en [database.md](../database.md)); TTL por tabla según [storage.md](../storage.md).
 - Inserción **solo por lotes** (≥ 50k filas o cada 5 s) desde ingesters, con
   `insert_deduplication_token` por lote para reintentos idempotentes.
 - **Propiedad**: cada tabla tiene **un único escritor**. Las tablas marcadas como *publicadas*

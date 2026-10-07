@@ -56,14 +56,16 @@
 -- borrador: tabla outbox estándar (una por esquema)
 CREATE TABLE <schema>.outbox (
   id            uuid PRIMARY KEY,            -- UUIDv7 = event_id
-  subject       text NOT NULL,               -- horus.<dominio>.<entidad>.<evento>
+  seq           bigint GENERATED ALWAYS AS IDENTITY, -- orden de publicación (events.md)
+  subject       text NOT NULL,               -- horus.<dominio>.<entidad>.<evento>.<entity_id>
   aggregate_id  uuid NOT NULL,
+  headers       jsonb NOT NULL DEFAULT '{}', -- traceparent, Nats-Msg-Id, etc.
   payload       jsonb NOT NULL,
   occurred_at   timestamptz NOT NULL,
   published_at  timestamptz,                 -- NULL = pendiente
   attempts      integer NOT NULL DEFAULT 0
 );
-CREATE INDEX ix_outbox__pending ON <schema>.outbox (id) WHERE published_at IS NULL;
+CREATE INDEX ix_outbox__pending ON <schema>.outbox (seq) WHERE published_at IS NULL;
 -- borrado físico de publicados > 7 días (job del propio servicio)
 ```
 
@@ -139,7 +141,7 @@ Notas:
   del rol (decisión a confirmar con Agente 4). Cuando `devices` borra un sitio emite
   `horus.devices.site.deleted` y `auth` limpia/invalida las entradas ACL huérfanas.
 - **Auditoría centralizada**: otros servicios publican eventos de auditoría
-  (`horus.audit.entry.recorded`, nombre a confirmar por Agente 3) y `auth` los persiste. Alternativa:
+  (`horus.<dominio>.audit.recorded`, ver [`events.md`](events.md)) y `auth` los persiste. Alternativa:
   cada servicio su propia tabla de auditoría. Recomiendo centralizar (una sola UI, una sola
   cadena de hash). Coordinar con Agente 1/4.
 - **Cadena de hash** (`prev_hash`, `hash`): integridad evidente ante manipulación; opcional en v1,
@@ -272,8 +274,8 @@ erDiagram
 | Configuración `.conf` renderizada | **No** se persiste | Se genera bajo demanda desde la BD | Contiene la privada del peer; ver [`storage.md`](storage.md) §3. |
 
 **Handshakes**: el estado actual va en `peer_runtime` (PostgreSQL, sirve sin ClickHouse). Las
-transiciones (`up→down`) se publican como eventos (`horus.wireguard.peer.handshake_lost` /
-`.handshake_restored`, nombres a confirmar con Agente 3) y la serie temporal de rx/tx/handshake
+transiciones (`up→down`) se publican como eventos (`horus.wireguard.peer.handshake_stale` /
+`.handshake_recovered`, ver [`events.md`](events.md)) y la serie temporal de rx/tx/handshake
 (cada 60 s) se guarda en ClickHouse `wireguard.peer_metrics` (ver §6.4) cuando ClickHouse exista.
 
 ### 2.4 `alerts`

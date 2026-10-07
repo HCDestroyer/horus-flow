@@ -124,7 +124,7 @@ instancia activa; **Sharded** = N instancias que se reparten trabajo con *leases
 | API pública | `/api/v1/sites`, `/api/v1/routers`, `/api/v1/devices`, `/api/v1/interfaces`, `/api/v1/vendors`, `/api/v1/models`, `/api/v1/customers`, `/api/v1/tags`, `/api/v1/groups`. |
 | gRPC | `InventoryService.ListPollingTargets` (snapshot para snmp, con credenciales descifradas; solo para identidades de servicio autorizadas), `GetPollingTarget`, `GetRouters` (batch de nombres), `ListCustomerAddressMap` (snapshot IP→cliente para flows). |
 | Publica | `devices.site.created/updated/deleted`, `devices.router.created/updated/deleted`, `devices.router.credentials_rotated`, `devices.customer.assigned/unassigned`, `devices.audit.recorded`. |
-| Consume | `snmp.router.state_changed` → `router_status_cache`; `snmp.router.discovered_interfaces` (para sugerir interfaces). |
+| Consume | `snmp.router.state_changed` → `router_status_cache`; `snmp.router.interfaces_discovered` (para sugerir interfaces). |
 | Dependencias | PostgreSQL (crítica), NATS (outbox), clave de cifrado de credenciales (KMS/secret). |
 | Sprint | 1 (esqueleto), 3 (completo) |
 | Estado | **Stateless**. |
@@ -162,7 +162,7 @@ instancia activa; **Sharded** = N instancias que se reparten trabajo con *leases
 | Dueño de datos | ClickHouse: `snmp_device_metrics`, `snmp_interface_metrics` (+ agregados). NATS KV: `snmp_shards` (leases), `snmp_router_state` (estado actual). Sin PostgreSQL propio en v1 (el estado actual vive en KV y se proyecta a `devices`). |
 | API pública | `/api/v1/routers/{id}/metrics/live` (último valor), `/api/v1/routers/{id}/poll` (sondeo bajo demanda, `devices.update`). Las series históricas las sirve `analytics`. |
 | gRPC | `PollerService.PollNow`, `PollerService.GetRouterState`. |
-| Publica | `snmp.metrics.batch` (telemetría, JetStream), `snmp.router.state_changed`, `snmp.router.rebooted`, `snmp.router.discovered_interfaces`, `snmp.poller.heartbeat`. |
+| Publica | `snmp.metrics.batch` (telemetría, JetStream), `snmp.router.state_changed`, `snmp.router.rebooted`, `snmp.router.interfaces_discovered`, `snmp.poller.heartbeat`. |
 | Consume | `devices.router.*`, `devices.router.credentials_rotated`, `wireguard.peer.handshake_*`, `snmp.metrics.batch` (rol metrics-writer). |
 | Dependencias | devices (snapshot gRPC al arrancar; luego eventos), NATS (crítica para publicar; con buffer), ClickHouse (solo metrics-writer; degradable), red de gestión/túneles WG. |
 | Sprint | 5 (ICMP posiblemente en 3, ver Q7) |
@@ -173,7 +173,7 @@ instancia activa; **Sharded** = N instancias que se reparten trabajo con *leases
 | Campo | Valor |
 | --- | --- |
 | Responsabilidad | **collector**: escuchar UDP (NetFlow v5/v9, IPFIX, sFlow v5), gestionar plantillas por exportador, decodificar, normalizar a modelo común, agrupar en lotes y publicar. Detectar exportadores silenciosos. **ingester**: consumir lotes, enriquecer (IP→prefijo→ASN→organización→servicio→categoría; IP cliente→cliente/sitio/router; geolocalización si aplica) con el snapshot en memoria del catálogo y del mapa de clientes, insertar en ClickHouse por lotes con token de deduplicación. Sin captura de paquetes. |
-| Dueño de datos | ClickHouse: `flows_raw` (escritor único) y vistas materializadas de agregación `flows_1m`, `flows_1h`, `flows_1d` (definidas en [traffic-model.md](traffic-model.md)); tabla de cobertura `flows_coverage`. NATS: stream de lotes de flujos. |
+| Dueño de datos | ClickHouse: `flows_raw` (escritor único) y vistas materializadas de agregación de 5 min, 1 h y 1 día (`customer_5m/1h/1d`, `site_5m/1h/1d`, `border_1h`, `unattributed_1h`; definidas en [database.md](database.md)); tabla de cobertura `flows_coverage`. NATS: stream de lotes de flujos. |
 | API pública | `/api/v1/flows/exporters` (exportadores vistos, último paquete, plantillas, tasa). |
 | gRPC | `FlowsAdmin.GetExporterStats`. |
 | Publica | `flows.batch.received` (telemetría, alto volumen, JetStream con retención por límites), `flows.exporter.discovered`, `flows.exporter.silent`, `flows.exporter.recovered`. |
@@ -205,7 +205,7 @@ instancia activa; **Sharded** = N instancias que se reparten trabajo con *leases
 | API pública | `/api/v1/security/findings`, `/api/v1/security/reputation?ip=`, `/api/v1/security/sources`, `/api/v1/customers/{id}/scores`, `/api/v1/detection/models`. |
 | gRPC | `Reputation.Check` (batch). |
 | Publica | `detection.finding.created/updated/resolved`, `detection.score.changed` (solo cuando cambia de clase o > umbral), `detection.audit.recorded`. |
-| Consume | `flows.batch.received` (opcional, muestreado, para marcar hits de reputación en caliente) o consultas periódicas a tablas publicadas de ClickHouse (`flows_1m`); `snmp.router.state_changed`. |
+| Consume | `flows.batch.received` (opcional, muestreado, para marcar hits de reputación en caliente) o consultas periódicas a tablas publicadas de ClickHouse (agregados de 5 min); `snmp.router.state_changed`. |
 | Dependencias | ClickHouse (degradable: sin scoring nuevo), PostgreSQL, NATS, fuentes externas. |
 | Sprint | 8 (reputation + correlation), 10 (scoring) |
 | Estado | API **stateless**; jobs de scoring periódicos **singleton** por job (lease NATS KV) o particionados por `customer_id` si crecen. |
@@ -232,7 +232,7 @@ instancia activa; **Sharded** = N instancias que se reparten trabajo con *leases
 | Dueño de datos | PG `analytics`: `dashboards` (guardados por usuario), `report_definitions`, `report_runs`, `archive_manifests`, `outbox`. ClickHouse: tabla `data_coverage` y vistas de lectura propias. MinIO: `reports/`, `archive/`. **Lee** (no escribe) tablas publicadas de flows, snmp, detection. |
 | API pública | `/api/v1/analytics/isp/*`, `/api/v1/analytics/customers/{id}/*`, `/api/v1/analytics/routers/{id}/*`, `/api/v1/reports`, `/api/v1/reports/{id}/download` (URL prefirmada de MinIO, corta duración). |
 | gRPC | `Analytics.Query` (para alerts/detection si necesitan agregados ya calculados; opcional). |
-| Publica | `analytics.report.completed/failed`, `analytics.archive.completed`, `analytics.audit.recorded`. |
+| Publica | `reporting.report.completed/failed`, `analytics.archive.completed`, `analytics.audit.recorded`. |
 | Consume | `devices.router.updated`, `devices.customer.*` (caché de nombres). |
 | Dependencias | ClickHouse (crítica para su función, no para el sistema), PostgreSQL, Redis, MinIO (reporting/archiver), devices/auth (nombres). |
 | Sprint | 9 (analytics), 12 (reporting), 13 (archiver) |
