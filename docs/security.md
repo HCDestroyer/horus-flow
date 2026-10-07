@@ -1,16 +1,25 @@
 # Horus Flow — Seguridad
 
-> Estado: borrador Sprint 0 · Responsable: Agente 4 (seguridad, observabilidad, plataforma).
+> Estado: **propuesta ronda 2** (aplica [`po-decisions.md`](po-decisions.md) D1–D10, que prevalecen) · Responsable:
+> Agente C (contratos, seguridad y operaciones). "Sprint N" = el incremento que entrega esa capacidad (D9).
+> "Redis" = **Valkey** (D3). "MinIO/NAS" = almacenamiento local + destino remoto opcional (D2; [`storage.md`](storage.md)).
 > Fuente: [`vision.md`](vision.md) §7. Documentos relacionados: [`architecture.md`](architecture.md),
 > [`services.md`](services.md), [`database.md`](database.md), [`api.md`](api.md),
 > [`events.md`](events.md), [`storage.md`](storage.md), [`observability.md`](observability.md),
 > [`disaster-recovery.md`](disaster-recovery.md), [`conventions.md`](conventions.md).
 > Preguntas abiertas: [`open-questions/security-ops.md`](open-questions/security-ops.md).
 
-Horus Flow ve **toda la red de un ISP**: credenciales de administración de los routers, claves
-WireGuard que dan acceso a la red de gestión, y metadatos de tráfico de cada abonado. Un
-compromiso de la plataforma equivale a un compromiso de la red del ISP y a una filtración masiva
-de datos personales. Este documento fija el modelo de amenazas y los controles mínimos.
+Horus Flow ve **toda la red de varios ISP** (D6: multi-tenant desde v1): credenciales de
+administración de los routers MikroTik de cada nodo, claves WireGuard que dan acceso a sus redes
+de gestión, y metadatos de tráfico de cada IP de cliente. Un compromiso de la plataforma equivale
+a un compromiso de la red de **todos** los ISP alojados y a una filtración masiva de datos
+personales; un fallo de aislamiento equivale a que un ISP vea la red y los clientes de su
+competidor. Este documento fija el modelo de amenazas y los controles mínimos.
+
+**Propósito declarado del tratamiento (D5):** seguridad de la red del ISP —detectar y mitigar
+clientes infectados o que participan en botnets— y, de forma secundaria, operación de red y
+detección de uso comercial de IPs residenciales. Uso exclusivamente empresarial (el ISP como
+operador de su red). Este propósito acota qué se recoge, cuánto se guarda y quién lo ve (§13).
 
 ## 0. Resumen de decisiones
 
@@ -20,13 +29,18 @@ de datos personales. Este documento fija el modelo de amenazas y los controles m
 | S2 | Contraseñas | Argon2id `m=64 MiB, t=3, p=1`, sal 16 B, salida 32 B, formato PHC; *pepper* opcional vía HMAC. | Recalibrar en Sprint 15 (objetivo 150–400 ms por hash). |
 | S3 | 2FA | TOTP (RFC 6238) obligatorio para roles privilegiados; 10 códigos de recuperación. | WebAuthn/passkeys (después de Sprint 2). |
 | S4 | Tokens del navegador | **Access JWT corto (10 min, EdDSA, emitido por `auth`) en memoria de la SPA, enviado como `Authorization: Bearer`** + **refresh opaco rotativo con detección de reutilización** en cookie `__Secure-hf_rt` (`HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth`). Coincide con ADR-0012 y `api.md`. CSP estricta como defensa principal frente a XSS. | Reevaluar cookies HttpOnly para el access token si una auditoría lo pide. |
-| S5 | Revocación e identidad interna | Cada access token lleva `sid`. El gateway valida firma (JWKS de `auth`) y revocación (`session_revoked:<sid>` en Valkey/Redis → fallback gRPC a `auth`, caché 30 s). **Fuente de verdad: `auth.sessions` en PostgreSQL.** El gateway reenvía el mismo JWT al REST del servicio (proxy HTTP, [ADR-0013](adr/0013-api-gateway-propio.md)) y por gRPC entre servicios, y **cada servicio lo revalida** (firma, `exp`, `aud`). gRPC interno con **mTLS** desde el Sprint 1. Los eventos NATS llevan `actor`, nunca tokens. | Certificados de corta vida automatizados (step-ca) y/o service mesh en Kubernetes. |
-| S6 | Sesiones revocables | Tabla `sessions` (PG) + familias de refresh; revocar = marcar sesión + publicar `horus.auth.session.revoked` (gateway cierra WebSockets). Ventana máxima de aceptación tras revocar: 30 s si Valkey/Redis está caído; inmediata si no. | — |
-| S7 | Autorización | RBAC + ACL por alcance (`global`, `site`, `router_group`). Gateway: autenticación + permiso grueso por ruta. Servicio dueño: permiso + filtrado por alcance (defensa en profundidad). | ABAC puntual si hace falta. |
-| S8 | Auditoría | Tabla append-only en PostgreSQL con cadena de hashes; escritura vía outbox + NATS hacia `auth`; anclaje diario del hash en MinIO con Object Lock. | Exportación a SIEM. |
+| S5 | Revocación e identidad interna | Cada access token lleva `sid`. El gateway valida firma (JWKS de `auth`) y revocación (`session_revoked:<sid>` en Valkey → fallback gRPC a `auth`, caché 30 s). **Fuente de verdad: `auth.sessions` en PostgreSQL.** El gateway reenvía el mismo JWT al REST del servicio (proxy HTTP, [ADR-0013](adr/0013-api-gateway-propio.md)) y por gRPC entre servicios, y **cada servicio lo revalida** (firma, `exp`, `aud`). gRPC interno con **mTLS** desde el Sprint 1. Los eventos NATS llevan `actor`, nunca tokens. | Certificados de corta vida automatizados (step-ca) y/o service mesh en Kubernetes. |
+| S6 | Sesiones revocables | Tabla `sessions` (PG) + familias de refresh; revocar = marcar sesión + publicar `horus.auth.session.revoked` (gateway cierra WebSockets). Ventana máxima de aceptación tras revocar: 30 s si Valkey está caído; inmediata si no. | — |
+| S7 | Autorización | RBAC + ACL por alcance **dentro de cada tenant** (`tenant`, `site`, `router_group`) mediante membresías; roles de plataforma aparte. Gateway: autenticación + pertenencia al tenant de la ruta + permiso grueso. Servicio dueño: permiso + filtrado por tenant y alcance (defensa en profundidad). | ABAC puntual si hace falta. |
+| S8 | Auditoría | Tabla append-only en PostgreSQL con cadena de hashes; escritura vía outbox + NATS hacia `auth`; anclaje diario del hash en almacenamiento local de solo-anexado, replicado al destino remoto si existe (D2). | Exportación a SIEM. |
 | S9 | Secretos de routers/WireGuard | *Envelope encryption* AES-256-GCM con AAD (DEK por secreto, KEK fuera de la BD); borrado = *crypto-shredding*; KEK en v1 = clave maestra en archivo (Docker secret); solo `devices`, `wireguard`, `auth` y `alerts` (canales) cargan su KEK. Columna `secret_ref` reservada para gestor externo. | OpenBao (Transit) como KMS en Sprint 14–16. SOPS+age para secretos de despliegue desde Sprint 1. |
 | S10 | Cadena de suministro | govulncheck, osv-scanner, Trivy, gitleaks, Syft (SBOM), cosign keyless + attestations de GitHub, Renovate, Actions fijadas por SHA. | SLSA nivel 3. |
-| S11 | Almacén clave-valor | **Valkey** (fork BSD-3 de Redis, compatible con el protocolo) en lugar de Redis 7.4+ (licencia RSAL/SSPL/AGPL); en este documento "Redis" designa ese almacén compatible ([ADR-0009](adr/0009-redis.md)). | — |
+| S11 | Almacén clave-valor | **Valkey** (D3; fork BSD-3 de Redis, compatible con el protocolo); usuarios ACL por servicio, claves con prefijo de tenant, sin secretos persistentes (§3.7). | — |
+| S12 | Aislamiento entre tenants (D6) | Tenant explícito en rutas, topics, subjects y gRPC; repositorios que exigen `TenantScope`; **RLS de PostgreSQL** y *row policies* de ClickHouse como segunda barrera; batería automática de pruebas "A no ve B" obligatoria en CI (§3.9). | Base de datos o despliegue dedicado por tenant si un ISP lo exige por contrato. |
+| S13 | Pantallas NOC (D8) | **Kiosco = dispositivo registrado**: código de enrolamiento de un uso (10 min) → credencial de dispositivo HttpOnly rotativa → JWT de solo lectura limitado a dashboards asignados, CIDR opcional, sin datos personales por defecto; nunca tokens largos en la URL (§5.5). | Certificado de cliente en el dispositivo (mTLS) para videowalls gestionados. |
+| S14 | Roles de plataforma | `platform_admin`/`platform_operator`/`platform_auditor` **sin** acceso implícito a datos de negocio de los ISP; acceso de soporte temporal, con motivo, notificado y auditado en ambos lados (§6.6). | — |
+| S15 | Credenciales de MikroTik (D10) | API REST de RouterOS sólo por HTTPS dentro del túnel WireGuard, usuario de **solo lectura** con dirección permitida = IP de Horus; SSH con llave ed25519 generada por Horus; SNMPv3 authPriv. Todas con *envelope encryption* y KEK por tenant (§8.4). | Rotación automática programada. |
+| S16 | Destinos remotos de copias (D2) | Cifrado **en cliente** antes de salir del servidor (las copias son ilegibles para SFTP/Drive/MEGA/Dropbox); credenciales con mínimo privilegio (carpeta de app, usuario SFTP enjaulado), cifradas en PostgreSQL y materializadas sólo en memoria del proceso de copia (§8.5). | Destino *pull* (el NAS recoge) para que un servidor comprometido no pueda borrar copias. |
 
 ## 1. Activos y actores
 
@@ -34,14 +48,18 @@ de datos personales. Este documento fija el modelo de amenazas y los controles m
 
 | Activo | Dónde vive | Criticidad | Impacto si se compromete |
 |--------|-----------|------------|--------------------------|
-| Credenciales de routers (SNMP v2c/v3, SSH/API) | PostgreSQL (`devices`), cifradas | Crítica | Control total de la red del ISP |
+| Credenciales de routers (SNMP v2c/v3, API REST RouterOS, SSH) | PostgreSQL (`devices`), cifradas con KEK por tenant | Crítica | Control total de la red del ISP (de **todos** los ISP si se compromete la plataforma) |
+| Separación entre tenants | Código (repositorios, gateway), RLS, tabla de rutas | Crítica | Un ISP ve inventario, clientes y tráfico de otro (riesgo legal y comercial grave) |
 | Claves privadas WireGuard (servidor y peers) | PostgreSQL (`wireguard`), cifradas; host WG | Crítica | Acceso a la red de gestión |
 | KEK / clave maestra, clave de firma de JWT (`auth`), CA interna de mTLS | Archivo secreto / OpenBao | Crítica | Descifrado de todo lo anterior / suplantación |
-| Metadatos de tráfico de abonados (flujos) | ClickHouse, MinIO/NAS | Alta (dato personal) | Filtración de hábitos de navegación de miles de clientes |
-| Usuarios, hashes, secretos TOTP, sesiones | PostgreSQL (`auth`), Redis | Alta | Toma de cuentas |
-| Registro de auditoría | PostgreSQL + anclas en MinIO | Alta | Pérdida de trazabilidad / encubrimiento |
+| Metadatos de tráfico por IP de cliente (flujos) e IPs descubiertas | ClickHouse, PostgreSQL (`devices.customer`) | Alta (dato personal) | Filtración de hábitos de navegación de miles de clientes de varios ISP |
+| Hallazgos de seguridad por cliente (botnets) | PostgreSQL/ClickHouse (`detection`) | Alta | Señalar a una persona como "infectada"; daño reputacional si se filtra |
+| Credenciales de destinos remotos de copias (SFTP, Google Drive, MEGA, Dropbox) | PostgreSQL, cifradas | Alta | Lectura/borrado de las copias fuera del servidor |
+| Credencial de dispositivo kiosco | Cookie HttpOnly en la pantalla; hash en PostgreSQL | Media | Ver dashboards del tenant asignado (solo lectura) |
+| Usuarios, membresías, hashes, secretos TOTP, sesiones | PostgreSQL (`auth`), Valkey (caché) | Alta | Toma de cuentas |
+| Registro de auditoría | PostgreSQL + anclas en almacenamiento local/remoto | Alta | Pérdida de trazabilidad / encubrimiento |
 | Reglas de clasificación, reputación, scoring | PostgreSQL | Media | Detecciones falsas, ceguera |
-| Backups | MinIO/NAS, offsite | Crítica (contienen todo lo anterior) | Igual que los datos de origen |
+| Backups | Disco local del servidor + destino remoto opcional | Crítica (contienen todo lo anterior, de todos los tenants) | Igual que los datos de origen |
 
 ### 1.2 Actores de amenaza
 
@@ -51,9 +69,19 @@ de datos personales. Este documento fija el modelo de amenazas y los controles m
 3. **Router comprometido**: envía flujos/traps maliciosos, explota parsers.
 4. **Usuario interno malicioso o curioso** (operador NOC, analista): abuso de acceso a datos de
    clientes, exfiltración de credenciales.
+4b. **Usuario de otro ISP (tenant vecino)** — amenaza principal nueva con D6: un usuario legítimo
+   del tenant A que intenta (o recibe por error) datos del tenant B: IDs manipulados, cursores o
+   topics ajenos, exportaciones, cachés compartidas, mensajes WebSocket mal enrutados.
+4c. **Operador de la plataforma** (`platform_admin`, la persona que opera Horus, D7): acceso
+   técnico a todos los datos; se limita por diseño (§6.6) y se audita.
+4d. **Persona frente a una pantalla NOC** (visitas, cámaras, fotos): ve lo que muestra el kiosco.
 5. **Cadena de suministro**: dependencia Go/npm o imagen base comprometida, Action de GitHub
    maliciosa.
-6. **Operador de infraestructura con acceso al NAS/servidor**: acceso a backups o volúmenes.
+6. **Operador de infraestructura con acceso al NAS/servidor o al proveedor de nube**: acceso a
+   backups o volúmenes (mitigado por cifrado en cliente, §8.5).
+7. **Agente de IA de desarrollo comprometido o equivocado** (D7): introduce un fallo de
+   aislamiento o un secreto en el repo; mitigado por revisión por otro agente, CI obligatoria y
+   revisión humana de áreas sensibles ([`conventions.md`](conventions.md) §6).
 
 ## 2. Zonas de confianza
 
@@ -69,7 +97,7 @@ de datos personales. Este documento fija el modelo de amenazas y los controles m
  └──────────────┘                      └───────────┬──────────────────────────┘
                                                    │ red "data"
                        ┌───────────────────────────▼──────────────────────────┐
-                       │ PostgreSQL · ClickHouse · Redis · NATS · MinIO        │  Zona DATA
+                       │ PostgreSQL · ClickHouse · Valkey · NATS · disco local │  Zona DATA
                        └───────────────────────────▲──────────────────────────┘
                                                    │
  ┌─────────────────────────────────────────────────┴──────────────────────┐
@@ -95,7 +123,7 @@ service, **E**levation of privilege. "Ctrl" = control previsto; "Sprint" = cuán
 | S | Phishing / sitio clonado que captura credenciales | TOTP/WebAuthn; HSTS con preload; dominio propio | 2 |
 | T | XSS inyecta script que actúa con la sesión del usuario | Vue escapa por defecto; prohibido `v-html` sin sanitizar (DOMPurify) — regla ESLint `vue/no-v-html` como error; CSP estricta `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'none'` (`'unsafe-inline'` solo en estilos, necesario para los estilos dinámicos de Nuxt UI/ECharts; ECharts renderiza en canvas y no necesita `unsafe-eval`; validar en Sprint 1 con el build real); refresh token en cookie HttpOnly (el JS no puede leerlo); access token de vida corta | 1 |
 | R | — | La auditoría vive en el backend | — |
-| I | Datos sensibles en `localStorage`, caché del navegador o URLs | Access token solo en memoria; nada sensible en storage del navegador; `Cache-Control: no-store` en `/api/*`; nunca IPs de abonados ni tokens en query strings | 1 |
+| I | Datos sensibles en `localStorage`, caché del navegador o URLs | Access token solo en memoria; nada sensible en storage del navegador; `Cache-Control: no-store` en `/api/*`; nunca IPs de clientes ni tokens en query strings (búsqueda por IP en el cuerpo, [`api.md`](api.md) §2.9) | 1 |
 | D | Consultas analíticas pesadas desde la UI | Límites de rango/tiempo y paginación en la API; rate limit por usuario | 9 |
 | E | Ocultar botones como "control de acceso" | La UI solo **refleja** permisos (`/api/v1/me` devuelve permisos efectivos); la decisión siempre es del backend | 2 |
 
@@ -108,7 +136,7 @@ service, **E**levation of privilege. "Ctrl" = control previsto; "Sprint" = cuán
 | T | Manipulación de cabeceras de identidad (`X-User-Id`) por el cliente | El gateway **elimina** cualquier cabecera de identidad entrante; la identidad solo viaja como JWT firmado por `auth`, revalidado por cada servicio | 1 |
 | R | Acciones sin trazabilidad | `request_id` + `trace_id` en cada petición; auditoría de toda mutación | 2 |
 | I | Mensajes de error con trazas internas | Errores RFC 9457 genéricos (formato en [`api.md`](api.md)); detalles solo en logs | 1 |
-| D | Fuerza bruta, inundación HTTP/WS | Rate limit en Redis (token bucket): login 5/min por cuenta + 20/min por IP; API 600/min por sesión; máx. 5 WS por sesión; tamaño máx. de cuerpo 1 MiB (excepto subidas explícitas); timeouts de lectura/escritura | 1–2 |
+| D | Fuerza bruta, inundación HTTP/WS | Rate limit en Valkey (token bucket, también por tenant): login 5/min por cuenta + 20/min por IP; API 600/min por sesión; máx. 5 WS por sesión; tamaño máx. de cuerpo 1 MiB (excepto subidas explícitas); timeouts de lectura/escritura | 1–2 |
 | E | Ruta sin mapear a permiso queda abierta | **Deny by default**: tabla ruta→permiso declarativa; test que falla si una ruta no tiene permiso o `public: true` explícito | 2 |
 
 ### 3.3 Servicio de autenticación (`auth`)
@@ -140,7 +168,7 @@ service, **E**levation of privilege. "Ctrl" = control previsto; "Sprint" = cuán
 | S | UDP con IP de origen falsificada inyecta flujos falsos | Colector solo escucha en la interfaz/VLAN de gestión o dentro de WireGuard; **allowlist de exportadores** derivada del inventario (IP de origen + `observation_domain_id`/`source_id`); paquetes de origen desconocido se descartan y se cuentan; filtro nftables en el host; uRPF/BCP38 en el borde del ISP (recomendación al ISP) | 6 |
 | S | Respuestas SNMP falsificadas | SNMPv3 authPriv (auth SHA-256 o superior si el equipo lo soporta, mínimo SHA-1; priv AES-128) como objetivo; v2c solo a través de WireGuard/VLAN de gestión | 5 |
 | T | Paquetes malformados explotan el parser (NetFlow v9/IPFIX con plantillas) | Parsers con *fuzzing* nativo de Go en CI; límites duros: datagrama ≤ 9000 B, máx. 256 plantillas y 64 KiB de caché por exportador, longitud de campos validada; recuperación de pánicos por paquete | 6 |
-| R | — | Métricas por exportador (sin IP de abonado) | 6 |
+| R | — | Métricas por exportador (sin IP de cliente) | 6 |
 | I | Communities v2c en texto claro en la red | Migrar a v3; v2c solo dentro de túnel; community distinta por router, nunca `public` | 5 |
 | D | Inundación UDP agota CPU / llena NATS | Token bucket por exportador (p. ej. 50k registros/s, configurable); descarte temprano con métrica `horus_flows_packets_dropped_total{reason}`; buffer acotado; JetStream con límites de bytes por stream | 6 |
 | E | RCE en el colector da acceso a la red de gestión | Contenedor sin root, rootfs de solo lectura, `cap_drop: ALL` (solo `NET_BIND_SERVICE` si el puerto < 1024, p. ej. trap 162), sin acceso a la red DATA salvo NATS | 5–6 |
@@ -162,26 +190,83 @@ llamadas de `wireguard`.
 | D | Inundación del puerto UDP de WireGuard | WireGuard es silencioso ante paquetes no autenticados (cookies anti-DoS integradas); rate limit nftables | 4 |
 | E | Contenedor con `NET_ADMIN` usado para pivotar | `wireguard-agent` es el **único** contenedor con `NET_ADMIN` (sin otras capacidades, sin acceso a PostgreSQL ni a la KEK); `wireguard` corre sin privilegios; el agente no expone API pública (solo gRPC mTLS desde `wireguard`); el frontend jamás ejecuta comandos (vision §Sprint 4) | 4 |
 
-### 3.7 Bases de datos y bus (PostgreSQL, ClickHouse, Valkey/Redis, NATS)
+### 3.7 Bases de datos y bus (PostgreSQL, ClickHouse, Valkey, NATS)
 
 | STRIDE | Amenaza | Control | Sprint |
 |--------|---------|---------|--------|
-| S | Conexión sin autenticación | Contraseñas/llaves por servicio (scram-sha-256 en PG; usuarios ClickHouse; `ACL` de Valkey/Redis; usuarios NATS con nkeys) | 1 |
+| S | Conexión sin autenticación | Contraseñas/llaves por servicio (scram-sha-256 en PG; usuarios ClickHouse; `ACL` de Valkey; usuarios NATS con nkeys) | 1 |
 | T | Publicación de eventos falsos en NATS | Permisos de *subject* por usuario NATS: cada servicio solo publica en `horus.<su-dominio>.>` y se suscribe a lo que consume | 1 |
 | R | Borrado de auditoría | Ver §7 | 2 |
-| I | Lectura de volúmenes/backups | Cifrado de disco en el host (LUKS) recomendado; backups cifrados (pgBackRest `repo-cipher-type=aes-256-cbc`, clickhouse-backup + SSE en MinIO) | 1 / 13 |
-| D | Una consulta o consumidor lento tumba el bus | Límites por stream/consumer (`max_bytes`, `max_ack_pending`); perfiles de recursos en ClickHouse; `maxmemory` + política en Redis | 1–6 |
+| I | Lectura de volúmenes/backups | Cifrado de disco en el host (LUKS) recomendado; backups cifrados (pgBackRest `repo-cipher-type=aes-256-cbc`, clickhouse-backup cifrado en cliente, §8.5) | 1 / 13 |
+| D | Una consulta o consumidor lento tumba el bus | Límites por stream/consumer (`max_bytes`, `max_ack_pending`); perfiles de recursos en ClickHouse; `maxmemory` + política en Valkey | 1–6 |
 | E | Usuario de app con `SUPERUSER` | Prohibido; migraciones con un rol `*_migrator` distinto del rol de ejecución | 1 |
 
-### 3.8 MinIO / NAS
+Valkey en concreto (D3): un usuario ACL por servicio (`ACL SETUSER gateway ~rl:* ~ws_ticket:* ~session_revoked:* ~idem:* ~wcache:* …`)
+con comandos peligrosos denegados (`-@dangerous`, sin `FLUSHALL`, `CONFIG`, `KEYS`, `DEBUG`); claves de datos de
+negocio con prefijo de tenant (`wcache:t:<tenant_id>:…`, `rl:t:<tenant_id>:…`) para que un error de clave no cruce
+ISPs; nada secreto que deba sobrevivir (tickets y revocaciones caducan; sin persistencia obligatoria); sin puerto
+publicado; TLS si cruza de host.
+
+### 3.8 Almacenamiento local y destinos remotos (D2)
 
 | STRIDE | Amenaza | Control | Sprint |
 |--------|---------|---------|--------|
-| S | Acceso con credenciales raíz de MinIO | Root solo para bootstrap; usuarios y políticas IAM por servicio y bucket (`horus-reports`, `horus-archive`, `horus-backup-*`, `horus-audit`) | 1 |
-| T | Ransomware cifra/borra backups | Versionado + **Object Lock governance 35 días** en `horus-backup-*` (rol *break-glass* custodiado para liberar) y **compliance** en `horus-audit` (ver [`storage.md`](storage.md) §4.2); credenciales de backup distintas de las de la app; copia offsite (3-2-1) | 13 |
-| I | Reportes exportados con datos personales accesibles | URLs prefirmadas de 15 min; buckets privados; SSE-S3/KMS | 12 |
-| D | NAS no responde → servicios bloqueados | Escrituras a MinIO asíncronas con reintento; ver [`disaster-recovery.md`](disaster-recovery.md) | 13–14 |
-| E | Acceso administrativo al NAS | NAS fuera de la red de usuarios; 2FA en su panel; cuenta de servicio dedicada | 1 |
+| S | Alguien suplanta el destino remoto (SFTP con *host key* cambiada) | `known_hosts` fijado al dar de alta el destino (TOFU con confirmación del `platform_admin`); TLS verificado para APIs de nube | backups |
+| T | Ransomware o atacante con root en el servidor borra copias locales y remotas | Copias remotas **cifradas en cliente** y, cuando el destino lo permite, sin permiso de borrado (SFTP enjaulado con usuario que sólo escribe; versionado de Drive/Dropbox; preferido: modo *pull* en el que el NAS recoge por SFTP y el servidor no tiene credencial sobre el NAS); retención en destino gestionada por el destino | backups |
+| I | El proveedor de nube o quien robe el NAS lee las copias | Cifrado en cliente (pgBackRest `repo-cipher-type`, `age`/rclone `crypt` para el resto) con clave distinta de la KEK y custodiada fuera del servidor ([`disaster-recovery.md`](disaster-recovery.md) §3.6) | backups |
+| I | Reportes exportados con datos personales accesibles | Descarga por URL firmada de 15 min ligada a usuario y tenant; archivos bajo `tenants/<tenant_id>/…`; nunca en el destino remoto sin cifrar | 12 |
+| D | Destino remoto lento o caído llena el disco local | Las copias locales tienen retención propia e independiente del envío; el envío reintenta con backoff y alerta; nunca bloquea a PostgreSQL ni a la ingesta | backups |
+| E | Credencial de nube con más permisos de los necesarios | OAuth con alcance mínimo (Google Drive `drive.file`; Dropbox "App folder"); cuenta dedicada; MEGA con cuenta exclusiva para Horus (§8.5) | backups |
+
+### 3.9 Aislamiento entre tenants (amenaza principal de D6)
+
+Modelo: **base de datos y servicios compartidos, aislamiento lógico** (*pool model*). Cada fila de negocio lleva
+`tenant_id`; cada mensaje y cada ruta también. La pregunta de diseño es "¿cuántas cosas tienen que fallar a la vez
+para que A vea datos de B?"; el objetivo es **al menos dos**.
+
+| Capa | Control primario | Segunda barrera |
+|------|------------------|-----------------|
+| REST | Tenant explícito en la ruta; el gateway comprueba la pertenencia (`tnt` del JWT) antes del proxy ([`api.md`](api.md) §0) | El servicio vuelve a comprobar pertenencia y permiso fino con alcance |
+| Repositorios PostgreSQL | Toda consulta de negocio recibe un `TenantScope` (tipo obligatorio en la firma; no existe `FindByID(id)` sin tenant); `WHERE tenant_id = $1` siempre | **RLS** (*Row Level Security*) en tablas de negocio con política `tenant_id = current_setting('horus.tenant_id')::uuid`, fijado con `SET LOCAL` al abrir la transacción; los roles de aplicación **no** tienen `BYPASSRLS`; los trabajos de plataforma (purgas, migraciones) usan un rol aparte. Coordinar con el Agente B ([`database.md`](database.md) decía "sin RLS en v1": con D6 se recomienda activarlo desde el principio) |
+| ClickHouse | Consultas con `tenant_id` como primer filtro (primera columna del `ORDER BY`) | *Row policy* para el usuario de lectura de la API: `USING tenant_id = getSetting('custom_tenant_id')`, con el ajuste fijado por consulta; sin él, la consulta no devuelve filas |
+| Caché (Valkey) y cachés en memoria | Claves con prefijo `t:<tenant_id>`; cachés en memoria con el tenant en la clave | Tests de propiedad: la misma clave lógica en dos tenants nunca colisiona |
+| WebSocket | Topics `tenants.<id>.…`; suscripción autorizada por tenant | El hub descarta mensajes cuyo `tenant_id` no coincide con el topic y lo cuenta (alerta si > 0) |
+| NATS | Tenant en subject y sobre ([`events.md`](events.md) §2.4) | El consumidor compara ambos; discrepancia ⇒ DLQ + alerta |
+| gRPC | `tenant_id` como campo del mensaje, validado por el interceptor | Respuestas incluyen `tenant_id` y el llamador lo comprueba |
+| Archivos (reportes, exportaciones, archivo) | Rutas `tenants/<tenant_id>/…`; URL firmada con tenant y usuario | El servicio que sirve la descarga revalida tenant y permiso |
+| Secretos | AAD de la *envelope encryption* incluye `tenant_id`; KEK por tenant (§8.2) | Un secreto copiado a otro tenant no descifra |
+| Logs/métricas/Grafana | `tenant_id` en logs; Grafana **sólo** para la plataforma, nunca expuesto a los ISP | — |
+
+STRIDE específico:
+
+| STRIDE | Amenaza | Control | Sprint |
+|--------|---------|---------|--------|
+| S | Un usuario de A usa un API token o un kiosco de A contra rutas de B | Tokens y kioscos ligados a un solo tenant; el gateway compara el tenant de la ruta | 2 |
+| T | Un cuerpo de petición referencia `site_id`/`router_id` de otro tenant | Validación de referencias dentro del tenant (`422 NOT_FOUND`), FK compuestas `(tenant_id, id)` donde el Agente B lo permita | 3 |
+| R | Un ISP niega haber visto/cambiado algo; o el soporte de plataforma actúa sin que el ISP lo sepa | Auditoría con `tenant_id`; acceso de soporte visible en la auditoría **del tenant** (§6.6) | 2 |
+| I | IDOR entre tenants, cursor reutilizado, caché compartida, exportación con filtro mal construido, evento WS mal enrutado | Controles de la tabla anterior + batería automática "A no ve B" (abajo) | 1+ |
+| I | Canal lateral: tiempos o mensajes de error revelan que un recurso existe en otro tenant | `404` idéntico para "no existe" y "es de otro tenant"; mismos tiempos (la consulta incluye siempre el tenant) | 2 |
+| D | Vecino ruidoso: un ISP agota CPU, ClickHouse, el bus o el cupo de API | Cuotas por tenant (flujos/s, routers, clientes, req/min, conexiones WS); perfiles de ClickHouse con `max_execution_time`/`max_memory_usage`; descarte por cuota en el collector con evento | 6 |
+| E | Un `tenant_admin` se concede permisos de plataforma o acceso a otro tenant | Las membresías sólo las crea un admin **de ese tenant** o la plataforma; los roles de plataforma sólo los asigna `platform_admin` con re-auth; nadie se asigna a sí mismo | 2 |
+
+**Batería automática de aislamiento (obligatoria, bloquea el merge):** fixture con dos tenants (A y B) con datos
+equivalentes; para **cada operación** del bundle OpenAPI bajo `/tenants/{tenant_id}` se ejecuta con credenciales de A:
+(1) contra recursos de B por ID (`404` esperado), (2) con `tenant_id` de B en la ruta (`404 TENANT_NOT_FOUND`), (3)
+listados de A que no deben contener IDs de B; para cada topic WebSocket, que un suscriptor de A no recibe eventos de B;
+para cada consumidor NATS, que un evento con token y sobre discrepantes acaba en DLQ. El generador de casos lee la spec,
+así que un endpoint nuevo queda cubierto sin escribir el test a mano ([`conventions.md`](conventions.md) §11).
+
+### 3.10 Dashboards y kioscos (D8)
+
+| STRIDE | Amenaza | Control | Sprint |
+|--------|---------|---------|--------|
+| S | Robo de la credencial de un kiosco (acceso físico al navegador de la pantalla) | Cookie HttpOnly rotativa con detección de reutilización; CIDR permitido; revocación inmediata; caducidad (180 días por defecto) | dashboards |
+| S | Enrolamiento de una pantalla no autorizada | Código de 8 caracteres, un uso, 10 min, generado con re-auth por `kiosks.manage`; rate limit por IP y por código; el canje respeta el CIDR | dashboards |
+| T | Un dashboard compartido amplía los permisos de quien lo mira | Los datos de widgets se calculan con los permisos y alcance **del espectador** ([`api.md`](api.md) §2.11); el autor no presta sus permisos | dashboards |
+| T | Inyección de consultas a través de la `config` de un widget | `config` validada contra el JSON Schema del tipo; consultas parametrizadas construidas en servidor; no hay campo de consulta libre | dashboards |
+| I | Visitas/cámaras ven IPs de clientes o hallazgos de seguridad en la pantalla | Kioscos sin datos personales por defecto (`show_personal_data=false`); widgets con `contains_personal_data` deshabilitados o enmascarados; activar requiere `kiosks.manage` + motivo auditado | dashboards |
+| D | Muchas pantallas refrescando cada pocos segundos | Caché de datos de widget compartida por `(tenant, tipo, config, rango, alcance)`; mínimo `refresh_seconds` 10; rate limit por kiosco | dashboards |
+| E | El JWT de kiosco alcanza rutas no previstas | Lista blanca `principals: [kiosk]` en la tabla del gateway; todo lo demás `403 KIOSK_FORBIDDEN`; test de CI que enumera rutas accesibles a kiosco | dashboards |
 
 ## 4. Autenticación
 
@@ -197,10 +282,13 @@ llamadas de `wireguard`.
 | SSO/SAML/federación | Hay que construirla | Excelente | Muy buena | Muy buena |
 | Operación (actualizaciones, backups) | Parte del producto | Componente extra crítico | Componente extra | Componente extra |
 
-**Recomendación (S1):** servicio `auth` propio, porque (a) el producto es para **una** organización
-y pocos usuarios (decenas), (b) el valor está en la autorización por sitio/grupo, que ningún IdP
-resuelve, (c) evita operar un componente Java crítico en un despliegue docker compose de un solo
-nodo, y (d) el plan del Sprint 2 ya incluye login, 2FA, sesiones y recuperación en la UI propia.
+**Recomendación (S1), revisada con D6/D7:** se mantiene el servicio `auth` propio. Con varios ISP
+el número de usuarios sigue siendo bajo (decenas a pocos cientos), el valor está en la
+autorización por tenant/nodo/grupo, que ningún IdP resuelve, y una instalación de un solo servidor
+operada por IA + 1 persona (D7) no debe cargar con un componente Java crítico más. El modelo
+multi-tenant (usuario de plataforma + membresías) es pequeño y se implementa en `auth`. El
+disparador para reevaluar Zitadel (multi-tenant nativo) es que algún ISP exija SSO/SAML con su
+propio IdP o que se superen ~500 usuarios.
 
 Para no cerrar la puerta a OAuth2/OIDC ("como base" según vision §7):
 
@@ -213,8 +301,9 @@ Para no cerrar la puerta a OAuth2/OIDC ("como base" según vision §7):
   futura app móvil). Se implementa con `github.com/zitadel/oidc/v3` (librería certificada por la
   OpenID Foundation), exponiendo `/.well-known/openid-configuration`, `/authorize`, `/token`,
   `/jwks` con Authorization Code + PKCE únicamente (sin implicit ni password grant).
-- Revisión de la decisión (ADR): si llega multi-tenant real, SAML o >500 usuarios, evaluar
-  migrar a Zitadel (Go + PostgreSQL, encaja con el stack).
+- Revisión de la decisión (ADR): si llega SAML/SSO por ISP o >500 usuarios, evaluar migrar a
+  Zitadel (Go + PostgreSQL, multi-tenant nativo, encaja con el stack). La federación sería **por
+  tenant** (cada ISP con su IdP), nunca un IdP que conceda acceso a varios ISP.
 
 ### 4.2 Usuario y contraseña
 
@@ -283,7 +372,7 @@ reconsidera B si una auditoría de seguridad lo pide.
 ```
 Navegador ──Authorization: Bearer <access JWT>──► Traefik ──► api-gateway
                                                     │ 1. verifica firma/exp/aud (JWKS de auth, caché)
-                                                    │ 2. revocación: session_revoked:<sid> en Valkey/Redis
+                                                    │ 2. revocación: session_revoked:<sid> en Valkey
                                                     │    (si no responde: gRPC auth.CheckSession, caché 30 s)
                                                     │ 3. permiso grueso por ruta, rate limit
                                                     ▼ proxy HTTP al REST del servicio (mTLS), Authorization: Bearer <mismo JWT>
@@ -291,10 +380,14 @@ Navegador ──Authorization: Bearer <access JWT>──► Traefik ──► ap
 ```
 
 - **Access token:** JWT firmado por `auth` con **Ed25519 (EdDSA)**, TTL **10 min**. Claims:
-  `iss` (URL de `auth`), `aud=horus-api`, `sub` (UUIDv7), `sid`, `org` (tenant), `amr`,
-  `auth_time`, `iat`, `exp`, `jti`, `perms` (permisos efectivos con alcance, forma compacta, p. ej.
-  `{"devices.read":["site:018f…","group:018f…"],"users.manage":["*"]}`). Si superara 4 KiB se
-  sustituye por `perms_ver` y los servicios resuelven permisos vía `auth` con caché (60 s).
+  `iss` (URL de `auth`), `aud=horus-api`, `sub` (UUIDv7 del usuario de plataforma, o
+  `kiosk:<id>`), `typ` (`user` | `kiosk` | `service`), `sid`, `tnt` (tenants con membresía, máx.
+  50), `pla` (roles de plataforma), `amr`, `auth_time`, `iat`, `exp`, `jti`, `perms` (permisos
+  efectivos **por tenant** con alcance, forma compacta, p. ej.
+  `{"<tenant_a>":{"devices.read":["site:018f…"],"users.manage":["*"]},"<tenant_b>":{…}}`). Si
+  superara 4 KiB se sustituye por `perms_ver` y los servicios resuelven permisos vía `auth` con
+  caché (60 s). Quitar una membresía surte efecto en ≤ 5 s aunque el token siga vivo: el gateway
+  consulta `membership_revoked:<user>:<tenant>` en Valkey (como la revocación de sesiones).
   Rotación de clave de firma cada 90 días con `kid`; JWKS publica la actual y la anterior.
 - **En el navegador:** el access token vive **solo en memoria** (variable del store de sesión,
   nunca `localStorage`/`sessionStorage`/cookies legibles). Al recargar la página, la SPA llama a
@@ -317,15 +410,14 @@ Navegador ──Authorization: Bearer <access JWT>──► Traefik ──► ap
   cierra la conexión (código `4409`).
 - **Re-autenticación reciente** (`auth_time` ≤ 5 min) para: revelar credenciales, cambiar roles,
   generar/rotar claves WireGuard, desactivar 2FA, crear API tokens.
-- Las pantallas NOC "de pared" usarán un modo kiosco con rol de solo lectura y política propia
-  (pregunta abierta Q19).
+- Las pantallas NOC "de pared" usan el **modo kiosco** (§5.5), no sesiones de usuario.
 
 ### 5.2 Sesiones revocables
 
 - **Fuente de verdad:** tabla `sessions` de `auth` en PostgreSQL (`id`=`sid`, `user_id`,
   `created_at`, `last_seen_at`, `expires_at`, `ip`, `user_agent`, `amr`, `revoked_at`,
   `revoked_reason`) + `refresh_tokens`. Esquema definitivo: [`database.md`](database.md).
-- **Valkey/Redis** solo como caché de revocación: `session_revoked:<sid>` con TTL = vida máxima
+- **Valkey** solo como caché de revocación: `session_revoked:<sid>` con TTL = vida máxima
   del access token ([ADR-0009](adr/0009-redis.md)).
 - UI de "sesiones activas" (Sprint 2): el usuario y el admin (`sessions.manage`) pueden revocar.
 - Al revocar: marcar en PostgreSQL, escribir la clave de revocación, publicar
@@ -364,77 +456,136 @@ Navegador ──Authorization: Bearer <access JWT>──► Traefik ──► ap
 - Una futura app o CLI con login interactivo usará el mismo par access + refresh rotativo vía
   OIDC Authorization Code + PKCE (§4.1).
 
+### 5.5 Modo kiosco para pantallas NOC (D8)
+
+Resuelve Q19. Contrato en [`api.md`](api.md) §2.12; aquí el análisis.
+
+**Opciones evaluadas:**
+
+| Opción | Riesgo principal | Decisión |
+|--------|------------------|----------|
+| Usuario "pantalla" con contraseña y sesión larga | Credencial reutilizable desde cualquier sitio; 2FA imposible en una TV; sesión de 7 días caduca igual | No |
+| Token de solo lectura de larga vida en la URL (`/noc?token=…`) | Acaba en historial, logs de proxies, capturas, `Referer`; quien lo copie tiene acceso indefinido desde cualquier red; no rotable sin tocar la pantalla | **No** |
+| **Dispositivo registrado**: código de enrolamiento de un uso → credencial de dispositivo HttpOnly rotativa → JWT corto de solo lectura | Robo físico del navegador de la pantalla (acotado por CIDR, rotación con detección de reutilización y revocación) | **Sí** |
+| Certificado de cliente mTLS en el dispositivo | El más fuerte; exige gestionar certificados en TVs/mini-PC | Evolución para videowalls gestionados |
+
+**Controles:**
+
+1. **Enrolamiento**: un `tenant_admin` (o rol con `kiosks.manage`, con re-auth) genera un
+   código de 8 caracteres (alfabeto sin ambigüedades, ~40 bits), un solo uso, 10 min. El QR lleva
+   el código en el **fragmento** de la URL (`#code=`), que el navegador no envía al servidor. 10
+   intentos fallidos invalidan el código; rate limit por IP.
+2. **Credencial de dispositivo**: 256 bits en cookie `__Secure-hf_kiosk` (`HttpOnly; Secure;
+   SameSite=Strict; Path=/api/v1/kiosk`), rotativa en cada canje por JWT, con detección de
+   reutilización (si se presenta una ya usada, se revoca el kiosco y se alerta: indica copia de la
+   cookie). En BD sólo SHA-256. Caducidad absoluta configurable (180 días por defecto) y por
+   inactividad (14 días sin uso).
+3. **JWT de kiosco**: 10 min, `typ=kiosk`, `tnt=[tenant]`, sin permisos de escritura; el gateway
+   sólo lo acepta en las rutas con `principals: [kiosk]` y sólo para los dashboards asignados.
+4. **Red**: `allowed_cidrs` (recomendado: la red del NOC) aplicado en el canje del código, en el
+   canje del JWT y en cada petición. Sin CIDR, la UI de administración lo marca como "riesgo".
+5. **Datos personales**: por defecto el kiosco no recibe IPs de clientes ni detalle de hallazgos
+   por cliente (sólo conteos y estados agregados); activarlo es explícito, con motivo auditado.
+6. **Revocación**: inmediata (evento `horus.auth.kiosk.revoked` → cierre del WebSocket con `4409`
+   en < 5 s); también al suspender el tenant.
+7. **Auditoría**: enrolamiento, canjes (con IP), cambios de dashboards asignados, revocación.
+   `last_seen_at`/`last_ip` visibles al administrador; alerta si un kiosco aparece desde una IP
+   nueva.
+8. **Interfaz**: la ruta `/kiosk` del frontend no tiene navegación, ni enlaces a otras páginas, ni
+   formularios; CSP igual que el resto.
+
+Riesgo residual aceptado: quien tenga acceso físico prolongado a la pantalla dentro del CIDR ve los
+mismos dashboards que ya se ven en la pantalla.
+
 ## 6. Autorización: RBAC + ACL
 
 ### 6.1 Catálogo de permisos `recurso.accion`
 
-Base de vision §7, ampliada (el catálogo canónico se mantiene en código, en `auth`, y se
-expone en `GET /api/v1/permissions`):
+El catálogo canónico vive en código (`auth`) y se expone en `GET /api/v1/permissions`. Hay dos familias: permisos
+**de tenant** (se conceden dentro de una membresía y se evalúan en el tenant de la ruta) y permisos **de plataforma**
+(prefijo `platform.`, sólo en roles de plataforma).
+
+Permisos de tenant:
 
 | Recurso | Acciones |
 |---------|----------|
-| `users` | `read`, `manage` |
+| `users` | `read`, `manage` (miembros del tenant e invitaciones) |
 | `roles` | `read`, `manage`, `assign` |
-| `sessions` | `read`, `manage` |
-| `audit` | `read`, `export` |
-| `sites` | `read`, `create`, `update`, `delete` |
+| `audit` | `read`, `export` (auditoría del tenant) |
+| `sites` | `read`, `create`, `update`, `delete` (nodos) |
 | `devices` | `read`, `create`, `update`, `delete` |
 | `devices.credentials` | `write`, `reveal` (revelar en claro; requiere 2FA + re-auth) |
 | `wireguard` | `read`, `write`, `keys.rotate` |
-| `snmp` | `read`, `manage` (perfiles, intervalos) |
+| `snmp` | `read`, `manage` (perfiles, intervalos; también sondeo por API RouterOS) |
 | `flows` | `read` (exportadores), `manage` |
-| `subscribers` | `read` (ficha del cliente, PII), `manage` (alta/edición, asignaciones IP manuales) |
-| `traffic` | `read` (agregados y dashboards de tráfico), `client.read` (detalle de tráfico por abonado — dato personal) |
-| `traffic.catalog` | `read`, `write` (editar borrador de prefijos/ASN/servicios/categorías/reglas), `publish` (publicar una versión del catálogo; ver [`database.md`](database.md)) |
-| `security` | `read`, `manage` |
+| `customers` | `read` (lista y ficha de clientes = IPs, dato personal), `update` (alias/notas), `type.write` (cambio manual de tipo y desbloqueo), `export` |
+| `traffic` | `read` (agregados por nodo/router/categoría), `customer.read` (tráfico de un cliente concreto — dato personal, auditado) |
+| `traffic.catalog` | `read` (el catálogo es de plataforma; los tenants sólo lo leen) |
+| `security` | `read` (hallazgos, estado de seguridad por cliente, feeds), `manage` (reconocer, resolver, falso positivo) |
 | `alerts` | `read`, `ack`, `manage` (reglas, canales) |
 | `reports` | `read`, `export` |
-| `settings` | `read`, `manage` |
-| `api_tokens` | `manage` (propios) |
+| `dashboards` | `read` (ver compartidos, crear privados), `manage` (dashboards y rotaciones compartidos con el tenant) |
+| `kiosks` | `manage` |
+| `settings` | `read`, `manage` (configuración del tenant: inactividad de clientes, reglas de tipo, retenciones dentro de los límites de plataforma) |
+| `api_tokens` | `manage` (propios, ligados al tenant) |
 
-Equivalencias con los nombres provisionales de [`frontend.md`](frontend.md): `clients.read` →
-`subscribers.read`; `analytics.read` → `traffic.read`; `traffic.manage` → `traffic.catalog.write`/
-`publish`; `system.read`/`system.manage` → `settings.read`/`settings.manage` (incluye
-`GET /system/status`). El frontend debe usar los nombres de este catálogo.
+Permisos de plataforma: `platform.tenants.read`, `platform.tenants.manage`, `platform.nodes.manage`,
+`platform.users.read`, `platform.users.manage`, `platform.support_access`, `platform.audit.read`,
+`platform.status.read`, `platform.storage.manage`, `platform.catalog.write`, `platform.catalog.publish` (catálogo de
+clasificación de tráfico y feeds de reputación, comunes a todos los ISP).
+
+Cambios respecto al Sprint 0: `subscribers.*` → `customers.*` (D1: no hay ficha de abonado con nombre/dirección);
+`traffic.client.read` → `traffic.customer.read`; `traffic.catalog.write/publish` pasan a plataforma; `sessions.*`
+pasa a plataforma (las sesiones son de la persona, no del tenant). Equivalencias con [`frontend.md`](frontend.md):
+`clients.read` → `customers.read`; `analytics.read` → `traffic.read`; `system.*` → `settings.*` (tenant) o
+`platform.status.read`.
 
 ### 6.2 Roles predefinidos
 
-Los roles de sistema no se pueden borrar; se pueden crear roles personalizados.
+Roles **de tenant** (plantillas de sistema que cada tenant recibe; no se borran ni editan; cada tenant puede crear
+roles propios):
 
 | Rol | Propósito | Permisos (resumen) | 2FA |
 |-----|-----------|--------------------|-----|
-| `admin` | Administración total de la plataforma | Todos | Obligatorio |
-| `security_admin` | Seguridad de la plataforma y del tráfico | `security.*`, `audit.*`, `users.read`, `sessions.manage`, `alerts.*`, `traffic.read`, `traffic.client.read` | Obligatorio |
-| `network_engineer` | Altas/bajas de equipos, WireGuard, SNMP, flows | `sites.*`, `devices.*`, `devices.credentials.write`, `wireguard.*`, `snmp.*`, `flows.*`, `alerts.read/ack`, `traffic.read` | Obligatorio |
-| `noc_operator` | Monitoreo 24/7 y atención de alertas | `sites.read`, `devices.read`, `wireguard.read`, `snmp.read`, `flows.read`, `traffic.read`, `alerts.read/ack`, `reports.read` | Recomendado |
-| `analyst` | Analítica de tráfico y reportes | `traffic.read`, `traffic.client.read`, `subscribers.read`, `traffic.catalog.read/write`, `reports.read/export`, `devices.read`, `sites.read` | Recomendado |
-| `auditor` | Revisión de cumplimiento | `audit.read/export`, `users.read`, `roles.read`, `sessions.read` | Recomendado |
-| `catalog_manager` | Mantenimiento de la clasificación de tráfico | `traffic.catalog.*`, `traffic.read`, `security.read` | Obligatorio |
-| `viewer` | Solo lectura sin datos personales | `*.read` excepto `traffic.client.read`, `subscribers.read`, `audit.read`, `devices.credentials.*` | Opcional |
+| `tenant_admin` | Administración del ISP en Horus | Todos los de tenant (incl. `devices.credentials.reveal`, `kiosks.manage`) | Obligatorio |
+| `security_analyst` | Botnets y seguridad de clientes (D5) | `security.*`, `customers.read`, `traffic.read`, `traffic.customer.read`, `alerts.*`, `audit.read`, `dashboards.read` | Obligatorio |
+| `network_engineer` | Nodos, routers, WireGuard, SNMP/API, flujos | `sites.*`, `devices.*`, `devices.credentials.write`, `wireguard.*`, `snmp.*`, `flows.*`, `alerts.read/ack`, `traffic.read`, `dashboards.*` | Obligatorio |
+| `noc_operator` | Monitoreo 24/7 | `sites.read`, `devices.read`, `wireguard.read`, `snmp.read`, `flows.read`, `traffic.read`, `security.read`, `alerts.read/ack`, `reports.read`, `dashboards.read` | Recomendado |
+| `analyst` | Analítica y clasificación de clientes | `traffic.read`, `traffic.customer.read`, `customers.read`, `customers.type.write`, `reports.read/export`, `devices.read`, `sites.read`, `dashboards.*` | Recomendado |
+| `auditor` | Revisión de cumplimiento del ISP | `audit.read/export`, `users.read`, `roles.read` | Recomendado |
+| `viewer` | Solo lectura sin datos personales | `*.read` excepto `customers.read`, `traffic.customer.read`, `security.read` detallado, `audit.read`, `devices.credentials.*` | Opcional |
 
-Nota: **nadie** tiene `devices.credentials.reveal` por defecto salvo `admin`; se concede de forma
-explícita. `traffic.catalog.publish` (afecta a la clasificación de todo el tráfico) solo lo
-tienen `admin` y `catalog_manager`; `analyst` puede proponer cambios (`write`) pero no publicar.
+Roles **de plataforma** (no son de ningún tenant):
+
+| Rol | Propósito | Permisos | 2FA |
+|-----|-----------|----------|-----|
+| `platform_admin` | Operar Horus: altas/bajas de ISP, nodos, usuarios, copias, catálogo | Todos los `platform.*` salvo `platform.support_access` (se concede aparte, aunque sea a la misma persona, para que su uso sea explícito) | Obligatorio + llave de seguridad recomendada |
+| `platform_operator` | Salud de la plataforma (y agentes de IA de operación, D7) | `platform.status.read`, `platform.tenants.read`, `platform.audit.read` | Obligatorio |
+| `platform_auditor` | Revisión | `platform.audit.read`, `platform.tenants.read`, `platform.users.read` | Obligatorio |
+
+Nota: **nadie** tiene `devices.credentials.reveal` por defecto salvo `tenant_admin`. Ningún rol de plataforma da
+acceso a clientes, tráfico, hallazgos ni credenciales de un tenant (§6.6).
 
 ### 6.3 ACL por alcance
 
-- Una **asignación** es `(usuario | grupo_de_usuarios, rol, alcance)`, con alcance
-  `global` | `site:<uuid>` | `router_group:<uuid>`. Un usuario puede tener varias.
-- Permisos efectivos = unión de asignaciones; el alcance de cada permiso es la unión de los
-  alcances de los roles que lo otorgan. `router_group` se expande a sitios/routers en
-  `devices`.
-- Recursos sin sitio (usuarios, catálogo de clasificación) solo admiten alcance `global`.
-- Datos de tráfico por abonado heredan el alcance del router/sitio que los exportó.
+- Una **membresía** es `(usuario, tenant)` con una o varias **asignaciones** `(rol, alcance)`, alcance `tenant` |
+  `site:<uuid>` | `router_group:<uuid>` (siempre dentro de ese tenant). Un usuario puede ser miembro de varios
+  tenants con roles distintos en cada uno.
+- Permisos efectivos **por tenant** = unión de las asignaciones de esa membresía. Nunca se suman permisos de dos
+  tenants.
+- Recursos del tenant sin nodo (miembros, roles, dashboards compartidos, kioscos) sólo admiten alcance `tenant`.
+- Clientes y datos de tráfico heredan el alcance del nodo/router que los observó.
 
 ### 6.4 Dónde se evalúa
 
-1. **Gateway (grueso):** autenticación, sesión válida, 2FA cumplido si el rol lo exige, y
-   "¿tiene el permiso X en *algún* alcance?" según la tabla declarativa ruta→permiso. Rechaza
-   pronto (403) y reduce carga.
+1. **Gateway (grueso):** autenticación, sesión válida (o kiosco vigente), 2FA cumplido si el rol
+   lo exige, **pertenencia al tenant de la ruta**, y "¿tiene el permiso X en *algún* alcance de
+   ese tenant?" según la tabla declarativa ruta→permiso. Rechaza pronto (404/403) y reduce carga.
 2. **Servicio dueño (fino, obligatorio):** middleware HTTP e interceptor gRPC comunes (`packages/go/authz`) que
    valida mTLS + el access JWT (firma, `exp`, `aud`) y expone `authz.Require(ctx, "devices.update", scope)`; el
-   **repositorio** filtra por alcance (`WHERE site_id = ANY(@allowed_sites)` o "global"). Esto
-   evita IDOR aunque el gateway tenga un error.
+   **repositorio** filtra por tenant **y** alcance (`WHERE tenant_id = @tenant AND site_id =
+   ANY(@allowed_sites)`), con RLS como segunda barrera (§3.9). Esto evita IDOR aunque el gateway
+   tenga un error.
 3. **Asíncrono (NATS):** los consumidores no reevalúan permisos de usuario; actúan como el
    servicio (`actor` queda registrado). La autorización se hizo al aceptar el comando original.
    Las acciones disparadas por eventos que modifican la red (p. ej. revocar peer por detección)
@@ -450,14 +601,26 @@ tienen `admin` y `catalog_manager`; `analyst` puede proponer cambios (`write`) p
 | Servicio → NATS | Campo `actor` del envelope (definido por el Agente 3 en [`events.md`](events.md)) |
 | Integración → gateway | `Authorization: Bearer hf_pat_…` → el gateway lo cambia por un access JWT de corta vida |
 
-**Dependencia con el Agente 3 (envelope de eventos):** [`events.md`](events.md) define
-`actor = {type: user|service|system, id, name}` y `correlation_id` (= `x-request-id`). Seguridad
-pide además: (a) `sid` opcional cuando `type=user`; (b) distinguir acciones hechas con API token
-(`type=user` + `via=api_token` y el id del token, o un `type=api_token`); (c) `ip`/`user_agent`
-**solo** en el payload de eventos de auditoría, no en el sobre general; (d) `name` es dato
-personal de empleados: no debe copiarse a logs ni a la proyección pública del WebSocket
-(api.md ya elimina `actor` detallado). **Nunca** tokens, permisos completos ni secretos en el
-envelope.
+El sobre de eventos ([`events.md`](events.md) §5.1) ya recoge lo que pedía seguridad: `actor` con
+`type` (`user`/`service`/`system`/`kiosk`), `id`, `sid` opcional, `via` (`session`/`api_token`),
+`platform_role` (incluido `support_access`) y `tenant_id`; `ip`/`user_agent` **sólo** en
+`*.audit.recorded`; sin nombres, tokens ni permisos.
+
+### 6.6 Acceso de soporte de la plataforma a un tenant
+
+La persona que opera Horus (D7) y los agentes de IA de operación necesitan a veces mirar datos de
+un ISP para diagnosticar. Regla: **ningún rol de plataforma ve datos de negocio de un tenant por
+defecto**.
+
+- `POST /platform/tenants/{id}/support-access` (permiso `platform.support_access`, re-auth, 2FA):
+  motivo obligatorio, duración ≤ 4 h, alcance de lectura (escritura sólo si el motivo lo exige y se
+  marca explícitamente).
+- El tenant puede fijar `support_access_policy`: `notify` (por defecto: se concede y se notifica al
+  `tenant_admin`), `require_approval` (el `tenant_admin` aprueba) o `deny`.
+- Durante el acceso, el JWT incluye una membresía temporal con `actor.platform_role =
+  support_access`; todo queda en la auditoría del tenant **y** en la de plataforma.
+- Los agentes de IA de operación usan `platform_operator` (sin datos de tenants); nunca se les
+  concede acceso de soporte de forma automática.
 
 ## 7. Auditoría
 
@@ -466,13 +629,20 @@ envelope.
 - **Autenticación:** login OK/fallido (motivo genérico), logout, 2FA alta/baja/fallo, uso de
   código de recuperación, reset de contraseña solicitado/completado, bloqueo progresivo,
   reutilización de refresh token, creación/revocación de API tokens, revocación de sesiones.
-- **Autorización/administración:** alta/baja/cambio de usuarios, roles, asignaciones y alcances
-  (con diff antes/después), cambios en `settings`.
+- **Autorización/administración:** alta/baja/cambio de usuarios, membresías, roles, asignaciones
+  y alcances (con diff antes/después), cambios en `settings`; roles de plataforma.
+- **Plataforma y tenants:** alta, suspensión, baja y purga de tenants; cambios de cuotas;
+  **accesos de soporte** (inicio, fin, motivo); alta/edición/prueba de destinos remotos de copias
+  (sin secretos).
+- **Kioscos:** creación, códigos de enrolamiento emitidos y canjeados (IP), cambios de dashboards
+  asignados o de la política de datos personales, revocación, reutilización de credencial.
 - **Inventario y red:** crear/editar/borrar sitios, routers, grupos; escritura y **revelado**
   de credenciales (sin el valor); WireGuard: alta/baja/rotación/revocación de peers y servidores,
   cambios de AllowedIPs.
-- **Datos personales:** acceso a vistas de detalle por abonado (`traffic.client.read`),
-  exportaciones de reportes (quién, qué filtro, cuántas filas), descargas de backups.
+- **Datos personales:** acceso a la ficha y al tráfico de un cliente (`customers.read` en
+  detalle, `traffic.customer.read`), búsquedas por IP (`customers/lookup`; se registra el hecho, no
+  la IP buscada en claro sino su HMAC), exportaciones (quién, qué filtro, cuántas filas), cambios
+  manuales de tipo de cliente (con motivo), purgas, descargas de backups.
 - **Seguridad:** cambios de reglas de detección/clasificación/alertas, ack/cierre de alertas
   de seguridad.
 - **Plataforma:** arranque con configuración insegura (p. ej. TLS desactivado), rotación de
@@ -480,7 +650,8 @@ envelope.
 
 ### 7.2 Formato del registro
 
-`id` (UUIDv7), `occurred_at` (UTC), `actor` (`type`, `id`, `sid`), `ip`, `user_agent`,
+`id` (UUIDv7), `tenant_id` (`null` para acciones de plataforma), `occurred_at` (UTC), `actor`
+(`type`, `id`, `sid`, `platform_role`), `ip`, `user_agent`,
 `action` (p. ej. `devices.credentials.reveal`), `resource_type`, `resource_id`, `scope`
 (sitio), `outcome` (`success` | `denied` | `error`), `reason`, `changes` (diff JSON sin
 secretos), `request_id`, `trace_id`, `prev_hash`, `hash`. Esquema en [`database.md`](database.md)
@@ -496,17 +667,24 @@ secretos), `request_id`, `trace_id`, `prev_hash`, `hash`. Esquema en [`database.
    registro calculando `hash = SHA-256(prev_hash ‖ JSON canónico del registro)`.
 3. Inmutabilidad en PostgreSQL: el rol de `auth` solo tiene `INSERT, SELECT` sobre
    `audit_log`; un trigger rechaza `UPDATE/DELETE/TRUNCATE`; la purga por retención solo la
-   hace un rol `audit_archiver` que primero exporta la partición mensual a Parquet en el bucket
-   `horus-audit` (Object Lock **compliance**, [`storage.md`](storage.md) §4.2), luego
+   hace un rol `audit_archiver` que primero exporta la partición mensual a Parquet en el archivo
+   de auditoría (`audit/` del almacenamiento local, de solo-anexado; Object Lock *compliance* sólo
+   si el destino remoto es S3 compatible con esa función; [`storage.md`](storage.md)), luego
    `DETACH` + `DROP` ([`database.md`](database.md)).
-4. **Anclaje:** cada día se escribe el hash de cabeza de la cadena en un objeto del bucket
-   `horus-audit` (prefijo `anchors/`, mismo Object Lock compliance), y el job de verificación
-   recorre la cadena (alerta si se rompe).
-5. Retención propuesta (alineada con el Agente 2): **2 años en PostgreSQL** y **5 años** en
-   `horus-audit`; el plazo legal real se valida (pregunta abierta Q4). El modo compliance es
-   irreversible: se activa con el plazo validado; hasta entonces, governance.
+4. **Anclaje:** cada día se escribe el hash de cabeza de la cadena en `audit/anchors/` y se envía
+   al destino remoto si existe (fuera del alcance de un root del servidor), y el job de
+   verificación recorre la cadena (alerta si se rompe).
+5. Retención propuesta: **2 años en PostgreSQL** y **5 años** en el archivo de auditoría; el plazo
+   legal real se valida (pregunta abierta Q4).
 6. La auditoría **no** es log: no va a Loki como fuente de verdad (puede ir una copia sin datos
    personales).
+7. **Visibilidad por tenant:** un ISP sólo ve registros con su `tenant_id` (incluidas las
+   acciones de soporte de plataforma sobre él); la plataforma ve los suyos. La cadena de hashes es
+   única para toda la instalación (un registro por fila, con `tenant_id`); la exportación de la
+   auditoría de un tenant incluye las pruebas de inclusión (hash previo/siguiente) para que pueda
+   verificarse sin ver registros de otros tenants.
+8. Sin destino remoto (D2) la inmutabilidad es más débil: un root del servidor podría reescribir
+   el archivo local (`chattr +a` sólo frena errores, no a root). La UI de plataforma lo indica.
 
 ## 8. Gestión de secretos
 
@@ -514,8 +692,9 @@ secretos), `request_id`, `trace_id`, `prev_hash`, `hash`. Esquema en [`database.
 
 | Tipo | Ejemplos | Dónde |
 |------|----------|-------|
-| Secretos de despliegue | Contraseñas de PG/ClickHouse/Valkey/NATS/MinIO, pepper, clave de firma JWT, claves de la CA interna, KEK | Docker secrets (archivos), cifrados en el repo de despliegue con SOPS+age |
-| Secretos de dominio (datos) | Credenciales SNMP/SSH/API de routers, claves privadas WireGuard, secretos TOTP, credenciales de canales de notificación (SMTP, bot de Telegram) | PostgreSQL, cifrados con envelope encryption |
+| Secretos de despliegue | Contraseñas de PG/ClickHouse/Valkey/NATS, pepper, clave de firma JWT, claves de la CA interna, KEK | Docker secrets (archivos), cifrados en el repo de despliegue con SOPS+age |
+| Secretos de dominio (datos) | Credenciales SNMP/API REST RouterOS/SSH de routers, claves privadas WireGuard, secretos TOTP, credenciales de canales de notificación (SMTP, bot de Telegram), credenciales de destinos remotos de copias, hash de credenciales de kiosco | PostgreSQL, cifrados con envelope encryption (los hashes, sólo hash) |
+| Claves de cifrado de copias | Passphrase/clave de pgBackRest y de `age`/rclone `crypt` | Fuera del servidor (gestor de contraseñas + copia offline) y como Docker secret en el servidor; **distinta de la KEK** |
 | Secretos de CI | Credenciales de registro, tokens | GitHub Actions secrets/environments + OIDC (sin credenciales de larga duración cuando sea posible) |
 
 ### 8.2 Envelope encryption (S9)
@@ -530,14 +709,22 @@ secretos), `request_id`, `trace_id`, `prev_hash`, `hash`. Esquema en [`database.
   sobrescriben con `NULL` `secret_ciphertext` y `dek_wrapped`; las copias en backups quedan
   inservibles sin esa DEK (la DEK solo existía envuelta en esa fila). Para borrados masivos
   (p. ej. baja de un sitio) basta retirar la DEK.
-- **AAD** = `"<tabla>|<columna>|<id_registro>|<org_id>"`: impide copiar un secreto cifrado a
-  otra fila/router.
+- **AAD** = `"<tabla>|<columna>|<id_registro>|<tenant_id>"`: impide copiar un secreto cifrado a
+  otra fila/router **o a otro tenant**.
+- **Jerarquía por tenant (D6):** KEK maestra (por servicio) → **TEK** (clave de tenant, 32 B
+  aleatorios, guardada envuelta por la KEK en una tabla de claves) → DEK por secreto. Rotar o
+  revocar a un tenant no toca a los demás. En la baja de un tenant se destruye su TEK: sus secretos
+  quedan ilegibles en la base viva; en las copias siguen legibles mientras exista la KEK y la copia
+  (hasta que caduque por retención, 35 días por defecto), lo que se documenta en el contrato de
+  baja. Secretos de plataforma (destinos remotos) usan una TEK de plataforma.
 - Librería común `packages/go/crypto/envelope` con interfaz `KeyProvider` (`Wrap`, `Unwrap`)
   y dos implementaciones: `FileKeyProvider` (v1) y `OpenBaoTransitProvider` (v2).
 - **Rotación de KEK:** nueva `kek_id` activa para escrituras; job de re-envolvimiento de DEKs
   (no requiere re-cifrar los datos); la KEK anterior se retira cuando ya no hay referencias.
 - **Quién descifra:** solo `devices` (credenciales de routers), `wireguard` (claves WG),
-  `auth` (TOTP) y `alerts` (secretos de canales de notificación), cada uno con **su propia KEK**.
+  `auth` (TOTP), `alerts` (secretos de canales de notificación) y el módulo de copias (`ops`,
+  destinos remotos), cada uno con **su propia KEK**. Si el Agente A agrupa módulos en un binario,
+  las KEK siguen siendo distintas por módulo y cada módulo sólo carga la suya.
   `wireguard-agent` no tiene KEK: recibe el material en claro por mTLS desde `wireguard`. `snmp` obtiene credenciales en claro mediante
   la RPC interna `devices.CredentialService/Resolve`, autorizada solo para el certificado de `snmp`,
   sobre gRPC mTLS; las mantiene en memoria con TTL de 15 min y nunca las escribe
@@ -560,21 +747,65 @@ o USB cifrado en caja fuerte), cifrada con age; procedimiento en
 
 ### 8.4 Casos concretos
 
-- **SNMP v2c:** community por router, cifrada; nunca `public`/`private`; vista de solo lectura.
-- **SNMPv3:** usuario, protocolo y claves auth/priv cifrados; preferir authPriv.
-- **SSH/API de routers** (futuro, para adaptadores por fabricante): usuario con perfil de solo
-  lectura salvo que una función lo requiera; preferir llaves SSH (ed25519) generadas por Horus a
-  contraseñas; `known_hosts` fijado por router (TOFU con aprobación).
+- **SNMP v2c:** community por router, cifrada; nunca `public`/`private`; vista de solo lectura;
+  **sólo dentro del túnel WireGuard**.
+- **SNMPv3 (MikroTik, D10):** usuario, protocolo y claves auth/priv cifrados; authPriv con SHA-256
+  si la versión de RouterOS lo soporta (mínimo SHA1) y AES; en el router, `addresses=` limitado a la
+  IP de Horus en el túnel ([`vendors/mikrotik.md`](vendors/mikrotik.md), Agente E).
+- **API REST de RouterOS (D10):** sólo `www-ssl` (HTTPS) y sólo dentro del túnel WireGuard; nunca
+  el servicio `www` en claro ni la API binaria 8728 sin TLS. Usuario dedicado `horus-ro` en un
+  grupo de **solo lectura** (políticas `read`, `api`, `rest-api`; sin `write`, `policy`,
+  `sensitive`, `password`, `ftp`, `winbox`, `web`), con `address=` = IP de Horus en el túnel.
+  Certificado del router fijado en el primer contacto (TOFU con confirmación) o firmado por la CA
+  del ISP; el cliente HTTP de Horus **no** desactiva la verificación TLS en silencio: si el router
+  usa certificado autofirmado se fija su huella. Contraseña de ≥ 24 caracteres aleatoria generada
+  por Horus.
+- **SSH (MikroTik):** sólo para funciones que la API no cubra; llave ed25519 **generada por Horus
+  por router y tenant** (la privada cifrada con envelope; la pública se instala en el usuario del
+  router); `known_hosts` fijado por router (TOFU con aprobación); mismo usuario de solo lectura.
+- **Escritura en routers:** v1 **no escribe** configuración en los MikroTik (ni mitigación de
+  botnets por `address-list`). Si el PO lo aprueba (C-21), será un usuario **distinto** con
+  permisos mínimos (`write` sólo sobre listas de direcciones, vía script) y cada acción con
+  aprobación humana y auditoría; la credencial de lectura nunca gana permisos de escritura.
 - **WireGuard** (alineado con [`database.md`](database.md) §2.3): clave privada del servidor y
   preshared keys cifradas; clave privada del peer router **no se guarda**: se genera solo si el
   router no puede generarla, se entrega **una vez** y se descarta (si se pierde → rotación).
   Preferido: el router genera su par y Horus solo guarda la pública. Las `.conf` renderizadas
   nunca se persisten.
 
+### 8.5 Credenciales de destinos remotos de copias (D2)
+
+Los destinos remotos son **de plataforma** (las copias contienen todos los tenants) y los gestiona
+`platform_admin` ([`api.md`](api.md) §2.8). La herramienta candidata es **rclone** (SFTP, Google
+Drive, MEGA, Dropbox, S3); MediaFire no tiene soporte estable en rclone y **no se ofrece**.
+
+| Destino | Credencial | Mínimo privilegio | Notas |
+|---------|-----------|-------------------|-------|
+| **SFTP** (NAS u otro servidor; primero) | Llave ed25519 generada por Horus (la pública se instala en el destino) | Usuario dedicado, `ChrootDirectory`, sólo SFTP (`ForceCommand internal-sftp`), sin shell; idealmente sin permiso de borrado | `known_hosts` fijado al dar de alta |
+| **SFTP en modo pull** (recomendado si hay NAS) | El NAS tiene una llave para **leer** el directorio de copias del servidor | El servidor no tiene ninguna credencial sobre el NAS | Un servidor comprometido no puede borrar las copias del NAS |
+| **Google Drive** | Token OAuth (refresh token) | Alcance `drive.file` (sólo archivos creados por la app), cuenta de servicio o cuenta dedicada | El token se obtiene con el flujo de autorización de rclone desde la UI de plataforma |
+| **Dropbox** | Token OAuth | App con acceso "App folder" | Versionado de Dropbox como protección extra |
+| **MEGA** | Usuario + contraseña de una cuenta **exclusiva** | No hay alcances: la credencial da acceso a toda la cuenta | Por eso cuenta exclusiva y cifrado en cliente obligatorio |
+| **S3 compatible** | Access key/secret | Política de sólo `PutObject`/`GetObject` sobre un bucket; Object Lock si el proveedor lo ofrece | La opción más robusta frente a ransomware |
+
+Controles comunes:
+
+1. **Cifrado en cliente obligatorio** antes de que nada salga del servidor: pgBackRest cifra su
+   repositorio; el resto (ClickHouse, configuración, anclas de auditoría) se cifra con rclone
+   `crypt` o `age`. La clave de cifrado de copias es distinta de la KEK y se custodia fuera del
+   servidor ([`disaster-recovery.md`](disaster-recovery.md) §3.6). El proveedor sólo ve blobs.
+2. Credenciales guardadas con envelope encryption (TEK de plataforma); nunca en archivos de
+   configuración de rclone en disco: el proceso de copia las recibe en memoria (variables de
+   entorno `RCLONE_CONFIG_<REMOTO>_*` del proceso hijo, que muere al terminar) y no las escribe en
+   logs (rclone con `--log-level INFO` y redacción).
+3. Write-only en la API (`PUT .../credentials`), prueba de conectividad explícita, auditoría.
+4. Si el destino remoto falla o no existe, el sistema **avisa y sigue**: las copias locales se
+   hacen igual ([`disaster-recovery.md`](disaster-recovery.md) §3.0).
+
 ## 9. Seguridad de la red de gestión
 
 1. **Segmentación:** colectores y `wireguard` en una red (VLAN/VRF de gestión) separada de la
-   red de usuarios del ISP y de la red de abonados. Redes Docker separadas `edge`, `app`,
+   red de usuarios del ISP y de la red de clientes. Redes Docker separadas `edge`, `app`,
    `data`, `mgmt` (definición final en [`architecture.md`](architecture.md)).
 2. **Exportación de flujos y SNMP:** preferentemente a través de la VLAN de gestión o del túnel
    WireGuard del router. Nunca por Internet en claro.
@@ -582,8 +813,11 @@ o USB cifrado en caja fuerte), cifrada con age; procedimiento en
    NetFlow v5/v9 `UDP 2055`, IPFIX `UDP 4739`, sFlow `UDP 6343`, traps SNMP `UDP 162`
    (si se usan), WireGuard `UDP 51820`.
 4. **Validación de origen:** el colector solo acepta exportadores registrados en el inventario
-   (IP + ID de dominio de observación); los desconocidos se descartan y generan un evento
-   `horus.flows.exporter.unknown` (con rate limit) para que el operador los registre.
+   (IP + ID de dominio de observación) **y lo asocia a su tenant**; los desconocidos se descartan
+   y generan `horus.flows.exporter.unassigned` (tenant `platform`, con rate limit) para que el
+   `platform_admin` los registre. Un exportador nunca puede "elegir" su tenant: el tenant sale del
+   inventario, no del paquete. La IP de origen del exportador debe ser única en la plataforma
+   (dirección del túnel WireGuard asignada por Horus).
    **Importante:** la IP de origen debe preservarse hasta el contenedor (red `host` para
    `flows` o NAT sin *userland proxy*); decisión de despliegue del Agente 1.
 5. **Rate limiting** por exportador (token bucket) y global; límites de memoria de plantillas.
@@ -625,7 +859,8 @@ Aplicable a todos los servicios Go y al frontend (detalles de Dockerfile en
 | Reverse proxy → gateway | HTTP en red Docker interna `edge` | mTLS |
 | Gateway → servicios (HTTP) y servicio ↔ servicio (gRPC) | **mTLS desde el Sprint 1** ([ADR-0005](adr/0005-grpc-protobuf-interno.md)) con CA interna `step-ca`; certificados de 30 días renovados automáticamente (§5.3) | mTLS con cert-manager o service mesh (Linkerd); certificados de 24 h |
 | Servicios → PostgreSQL / ClickHouse / NATS / Valkey | TLS **activado desde Sprint 1** para NATS y PostgreSQL (misma CA interna; coste bajo, evita deuda); ClickHouse/Valkey TLS cuando crucen host | TLS obligatorio en todo |
-| Cualquier tramo que cruce hosts físicos o el NAS | TLS obligatorio (MinIO con TLS) | TLS obligatorio |
+| Cualquier tramo que cruce hosts físicos, el NAS o la nube | SFTP (SSH) o HTTPS con verificación; además, copias cifradas en cliente (§8.5) | Igual |
+| Horus → routers MikroTik (API REST, SSH, SNMP) | Dentro del túnel WireGuard; API sólo HTTPS con certificado fijado (§8.4) | Igual |
 
 Regla: el código siempre soporta TLS por configuración (`*_TLS_CA_FILE`, `*_TLS_CERT_FILE`,
 `*_TLS_KEY_FILE`); desactivarlo genera un log `WARN` al arrancar y un registro de auditoría.
@@ -652,65 +887,109 @@ Política de vulnerabilidades: CRITICAL ≤ 7 días, HIGH ≤ 30 días, MEDIUM e
 
 ## 13. Privacidad de los datos de tráfico de clientes
 
-### 13.1 ¿Qué es dato personal?
+### 13.1 Propósito declarado y roles (D5, D6)
 
-- **IP del abonado** (asignada vía PPPoE/DHCP) + registros del ISP que la asocian a un contrato
-  → dato personal (identificable).
-- **Flujos** (IP origen/destino, puertos, bytes, horarios): metadatos de comunicaciones que
-  revelan hábitos (servicios usados, horarios, sitios visitados por ASN/servicio). Muy sensibles;
-  en algunas jurisdicciones están protegidos por el **secreto de las comunicaciones**.
-- **Scoring residencial/comercial** (Sprint 10): perfilado automatizado con posible efecto en
-  el contrato del cliente → requiere transparencia y revisión humana.
-- Datos de usuarios de la plataforma (empleados): email, IP de acceso, auditoría.
-- **No** se recogen payloads, DNS ni URLs (vision Sprint 6: solo metadatos de flujo, no captura
-  de paquetes). Cualquier ampliación requiere ADR + revisión legal.
+- **Propósito principal:** seguridad de la red del ISP — detectar clientes infectados o que
+  participan en botnets (C2, DDoS, escaneos, spam) para avisar y mitigar. **Secundarios:**
+  operación de red (capacidad, disponibilidad) y detección de uso comercial de IPs residenciales
+  (D1). Uso exclusivamente empresarial.
+- **Usos excluidos** (requieren ADR + revisión legal para cambiar): perfiles de navegación con
+  fines comerciales o publicitarios, venta o cesión de datos, inspección de contenido (payloads,
+  DNS, URLs, SNI), informes de "qué sitios visita" una IP fuera de una investigación de seguridad.
+- **Roles:** cada ISP es **responsable** del tratamiento de los datos de sus clientes; quien opera
+  la plataforma Horus actúa como **encargado** por cuenta de cada ISP (contrato de encargo/DPA por
+  tenant). Si el operador de la plataforma es el mismo ISP, coincide.
+- La base legal concreta (interés legítimo en la seguridad de la red, obligación de las normas de
+  telecomunicaciones, contrato) depende del **país de cada tenant** (campo `country` del tenant;
+  pregunta abierta Q1).
 
-### 13.2 Controles
+### 13.2 ¿Qué es dato personal?
 
-1. **Minimización:** solo los campos de flujo necesarios (lista cerrada en
-   [`traffic-model.md`](traffic-model.md), Agente 2).
-2. **Seudonimización en el largo plazo:** los agregados > 30 días se asocian a `customer_id`
-   (UUID interno), no a IP; la correspondencia IP↔cliente↔tiempo vive en PostgreSQL con acceso
-   restringido.
-3. **Retención** (vision Sprint 13; validar con legal): flujo crudo 7–30 días, agregado
-   6–12 meses, diario 2–5 años. Borrado efectivo con TTL de ClickHouse y lifecycle de MinIO,
-   incluidos backups (que caducan en su propio ciclo).
-4. **Acceso mínimo:** `traffic.read` muestra agregados por sitio/router/categoría;
-   `traffic.client.read` (detalle por abonado) solo a roles que lo necesitan, con alcance por
-   sitio y **auditado** cada acceso.
-5. **Exportaciones:** registradas, con marca de agua (usuario, fecha) en PDF, enlaces caducos.
-6. **Logs y trazas sin IPs de abonados** (ver [`observability.md`](observability.md)).
-7. **Entornos de desarrollo/pruebas** con datos sintéticos o anonimizados, nunca copias de
-   producción sin anonimizar.
-8. **Evaluación de impacto (DPIA/EIPD)** antes de activar Sprints 6–10 en producción.
-9. **Scoring explicable** (ya exigido por vision Sprint 10) y decisión final humana antes de
-   cualquier acción comercial sobre el cliente.
+- **IP del cliente** (D1: es su identidad en Horus). Horus no tiene nombres ni contratos, pero el
+  ISP sí puede asociar la IP a una persona con sus propios sistemas (RADIUS/facturación) ⇒ es dato
+  personal **seudonimizado**, no anónimo.
+- **Flujos** (IP origen/destino, puertos, bytes, horarios): metadatos de comunicaciones; en
+  algunas jurisdicciones protegidos por el **secreto de las comunicaciones**.
+- **Hallazgos de seguridad por cliente** y su `security_state`: inferencias sensibles ("este
+  cliente está infectado").
+- **Tipo residencial/comercial por scoring**: perfilado automatizado con posible efecto
+  contractual ⇒ transparencia, explicabilidad y revisión humana antes de actuar.
+- **Alias/notas** que un operador escriba sobre un cliente (pueden contener nombres): campo libre
+  marcado como PII.
+- Datos de usuarios de la plataforma (empleados de los ISP): email, IP de acceso, auditoría.
+- **No** se recogen payloads, DNS, URLs ni SNI (sólo metadatos de flujo).
 
-### 13.3 Política de anonimización de PII de suscriptores
+**IPs dinámicas:** con D1, si el ISP asigna IPs dinámicas (PPPoE/DHCP), una misma IP puede
+corresponder a personas distintas a lo largo del tiempo. Consecuencias: el historial de tipo y los
+hallazgos de una IP pueden mezclar a varias personas. Controles: los hallazgos y el scoring se
+expresan **sobre la IP en una ventana de tiempo**, nunca como juicio sobre una persona; la UI lo
+indica; la expiración por inactividad (90 días) corta historiales largos; el ISP decide con sus
+propios registros a quién avisar.
 
-Requerida por el Agente 2 ([`database.md`](database.md): `subscriber`, `subscriber_ip_assignment`).
+### 13.3 Controles
 
-| Dato | Clasificación | Regla |
-|------|---------------|-------|
-| `subscriber.name`, `address`, `latitude/longitude`, `contact` (email/teléfono) | PII directa | Acceso solo con `traffic.client.read` o permiso de gestión de clientes; nunca en logs/métricas/eventos de difusión a la UI. **A los 90 días** de `status=terminated` (propuesta; validar Q2): `name` → `"Cliente <code>"`, `address`/`contact` → `NULL`, coordenadas → redondeadas a 2 decimales (~1 km) o `NULL`. El `id` y `code` se conservan (referencias históricas). |
-| `subscriber.code`, `external_ref` | Identificador indirecto | Se conserva mientras existan datos históricos que lo usen; en exportaciones a terceros se sustituye por `HMAC-SHA256(clave_seudonimización, id)`. |
-| `subscriber_ip_assignment` (IP ↔ cliente ↔ tiempo) | PII (permite re-identificar flujos) | Acceso restringido a `flows`/`traffic-intelligence` (servicio) y a usuarios con `traffic.client.read`. Retención caliente 13 meses ([`database.md`](database.md)); archivo solo si hay **obligación legal** (Q2); si no la hay, borrado físico al expirar la mayor retención de datos que la usan. |
-| Flujos crudos (`src/dst IP`, puertos) | Metadatos de comunicaciones | Retención 14 días por defecto ([`database.md`](database.md), rango 7–30). Archivo de crudo a MinIO **desactivado por defecto**; activarlo requiere justificación legal. |
-| Agregados por cliente (`subscriber_1h`, diarios) | Seudonimizados (`subscriber_id`, sin IP) | Retención según [`storage.md`](storage.md); al anonimizar al suscriptor dejan de ser atribuibles a una persona. |
-| Datasets para desarrollo/pruebas | — | Generados sintéticamente o con IPs reemplazadas por rangos de documentación (RFC 5737/3849) y nombres falsos; prohibido copiar producción sin pasar por el script de anonimización. |
+1. **Minimización:** sólo los campos de flujo de la lista cerrada de
+   [`traffic-model.md`](traffic-model.md) (Agente B). Sin nombres ni datos de contacto de clientes.
+2. **Limitación del propósito por diseño:** los permisos separan agregados (`traffic.read`) de
+   detalle por cliente (`traffic.customer.read`, `customers.read`, `security.read`); el detalle por
+   cliente es **auditado** en cada acceso.
+3. **Retención acotada al propósito** (propuesta; la valida el PO por país, Q2):
 
-Borrado por solicitud del titular (derecho de supresión, si aplica): anonimización inmediata de
-la fila `subscriber` + borrado de asignaciones IP fuera de obligación legal; los agregados
-quedan seudonimizados. El proceso se audita.
+   | Dato | Retención por defecto | Justificación |
+   |------|-----------------------|---------------|
+   | Flujos crudos | **7 días** (configurable 3–30 por tenant) | Investigación de un hallazgo reciente; lo antiguo se sirve con agregados |
+   | Agregados por cliente (5 min / 1 h) | 90 días / 13 meses | Patrones de comportamiento para scoring y líneas base de seguridad |
+   | Agregados por cliente diarios | 13 meses (no 5 años) | Comparativas anuales; más allá no hay propósito de seguridad |
+   | Agregados por nodo/router (sin cliente) | 5 años | Capacidad de red; no son datos personales |
+   | Hallazgos de seguridad | 13 meses tras resolverse | Reincidencia y ajuste de modelos |
+   | Historial de tipo de cliente | Mientras el cliente exista + 13 meses | Explicar cambios |
+   | Clientes expirados (IP sin tráfico) | Purga a los 13 meses de `expired` | Ya no hay propósito |
+   | Auditoría | 2 años en PostgreSQL + 5 años archivada (Q4) | Rendición de cuentas |
 
-### 13.4 Pregunta abierta (legal)
+   Borrado efectivo con TTL de ClickHouse y purga programada en PostgreSQL; las copias caducan en
+   su propio ciclo (35 días por defecto).
+4. **Seudonimización en el largo plazo:** los agregados de más de 90 días se guardan por
+   `customer_id`, no por IP (la correspondencia vive en `devices.customer`); al purgar el cliente,
+   los agregados quedan sin forma de volver a la IP.
+5. **Exportaciones:** registradas, con marca de agua (usuario, tenant, fecha), enlaces caducos.
+6. **Logs, trazas y métricas sin IPs de clientes** ([`observability.md`](observability.md) §3.3).
+7. **Pantallas NOC sin datos personales por defecto** (§5.5).
+8. **Desarrollo y pruebas** con datos sintéticos (IPs de rangos de documentación RFC 5737/3849);
+   prohibido copiar producción sin anonimizar. Los agentes de IA de desarrollo **nunca** reciben
+   datos de producción (D7).
+9. **Evaluación de impacto (DPIA/EIPD)** por país de tenant antes de activar la ingesta de flujos
+   en producción.
+10. **Scoring y hallazgos explicables** (razones con código, detalle y peso) y **decisión humana**
+    antes de cualquier acción con efecto sobre el cliente (aviso, corte, cambio contractual).
 
-La legislación aplicable depende del **país del ISP** y debe validarla un asesor legal:
-leyes de protección de datos (p. ej. LFPDPPP en México, Ley 1581 en Colombia, Ley 29733 en Perú,
-LOPDP en Ecuador, Ley 21.719 en Chile, LGPD en Brasil, RGPD en la UE/España), normas de
-telecomunicaciones sobre **conservación obligatoria** de metadatos (que pueden imponer retenciones
-mínimas *y* máximas) y secreto de las comunicaciones. Ver
-[`open-questions/security-ops.md`](open-questions/security-ops.md) Q1–Q2.
+### 13.4 Derechos y supresión
+
+- La identificación del titular la hace el ISP (Horus no sabe quién es). Ante una solicitud de
+  supresión, el ISP (o la plataforma por su cuenta) purga la IP: `customer.purged` → se borran o
+  seudonimizan irreversiblemente los datos derivados; los flujos crudos caducan solos en ≤ 7 días.
+- Proceso auditado.
+
+### 13.5 Baja de un tenant (offboarding)
+
+1. `offboarding_started`: se corta el acceso de sus usuarios y kioscos y se pausa la ingesta.
+2. Exportación final a petición del ISP (inventario, clientes, agregados, auditoría del tenant),
+   entregada cifrada.
+3. Tras el plazo acordado (por defecto 30 días): purga de sus filas en PostgreSQL y ClickHouse
+   (por `tenant_id`, primera columna del orden en ClickHouse), purga de subjects NATS del tenant
+   ([`events.md`](events.md) §2.4), destrucción de su TEK (crypto-shredding de sus credenciales) y
+   borrado de sus archivos `tenants/<tenant_id>/`.
+4. Sus datos desaparecen de las copias cuando éstas caducan (35 días); el certificado de baja lo
+   indica.
+5. Se conserva sólo la auditoría exigible (registro de la baja y metadatos mínimos).
+
+### 13.6 Pregunta abierta (legal)
+
+La legislación aplicable depende del **país de cada ISP** y debe validarla un asesor legal:
+protección de datos (p. ej. LFPDPPP en México, Ley 1581 en Colombia, Ley 29733 en Perú, LOPDP en
+Ecuador, Ley 21.719 en Chile, LGPD en Brasil, RGPD en la UE/España), normas de telecomunicaciones
+sobre **conservación obligatoria** de metadatos (mínimos *y* máximos) y secreto de las
+comunicaciones. Con D5 el propósito de seguridad facilita la justificación, pero no la sustituye.
+Ver [`open-questions/security-ops.md`](open-questions/security-ops.md) Q1–Q2.
 
 ## 14. Respuesta a incidentes (mínimo v1)
 
@@ -718,7 +997,11 @@ mínimas *y* máximas) y secreto de las comunicaciones. Ver
 - Playbooks breves: (a) cuenta comprometida → revocar sesiones/tokens, forzar reset y 2FA;
   (b) KEK o credenciales de routers comprometidas → rotar KEK, rotar credenciales en routers
   (lista exportable por sitio), rotar claves WG; (c) fuga de datos de tráfico → evaluar
-  notificación según ley aplicable.
+  notificación según ley aplicable **de cada tenant afectado**; (d) **fallo de aislamiento entre
+  tenants** (alerta `TenantMismatch` o reporte de un ISP) → desactivar la ruta/topic afectado,
+  determinar con la auditoría qué datos de qué tenant vio quién, notificar a los ISP afectados,
+  añadir el caso a la batería de aislamiento; (e) kiosco robado → revocar, revisar canjes y
+  `last_ip`.
 - `SECURITY.md` en la raíz del repo con canal de reporte (Sprint 1, Agente 5 lo planifica).
 
 ## 15. Checklist de seguridad para la Definición de Terminado
@@ -728,9 +1011,13 @@ Cada historia que toque código marca (o justifica N/A):
 - [ ] Endpoints nuevos registrados en la tabla ruta→permiso del gateway (test de "deny by
       default" pasa) y verificados también en el servicio con alcance ACL.
 - [ ] Tests de autorización: al menos un caso 403 (sin permiso) y uno de alcance (otro sitio).
+- [ ] **Aislamiento entre tenants**: la ruta/topic/consumidor nuevo está cubierto por la batería
+      automática "A no ve B" (§3.9) y pasa; consultas con `TenantScope`; claves de caché con tenant.
+- [ ] Rutas accesibles a kiosco declaradas explícitamente (`principals`) y sin datos personales
+      salvo política.
 - [ ] Entradas validadas (tipos, rangos, tamaños) en el borde; consultas parametrizadas.
-- [ ] Ningún secreto, token, credencial, contraseña ni IP de abonado en logs, trazas, métricas,
-      eventos ni mensajes de error (revisado en el PR).
+- [ ] Ningún secreto, token, credencial, contraseña ni IP de cliente en logs, trazas, métricas,
+      eventos (salvo los catalogados `pii`) ni mensajes de error (verificado por lint/test).
 - [ ] Secretos de dominio cifrados con `envelope`; campos de credenciales de solo escritura.
 - [ ] Acciones sensibles generan registro de auditoría (vía outbox) con diff sin secretos.
 - [ ] Datos personales nuevos: campo justificado, retención definida, permiso adecuado.
@@ -739,5 +1026,6 @@ Cada historia que toque código marca (o justifica N/A):
 - [ ] Contenedor cumple §10 (no root, sin capacidades extra salvo excepción documentada).
 - [ ] Rate limit / límites de tamaño considerados para endpoints públicos o costosos.
 - [ ] Parsers de entrada de red (flows, SNMP, traps) con test de fuzzing.
-- [ ] Cambios en autenticación/autorización/criptografía revisados por una segunda persona con
-      el checklist de este documento.
+- [ ] Cambios en autenticación/autorización/aislamiento de tenants/criptografía: revisión por un
+      agente revisor distinto del autor **y** aprobación de la persona responsable (CODEOWNERS,
+      [`conventions.md`](conventions.md) §6.2).

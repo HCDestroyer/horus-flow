@@ -1,484 +1,416 @@
-# Modelo de tráfico y clasificación — Horus Flow
+# Modelo de tráfico, atribución y señales — Horus Flow
 
-> Estado: **borrador Sprint 0** · Dueño: Agente 2 (Arquitecto de datos) · Fuente: [`vision.md`](vision.md)
-> ("Decisión clave", documento crítico nº 3).
+> Estado: **ronda 2 (tras decisiones del PO)** · Dueño: Agente B (Datos) · Fuentes:
+> [`po-decisions.md`](po-decisions.md) (D1, D5, D6, D10 **prevalecen**), [`vision.md`](vision.md).
 >
-> Relacionados: [`database.md`](database.md) (tablas físicas PG/ClickHouse), [`storage.md`](storage.md)
-> (artefactos del catálogo y fuentes en MinIO), [`events.md`](events.md) (Agente 3, contratos NATS),
-> [`services.md`](services.md) (Agente 1), [`open-questions/data.md`](open-questions/data.md).
+> Relacionados: [`database.md`](database.md) (tablas físicas), [`storage.md`](storage.md)
+> (artefactos del catálogo), [`vendors/mikrotik.md`](vendors/mikrotik.md) (Agente E: configuración
+> de Traffic Flow en RouterOS v7), [`events.md`](events.md) (Agente C), [`services.md`](services.md)
+> (Agente A), [`open-questions/data.md`](open-questions/data.md).
 
 ---
 
 ## 1. Objetivo y alcance
 
-Convertir metadatos de flujo (NetFlow v5/v9, IPFIX, sFlow v5) en hechos de negocio:
+Convertir los metadatos de flujo que exporta el **router principal de cada nodo** de cada ISP
+(D6) en tres productos:
+
+1. **Consumo**: qué cliente (= IP, D1) consume cuánto, de qué servicios y en qué dirección.
+2. **Seguridad del ISP (D5, propósito principal)**: detectar clientes infectados o que participan
+   en botnets (contacto con C2, escaneo, fan-out, puertos de gusanos, DNS anómalo, salida
+   sostenida), para que el ISP los mitigue.
+3. **Tipo de cliente**: residencial por defecto; detectar uso comercial.
 
 ```
-IP → Prefix → ASN → Organization → Service → Category → Reputation
-   → Client → Router → Interface → Time → Bytes → Packets
+IP del cliente → Cliente (tenant, nodo/realm, IP)
+IP remota → Prefijo → ASN → Organización → Servicio → Categoría → Reputación
++ Router principal → Interfaz → Tiempo → Bytes → Paquetes → Flags/Puertos
 ```
 
-Leído como frase: *"los bytes/paquetes que, en este intervalo, el **cliente** C intercambió a
-través de la **interfaz** I del **router** R con la **IP remota** X, que pertenece al **prefijo** P,
-anunciado por el **ASN** A, operado por la **organización** O, que identificamos (con confianza c)
-como el **servicio** S de la **categoría** K, con **reputación** r."*
-
-Fuera de alcance v1: captura de paquetes, DPI, inspección de payload. SNI/DNS se dejan modelados
-como tipos de regla para el futuro (§6.2).
+Fuera de alcance v1: captura de paquetes, DPI, payload, nombres DNS consultados (Traffic Flow no los
+exporta). SNI/DNS quedan modelados como tipos de regla futuros.
 
 ### Principios
 
-1. **Atribuir en ingesta, describir en consulta**: lo que depende del instante (IP→cliente,
-   IP→ASN según BGP del día, reputación del día) se fija en la fila; lo descriptivo (nombres,
-   categoría de un servicio) se resuelve con diccionarios ([`database.md` §4](database.md)).
-2. **La incertidumbre es un dato**: cada clasificación lleva `method` y `confidence`. Nunca se
-   presenta "Instagram" cuando solo sabemos "Meta".
-3. **Catálogo como datos, no código**: reglas versionadas, publicadas, auditables y recargables en
-   caliente.
-4. **No contar dos veces**: el punto de observación se decide por configuración de interfaces, no
-   por heurísticas de coincidencia (§10).
+1. **La IP es el cliente** (D1): no hay CRM, RADIUS ni asignaciones temporales. Si la IP pertenece a
+   un prefijo de clientes del nodo, el flujo es de ese cliente.
+2. **Atribuir en ingesta, describir en consulta**: IDs en la fila; nombres, tipo vigente y categoría
+   con diccionarios ([`database.md` §4](database.md)).
+3. **La incertidumbre es un dato**: clasificación con `method` y `confidence`; detección con
+   `confidence` y razones; muestreo explícito.
+4. **Un solo punto de observación por nodo**: el router principal (D6). No se cuenta dos veces.
+5. **Aislamiento por tenant** en todo el camino: el exportador identifica al tenant y nada cruza de
+   un ISP a otro.
 
 ---
 
-## 2. Pipeline y responsabilidades por etapa
+## 2. Pipeline
 
-Alineado con [ADR-0015](adr/0015-enriquecimiento-de-flujos-en-ingesta.md): `traffic-intelligence`
-es dueño del catálogo y **no** está en el camino caliente; el rol **ingester** de `flows` enriquece
-con un snapshot en memoria y es el escritor único de `flows.flows_raw`.
+Alineado con [ADR-0015](adr/0015-enriquecimiento-de-flujos-en-ingesta.md): el ingester de `flows`
+enriquece en memoria y es el escritor único de `flows.flows_raw`.
 
 ```mermaid
 flowchart LR
-  R[Routers] -- "UDP 2055/4739/6343" --> C[flows collector<br/>decodifica + normaliza]
-  C -- "horus.flows.batch.received<br/>(JetStream)" --> I[flows ingester<br/>enriquece + escritor CH]
-  I --> CH[(ClickHouse<br/>flows.flows_raw<br/>+ MVs)]
-  TI[traffic-intelligence<br/>catálogo PG] -- "snapshot vN<br/>(MinIO + catalog.published)" --> I
-  DEV[devices] -- "customer.assigned/unassigned,<br/>router/interface.* + gRPC snapshot" --> I
-  CH --> AN[analytics<br/>+ reporting]
-  CH --> DET[detection<br/>+ reputation]
-  DET -- "dim.reputation (IP_TRIE)" --> CH
+  R[Router principal MikroTik<br/>de cada nodo] -- "Traffic Flow (IPFIX/NetFlow v9)<br/>por túnel WireGuard" --> C[flows collector<br/>decodifica + normaliza]
+  C -- "horus.flows.batch.received" --> I[flows ingester<br/>atribuye + clasifica + escribe CH]
+  I --> CH[(ClickHouse<br/>flows_raw + MVs)]
+  I -- "horus.flows.client.first_seen<br/>+ seen_summary" --> DEV[devices<br/>clientes = IPs]
+  DEV -- "customer_prefix.*, customer.*" --> I
+  TI[traffic-intelligence] -- "catálogo global + overlay del tenant" --> I
+  CH --> DET[detection<br/>botnets, scoring tipo]
+  DET -- "customer.kind_suggested" --> DEV
+  CH --> AN[analytics<br/>dashboards, reportes]
 ```
 
-| # | Paso | Servicio | Momento | Fuente de verdad | Resultado en la fila |
-|---|------|----------|---------|------------------|----------------------|
-| 1 | Decodificar (v5/v9/IPFIX/sFlow), plantillas, timestamps absolutos | `flows` | ingesta | paquete + `flows.template_cache` | campos canónicos crudos |
-| 2 | Corregir muestreo | `flows` | ingesta | sampling del paquete/plantilla/opción; si falta, `flows.exporter.declared_sampling_rate` | `bytes`, `packets` escalados; `sampling_rate` |
-| 3 | Identificar exportador → `router_id`, ifIndex → `interface_id`, `observation_role` | `flows` | ingesta | `devices` (cache local por eventos) | `router_id`, `site_id`, `interface_id`, `observation_role` |
-| 4 | Pre-agregación opcional (60 s) | `flows` | ingesta | config | menos filas (§11) |
-| 5 | **Atribución a cliente** + dirección | `flows` (ingester) | ingesta | asignaciones IP temporales (`devices`) | `customer_id`, `customer_ip`, `remote_ip`, `direction`, `attribution_status` |
-| 6 | IP remota → prefijo → ASN | `flows` (ingester) con snapshot de `traffic-intelligence` | ingesta | trie en memoria del catálogo publicado | `remote_prefix`, `remote_asn`, `remote_country` |
-| 7 | ASN → organización | `flows` (ingester) | ingesta (ID) / consulta (nombre) | catálogo | `remote_org_id` |
-| 8 | Reglas → servicio | `flows` (ingester) | ingesta | catálogo versión N | `service_id`, `classification_method`, `classification_confidence`, `catalog_version` |
-| 9 | Servicio → categoría | `flows` (ingester) para auditoría; **consulta** para reportes | ingesta + consulta | snapshot vN / `dim.service` (catálogo vigente) | `category_id` (la de vN); los reportes agregan por `service_id` y resuelven la categoría vigente |
-| 10 | Reputación de la IP remota | `detection` (módulo reputation) | **asíncrono / consulta** | indicadores vigentes (`dim.reputation`) | no se guarda en la fila; cruces en `detection.reputation_hits` |
-| 11 | Agregación tiempo (5 min/1 h/1 d) | ClickHouse MVs | inserción | — | tablas `flows.*_5m/_1h/_1d` |
-| 12 | Correlación de seguridad, scoring residencial/comercial | `detection` | asíncrono (sobre agregados y crudo) | ClickHouse | `detection.*` |
+| # | Paso | Dónde | Resultado en la fila |
+|---|------|-------|----------------------|
+| 1 | Decodificar IPFIX / NetFlow v9 / v5 (plantillas, timestamps absolutos) | collector | campos canónicos |
+| 2 | Identificar exportador por `(IP origen en el túnel WireGuard, observation_domain_id)` ⇒ `tenant_id`, `site_id`, `router_id`; ifIndex ⇒ interfaces | collector | IDs de origen |
+| 3 | Corregir muestreo (si lo hubiera) | collector/ingester | `bytes`, `packets` escalados, `sampling_rate` |
+| 4 | Pre-agregación opcional 60 s (§10) | collector | `merged_flows` |
+| 5 | **Atribución a cliente + dirección** (§4) | ingester | `realm_id` + `customer_ip` (clave natural del cliente), `remote_ip`, `direction`, `attribution_status` |
+| 6 | Descubrimiento de clientes nuevos (§4.5) | ingester | evento `client.first_seen` |
+| 7 | IP remota → prefijo → ASN → organización | ingester | `remote_*` |
+| 8 | Reglas → servicio (catálogo global vN + overlay del tenant vM) | ingester | `service_id`, `classification_*`, versiones |
+| 9 | Agregación (consumo y seguridad) | MVs ClickHouse | `customer_*`, `site_*`, `customer_security_*` |
+| 10 | Reputación (C2, escáneres) | detection, asíncrono | `detection.reputation_hits` |
+| 11 | Detección de botnets y scoring de tipo | detection, asíncrono | `detection.finding`, `customer_scores_1d`, `kind_suggested` |
 
-**Por qué así**: el collector queda tonto y rápido (no perder UDP); el ingester enriquece en
-memoria sin saltos de red extra (un solo paso por NATS). Si `traffic-intelligence` cae, el ingester
-sigue con el último snapshot; si el ingester o ClickHouse caen, JetStream retiene los lotes
-(límite por tamaño, propuesta ≥ 6 h de pico, ver [`events.md`](events.md) /
-[`disaster-recovery.md`](disaster-recovery.md)) y se procesan al volver.
-
-**Por qué la reputación no va en la fila**: evita que el ingester dependa de un tercer snapshot y
-evita congelar una reputación que cambia a diario; `detection` la cruza sobre la ventana reciente
-(ver §12).
+Si el ingester o ClickHouse caen, JetStream retiene los lotes (≥ 6 h de pico, ver
+[`events.md`](events.md)). Si `devices` cae, el ingester sigue con su último mapa de prefijos (copia
+en disco local) y sigue atribuyendo (la clave del cliente es natural); los avisos `client.first_seen`
+se acumulan en el stream.
 
 ---
 
 ## 3. Registro canónico de flujo normalizado
 
-Es el contrato del lote `flows collector → flows ingester` (`horus.flows.batch.received`; el sobre y el subject los define el
-Agente 3; los campos son esta tabla). Columnas "enriquecidas" se añaden en el paso 5–10.
+Contrato del lote `collector → ingester`. Exportador inicial: **MikroTik RouterOS v7 Traffic Flow**
+(D10): **IPFIX** (alternativa NetFlow v9; **v5 descartado** porque no transporta IPv6), sin
+muestreo, `active-flow-timeout=1m`, `inactive-flow-timeout=15s`, `src-address` = IP de túnel
+WireGuard del router. Los parámetros concretos (versión, timeouts, interfaces, plantilla) los
+documenta el Agente E en [`vendors/mikrotik.md`](vendors/mikrotik.md).
 
-| Campo | Tipo | NetFlow v5 | NetFlow v9 / IPFIX (IE) | sFlow v5 | Notas |
-|-------|------|------------|-------------------------|----------|-------|
-| `exporter_ip` | IP | IP origen UDP | idem | `agent_address` | identifica al router |
-| `observation_domain_id` | uint32 | `engine_type/id` | Source ID / Observation Domain ID | `sub_agent_id` + `source_id` | separa linecards/VRFs |
-| `flow_start` | DateTime64(3) | `first` (sysUptime relativo → absoluto con `unix_secs` del header) | IE 152 `flowStartMilliseconds` o 22 `flowStartSysUpTime` + IE 160 | = `ts` del sample | |
-| `ts` (fin) | DateTime64(3) | `last` | IE 153 / 21 | timestamp de recepción del datagrama | sFlow no tiene duración |
-| `src_ip`, `dst_ip` | IPv6 (v4 mapeada) | sí (solo IPv4) | IE 8/12 (v4), 27/28 (v6) | cabecera del paquete muestreado | |
-| `src_port`, `dst_port` | uint16 | sí | IE 7/11 | cabecera | 0 si no TCP/UDP; ICMP type/code en `dst_port` (convención v9) |
-| `protocol` | uint8 | sí | IE 4 | cabecera | |
-| `tcp_flags` | uint8 | OR acumulado | IE 6 | del paquete | |
-| `bytes` | uint64 | `dOctets` | IE 1 `octetDeltaCount` | `frame_length` (por muestra) | escalado ×sampling |
-| `packets` | uint64 | `dPkts` | IE 2 | 1 por muestra | escalado ×sampling |
-| `input_if_index`, `output_if_index` | uint32 | `input`/`output` (16 bits) | IE 10/14 | `input`/`output` del flow sample | clave para `interface_id` |
-| `flow_direction` | enum | — | IE 61 (0 ingress/1 egress) | — | **solo informativo**; la dirección respecto al cliente se calcula (§9.4) |
-| `src_as`, `dst_as` | uint32 | sí (si el router tiene BGP) | IE 16/17 | extended gateway | se usa solo como *pista*; el ASN canónico sale del catálogo |
-| `next_hop` | IP | sí | IE 15/62 | extended router | |
-| `vlan_id` | uint16 | — | IE 58/59 | extended switch | |
-| `post_nat_src_ip`, `post_nat_src_port` | IP/uint16 | — | IE 225/227 (NAT) | — | si el router exporta eventos NAT (§9.2) |
-| `sampling_rate` | uint32 | header `sampling_interval` (14 bits) | IE 34/305/306, Options Template | `sampling_rate` del sample | ver §4 |
-| `flow_source` | enum | `netflow_v5` | `netflow_v9`/`ipfix` | `sflow_v5` | |
-| `batch_id` | UUIDv7 | — | — | — | idempotencia de escritura en CH |
+| Campo | Tipo | NetFlow v9 / IPFIX (IE) | Uso | Necesario para |
+|-------|------|-------------------------|-----|----------------|
+| `exporter_ip` | IP | IP origen UDP (dentro del túnel WireGuard) | identifica router ⇒ tenant/nodo | todo |
+| `observation_domain_id` | uint32 | Source ID / ODID | separa instancias | todo |
+| `flow_start`, `ts` (fin) | DateTime64(3) | IE 152/153 o 22/21 + sysUpTime | ventanas, duración | consumo, beaconing |
+| `src_ip`, `dst_ip` | IPv6 | IE 8/12, 27/28 | atribución, remoto | todo |
+| `src_port`, `dst_port` | uint16 | IE 7/11 | puertos | puertos de botnet, escaneo, servidor expuesto |
+| `protocol` | uint8 | IE 4 | | todo |
+| `tcp_flags` | uint8 | IE 6 (OR acumulado) | SYN sin ACK, sesiones aceptadas | escaneo, servicios entrantes |
+| `icmp_type_code` | uint16 | IE 32/139 | barridos ICMP | escaneo |
+| `bytes`, `packets` | uint64 | IE 1/2 | volumen | todo |
+| `input_if_index`, `output_if_index` | uint32 | IE 10/14 | lado cliente vs WAN | dirección, tránsito |
+| `post_nat_src_ip/port`, `post_nat_dst_ip/port` | IP/uint16 | IE 225/226/227/228 | solo si el ISP activa `nat-*` (desactivado por defecto, dato sensible) | plan B de §4.4 |
+| `next_hop` | IP | IE 15/62 | diagnóstico | — |
+| `src_as`, `dst_as` | uint32 | IE 16/17 | solo pista (RouterOS normalmente 0) | — |
+| `sampling_rate` | uint32 | IE 34/305/306 u Options | corrección | todo |
+| `flow_source` | enum | v5/v9/ipfix/sflow | | — |
+| `batch_id` | UUIDv7 | — | idempotencia | — |
 
-Campos que **no** se garantizan (se guardan si vienen, nunca se requieren): `src_as`/`dst_as`,
-`next_hop`, `vlan_id`, campos NAT, MAC, aplicación propietaria (NBAR/AppID).
+Campos que no se garantizan: `src_as`/`dst_as`, `next_hop`, NAT, VLAN, MAC. **No disponibles con
+Traffic Flow**: nombres DNS consultados, SNI, códigos de respuesta DNS (NXDOMAIN).
+
+**Muestreo**: Traffic Flow exporta por defecto **sin muestreo** (1:1); si un ISP lo activa, se
+escala `bytes × N`, `packets × N` y `detection` reduce la confianza de las señales de conteo
+(flujos cortos, escaneos e IPs distintas no son fiables con muestreo alto). La regla de obtención de
+N (registro → Options Template → valor declarado → 1 con alerta `sampling_unknown`) se mantiene.
 
 ---
 
-## 4. Muestreo: qué se pierde y cómo se corrige
+## 4. Atribución: cliente = IP observada en el router principal del nodo
 
-- **Corrección**: `bytes_est = bytes × N`, `packets_est = packets × N` donde N es el sampling rate
-  efectivo. Prioridad para obtener N: (1) valor en el propio registro/datagrama; (2) Options
-  Template/Data Record asociado al `observation_domain_id` y `sampler_id` (v9/IPFIX); (3)
-  `flows.exporter.declared_sampling_rate` configurado en Horus; (4) 1 con alerta
-  `sampling_unknown`.
-- **Qué se pierde con muestreo 1:N**:
-  - Flujos cortos (DNS, handshakes, escaneos): con N = 1000, un flujo de 3 paquetes tiene ~0,3 % de
-    probabilidad de aparecer. ⇒ **conteo de flujos, IPs distintas y detección de escaneos no son
-    fiables** con muestreo alto. `detection` debe leer `sampling_rate` y bajar la confianza.
-  - Precisión de bytes por cliente: error relativo ≈ `1/√(paquetes muestreados)`. Un cliente con
-    100 MB/h en paquetes de 1 000 B ≈ 100 k paquetes ⇒ con 1:1000 ≈ 100 muestras ⇒ ±10 %. Para
-    totales del ISP el error es despreciable; para facturación por cliente **no** usar muestreo
-    alto.
-  - sFlow: no hay flujo, solo paquetes muestreados; `flow_start = ts`, duración 0, `flows` cuenta
-    muestras, no conexiones.
-- **Recomendación**: en interfaces `customer_edge` usar NetFlow/IPFIX **sin muestreo** (1:1) si la
-  CPU del router lo permite (MikroTik Traffic-Flow no muestrea); muestreo solo en `upstream` de
-  alto volumen. Ver open questions Q5.
+### 4.1 Qué IPs son "de clientes"
+
+La respuesta la da la configuración del ISP por nodo: `devices.customer_prefix`
+([`database.md` §2.2](database.md)). Cada prefijo tiene `role`:
+
+| `role` | Significado | Efecto |
+|--------|-------------|--------|
+| `customers` | Rango que el nodo asigna a sus clientes (pool PPPoE/DHCP, estáticas, CGNAT interno 100.64.0.0/10, prefijos IPv6 delegados) | Una IP dentro ⇒ cliente |
+| `infrastructure` | Gestión, enlaces, servidores del ISP, cachés (OCA/GGC) | `attribution_status = infrastructure` |
+| `excluded` | Rangos que el ISP no quiere analizar | se descartan en el collector (no se guardan) |
+
+Cómo se llenan:
+
+1. **Manual** (UI/API por nodo).
+2. **Importación desde el MikroTik** (API REST de RouterOS: `/ip pool`, `/ipv6 pool`, direcciones de
+   interfaces de cara al cliente), confirmada por el operador. Detalle en
+   [`vendors/mikrotik.md`](vendors/mikrotik.md).
+3. **Modo descubrimiento** (nodo sin prefijos): el ingester registra en
+   `flows.unattributed_1h` las IPs privadas/CGNAT y las IPs públicas del ASN del ISP que aparecen del
+   lado de las interfaces `customer_edge`, y la UI propone los prefijos agregados (p. ej. `/24`) para
+   confirmar. Hasta entonces el tráfico cuenta en los agregados del nodo, no en clientes.
+
+### 4.2 Identidad y realm
+
+- Clave natural del cliente = `(tenant_id, realm_id, dirección canónica)`
+  ([ADR-0018](adr/0018-la-ip-es-el-cliente.md)); IPv4 /32; IPv6 truncada a `ipv6_customer_len` del
+  prefijo (**/64 por defecto**, /56 configurable; coincide con el prefijo delegado que propone
+  [`vendors/mikrotik.md`](vendors/mikrotik.md)). En PostgreSQL el cliente tiene además un
+  `customer_id` UUIDv7; ClickHouse no lo guarda ([`database.md` §2.3.1](database.md)).
+- **Realm**: los prefijos privados/CGNAT pertenecen al realm `node_private` de su nodo (la misma
+  `10.0.0.5` en dos nodos o dos ISP son clientes distintos); los públicos al realm `public` del
+  tenant.
+- **Tenant**: lo fija el exportador; nunca se infiere de la IP. Dos ISP con las mismas IPs privadas
+  no se mezclan porque sus routers llegan por túneles WireGuard distintos.
+
+### 4.3 Algoritmo (en memoria, por flujo)
+
+Estructura: por `site_id` (nodo), un trie LPM de `customer_prefix` (decenas a cientos de prefijos
+por nodo; KB de memoria). Para cada flujo del exportador del nodo `S`:
+
+1. `src_in = lookup(S, src_ip)`, `dst_in = lookup(S, dst_ip)` ⇒ cada uno es `customers`,
+   `infrastructure`, `excluded` o `none`.
+2. Aplicar la tabla de dirección (§4.6) para decidir `customer_ip`, `remote_ip`, `direction`,
+   `attribution_status`.
+3. Si hay cliente: `customer_ip` = dirección canónica; si la clave `(realm_id, customer_ip)` no
+   está en el conjunto de conocidos, añadirla y encolar un aviso `first_seen` (§4.5), con el
+   límite anti-avalancha por realm.
+4. **Tránsito entre nodos**: una IP de un prefijo de **otro nodo** del mismo tenant (p. ej. el nodo
+   S es camino del nodo T) **no** se atribuye en S: `attribution_status = transit`. Se cuenta en
+   `site_*` de S como tránsito y el cliente solo se atribuye en el router principal de su propio
+   nodo. Así no hay doble conteo aunque el tráfico atraviese varios routers principales.
+
+Costo: dos búsquedas LPM y una consulta a un conjunto hash por flujo; > 1 M flujos/s por núcleo.
+
+### 4.4 NAT en el router principal
+
+Con D1 la IP del cliente debe ser la **anterior al NAT** (supuesto abierto de
+[`po-decisions.md`](po-decisions.md): "CGNAT").
+
+| Caso | Qué ve Traffic Flow ([`vendors/mikrotik.md` §2.4](vendors/mikrotik.md)) | Atribución |
+|------|-------------------------------------------------------------------------|------------|
+| Clientes con IP pública (sin NAT) | IP pública del cliente en ambos sentidos | directa |
+| CPE con NAT (residencial típico) | WAN del CPE = IP del cliente | directa; los dispositivos detrás no se ven |
+| **NAT/CGNAT en el propio router principal** | RouterOS aplica `srcnat` en *postrouting* (después de `forward`) y deshace el NAT de las respuestas en *prerouting* (antes de `forward`): se espera la **IP privada del cliente en subida y bajada** (**a verificar en laboratorio**, criterio 4 de la checklist del Agente E) | directa, en el realm `node_private` del nodo. Los campos `nat-*` de IPFIX quedan **desactivados** por defecto (dato sensible); no hacen falta para atribuir. |
+| CGNAT en otro equipo **detrás** del router principal (hacia Internet) | IP privada/CGNAT del cliente | directa |
+| CGNAT en otro equipo **entre** los clientes y el router principal | IP pública compartida: no identifica al cliente | **no atribuible**; el ISP debe exportar desde el equipo de CGNAT/BNG. Mientras tanto el tráfico cuenta en el nodo (`unknown`). |
+
+**Plan B** si el laboratorio demuestra que la bajada llega con la IP pública post-NAT: activar los
+campos `nat-*` en ese router, o emparejar en el ingester el flujo de bajada con el de subida inverso
+por `(IP pública, puerto público, IP/puerto remoto, protocolo)` en una ventana de
+2 × `active-flow-timeout`. Sin emparejar ⇒ `attribution_status = unknown`. Solo se implementa si
+la verificación falla.
+
+### 4.4.1 Interfaces dinámicas PPPoE/L2TP
+
+Cada sesión PPPoE crea en RouterOS una interfaz dinámica `<pppoe-usuario>` cuyo **ifIndex cambia
+en cada reconexión** ([`vendors/mikrotik.md` §2.4](vendors/mikrotik.md)). Por eso:
+
+- El collector **no** crea `devices.interface` por cada ifIndex dinámico: los ifIndex que no están
+  en el inventario y cuyo nombre (obtenido por SNMP/API) encaja con `pppoe-*`/`l2tp-*` se mapean a
+  una **interfaz lógica** por router, `customer_edge (dinámica)`, con un `interface_id` estable.
+- La atribución **siempre es por IP** (§4.3); la interfaz solo sirve como pista de dirección y para
+  el modo descubrimiento.
+- El usuario PPPoE (`/ppp/active`) puede importarse como **alias opcional** del cliente, tratado
+  como dato personal con retención limitada; nunca como identidad (D1).
+
+### 4.4.2 Cobertura: tráfico acelerado por hardware
+
+El tráfico con offload por hardware (bridge HW, L3HW en CCR2116/2216, FastTrack HW) **no genera
+flujos**. Para no presentar consumos incompletos como reales:
+
+- Métrica de **cobertura** por nodo y hora: `bytes de flujos del nodo (site_1h) / bytes del uplink
+  por SNMP (ifHCIn/OutOctets de las interfaces upstream)`. Se calcula en `analytics` y se guarda en
+  `analytics.flow_coverage_1h` (ClickHouse, `(tenant_id, site_id, bucket)`, TTL 13 meses).
+- Cobertura < 80 % ⇒ alerta `flow_coverage_low` y aviso visible en los dashboards del nodo
+  ("los datos de flujo cubren el 62 % del tráfico del uplink").
+- La detección de botnets reduce la confianza de señales de volumen en nodos con baja cobertura
+  (las señales de conteo —escaneo, puertos— siguen siendo válidas para lo que sí se ve).
+
+### 4.5 Descubrimiento de clientes
+
+- Cliente nuevo ⇒ el ingester publica `horus.flows.client.first_seen.<realm_id>` (lote cada 10 s,
+  deduplicado; ADR-0018) y `devices` crea el cliente (`INSERT … ON CONFLICT DO NOTHING`) con el tipo
+  por defecto del prefijo y emite `horus.devices.customer.discovered.<customer_id>`.
+- Cada hora el ingester publica `horus.flows.client.seen_summary.<realm_id>`, resumen de claves activas (para `last_seen` grueso y
+  reactivación de `inactive`).
+- Los flujos **no esperan** al descubrimiento: la fila ya lleva su clave natural.
+- Ciclo de vida (inactive, reset, purga) en [`database.md` §2.3.4](database.md).
+
+### 4.6 Dirección (upload/download) respecto a la IP del cliente
+
+Se calcula respecto a la IP del cliente, no con `flowDirection` del router:
+
+| `src_ip` | `dst_ip` | `direction` | `customer_ip` / `remote_ip` | `attribution_status` |
+|----------|----------|-------------|------------------------------|----------------------|
+| cliente del nodo | no cliente | `upload` | src / dst | `attributed` |
+| no cliente | cliente del nodo | `download` | dst / src | `attributed` |
+| cliente del nodo | cliente del nodo | `internal` | src / dst (una sola fila para el origen) | `internal` |
+| cliente de otro nodo | cualquiera | `unknown` | — | `transit` |
+| infraestructura | no cliente (o al revés) | `unknown` | — | `infrastructure` |
+| ninguno en prefijos | ninguno | `unknown` | IP del lado `customer_edge` en `customer_ip` | `unknown` ⇒ `flows.unattributed_1h` |
+
+- `internal` (cliente a cliente del mismo nodo): relevante para seguridad (propagación lateral de
+  gusanos, p. ej. 445/23 entre clientes) y P2P local; cuenta en el consumo del origen.
+- El tráfico generado por el propio router (DNS del router, NTP, gestión) es `infrastructure`.
+
+### 4.7 Interfaces y punto de observación
+
+Con **un router principal por nodo** el problema de deduplicación del Sprint 0 (varios routers
+exportando el mismo tráfico) desaparece dentro del nodo: cada paquete entra una vez al router y
+Traffic Flow lo registra por interfaz de **entrada**. Reglas:
+
+- `interface.flow_role = customer_edge` en las interfaces de cara a clientes y `upstream` en las de
+  salida; se usan como **pista** para la dirección y para el modo descubrimiento (§4.1), no para
+  filtrar.
+- Traffic Flow se configura con `interfaces=all` (las PPPoE dinámicas no se pueden enumerar);
+  Horus clasifica por la interfaz de entrada/salida y descarta en el collector los flujos cuyo
+  origen o destino es la IP de túnel WireGuard del propio router (gestión y exportación). Ver
+  [`vendors/mikrotik.md`](vendors/mikrotik.md).
+- Entre nodos, el doble conteo se evita con la regla de tránsito (§4.3 paso 4).
+- Si un ISP exporta desde más de un router por nodo, el job de calidad compara bytes por cliente y
+  hora entre exportadores y alerta `horus.flows.exporter.duplicated` (nombre a confirmar con el
+  Agente C).
 
 ---
 
 ## 5. Fuentes de datos: prefijo → ASN → organización
 
-| Fuente | Aporta | Actualización | Licencia (verificar antes de producción) | Uso propuesto |
-|--------|--------|---------------|------------------------------------------|---------------|
-| **RouteViews / RIPE RIS** (volcados RIB MRT) | prefijo → ASN de origen según BGP real; MOAS | cada 2–8 h | Datos abiertos; atribución solicitada | **Fuente primaria** prefijo→ASN, procesada por un job de `traffic-intelligence` (descarga, parseo MRT, consolidación). |
-| **iptoasn.com** | prefijo → ASN, país, AS-name (TSV) | diario | Dominio público (PDDL) | **Arranque/fallback** (simple de importar; Sprint 7). |
-| **IPinfo Lite** (free) | IP → ASN, país | diario | CC BY-SA 4.0 (atribución + share-alike sobre la base derivada) | Alternativa/validación cruzada. Revisar implicaciones de share-alike. |
-| **MaxMind GeoLite2 ASN / GeoIP2 ISP** | IP → ASN, org (ISP pago añade ISP/org más precisa) | semanal | GeoLite2 EULA (cuenta + atribución, restricciones de redistribución); GeoIP2 comercial pago | Opcional si el PO tiene presupuesto (Q9). |
-| **RIR delegated stats** (ARIN, RIPE NCC, LACNIC, APNIC, AFRINIC) | asignación de bloques y ASN a países/titulares | diario | Abiertos | País y titular de bloques no ruteados; validación. |
-| **CAIDA AS-to-Organization** | ASN → organización (agrupa ASNs de una misma empresa) | trimestral | Acuerdo de uso de CAIDA (revisar uso comercial) | Semilla de `organization`; curación manual encima. |
-| **PeeringDB** (API) | organización, tipo de red (Content/NSP/Cable/Enterprise), IXPs | diario | AUP de PeeringDB (uso permitido, no reventa) | `asn.network_type`, nombres de org. |
-| **Rangos publicados por proveedores** (AWS `ip-ranges.json`, Google `goog.json`/`cloud.json`, Azure Service Tags, Cloudflare `ips-v4/v6`, Fastly, Oracle, etc.) | prefijo → proveedor/servicio/región | diario–semanal | Términos de cada proveedor (públicos) | Reglas `prefix` de mayor prioridad que ASN (distinguen p. ej. Google Cloud de Google consumo). |
-| **Datos locales del ISP** | caches embebidos (Netflix OCA, Google GGC, Meta FNA, Akamai), prefijos propios, CGNAT, IXP local | manual / API | propios | Reglas `local_override` con prioridad máxima. |
+Sin cambios respecto al Sprint 0 en las fuentes; cambian el dueño (catálogo **global** de la
+plataforma) y el almacenamiento (local, [`storage.md`](storage.md)).
 
-**Proceso de importación** (job de `traffic-intelligence`, diario):
+| Fuente | Aporta | Uso |
+|--------|--------|-----|
+| RouteViews / RIPE RIS (MRT) | prefijo → ASN de origen | primaria |
+| iptoasn.com (PDDL) | prefijo → ASN, país | arranque/fallback |
+| PeeringDB | organización, tipo de red | `asn.network_type` |
+| CAIDA AS2Org (revisar uso comercial) | ASN → organización | semilla |
+| Rangos publicados (AWS, Google, Cloudflare, Azure…) | prefijo → proveedor/servicio | reglas `prefix` |
+| RIR delegated stats | país/titular | validación |
+| **Datos locales de cada ISP** | cachés embebidos, prefijos propios, resolvers DNS propios | overlay del tenant (`traffic.tenant_rule`) |
 
-1. Descargar fuentes → guardar original en MinIO (`datasets`, [`storage.md`](storage.md)) +
-   `traffic.source_snapshot` con SHA-256.
-2. Consolidar prefijo→ASN: BGP (RIS/RouteViews, mayoría de colectores) > iptoasn > RIR. Prefijos
-   MOAS se marcan `is_moas`; se elige el origen visto por más colectores.
-3. Diff contra la tabla vigente: si cambia > X % de prefijos (propuesta 5 %) **no** se aplica
-   automáticamente ⇒ alerta y revisión (protección contra fuentes corruptas).
-4. Prefijos y ASN **no** requieren nueva versión del catálogo de reglas (son "hechos del mundo"), pero
-   sí generan un nuevo snapshot (`prefix_snapshot_id`) que el ingester de `flows` recarga.
+Proceso diario de importación en `traffic-intelligence`: descargar → guardar original en el
+almacenamiento local (`datasets/`) con SHA-256 → consolidar (BGP > iptoasn > RIR) → diff (> 5 % de
+cambio ⇒ revisión) → nuevo snapshot de prefijos que el ingester recarga.
 
 ---
 
-## 6. Catálogo de clasificación versionado
+## 6. Catálogo de clasificación
 
-### 6.1 Entidades
+Igual que en el Sprint 0 (categorías → servicios → organizaciones → ASN → prefijos; reglas con
+`priority`, `match_*`, `confidence`; evaluación determinista LPM + hash; ciclo
+`draft → validated → published`; artefacto inmutable; rollback = nueva versión). Cambios:
 
-```
-Category (social, video_streaming, gaming, cloud, cdn_infra, messaging, software_updates, …)
-  └─ Service (instagram, youtube, netflix, steam, …)  ── jerárquico: meta_generic → facebook / instagram / whatsapp
-        └─ provisto por Organization (meta, google, netflix, valve, …)
-              └─ opera ASN(s) (AS32934, AS15169, AS36040, AS2906, AS32590, …)
-                    └─ anuncia Prefix(es)
-```
+- **Catálogo global** (plataforma, superadmin) + **overlay por tenant** (`tenant_rule_set`, reglas
+  `local_override` prioridad 900–1000). El ingester combina global vN y overlay del tenant vM; la
+  fila guarda `catalog_version` y `tenant_rules_version`.
+- Los artefactos se distribuyen a las réplicas del ingester por **NATS Object Store** y se
+  conservan en el almacenamiento local ([`storage.md` §3](storage.md)).
+- **Histórico**: la categoría se reinterpreta siempre (diccionario); el servicio solo se reclasifica
+  bajo demanda dentro de la retención cruda.
+- **CDN y nubes compartidas**: se clasifica al nivel que la evidencia soporta (`meta_generic`,
+  `cloudflare_generic` con categoría `cdn_infra`), nunca más.
 
-Tablas: [`database.md` §2.5](database.md). Servicios **genéricos** (`is_generic = true`):
-`google_generic`, `meta_generic`, `cloudflare_generic`, `akamai_generic`, `aws_generic`,
-`microsoft_generic` — bolsas honestas para "sabemos el proveedor, no el producto".
-
-### 6.2 Estructura de una regla
-
-| Campo | Ejemplo | Semántica |
-|-------|---------|-----------|
-| `priority` | 1000 | Mayor gana. Rangos reservados: 900–1000 `local_override`; 700–899 `prefix`(+puerto); 500–699 `asn_port`; 300–499 `asn`; 100–299 `port` puro; 0–99 heurísticas. |
-| `match_type` | `asn_port` | `prefix`, `prefix_port`, `asn`, `asn_port`, `port`, `local_override`, `sni`*, `dns`*, `heuristic`* (*futuro) |
-| `match_prefix` | `2a03:2880::/32` | La IP remota está contenida (longest-prefix match entre reglas del mismo tipo). |
-| `match_asn` | 32934 | ASN de origen de la IP remota. |
-| `match_protocol`, `match_port_range` | 17, `[27015,27050]` | Protocolo y puerto **del lado remoto** (servidor). |
-| `match_pattern` | `*.cdninstagram.com` | Solo para SNI/DNS (futuro). |
-| `service_id` | `instagram` | Resultado. |
-| `confidence` | 60 | 0–100. Se guarda en la fila. |
-| `scope` | `global` / `local` | `local` = regla del ISP, se conserva al importar un catálogo global nuevo. |
-| `note`, `source_ref` | "Meta comparte infraestructura" | Trazabilidad. |
-
-**Algoritmo de evaluación** (determinista, en memoria, O(log n)):
-
-1. Candidatas por IP remota: LPM en un trie de prefijos de reglas `local_override`/`prefix*`.
-2. Candidatas por ASN remoto: tabla hash `asn → reglas`.
-3. Candidatas por puerto: tabla `(protocol, port) → reglas`.
-4. Filtrar las que cumplen todos sus campos `match_*` no nulos; ordenar por `priority` desc, luego
-   especificidad (longitud de prefijo, tamaño del rango de puertos), luego `confidence` desc.
-5. Primera = resultado. Sin candidata ⇒ `service_id = 0`, `method = none`, pero `remote_asn` y
-   `remote_org_id` siguen poblados (el top ASN funciona aunque no haya servicio).
-
-**Dirección del puerto**: el "lado servidor" se infiere: puerto remoto < 1024 o en lista de
-puertos de servicio conocidos, o el lado que no es el cliente atribuido. Las reglas por puerto solo
-aplican al puerto remoto.
-
-### 6.3 Ciclo de vida y publicación
-
-```mermaid
-stateDiagram-v2
-  [*] --> draft: copiar versión publicada (copy-on-write)
-  draft --> draft: editar reglas (UI / import)
-  draft --> validated: validación automática
-  validated --> published: aprobación (permiso traffic.catalog.publish)
-  published --> retired: nueva versión publicada
-  validated --> draft: cambios
-```
-
-1. **Draft**: copia completa de la versión publicada; se edita vía API (permiso propuesto
-   `traffic.catalog.write`; nombre a confirmar con Agentes 3/4).
-2. **Validación automática**: sintaxis, solapamientos de igual prioridad con distinto resultado,
-   servicios/categorías existentes, y **replay** sobre una muestra de 1 h de flujos crudos recientes:
-   reporta el % de bytes que cambia de servicio respecto a la versión vigente ("diff de impacto").
-3. **Publicación**: se genera un **artefacto inmutable** (JSON/Protobuf comprimido con reglas + IDs
-   de servicio/categoría + `prefix_snapshot_id`), se sube a MinIO
-   `catalog-snapshots/traffic/v{N}/catalog.pb.zst` con SHA-256, se marca `published` y se emite
-   `horus.traffic.catalog.published` (dependencia Agente 3). Todas las réplicas del **ingester
-   de `flows`** lo cargan y conmutan atómicamente (puntero a estructura nueva). Desde ese
-   instante, filas nuevas llevan `catalog_version = N`.
-4. **Rollback** = publicar de nuevo una versión anterior como versión N+1 (no se "despublica";
-   la numeración es monotónica y auditable).
-5. **Catálogo global distribuido** (futuro): el equipo de Horus puede mantener un catálogo base que
-   el ISP importa; las reglas `scope=local` del ISP se fusionan encima.
-
-### 6.4 ¿Se reclasifica el histórico?
-
-| Cambio | Efecto en histórico | Mecanismo |
-|--------|---------------------|-----------|
-| Servicio cambia de **categoría** (p. ej. TikTok de `social` a `video_streaming`) | **Sí, automático** | Los agregados están por `service_id` y la categoría se resuelve con `dim.service` (catálogo vigente). `flows_raw.category_id` conserva la categoría de vN solo para auditoría. |
-| Renombrar servicio/organización | Sí, automático | Diccionarios. |
-| Una regla cambia el **servicio** asignado a flujos | **No por defecto** | Las filas conservan `service_id` + `catalog_version` (lo que se sabía entonces). |
-| Reclasificación explícita (opcional, por solicitud) | Solo dentro de la retención cruda (7–30 d) | Job (dueño según ADR-0015: `analytics`; como las tablas `flows.*` tienen escritor único `flows`, se propone que `analytics` lo **solicite** y el ejecutor sea un comando del binario `flows`) que recalcula `service_id` **leyendo** `flows_raw` (no lo reescribe) y **reconstruye** las particiones afectadas de `*_5m`/`*_1h`/`*_1d` para esos días (`INSERT … SELECT` en tabla temporal + `REPLACE PARTITION`). Más allá de la retención cruda no es posible: se documenta en el reporte ("datos anteriores al dd/mm clasificados con catálogo vN"). |
-
-Justificación: reescribir años de agregados por cada ajuste de regla es caro y hace que los reportes
-cambien "solos"; la fila conserva la verdad histórica con su versión, y la categoría (lo que más
-se reporta) sí se mantiene coherente.
+Ejemplos trabajados (Instagram/Meta, YouTube/GGC, Netflix/OCA, Steam, Cloudflare): sin cambios de
+fondo respecto al Sprint 0; la atribución ahora es "IP en prefijo de clientes del nodo ⇒ cliente".
+Nota: los rangos citados como ejemplo deben verificarse contra las fuentes al construir el catálogo
+(p. ej. `142.250.0.0/15` es de Google, no de Meta).
 
 ---
 
-## 7. CDN y nubes compartidas: incertidumbre y confianza
+## 7. Agregados
 
-Problema: una IP de Cloudflare, Akamai, Fastly, AWS CloudFront o Google sirve miles de dominios. Con
-solo metadatos de flujo **no se puede** saber qué sitio visita el cliente.
+Definidos físicamente en [`database.md` §6.2](database.md):
 
-Política:
-
-1. **Clasificar al nivel más específico que la evidencia soporte**, nunca más:
-   - Prefijo publicado y dedicado a un producto (p. ej. rangos de Netflix Open Connect, rangos de
-     un servicio de juegos) ⇒ servicio específico, confianza 85–99.
-   - ASN propio de una empresa con varios productos (AS32934 Meta) ⇒ servicio **genérico de la
-     organización** (`meta_generic`), confianza 90 de que es Meta; producto específico solo con
-     prefijo/puerto distintivo.
-   - ASN de CDN/nube multi-cliente (AS13335 Cloudflare, AS16509 Amazon, AS20940 Akamai, AS54113
-     Fastly) ⇒ `cloudflare_generic` etc., **categoría `cdn_infra`**, confianza alta *de proveedor* y
-     nula de servicio final.
-2. **Confianza en la fila** (0–100) ⇒ los dashboards muestran "Meta (Facebook/Instagram/WhatsApp)"
-   y no "Instagram" cuando la confianza del producto es baja, y permiten filtrar por confianza
-   mínima.
-3. **Mejoras futuras** que suben la confianza sin DPI: (a) logs DNS de los resolvers del ISP
-   (dnstap) correlacionados por IP de cliente y ventana temporal ⇒ regla tipo `dns`; (b) IPFIX con
-   SNI si el router lo exporta; (c) heurísticas de comportamiento (flujos largos, alta tasa de
-   descarga, puerto 443/UDP QUIC desde Google ⇒ "video probable") como `heuristic` con confianza
-   ≤ 60. Todas quedan como tipos de regla para no cambiar el modelo.
-4. **Métrica de calidad del catálogo** (dashboard interno): % de bytes por método y por banda de
-   confianza; objetivo inicial > 70 % de bytes con `service_id` no genérico **o** genérico de
-   organización conocida.
+- **Consumo**: `customer_5m/1h/1d`, `site_5m/1h/1d` (por servicio, ASN, dirección).
+- **Seguridad**: `customer_security_5m/1h` — una fila por cliente activo y ventana con los
+  contadores de §8.
+- **Calidad de atribución**: `unattributed_1h` (IPs que parecen de clientes fuera de prefijos).
 
 ---
 
-## 8. Ejemplos trabajados
+## 8. Señales para detección de botnets (D5)
 
-> Los ASN y prefijos citados son ilustrativos y deben verificarse contra las fuentes de §5 al
-> construir el catálogo inicial. Nota: el ejemplo de `vision.md` (`142.x.x.x → AS32934`) mezcla
-> rangos — `142.250.0.0/15` es de Google (AS15169); los rangos de Meta incluyen p. ej.
-> `157.240.0.0/16` y `31.13.64.0/18`. El catálogo debe construirse desde datos, no desde ejemplos.
+`detection` combina señales; **ninguna sola concluye "infectado"**. Cada hallazgo
+(`detection.finding`) lleva `kind`, `confidence`, razones y referencias a la evidencia (ventanas y
+contadores en ClickHouse), nunca payload.
 
-### 8.1 Instagram
+| Señal | Qué indica | Campos del flujo | Agregado / fuente | Regla inicial (orientativa, ajustable por tenant) |
+|-------|------------|------------------|-------------------|---------------------------------------------------|
+| **Contacto con C2 conocido** | Bot activo | `remote_ip`, `remote_port`, `protocol`, `bytes`, `ts` | cruce `flows_raw` × `dim.reputation` (categoría `botnet_cc`) ⇒ `detection.reputation_hits` | ≥ 1 flujo con respuesta (no solo SYN) a un indicador `botnet_cc` de confianza alta ⇒ hallazgo `high`; solo SYN ⇒ `medium` (C2 caído/sinkhole) |
+| **Beaconing** (periodicidad) | Bot consultando a su C2 | `flow_start`, `remote_ip`, `bytes` | `flows_raw` (ventana ≤ 24 h, consulta de `detection`) | conexiones al mismo remoto con intervalo regular (coef. de variación < 0,2) y bytes pequeños y constantes durante ≥ 6 h |
+| **Fan-out** | Propagación, spam, DDoS | `remote_ip`, `direction` | `remote_ips_out`, `remote_nets24_out`, `flows_out` (`customer_security_5m`) | > 500 IPs remotas distintas en 5 min **y** dispersas en > 200 redes /24 (descarta CDN) |
+| **Escaneo** horizontal / vertical | Bot reclutando, gusano | `tcp_flags`, `packets`, `remote_ip`, `remote_port`, `icmp_type_code` | `syn_only_out`, `small_flows_out`, `remote_ports_out`, `icmp_flows_out` | > 70 % de flujos salientes SYN sin ACK con ≥ 100 destinos; o ≥ 50 puertos distintos en un mismo destino |
+| **Puertos típicos de botnet** | Mirai y variantes (23, 2323, 37215, 52869, 7547, 5555), SMB/EternalBlue (445, 139), IRC C2 (6667, 6697), RDP/MSSQL brute force (3389, 1433), Winbox MikroTik (8291) | `remote_port`, `customer_port`, `direction` | `watch_port_flows` (`dim.watch_port`, lista editable por `detection`) | flujos salientes a puertos vigilados hacia ≥ 20 destinos en 5 min |
+| **DNS anómalo** | Bot usando resolver propio, DGA (indirecto), túnel DNS, amplificación | `remote_port` 53/853, `remote_ip`, `bytes`, `packets` | `dns_flows_isp`, `dns_flows_other`, `dns_resolvers` (+ `dim.tenant_resolver`) | ráfagas de flujos DNS > 10× la línea base del cliente; ≥ 5 resolvers externos distintos; flujos DNS con bytes medios altos (túnel). **Limitación**: sin nombres consultados ni NXDOMAIN; DGA solo se infiere por volumen |
+| **Tráfico saliente sostenido** | DDoS saliente, proxy residencial, exfiltración, minería | `bytes`, `direction`, `ts` | `up_bytes`, `down_bytes` (`customer_security_5m/1h`) | subida > 80 % del total y > X Mbps sostenidos ≥ 30 min fuera del patrón del cliente |
+| **SMTP saliente directo** | Spam bot | `remote_port` 25 | `smtp_flows_out`, `smtp_remote_ips` | ≥ 20 servidores SMTP distintos/h desde un residencial |
+| **Servicios entrantes inesperados** | Dispositivo expuesto/comprometido (o comercial) | `customer_port`, `tcp_flags` (SYN+ACK de vuelta) | `inbound_service_ports` | puertos 23/2323/7547 aceptando conexiones entrantes ⇒ CPE/IoT vulnerable |
+| **Propagación interna** | Gusano dentro del nodo | `direction = internal`, puertos 445/23 | `flows_raw` / `customer_security_5m` | escaneo hacia otros clientes del mismo nodo |
 
-Flujo: cliente `10.20.3.15` (PPPoE, router R1) ↔ `157.240.14.63:443/TCP`, 18 MB descarga.
+Requisitos de datos que se derivan:
 
-| Paso | Valor |
-|------|-------|
-| Atribución | `10.20.3.15` en realm privado de R1, asignación PPPoE vigente ⇒ `customer_id = S-1234`; IP del cliente es destino ⇒ `direction = download` |
-| Prefijo → ASN | `157.240.0.0/16` → AS32934 |
-| Organización | Meta Platforms |
-| Reglas candidatas | `asn=32934 → meta_generic (prio 400, conf 90)`; no hay regla de prefijo específica de Instagram |
-| Resultado | `service = meta_generic` ("Meta: Facebook/Instagram/WhatsApp"), categoría `social`, `method = asn`, `confidence = 90` |
-| Cómo llegaría a "Instagram" | regla `dns` (`*.cdninstagram.com`, `*.instagram.com`) con logs DNS del ISP, o caches Meta (FNA) del ISP declarados como `local_override` — que también son compartidos por FB/IG, así que seguirían en `meta_generic`. |
-
-### 8.2 YouTube vía Google
-
-Flujo: cliente ↔ `rr3---sn-xxxx.googlevideo.com` resuelto a una IP de un **Google Global Cache
-(GGC)** instalado en el ISP, o a una IP de AS15169.
-
-| Caso | Regla | Resultado |
-|------|-------|-----------|
-| IP pertenece a prefijo GGC declarado por el ISP | `local_override prefix=<GGC/29> → youtube_ggc` (prio 950) | `youtube` (GGC sirve mayormente YouTube y descargas de Google Play), `video_streaming`, conf 80. |
-| IP en AS36040 (YouTube) | `asn=36040 → youtube` (prio 400) | `youtube`, conf 85. |
-| IP en AS15169 genérico, 443 TCP/UDP | `asn=15169 → google_generic` | `google_generic`, categoría `mixed` / `cloud`, conf 90 de "Google", baja de producto. Heurística futura: flujo > N MB, larga duración, alta tasa ⇒ "video probable" conf 55. |
-| IP en rangos `cloud.json` (Google Cloud de terceros) | `prefix → gcp_generic` (prio 750, gana a ASN) | `gcp_generic`, categoría `cloud`. Evita contar como "Google" el tráfico de clientes de GCP. |
-
-### 8.3 Netflix con OCA dentro del ISP
-
-El ISP tiene appliances Open Connect (OCA) en su red; sus IPs son **del propio ISP** (prefijo
-interno o subred dedicada).
-
-| Paso | Valor |
-|------|-------|
-| Atribución | Cliente = destino ⇒ `download`. La IP remota **no** es de un cliente (no hay asignación) ⇒ se trata como remota normal; `attribution_status = attributed` (el cliente sí está atribuido). |
-| Prefijo → ASN | prefijo del ISP → ASN propio (o ninguno si es privado) — no sirve para clasificar. |
-| Regla | `local_override prefix=<subred OCA> → netflix` (prio 990, conf 99), creada por el ISP. |
-| Resultado | `netflix`, `video_streaming`. |
-| Consecuencia | `flows.border_1h` **no** ve este tráfico (no cruza el upstream) ⇒ reporte "ahorro de tránsito por caches" = bytes de servicios con `local_override` de caches. Sin la regla local, el tráfico aparecería como "propio/desconocido". |
-| Fuera del OCA | IPs de AS2906/AS40027 (Netflix) ⇒ `asn → netflix`, conf 95. |
-
-### 8.4 Steam
-
-| Caso | Regla | Resultado |
-|------|-------|-----------|
-| IP en AS32590 (Valve), UDP 27015–27050 | `asn_port` (prio 600) → `steam_gaming` | `steam` (juego online), `gaming`, conf 90. |
-| IP en AS32590, TCP 443/80 | `asn → steam` | `steam`, `gaming` (tienda/descargas), conf 85. |
-| Descargas de contenido servidas por CDN (Akamai/Cloudflare/otros) | `asn → akamai_generic` | `cdn_infra`, conf de servicio baja. Con DNS (`*.steamcontent.com`) pasaría a `steam_downloads` (`software_updates`/`gaming`). |
-| Cache Steam local (LANcache del ISP) | `local_override` | `steam_downloads`, conf 95. |
-
-### 8.5 Tráfico a Cloudflare
-
-Flujo: cliente ↔ `104.16.x.x:443` (AS13335).
-
-| Caso | Resultado |
-|------|-----------|
-| IP genérica de Cloudflare | `cloudflare_generic`, categoría `cdn_infra`, `method = asn`, confianza de servicio final ~0. En dashboards: "Cloudflare (sitios varios)". |
-| `1.1.1.1` / `1.0.0.1` / `2606:4700:4700::1111` puerto 53/853/443 | `prefix_port → cloudflare_dns` (prio 800), categoría `infrastructure/dns`, conf 99. |
-| WARP (UDP 2408 a rangos de WARP) | `prefix_port → cloudflare_warp`, categoría `vpn_proxy`, conf 85 — **interesante para `detection`** (VPN/proxy). |
+- `tcp_flags`, `icmp_type_code`, puertos de ambos lados y `packets` **deben** estar en la plantilla
+  exportada (Agente E).
+- Sin muestreo (o con `sampling_rate` conocido para reducir la confianza).
+- Línea base por cliente: `detection` calcula medias/percentiles de 7–28 días desde
+  `customer_security_1h`.
+- La **pre-agregación** (§10) conserva todo lo necesario (IP y puerto remotos, OR de flags,
+  `merged_flows`), salvo el puerto efímero del cliente.
+- Falsos positivos conocidos: servidores legítimos del cliente comercial (fan-out entrante), CDN
+  (fan-out concentrado en pocas redes), juegos P2P, VPN. Se mitiga con dispersión por /24/ASN,
+  tipo de cliente, `reputation_allowlist` por tenant y la confirmación humana
+  (`verdict_feedback`).
 
 ---
 
-## 9. Atribución de flujo a cliente
+## 9. Señales para residencial vs comercial
 
-### 9.1 Modelo
+El tipo por defecto es `residential` (D1). `detection` calcula un `commercial_score` diario
+(`detection.customer_scores_1d`) y propone el cambio (`customer.kind_suggested`) solo con histéresis
+(≥ 7 días consecutivos sobre el umbral) y si el tipo no está bloqueado por un cambio manual.
 
-La atribución responde: *¿qué cliente tenía la IP `x` en el realm `r` en el instante `t`?* usando
-`devices.customer_ip_assignment` (`realm_id`, `prefix`, `valid tstzrange`) — ver
-[`database.md` §2.2.2](database.md).
+| Señal | Campos / agregado | Sugiere comercial si… |
+|-------|-------------------|-----------------------|
+| **Servicios entrantes** (servidor web/correo/VPN/cámaras) | `inbound_service_ports`, flujos entrantes aceptados a 80/443/25/587/993/1194/51820/554 | puertos estables aceptando conexiones de muchas IPs remotas |
+| **Patrón horario** | `customer_1h` por hora local del nodo | pico en horario laboral de lunes a viernes, valle nocturno y fines de semana (residencial: pico nocturno y fines de semana) |
+| **Mezcla de servicios** | `customer_1d` por categoría | mucho SaaS/ofimática (Microsoft 365, Google Workspace), VPN corporativas, videoconferencia en horario laboral; poco streaming de entretenimiento |
+| **Volumen de subida** | `up_bytes / down_bytes` | ratio alto y estable (backups, servidores, videovigilancia) |
+| **Diversidad de destinos simultáneos** | `remote_ips_out`, flujos concurrentes | muchos destinos simultáneos en horario laboral (varios puestos detrás del CPE). Es una **estimación**, nunca un conteo de dispositivos |
+| **Correo saliente autenticado** | 587/465 saliente regular | servidor o cliente de correo corporativo |
+| **IP estática** | `customer_prefix.assignment_mode = static` | refuerza (no decide) |
 
-- **Realm**: una IP privada (`10.20.3.15`) puede repetirse en routers distintos. El realm se
-  determina por el **exportador**: `realm = ip_realm del router_id (+ VRF si aplica)` para IPs
-  privadas/CGNAT; realm `public` para IPs públicas del ISP.
-- **Instante**: se usa `flow_start` (o el punto medio del flujo). Si un flujo largo cruza un cambio de
-  asignación (raro: PPPoE se reconecta y cambia IP ⇒ la conexión TCP muere), se atribuye por
-  `flow_start`.
-- **Estructura en memoria** (en el ingester de `flows`): por realm, un trie de prefijos cuyas hojas
-  contienen la lista ordenada de intervalos `[desde, hasta) → customer_id`. Cargado al arrancar
-  desde `devices` (gRPC, solo asignaciones de las últimas 48 h + vigentes) y mantenido por eventos.
-  Tamaño: 100 k clientes × ~3 intervalos × ~64 B ≈ 20 MB.
-- **Tolerancia de reloj**: si no hay asignación exacta pero sí una que empieza/termina en ±60 s, se
-  atribuye con `attribution_status = ambiguous` (eventos de RADIUS pueden llegar con retraso).
-
-### 9.2 Escenarios de direccionamiento
-
-| Escenario | Qué ve el flujo | Cómo se atribuye | Requisito |
-|-----------|-----------------|------------------|-----------|
-| **IP pública por cliente** (PPPoE/DHCP/estática) | IP pública del cliente | `realm public` + asignación vigente | asignaciones con validez temporal (RADIUS accounting o leases) |
-| **IP privada en el BNG/router + NAT en el router del ISP** | Depende de dónde se exporta | Exportar en la **interfaz del lado cliente** (pre-NAT) ⇒ IP privada única en el realm del router | `flow_role = customer_edge` en esa interfaz |
-| **CGNAT (100.64.0.0/10) en un equipo central** | Post-NAT: muchas personas con la misma IP pública | Pre-NAT: igual que el anterior (realm del BNG). Post-NAT: **solo** con logs de NAT (IPFIX NAT events IE 225–228 / NEL / syslog de asignación de bloques de puertos) ⇒ tabla `(ip_pública, rango_puertos, validez) → ip_privada` | Decidir con el PO (Q3). Recomendado: exportar pre-NAT; logs de NAT solo para cumplimiento legal. |
-| **NAT en el CPE del cliente** (lo normal en residencial) | Una IP (la WAN del CPE) por cliente | Se atribuye al cliente; los dispositivos detrás **no** son visibles | `detection` estima "dispositivos detrás del CPE" por señales indirectas (variedad de TTL/puertos/OS fingerprints no disponibles en flujo ⇒ limitado; ver Q11). |
-| **IPv6** | Prefijo delegado (`/56`, `/64`) + IP WAN | `customer_ip_assignment.prefix` con el prefijo delegado; match por contención | DHCPv6-PD o RADIUS `Delegated-IPv6-Prefix` |
-| **IP de infraestructura** (router, OLT, servidores del ISP) | IP de `devices.ip_address` | `attribution_status = infrastructure` | inventario |
-
-### 9.3 Fuentes de asignaciones (ingesta en `devices`)
-
-| Fuente | Mecanismo | Precisión temporal |
-|--------|-----------|--------------------|
-| Estática (manual/import) | API/CSV | rango abierto |
-| PPPoE vía RADIUS accounting | Receptor de `Accounting-Start/Stop/Interim` (o lectura de la BD del RADIUS) | segundos — **la mejor** |
-| PPPoE/DHCP vía API del router (MikroTik `/ppp active`, `/ip dhcp-server lease`) | sondeo cada 60 s | ±60 s |
-| DHCP vía logs del servidor DHCP (syslog/ISC Kea hooks) | eventos | segundos |
-| CGNAT logs | IPFIX NAT / syslog | segundos |
-
-Cuál aplica depende del ISP (Q2). Todas producen el mismo registro y el mismo evento.
-
-### 9.4 Dirección (upload/download)
-
-Se calcula respecto al cliente, no con `flowDirection` del router:
-
-| Condición | `direction` | `customer_ip` / `remote_ip` |
-|-----------|-------------|-------------------------------|
-| `src_ip` ∈ cliente, `dst_ip` ∉ cliente | `upload` | src / dst |
-| `dst_ip` ∈ cliente, `src_ip` ∉ cliente | `download` | dst / src |
-| ambos ∈ clientes (distintos o el mismo) | `internal` | src / dst; se registra **una** fila (para el cliente origen) para no duplicar; `detection` puede leer `internal` para P2P local |
-| ninguno ∈ cliente, alguno ∈ infraestructura | `unknown`, `attribution_status = infrastructure` | |
-| ninguno | `unknown`, `attribution_status = transit` o `unknown` | se agrega en `flows.unattributed_1h` para auditar asignaciones faltantes |
-
-### 9.5 Reatribución
-
-Si faltaban asignaciones (RADIUS caído, cliente importado tarde), un job opcional relee
-`flows_raw` de las IPs en `flows.unattributed_1h` dentro de la retención cruda, aplica
-las asignaciones corregidas y reconstruye particiones de agregados de esos días (mismo mecanismo
-que §6.4).
+- En prefijos `dynamic` la confianza máxima del score se limita (la IP puede cambiar de persona).
+- Un cliente marcado manualmente no se toca; el scoring sigue calculándose y la UI muestra la
+  discrepancia ("el scoring sugiere residencial").
+- Todas las razones se guardan como claves (`reasons`) para auditar y recalibrar con
+  `verdict_feedback`.
 
 ---
 
-## 10. Deduplicación: un flujo exportado por varios routers
+## 10. Pre-agregación en el colector (modo de alto volumen)
 
-Un paquete del cliente puede atravesar CPE → router de acceso (BNG) → agregación → borde, y si
-todos exportan NetFlow, el mismo tráfico se cuenta 2–4 veces.
+Configurable por exportador (desactivada en el primer incremento para medir):
 
-**Decisión: deduplicación por diseño (punto de observación), no por coincidencia de 5-tuplas.**
-
-1. Cada interfaz tiene `flow_role` ([`database.md` §2.2.1](database.md)):
-   `customer_edge` (de cara al cliente), `upstream` (tránsito), `peering` (IXP/PNI), `core`,
-   `management`, `none`.
-2. `flows` etiqueta cada registro con `observation_role` según la interfaz de **entrada** si es
-   `customer_edge` (upload) o de **salida** si es `customer_edge` (download). Para routers que
-   exportan solo ingress, se exporta en ambas interfaces (cliente y uplink) y se toma el lado cliente.
-3. Los agregados de **clientes** (`customer_*`, `site_*`) usan **solo** `customer_edge`.
-4. Los agregados de **borde** (`border_1h`: ASN de tránsito, peering) usan **solo**
-   `upstream/peering`.
-5. Registros de interfaces `core`/`none` se descartan en `flows` (configurable) — ahorran volumen.
-6. Si dos routers declaran la misma subred de clientes como `customer_edge` (error de
-   configuración o redundancia activa-activa), el job de calidad compara por `customer_id` y hora
-   el `bytes` de cada exportador y alerta (`horus.traffic.attribution.duplicated_exporter`,
-   nombre a confirmar).
-
-**Alternativa descartada**: dedup por (5-tupla, ventana ±N s, bytes similares) entre exportadores.
-Costosa en memoria a 600 k flujos/s, frágil con muestreo (los routers muestrean paquetes distintos)
-y con timeouts activos distintos.
+- Clave: `(router_id, input_if, output_if, customer_ip, remote_ip, protocol, remote_port)`,
+  ventana de 60 s alineada; `tcp_flags` = OR; `merged_flows` = nº de registros fusionados; `packets`
+  y `bytes` sumados; `flow_start` = mínimo, `ts` = máximo.
+- Se pierde: puerto efímero del cliente, tiempos exactos por conexión (afecta al beaconing fino: se
+  calcula con resolución de 60 s, suficiente para periodos ≥ 2 min).
+- Ganancia esperada 3–10× (ver [`database.md` §8](database.md)).
 
 ---
 
-## 11. Pre-agregación en el colector (modo de alto volumen)
+## 11. Reputación en el pipeline
 
-Configurable por exportador (default **off** hasta ~100 routers):
-
-- Clave: `(router_id, interface_id, src_ip, dst_ip, protocol, server_port)` donde `server_port` es el
-  puerto remoto si es "de servicio" y 0 si ambos son efímeros. Ventana: 60 s alineada.
-- Se pierde: puerto efímero del cliente, `flow_start` exacto, conteo real de conexiones (se guarda
-  `flows` = nº de registros fusionados).
-- Ganancia esperada: 3–10× menos filas en `flows_raw` (ver [`database.md` §8](database.md)).
-
----
-
-## 12. Reputación en el pipeline
-
-- El módulo reputation de `detection` es dueño de fuentes e indicadores
-  (`detection.reputation_entry` en PostgreSQL, [`database.md` §2.6](database.md)) y compila un
-  snapshot (prefijos con score, categoría, versión) que se publica en MinIO y se carga en ClickHouse
-  como diccionario `IP_TRIE` `dim.reputation` (evento `horus.reputation.feed.refreshed` de
-  [`events.md`](events.md) o equivalente).
-- Un job de `detection` cruza periódicamente (cada 5 min) los flujos recientes de `flows.flows_raw`
-  con `dim.reputation` y escribe `detection.reputation_hits` (cliente, IP remota, indicador,
-  versión, bytes, primera/última vez). Así el hit queda fechado con la reputación vigente **en ese
-  momento**, sin reescribir el pasado.
-- `detection` **no** concluye "malware" por un hit de reputación (vision.md Sprint 8): combina
-  reputación + comportamiento (volumen, periodicidad tipo beacon, puertos, fan-out de destinos) +
-  contexto del cliente, y emite su veredicto con razones y confianza.
+- Feeds **globales** en `detection` (C2 de botnets, escáneres, Tor, proxies), snapshot en NATS
+  Object Store + almacenamiento local y diccionario `IP_TRIE` `dim.reputation`.
+- Job de `detection` cada 5 min: cruza `flows_raw` reciente (por tenant) con `dim.reputation` y
+  escribe `detection.reputation_hits` con la versión vigente en ese momento.
+- `reputation_allowlist` por tenant para falsos positivos.
+- La reputación nunca va en la fila de flujo: no se congela un indicador que cambia a diario.
 
 ---
 
-## 13. Dependencias abiertas
+## 12. Dependencias abiertas
 
 | Con | Tema |
 |-----|------|
-| Agente 3 | Lote canónico `horus.flows.batch.received` (§3) con `batch_id` y `sampling_rate`; `horus.devices.customer.assigned/unassigned`; `horus.traffic.catalog.published` (en `events.md` aparece como `ruleset.published`); snapshot de reputación; tamaño/edad máxima del stream de flujos (propuesta ≥ 6 h de pico). `events.md` todavía describe un enriquecedor en traffic-intelligence (`TLM_FLOWS_ENRICHED`): con ADR-0015 ese stream no existe. Sobre el muestreo: `events.md` propone que lo escale el enriquecedor (`bytes_estimated`); aquí lo escala el ingester (paso 2 puede vivir en collector o ingester: lo importante es que `sampling_rate` viaje en el lote). |
-| Agente 1 | Coherente con ADR-0015 (ingester de `flows` escribe `flows.flows_raw`). Diferencias: granularidad fina 5 min vs 1 min; reclasificación histórica: job en `analytics` (ADR-0015) — aquí se describe el mecanismo, el dueño es `analytics`. |
-| Agente 4 | Permisos `traffic.catalog.write` / `traffic.catalog.publish`; tratamiento de logs NAT/RADIUS como datos sensibles (retención legal). |
-| Agente 5 | Historias: ingesta de asignaciones (RADIUS/API router), catálogo inicial con ~15 servicios del Sprint 7, UI de reglas locales, job de importación de fuentes. |
+| Agente E (`vendors/mikrotik.md`) | Ya cubierto: IPFIX sin muestreo, timeouts, exportador por IP de túnel, NAT pre-NAT esperado, ifIndex PPPoE dinámicos, IPv6 por prefijo delegado, ceguera por offload. **Pendiente de laboratorio**: IP privada en la bajada con NAT en el mismo router; si `interfaces=` se respeta en CCR; campo ICMP type/code y TTL en IPFIX. Sus enlaces a `traffic-model.md` §9.1 y §11 deben pasar a §4.2 (realm) y §10 (pre-agregación). |
+| Agente C (`events.md`) | `horus.flows.client.first_seen.<realm_id>` y `horus.flows.client.seen_summary.<realm_id>` (lotes, telemetría), `horus.devices.customer.*` (ciclo de vida), `horus.detection.customer.kind_suggested`, `horus.detection.finding.{opened,updated,resolved}.<finding_id>`, `horus.devices.customer_prefix.*`; eliminar `customer.assigned/unassigned`; `tenant_id` en todos los sobres; lote `horus.flows.batch.received` con `tenant_id`, `site_id`, `router_id` ya resueltos por el collector. |
+| Agente A | Dueño del cliente (`devices`) y del descubrimiento (ingester de `flows`); emparejamiento de NAT en el ingester; ADR de botnets (alcance de `detection`). |
+| Agente D | Historias: prefijos por nodo + modo descubrimiento, importación de pools del MikroTik, widgets de seguridad para el modo NOC, cola de hallazgos, cambio de tipo manual. |

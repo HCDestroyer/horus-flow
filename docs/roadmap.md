@@ -51,7 +51,7 @@
 
 | Orden | Incremento | Tamaño | Qué puede demostrar la persona | Gate de la persona |
 | --- | --- | --- | --- | --- |
-| **I0** | Cimientos | M | `make up` levanta el sistema; login; da de alta un ISP, un nodo y su MikroTik; el simulador envía flujos y el sistema los cuenta | Aprueba los **contratos congelados** (una sola revisión) |
+| **I0** | Cimientos | M | `make up` levanta el sistema; login; da de alta un ISP, un nodo y su MikroTik; el simulador genera flujos RouterOS válidos; el laboratorio CHR arranca | Aprueba los **contratos congelados** (una sola revisión) |
 | **I1** | **Primer entregable: NOC de un nodo MikroTik** | L | Su MikroTik exporta flujos → aparecen los clientes por IP → top de tráfico, servicios y categorías → hallazgos de botnet explicados → dashboard NOC en una pantalla en modo kiosco | Prueba con su router real y acepta/rechaza los hallazgos |
 | I2 | Operación multi-nodo y perfil comercial | L | Varios nodos y un segundo ISP; estado de routers (SNMP/ICMP); IPs residenciales con **uso comercial** detectado y razonado; editor de dashboards con guardado por usuario/ISP | Valida la lista de "posibles comerciales" de su red |
 | I3 | Avisar y actuar | L | Avisos por Telegram/email/webhook de botnet, router caído o exportador silencioso; WireGuard gestionado desde la UI; reporte semanal de seguridad por ISP; copia externa por SFTP | Recibe un aviso real en su teléfono |
@@ -89,13 +89,15 @@ Convención: **Dep.** son dependencias duras. Los riesgos se puntúan Probabilid
 - **Qué puede demostrar la persona:** clona el repo, ejecuta `make up`, entra con el
   superadministrador semilla, crea el ISP "Demo", el nodo "Centro" y registra su MikroTik (IP del
   exportador y prefijos de clientes). Ve el dashboard vacío con el selector de ISP. Ejecuta
-  `make sim` y el contador "flujos recibidos" del router simulado sube.
+  `make sim` y el verificador del simulador decodifica los flujos generados; `make lab-up`
+  levanta el MikroTik CHR de laboratorio.
 - **Alcance mínimo:**
   - Monorepo, CODEOWNERS por agente, CI (lint, tests, build, contratos, secretos), protección
     de `main`, reglas de auto-merge.
-  - Compose de desarrollo con las dependencias que fije la arquitectura para I1 (PostgreSQL,
-    ClickHouse —D4— y el bus de eventos si se mantiene; **sin** MinIO —D2/D3— y sin Valkey
-    salvo que la arquitectura lo exija).
+  - Compose del perfil mínimo de [ADR-0025](adr/0025-binario-modular-con-roles.md): un binario
+    `horus` con roles en tres contenedores propios (`horus-app`, `horus-collector`,
+    `horus-wg-agent`) más PostgreSQL, ClickHouse (D4), NATS, Valkey (D3) y Traefik; **sin** MinIO
+    (D2/D3).
   - Modelo multi-tenant en PostgreSQL: ISP → nodo → router principal (exportador) → prefijos de
     clientes del nodo; usuarios con acceso a uno o varios ISP; rol global de superadmin.
   - Autenticación mínima definitiva (Argon2id, access + refresh, `GET /me` con ISPs y permisos)
@@ -103,6 +105,15 @@ Convención: **Dep.** son dependencias duras. Los riesgos se puntúan Probabilid
   - Esquema ClickHouse v0 (crudo con TTL + agregados) y migraciones.
   - Simulador de flujos NetFlow v9/IPFIX con plantillas de RouterOS y escenarios (normal,
     escaneo, C2, spam, DoS saliente, uso comercial).
+  - **Laboratorio MikroTik CHR** en QEMU/KVM (licencia gratuita, 1 Mbit/s por interfaz: vale para
+    pruebas funcionales, no de rendimiento) con la topología mínima de
+    [`vendors/mikrotik.md`](vendors/mikrotik.md) §8.2, y **capturas grabadas** (pcaps IPFIX/NetFlow
+    v9 v4/v6, salidas SNMP, JSON de REST) como *fixtures* para que la CI funcione sin CHR.
+  - **Verificación temprana de los puntos "a verificar"** de `vendors/mikrotik.md` (IP privada del
+    cliente en los flujos con NAT en el mismo router, nombres de campos IPFIX por versión, campo
+    TTL, tamaño de datagrama vs MTU del túnel, cómo se comunica la tasa de muestreo, sintaxis del
+    script de §7 en 7.12 y en la última long-term). El resultado corrige `vendors/mikrotik.md` y los
+    contratos antes de congelarlos.
   - Cargadores de datasets: IP→ASN→organización y feeds abiertos de reputación.
   - Frontend: Nuxt 4, login, layout, selector de ISP, cliente API generado, mocks y el
     **marco de widgets** (registro + manifiesto + tarjeta con estados) con datos simulados.
@@ -114,6 +125,8 @@ Convención: **Dep.** son dependencias duras. Los riesgos se puntúan Probabilid
   2. Un usuario del ISP A recibe `404` al pedir cualquier recurso del ISP B (prueba de matriz en CI).
   3. Los contratos v0 están publicados en `packages/` y aprobados por la persona.
   4. El simulador produce los seis escenarios de forma determinista (semilla fija).
+  5. El laboratorio CHR arranca con un comando y los puntos "a verificar" de
+     `vendors/mikrotik.md` tienen respuesta (o quedan como riesgo con dueño).
 - **Dep.:** documentos de ronda 2 (`architecture.md`, `database.md`, `api.md`, `events.md`,
   `security.md`, `vendors/mikrotik.md`).
 - **Riesgos:** (A/A) arrancar en paralelo sin contratos → los contratos se escriben primero, por
@@ -127,10 +140,11 @@ Convención: **Dep.** son dependencias duras. Los riesgos se puntúan Probabilid
   consumen qué y cuáles muestran señales compatibles con botnet**, con explicación suficiente
   para actuar (D1, D5, D8, D10).
 - **Qué puede demostrar la persona:**
-  1. En la ficha de su router, pulsa "Generar configuración" y obtiene un script RouterOS
-     (`.rsc`) que configura Traffic Flow (NetFlow v9/IPFIX) hacia Horus y, si usa túnel, el peer
-     WireGuard del lado del router ([`vendors/mikrotik.md`](vendors/mikrotik.md)). Lo pega en su
-     MikroTik.
+  1. En la ficha de su router (RouterOS v7 ≥ 7.12), pulsa "Generar script" y obtiene el script de
+     onboarding de [`vendors/mikrotik.md`](vendors/mikrotik.md) §7: túnel WireGuard iniciado por el
+     router (la clave privada se genera en el router y no sale de él), IPFIX sin muestreo hacia el
+     colector por el túnel, usuario de solo lectura y firewall. Lo pega en su MikroTik y copia la
+     clave pública del router a la UI (opción A de §5.2). **Horus no escribe en el router.**
   2. En menos de 2 minutos el router aparece como **Exportando** y empiezan a aparecer
      **clientes descubiertos** (una IP = un cliente, tipo *Residencial* por defecto).
   3. Ve el top de clientes por tráfico, el top de servicios y categorías (YouTube, Netflix,
@@ -144,8 +158,12 @@ Convención: **Dep.** son dependencias duras. Los riesgos se puntúan Probabilid
      oscuro, autorrefresco, rotación entre "NOC" y "Seguridad", y recuperación automática si se
      corta la red o se reinicia el servidor.
 - **Alcance mínimo:**
-  - Colector NetFlow v9/IPFIX (UDP) que solo acepta exportadores registrados (IP origen → router
-    → ISP), con métricas de recepción y estado del exportador ("Exportando" / "Silencioso").
+  - **Hub WireGuard mínimo**: IPAM de túnel (una `/32` única en todo Horus por router), alta del
+    peer en el hub al registrar la clave pública del router, estado del handshake. La IP de túnel
+    es la **identidad del exportador** ([`vendors/mikrotik.md`](vendors/mikrotik.md) §0, §5).
+  - Colector IPFIX/NetFlow v9 (UDP) que solo acepta flujos desde IPs de túnel registradas (IP de
+    túnel → router → ISP), con métricas de recepción, pérdida por secuencia, desfase de reloj y
+    estado del exportador ("Exportando" / "Silencioso").
   - Ingesta por lotes a ClickHouse; dirección del flujo y **lado cliente** determinados con los
     prefijos de clientes declarados para el nodo; TTL del crudo desde la primera migración.
   - **Descubrimiento de clientes**: cada IP de cliente vista crea/actualiza el cliente
@@ -163,9 +181,9 @@ Convención: **Dep.** son dependencias duras. Los riesgos se puntúan Probabilid
   - UI: Clientes (lista y detalle por IP con tipo y razones), Tráfico (tops), Seguridad (lista y
     detalle de hallazgos), **dashboards de plantilla** "NOC del ISP" y "Seguridad" construidos con
     el marco de widgets, **modo kiosco** con token de pantalla revocable.
-  - Generador de script RouterOS para Traffic Flow (+ peer WireGuard opcional). El lado servidor
-    del túnel lo prepara el instalador con un comando documentado; **no** hay gestión de túneles
-    en la UI.
+  - Generador del script de onboarding de [`vendors/mikrotik.md`](vendors/mikrotik.md) §7 (y su
+    script inverso de desinstalación) con los placeholders resueltos por router. Sin rotación de
+    claves ni revocación en la UI (I3).
   - Paquete de instalación de un solo servidor (compose de producción, TLS, `.env`), backup local
     diario de PostgreSQL con prueba de restauración, TTL de ClickHouse.
   - Prueba de aceptación automática con simulador (`make accept-i1`) y prueba de carga básica.
@@ -177,27 +195,37 @@ Convención: **Dep.** son dependencias duras. Los riesgos se puntúan Probabilid
   | Editor de dashboards (arrastrar, redimensionar, guardar por usuario/ISP) | I2 | Las plantillas fijas ya cubren la pantalla NOC; el marco de widgets de I0 hace que el editor sea aditivo |
   | SNMP/ICMP del router (CPU, interfaces, online/offline) | I2 | En I1 la salud que importa es "¿llegan flujos?"; el estado del exportador la cubre |
   | Alertas por Telegram/email/webhook | I3 | En I1 los hallazgos y el exportador silencioso se ven en vivo en la UI y en el kiosco |
-  | WireGuard gestionado (hub, peers, rotación) | I3 | Un script RouterOS + un comando de instalador basta para un router |
+  | Gestión completa de WireGuard (rotación, revocación, endpoint de *enrolment* de un solo pegado, segundo hub) | I3 | El hub mínimo + script + copia manual de la clave pública bastan para pocos routers |
+  | Sondeo SNMP y lecturas por API RouterOS (aunque el script ya crea el usuario y SNMPv3) | I2 | En I1 la salud que importa es "¿llegan flujos?" |
+  | RouterOS v6 | Fuera del primer entregable | Sin WireGuard ni REST; "modo degradado" solo si el PO lo pide |
   | Editor del catálogo de servicios | I4 | El catálogo semilla versionado cubre los servicios principales |
   | TOTP, sesiones revocables, auditoría consultable | I2 | La UI se expone solo en red privada/VPN en I1 (supuesto, ver P-26) |
   | Copia externa SFTP/nube (D2) | I3 | El almacenamiento primario es local; el backup local cubre I1 |
   | sFlow, otros fabricantes | I6 | D10 |
 
 - **Criterios de aceptación de alto nivel:**
-  1. `make accept-i1`: con el simulador, los seis escenarios producen exactamente los hallazgos
-     esperados (sin falsos positivos en el escenario "normal") y los clientes esperados.
-  2. Con el MikroTik real de la persona: de "pegar el script" a "ver clientes en el dashboard" en
+  1. `make accept-i1`: con el simulador y con las capturas grabadas de CHR, los seis escenarios
+     producen exactamente los hallazgos esperados (sin falsos positivos en el escenario "normal") y
+     los clientes esperados.
+  2. **Lista de validación técnica de [`vendors/mikrotik.md`](vendors/mikrotik.md) §8.3 superada en
+     el laboratorio CHR** (versión mínima 7.12 y última long-term): script sin errores; handshake
+     WG < 30 s; servicios accesibles solo por el túnel; IPFIX v4/v6 decodificado con tiempos ± 2 s;
+     con NAT, las IPs del cliente observadas son las privadas; bytes de flujos vs contadores de la
+     interfaz LAN con diferencia < 5 % en 1 h; escenarios beacon/escaneo/SMTP visibles como flujos;
+     atribución por IP estable con PPPoE aunque cambie el ifIndex; el usuario de Horus no puede
+     escribir; fixtures guardados.
+  3. Con el MikroTik real de la persona: de "pegar el script" a "ver clientes en el dashboard" en
      ≤ 2 min; el router pasa a *Silencioso* en ≤ 2 min si se desactiva Traffic Flow.
-  3. Los datos de un ISP no aparecen nunca en otro (prueba de matriz extendida a tráfico,
+  4. Los datos de un ISP no aparecen nunca en otro (prueba de matriz extendida a tráfico,
      clientes, hallazgos, WebSocket y kiosco).
-  4. El kiosco funciona 24 h seguidas sin intervención, sobrevive a un reinicio del servidor y a
+  5. El kiosco funciona 24 h seguidas sin intervención, sobrevive a un reinicio del servidor y a
      un corte de red de 5 min, y muestra "Sin conexión desde HH:MM" mientras tanto.
-  5. Throughput sostenido 1 h sin pérdida ni lag creciente al caudal objetivo de un nodo (a fijar
+  6. Throughput sostenido 1 h sin pérdida ni lag creciente al caudal objetivo de un nodo (a fijar
      con la medición real del router de la persona; supuesto de partida 5 000 flujos/s).
-  6. Cada hallazgo muestra ≥ 2 elementos de evidencia y su confianza; ninguno usa la palabra
+  7. Cada hallazgo muestra ≥ 2 elementos de evidencia y su confianza; ninguno usa la palabra
      "infectado" salvo que la persona lo haya confirmado.
-- **Dep.:** I0; [`vendors/mikrotik.md`](vendors/mikrotik.md) (configuración de Traffic Flow,
-  punto de exportación pre-NAT, plantillas IPFIX de RouterOS); acceso al MikroTik de la persona;
+- **Dep.:** I0 (incluidos el laboratorio CHR y la verificación de los puntos "a verificar");
+  [`vendors/mikrotik.md`](vendors/mikrotik.md); acceso al MikroTik de la persona;
   respuestas o supuestos de P-24 (prefijos de clientes) y P-25 (destinatario de hallazgos).
 - **Riesgos:**
   - (A/A) **El punto de exportación no ve la IP del cliente** (NAT/CGNAT en el router principal).
@@ -207,8 +235,15 @@ Convención: **Dep.** son dependencias duras. Los riesgos se puntúan Probabilid
   - (A/M) **Falsos positivos** que erosionen la confianza → umbrales conservadores, lenguaje de
     "señales compatibles con", evidencia visible, botón "Falso positivo" que silencia el patrón
     para esa IP, y escenario "normal" del simulador que debe dar cero hallazgos.
-  - (M/A) **Flujos por Internet sin cifrar** (NetFlow es UDP sin autenticación) → recomendado
-    por túnel WireGuard; si no, lista de exportadores permitidos por IP y cortafuegos.
+  - (M/A) **Flujos inyectados o suplantados** (IPFIX es UDP sin autenticación) → solo por el
+    túnel WireGuard y solo desde IPs de túnel registradas.
+  - (A/M) **Offload por hardware** (bridge HW, L3HW en CCR2116/2216, FastTrack HW) deja tráfico
+    fuera de los flujos → la prueba de cobertura del laboratorio y un aviso en la ficha del router
+    si la cobertura cae; documentar en la guía que el ISP debe revisarlo.
+  - (M/A) **CPU del router** al exportar sin muestreo en nodos grandes → la guía de I1 pide medir
+    CPU por núcleo antes/después; el asistente con comparación automática llega en I2.
+  - (M/M) **Hub WireGuard como punto único de fallo** → métrica de pérdida por secuencia y
+    "Silencioso" visible; segundo hub en I3/I5.
   - (M/M) **Licencias de datasets/feeds** (ASN, Feodo Tracker, Spamhaus DROP…) → solo fuentes de
     uso comercial permitido; el cargador registra la licencia de cada fuente.
   - (M/M) **Volumen real desconocido** (P-05) → medir con el router de la persona el primer día
@@ -316,10 +351,11 @@ versión. Detalle de productor/consumidor y regla de cambio en
 | **Calendario de 16 sprints de 2 semanas, ceremonias Scrum, story points y velocidad** | D9: los sprints eran un nombre. Se sustituyen por incrementos ordenados por valor y tallas relativas; la sincronización es por PR y contratos, no por reuniones (D7) |
 | **Entidad Cliente desde CRM/RADIUS/facturación, adaptador IP↔cliente, spike de fuente** | D1: la IP es el cliente y se descubre de los flujos. Desaparece la dependencia crítica Q5/P-04. Alias opcionales más adelante |
 | **MinIO, buckets con object lock, NAS obligatorio** | D2/D3: almacenamiento primario local; copia externa opcional por SFTP en I3 |
-| **Redis** | D3: Valkey solo si la arquitectura lo necesita; I1 no lo requiere |
+| **Redis** | D3: se sustituye por Valkey ([ADR-0020](adr/0020-valkey-en-lugar-de-redis.md)) |
+| **6–13 procesos de microservicios** | [ADR-0025](adr/0025-binario-modular-con-roles.md): un binario modular con roles; tres contenedores propios en un servidor |
 | **Identidad completa antes del primer valor** (TOTP, ACL por recurso, recuperación por email, 5 pantallas de admin) | No aporta al primer entregable en red privada; pasa a I2. La autenticación de I0 ya es la definitiva (no un mock) |
 | **Inventario completo** (vendors/modelos/firmware, tags, grupos, CSV) | En I1 solo hace falta ISP → nodo → router principal → prefijos. El resto llega con el descubrimiento por API en I2 o cuando haga falta |
-| **WireGuard antes que tráfico** (S4 antes de S6) | El valor está en los flujos. En I1 basta un script RouterOS; la gestión de túneles pasa a I3 |
+| **WireGuard completo antes que tráfico** (S4 antes de S6) | El valor está en los flujos. En I1 solo el hub mínimo que hace falta para que los flujos lleguen cifrados y con identidad; la gestión completa pasa a I3 |
 | **SNMP como "MVP técnico"** (S5) | Para un NOC orientado a botnets, la salud del exportador cubre I1; SNMP pasa a I2 |
 | **Analítica ISP/Cliente/Router en un sprint propio** (S9) | Se reparte: tops y dashboard NOC en I1, vistas avanzadas y editor en I2 |
 | **Reportes PDF/Excel** (S12) | I3, solo seguridad semanal y CSV; Excel después |
@@ -332,10 +368,10 @@ versión. Detalle de productor/consumidor y regla de cambio en
 | Sprint original | Contenido | Dónde queda | Notas |
 | --- | --- | --- | --- |
 | S0 Arquitectura | Documentos y ADRs | **Hecho** (Sprint 0) + ronda 2 | Historias S00 retiradas del backlog; el resultado está en `docs/` |
-| S1 Plataforma base | Compose, CI, observabilidad, login, layout | **I0** | Sin MinIO ni Redis; compose con ClickHouse desde el inicio (D4) |
+| S1 Plataforma base | Compose, CI, observabilidad, login, layout | **I0** | Sin MinIO; Valkey en lugar de Redis; ClickHouse desde el inicio (D4); binario modular (ADR-0025) |
 | S2 Usuarios, roles, seguridad | Usuarios, roles, sesiones, TOTP, auditoría, ACL | **I0** (login, roles mínimos, aislamiento por ISP) · **I2** (TOTP, sesiones, auditoría, roles por ISP) | La ACL por sitio se reemplaza por aislamiento por ISP; ACL por nodo solo si se pide |
 | S3 Inventario | Sitios, routers, credenciales, CSV, clientes manuales | **I0** (ISP, nodo, router, prefijos) · **I2** (descubrimiento por API, credenciales cifradas) | Clientes manuales eliminados (D1) |
-| S4 WireGuard | Servidor, peers, claves, rotación | **I1** (script RouterOS + comando de instalador) · **I3** (gestionado) | Pendiente de confirmar el supuesto de WireGuard (P-07) |
+| S4 WireGuard | Servidor, peers, claves, rotación | **I1** (hub mínimo, IPAM, script con clave generada en el router) · **I3** (rotación, revocación, *enrolment*, segundo hub) | Diseño en `vendors/mikrotik.md` §5 |
 | S5 SNMP / MVP técnico | Sondeo, estado, adaptador MikroTik | **I2** | El "MVP técnico" se reemplaza por el primer entregable de I1 |
 | S6 Flow Collector | NetFlow/IPFIX, ClickHouse, TTL | **I1** | Núcleo del primer entregable; sFlow a I6 |
 | S7 Clasificación | ASN, organizaciones, servicios, categorías, editor | **I1** (datasets + catálogo semilla) · **I4** (editor) | |
@@ -358,7 +394,9 @@ completo y WireGuard se retiran y se reescribirán al detallar I2/I3.
 | Supuesto | Pregunta |
 | --- | --- |
 | La persona dispone de un MikroTik con RouterOS v7 con clientes reales o de laboratorio | P-19 |
-| Los flujos se exportan pre-NAT en la interfaz del lado cliente | P-24, [`vendors/mikrotik.md`](vendors/mikrotik.md) |
+| Con NAT en el mismo router, los flujos llevan la IP privada del cliente (a verificar en CHR en I0) | P-24, [`vendors/mikrotik.md`](vendors/mikrotik.md) §2.4 |
+| Routers principales con RouterOS v7 ≥ 7.12; v6 fuera del primer entregable | P-06 |
+| Horus no escribe en el router en v1 (solo el técnico pega scripts) | P-23 |
 | Los prefijos de clientes del nodo los declara el ISP al registrar el router (en I2 se proponen desde la API) | P-24 |
 | La UI se expone solo en red privada o VPN durante I1 | P-26 |
 | Los hallazgos se revisan por personas; Horus no actúa sobre la red hasta I4 y solo si P-23 = sí | P-23 |

@@ -844,33 +844,47 @@ cookie). Decisión alineada con [`security.md`](./security.md) §5.1: **ticket d
 ### 4.3 Topics
 
 Los topics son nombres lógicos del protocolo, **desacoplados de los subjects NATS** (el gateway mapea; el frontend nunca ve
-subjects internos).
+subjects internos). **Todo topic de negocio lleva el tenant** como prefijo: `tenants.<tenant_id>.<topic>`. Una misma
+conexión puede suscribirse a topics de varios tenants (usuario con varios ISP, vista NOC combinada); cada suscripción se
+autoriza contra la membresía y los permisos **de ese tenant**. Sin prefijo sólo quedan `me`, `system` y los de
+plataforma (`platform.*`).
+
+En la tabla, `T.` abrevia `tenants.<tenant_id>.` y `<t>` el tenant en el subject ([`events.md`](./events.md) §2.4).
 
 | Topic | Contenido | Clase | Permiso (+ alcance) | Subjects NATS de origen |
 | --- | --- | --- | --- | --- |
-| `routers.status` | Cambios de estado observado de routers visibles | evento | `devices.read` | `horus.snmp.router.state_changed.*` |
-| `routers` | Altas/bajas/cambios de inventario de routers y sitios | evento | `devices.read` | `horus.devices.router.*.*`, `horus.devices.site.*.*` |
-| `router.<id>` | Todo lo del router: inventario, interfaces, estado, `rebooted`, `interfaces_discovered`, `oper_status_changed` | evento | `devices.read` en el alcance del router | `horus.devices.*.*.<id>`, `horus.snmp.*.*.<id>` (+ interfaces filtradas por `router_id`) |
-| `router.<id>.metrics` | Cada sondeo (dispositivo + interfaces) | estado | `snmp.read` en el alcance | `horus.telemetry.snmp.*.<id>` |
-| `wireguard.peers` | Peers creados/revocados/rotados, `handshake_stale/recovered` | evento | `wireguard.read` | `horus.wireguard.peer.*.*` |
-| `wireguard.server.<id>.status` | Handshakes/contadores en vivo del hub | estado | `wireguard.read` | `horus.telemetry.wireguard.peer_status.<id>` |
-| `alerts` | `alert.opened/acknowledged/resolved` (Sprint 11) | evento | `alerts.read` | `horus.alerts.alert.*.*` |
-| `me` | Notificaciones al usuario, reportes listos, exportaciones listas, aviso de cierre de sesión | evento | autenticado (filtro por `user_id`) | `horus.alerts.notification.*.*`, `horus.reporting.report.*.*`, `horus.auth.session.revoked.*` |
-| `system` | `capabilities` de `GET /system/status` (§2.7), `realtime_status` y heartbeat del poller SNMP | estado | autenticado | health checks del gateway + `horus.snmp.poller.heartbeat.*` |
+| `T.routers.status` | Cambios de estado observado de routers visibles | evento | `devices.read` | `horus.snmp.router.state_changed.<t>.*` |
+| `T.routers` | Altas/bajas/cambios de inventario de routers y nodos | evento | `devices.read` | `horus.devices.router.*.<t>.*`, `horus.devices.site.*.<t>.*` |
+| `T.router.<id>` | Todo lo del router: inventario, interfaces, estado, `rebooted`, `interfaces_discovered`, `oper_status_changed`, capacidades RouterOS | evento | `devices.read` en el alcance del router | `horus.devices.*.*.<t>.<id>`, `horus.snmp.*.*.<t>.<id>` (+ interfaces filtradas por `router_id`) |
+| `T.router.<id>.metrics` | Cada sondeo (dispositivo + interfaces; SNMP o API RouterOS) | estado | `snmp.read` en el alcance | `horus.telemetry.snmp.*.<t>.<id>`, `horus.telemetry.routeros.*.<t>.<id>` |
+| `T.customers` | Clientes descubiertos, cambios de tipo, expirados/reactivados | evento | `customers.read` | `horus.devices.customer.*.<t>.*` |
+| `T.security` | Hallazgos abiertos/actualizados/resueltos y cambios de `security_state` | evento | `security.read` | `horus.detection.finding.*.<t>.*`, `horus.detection.customer_security.*.<t>.*` |
+| `T.wireguard.peers` | Peers creados/revocados/rotados, `handshake_stale/recovered` | evento | `wireguard.read` | `horus.wireguard.peer.*.<t>.*` |
+| `T.wireguard.server.<id>.status` | Handshakes/contadores en vivo del hub (sólo peers del tenant) | estado | `wireguard.read` | `horus.telemetry.wireguard.peer_status.<t>.<id>` |
+| `T.alerts` | `alert.opened/acknowledged/resolved` | evento | `alerts.read` | `horus.alerts.alert.*.<t>.*` |
+| `T.dashboard.<id>` | Cambios del dashboard (la pantalla recarga layout/widgets) | evento | acceso al dashboard (usuario o kiosco asignado) | `horus.dashboards.dashboard.*.<t>.<id>`, `horus.dashboards.playlist.*.<t>.*` |
+| `T.summary` | Conteos para la cabecera NOC (routers por estado, alertas abiertas, clientes con hallazgos) | estado | `devices.read` | calculado por el gateway desde los eventos anteriores + snapshot REST |
+| `me` | Notificaciones al usuario, reportes listos, exportaciones listas, aviso de cierre de sesión, membresías cambiadas | evento | autenticado (filtro por `user_id`) | `horus.alerts.notification.*.*.*`, `horus.reporting.report.*.*.*`, `horus.auth.session.revoked.*.*`, `horus.auth.membership.*.*.*` |
+| `system` | `capabilities` de `GET /system/status` (§2.7), `realtime_status` y heartbeat del poller | estado | autenticado o kiosco | health checks del gateway + `horus.snmp.poller.heartbeat.platform.*` |
+| `platform.tenants` | Salud agregada por tenant (ingesta, exportadores silenciosos, cuotas) | estado | `platform.status.read` | `horus.flows.exporter.*.*.*`, `horus.auth.tenant.*.*.*` |
 
 - **Evento**: cada mensaje cuenta; se entrega en orden de llegada; puede perderse ante desconexión.
 - **Estado**: sólo importa el último valor por clave; al suscribirse se envía el último snapshot conocido; luego como
   máximo **1 actualización/s por topic y cliente** (coalescencia, [`architecture.md`](./architecture.md) §9.3).
-- Permiso al suscribirse **y** filtro por alcance por mensaje en topics colectivos (`routers.status`): un operador con
-  alcance `site:X` sólo recibe routers de X. El evento trae `site_id` para filtrar sin consultas.
+- Permiso al suscribirse **y** filtro por alcance por mensaje en topics colectivos (`T.routers.status`): un operador
+  con alcance `site:X` sólo recibe routers de X. El evento trae `site_id` para filtrar sin consultas.
+- **Filtro de tenant por mensaje** (defensa en profundidad): además de suscribirse sólo a los subjects del tenant, el
+  hub descarta cualquier mensaje cuyo `tenant_id` del sobre no coincida con el del topic, y lo cuenta
+  (`horus_api_gateway_ws_tenant_mismatch_total`, alerta si > 0).
+- Kioscos: sólo los topics que usan los widgets de sus dashboards asignados, más `T.dashboard.<id>` y `system`.
 
 ### 4.4 Mensajes
 
 Cliente → servidor:
 
 ```json
-{ "type": "subscribe",   "id": "c-17", "topic": "router.0192f0c4-7a1e-7c3a-9b1d-2f6e8a4c1d55.metrics" }
-{ "type": "unsubscribe", "id": "c-18", "topic": "routers.status" }
+{ "type": "subscribe",   "id": "c-17", "topic": "tenants.0192e000-0000-7000-8000-000000000001.router.0192f0c4-7a1e-7c3a-9b1d-2f6e8a4c1d55.metrics" }
+{ "type": "unsubscribe", "id": "c-18", "topic": "tenants.0192e000-0000-7000-8000-000000000001.routers.status" }
 { "type": "auth",        "id": "c-20", "access_token": "eyJ..." }
 { "type": "ping",        "id": "c-19" }
 ```
@@ -878,16 +892,17 @@ Cliente → servidor:
 Servidor → cliente:
 
 ```json
-{ "type": "ack",   "id": "c-17", "topic": "router.0192...metrics" }
+{ "type": "ack",   "id": "c-17", "topic": "tenants.0192e000-....router.0192...metrics" }
 { "type": "error", "id": "c-17", "code": "PERMISSION_DENIED", "message": "falta snmp.read en el alcance del router" }
-{ "type": "event", "topic": "routers.status",
+{ "type": "event", "topic": "tenants.0192e000-....routers.status",
   "event": { "id": "0192f0d1-1b2c-7e44-8a10-6b9c2d1e0f33", "type": "horus.snmp.router.state_changed",
              "time": "2026-10-07T14:03:11.123Z", "subject": "0192f0c4-...", "aggregate_version": 42,
+             "tenant_id": "0192e000-0000-7000-8000-000000000001",
              "data": { "router_id": "0192f0c4-...", "site_id": "0192e111-...", "previous_state": "online",
                        "state": "offline", "reason": "tunnel_down" } } }
-{ "type": "state", "topic": "router.0192...metrics", "key": "device", "time": "2026-10-07T14:03:00Z",
+{ "type": "state", "topic": "tenants.0192e000-....router.0192...metrics", "key": "device", "time": "2026-10-07T14:03:00Z",
   "data": { "cpu_percent": 13.2, "memory_percent": 61.0, "uptime_seconds": 1209600, "temperature_celsius": 47 } }
-{ "type": "unsubscribed", "topic": "alerts", "reason": "forbidden" }
+{ "type": "unsubscribed", "topic": "tenants.0192e000-....alerts", "reason": "forbidden" }
 { "type": "realtime_status", "status": "degraded", "reason": "event_bus_unavailable" }
 { "type": "heartbeat", "time": "2026-10-07T14:03:25Z" }
 { "type": "pong", "id": "c-19" }
@@ -895,8 +910,9 @@ Servidor → cliente:
 ```
 
 - `event.event` es una **proyección pública** del sobre NATS ([`events.md`](./events.md) §5): `id`, `type`, `time`,
-  `subject`, `aggregate_version`, `data`. Se eliminan `actor` (salvo `actor.type`/`actor.id` si el topic lo requiere),
-  `trace_parent`, `tenant_id`, `correlation_id`. `data` mantiene el esquema del evento (los tipos TS se generan del mismo
+  `subject`, `tenant_id`, `aggregate_version`, `data`. Se eliminan `actor` (salvo `actor.type`/`actor.id` si el topic lo
+  requiere), `trace_parent`, `correlation_id`. Para kioscos se eliminan además los campos marcados `pii` en el catálogo
+  (p. ej. `ip` de `customer.*`) salvo política del kiosco. `data` mantiene el esquema del evento (los tipos TS se generan del mismo
   Protobuf, `packages/protobuf/gen/ts`).
 - El frontend deduplica por `event.id` y descarta si `aggregate_version` ≤ la versión local del recurso
   ([`conventions.md`](./conventions.md)).
@@ -943,27 +959,31 @@ NATS core ─ suscripciones estáticas (dominio, bajo volumen) ─┐
 
 - El gateway usa **suscripciones core** (sin consumidores JetStream): los mensajes publicados en subjects capturados por
   un stream también se entregan a suscriptores core. Sin estado en NATS, sin acks, coste mínimo.
-- Suscripciones estáticas: `horus.snmp.router.>`, `horus.snmp.interface.>`, `horus.snmp.poller.heartbeat.>`,
-  `horus.devices.>`, `horus.wireguard.>`, `horus.auth.session.>`, `horus.auth.user.>`, `horus.auth.role.>`,
-  `horus.alerts.>`, `horus.reporting.>`. Dinámicas: `horus.telemetry.snmp.*.<router_id>`,
-  `horus.telemetry.wireguard.peer_status.<server_id>`.
+- Suscripciones estáticas (todas las de dominio, de todos los tenants; volumen bajo): `horus.snmp.router.>`,
+  `horus.snmp.interface.>`, `horus.snmp.poller.heartbeat.>`, `horus.devices.>`, `horus.wireguard.>`,
+  `horus.detection.finding.>`, `horus.detection.customer_security.>`, `horus.dashboards.>`, `horus.auth.session.>`,
+  `horus.auth.user.>`, `horus.auth.role.>`, `horus.auth.membership.>`, `horus.auth.tenant.>`, `horus.auth.kiosk.>`,
+  `horus.alerts.>`, `horus.reporting.>`. El hub enruta por el token de tenant del subject (sin deserializar).
+  Dinámicas (telemetría, sólo mientras haya suscriptores): `horus.telemetry.snmp.*.<t>.<router_id>`,
+  `horus.telemetry.routeros.*.<t>.<router_id>`, `horus.telemetry.wireguard.peer_status.<t>.<server_id>`.
 - El último snapshot de topics estado se cachea en memoria; si no hay valor caliente, el gateway lo pide al servicio por
   REST interno (`GET /routers/{id}/metrics/live`).
-- Cada réplica se suscribe de forma independiente ⇒ escalado horizontal sin estado compartido (salvo Redis de sesiones).
+- Cada réplica se suscribe de forma independiente ⇒ escalado horizontal sin estado compartido (salvo Valkey de sesiones).
 - Permiso NATS del usuario del gateway: sólo **subscribe** a esos subjects; ningún publish ([`security.md`](./security.md)).
 
 ### 4.9 Límites por conexión
 
 | Límite | Valor |
 | --- | --- |
-| Conexiones por sesión | 5 ([`security.md`](./security.md)); la 6ª cierra la más antigua con `4429` |
+| Conexiones por sesión | 5 ([`security.md`](./security.md)); la 6ª cierra la más antigua con `4429`. Kiosco: 2 |
+| Conexiones por tenant | 500 (cuota ajustable por plataforma) |
 | Suscripciones por conexión | 50 |
 | Topics `router.<id>.metrics` por conexión | 20 |
 | Mensaje entrante máximo | 16 KiB |
 | Mensajes entrantes | 20/s (ráfaga 50) → `4429` |
 | Tiempo hasta el primer `subscribe` | 30 s |
 | Vida máxima | 12 h (cierre `1001` para rebalancear) |
-| Objetivo por réplica | 10.000 conexiones (v1 espera ~50; validar en Sprint 15) |
+| Objetivo por réplica | 10.000 conexiones (v1 espera ~50 usuarios + pantallas NOC de varios ISP; validar en pruebas de carga) |
 
 Cierres propios: `4400` mensaje inválido · `4401` ticket inválido o token vencido sin renovar · `4403` `Origin` no permitido ·
 `4408` cliente lento · `4409` sesión revocada/usuario deshabilitado · `4429` límite. Estándar: `1001`, `1011`, `1012`.
@@ -981,7 +1001,7 @@ packages/protobuf/
 ├── horus/
 │   ├── common/v1/           # PageRequest/PageInfo, Actor, TimeRange, IpAddress
 │   ├── auth/v1/             # SessionService (CheckSession), UserService (GetUsers)
-│   ├── devices/v1/          # InventoryService (ListPollingTargets, GetPollingTarget, GetRouters, ListCustomerAddressMap)
+│   ├── devices/v1/          # InventoryService (ListPollingTargets, GetPollingTarget, GetRouters, ListCustomers, ResolveCustomers)
 │   ├── wireguard/v1/        # WireGuardControl (ReportStatus), WireGuardAgent (ApplyDesiredState)
 │   ├── snmp/v1/             # PollerService (PollNow, GetRouterState)
 │   ├── flows/v1/  traffic/v1/  detection/v1/  alerts/v1/  analytics/v1/
@@ -999,6 +1019,11 @@ packages/protobuf/
   telemetría; enums con `<ENUM>_UNSPECIFIED = 0` y prefijo en cada valor.
 - Regla de uso ([ADR-0005](./adr/0005-grpc-protobuf-interno.md)): gRPC sólo si el llamador necesita la respuesta para
   continuar; máximo 2 saltos síncronos; para notificar hechos, NATS.
+- **Tenant explícito**: toda petición de un recurso de negocio lleva `string tenant_id = 1` en el **mensaje** (no sólo
+  en metadata), y toda respuesta/elemento lo devuelve. El interceptor de `packages/go/authz` comprueba que, si la
+  llamada va en nombre de un usuario, `tenant_id` ∈ `tnt` del JWT; si va en nombre de un servicio, el método debe estar
+  autorizado para "todos los tenants" (p. ej. `ListPollingTargets` del poller) y lo declara en su política. Lint de
+  `buf`/CI: un `*Request` de los paquetes de negocio sin campo `tenant_id` falla salvo excepción anotada.
 
 ```protobuf
 // ilustrativo
@@ -1021,6 +1046,8 @@ message PollingTarget {
   google.protobuf.Duration poll_interval = 4;
   SnmpCredentials credentials = 5; // nunca aparece en eventos ni en logs
   reserved 6; reserved "community";
+  string tenant_id = 7;            // el poller sirve a todos los tenants; cada objetivo sabe el suyo
+  RouterOsApiCredentials routeros_api = 8; // D10; opcional
 }
 ```
 
@@ -1055,9 +1082,11 @@ message PollingTarget {
 | `traceparent`, `tracestate` | W3C (interceptores `otelgrpc`) |
 | `x-request-id` | Correlación; termina también en `correlation_id` de los eventos |
 | `x-horus-caller` | Nombre del servicio llamante (informativo; la identidad real es el certificado mTLS + JWT) |
+| `x-horus-tenant` | Copia del `tenant_id` del mensaje, **sólo** para logs/trazas; la autorización usa el campo del mensaje |
 
 Interceptor común (`packages/go/authz`, [`conventions.md`](./conventions.md)) que valida el JWT, extrae un `Actor`
-(`type`, `id`, `sid`) al `context.Context` y lo reutilizan logs, auditoría y el sobre de eventos.
+(`type`, `id`, `sid`) y el `TenantScope` de la petición al `context.Context`; lo reutilizan logs, auditoría, los
+repositorios (que exigen un `TenantScope` para cualquier consulta de negocio) y el sobre de eventos.
 
 ### 5.5 Seguridad del transporte
 
