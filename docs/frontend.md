@@ -80,7 +80,7 @@ OPERACIÓN
 │   │    └─ (detalle)                     /inventory/routers/:id[/:tab]
 │   ├─ Sitios                             /inventory/sites[/:id]
 │   ├─ Grupos                             /inventory/groups
-│   ├─ Clientes                           /inventory/clients[/:id]
+│   ├─ Clientes                           /inventory/customers[/:id]
 │   └─ Catálogo                           /inventory/catalog   (vendors, modelos, firmware)
 ├─ Monitoreo                              /monitoring
 │   ├─ Estado de la red                   /monitoring/status
@@ -98,10 +98,10 @@ INTELIGENCIA
 ├─ Seguridad                              /security
 │   ├─ Detecciones                        /security/detections[/:id]
 │   ├─ Reputación                         /security/reputation
-│   └─ Investigar IP                      /security/ip/:ip
+│   └─ Investigar IP                      /security/ip   (la IP no va en la URL)
 └─ Analítica                              /analytics
     ├─ ISP                                /analytics/isp
-    ├─ Clientes                           /analytics/clients[/:id]
+    ├─ Clientes                           /analytics/customers[/:id]
     ├─ Routers                            /analytics/routers[/:id]
     └─ Perfil de uso                      /analytics/usage-profile   (residencial/comercial)
 GESTIÓN
@@ -136,7 +136,7 @@ Fuera del sidebar
 | Resumen | S1 (base), S3 (estado), S9 (ISP) | ✔ | autenticado (cada tarjeta exige su permiso) | ✔ |
 | Inventario › Routers / Grupos / Catálogo | S3 | ✔ | `devices.read` | estado ✔ |
 | Inventario › Sitios | S3 | ✔ | `sites.read` | — |
-| Inventario › Clientes | S3 (entidad), S9 (consumo) | ✔ (lista básica) | `customers.read`* (consumo por cliente: `traffic.client.read`) | — |
+| Inventario › Clientes | S3 (entidad), S9 (consumo) | ✔ (lista básica) | `subscribers.read` (consumo por cliente: `traffic.client.read`) | — |
 | Detalle de router | S3 → S5 (Métricas, Interfaces), S6+ (Tráfico), S11 (Alertas) | ✔ | `devices.read` (+ `snmp.read` para Métricas) | ✔ |
 | WireGuard | S4 | ✔ | `wireguard.read` | handshake ✔ |
 | Monitoreo | S5 (estado, interfaces), S12 (disponibilidad) | ✔ (estado, interfaces) | `devices.read`, `snmp.read` | ✔ |
@@ -146,14 +146,15 @@ Fuera del sidebar
 | Alertas | S5 (centro de notificaciones mínimo), S11 (completo) | parcial | `alerts.read` | ✔ |
 | Reportes | S12 | — | `reports.read` | estado de generación ✔ |
 | Admin › Usuarios, Roles, Sesiones, Auditoría | S2 | ✔ | `users.read`, `roles.read`, `sessions.read`, `audit.read` | sesiones ✔ |
-| Admin › Clasificación | S7 | — | `classification.read` (editar: `classification.manage`) | — |
+| Admin › Clasificación | S7 | — | `traffic.catalog.read` (editar: `traffic.catalog.write`; publicar versión: `traffic.catalog.publish`) | — |
 | Admin › Retención | S13 | — | `settings.read` (editar: `settings.manage`) | — |
 | Admin › Estado del sistema | S5 (básico), S14 | ✔ | `settings.read` | ✔ |
 | Mi cuenta | S1 (placeholder), S2 | ✔ | autenticado | — |
 
-Permisos según el catálogo de [`security.md`](security.md) §6.1. \* `customers.read` /
-`customers.manage` no existen todavía en ese catálogo; propuesta registrada como C-09 en
-[`roadmap.md`](roadmap.md) §7.
+Permisos según el catálogo oficial de [`security.md`](security.md) §6.1 (que incluye la tabla de
+equivalencias con los nombres provisionales de versiones anteriores de este documento). La
+entidad "Cliente" de la UI es `customer` en datos, API y eventos (`customer_id`); su permiso es
+`subscribers.*`.
 
 **Regla de aparición progresiva:** una sección solo entra al sidebar en el sprint en que funciona.
 No hay ítems "próximamente" — cada ítem visible debe llevar a algo útil (apple-design §16 ›
@@ -170,7 +171,10 @@ Purpose).
 - **Enlaces cruzados**: toda entidad mencionada es un enlace a su detalle (router en una alerta,
   cliente en una fila de tráfico, ASN en una detección).
 - **Estado en la URL**: filtros, orden, página, rango temporal y pestaña activa se serializan en
-  la query string para compartir y para volver atrás sin perder contexto.
+  la query string para compartir y para volver atrás sin perder contexto. **Excepción**
+  ([`security.md`](security.md), amenazas de divulgación): nunca se ponen en la URL IPs de
+  abonados ni datos personales; esos filtros se guardan en el estado de la página (o en un
+  identificador opaco de búsqueda guardada). Las IPs de gestión de routers sí pueden ir en la URL.
 
 ## 4. Alcance del MVP (fin de S5)
 
@@ -457,7 +461,8 @@ reanudación desde el último ID si [`api.md`](api.md) lo soporta) para no mostr
 ### 7.5 Implementación
 
 Composable `useRealtime(topic, handler)` sobre un único cliente WS (plugin Nuxt solo cliente) que
-gestiona autenticación, reconexión, re-suscripción y deduplicación por `id` de evento (entrega al
+gestiona autenticación (pide un **ticket de un solo uso** con `POST /api/v1/realtime/tickets`
+antes de cada conexión o reconexión, [`security.md`](security.md)), reconexión, re-suscripción y deduplicación por `id` de evento (entrega al
 menos una vez). Los handlers actualizan el estado local de la vista; no hay store global salvo el
 de conexión. Throttle de renderizado a 1 actualización/segundo por tarjeta en ráfagas.
 
@@ -701,13 +706,17 @@ apps/frontend/
 └── tests/              unit (Vitest), e2e (Playwright + axe)
 ```
 
-- **Datos**: `useFetch`/`$fetch` envueltos en `useApi` (refresh de token, errores tipados,
-  `traceparent`). Sin Pinia mientras el estado compartido se limite a sesión, permisos, estado del
+- **Datos**: cliente `openapi-fetch` con tipos de `openapi-typescript` envuelto en `useApi`
+  ([`api.md`](api.md): token, `X-Request-Id`, `traceparent`, mapeo de `problem+json` a error
+  tipado por `code`, refresh único ante 401). Sin Pinia mientras el estado compartido se limite a sesión, permisos, estado del
   sistema y conexión (composables con `useState`); Pinia se introduce solo si aparece estado
   compartido complejo entre páginas (`vision.md` §1).
-- **Renderizado**: SPA autenticada (`ssr: false` en rutas de la app) servida estáticamente por el
-  reverse proxy — no hay contenido público que indexar y simplifica el manejo de tokens. A
-  confirmar en ADR (Agente 1).
+- **Renderizado**: SPA (`ssr: false`, `nuxi generate`) servida estáticamente por el reverse
+  proxy, según [`conventions.md`](conventions.md) y ADR-0012.
+- **Sesión** ([`security.md`](security.md) S4): access JWT corto **solo en memoria** de la SPA
+  (`Authorization: Bearer`), refresh opaco rotativo en cookie `HttpOnly` que el JS no lee; al
+  recargar la página la sesión se recupera con `POST /api/v1/auth/refresh`. Nada sensible en
+  `localStorage`/`sessionStorage`; allí solo preferencias (tema, columnas, sidebar colapsado).
 - **i18n**: `@nuxtjs/i18n` desde S1, español por defecto; todas las cadenas en archivos de locale.
 - **Fechas**: el API entrega UTC ISO 8601; formateo con `Intl` en la zona del usuario.
 - **Observabilidad**: OpenTelemetry web para propagar `traceparent` y medir Web Vitals; errores de
@@ -722,6 +731,6 @@ apps/frontend/
 | --- | --- | --- |
 | [`api.md`](api.md) (Agente 3) | Formato de error `problem+json`, paginación por cursor, filtros, `GET /api/v1/me` con permisos efectivos, tickets y protocolo WS, `GET /routers/status-summary`, `meta.partial` | Alineado. **Falta** `GET /api/v1/system/status` agregado para §8.4 (C-08) |
 | [`events.md`](events.md) (Agente 3) | Lista de eventos UI-visibles para §7.1 | Alineado con `horus.devices.router.status_changed`; ver C-07 |
-| [`security.md`](security.md) (Agente 4) | Catálogo de permisos (§3.2 usa el de §6.1), almacenamiento de tokens en navegador, CSP compatible con ECharts | Alineado; falta `customers.*` (C-09) |
+| [`security.md`](security.md) (Agente 4) | Catálogo de permisos (§3.2 usa el de §6.1), almacenamiento de tokens en navegador, CSP compatible con ECharts | Alineado: catálogo oficial, tokens (S4), ticket WS, CSP |
 | [`architecture.md`](architecture.md) §10 | Matriz de §8.4 y modelo de estado | Alineado; enum de estado pendiente de unificar con `api.md` (C-06) |
 | [`database.md`](database.md) (Agente 2) | Dónde viven las series SNMP (afecta a §8.4, fila ClickHouse) | C-03 pendiente del PO |

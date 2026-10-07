@@ -17,7 +17,7 @@ Este documento fija tres contratos:
 Topología que este contrato asume (decidida en [ADR-0013](./adr/0013-api-gateway-propio.md)):
 
 ```
-Nuxt ──HTTPS/WSS──► Traefik (TLS, estáticos) ──► api-gateway (Go/Chi: sesión BFF, permiso grueso,
+Nuxt ──HTTPS/WSS──► Traefik (TLS, estáticos) ──► api-gateway (Go/Chi: JWT + revocación, permiso grueso,
                                                    rate limit, idempotencia, WS fan-out)
                                                         │ HTTP (proxy, sin traducir)        │ NATS core
                                                         ▼                                   ▼
@@ -27,7 +27,7 @@ Nuxt ──HTTPS/WSS──► Traefik (TLS, estáticos) ──► api-gateway (G
 
 - El gateway **no traduce REST↔gRPC**: cada servicio expone su propio REST (Chi) y el gateway hace proxy por una
   tabla declarativa de rutas. Todo lo de §1 aplica **a cada servicio**; el gateway sólo añade lo transversal
-  (sesión, CSRF, permiso grueso, rate limit, idempotencia, request id).
+  (validación del JWT y revocación, permiso grueso, rate limit, idempotencia, request id).
 - gRPC sólo entre servicios (y gateway → `auth.SessionService/CheckSession`). Nunca hacia el frontend.
 
 ---
@@ -79,8 +79,8 @@ Conjunto **cerrado** de códigos de error:
 | Código | Cuándo |
 | --- | --- |
 | `400` | JSON mal formado, parámetro con tipo inválido, cursor corrupto. |
-| `401` | Sin sesión, sesión expirada o revocada. |
-| `403` | Sin permiso `recurso.accion`, fuera de alcance ACL, CSRF inválido, 2FA o re-autenticación reciente requerida (`code` lo distingue). |
+| `401` | Sin token, token expirado (`TOKEN_EXPIRED`: el cliente hace refresh y reintenta) o sesión revocada. Header `WWW-Authenticate: Bearer error="invalid_token"`. |
+| `403` | Sin permiso `recurso.accion`, fuera de alcance ACL, `Origin` no permitido, 2FA o re-autenticación reciente requerida (`code` lo distingue). |
 | `404` | No existe **o** el usuario no puede saber que existe (filtro por alcance). |
 | `405` | Método no soportado (`Allow`). |
 | `409` | Conflicto de estado o unicidad; `Idempotency-Key` en vuelo. |
@@ -121,8 +121,8 @@ rechazos (401, 403 grueso, 429, 502–504). Mismo formato en ambos:
   propaga el `reason` tal cual.
 - `errors[].field` con notación de puntos para anidados/arrays: `allowed_ips.0`.
 - `412` incluye la extensión `current` con la representación actual del recurso (para que la UI muestre el conflicto).
-- Códigos transversales: `VALIDATION_FAILED`, `UNAUTHENTICATED`, `SESSION_EXPIRED`, `PERMISSION_DENIED`,
-  `CSRF_INVALID`, `MFA_REQUIRED`, `REAUTH_REQUIRED`, `NOT_FOUND`, `ALREADY_EXISTS`, `CONFLICT`,
+- Códigos transversales: `VALIDATION_FAILED`, `UNAUTHENTICATED`, `TOKEN_EXPIRED`, `SESSION_REVOKED`,
+  `PERMISSION_DENIED`, `ORIGIN_NOT_ALLOWED`, `MFA_REQUIRED`, `REAUTH_REQUIRED`, `NOT_FOUND`, `ALREADY_EXISTS`, `CONFLICT`,
   `PRECONDITION_FAILED`, `PRECONDITION_REQUIRED`, `IDEMPOTENCY_KEY_REUSED`, `IDEMPOTENCY_IN_PROGRESS`,
   `RATE_LIMITED`, `INTERNAL`, `SERVICE_UNAVAILABLE`, `ANALYTICS_UNAVAILABLE`, `TIMEOUT`, `INVALID_CREDENTIALS`,
   `INVALID_CURSOR`, `INVALID_FILTER`, `INVALID_SORT_FIELD`, `TIME_RANGE_TOO_LARGE`.
@@ -231,7 +231,7 @@ Valores alineados con [`security.md`](./security.md):
 | Ámbito | Límite inicial |
 | --- | --- |
 | `POST /auth/login`, `/auth/mfa/verify`, `/auth/password/*` | 5/min por cuenta + 20/min por IP; bloqueo progresivo según `security.md`. |
-| API autenticada | 600 req/min por sesión (ráfaga 100). |
+| API autenticada | 600 req/min por sesión (`sid`; ráfaga 100). |
 | Analítica (`/analytics/*`) | 60 req/min por sesión. |
 | Exportaciones / reportes | 10/h por usuario. |
 | WebSocket | §4.9. |
@@ -239,23 +239,24 @@ Valores alineados con [`security.md`](./security.md):
 Headers (draft IETF `ratelimit-headers`) en rutas limitadas: `RateLimit-Policy: "default";q=600;w=60` y
 `RateLimit: "default";r=412;t=23`; en `429` además `Retry-After`.
 
-### 1.11 Sesión, CSRF, CORS y cabeceras
+### 1.11 Autenticación HTTP, CSRF, CORS y cabeceras
 
-Modelo de sesión decidido en [`security.md`](./security.md) §5.1 (**BFF en el gateway**); aquí sólo su efecto en el contrato:
+Modelo de tokens decidido en [`security.md`](./security.md) §5.1 (S4/S5); aquí su efecto en el contrato:
 
-- El navegador **nunca** maneja tokens. Sesión opaca en cookie `__Host-hf_sid` (`Secure; HttpOnly; SameSite=Lax; Path=/`),
-  emitida por `POST /auth/login` (o `/auth/mfa/verify`). Renovación deslizante en el gateway; no hay endpoint de refresh
-  para el navegador.
-- **CSRF**: `POST/PUT/PATCH/DELETE` exigen `X-CSRF-Token` (entregado en `GET /me`) + validación de `Origin`. Fallo →
-  `403 CSRF_INVALID`.
-- Clientes no navegador (integraciones): `Authorization: Bearer hf_pat_...` (sin cookie, sin CSRF).
-- El gateway, tras validar la sesión, **mintea un JWT interno** (≤ 5 min) y lo envía al servicio en
-  `Authorization: Bearer <jwt interno>`; el servicio lo valida (JWKS) y aplica permiso fino + alcance.
-  La cookie y el CSRF nunca llegan a los servicios.
+- **Access token**: JWT EdDSA de 10 min emitido por `auth`, guardado **sólo en memoria** de la SPA y enviado como
+  `Authorization: Bearer <jwt>` en cada petición. `401 TOKEN_EXPIRED` ⇒ el composable `useApi()` hace un único refresh y
+  reintenta (*single-flight*, para no disparar refresh concurrentes).
+- **Refresh token**: opaco, rotativo, en cookie `__Secure-hf_rt` (`HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth`).
+  Sólo lo usan `POST /auth/refresh` y `POST /auth/logout`. Al recargar la página la SPA llama a `/auth/refresh`.
+- **CSRF**: la API no se autentica con cookies ⇒ no aplica, salvo en `/auth/refresh` y `/auth/logout`, que exigen
+  `SameSite=Strict` + cabecera `X-Requested-With: horus` + `Origin` permitido (fallo → `403 ORIGIN_NOT_ALLOWED`).
+- Integraciones no navegador: `Authorization: Bearer hf_pat_...`; el gateway lo canjea por un access JWT de corta vida
+  antes de reenviar.
+- El gateway valida firma/`exp`/`aud` y revocación (`sid`) y **reenvía el mismo JWT** al servicio
+  (`Authorization: Bearer`); el servicio lo revalida (JWKS) y aplica permiso fino + alcance.
 - **CORS: mismo origen** (Traefik sirve SPA y `/api` en el mismo host) ⇒ CORS deshabilitado. Si algún día cambian los
   dominios, lista blanca explícita (ver C-01).
-- Correlación: el gateway acepta o genera `X-Request-Id` (UUIDv7) y `traceparent`; los reenvía a los servicios y
-  devuelve `X-Request-Id`.
+- Correlación: el gateway acepta o genera `X-Request-Id` (UUIDv7) y `traceparent`; los reenvía y devuelve `X-Request-Id`.
 - Respuestas con secretos (configuración WireGuard con clave privada, credenciales reveladas) llevan
   `Cache-Control: no-store`. Por defecto toda la API responde `Cache-Control: no-store` salvo endpoints marcados.
 
@@ -290,7 +291,7 @@ packages/schemas/openapi/
 | Consistencia gateway | Test de CI: toda operación del bundle tiene entrada en `gateway-routes.yaml` con permiso o `public: true` (deny by default, [`security.md`](./security.md)) |
 | Servidor Go por servicio | `oapi-codegen` (`chi-server` + `strict-server`) → `services/<svc>/internal/http/gen/` |
 | Validación runtime (dev/test) | middleware `kin-openapi` request/response en tests de integración |
-| Cliente TS | `openapi-typescript` (sólo tipos) + `openapi-fetch` desde el bundle → `apps/frontend/app/types/api.gen.ts`, envuelto en el composable `useApi()` (añade `X-CSRF-Token`, `X-Request-Id`, `traceparent`; mapea `problem+json` a error tipado por `code`; `credentials: 'include'`) |
+| Cliente TS | `openapi-typescript` (sólo tipos) + `openapi-fetch` desde el bundle → `apps/frontend/app/types/api.gen.ts`, envuelto en el composable `useApi()` (añade `Authorization`, `X-Request-Id`, `traceparent`; refresh transparente ante `TOKEN_EXPIRED`; mapea `problem+json` a error tipado por `code`) |
 | Mocks | Prism desde el bundle (`docker compose --profile mock`) |
 | Docs | Scalar/Redoc en `/api/docs` sólo fuera de producción |
 
@@ -308,12 +309,14 @@ gateway. 🔒 = requiere re-autenticación reciente (`REAUTH_REQUIRED`, `securit
 
 | Método y ruta | Descripción | Permiso |
 | --- | --- | --- |
-| `POST /auth/login` | Usuario + contraseña. Sin 2FA → crea sesión (cookie) y `200` con `/me`. Con 2FA → `200 {"mfa_required": true, "mfa_token": "..."}` (5 min, un uso). | público, rate limited |
-| `POST /auth/mfa/verify` | `mfa_token` + código TOTP (o código de recuperación) → crea sesión. | público, rate limited |
+| `POST /auth/login` | Usuario + contraseña. Sin 2FA → `200 {"access_token", "expires_at"}` + cookie de refresh. Con 2FA → `200 {"mfa_required": true, "mfa_token": "..."}` (5 min, un uso). | público, rate limited |
+| `POST /auth/mfa/verify` | `mfa_token` + código TOTP (o de recuperación) → access token + cookie de refresh. | público, rate limited |
+| `POST /auth/refresh` | Rota el refresh (cookie) → nuevo access token. Reutilización ⇒ revoca la sesión. Requiere `X-Requested-With: horus`. | cookie de refresh |
 | `POST /auth/reauth` | Contraseña (+TOTP) para marcar `auth_time` reciente. | autenticado |
-| `POST /auth/logout` | Revoca la sesión actual. | autenticado |
+| `POST /auth/logout` | Revoca la sesión actual y borra la cookie. Requiere `X-Requested-With: horus`. | autenticado |
 | `POST /auth/password/forgot` · `POST /auth/password/reset` | Recuperación (Sprint 2). | público, rate limited |
-| `GET /me` | Usuario, roles, **permisos efectivos con alcance**, `csrf_token`. | autenticado |
+| `GET /me` | Usuario, roles, **permisos efectivos con alcance**. | autenticado |
+| `POST /ws/tickets` | Ticket de un uso (30 s) para abrir el WebSocket (§4.2). | autenticado |
 | `PATCH /me` | Nombre, idioma, zona horaria. | autenticado |
 | `POST /me/password` | Cambio de contraseña (revoca otras sesiones). | autenticado |
 | `POST /me/totp/enroll` · `POST /me/totp/confirm` · `DELETE /me/totp` 🔒 | Gestión TOTP. | autenticado |
@@ -412,13 +415,13 @@ gateway. 🔒 = requiere re-autenticación reciente (`REAUTH_REQUIRED`, `securit
 
 | Cabecera | Contenido |
 | --- | --- |
-| `Authorization: Bearer <jwt interno>` | Identidad + permisos con alcance ([`security.md`](./security.md) §5.3) |
+| `Authorization: Bearer <access JWT>` | El mismo JWT del cliente, ya validado (identidad, `sid`, permisos con alcance; [`security.md`](./security.md) §5.1) |
 | `X-Request-Id` | ID de correlación |
 | `traceparent`, `tracestate` | W3C Trace Context |
 | `Idempotency-Key`, `If-Match`, `If-None-Match` | Tal cual |
 | `X-Forwarded-For`, `X-Forwarded-Proto` | Normalizados por el gateway (IP real para auditoría) |
 
-El gateway **elimina** `Cookie`, `X-CSRF-Token` y cualquier `X-Horus-*` entrante.
+El gateway **elimina** `Cookie` y cualquier `X-Horus-*` entrante; los tickets WebSocket nunca se reenvían.
 
 ---
 
@@ -432,17 +435,27 @@ El gateway **elimina** `Cookie`, `X-CSRF-Token` y cualquier `X-Horus-*` entrante
 - **Best effort** ([`architecture.md`](./architecture.md) §7.2): el WebSocket no garantiza entrega. Tras reconectar el
   cliente **resincroniza por REST** (patrón *snapshot + deltas*). No hay replay de eventos perdidos en v1.
 
-### 4.2 Autenticación y vida de la conexión
+### 4.2 Autenticación y vida de la conexión — ticket de un uso
 
-- **En el upgrade**: cookie de sesión `__Host-hf_sid` (enviada por el navegador al mismo origen) + validación **estricta de
-  `Origin`** contra la lista permitida (defensa contra *cross-site WebSocket hijacking*). Nada de tokens en query string.
-  Integraciones no navegador: `Authorization: Bearer hf_pat_...` en el upgrade.
-- La conexión queda ligada al `sid`. El gateway revalida la sesión cada 60 s (Redis) y la cierra con `4401` si expiró
-  (inactividad/absoluta). La renovación deslizante de la sesión ocurre por el tráfico REST normal de la pestaña.
-- **Revocación**: al recibir `horus.auth.session.revoked` / `horus.auth.user.disabled` ([`events.md`](./events.md)) el
-  gateway cierra con `4409` las conexiones de ese `sid`/usuario en < 5 s.
-- **Cambio de permisos**: con `horus.auth.role.updated` / `horus.auth.user.role_assignments_changed` el gateway recarga los
-  permisos de las conexiones afectadas y cancela suscripciones que ya no proceden (`unsubscribed`, `reason: "forbidden"`).
+Los navegadores no permiten cabeceras arbitrarias en el handshake WebSocket y el access token vive en memoria (no en
+cookie). Decisión alineada con [`security.md`](./security.md) §5.1: **ticket de un solo uso**.
+
+1. La SPA llama `POST /api/v1/ws/tickets` con su access token → `{"ticket": "<256 bits base64url>", "expires_at": "..."}`.
+   El gateway guarda en Redis `ws_ticket:<sha256(ticket)> → {user_id, sid, exp_del_token}` con TTL 30 s.
+2. Abre `wss://<host>/api/v1/ws?ticket=<ticket>` con subprotocolo `horus.ws.v1`. El gateway hace `GETDEL` (un uso), valida
+   `Origin` contra la lista permitida (defensa contra *cross-site WebSocket hijacking*) y acepta. El ticket en la URL es
+   inútil tras el primer uso y caduca en 30 s; aun así Traefik y el gateway **redactan** el parámetro `ticket` en logs
+   ([`observability.md`](./observability.md)). Ningún token de larga vida viaja en la URL.
+3. **Renovación en banda**: la conexión hereda la expiración del access token. Antes de que expire, el cliente envía
+   `{"type": "auth", "access_token": "<nuevo>"}`; el gateway lo valida, comprueba que el `sid` coincide y extiende. El
+   gateway avisa con `auth_expiring` 60 s antes; si vence sin renovar → cierre `4401`.
+4. Si Redis no está disponible no se pueden emitir tickets: `POST /ws/tickets` → `503` y el frontend usa *polling* REST.
+5. Integraciones no navegador: `Authorization: Bearer hf_pat_...` en el upgrade (sin ticket).
+6. **Revocación**: con `horus.auth.session.revoked` / `horus.auth.user.disabled` ([`events.md`](./events.md)) el gateway
+   cierra con `4409` las conexiones de ese `sid`/usuario en < 5 s.
+7. **Cambio de permisos**: el gateway aplica los permisos del siguiente token renovado (≤ 10 min) y, si
+   `horus.auth.role.updated` / `horus.auth.user.role_assignments_changed` quita permisos, cancela de inmediato las
+   suscripciones afectadas (`unsubscribed`, `reason: "forbidden"`).
 
 ### 4.3 Topics
 
@@ -474,6 +487,7 @@ Cliente → servidor:
 ```json
 { "type": "subscribe",   "id": "c-17", "topic": "router.0192f0c4-7a1e-7c3a-9b1d-2f6e8a4c1d55.metrics" }
 { "type": "unsubscribe", "id": "c-18", "topic": "routers.status" }
+{ "type": "auth",        "id": "c-20", "access_token": "eyJ..." }
 { "type": "ping",        "id": "c-19" }
 ```
 
@@ -493,6 +507,7 @@ Servidor → cliente:
 { "type": "realtime_status", "status": "degraded", "reason": "event_bus_unavailable" }
 { "type": "heartbeat", "time": "2026-10-07T14:03:25Z" }
 { "type": "pong", "id": "c-19" }
+{ "type": "auth_expiring", "expires_at": "2026-10-07T14:10:00Z" }
 ```
 
 - `event.event` es una **proyección pública** del sobre NATS ([`events.md`](./events.md) §5): `id`, `type`, `time`,
@@ -563,10 +578,10 @@ NATS core ─ suscripciones estáticas (dominio, bajo volumen) ─┐
 | Mensaje entrante máximo | 16 KiB |
 | Mensajes entrantes | 20/s (ráfaga 50) → `4429` |
 | Tiempo hasta el primer `subscribe` | 30 s |
-| Vida máxima | 12 h (= vida absoluta de la sesión) |
+| Vida máxima | 12 h (cierre `1001` para rebalancear) |
 | Objetivo por réplica | 10.000 conexiones (v1 espera ~50; validar en Sprint 15) |
 
-Cierres propios: `4400` mensaje inválido · `4401` sesión expirada/no autenticado · `4403` `Origin` no permitido ·
+Cierres propios: `4400` mensaje inválido · `4401` ticket inválido o token vencido sin renovar · `4403` `Origin` no permitido ·
 `4408` cliente lento · `4409` sesión revocada/usuario deshabilitado · `4429` límite. Estándar: `1001`, `1011`, `1012`.
 
 ---
@@ -582,7 +597,7 @@ packages/protobuf/
 ├── horus/
 │   ├── common/v1/           # PageRequest/PageInfo, Actor, TimeRange, IpAddress
 │   ├── auth/v1/             # SessionService (CheckSession), UserService (GetUsers)
-│   ├── devices/v1/          # InventoryService (ListPollingTargets, GetPollingTarget, GetRouters, ListSubscriberAddressMap)
+│   ├── devices/v1/          # InventoryService (ListPollingTargets, GetPollingTarget, GetRouters, ListCustomerAddressMap)
 │   ├── wireguard/v1/        # WireGuardControl (ReportStatus), WireGuardAgent (ApplyDesiredState)
 │   ├── snmp/v1/             # PollerService (PollNow, GetRouterState)
 │   ├── flows/v1/  traffic/v1/  detection/v1/  alerts/v1/  analytics/v1/
@@ -652,7 +667,7 @@ message PollingTarget {
 
 | Metadata | Contenido |
 | --- | --- |
-| `authorization` | `Bearer <JWT interno del usuario>` si se actúa en su nombre; si no, JWT de servicio (`sub=svc:<nombre>`) ([`security.md`](./security.md) §6.5) |
+| `authorization` | `Bearer <access JWT del usuario>` si se actúa en su nombre; si no, identidad del certificado mTLS (+ JWT de servicio `sub=svc:<nombre>` si hace falta) ([`security.md`](./security.md) §6.5) |
 | `traceparent`, `tracestate` | W3C (interceptores `otelgrpc`) |
 | `x-request-id` | Correlación; termina también en `correlation_id` de los eventos |
 | `x-horus-caller` | Nombre del servicio llamante (informativo; la identidad real es el certificado mTLS + JWT) |

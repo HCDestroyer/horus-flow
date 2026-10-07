@@ -153,8 +153,7 @@ llamen los clientes.
 **Como** analista **quiero** que Horus Flow sepa qué IP pertenece a qué cliente y desde cuándo **para**
 que el tráfico pueda atribuirse a clientes a partir de S6.
 
-1. **Dado** `customers.manage` (permiso propuesto, C-09 del roadmap; mientras no exista,
-   `devices.update`), **cuando** creo un cliente en `POST /api/v1/customers` con código, referencia
+1. **Dado** `subscribers.manage` ([`../security.md`](../security.md) §6.1), **cuando** creo un cliente en `POST /api/v1/customers` con código, referencia
    externa, nombre, plan, tipo declarado (`residential`/`business`/`unknown`) y sitio,
    **entonces** se crea.
 2. **Dado** una asignación IP o prefijo → cliente con vigencia `[desde, hasta)` y `source = manual`,
@@ -162,14 +161,15 @@ que el tráfico pueda atribuirse a clientes a partir de S6.
    misma IP en el mismo realm (restricción `EXCLUDE`) y la API responde 409.
 3. **Dado** un CSV de clientes y asignaciones, **cuando** lo importo, **entonces** se aplica con el
    mismo flujo de validación que S03-07.
-4. **Dado** una IP y un instante, **cuando** consulto `GET /api/v1/customers/resolve?ip=…&at=…`,
-   **entonces** obtengo el cliente vigente o 404.
+4. **Dado** una IP y un instante, **cuando** consulto la resolución IP→cliente (endpoint `POST`
+   con la IP en el cuerpo, nunca en la query string, según [`../security.md`](../security.md);
+   ruta final en [`../api.md`](../api.md)), **entonces** obtengo el cliente vigente o 404.
 
 **Notas:** la fuente automática (RADIUS accounting o API del router) se decide en el spike de S4
 y se implementa como módulo de `devices` en S5–S6 (P-04, Q5 de
 [`../open-questions/architecture.md`](../open-questions/architecture.md)). Los datos de contacto
-del cliente son PII: no se muestran a roles sin `traffic.client.read` (a confirmar con
-[`../security.md`](../security.md)).
+del cliente son PII: requieren `subscribers.read`; el detalle de tráfico por cliente requiere
+`traffic.client.read`.
 
 ### S03-11 · Pantalla: lista de routers
 - **Épica:** EP-05 · **Área:** frontend · **Pts:** 5

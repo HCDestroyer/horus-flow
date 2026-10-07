@@ -220,10 +220,12 @@ plataforma de forma segura.
 **Como** frontend **quiero** un canal en tiempo real autenticado **para** mostrar estados en vivo a
 partir de S3.
 
-1. **Dado** un access token válido, **cuando** el cliente abre `/api/v1/ws` (autenticación según
-   [`../api.md`](../api.md)), **entonces** la conexión se acepta y recibe un mensaje de bienvenida
+1. **Dado** un access token válido, **cuando** el cliente obtiene un ticket de un solo uso
+   (`POST /api/v1/realtime/tickets`, TTL 30 s) y abre `/api/v1/ws` con él y un `Origin` permitido
+   ([`../api.md`](../api.md) §4, [`../security.md`](../security.md)), **entonces** la conexión se acepta y recibe un mensaje de bienvenida
    con versión del protocolo.
-2. **Dado** un token inválido, **cuando** intenta conectar, **entonces** se rechaza con código de
+2. **Dado** un ticket inválido, caducado o ya usado, u `Origin` no permitido, **cuando** intenta conectar,
+   **entonces** se rechaza con código de
    cierre documentado.
 3. **Dado** una conexión abierta, **cuando** pasan 30 s sin tráfico, **entonces** hay ping/pong y
    las conexiones muertas se cierran.
@@ -318,15 +320,18 @@ todavía no haya routers monitoreados.
 ### S01-18 · Cliente API, sesión y errores globales
 - **Épica:** EP-02 · **Área:** frontend · **Pts:** 3
 
-1. **Dado** un 401 por access token expirado, **cuando** ocurre, **entonces** el cliente hace un
+1. **Dado** el access token, **cuando** se almacena, **entonces** vive solo en memoria (nunca en
+   `localStorage`/`sessionStorage`); al recargar la página se recupera la sesión con
+   `POST /api/v1/auth/refresh` usando la cookie `HttpOnly` ([`../security.md`](../security.md) S4).
+2. **Dado** un 401 por access token expirado, **cuando** ocurre, **entonces** el cliente hace un
    único refresh (las peticiones concurrentes esperan) y reintenta; si el refresh falla, se va a
    `/login` conservando la ruta.
-2. **Dado** un error con formato de [`../api.md`](../api.md), **cuando** llega, **entonces** se
+3. **Dado** un error con formato de [`../api.md`](../api.md), **cuando** llega, **entonces** se
    convierte en un tipo `ApiError` con `code`, `message` traducible y `trace_id` visible en el
    detalle del error (para soporte).
-3. **Dado** cualquier llamada, **cuando** sale, **entonces** lleva `traceparent` (OTel web) para
+4. **Dado** cualquier llamada, **cuando** sale, **entonces** lleva `traceparent` (OTel web) para
    unir la traza con el backend.
-4. **Dado** los tipos, **cuando** se compila, **entonces** los modelos se generan desde OpenAPI
+5. **Dado** los tipos, **cuando** se compila, **entonces** los modelos se generan desde OpenAPI
    (p. ej. `openapi-typescript`), no a mano.
 
 ### S01-19 · Mocks desde OpenAPI
