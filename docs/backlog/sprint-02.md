@@ -42,10 +42,11 @@ Total: 64 pts (B ~33, F 21, P ~5, D ~5).
 sin diseñar permisos uno a uno.
 
 1. **Dado** la base de `vision.md` §7 y [`../security.md`](../security.md), **cuando** se aplica la
-   migración, **entonces** existen los permisos `recurso.accion` (incluidos `users.read`,
-   `users.manage`, `roles.manage`, `sessions.manage`, `audit.read` si `security.md` los confirma)
-   y los roles iniciales: *Administrador*, *Operador NOC*, *Técnico de campo*, *Analista de
-   seguridad*, *Solo lectura* (nombres finales según P-03).
+   migración, **entonces** existen los permisos del catálogo de [`../security.md`](../security.md)
+   §6.1 (`users.*`, `roles.read/manage/assign`, `sessions.*`, `audit.read/export`, `sites.*`,
+   `devices.*`, `wireguard.*`, …) y los roles de sistema de §6.2: `admin`, `security_admin`,
+   `network_engineer`, `noc_operator`, `analyst`, `auditor`, `viewer` (etiquetas en español en la
+   UI; validar con P-03 si falta un rol de *técnico de campo*).
 2. **Dado** un rol predefinido, **cuando** se intenta borrar, **entonces** responde 409.
 3. **Dado** el catálogo, **cuando** el frontend pide `GET /api/v1/permissions`, **entonces** recibe
    cada permiso con descripción legible y agrupado por recurso.
@@ -146,10 +147,12 @@ incidentes.
    2FA y restablecimientos, **cuando** ocurren, **entonces** se registra un evento de auditoría con
    `id` (UUIDv7), `occurred_at` (UTC), actor, acción, recurso, resultado, IP, `trace_id` y diff de
    campos cambiados (sin secretos).
-2. **Dado** los servicios, **cuando** auditan, **entonces** publican en
-   `horus.audit.<entidad>.<evento>` (subject definitivo en [`../events.md`](../events.md)) y un
-   consumidor persiste; si NATS no está disponible, el servicio no pierde el evento (outbox).
-3. **Dado** `audit.read`, **cuando** consulto `GET /api/v1/audit-events` con filtros por actor,
+2. **Dado** los servicios, **cuando** auditan, **entonces** publican el evento de auditoría
+   definido en [`../events.md`](../events.md) vía outbox
+   ([ADR-0016](../adr/0016-transactional-outbox.md)) y el consumidor de `auth` persiste en
+   `audit_log` (encadenado por hash, [`../database.md`](../database.md)); si NATS no está
+   disponible, el evento no se pierde.
+3. **Dado** `audit.read`, **cuando** consulto `GET /api/v1/audit` con filtros por actor,
    acción, recurso y rango de fechas, **entonces** obtengo resultados paginados en < 500 ms p95 con
    1 M de filas.
 4. **Dado** la tabla de auditoría, **cuando** un usuario de aplicación intenta UPDATE/DELETE,

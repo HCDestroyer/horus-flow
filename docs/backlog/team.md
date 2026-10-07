@@ -23,14 +23,18 @@ Relacionado: [`../roadmap.md`](../roadmap.md) (§6 paralelización), [`README.md
 | Flujo | Misión | Dueño de (directorios) | Servicios |
 | --- | --- | --- | --- |
 | **P — Plataforma / DevOps / SRE** | Entorno reproducible, CI/CD, observabilidad, secretos, backups, resiliencia, carga | `infrastructure/`, `deployments/`, `scripts/`, `.github/` (o `.gitlab-ci.yml`) | — (transversal) |
-| **B — Backend core** | Identidad, autorización, inventario, WireGuard, gateway, tiempo real, alertas, reportes | `services/api-gateway`, `services/auth`, `services/devices`, `services/wireguard`, `services/alerts`, `services/reporting` | api-gateway, auth, devices, wireguard, alerts, reporting |
+| **B — Backend core** | Identidad, autorización, auditoría, inventario, clientes y adaptador IP↔cliente, WireGuard (control + agente), gateway, tiempo real, alertas | `services/api-gateway`, `services/auth`, `services/devices`, `services/wireguard` (incl. `cmd/wireguard-agent`), `services/alerts` | api-gateway, auth, devices, wireguard, wireguard-agent, alerts |
 | **F — Frontend** | Aplicación Nuxt, sistema de diseño, accesibilidad, e2e | `apps/frontend` | — |
-| **D — Datos / colectores** | Sondeo (ICMP/SNMP), flujos, ClickHouse, enriquecimiento, clasificación, reputación, detección, analítica, scoring | `services/snmp`, `services/flows`, `services/traffic-intelligence`, `services/reputation`, `services/detection`, `services/analytics`, `infrastructure/clickhouse` | snmp, flows, traffic-intelligence, reputation, detection, analytics |
+| **D — Datos / colectores** | Sondeo (ICMP/SNMP) y estado observado, flujos, ClickHouse, enriquecimiento, clasificación, detección (reputación, correlación, scoring), analítica, reportes y archivado | `services/snmp`, `services/flows`, `services/traffic-intelligence`, `services/detection`, `services/analytics` (incl. roles `reporting-worker` y `archiver`), `infrastructure/clickhouse` | snmp, flows (collector, ingester), traffic-intelligence, detection, analytics |
 | *(Rol)* **Coordinación / contratos** | Dueño de `packages/` (protobuf, events, schemas) y de `docs/`; revisa PRs con `contract:*`; PO proxy | `packages/`, `docs/` | — |
 
+Unidades desplegables según [ADR-0014](../adr/0014-granularidad-de-microservicios-en-el-mvp.md):
+`services/reputation/` y `services/reporting/` no existen hasta que se separen; viven como
+módulos de `detection` y `analytics`.
+
 Con más personas, B se divide en **B1 Identidad** (auth, gateway) y **B2 Red** (devices,
-wireguard), y D en **D1 Colectores** (snmp, flows) y **D2 Inteligencia** (traffic-intelligence,
-reputation, detection, analytics). Un quinto flujo opcional, **S — Seguridad/QA**, revisa todo lo
+wireguard, adaptador de clientes), y D en **D1 Colectores** (snmp, flows) y **D2 Inteligencia**
+(traffic-intelligence, detection, analytics). Un quinto flujo opcional, **S — Seguridad/QA**, revisa todo lo
 etiquetado `area:security` y mantiene las suites de matriz de permisos y fallos; si no existe, ese
 rol lo asume P.
 
@@ -40,13 +44,14 @@ rol lo asume P.
 | --- | --- | --- | --- | --- |
 | **S1** | Compose (PG, Redis, NATS, MinIO), secretos, CI, observabilidad, reverse proxy (S01-01…05) | Plantilla Go, api-gateway, login/refresh/logout/me, devices esqueleto, WS base (S01-06…09, 11, 12) | Nuxt + Nuxt UI, login, layout, menú, dashboard base, cliente API, mocks, e2e (S01-13…19, 21) | Migraciones y usuario semilla, simulador SNMP (S01-10, 20); revisión de `database.md`/`events.md` |
 | **S2** | Backup PG + verificación, matriz de permisos en CI, escaneo de seguridad | Permisos, usuarios, roles, sesiones, TOTP, reset asistido, auditoría, motor ACL | Usuarios, roles, sesiones, auditoría, login TOTP, Mi cuenta, `usePermission` | Consumidor de auditoría (outbox → PG), perfil ClickHouse, **poller SNMP contra simulador** (prototipo, sin integrar) |
-| **S3** | Spike WireGuard en contenedor, capability ICMP, entorno de *staging* | Catálogo, sitios, routers, credenciales cifradas, tags/grupos, CSV, ACL aplicada, Cliente | Lista/detalle/alta de routers, sitios y grupos, Resumen en vivo | Sondeo ICMP + eventos de alcanzabilidad, seed, asignaciones IP→cliente |
-| **S4** | Servicio WG en compose con privilegios mínimos, pruebas de fallo de NATS, imagen de staging con routers de laboratorio | wireguard: servidores, peers, claves, IPAM, rotación, revocación; eventos de handshake | Pantallas WireGuard (servidores, peers, alta con descarga/QR única, estado de handshake en vivo); pestaña WG del router | **snmp**: polling MIB-II/IF-MIB/HOST-RESOURCES contra simulador y 1–2 routers reales, publicación en NATS; decisión C-03 implementada |
-| **S5 (MVP)** | Pruebas de fallo (snmp caído, router desaparece, NATS reinicia) en CI nocturno; simulador a 100 routers; dashboards Grafana del MVP | Notificaciones en vivo mínimas (EP-09), fan-out WS de métricas/estado con ACL, endurecimiento | Detalle de router: pestañas Métricas e Interfaces con ECharts en vivo; centro de notificaciones; estados degradados | Adaptador MikroTik, estados warning/critical, descubrimiento de interfaces, **spike de datasets ASN/Org** (§4.3 roadmap) |
+| **S3** | Spike WireGuard (agente) en contenedor, capability ICMP, entorno de *staging* | Catálogo, sitios, routers, credenciales cifradas, tags/grupos, CSV, ACL aplicada, Cliente y asignaciones IP manuales/CSV, proyección de estado y `status_changed` | Lista/detalle/alta de routers, sitios y grupos, Resumen en vivo | **Servicio `snmp` con solo ICMP** + eventos de alcanzabilidad, seed, perfil ClickHouse |
+| **S4** | `wireguard-agent` en compose (`network_mode: host`, `CAP_NET_ADMIN`, mTLS), pruebas de fallo de NATS, staging con routers de laboratorio | `wireguard` (control): servidores, peers, claves, IPAM, rotación, revocación; gRPC con el agente; eventos de handshake. **Spike de fuente IP↔cliente** con el PO | Pantallas WireGuard (servidores, peers, alta con descarga/QR única, estado de handshake en vivo); pestaña WG del router | `snmp`: polling MIB-II/IF-MIB/HOST-RESOURCES contra simulador y 1–2 routers reales, publicación en NATS; `metrics-writer` a ClickHouse si se aprueba C-03 |
+| **S5 (MVP)** | Pruebas de fallo (snmp caído, router desaparece, NATS reinicia) en CI nocturno; simulador a 100 routers; dashboards Grafana y reglas Alertmanager del MVP | Notificaciones en vivo mínimas (EP-09), fan-out WS de métricas/estado con ACL, **adaptador IP↔cliente #1 (módulo de `devices`)**, endurecimiento | Detalle de router: pestañas Métricas e Interfaces con ECharts en vivo; centro de notificaciones; estados degradados | Adaptador MikroTik, estado observado completo (degraded/warning/critical con razón, correlación con handshake WG), descubrimiento de interfaces, **spike de datasets ASN/Org** (§4.3 roadmap), simulador de flujos |
 
 A partir de S6 el reparto sigue el diagrama de [`../roadmap.md`](../roadmap.md) §6: D lleva la
-carga principal (flows, clasificación, reputación, scoring), B toma detection/alerts/reporting en
-su parte de API y reglas, F construye analítica sobre componentes de gráficas preparados en S5–S8,
+carga principal (flows con pre-agregación, clasificación, detection, analytics, reporting,
+archivado), B lleva el adaptador IP↔cliente en producción, alerts (S11) y el endurecimiento de
+identidad/gateway, F construye analítica sobre componentes de gráficas preparados en S5–S8,
 P lleva retención, carga y resiliencia.
 
 ## 4. Contratos que deben estar cerrados
@@ -64,11 +69,14 @@ flujo consumidor. Cambios posteriores incompatibles requieren nueva versión.
 | Catálogo de permisos | [`../security.md`](../security.md) + `S02-01` | B → F, todos | Día 2 de S2 |
 | OpenAPI usuarios/roles/sesiones/auditoría | `services/auth` | B → F | Semana 2 de S1 (sync de contratos) |
 | OpenAPI inventario (routers, sitios, credenciales, grupos, clientes) | `services/devices` | B → F, D | Semana 1 de S2 |
-| Eventos `horus.devices.router.*` y `reachability_changed` | `packages/events` | B, D → B (WS), F | Semana 1 de S2 |
-| gRPC devices → snmp (obtener routers y credenciales) | `packages/protobuf` | B → D | Semana 2 de S2 |
+| Eventos `horus.devices.router.*`, `horus.snmp.router.*` y `status_changed` | `packages/events` | B, D → B (WS), F | Semana 1 de S2 |
+| gRPC devices → snmp (`InventoryService.ListPollingTargets`, credenciales) | `packages/protobuf` | B → D | Semana 2 de S2 |
+| gRPC wireguard ↔ wireguard-agent (`ApplyDesiredState`, `ReportStatus`) | `packages/protobuf` | B → B, P (despliegue) | Semana 2 de S3 |
+| gRPC devices → flows (`ListCustomerAddressMap`) | `packages/protobuf` | B → D | Semana 2 de S4 |
 | OpenAPI + eventos WireGuard | `services/wireguard`, `packages/events` | B → F | Semana 2 de S3 |
 | Eventos `horus.snmp.*` (métricas, estado de interfaz) | `packages/events` | D → B (WS), F | Semana 2 de S3 |
-| Esquema de series SNMP (C-03) | [`../database.md`](../database.md) | D → B, F | Semana 2 de S3 |
+| Esquema de series SNMP (C-03: ClickHouse desde S5, pendiente del PO) | [`../database.md`](../database.md) | D → B, F | Semana 2 de S3 |
+| Enum único de estado de router (C-06) | [`../api.md`](../api.md), [`../events.md`](../events.md) | B, D → F | Semana 1 de S2 |
 | Endpoint de estado del sistema (degradación) | [`../api.md`](../api.md) | B → F | Semana 2 de S3 |
 | Esquema ClickHouse de flujos + eventos `horus.flows.*` | [`../traffic-model.md`](../traffic-model.md), `packages/events` | D → D, F | Semana 2 de S4 |
 

@@ -2,11 +2,11 @@
 
 - **Objetivo del sprint:** el NOC registra y organiza sus sitios, routers y credenciales en
   Horus Flow, y ve en el Resumen cuántos routers responden y cuántos no.
-- **Ajustes respecto a `vision.md`** ([`../roadmap.md`](../roadmap.md) §4): sondeo ICMP mínimo para
-  el estado online/offline (§4.2); aplicación de ACL a sitios y grupos (§4.1); entidad Cliente y
+- **Ajustes respecto a `vision.md`** ([`../roadmap.md`](../roadmap.md) §4): sondeo ICMP en el
+  servicio `snmp`, que nace en este sprint (§4.2); aplicación de ACL a sitios y grupos (§4.1); entidad Cliente y
   asignación IP→cliente (§4.5); spike de WireGuard en contenedores para S4.
-- **Estados posibles en S3:** `online`, `offline`, `unknown`. `warning` y `critical` requieren
-  métricas SNMP y llegan en S5; la UI ya los soporta.
+- **Estados posibles en S3:** `online`, `offline`, `stale`, `unknown`. `warning`, `critical` y
+  `degraded` requieren SNMP y llegan en S5; la UI ya los soporta (enum pendiente de unificar, C-06).
 - **Épicas:** EP-05, EP-04, EP-06, EP-08, EP-T5.
 
 | ID | Historia | Flujo | Área | Pts | Prio | Depende de |
@@ -20,7 +20,7 @@
 | S03-07 | Importación CSV de routers | B | backend | 3 | Should | S03-03 |
 | S03-08 | ACL aplicada a sitios y grupos | B | backend, security | 3 | Must | S02-09, S03-06 |
 | S03-09 | Sondeo ICMP y eventos de alcanzabilidad | D | data | 5 | Must | S03-03 |
-| S03-10 | Entidad Cliente y asignación IP→cliente | B, D | backend, data | 5 | Should | S03-02 |
+| S03-10 | Entidad Cliente y asignación IP→cliente | B | backend, data | 5 | Must | S03-02 |
 | S03-11 | Pantalla: lista de routers | F | frontend | 5 | Must | S03-03 |
 | S03-12 | Pantalla: alta/edición de router y credenciales | F | frontend | 5 | Must | S03-03, S03-04 |
 | S03-13 | Pantalla: detalle de router (pestaña Resumen) | F | frontend | 3 | Must | S03-03 |
@@ -126,16 +126,19 @@ colectores accedan sin que yo las comparta por chat.
    le entrega.
 
 ### S03-09 · Sondeo ICMP y alcanzabilidad
-- **Épica:** EP-08 · **Pts:** 5 · **Servicio:** según C-04 (recomendado `snmp`)
+- **Épica:** EP-08 · **Pts:** 5 · **Servicio:** `snmp` (nace en S3 solo con ICMP,
+  [`../services.md`](../services.md) §1.1)
 
 **Como** operador NOC **quiero** saber si cada router responde **para** detectar caídas antes de que
 llamen los clientes.
 
 1. **Dado** routers activos, **cuando** corre el sondeo (intervalo por defecto 30 s, configurable),
    **entonces** cada router recibe N pings y se calcula alcanzable/no alcanzable, RTT y pérdida.
-2. **Dado** que un router cambia de estado tras M sondeos consecutivos (histéresis, p. ej. 3),
-   **cuando** ocurre, **entonces** se publica `horus.devices.router.reachability_changed` (subject
-   final en [`../events.md`](../events.md)) con estado anterior, nuevo, `occurred_at` y métricas.
+2. **Dado** que un router cambia de estado tras las observaciones de histéresis
+   ([`../architecture.md`](../architecture.md) §10.4), **cuando** ocurre, **entonces** `snmp`
+   publica su evento `horus.snmp.router.*` y `devices` actualiza su proyección y emite
+   `horus.devices.router.status_changed` ([`../events.md`](../events.md)) con estado anterior,
+   nuevo, razón y `time`; el gateway lo reenvía a la UI.
 3. **Dado** 1 000 routers simulados, **cuando** corre el sondeo, **entonces** cada ciclo termina en
    < 30 s con < 200 MB de RAM.
 4. **Dado** que el servicio de sondeo se cae, **cuando** pasan 2 intervalos sin datos, **entonces**
@@ -143,22 +146,30 @@ llamen los clientes.
    lo indica ([`../frontend.md`](../frontend.md) §7.2).
 
 ### S03-10 · Entidad Cliente y asignación IP→cliente
-- **Épica:** EP-06 · **Pts:** 5 · **Prio:** Should
+- **Épica:** EP-06 · **Pts:** 5 · **Prio:** Must (riesgo crítico, [`../roadmap.md`](../roadmap.md) §4.5)
+- **Servicio:** devices (tablas `customer`, `customer_service_link`, `customer_ip_assignment` de
+  [`../database.md`](../database.md)).
 
 **Como** analista **quiero** que Horus Flow sepa qué IP pertenece a qué cliente y desde cuándo **para**
-que el tráfico pueda atribuirse a clientes a partir de S6–S9.
+que el tráfico pueda atribuirse a clientes a partir de S6.
 
-1. **Dado** `clients.manage` (permiso a confirmar en [`../security.md`](../security.md)), **cuando**
-   creo un cliente con código externo, nombre, plan, tipo contratado (residencial/comercial) y
-   sitio, **entonces** se crea.
-2. **Dado** una asignación IP o prefijo → cliente con `valid_from` (y `valid_to` opcional), **cuando**
-   se crea, **entonces** no puede solaparse con otra asignación de la misma IP en el mismo intervalo.
+1. **Dado** `customers.manage` (permiso propuesto, C-09 del roadmap; mientras no exista,
+   `devices.update`), **cuando** creo un cliente en `POST /api/v1/customers` con código, referencia
+   externa, nombre, plan, tipo declarado (`residential`/`business`/`unknown`) y sitio,
+   **entonces** se crea.
+2. **Dado** una asignación IP o prefijo → cliente con vigencia `[desde, hasta)` y `source = manual`,
+   **cuando** se crea, **entonces** la base de datos impide que se solape con otra asignación de la
+   misma IP en el mismo realm (restricción `EXCLUDE`) y la API responde 409.
 3. **Dado** un CSV de clientes y asignaciones, **cuando** lo importo, **entonces** se aplica con el
    mismo flujo de validación que S03-07.
-4. **Dado** una IP y un instante, **cuando** consulto `GET /api/v1/clients/resolve?ip=…&at=…`,
+4. **Dado** una IP y un instante, **cuando** consulto `GET /api/v1/customers/resolve?ip=…&at=…`,
    **entonces** obtengo el cliente vigente o 404.
 
-**Notas:** la fuente real (RADIUS/PPPoE/DHCP/facturación) se integra en S6–S7 (P-04).
+**Notas:** la fuente automática (RADIUS accounting o API del router) se decide en el spike de S4
+y se implementa como módulo de `devices` en S5–S6 (P-04, Q5 de
+[`../open-questions/architecture.md`](../open-questions/architecture.md)). Los datos de contacto
+del cliente son PII: no se muestran a roles sin `traffic.client.read` (a confirmar con
+[`../security.md`](../security.md)).
 
 ### S03-11 · Pantalla: lista de routers
 - **Épica:** EP-05 · **Área:** frontend · **Pts:** 5
@@ -211,10 +222,12 @@ segundos.
 ### S03-14 · Spike: WireGuard desde contenedor
 - **Épica:** EP-07 · **Área:** infra, security · **Pts:** 3 (time-box 2 días) · **Tipo:** spike
 
-1. **Dado** el servicio wireguard en compose, **cuando** termina el spike, **entonces** hay un ADR con
-   la opción elegida (interfaz WG en el host vía `network_mode: host` + `NET_ADMIN`, contenedor
-   dedicado con `wgctrl`, o wireguard-go en espacio de usuario), permisos mínimos y cómo se
-   persiste y restaura el estado tras reinicio.
+1. **Dado** el diseño control + `wireguard-agent` de
+   [ADR-0014](../adr/0014-granularidad-de-microservicios-en-el-mvp.md) (agente con
+   `network_mode: host` y `CAP_NET_ADMIN`), **cuando** termina el spike, **entonces** un prototipo
+   del agente crea una interfaz y un peer con `wgctrl` desde el contenedor, sobrevive a un reinicio
+   del host reaplicando su estado local, y el resultado (permisos mínimos, alternativa wireguard-go
+   si el kernel no lo permite) queda anotado en el ADR o en uno nuevo.
 
 ### S03-15 · Pantalla: sitios y grupos
 - **Épica:** EP-05 · **Área:** frontend · **Pts:** 3
@@ -232,7 +245,7 @@ segundos.
 
 1. **Dado** el Resumen, **cuando** lo abro, **entonces** veo contadores por estado (online, warning,
    critical, offline, unknown), cada uno con icono, texto y número, que enlazan a la lista filtrada.
-2. **Dado** un evento `reachability_changed`, **cuando** llega por WebSocket, **entonces** los
+2. **Dado** un evento `status_changed`, **cuando** llega por WebSocket, **entonces** los
    contadores y la lista "Cambios recientes" se actualizan en < 2 s sin recargar; el lector de
    pantalla anuncia como máximo un resumen cada 30 s (región `aria-live="polite"`).
 3. **Dado** el WebSocket desconectado, **cuando** pasan más de 60 s, **entonces** los contadores

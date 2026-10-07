@@ -4,7 +4,10 @@
 ajustes de [`../roadmap.md`](../roadmap.md) §4. Formato de IDs y reglas en [`README.md`](README.md).
 
 Cada épica indica: objetivo, alcance (dentro / fuera), sprint(s), servicios, flujo responsable
-([`team.md`](team.md)) y criterio de cierre.
+([`team.md`](team.md)) y criterio de cierre. Los servicios siguen
+[`../services.md`](../services.md) y [ADR-0014](../adr/0014-granularidad-de-microservicios-en-el-mvp.md):
+`wireguard` + `wireguard-agent`; `detection` con módulos `reputation`, `correlation`, `scoring`;
+`reporting` como rol worker de `analytics`; auditoría dentro de `auth`; ICMP dentro de `snmp`.
 
 ## Resumen
 
@@ -16,19 +19,19 @@ Cada épica indica: objetivo, alcance (dentro / fuera), sprint(s), servicios, fl
 | EP-03 | Autenticación y sesiones | S1–S2 | Backend core |
 | EP-04 | Autorización (RBAC + ACL) y auditoría | S2–S3 | Backend core |
 | EP-05 | Inventario de red | S3 | Backend core |
-| EP-06 | Clientes y mapeo IP → cliente | S3, S6–S7 | Backend core / Datos |
+| EP-06 | Clientes y mapeo IP → cliente | S3 (entidad), S4 (spike fuente), S5–S6 (adaptador) | Backend core |
 | EP-07 | WireGuard | S4 | Backend core |
-| EP-08 | Monitoreo de dispositivos (ICMP + SNMP) | S3 (ICMP), S5 (+ adaptadores S6–S8) | Datos |
-| EP-09 | Notificaciones en vivo mínimas | S5 | Backend core / Frontend |
+| EP-08 | Monitoreo de dispositivos (ICMP + SNMP, servicio `snmp`) | S3 (ICMP), S5 (+ adaptadores S6–S8) | Datos |
+| EP-09 | Notificaciones en vivo mínimas (sin servicio `alerts`) | S5 | Backend core / Frontend |
 | EP-10 | Colección de flujos | S6 | Datos |
 | EP-11 | Enriquecimiento IP → Prefix → ASN → Organization | S5–S7 | Datos |
 | EP-12 | Catálogo de servicios y categorías | S7 | Datos / Frontend |
-| EP-13 | Reputación | S8 | Datos |
+| EP-13 | Reputación (módulo de `detection`) | S8 | Datos |
 | EP-14 | Detección de seguridad | S8 (+ S10–S12) | Datos / Backend core |
 | EP-15 | Analítica (ISP, Cliente, Router) | S9 | Frontend / Datos |
 | EP-16 | Scoring residencial/comercial | S10 | Datos |
 | EP-17 | Alertas y notificaciones | S11 | Backend core |
-| EP-18 | Reportes | S12 | Backend core / Frontend |
+| EP-18 | Reportes (worker `reporting` de `analytics`) | S12 | Datos / Frontend |
 | EP-19 | Almacenamiento histórico y archivado | S13 (TTL desde S6) | Plataforma / Datos |
 | EP-20 | Resiliencia y alta disponibilidad | S14 (incremental desde S5) | Plataforma |
 | EP-21 | Rendimiento y escalabilidad | S15 (incremental desde S6) | Plataforma / Datos |
@@ -57,8 +60,9 @@ Cada épica indica: objetivo, alcance (dentro / fuera), sprint(s), servicios, fl
 - **Objetivo:** entorno reproducible y pipeline que impida regresiones desde el día 1.
 - **Alcance:** monorepo según `vision.md` §11, `docker compose` (PostgreSQL, Redis, NATS
   JetStream, MinIO, reverse proxy), gestión de variables y secretos, CI (lint, tests, builds,
-  security check), imágenes versionadas, backup diario de PostgreSQL (adelantado a S2,
-  [`../roadmap.md`](../roadmap.md) §4.7).
+  security check), migraciones con goose + lint squawk ([`../database.md`](../database.md) D6),
+  buckets MinIO con object lock creados en S1 ([`../storage.md`](../storage.md) §4), imágenes
+  versionadas, backup diario de PostgreSQL (adelantado a S2, [`../roadmap.md`](../roadmap.md) §4.7).
 - **Fuera:** Kubernetes (solo se garantiza que nada lo impida), CD a producción (S16).
 - **Cierre:** un desarrollador nuevo levanta todo con un comando y < 15 min; CI < 15 min por PR.
 
@@ -86,7 +90,8 @@ Cada épica indica: objetivo, alcance (dentro / fuera), sprint(s), servicios, fl
 - **Objetivo:** cada acción está permitida explícitamente y queda registrada.
 - **Alcance:** catálogo de permisos `recurso.accion` (base `vision.md` §7), roles predefinidos y
   personalizados, motor ACL (sujeto–recurso–acción) en S2 y su aplicación a sitios/grupos en S3,
-  enforcement en api-gateway y servicios, registro de auditoría inmutable y consultable.
+  enforcement en api-gateway y servicios, registro de auditoría inmutable y consultable (almacén
+  en `auth`, eventos `*.audit.recorded` de todos los servicios).
 - **Fuera:** multi-organización (v1 es un solo ISP).
 - **Cierre:** test de matriz de permisos automatizado para cada endpoint.
 
@@ -98,21 +103,27 @@ Cada épica indica: objetivo, alcance (dentro / fuera), sprint(s), servicios, fl
 - **Fuera:** descubrimiento automático de interfaces (llega con SNMP en S5), topología/mapa.
 - **Cierre:** inventario real del ISP cargado (o muestra ≥ 20 routers).
 
-## EP-06 · Clientes y mapeo IP → cliente *(propuesta nueva)*
+## EP-06 · Clientes y mapeo IP → cliente *(propuesta nueva — riesgo crítico)*
 
-- **Objetivo:** poder atribuir tráfico a clientes, requisito de S9 y S10.
-- **Alcance:** entidad Cliente (código externo, nombre, plan, tipo contratado, sitio/router de
-  acceso), asignaciones IP/prefijo → cliente con vigencia temporal, importación CSV (S3);
-  integración con la fuente autoritativa (RADIUS/PPPoE/DHCP/facturación) en S6–S7.
-- **Fuera:** facturación, CRM.
+- **Objetivo:** poder atribuir tráfico a clientes, requisito de S7, S9 y S10. Sin esta épica esos
+  sprints solo entregan valor por IP (Q5 de
+  [`../open-questions/architecture.md`](../open-questions/architecture.md)).
+- **Alcance:** entidad `customer`, `customer_service_link` y `customer_ip_assignment` con vigencia
+  temporal ([`../database.md`](../database.md)); alta manual e importación CSV (S3); **spike de
+  fuente** con el PO (S4); **adaptador como módulo de `devices`** que ingiere asignaciones desde
+  RADIUS accounting o la API del router (sesiones PPPoE / leases DHCP), con `source` y
+  `session_ref` (S5); producción en el piloto y métrica de cobertura (S6); snapshot gRPC
+  `ListCustomerAddressMap` para el ingester de `flows`.
+- **Fuera:** facturación, CRM, sincronización bidireccional.
 - **Cierre:** ≥ 95 % de bytes de flujos de un router piloto atribuidos a un cliente.
 
 ## EP-07 · WireGuard
 
 - **Objetivo:** gestionar túneles WG sin que nadie ejecute comandos a mano.
-- **Alcance:** servidores, peers, generación de claves en servidor, asignación de IP (IPAM simple),
-  AllowedIPs, configuración descargable, handshake y último contacto, rotación, revocación,
-  auditoría.
+- **Alcance:** `wireguard` (control: servidores, peers, claves, IPAM de túnel, AllowedIPs,
+  configuración descargable, rotación, revocación, auditoría) y `wireguard-agent` (aplica el
+  estado deseado en el kernel, reporta handshake y contadores, *fail-static*). Absorbe el
+  *network-service* de `vision.md`.
 - **Fuera:** configuración automática del lado del router (se evalúa con adaptadores MikroTik
   post-MVP).
 - **Cierre:** ≥ 10 routers reales conectados por túneles gestionados desde la UI.
@@ -120,25 +131,32 @@ Cada épica indica: objetivo, alcance (dentro / fuera), sprint(s), servicios, fl
 ## EP-08 · Monitoreo de dispositivos (ICMP + SNMP)
 
 - **Objetivo:** saber en todo momento el estado y salud de cada router.
-- **Alcance:** sondeo ICMP (S3), SNMP v2c/v3: uptime, CPU, RAM, temperatura, firmware;
-  interfaces: estado, velocidad, RX, TX, errores, drops (S5); adaptador MikroTik (S5); Cisco,
-  Huawei, Juniper (S6–S8); simulador SNMP para pruebas.
+- **Alcance:** servicio `snmp` que nace en S3 con ICMP; SNMP v2c/v3: uptime, CPU, RAM,
+  temperatura, firmware; interfaces: estado, velocidad, RX, TX, errores, drops (S5); estado
+  observado correlacionando ICMP + SNMP + handshake WG (`online/degraded/offline/stale` +
+  `warning/critical`, [`../architecture.md`](../architecture.md) §10.4); series en ClickHouse si se
+  aprueba C-03; adaptador MikroTik (S5); Cisco, Huawei, Juniper (S6–S8); simulador SNMP.
 - **Fuera:** traps SNMP (post-MVP, evaluar en S11), configuración de equipos.
 - **Cierre:** cambio de estado detectado en < 2 ciclos de sondeo con 100 routers simulados.
 
 ## EP-09 · Notificaciones en vivo mínimas *(adelanto propuesto)*
 
 - **Objetivo:** que el NOC vea cambios de estado relevantes sin esperar a S11.
-- **Alcance:** centro de notificaciones web alimentado por eventos de estado (router
-  online/offline, peer WG sin handshake), toasts y contador.
-- **Fuera:** reglas configurables, canales externos (S11).
+- **Alcance:** centro de notificaciones web alimentado por eventos de estado vía WebSocket
+  (router online/offline/degraded, peer WG sin handshake), toasts y contador. Alertas de
+  infraestructura por Prometheus/Alertmanager. Opcional (P-17): métrica `horus_router_up` para
+  avisar por Alertmanager de routers core caídos.
+- **Fuera:** servicio `alerts`, reglas configurables, canales de negocio (S11).
 - **Cierre:** un router que cae aparece en el centro de notificaciones en < 5 s tras el evento.
 
 ## EP-10 · Colección de flujos
 
 - **Objetivo:** ingesta fiable de metadatos de tráfico.
-- **Alcance:** NetFlow v5/v9, IPFIX, sFlow; `Router → flows → NATS → ClickHouse`; batching;
-  TTL de flujos crudos; generador sintético para carga.
+- **Alcance:** NetFlow v5/v9, IPFIX, sFlow; `flows` con roles `collector` e `ingester`;
+  `Router → collector → NATS → ingester (enriquece en ingesta, ADR-0015) → ClickHouse`; batching;
+  **modo de pre-agregación** de 60 s en el colector ([`../traffic-model.md`](../traffic-model.md)
+  §11); muestreo 1:N configurable (necesario desde ~200 routers); TTL raw 7 días; generador
+  sintético para carga.
 - **Fuera:** captura de paquetes / DPI.
 - **Cierre:** throughput objetivo (a fijar con P-05) sostenido 1 h sin pérdida ni lag creciente.
 
@@ -162,8 +180,9 @@ Cada épica indica: objetivo, alcance (dentro / fuera), sprint(s), servicios, fl
 ## EP-13 · Reputación
 
 - **Objetivo:** contexto de riesgo de IPs y dominios externos.
-- **Alcance:** ingesta de feeds (abiertos primero; comerciales según P-14), puntuación con
-  decaimiento temporal, consulta por IP.
+- **Alcance:** módulo `reputation` de `detection`: ingesta de feeds (abiertos primero; comerciales
+  según P-14), puntuación con decaimiento temporal, consulta por IP (`Reputation.Check`). Se separa
+  a `services/reputation/` solo si cumple los criterios de [`../services.md`](../services.md).
 - **Cierre:** consulta de reputación p95 < 10 ms desde caché.
 
 ## EP-14 · Detección de seguridad
@@ -171,8 +190,7 @@ Cada épica indica: objetivo, alcance (dentro / fuera), sprint(s), servicios, fl
 - **Objetivo:** hallazgos correlacionados y explicables, no "IP en lista = malware".
 - **Alcance:** `IP sospechosa → Reputation → Behavior → Traffic → Detection → Alert`, detectores
   iniciales (escaneo saliente, C2 correlacionado, upload anómalo), nivel de confianza y razones.
-  Absorbe el *security-service* de `vision.md` (conflicto C-01 de
-  [`../roadmap.md`](../roadmap.md)).
+  Absorbe el *security-service* de `vision.md` ([ADR-0014](../adr/0014-granularidad-de-microservicios-en-el-mvp.md)).
 - **Cierre:** cada detección muestra ≥ 2 señales que la justifican.
 
 ## EP-15 · Analítica
@@ -185,7 +203,7 @@ Cada épica indica: objetivo, alcance (dentro / fuera), sprint(s), servicios, fl
 ## EP-16 · Scoring residencial/comercial
 
 - **Objetivo:** identificar uso no acorde al plan con explicación.
-- **Alcance:** Residential/Commercial/Security/Anomaly Score, variables de `vision.md` §9 S10,
+- **Alcance:** módulo `scoring` de `detection`. Residential/Commercial/Security/Anomaly Score, variables de `vision.md` §9 S10,
   razones legibles, calibración contra planes conocidos, umbrales configurables.
 - **Cierre:** precisión validada por el PO sobre una muestra revisada manualmente (P-04).
 
@@ -199,16 +217,20 @@ Cada épica indica: objetivo, alcance (dentro / fuera), sprint(s), servicios, fl
 ## EP-18 · Reportes
 
 - **Objetivo:** información exportable para gerencia, ventas y auditoría.
-- **Alcance:** consumo por cliente/categoría/router/ASN, seguridad, disponibilidad, anomalías,
-  posibles comerciales; PDF, CSV, Excel; programados; almacenados en MinIO.
+- **Alcance:** rol `reporting-worker` de `analytics`: consumo por cliente/categoría/router/ASN,
+  seguridad, disponibilidad, anomalías, posibles comerciales; PDF, CSV, Excel; programados;
+  almacenados en MinIO (`horus-reports`, lifecycle 7 días).
 - **Cierre:** reporte mensual de disponibilidad generado y descargado por un gerente.
 
 ## EP-19 · Almacenamiento histórico y archivado
 
 - **Objetivo:** retener lo que vale y poder recuperarlo.
-- **Alcance:** niveles raw / agregado / diario, `ClickHouse → Archive → MinIO → NAS`, checksums,
-  lifecycle, restauración de rangos, backups y restauración de PostgreSQL y ClickHouse.
-- **Cierre:** restauración probada de un mes archivado.
+- **Alcance:** niveles raw (7 días por defecto) / agregado / diario, job `archiver` de
+  `analytics` (`ClickHouse → Parquet → MinIO → NAS`), checksums, lifecycle, object lock en
+  auditoría y backups, restauración de rangos, backups y restauración de PostgreSQL y ClickHouse.
+  TTL desde S6 y object lock desde S1.
+- **Cierre:** restore de prueba de un mes archivado, documentado en
+  [`../disaster-recovery.md`](../disaster-recovery.md).
 
 ## EP-20 · Resiliencia y alta disponibilidad
 

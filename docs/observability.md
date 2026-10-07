@@ -44,8 +44,11 @@ Decisiones:
   este documento no las define).
 - Puerto de administración separado en cada servicio Go (`HORUS_ADMIN_ADDR`, por defecto
   `:8081`): `/metrics`, `/healthz`, `/readyz`, `/debug/pprof/*` (este último solo si
-  `HORUS_PPROF_ENABLED=true`). Nunca publicado al exterior. Puertos finales: ver
-  [`architecture.md`](architecture.md) (Agente 1).
+  `HORUS_PPROF_ENABLED=true`). Nunca publicado al exterior. Convive con los puertos de
+  [`architecture.md`](architecture.md) (HTTP `8080`, gRPC `9090`). Motivo del puerto aparte: en
+  `api-gateway` el `8080` es la API pública detrás de Traefik y `/metrics`/pprof no deben quedar
+  accesibles por esa ruta; para uniformidad se aplica a todos los servicios. Traefik puede
+  publicar `/healthz` del gateway si se necesita un chequeo externo.
 
 ## 2. Métricas
 
@@ -99,7 +102,7 @@ interfaces.
 - Pools: `db_pool_connections{service, db, state}` (`pgxpool` stats), `db_query_duration_seconds{service, db, operation}`.
 - Host y contenedores: `node_exporter` y `cAdvisor`.
 - Infraestructura: `postgres_exporter`, métricas nativas de ClickHouse (`/metrics` puerto 9363),
-  `redis_exporter`, `prometheus-nats-exporter` (o endpoint de NATS con *surveyor*), métricas
+  `redis_exporter` (compatible con Valkey), `prometheus-nats-exporter` (o endpoint de NATS con *surveyor*), métricas
   nativas de MinIO (`/minio/v2/metrics/cluster`), `blackbox_exporter` para el NAS (ICMP + TCP)
   y para la URL pública.
 
@@ -107,15 +110,17 @@ interfaces.
 
 | Métrica | Tipo | Labels | Responde a |
 |---------|------|--------|------------|
-| `horus_devices_routers{status}` | gauge | `status` (`online`, `offline`, `warning`, `critical`, `unknown`) | ¿Cuántos routers están online? |
+| `horus_devices_routers{status}` | gauge | `status` (`online`, `degraded`, `warning`, `critical`, `offline`, `stale`, `unknown` — estados de [`architecture.md`](architecture.md) §10.2/§10.4) | ¿Cuántos routers están online? |
 | `horus_snmp_polls_total` | counter | `vendor, result` | Tasa de éxito del polling |
 | `horus_snmp_poll_duration_seconds` | histogram | `vendor` | Lentitud del polling |
 | `horus_snmp_poll_lag_seconds` | histogram | — | Retraso entre la hora programada y la real (lag del colector) |
 | `horus_snmp_router_last_success_timestamp_seconds` | gauge | `router_id` (condicionado) | Frescura por router (SLO de §6) |
-| `horus_snmp_targets_stale` | gauge | — | Routers sin datos en > 2 intervalos |
+| `horus_snmp_targets_stale` | gauge | — | Routers sin datos en > 3 intervalos (estado `stale`) |
+| `horus_snmp_poller_heartbeat_timestamp_seconds` | gauge | — | Complementa el evento `horus.snmp.poller.heartbeat` (15 s); Prometheus alerta sin depender de NATS |
+| `horus_clickhouse_up` | gauge | `service` | Visto desde cada servicio que escribe/lee ClickHouse |
 | `horus_flows_packets_received_total` | counter | `protocol` | Paquetes/s de entrada |
 | `horus_flows_records_received_total` | counter | `protocol` | **Flujos/s** |
-| `horus_flows_packets_dropped_total` | counter | `reason` (`unknown_exporter`, `rate_limited`, `decode_error`, `template_missing`, `buffer_full`) | Pérdidas en ingesta |
+| `horus_flows_dropped_total` | counter | `reason` (`unknown_exporter`, `rate_limited`, `decode_error`, `template_missing`, `bus_unavailable`, `stream_full`) | Pérdidas en ingesta (nombres de razón alineados con [`architecture.md`](architecture.md) §10.1/§10.3) |
 | `horus_flows_exporters_active` | gauge | `protocol` | Exportadores vistos en los últimos 5 min |
 | `horus_flows_ingest_lag_seconds` | histogram | — | Desde recepción del datagrama hasta *commit* en ClickHouse (SLO) |
 | `horus_flows_clickhouse_insert_rows_total` / `_batch_duration_seconds` | counter / histogram | `table` | Rendimiento de inserción |
@@ -124,7 +129,8 @@ interfaces.
 | `horus_events_published_total` / `horus_events_consumed_total` | counter | `service, subject_prefix, result` | Tráfico de eventos |
 | `horus_events_processing_duration_seconds` | histogram | `service, consumer` | Coste de procesamiento |
 | `horus_events_dlq_total` | counter | `service, consumer` | Mensajes enviados a *dead letter* |
-| `horus_outbox_pending` / `horus_outbox_oldest_age_seconds` | gauge | `service` | Outbox atascado (NATS caído) |
+| `horus_outbox_pending` / `horus_outbox_oldest_age_seconds` | gauge | `service` | Outbox atascado (NATS caído). [`architecture.md`](architecture.md) lo llama `outbox_pending_count`; se adopta este nombre por la convención §2.1 |
+| `horus_wireguard_agent_reconcile_total` / `_last_success_timestamp_seconds` | counter / gauge | `result` | Reconciliación de `wireguard-agent` (cada 15 s) |
 | `horus_wireguard_peers{state}` | gauge | `state` (`handshake_recent` < 3 min, `stale`, `never`) | Salud de túneles (sin label por peer) |
 | `horus_alerts_notifications_total` | counter | `channel, result` | Entrega de notificaciones |
 | `horus_alerts_pipeline_latency_seconds` | histogram | — | Desde evento detectado a notificación |
@@ -176,7 +182,7 @@ minuto + contador en métricas).
 ### 3.3 Qué NUNCA se loguea
 
 - Contraseñas, hashes, secretos TOTP, códigos 2FA o de recuperación, tokens de reset.
-- Cookies, cabecera `Authorization`, JWT internos, API tokens, refresh tokens, `X-CSRF-Token`.
+- Cookies, cabecera `Authorization`, JWT internos, API tokens, refresh tokens, tickets de WebSocket (el reverse proxy redacta el query param `ticket`).
 - Credenciales de routers (communities SNMP, usuarios/claves v3, SSH/API), claves WireGuard
   privadas o *preshared*, KEK/DEK, claves de MinIO.
 - **IPs de abonados, `client_id` asociado a tráfico, destinos de flujos** (dato personal).
@@ -306,7 +312,11 @@ afectan al usuario (burn rate del SLO) y por pocas causas inminentes (disco, bac
 | `NATSStreamNearLimit` | uso de stream > 80 % de `max_bytes` | page |
 | `OutboxStuck` | `horus_outbox_oldest_age_seconds` > 300 | page |
 | `ServiceDown` | `up == 0` 2 min (servicios críticos: gateway, auth, devices) | page |
-| `PostgresDown` / `ClickHouseDown` / `RedisDown` / `MinIODown` / `NASUnreachable` | exporter/blackbox fallando 2 min | page |
+| `PostgresDown` / `ClickHouseDown` / `RedisDown` (Valkey) / `MinIODown` / `NASUnreachable` | exporter/blackbox fallando 2 min | page |
+| `PostgresWALArchiveFailing` | `pg_stat_archiver` con fallos continuos > 15 min | page |
+| `PostgresWALTooLarge` | tamaño de `pg_wal` > 20 GB **o** > 50 % del volumen (riesgo de [`architecture.md`](architecture.md) §10.5) | page |
+| `FlowsBufferHigh` | stream de flujos > 70 % de `max_bytes` (autonomía ante caída de ClickHouse) | page |
+| `RouterMassOffline` | > 50 % de routers `offline` con razón `tunnel_down` (caída del hub WG) | page |
 | `DiskWillFillIn24h` | `predict_linear` del FS de datos | page |
 | `BackupTooOld` | `time() - horus_backup_last_success_timestamp_seconds > 26h` (PG) | page |
 | `AuditChainBroken` | verificación falla | page (seguridad) |
@@ -342,13 +352,15 @@ Dependencias imprescindibles por servicio (propuesta; Agente 1 la confirma en
 
 | Servicio | `/readyz` requiere | Degradable (reporta `degraded`, sigue *ready*) |
 |----------|--------------------|-----------------------------------------------|
-| `api-gateway` | Redis (sesiones; si cae, se usa fallback a `auth`/PostgreSQL → degradado) | Servicios aguas abajo (el gateway devuelve 503 por ruta, no deja de estar listo) |
+| `api-gateway` | JWKS de `auth` cargado (caché) | Valkey/Redis (revocación con fallback a `auth`, rate limit local); servicios aguas abajo (503 por ruta con circuit breaker, el gateway sigue listo) |
 | `auth` | PostgreSQL | Redis, NATS (auditoría queda en outbox) |
 | `devices` | PostgreSQL | NATS (outbox) |
-| `wireguard` | PostgreSQL, interfaz WG accesible | NATS |
-| `snmp` | NATS **o** buffer local con espacio; lista de objetivos cargada | PostgreSQL (usa la última lista cacheada) |
-| `flows` | NATS (si NATS cae, buffer acotado en memoria/disco; al llenarse → no ready y descarta con métrica) | ClickHouse (no lo usa directamente) |
-| `analytics`, `reporting` | ClickHouse, PostgreSQL | MinIO (`reporting`: exportaciones en cola) |
+| `wireguard` | PostgreSQL | NATS, `wireguard-agent` (cambios en cola de reconciliación) |
+| `wireguard-agent` | Interfaz WG presente en el kernel | `wireguard` (mantiene el último estado aplicado; nunca borra peers por no poder leer el deseado) |
+| `snmp` | Lista de objetivos cargada (snapshot de `devices` o caché local) | NATS (buffer en memoria), `devices` |
+| `flows` (collector) | Socket UDP abierto, snapshot de catálogo cargado | NATS (buffer acotado en memoria; al llenarse descarta con `reason=bus_unavailable`) |
+| `flows` (ingester) | NATS, ClickHouse | — |
+| `analytics` (+ módulo reporting) | PostgreSQL | ClickHouse (responde 503 `analytics_unavailable` en sus rutas, ver [`architecture.md`](architecture.md) §10.1), MinIO (exportaciones en cola) |
 | `alerts` | PostgreSQL, NATS | Canales de notificación externos |
 
 Además: `startupProbe` usa `/healthz` con margen amplio (migraciones/caches iniciales); el

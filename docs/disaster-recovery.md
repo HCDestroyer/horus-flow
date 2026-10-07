@@ -28,20 +28,24 @@ lo define el Agente 1 en `architecture.md`; aquí se enlaza.
 
 RPO = pérdida máxima de datos aceptable; RTO = tiempo máximo hasta volver a dar servicio.
 Valores propuestos para v1 (un nodo, docker compose); a validar con el product owner
-([`open-questions/security-ops.md`](open-questions/security-ops.md)).
+([`open-questions/security-ops.md`](open-questions/security-ops.md)). Son coherentes con
+[`architecture.md`](architecture.md) §10 (que delega aquí el RPO de PostgreSQL, "≤ 5 min") y con
+su disparador de HA ("RTO < 15 min" exige clúster/Kubernetes; v1 asume RTO de 1 h). Los RTO de
+esta tabla son de **restauración tras pérdida de datos**; ante una simple caída de proceso el
+reinicio automático da RTO de minutos y RPO 0 (ver §10 de architecture).
 
 | Componente | Contenido | Criticidad | RPO | RTO | Estrategia |
 |------------|-----------|------------|-----|-----|------------|
 | **PostgreSQL** | Usuarios, roles, inventario, credenciales cifradas, WireGuard, reglas, alertas, auditoría | Crítica | **≤ 5 min** (objetivo 1 min) | **≤ 1 h** | pgBackRest: full semanal + diferencial diario + archivo continuo de WAL |
 | **ClickHouse — agregados** (horarios, diarios) | Históricos de 6 meses a 5 años | Alta | ≤ 24 h | ≤ 4 h (servicio analítico degradado mientras tanto) | clickhouse-backup incremental diario a MinIO |
-| **ClickHouse — flujo crudo** | 7–30 días de detalle | Media | ≤ 24 h (aceptable perder el día; se recalcula lo posible) | ≤ 8 h, o "arrancar vacío" en < 1 h | Incluido en clickhouse-backup diario **opcional** según volumen; el archivo a MinIO del Sprint 13 cubre lo antiguo |
+| **ClickHouse — flujo crudo** | 14 días por defecto (rango 7–30, [`database.md`](database.md)) | Media | ≤ 24 h (aceptable perder el día; se recalcula lo posible) | ≤ 8 h, o "arrancar vacío" en < 1 h | Incluido en clickhouse-backup diario **opcional** según volumen; durante caídas de ClickHouse el stream de NATS actúa de buffer (autonomía en [`architecture.md`](architecture.md) §10.1) |
 | **NATS JetStream** | Eventos en tránsito, estado de consumidores | Media (es *buffer*, no fuente de verdad) | Mensajes no confirmados en el último segundo (fsync) | ≤ 15 min | **No** se respalda; streams y consumidores declarados como código; los productores usan outbox e idempotencia |
-| **Redis** | Caché, sesiones (caché), rate limiting, locks | Baja | N/A (se acepta pérdida total) | ≤ 15 min | Sin backup; fuente de verdad de sesiones en PostgreSQL |
-| **MinIO / NAS** | Reportes exportados, archivo de flujos, backups, anclas de auditoría | Alta | ≤ 24 h para la copia offsite | ≤ 24 h (archivo); backups ya deben existir offsite | Versionado + Object Lock en backups + replicación/mirror offsite |
+| **Valkey/Redis** | Caché, revocación de sesiones (caché), rate limiting | Baja | N/A (se acepta pérdida total) | ≤ 15 min | Sin backup; fuente de verdad de sesiones en PostgreSQL ([ADR-0009](adr/0009-redis.md)) |
+| **MinIO / NAS** | Reportes exportados, archivo de flujos, backups, anclas de auditoría | Alta | ≤ 24 h para la copia offsite | ≤ 24 h (archivo); backups ya deben existir offsite | Versionado + Object Lock (governance en backups, compliance en auditoría) + replicación/mirror offsite |
 | **Configuración y código** | Compose, configs, dashboards, reglas, migraciones | Alta | 0 (Git) | ≤ 1 h (redeploy) | Git en GitHub + imágenes firmadas en GHCR |
 | **Secretos** | KEK, claves de firma, contraseñas de despliegue | **Crítica** | 0 | ≤ 1 h | SOPS+age en repo de despliegue; KEK con copia offline doble ([`security.md`](security.md) §8.3) |
 | **Prometheus / Loki / Tempo** | Telemetría de plataforma | Baja | Se acepta pérdida | ≤ 1 h (arranca vacío) | Sin backup; dashboards/reglas en Git |
-| **WireGuard (estado en host)** | Interfaz y peers en kernel | Alta | 0 (se reconstruye desde PostgreSQL) | ≤ 15 min | `wireguard` reconcilia la interfaz desde la BD al arrancar |
+| **WireGuard (estado en host)** | Interfaz y peers en kernel | Alta | 0 (se reconstruye desde PostgreSQL) | ≤ 15 min | `wireguard-agent` reconcilia la interfaz desde el estado deseado de `wireguard` (BD) al arrancar y cada 15 s |
 
 RTO global de "plataforma usable" (login, inventario, WireGuard, SNMP) tras pérdida total del
 servidor: **≤ 4 h** con hardware de reemplazo disponible (pregunta abierta sobre hardware).
@@ -57,8 +61,8 @@ paralelos, múltiples repositorios, restauración *point-in-time* (PITR) y `veri
 - `archive_mode=on`, `archive_command` vía pgBackRest (`archive-async=y`),
   `archive_timeout=60` → RPO ≈ 1 min incluso con poca escritura.
 - Repositorios:
-  - `repo1`: MinIO (S3) bucket `horus-backups/postgres`, cifrado `aes-256-cbc` de pgBackRest,
-    versionado + Object Lock 35 días.
+  - `repo1`: MinIO (S3) bucket `horus-backup-postgres` ([`storage.md`](storage.md) §4.2), cifrado
+    `aes-256-cbc` de pgBackRest, versionado + Object Lock **governance** 35 días.
   - `repo2`: copia offsite (S3 en la nube o segundo sitio), credenciales separadas.
 - Calendario: full domingo 02:00, diferencial diario 02:00, WAL continuo.
   Retención: 4 full (≈ 1 mes de PITR) en `repo1`; 12 semanales en `repo2`.
@@ -72,7 +76,7 @@ paralelos, múltiples repositorios, restauración *point-in-time* (PITR) y `veri
 ### 3.2 ClickHouse — clickhouse-backup (Altinity)
 
 - Backup **incremental diario** de las tablas de agregados y dimensiones a MinIO
-  (`horus-backups/clickhouse`), full semanal; retención 4 semanas en `repo1`, mensual offsite.
+  (`horus-backup-clickhouse`, Object Lock governance 35 días), full semanal; retención 4 semanas en `repo1`, mensual offsite.
 - Tablas de flujo crudo: decisión por volumen (ver [`storage.md`](storage.md)): si el volumen
   diario < 50 GB comprimido, se incluyen; si no, se acepta RPO de pérdida de crudo y la
   protección es el archivo del Sprint 13 (`ClickHouse → Archive → MinIO → NAS`) por partición
@@ -98,7 +102,7 @@ En su lugar:
 - Si un stream concreto llegara a ser fuente de verdad (no previsto), `nats stream backup`
   diario para ese stream.
 
-### 3.4 Redis
+### 3.4 Valkey/Redis
 
 Sin backup. `appendonly no`; RDB opcional solo para acelerar el *warm-up*. Al perderse: los
 usuarios conservan sesión (se rehidrata desde PostgreSQL), los contadores de rate limit se
@@ -106,8 +110,9 @@ reinician, los locks expiran.
 
 ### 3.5 MinIO / NAS
 
-- **Versionado** en todos los buckets; **Object Lock (compliance)** en `horus-backups` y
-  `audit-anchors`.
+- **Versionado** y Object Lock según [`storage.md`](storage.md) §4.2: **governance** 35 días en
+  `horus-backup-postgres` y `horus-backup-clickhouse` (rol *break-glass* custodiado puede
+  liberar), **compliance** en `horus-audit` (exportaciones y anclas de la cadena de auditoría).
 - **Lifecycle** alineado con la retención (Sprint 13): archivo de flujo crudo y reportes
   caducan según política; versiones no actuales expiran a los 30 días.
 - **Offsite:** replicación de bucket (*site replication*/*bucket replication*) o
@@ -233,9 +238,15 @@ Cada alerta `page` enlaza a su sección (p. ej. `docs/disaster-recovery.md#rb-01
   pausados** (RPO en riesgo). Operación en tiempo real intacta si los datos primarios están en
   disco local (principio 3).
 - **Mitigación:** los jobs de archivado reintentan con backoff y no borran datos de ClickHouse
-  hasta confirmar archivo; el archivado de WAL de PostgreSQL usa `archive-push-queue-max` para
-  no llenar el disco (si se supera, se pierde PITR — vigilar disco); activar destino de backup
-  alternativo (offsite directo) si la caída supera 12 h.
+  hasta confirmar archivo. **Riesgo principal** (señalado en [`architecture.md`](architecture.md)
+  §10.5): el WAL no archivado se acumula en `pg_wal` y puede llenar el disco y **detener
+  PostgreSQL**. Defensas, en orden: (1) alertas `PostgresWALArchiveFailing` (> 15 min) y
+  `PostgresWALTooLarge` (> 20 GB o > 50 % del volumen); (2) `archive-async=y` con
+  `archive-push-queue-max` (p. ej. 30 % del volumen de datos) en pgBackRest: al superarse,
+  pgBackRest descarta WAL y declara el archivado como correcto, **rompiendo la cadena PITR** pero
+  salvando la disponibilidad — tras ello es obligatorio un backup completo; (3) volumen de
+  `pg_wal` dimensionado para ≥ 24 h de WAL a la tasa normal; (4) si la caída supera 12 h,
+  apuntar `repo2` (offsite) como destino de archivado temporal. Nunca borrar WAL a mano.
 - **Recuperación:** restablecer NAS; jobs retoman; verificar que el WAL pendiente se archivó;
   lanzar backup completo de PostgreSQL inmediato.
 - **Verificación:** `BackupTooOld` resuelto; mirror offsite al día.
@@ -251,16 +262,16 @@ Cada alerta `page` enlaza a su sección (p. ej. `docs/disaster-recovery.md#rb-01
 - **Recuperación:** (a) proceso caído → reiniciar; (b) disco lleno por WAL → resolver archivado
   (RB-05) o liberar espacio, nunca borrar WAL a mano; (c) corrupción/pérdida de volumen →
   `pgbackrest restore` (PITR al último WAL disponible), verificar, rotar si se sospecha
-  compromiso; (d) tras restaurar: reconciliar `wireguard` (la interfaz se ajusta a la BD) y
+  compromiso; (d) tras restaurar: reconciliar `wireguard-agent` (la interfaz se ajusta al estado deseado restaurado; revisar peers creados después del punto de restauración) y
   revisar outboxes.
 - **Verificación:** smoke queries de §4, login, CRUD de prueba, cadena de auditoría íntegra.
 
-### RB-07 — Redis caído
+### RB-07 — Valkey/Redis caído
 
 - **Síntomas:** latencia mayor en el gateway, `RedisDown`.
-- **Impacto:** bajo: sesiones se validan contra `auth`/PostgreSQL (degradado); rate limiting
-  cae a modo local en memoria por instancia (más permisivo); locks distribuidos no disponibles
-  → los jobs que los requieren se pausan.
+- **Impacto:** bajo: la revocación se consulta a `auth` por gRPC con caché de 30 s (una sesión
+  revocada puede aceptarse hasta 30 s más); rate limiting cae a modo local en memoria por
+  instancia (más permisivo); cachés de analytics frías.
 - **Recuperación:** reiniciar; la caché se repuebla sola.
 - **Verificación:** hit ratio recuperado, latencia normal.
 

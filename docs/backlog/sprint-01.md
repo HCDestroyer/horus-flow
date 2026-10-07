@@ -18,7 +18,7 @@
 | S01-06 | Plantilla de servicio Go | B | backend | 3 | Must | S01-03 |
 | S01-07 | api-gateway: enrutado, errores, CORS, rate limit | B | backend | 5 | Must | S01-06 |
 | S01-08 | auth: login con Argon2id y emisión de tokens | B | backend, security | 5 | Must | S01-06, S01-10 |
-| S01-09 | auth: refresh, logout y `GET /me` | B | backend, security | 3 | Must | S01-08 |
+| S01-09 | auth: refresh, logout y `GET /api/v1/me` | B | backend, security | 3 | Must | S01-08 |
 | S01-10 | Migraciones PostgreSQL y usuario semilla | D | data | 3 | Must | S01-01 |
 | S01-11 | devices: esqueleto con health y `GET /routers` vacío | B | backend | 2 | Must | S01-06 |
 | S01-12 | WebSocket base en api-gateway | B | backend | 3 | Should | S01-07, S01-08 |
@@ -55,9 +55,14 @@ en un entorno idéntico al de mis compañeros.
    PostgreSQL y MinIO persisten.
 4. **Dado** que un puerto ya está ocupado, **cuando** arranco, **entonces** puedo cambiarlo por
    variable de entorno sin editar el compose.
+5. **Dado** el primer arranque, **cuando** se inicializa MinIO, **entonces** se crean los buckets de
+   [`../storage.md`](../storage.md) §4 con versionado y, en los que lo requieren (auditoría,
+   backups), **object lock habilitado desde la creación** (no se puede activar después); un test
+   verifica que un objeto bloqueado no se puede borrar.
 
 **Notas:** archivos en `infrastructure/docker/` y `deployments/`. Buckets iniciales de MinIO según
-[`../storage.md`](../storage.md). ClickHouse **no** entra hasta S5/S6 (ver C-03 del roadmap).
+[`../storage.md`](../storage.md). ClickHouse **no** entra en S1; llega en S5 si se aprueba C-03 del
+roadmap, o en S6.
 
 ### S01-02 · Variables de entorno y secretos
 - **Épica:** EP-01, EP-T2 · **Área:** infra, security · **Pts:** 3
@@ -85,7 +90,9 @@ desplegable.
    `lint → unit test → integration test → security check → build` (`vision.md` §12) solo para los
    paquetes afectados (filtro por rutas del monorepo).
 2. **Dado** Go, **cuando** corre el lint, **entonces** usa `golangci-lint` con la configuración de
-   [`../conventions.md`](../conventions.md); **dado** el frontend, ESLint + `vue-tsc` + Prettier.
+   [`../conventions.md`](../conventions.md); **dado** el frontend, ESLint + `vue-tsc` + Prettier;
+   **dado** una migración SQL nueva, `squawk` la analiza y falla ante operaciones que bloquean
+   tablas ([`../database.md`](../database.md) D6).
 3. **Dado** un fallo de test o lint, **cuando** termina el pipeline, **entonces** el merge queda
    bloqueado por *branch protection*.
 4. **Dado** un pipeline completo sin caché, **cuando** se mide, **entonces** tarda < 15 min.
@@ -182,19 +189,21 @@ plataforma de forma segura.
    familia de la sesión (detección de robo) y responde 401.
 3. **Dado** una sesión activa, **cuando** llama a `POST /api/v1/auth/logout`, **entonces** la
    sesión se revoca y el refresh token deja de funcionar.
-4. **Dado** un usuario autenticado, **cuando** llama a `GET /api/v1/auth/me`, **entonces** recibe
+4. **Dado** un usuario autenticado, **cuando** llama a `GET /api/v1/me`, **entonces** recibe
    `id`, `username`, `display_name`, `email`, `locale`, `roles` y la lista de `permissions`
    efectivos (la UI la usa para navegación, [`../frontend.md`](../frontend.md) §9).
 
 ### S01-10 · Migraciones y usuario semilla
 - **Épica:** EP-01, EP-03 · **Área:** data · **Pts:** 3 · **Flujo:** Datos
 
-1. **Dado** una base vacía, **cuando** arranca auth, **entonces** se aplican las migraciones
-   versionadas de usuarios, roles, permisos y sesiones de [`../database.md`](../database.md).
+1. **Dado** una base vacía, **cuando** se ejecuta `auth migrate`, **entonces** se aplican con
+   **goose** (SQL embebido, esquema `auth`, tabla `auth.goose_db_version`) las migraciones de
+   usuarios, roles, permisos y sesiones de [`../database.md`](../database.md).
 2. **Dado** el primer arranque, **cuando** no hay usuarios, **entonces** se crea un administrador
    con contraseña tomada de un secreto (nunca por defecto en código) y marcado para cambio en el
    primer login.
-3. **Dado** una migración, **cuando** corre CI, **entonces** se prueba *up* y *down*.
+3. **Dado** una migración, **cuando** corre CI, **entonces** se aplica sobre base vacía y sobre la
+   versión anterior (forward-only en producción; *down* solo en desarrollo, según `database.md`).
 
 ### S01-11 · devices: esqueleto
 - **Épica:** EP-05 · **Área:** backend · **Pts:** 2 · **Servicio:** devices

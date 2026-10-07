@@ -122,8 +122,10 @@ func run(ctx context.Context, getenv func(string) string) error {
 - Nombres: `HORUS_<CLAVE>` en mayúsculas; las comunes son idénticas en todos los servicios:
   `HORUS_ENV` (`dev|staging|prod`), `HORUS_LOG_LEVEL`, `HORUS_LOG_FORMAT` (`json|text`),
   `HORUS_GRPC_ADDR`, `HORUS_HTTP_ADDR`, `HORUS_ADMIN_ADDR`, `HORUS_POSTGRES_DSN`,
-  `HORUS_NATS_URL`, `HORUS_REDIS_URL`, `HORUS_CLICKHOUSE_DSN`, `HORUS_S3_ENDPOINT`, más las
-  `OTEL_*` estándar.
+  `HORUS_NATS_URL`, `HORUS_REDIS_URL` (Valkey, protocolo compatible), `HORUS_CLICKHOUSE_DSN`,
+  `HORUS_S3_ENDPOINT`, las de mTLS `HORUS_TLS_CA_FILE`, `HORUS_TLS_CERT_FILE`,
+  `HORUS_TLS_KEY_FILE` (gRPC interno, [`security.md`](security.md) §5.3), más las `OTEL_*`
+  estándar.
 - Secretos: variante `_FILE` (p. ej. `HORUS_POSTGRES_PASSWORD_FILE=/run/secrets/devices_pg_password`)
   que tiene prioridad; nunca secretos en la línea de comandos ni en logs.
 - Librería: `github.com/caarlos0/env/v11` (tags `env:"..." envDefault:"..." required`) +
@@ -151,13 +153,35 @@ func run(ctx context.Context, getenv func(string) string) error {
 - Concurrencia acotada (worker pools, semáforos) en colectores; nunca una goroutine por
   paquete/router sin límite.
 
-### 2.6 Persistencia y librerías base
+### 2.6 Tiempo, identificadores y contadores
+
+- Todo en **UTC**. En Go, `time.Time` siempre normalizado con `.UTC()` antes de persistir o
+  serializar; prohibido `time.Local`.
+- JSON/API: RFC 3339 con milisegundos y `Z` (`2026-10-07T22:31:04.512Z`) — formato exacto lo fija
+  el Agente 3 en [`api.md`](api.md).
+- PostgreSQL: `timestamptz`.
+- ClickHouse: **validado** el criterio del Agente 2 ([`database.md`](database.md)):
+  `DateTime64(3, 'UTC')` en tablas crudas/eventos (orden y deduplicación finos) y
+  `DateTime('UTC')` (resolución de segundos, 4 bytes) en columnas de *bucket* de tablas agregadas
+  (1 min, 1 h, 1 día), porque un bucket siempre cae en segundo exacto: ahorra espacio y acelera
+  `GROUP BY` sin pérdida de información. Regla para el código: al consultar o unir crudo con
+  agregados, convertir explícitamente (`toStartOfHour(ts)` devuelve `DateTime`); en Go ambos se
+  mapean a `time.Time` UTC.
+- IDs: UUIDv7 generados en la aplicación (`uuid.NewV7`) salvo que [`database.md`](database.md)
+  indique lo contrario.
+- Contadores de bytes/paquetes: `uint64` en Go, `UInt64` en ClickHouse; nunca `float` para
+  volúmenes.
+
+### 2.7 Persistencia y librerías base
 
 - PostgreSQL: `jackc/pgx/v5` (+ `sqlc` para generar código tipado, recomendado); sin ORM.
 - ClickHouse: `ClickHouse/clickhouse-go/v2` con inserción por lotes.
 - NATS: `nats-io/nats.go` (API `jetstream`) envuelto por `packages/go/natsx`.
 - HTTP: `go-chi/chi/v5` (vision §2); gRPC: `google.golang.org/grpc` + `buf` para generación.
 - Logs: `log/slog`. UUIDv7: `github.com/google/uuid` (`uuid.NewV7`).
+- Caché/rate limit: `valkey-io/valkey-go` o `redis/go-redis/v9` (ambos compatibles con Valkey).
+- mTLS gRPC: `credentials.NewTLS` con `tls.Config{MinVersion: tls.VersionTLS13}` y recarga de
+  certificados en caliente (`GetCertificate`) desde `packages/go/grpcx`.
 - Versión de Go: la última estable menor (fijada en `go.mod` con `toolchain`), actualizada por
   Renovate.
 
@@ -182,7 +206,6 @@ apps/frontend/
 │   │   ├── charts/             # componentes ECharts (carga diferida)
 │   │   └── <dominio>/          # devices/, wireguard/, traffic/ …
 │   ├── composables/            # useDevices(), useRealtime(), usePermissions() …
-│   ├── stores/                 # Pinia (solo casos de §3.4)
 │   ├── middleware/             # auth.global.ts, permission.ts
 │   ├── plugins/                # api client, otel, realtime
 │   └── utils/
@@ -201,13 +224,15 @@ derivarse del OpenAPI).
 
 ### 3.4 ¿Cuándo usar Pinia?
 
-Solo para estado **global, compartido entre páginas y de larga vida**:
-- `useSessionStore`: usuario actual, permisos efectivos, token CSRF.
-- `useRealtimeStore`: estado de la conexión WebSocket y suscripciones activas.
-- Preferencias de UI persistentes (tema, sitio seleccionado), si se comparten en varias vistas.
+Alineado con [`frontend.md`](frontend.md) §13: **sin Pinia** mientras el estado compartido se
+limite a sesión (usuario, permisos efectivos, access token en memoria — nunca persistido, ver
+[`security.md`](security.md) §5.1), estado del sistema y conexión WebSocket; se resuelve con
+composables sobre `useState`. Pinia se introduce (con ADR breve) solo si aparece estado global
+complejo con muchas mutaciones cruzadas entre páginas (p. ej. un editor multi-paso del catálogo
+de clasificación) o si se necesitan sus devtools/plugins.
 
 Todo lo demás (listas, detalles, filtros de una página) vive en composables o en el estado de
-la ruta (query params). Regla: si un store solo lo usa una página, no es un store.
+la ruta (query params). Regla: si un estado solo lo usa una página, no es global.
 
 ### 3.5 Cliente API generado
 
@@ -215,12 +240,16 @@ la ruta (query params). Regla: si un store solo lo usa una página, no es un sto
 - `openapi-typescript` genera tipos en `shared/api/schema.d.ts`; `openapi-fetch` da un cliente
   tipado de ~6 KB sin runtime pesado. Script `pnpm api:generate`; CI falla si el archivo
   generado no coincide (`git diff --exit-code`).
-- Plugin `api` configura `credentials: 'include'`, añade `X-CSRF-Token`, `X-Request-Id`
-  opcional, y maneja 401 (redirige a login) y 403 (mensaje), Problem Details → toast.
+- Plugin `api` añade `Authorization: Bearer <access token>` y `X-Request-Id` opcional; ante 401
+  llama una sola vez a `POST /api/v1/auth/refresh` (con `credentials: 'include'` y
+  `X-Requested-With: horus`, deduplicando llamadas concurrentes entre peticiones y pestañas con
+  `BroadcastChannel`/Web Locks) y reintenta; si falla, redirige a login. 403 → mensaje;
+  Problem Details → toast.
 
 ### 3.6 WebSocket
 
-- Una **única conexión por pestaña** gestionada por `plugins/realtime` + `useRealtime()`.
+- Una **única conexión por pestaña** gestionada por `plugins/realtime` + `useRealtime()`,
+  autenticada con ticket de un uso y renovación en banda del token ([`api.md`](api.md) §4).
 - Protocolo de mensajes y temas: definido por el Agente 3 en [`api.md`](api.md)/[`events.md`](events.md).
 - Reconexión con backoff exponencial + jitter (1 s → 30 s máx.), ping/pong cada 25 s.
 - Tras reconectar: re-suscribir y **resincronizar por REST** (los eventos perdidos durante la
@@ -381,9 +410,10 @@ para un PR típico. Jobs agregadores `ci-ok` como único check requerido en la p
   ```
   Un Dockerfile genérico parametrizado por `SERVICE` en `infrastructure/docker/go.Dockerfile`
   es preferible a 12 copias.
-- Frontend: build con `node:<lts>-alpine` + pnpm → imagen final con Caddy no-root sirviendo
-  `/.output/public` con cabeceras de seguridad (CSP, HSTS) — o los estáticos se sirven
-  directamente desde el reverse proxy principal.
+- Frontend: build con `node:<lts>-alpine` + pnpm → imagen final mínima no-root que sirve
+  `/.output/public` (p. ej. `nginxinc/nginx-unprivileged` o un servidor estático en Go) detrás de
+  Traefik, que añade cabeceras de seguridad (CSP, HSTS) ([ADR-0012](adr/0012-nuxt4-nuxt-ui.md),
+  [ADR-0013](adr/0013-api-gateway-propio.md)).
 - Sin shell ni gestor de paquetes en la imagen final; healthcheck de compose mediante el propio
   binario (`/<servicio> healthcheck` que llama a `/healthz`), ya que distroless no tiene `curl`.
 - Etiquetas OCI (`org.opencontainers.image.source`, `.revision`, `.version`, `.created`).

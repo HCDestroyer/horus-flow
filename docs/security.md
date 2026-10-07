@@ -19,13 +19,14 @@ de datos personales. Este documento fija el modelo de amenazas y los controles m
 | S1 | Proveedor de identidad | Servicio `auth` propio en Go; modelo de identidad compatible con OIDC (claims `sub`, `amr`, `acr`, `sid`). Endpoints de OP (OIDC Provider) con la librería certificada `zitadel/oidc` solo cuando haya un cliente externo (p. ej. SSO a Grafana). | Federación con IdP corporativo del ISP (Entra ID / Google Workspace) como *relying party*. Keycloak/Zitadel solo si aparecen requisitos multi-tenant/SAML. |
 | S2 | Contraseñas | Argon2id `m=64 MiB, t=3, p=1`, sal 16 B, salida 32 B, formato PHC; *pepper* opcional vía HMAC. | Recalibrar en Sprint 15 (objetivo 150–400 ms por hash). |
 | S3 | 2FA | TOTP (RFC 6238) obligatorio para roles privilegiados; 10 códigos de recuperación. | WebAuthn/passkeys (después de Sprint 2). |
-| S4 | Sesión de navegador | **Sesión opaca** en cookie `__Host-hf_sid` (HttpOnly, Secure, SameSite=Lax), patrón BFF en el `api-gateway`. Fuente de verdad en PostgreSQL, caché en Redis. | Igual. |
-| S5 | Identidad interna | El gateway intercambia la sesión por un **JWT interno** EdDSA (Ed25519) de 5 min que viaja por gRPC (`authorization`). Los eventos NATS llevan `actor`, nunca tokens. | mTLS entre servicios al pasar a multi-host/Kubernetes. |
-| S6 | Refresh tokens | Solo para clientes no-navegador (CLI, integraciones): refresh rotativo con detección de reutilización por familia. | — |
+| S4 | Tokens del navegador | **Access JWT corto (10 min, EdDSA, emitido por `auth`) en memoria de la SPA, enviado como `Authorization: Bearer`** + **refresh opaco rotativo con detección de reutilización** en cookie `__Secure-hf_rt` (`HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth`). Coincide con ADR-0012 y `api.md`. CSP estricta como defensa principal frente a XSS. | Reevaluar cookies HttpOnly para el access token si una auditoría lo pide. |
+| S5 | Revocación e identidad interna | Cada access token lleva `sid`. El gateway valida firma (JWKS de `auth`) y revocación (`session_revoked:<sid>` en Valkey/Redis → fallback gRPC a `auth`, caché 30 s). **Fuente de verdad: `auth.sessions` en PostgreSQL.** El mismo JWT viaja por gRPC y **cada servicio lo revalida** (firma, `exp`, `aud`). gRPC interno con **mTLS** desde el Sprint 1. Los eventos NATS llevan `actor`, nunca tokens. | Certificados de corta vida automatizados (step-ca) y/o service mesh en Kubernetes. |
+| S6 | Sesiones revocables | Tabla `sessions` (PG) + familias de refresh; revocar = marcar sesión + publicar `horus.auth.session.revoked` (gateway cierra WebSockets). Ventana máxima de aceptación tras revocar: 30 s si Valkey/Redis está caído; inmediata si no. | — |
 | S7 | Autorización | RBAC + ACL por alcance (`global`, `site`, `router_group`). Gateway: autenticación + permiso grueso por ruta. Servicio dueño: permiso + filtrado por alcance (defensa en profundidad). | ABAC puntual si hace falta. |
 | S8 | Auditoría | Tabla append-only en PostgreSQL con cadena de hashes; escritura vía outbox + NATS hacia `auth`; anclaje diario del hash en MinIO con Object Lock. | Exportación a SIEM. |
-| S9 | Secretos de routers/WireGuard | *Envelope encryption* AES-256-GCM con AAD; KEK en v1 = clave maestra en archivo (Docker secret); solo `devices` y `wireguard` la cargan. | OpenBao (Transit) como KMS en Sprint 14–16. SOPS+age para secretos de despliegue desde Sprint 1. |
+| S9 | Secretos de routers/WireGuard | *Envelope encryption* AES-256-GCM con AAD (DEK por secreto, KEK fuera de la BD); borrado = *crypto-shredding*; KEK en v1 = clave maestra en archivo (Docker secret); solo `devices`, `wireguard`, `auth` y `alerts` (canales) cargan su KEK. Columna `secret_ref` reservada para gestor externo. | OpenBao (Transit) como KMS en Sprint 14–16. SOPS+age para secretos de despliegue desde Sprint 1. |
 | S10 | Cadena de suministro | govulncheck, osv-scanner, Trivy, gitleaks, Syft (SBOM), cosign keyless + attestations de GitHub, Renovate, Actions fijadas por SHA. | SLSA nivel 3. |
+| S11 | Almacén clave-valor | **Valkey** (fork BSD-3 de Redis, compatible con el protocolo) en lugar de Redis 7.4+ (licencia RSAL/SSPL/AGPL); en este documento "Redis" designa ese almacén compatible ([ADR-0009](adr/0009-redis.md)). | — |
 
 ## 1. Activos y actores
 
@@ -35,7 +36,7 @@ de datos personales. Este documento fija el modelo de amenazas y los controles m
 |--------|-----------|------------|--------------------------|
 | Credenciales de routers (SNMP v2c/v3, SSH/API) | PostgreSQL (`devices`), cifradas | Crítica | Control total de la red del ISP |
 | Claves privadas WireGuard (servidor y peers) | PostgreSQL (`wireguard`), cifradas; host WG | Crítica | Acceso a la red de gestión |
-| KEK / clave maestra, clave de firma de JWT interno | Archivo secreto / OpenBao | Crítica | Descifrado de todo lo anterior / suplantación |
+| KEK / clave maestra, clave de firma de JWT (`auth`), CA interna de mTLS | Archivo secreto / OpenBao | Crítica | Descifrado de todo lo anterior / suplantación |
 | Metadatos de tráfico de abonados (flujos) | ClickHouse, MinIO/NAS | Alta (dato personal) | Filtración de hábitos de navegación de miles de clientes |
 | Usuarios, hashes, secretos TOTP, sesiones | PostgreSQL (`auth`), Redis | Alta | Toma de cuentas |
 | Registro de auditoría | PostgreSQL + anclas en MinIO | Alta | Pérdida de trazabilidad / encubrimiento |
@@ -58,7 +59,7 @@ de datos personales. Este documento fija el modelo de amenazas y los controles m
 
 ```
  Internet / red corporativa ISP
-        │ 443 (HTTPS, WSS)            ← Zona EDGE: reverse proxy (Caddy), WAF básico, rate limit
+        │ 443 (HTTPS, WSS)            ← Zona EDGE: reverse proxy (Traefik, ADR-0013), rate limit
  ┌──────▼───────┐
  │ reverse proxy│
  └──────┬───────┘
@@ -72,7 +73,7 @@ de datos personales. Este documento fija el modelo de amenazas y los controles m
                        └───────────────────────────▲──────────────────────────┘
                                                    │
  ┌─────────────────────────────────────────────────┴──────────────────────┐
- │ snmp (polling saliente) · flows (UDP 2055/4739/6343) · wireguard (UDP) │  Zona MGMT
+ │ snmp (polling saliente) · flows (UDP 2055/4739/6343) · wireguard-agent │  Zona MGMT
  └───────────────────────────────▲────────────────────────────────────────┘
                                  │ VLAN/VRF de gestión o túneles WireGuard
                          Routers del ISP
@@ -92,9 +93,9 @@ service, **E**levation of privilege. "Ctrl" = control previsto; "Sprint" = cuán
 | STRIDE | Amenaza | Control | Sprint |
 |--------|---------|---------|--------|
 | S | Phishing / sitio clonado que captura credenciales | TOTP/WebAuthn; HSTS con preload; dominio propio | 2 |
-| T | XSS inyecta script que actúa con la sesión del usuario | Vue escapa por defecto; prohibido `v-html` sin sanitizar (DOMPurify) — regla ESLint `vue/no-v-html` como error; CSP estricta `default-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'`; cookies HttpOnly (el JS nunca ve el token) | 1 |
+| T | XSS inyecta script que actúa con la sesión del usuario | Vue escapa por defecto; prohibido `v-html` sin sanitizar (DOMPurify) — regla ESLint `vue/no-v-html` como error; CSP estricta `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'none'` (`'unsafe-inline'` solo en estilos, necesario para los estilos dinámicos de Nuxt UI/ECharts; ECharts renderiza en canvas y no necesita `unsafe-eval`; validar en Sprint 1 con el build real); refresh token en cookie HttpOnly (el JS no puede leerlo); access token de vida corta | 1 |
 | R | — | La auditoría vive en el backend | — |
-| I | Datos sensibles en `localStorage`, caché del navegador o URLs | Nada sensible en storage del navegador; `Cache-Control: no-store` en `/api/*`; nunca IPs de abonados ni tokens en query strings | 1 |
+| I | Datos sensibles en `localStorage`, caché del navegador o URLs | Access token solo en memoria; nada sensible en storage del navegador; `Cache-Control: no-store` en `/api/*`; nunca IPs de abonados ni tokens en query strings | 1 |
 | D | Consultas analíticas pesadas desde la UI | Límites de rango/tiempo y paginación en la API; rate limit por usuario | 9 |
 | E | Ocultar botones como "control de acceso" | La UI solo **refleja** permisos (`/api/v1/me` devuelve permisos efectivos); la decisión siempre es del backend | 2 |
 
@@ -102,9 +103,9 @@ service, **E**levation of privilege. "Ctrl" = control previsto; "Sprint" = cuán
 
 | STRIDE | Amenaza | Control | Sprint |
 |--------|---------|---------|--------|
-| S | Robo/fijación de sesión | Cookie `__Host-` + Secure + HttpOnly; rotación del ID de sesión en login y elevación (2FA); vinculación débil a User-Agent (alerta, no bloqueo) | 2 |
-| S | CSRF | SameSite=Lax + verificación de `Origin`/`Sec-Fetch-Site` + cabecera obligatoria `X-CSRF-Token` (token sincronizador ligado a la sesión) en métodos no seguros; WebSocket: validación estricta de `Origin` en el *upgrade* | 2 |
-| T | Manipulación de cabeceras de identidad (`X-User-Id`) por el cliente | El gateway **elimina** cualquier cabecera de identidad entrante; la identidad interna solo viaja como JWT firmado | 1 |
+| S | Robo/fijación de sesión o de tokens | Access token solo en memoria (TTL 10 min); refresh en cookie `__Secure-` HttpOnly SameSite=Strict; nueva sesión (`sid`) en login; refresh rotativo con detección de reutilización; vinculación débil a User-Agent (alerta, no bloqueo) | 2 |
+| S | CSRF / cross-site WebSocket hijacking | La API usa `Authorization: Bearer` (no cookies); `/auth/refresh` y `/auth/logout`: SameSite=Strict + `X-Requested-With: horus` + validación de `Origin`; WebSocket con ticket de un uso y `Origin` validado | 2 |
+| T | Manipulación de cabeceras de identidad (`X-User-Id`) por el cliente | El gateway **elimina** cualquier cabecera de identidad entrante; la identidad solo viaja como JWT firmado por `auth`, revalidado por cada servicio | 1 |
 | R | Acciones sin trazabilidad | `request_id` + `trace_id` en cada petición; auditoría de toda mutación | 2 |
 | I | Mensajes de error con trazas internas | Errores RFC 9457 genéricos (formato en [`api.md`](api.md)); detalles solo en logs | 1 |
 | D | Fuerza bruta, inundación HTTP/WS | Rate limit en Redis (token bucket): login 5/min por cuenta + 20/min por IP; API 600/min por sesión; máx. 5 WS por sesión; tamaño máx. de cuerpo 1 MiB (excepto subidas explícitas); timeouts de lectura/escritura | 1–2 |
@@ -126,7 +127,7 @@ service, **E**levation of privilege. "Ctrl" = control previsto; "Sprint" = cuán
 
 | STRIDE | Amenaza | Control | Sprint |
 |--------|---------|---------|--------|
-| S | Un servicio suplanta a otro / llamadas gRPC sin identidad | JWT interno verificado por interceptor gRPC común; credenciales separadas por servicio para PostgreSQL/NATS/ClickHouse/Redis | 1 |
+| S | Un servicio suplanta a otro / llamadas gRPC sin identidad | **mTLS** (identidad de servicio en el certificado, autorización por método gRPC según el *caller*) + JWT de usuario verificado por interceptor gRPC común; credenciales separadas por servicio para PostgreSQL/NATS/ClickHouse/Valkey | 1 |
 | T | SQL injection | Solo consultas parametrizadas (`pgx`, `clickhouse-go` con parámetros); linter `gosec` G201/G202 | 1 |
 | I | IDOR (acceder a router de otro sitio cambiando un UUID) | Filtrado por alcance ACL en el repositorio (cláusula `site_id = ANY($scopes)`), no solo en el handler; tests de autorización por endpoint | 3 |
 | D | Consulta ClickHouse sin límites | `max_execution_time`, `max_memory_usage`, `max_rows_to_read` por usuario de ClickHouse (perfil `readonly_api`) | 9 |
@@ -144,22 +145,28 @@ service, **E**levation of privilege. "Ctrl" = control previsto; "Sprint" = cuán
 | D | Inundación UDP agota CPU / llena NATS | Token bucket por exportador (p. ej. 50k registros/s, configurable); descarte temprano con métrica `horus_flows_packets_dropped_total{reason}`; buffer acotado; JetStream con límites de bytes por stream | 6 |
 | E | RCE en el colector da acceso a la red de gestión | Contenedor sin root, rootfs de solo lectura, `cap_drop: ALL` (solo `NET_BIND_SERVICE` si el puerto < 1024, p. ej. trap 162), sin acceso a la red DATA salvo NATS | 5–6 |
 
-### 3.6 WireGuard (`wireguard`)
+### 3.6 WireGuard (`wireguard` + `wireguard-agent`)
+
+Según [`architecture.md`](architecture.md), `wireguard` (plano de control, **sin privilegios**:
+estado deseado, claves, IPAM) está separado de `wireguard-agent` (mismo binario en modo agente,
+red del host y `CAP_NET_ADMIN`, aplica la config al kernel por netlink y lee handshakes). El
+agente solo expone gRPC `WireGuardAgent.ApplyDesiredState` autenticado por mTLS y solo acepta
+llamadas de `wireguard`.
 
 | STRIDE | Amenaza | Control | Sprint |
 |--------|---------|---------|--------|
 | S | Peer robado se conecta como un router legítimo | Rotación de claves; revocación inmediata; alerta si un peer hace handshake desde una IP de origen nueva; AllowedIPs `/32` estrictos por peer | 4 |
 | T | Modificación de AllowedIPs para alcanzar otras redes | Solo `wireguard.write`; validación de solapamientos; auditoría con diff | 4 |
 | R | — | Auditoría de alta/baja/rotación de peers | 4 |
-| I | Fuga de la clave privada del servidor | Clave privada cifrada en reposo; en el host solo en memoria del kernel vía `wgctrl` (netlink), sin archivo `wg0.conf` persistente en claro; claves privadas de peers: ver §8.4 | 4 |
+| I | Fuga de la clave privada del servidor | Clave privada cifrada en reposo; `wireguard-agent` la recibe por mTLS y la aplica al kernel vía `wgctrl` (netlink), sin archivo `wg0.conf` persistente en claro; claves privadas de peers: ver §8.4 | 4 |
 | D | Inundación del puerto UDP de WireGuard | WireGuard es silencioso ante paquetes no autenticados (cookies anti-DoS integradas); rate limit nftables | 4 |
-| E | Contenedor con `NET_ADMIN` usado para pivotar | `wireguard` es el **único** servicio con `NET_ADMIN`; sin otras capacidades; no expone API pública (solo gRPC interno); el frontend jamás ejecuta comandos (vision §Sprint 4) | 4 |
+| E | Contenedor con `NET_ADMIN` usado para pivotar | `wireguard-agent` es el **único** contenedor con `NET_ADMIN` (sin otras capacidades, sin acceso a PostgreSQL ni a la KEK); `wireguard` corre sin privilegios; el agente no expone API pública (solo gRPC mTLS desde `wireguard`); el frontend jamás ejecuta comandos (vision §Sprint 4) | 4 |
 
-### 3.7 Bases de datos y bus (PostgreSQL, ClickHouse, Redis, NATS)
+### 3.7 Bases de datos y bus (PostgreSQL, ClickHouse, Valkey/Redis, NATS)
 
 | STRIDE | Amenaza | Control | Sprint |
 |--------|---------|---------|--------|
-| S | Conexión sin autenticación | Contraseñas/llaves por servicio (scram-sha-256 en PG; usuarios ClickHouse; `ACL` de Redis 6+; usuarios NATS con nkeys) | 1 |
+| S | Conexión sin autenticación | Contraseñas/llaves por servicio (scram-sha-256 en PG; usuarios ClickHouse; `ACL` de Valkey/Redis; usuarios NATS con nkeys) | 1 |
 | T | Publicación de eventos falsos en NATS | Permisos de *subject* por usuario NATS: cada servicio solo publica en `horus.<su-dominio>.>` y se suscribe a lo que consume | 1 |
 | R | Borrado de auditoría | Ver §7 | 2 |
 | I | Lectura de volúmenes/backups | Cifrado de disco en el host (LUKS) recomendado; backups cifrados (pgBackRest `repo-cipher-type=aes-256-cbc`, clickhouse-backup + SSE en MinIO) | 1 / 13 |
@@ -170,8 +177,8 @@ service, **E**levation of privilege. "Ctrl" = control previsto; "Sprint" = cuán
 
 | STRIDE | Amenaza | Control | Sprint |
 |--------|---------|---------|--------|
-| S | Acceso con credenciales raíz de MinIO | Root solo para bootstrap; usuarios y políticas IAM por servicio (`reporting` → `reports/*`, backups → `backups/*`) | 1 |
-| T | Ransomware cifra/borra backups | Versionado + **Object Lock (modo compliance)** en el bucket de backups; copia offsite con credenciales distintas (3-2-1) | 13 |
+| S | Acceso con credenciales raíz de MinIO | Root solo para bootstrap; usuarios y políticas IAM por servicio y bucket (`horus-reports`, `horus-archive`, `horus-backup-*`, `horus-audit`) | 1 |
+| T | Ransomware cifra/borra backups | Versionado + **Object Lock governance 35 días** en `horus-backup-*` (rol *break-glass* custodiado para liberar) y **compliance** en `horus-audit` (ver [`storage.md`](storage.md) §4.2); credenciales de backup distintas de las de la app; copia offsite (3-2-1) | 13 |
 | I | Reportes exportados con datos personales accesibles | URLs prefirmadas de 15 min; buckets privados; SSE-S3/KMS | 12 |
 | D | NAS no responde → servicios bloqueados | Escrituras a MinIO asíncronas con reintento; ver [`disaster-recovery.md`](disaster-recovery.md) | 13–14 |
 | E | Acceso administrativo al NAS | NAS fuera de la red de usuarios; 2FA en su panel; cuenta de servicio dedicada | 1 |
@@ -254,80 +261,108 @@ por usuario; `amr=hwk`. Planificado para después del Sprint 2 (backlog del Agen
 
 ## 5. Sesiones y tokens
 
-### 5.1 Recomendación para la SPA Nuxt: sesión opaca + BFF en el gateway
+### 5.1 Recomendación para la SPA Nuxt: access JWT corto en memoria + refresh rotativo en cookie HttpOnly
 
 Opciones evaluadas:
 
-| | JWT de acceso corto + refresh rotativo en el navegador | Sesión opaca en cookie (BFF) |
-|---|---|---|
-| Revocación inmediata | No (hasta que expira el access token) salvo lista de revocación | Sí: borrar la sesión |
-| Exposición a XSS | Alta si el token está en JS; media con cookie HttpOnly | Baja (cookie HttpOnly, nada en JS) |
-| Complejidad en el cliente | Lógica de refresh, carreras entre pestañas | Ninguna |
-| Coste por petición | Verificación local | Búsqueda en Redis (~0,2 ms) |
-| Escalado | Sin estado | Redis compartido (ya está en el stack) |
+| | A. Access JWT en memoria JS + refresh en cookie HttpOnly | B. Access JWT + refresh, ambos en cookies HttpOnly | C. Sesión opaca en cookie (BFF puro) |
+|---|---|---|---|
+| Robo del token por XSS | El access token puede exfiltrarse y usarse hasta su `exp` (10 min) | No exfiltrable (el XSS solo actúa mientras la página está abierta) | No exfiltrable |
+| CSRF | No aplica a la API (cabecera `Authorization`); solo `/auth/refresh` necesita defensa | Toda mutación necesita token CSRF + `Origin` | Toda mutación necesita token CSRF + `Origin` |
+| Validación en gateway y servicios | Local (JWKS) | Local (JWKS) | Búsqueda en caché/PG por petición; necesita un token interno aparte para los servicios |
+| Funciona con PostgreSQL caído ([`architecture.md`](architecture.md) §10.6) | Sí, hasta `exp` | Sí, hasta `exp` | Solo si la sesión está en caché |
+| Clientes no-navegador | Mismo mecanismo | Necesita variante con cabecera | Necesita variante |
+| Revocación | Por `sid` (caché de revocados) | Por `sid` | Inmediata |
 
-**Decisión (S4/S5):** la SPA nunca maneja tokens. El `api-gateway` actúa como BFF:
+**Decisión (S4): opción A**, que es además la que ya asumen [ADR-0012](adr/0012-nuxt4-nuxt-ui.md),
+[`architecture.md`](architecture.md) y [`api.md`](api.md) §1.11. B ofrece algo más de protección
+frente a la exfiltración del access token, pero obliga a CSRF en cada mutación; con TTL de
+10 min, `sid` revocable y la CSP estricta de §3.1, el riesgo residual de A es aceptable. Se
+reconsidera B si una auditoría de seguridad lo pide.
 
 ```
-Navegador ──cookie __Host-hf_sid──► api-gateway ──(Redis: sid→sesión; fallback PostgreSQL)
-                                         │
-                                         └─ mint JWT interno (EdDSA, 5 min, cacheado por sid)
-                                                 │ gRPC metadata: authorization: Bearer <jwt>
-                                                 ▼
-                                         auth / devices / wireguard / …
+Navegador ──Authorization: Bearer <access JWT>──► Traefik ──► api-gateway
+                                                    │ 1. verifica firma/exp/aud (JWKS de auth, caché)
+                                                    │ 2. revocación: session_revoked:<sid> en Valkey/Redis
+                                                    │    (si no responde: gRPC auth.CheckSession, caché 30 s)
+                                                    │ 3. permiso grueso por ruta, rate limit
+                                                    ▼ gRPC + mTLS, metadata authorization: Bearer <mismo JWT>
+                                         auth / devices / wireguard / … (revalidan firma, exp, aud, permisos)
 ```
 
-- **Cookie:** `__Host-hf_sid=<256 bits base64url>; Path=/; Secure; HttpOnly; SameSite=Lax`.
-  En Redis se guarda bajo `SHA-256(sid)` (un volcado de Redis no permite secuestrar sesiones).
-  `SameSite=Lax` (no `Strict`) para que enlaces desde emails/alertas abran la app con sesión;
-  la protección CSRF no depende solo de SameSite.
-- **CSRF:** token sincronizador por sesión, entregado en `/api/v1/me` y enviado en
-  `X-CSRF-Token` en `POST/PUT/PATCH/DELETE`; además validación de `Origin` contra la lista
-  permitida. WebSocket: `Origin` obligatorio y coincidente.
-- **Duración:** inactividad 2 h, absoluta 12 h (valores por defecto, configurables por rol).
-  Las pantallas NOC "de pared" usarán un modo kiosco con rol de solo lectura y política propia
-  (pregunta abierta).
-- **Rotación:** nuevo `sid` en login, al completar 2FA, al cambiar contraseña/roles y cada
-  30 min de uso (el anterior queda válido 30 s para peticiones en vuelo). Esta renovación
-  deslizante cumple el requisito de "refresh" de vision §7 para el navegador.
+- **Access token:** JWT firmado por `auth` con **Ed25519 (EdDSA)**, TTL **10 min**. Claims:
+  `iss` (URL de `auth`), `aud=horus-api`, `sub` (UUIDv7), `sid`, `org` (tenant), `amr`,
+  `auth_time`, `iat`, `exp`, `jti`, `perms` (permisos efectivos con alcance, forma compacta, p. ej.
+  `{"devices.read":["site:018f…","group:018f…"],"users.manage":["*"]}`). Si superara 4 KiB se
+  sustituye por `perms_ver` y los servicios resuelven permisos vía `auth` con caché (60 s).
+  Rotación de clave de firma cada 90 días con `kid`; JWKS publica la actual y la anterior.
+- **En el navegador:** el access token vive **solo en memoria** (variable del store de sesión,
+  nunca `localStorage`/`sessionStorage`/cookies legibles). Al recargar la página, la SPA llama a
+  `POST /api/v1/auth/refresh` para obtener uno nuevo.
+- **Refresh token:** opaco de 256 bits en cookie
+  `__Secure-hf_rt=<token>; Path=/api/v1/auth; Secure; HttpOnly; SameSite=Strict` (prefijo
+  `__Secure-` porque `__Host-` exige `Path=/`). En BD solo `SHA-256(token)`; un solo uso;
+  inactividad 12 h y **vida absoluta 7 días** (por defecto; configurable por rol). Organizado por
+  familia = `sid`: cada uso emite access + refresh nuevos e invalida el anterior. Si se presenta
+  un refresh **ya usado** (reutilización) se revoca la familia completa (la sesión), se notifica
+  al usuario y se audita como incidente (`reason=refresh_token_reuse` en
+  `horus.auth.session.revoked`, [`events.md`](events.md)). Tolerancia de 10 s para el refresh
+  anterior (carreras entre pestañas): dentro de ese margen se devuelve el mismo par recién emitido.
+- **CSRF:** la API no usa cookies de autenticación, así que no es vulnerable a CSRF. Para
+  `/api/v1/auth/refresh` y `/logout` (que sí usan la cookie): `SameSite=Strict` + cabecera
+  obligatoria `X-Requested-With: horus` ([`api.md`](api.md)) + validación de `Origin` contra la
+  lista permitida.
+- **WebSocket:** ticket de un solo uso (TTL 30 s) obtenido con el access token, `Origin`
+  validado y renovación en banda con el token nuevo ([`api.md`](api.md) §4.2). La revocación
+  cierra la conexión (código `4409`).
 - **Re-autenticación reciente** (`auth_time` ≤ 5 min) para: revelar credenciales, cambiar roles,
   generar/rotar claves WireGuard, desactivar 2FA, crear API tokens.
+- Las pantallas NOC "de pared" usarán un modo kiosco con rol de solo lectura y política propia
+  (pregunta abierta Q19).
 
 ### 5.2 Sesiones revocables
 
-- Fuente de verdad: tabla `sessions` en PostgreSQL (`id`, `user_id`, `created_at`,
-  `last_seen_at`, `expires_at`, `ip`, `user_agent`, `amr`, `revoked_at`, `revoked_reason`);
-  Redis es caché con TTL = inactividad. Esquema definitivo: [`database.md`](database.md).
+- **Fuente de verdad:** tabla `sessions` de `auth` en PostgreSQL (`id`=`sid`, `user_id`,
+  `created_at`, `last_seen_at`, `expires_at`, `ip`, `user_agent`, `amr`, `revoked_at`,
+  `revoked_reason`) + `refresh_tokens`. Esquema definitivo: [`database.md`](database.md).
+- **Valkey/Redis** solo como caché de revocación: `session_revoked:<sid>` con TTL = vida máxima
+  del access token ([ADR-0009](adr/0009-redis.md)).
 - UI de "sesiones activas" (Sprint 2): el usuario y el admin (`sessions.manage`) pueden revocar.
-- Al revocar: borrar de Redis, marcar en PostgreSQL y publicar
-  `horus.auth.session.revoked` → el gateway cierra los WebSocket de ese `sid` en < 5 s y descarta
-  el JWT interno cacheado. Los JWT internos ya emitidos expiran en ≤ 5 min; los servicios
-  que hacen operaciones críticas (`wireguard`, revelado de credenciales) consultan
-  `auth.CheckSession` vía gRPC (con caché de 10 s).
-- Desactivar un usuario revoca todas sus sesiones y API tokens.
+- Al revocar: marcar en PostgreSQL, escribir la clave de revocación, publicar
+  `horus.auth.session.revoked` → el gateway cierra los WebSocket de ese `sid` en < 5 s.
+  Ventana máxima en que un token revocado puede seguir aceptado: 0 s con Valkey sano; 30 s si
+  está caído (fallback a `auth` con caché). Los servicios que hacen operaciones críticas
+  (`wireguard`, revelado de credenciales, cambios de roles) consultan además
+  `auth.CheckSession` por gRPC sin caché.
+- Desactivar un usuario, cambiar su contraseña o resetear su 2FA revoca todas sus sesiones y
+  API tokens. Cambiar sus roles fuerza un refresh (los permisos nuevos entran en ≤ 10 min, o
+  inmediatamente con revocación si se le quitan permisos).
 
-### 5.3 JWT interno (identidad entre servicios)
+### 5.3 Identidad entre servicios
 
-- Firmado por el gateway con Ed25519 (`kid` rotado cada 30 días, JWKS publicado por `auth`
-  internamente; los servicios aceptan la clave actual y la anterior).
-- Claims: `iss=horus-gateway`, `aud=horus-internal`, `sub`, `sid`, `org`, `amr`, `auth_time`,
-  `exp` (≤ 5 min), `jti`, `perms` (permisos efectivos con alcance en forma compacta, p. ej.
-  `{"devices.read":["site:018f…","group:018f…"],"users.manage":["*"]}`). Si el tamaño supera
-  4 KiB, se incluye solo `roles_version` y el servicio resuelve permisos vía `auth` con caché.
-- Nunca sale al navegador ni a los logs.
-- Llamadas **de servicio a servicio sin usuario** (workers, jobs): JWT de servicio firmado por
-  `auth` con `sub=svc:<nombre>` y permisos de servicio fijos; credencial de arranque del servicio
-  vía Docker secret.
+- **Transporte:** gRPC con **mTLS** desde el Sprint 1 ([ADR-0005](adr/0005-grpc-protobuf-interno.md)).
+  CA interna: `step-ca` (Smallstep) en un contenedor; certificados de servicio con
+  `SAN = <servicio>.horus.internal`, vida 30 días en v1 renovados por `step ca renew --daemon`
+  (24 h al pasar a Kubernetes con cert-manager o mesh). En desarrollo, script que genera una CA
+  local y los certificados.
+- **Autorización de *caller*:** cada servicio declara qué servicios pueden invocar cada método
+  gRPC (p. ej. solo `svc:snmp` puede llamar `devices.CredentialService/Resolve`; solo
+  `svc:wireguard` puede llamar `WireGuardAgent.ApplyDesiredState`), evaluado con la identidad del
+  certificado del cliente.
+- **Llamadas en nombre de un usuario:** se reenvía el mismo access JWT; el servicio lo revalida.
+- **Llamadas sin usuario** (workers, jobs, consumidores NATS): identidad = certificado mTLS del
+  servicio; si se necesita un JWT (por uniformidad del interceptor), `auth` emite un JWT de
+  servicio (`sub=svc:<nombre>`, permisos fijos, TTL 10 min) contra el certificado mTLS.
+- El JWT nunca se escribe en logs, eventos ni trazas.
 
-### 5.4 Clientes no-navegador (S6)
+### 5.4 Clientes no-navegador: API tokens
 
 - **API tokens / cuentas de servicio** (integraciones del ISP, scripts): token opaco
-  `hf_pat_<32 B base62>`, almacenado como SHA-256, con alcance de permisos ⊆ permisos del creador,
-  caducidad obligatoria (máx. 1 año), último uso visible, revocable.
-- **Refresh rotativo** (CLI / app futura vía OIDC): refresh opaco de un solo uso, TTL 30 días,
-  organizado por `family_id`; cada uso emite un par nuevo e invalida el anterior; si se presenta
-  un refresh ya usado (**reutilización**), se revoca toda la familia y la sesión asociada y se
-  audita como incidente de seguridad.
+  `hf_pat_<32 B base62>`, almacenado como SHA-256, con alcance de permisos ⊆ permisos del
+  creador, caducidad obligatoria (máx. 1 año), último uso visible, revocable. El gateway lo
+  intercambia por un access JWT de corta vida (caché por token) antes de llamar a los servicios.
+- Una futura app o CLI con login interactivo usará el mismo par access + refresh rotativo vía
+  OIDC Authorization Code + PKCE (§4.1).
 
 ## 6. Autorización: RBAC + ACL
 
@@ -348,13 +383,19 @@ expone en `GET /api/v1/permissions`):
 | `wireguard` | `read`, `write`, `keys.rotate` |
 | `snmp` | `read`, `manage` (perfiles, intervalos) |
 | `flows` | `read` (exportadores), `manage` |
-| `traffic` | `read` (agregados), `client.read` (detalle por abonado — dato personal) |
-| `classification` | `read`, `manage` (reglas, categorías, servicios) |
+| `subscribers` | `read` (ficha del cliente, PII), `manage` (alta/edición, asignaciones IP manuales) |
+| `traffic` | `read` (agregados y dashboards de tráfico), `client.read` (detalle de tráfico por abonado — dato personal) |
+| `traffic.catalog` | `read`, `write` (editar borrador de prefijos/ASN/servicios/categorías/reglas), `publish` (publicar una versión del catálogo; ver [`database.md`](database.md)) |
 | `security` | `read`, `manage` |
 | `alerts` | `read`, `ack`, `manage` (reglas, canales) |
 | `reports` | `read`, `export` |
 | `settings` | `read`, `manage` |
 | `api_tokens` | `manage` (propios) |
+
+Equivalencias con los nombres provisionales de [`frontend.md`](frontend.md): `clients.read` →
+`subscribers.read`; `analytics.read` → `traffic.read`; `traffic.manage` → `traffic.catalog.write`/
+`publish`; `system.read`/`system.manage` → `settings.read`/`settings.manage` (incluye
+`GET /system/status`). El frontend debe usar los nombres de este catálogo.
 
 ### 6.2 Roles predefinidos
 
@@ -366,12 +407,14 @@ Los roles de sistema no se pueden borrar; se pueden crear roles personalizados.
 | `security_admin` | Seguridad de la plataforma y del tráfico | `security.*`, `audit.*`, `users.read`, `sessions.manage`, `alerts.*`, `traffic.read`, `traffic.client.read` | Obligatorio |
 | `network_engineer` | Altas/bajas de equipos, WireGuard, SNMP, flows | `sites.*`, `devices.*`, `devices.credentials.write`, `wireguard.*`, `snmp.*`, `flows.*`, `alerts.read/ack`, `traffic.read` | Obligatorio |
 | `noc_operator` | Monitoreo 24/7 y atención de alertas | `sites.read`, `devices.read`, `wireguard.read`, `snmp.read`, `flows.read`, `traffic.read`, `alerts.read/ack`, `reports.read` | Recomendado |
-| `analyst` | Analítica de tráfico y reportes | `traffic.read`, `traffic.client.read`, `classification.read`, `reports.read/export`, `devices.read`, `sites.read` | Recomendado |
+| `analyst` | Analítica de tráfico y reportes | `traffic.read`, `traffic.client.read`, `subscribers.read`, `traffic.catalog.read/write`, `reports.read/export`, `devices.read`, `sites.read` | Recomendado |
 | `auditor` | Revisión de cumplimiento | `audit.read/export`, `users.read`, `roles.read`, `sessions.read` | Recomendado |
-| `viewer` | Solo lectura sin datos personales | `*.read` excepto `traffic.client.read`, `audit.read`, `devices.credentials.*` | Opcional |
+| `catalog_manager` | Mantenimiento de la clasificación de tráfico | `traffic.catalog.*`, `traffic.read`, `security.read` | Obligatorio |
+| `viewer` | Solo lectura sin datos personales | `*.read` excepto `traffic.client.read`, `subscribers.read`, `audit.read`, `devices.credentials.*` | Opcional |
 
 Nota: **nadie** tiene `devices.credentials.reveal` por defecto salvo `admin`; se concede de forma
-explícita.
+explícita. `traffic.catalog.publish` (afecta a la clasificación de todo el tráfico) solo lo
+tienen `admin` y `catalog_manager`; `analyst` puede proponer cambios (`write`) pero no publicar.
 
 ### 6.3 ACL por alcance
 
@@ -380,7 +423,7 @@ explícita.
 - Permisos efectivos = unión de asignaciones; el alcance de cada permiso es la unión de los
   alcances de los roles que lo otorgan. `router_group` se expande a sitios/routers en
   `devices`.
-- Recursos sin sitio (usuarios, reglas de clasificación) solo admiten alcance `global`.
+- Recursos sin sitio (usuarios, catálogo de clasificación) solo admiten alcance `global`.
 - Datos de tráfico por abonado heredan el alcance del router/sitio que los exportó.
 
 ### 6.4 Dónde se evalúa
@@ -389,7 +432,7 @@ explícita.
    "¿tiene el permiso X en *algún* alcance?" según la tabla declarativa ruta→permiso. Rechaza
    pronto (403) y reduce carga.
 2. **Servicio dueño (fino, obligatorio):** interceptor gRPC común (`packages/go/authz`) que
-   valida el JWT interno y expone `authz.Require(ctx, "devices.update", scope)`; el
+   valida mTLS + el access JWT (firma, `exp`, `aud`) y expone `authz.Require(ctx, "devices.update", scope)`; el
    **repositorio** filtra por alcance (`WHERE site_id = ANY(@allowed_sites)` o "global"). Esto
    evita IDOR aunque el gateway tenga un error.
 3. **Asíncrono (NATS):** los consumidores no reevalúan permisos de usuario; actúan como el
@@ -401,16 +444,20 @@ explícita.
 
 | Canal | Mecanismo |
 |-------|-----------|
-| Navegador → gateway | Cookie de sesión + `X-CSRF-Token` |
-| Gateway → servicio (gRPC) | Metadata `authorization: Bearer <JWT interno>` + `traceparent` + `x-request-id` |
-| Servicio → servicio (gRPC) | Reenvía el JWT del usuario si actúa en su nombre (con `exp` corto); si no, JWT de servicio |
+| Navegador → gateway | `Authorization: Bearer <access JWT>`; WebSocket con ticket de un uso |
+| Gateway → servicio (gRPC, mTLS) | Metadata `authorization: Bearer <access JWT>` + `traceparent` + `x-request-id` |
+| Servicio → servicio (gRPC, mTLS) | Reenvía el JWT del usuario si actúa en su nombre; si no, identidad del certificado (y JWT de servicio si hace falta) |
 | Servicio → NATS | Campo `actor` del envelope (definido por el Agente 3 en [`events.md`](events.md)) |
-| Integración → gateway | `Authorization: Bearer hf_pat_…` → el gateway lo cambia por JWT interno |
+| Integración → gateway | `Authorization: Bearer hf_pat_…` → el gateway lo cambia por un access JWT de corta vida |
 
-**Dependencia con el Agente 3 (envelope de eventos):** seguridad necesita en `actor`:
-`type` (`user` | `service` | `system` | `api_token`), `id` (UUIDv7 o `svc:<nombre>`), `sid`
-(opcional, solo usuario), `ip` (opcional, solo eventos de auditoría). **Nunca** tokens, ni
-permisos completos, ni secretos en el envelope.
+**Dependencia con el Agente 3 (envelope de eventos):** [`events.md`](events.md) define
+`actor = {type: user|service|system, id, name}` y `correlation_id` (= `x-request-id`). Seguridad
+pide además: (a) `sid` opcional cuando `type=user`; (b) distinguir acciones hechas con API token
+(`type=user` + `via=api_token` y el id del token, o un `type=api_token`); (c) `ip`/`user_agent`
+**solo** en el payload de eventos de auditoría, no en el sobre general; (d) `name` es dato
+personal de empleados: no debe copiarse a logs ni a la proyección pública del WebSocket
+(api.md ya elimina `actor` detallado). **Nunca** tokens, permisos completos ni secretos en el
+envelope.
 
 ## 7. Auditoría
 
@@ -443,16 +490,21 @@ secretos), `request_id`, `trace_id`, `prev_hash`, `hash`. Esquema en [`database.
 
 1. Cada servicio escribe el evento de auditoría en su **outbox** dentro de la misma transacción
    que el cambio de negocio (no se pierde si NATS cae) y lo publica en
-   `horus.audit.record.created` (stream `AUDIT`, `R` = réplicas del clúster, retención 7 días).
+   `horus.<dominio>.audit.recorded` (convención de [`architecture.md`](architecture.md) §6.1;
+   stream y retención definidos por el Agente 3 en [`events.md`](events.md), propuesta 7 días).
 2. `auth` es el **único escritor** de la tabla `audit_log`: consume el stream y añade cada
    registro calculando `hash = SHA-256(prev_hash ‖ JSON canónico del registro)`.
 3. Inmutabilidad en PostgreSQL: el rol de `auth` solo tiene `INSERT, SELECT` sobre
    `audit_log`; un trigger rechaza `UPDATE/DELETE/TRUNCATE`; la purga por retención solo la
-   hace un rol `audit_archiver` que primero exporta la partición a MinIO.
+   hace un rol `audit_archiver` que primero exporta la partición mensual a Parquet en el bucket
+   `horus-audit` (Object Lock **compliance**, [`storage.md`](storage.md) §4.2), luego
+   `DETACH` + `DROP` ([`database.md`](database.md)).
 4. **Anclaje:** cada día se escribe el hash de cabeza de la cadena en un objeto del bucket
-   `audit-anchors` con **Object Lock (compliance, 2 años)**, y el job de verificación recorre la
-   cadena (alerta si se rompe).
-5. Retención propuesta: 1 año en línea, 5 años archivado en MinIO/NAS (validar con legal).
+   `horus-audit` (prefijo `anchors/`, mismo Object Lock compliance), y el job de verificación
+   recorre la cadena (alerta si se rompe).
+5. Retención propuesta (alineada con el Agente 2): **2 años en PostgreSQL** y **5 años** en
+   `horus-audit`; el plazo legal real se valida (pregunta abierta Q4). El modo compliance es
+   irreversible: se activa con el plazo validado; hasta entonces, governance.
 6. La auditoría **no** es log: no va a Loki como fuente de verdad (puede ir una copia sin datos
    personales).
 
@@ -462,7 +514,7 @@ secretos), `request_id`, `trace_id`, `prev_hash`, `hash`. Esquema en [`database.
 
 | Tipo | Ejemplos | Dónde |
 |------|----------|-------|
-| Secretos de despliegue | Contraseñas de PG/ClickHouse/Redis/NATS/MinIO, pepper, clave de firma JWT, KEK | Docker secrets (archivos), cifrados en el repo de despliegue con SOPS+age |
+| Secretos de despliegue | Contraseñas de PG/ClickHouse/Valkey/NATS/MinIO, pepper, clave de firma JWT, claves de la CA interna, KEK | Docker secrets (archivos), cifrados en el repo de despliegue con SOPS+age |
 | Secretos de dominio (datos) | Credenciales SNMP/SSH/API de routers, claves privadas WireGuard, secretos TOTP, credenciales de canales de notificación (SMTP, bot de Telegram) | PostgreSQL, cifrados con envelope encryption |
 | Secretos de CI | Credenciales de registro, tokens | GitHub Actions secrets/environments + OIDC (sin credenciales de larga duración cuando sea posible) |
 
@@ -470,17 +522,25 @@ secretos), `request_id`, `trace_id`, `prev_hash`, `hash`. Esquema en [`database.
 
 - Cada secreto de dominio se cifra con una **DEK** aleatoria (AES-256-GCM, nonce 96 bits).
   La DEK se cifra con la **KEK** activa.
-- Se almacena: `ciphertext`, `nonce`, `wrapped_dek`, `kek_id`, `alg` (`A256GCM`), `created_at`.
+- Se almacena (columnas de [`database.md`](database.md)): `secret_ciphertext`, `secret_nonce`,
+  `dek_wrapped`, `kek_id` (el algoritmo va implícito en la versión de `kek_id`).
+- **Alternativa `secret_ref`:** referencia a un secreto en un gestor externo (OpenBao KV) en
+  lugar del material cifrado; la librería resuelve ambos caminos con la misma interfaz.
+- **Borrado = crypto-shredding:** al eliminar una credencial o rotar una clave WG se
+  sobrescriben con `NULL` `secret_ciphertext` y `dek_wrapped`; las copias en backups quedan
+  inservibles sin esa DEK (la DEK solo existía envuelta en esa fila). Para borrados masivos
+  (p. ej. baja de un sitio) basta retirar la DEK.
 - **AAD** = `"<tabla>|<columna>|<id_registro>|<org_id>"`: impide copiar un secreto cifrado a
   otra fila/router.
 - Librería común `packages/go/crypto/envelope` con interfaz `KeyProvider` (`Wrap`, `Unwrap`)
   y dos implementaciones: `FileKeyProvider` (v1) y `OpenBaoTransitProvider` (v2).
 - **Rotación de KEK:** nueva `kek_id` activa para escrituras; job de re-envolvimiento de DEKs
   (no requiere re-cifrar los datos); la KEK anterior se retira cuando ya no hay referencias.
-- **Quién descifra:** solo `devices` (credenciales de routers) y `wireguard` (claves WG) y
-  `auth` (TOTP), cada uno con **su propia KEK**. `snmp` obtiene credenciales en claro mediante
-  la RPC interna `devices.CredentialService/Resolve`, autorizada solo para `svc:snmp`, sobre la
-  red interna (TLS cuando aplique); las mantiene en memoria con TTL de 15 min y nunca las escribe
+- **Quién descifra:** solo `devices` (credenciales de routers), `wireguard` (claves WG),
+  `auth` (TOTP) y `alerts` (secretos de canales de notificación), cada uno con **su propia KEK**.
+  `wireguard-agent` no tiene KEK: recibe el material en claro por mTLS desde `wireguard`. `snmp` obtiene credenciales en claro mediante
+  la RPC interna `devices.CredentialService/Resolve`, autorizada solo para el certificado de `snmp`,
+  sobre gRPC mTLS; las mantiene en memoria con TTL de 15 min y nunca las escribe
   en disco ni en logs.
 - La API pública trata las credenciales como **campos de solo escritura**: nunca se devuelven;
   "revelar" es un endpoint aparte, con `devices.credentials.reveal`, 2FA, re-auth y auditoría.
@@ -505,10 +565,11 @@ o USB cifrado en caja fuerte), cifrada con age; procedimiento en
 - **SSH/API de routers** (futuro, para adaptadores por fabricante): usuario con perfil de solo
   lectura salvo que una función lo requiera; preferir llaves SSH (ed25519) generadas por Horus a
   contraseñas; `known_hosts` fijado por router (TOFU con aprobación).
-- **WireGuard:** clave privada del servidor cifrada; clave privada del peer generada en el
-  servidor solo si el router no puede generarla, entregada **una vez** (descarga de config) y
-  no almacenada después (o almacenada cifrada si el negocio exige re-descarga — pregunta
-  abierta). Preferir que el router genere su par y Horus solo guarde la pública.
+- **WireGuard** (alineado con [`database.md`](database.md) §2.3): clave privada del servidor y
+  preshared keys cifradas; clave privada del peer router **no se guarda**: se genera solo si el
+  router no puede generarla, se entrega **una vez** y se descarta (si se pierde → rotación).
+  Preferido: el router genera su par y Horus solo guarda la pública. Las `.conf` renderizadas
+  nunca se persisten.
 
 ## 9. Seguridad de la red de gestión
 
@@ -538,11 +599,12 @@ Aplicable a todos los servicios Go y al frontend (detalles de Dockerfile en
 [`conventions.md`](conventions.md)):
 
 - Imagen base `gcr.io/distroless/static-debian12:nonroot` (Go, `CGO_ENABLED=0`); frontend
-  estático servido por Caddy sin root. Imágenes referenciadas **por digest** en despliegues.
+  estático servido por Traefik/un servidor estático sin root. Imágenes referenciadas **por digest** en despliegues.
 - `user: 65532:65532`; `read_only: true` + `tmpfs: /tmp` si hace falta;
   `cap_drop: [ALL]`; `security_opt: [no-new-privileges:true]`; perfil seccomp por defecto
   de Docker (nunca `unconfined`); sin `privileged`.
-- Excepciones explícitas y documentadas: `wireguard` (`cap_add: NET_ADMIN`), colector de
+- Excepciones explícitas y documentadas: `wireguard-agent` (`cap_add: NET_ADMIN`,
+  `network_mode: host`; el plano de control `wireguard` corre sin capacidades), colector de
   traps si escucha en 162 (`NET_BIND_SERVICE`) — preferible escuchar en puerto alto y redirigir
   con nftables.
 - Límites de recursos (`mem_limit`, `cpus`, `pids_limit`) por servicio.
@@ -559,10 +621,10 @@ Aplicable a todos los servicios Go y al frontend (detalles de Dockerfile en
 
 | Tramo | v1 (compose, un nodo) | v2 (multi-host / Kubernetes) |
 |-------|-----------------------|------------------------------|
-| Navegador → reverse proxy | TLS 1.2+ (preferente 1.3), Caddy con ACME (Let's Encrypt) si hay dominio público, o certificado de la CA interna del ISP; HSTS `max-age=31536000; includeSubDomains` | Igual |
+| Navegador → reverse proxy | TLS 1.2+ (preferente 1.3), Traefik con ACME (Let's Encrypt) si hay dominio público, o certificado de la CA interna del ISP; HSTS `max-age=31536000; includeSubDomains` | Igual |
 | Reverse proxy → gateway | HTTP en red Docker interna `edge` | mTLS |
-| Gateway ↔ servicios (gRPC) | Texto plano en red Docker interna aislada + JWT firmado | **mTLS** con CA interna (`step-ca` de Smallstep) o service mesh (Linkerd); certificados de 24 h |
-| Servicios → PostgreSQL / ClickHouse / NATS / Redis | TLS **activado desde Sprint 1** para NATS y PostgreSQL (coste bajo, evita deuda); ClickHouse/Redis TLS cuando crucen host | TLS obligatorio en todo |
+| Gateway ↔ servicios y servicio ↔ servicio (gRPC) | **mTLS desde el Sprint 1** ([ADR-0005](adr/0005-grpc-protobuf-interno.md)) con CA interna `step-ca`; certificados de 30 días renovados automáticamente (§5.3) | mTLS con cert-manager o service mesh (Linkerd); certificados de 24 h |
+| Servicios → PostgreSQL / ClickHouse / NATS / Valkey | TLS **activado desde Sprint 1** para NATS y PostgreSQL (misma CA interna; coste bajo, evita deuda); ClickHouse/Valkey TLS cuando crucen host | TLS obligatorio en todo |
 | Cualquier tramo que cruce hosts físicos o el NAS | TLS obligatorio (MinIO con TLS) | TLS obligatorio |
 
 Regla: el código siempre soporta TLS por configuración (`*_TLS_CA_FILE`, `*_TLS_CERT_FILE`,
@@ -624,7 +686,24 @@ Política de vulnerabilidades: CRITICAL ≤ 7 días, HIGH ≤ 30 días, MEDIUM e
 9. **Scoring explicable** (ya exigido por vision Sprint 10) y decisión final humana antes de
    cualquier acción comercial sobre el cliente.
 
-### 13.3 Pregunta abierta (legal)
+### 13.3 Política de anonimización de PII de suscriptores
+
+Requerida por el Agente 2 ([`database.md`](database.md): `subscriber`, `subscriber_ip_assignment`).
+
+| Dato | Clasificación | Regla |
+|------|---------------|-------|
+| `subscriber.name`, `address`, `latitude/longitude`, `contact` (email/teléfono) | PII directa | Acceso solo con `traffic.client.read` o permiso de gestión de clientes; nunca en logs/métricas/eventos de difusión a la UI. **A los 90 días** de `status=terminated` (propuesta; validar Q2): `name` → `"Cliente <code>"`, `address`/`contact` → `NULL`, coordenadas → redondeadas a 2 decimales (~1 km) o `NULL`. El `id` y `code` se conservan (referencias históricas). |
+| `subscriber.code`, `external_ref` | Identificador indirecto | Se conserva mientras existan datos históricos que lo usen; en exportaciones a terceros se sustituye por `HMAC-SHA256(clave_seudonimización, id)`. |
+| `subscriber_ip_assignment` (IP ↔ cliente ↔ tiempo) | PII (permite re-identificar flujos) | Acceso restringido a `flows`/`traffic-intelligence` (servicio) y a usuarios con `traffic.client.read`. Retención caliente 13 meses ([`database.md`](database.md)); archivo solo si hay **obligación legal** (Q2); si no la hay, borrado físico al expirar la mayor retención de datos que la usan. |
+| Flujos crudos (`src/dst IP`, puertos) | Metadatos de comunicaciones | Retención 14 días por defecto ([`database.md`](database.md), rango 7–30). Archivo de crudo a MinIO **desactivado por defecto**; activarlo requiere justificación legal. |
+| Agregados por cliente (`subscriber_1h`, diarios) | Seudonimizados (`subscriber_id`, sin IP) | Retención según [`storage.md`](storage.md); al anonimizar al suscriptor dejan de ser atribuibles a una persona. |
+| Datasets para desarrollo/pruebas | — | Generados sintéticamente o con IPs reemplazadas por rangos de documentación (RFC 5737/3849) y nombres falsos; prohibido copiar producción sin pasar por el script de anonimización. |
+
+Borrado por solicitud del titular (derecho de supresión, si aplica): anonimización inmediata de
+la fila `subscriber` + borrado de asignaciones IP fuera de obligación legal; los agregados
+quedan seudonimizados. El proceso se audita.
+
+### 13.4 Pregunta abierta (legal)
 
 La legislación aplicable depende del **país del ISP** y debe validarla un asesor legal:
 leyes de protección de datos (p. ej. LFPDPPP en México, Ley 1581 en Colombia, Ley 29733 en Perú,
