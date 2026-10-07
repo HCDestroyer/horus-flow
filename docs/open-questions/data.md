@@ -29,7 +29,7 @@
 | # | Pregunta (resumen) | Resolución |
 |---|--------------------|------------|
 | Q1 | ¿Clientes desde CRM/facturación externo? | **D1**: no hay CRM. La IP es el cliente y se descubre de los flujos ([ADR-0018](../adr/0018-la-ip-es-el-cliente.md)). |
-| Q2 | ¿Cómo se asigna IP (PPPoE/RADIUS/DHCP)? | **D1**: irrelevante para la atribución; no se integra RADIUS. Se elimina `customer_ip_assignment`. |
+| Q2 | ¿Cómo se asigna IP (PPPoE/RADIUS/DHCP)? | **D1**: irrelevante para la atribución; no se integra RADIUS. Se elimina `client_ip_assignment`. |
 | Q5 | ¿Qué routers exportan flujos y cómo? | **D6 + D10**: el router principal MikroTik de cada nodo, Traffic Flow en IPFIX sin muestreo ([`vendors/mikrotik.md`](../vendors/mikrotik.md)). |
 | Q6 | ¿Consumo por cliente vía SNMP de interfaces PPPoE? | Consecuencia de **D1/D10**: el consumo por cliente sale de flujos; SNMP no recorre interfaces PPPoE dinámicas. |
 | Q9 | Presupuesto de licencias para bases IP→ASN | **D3** ("usar lo recomendado"): fuentes abiertas (RouteViews/RIPE RIS, iptoasn, PeeringDB, rangos publicados); pago solo si la precisión no alcanza. |

@@ -54,8 +54,8 @@ flowchart LR
   R[Router principal MikroTik<br/>de cada nodo] -- "Traffic Flow (IPFIX/NetFlow v9)<br/>por túnel WireGuard" --> C[flows collector<br/>decodifica + normaliza]
   C -- "horus.flows.batch.received" --> I[flows ingester<br/>atribuye + clasifica + escribe CH]
   I --> CH[(ClickHouse<br/>flows_raw + MVs)]
-  I -- "horus.flows.client.first_seen<br/>+ seen_summary" --> DEV[devices<br/>clientes = IPs]
-  DEV -- "customer_prefix.*, customer.*" --> I
+  I -- "horus.flows.client.first_seen<br/>+ activity_summary" --> DEV[devices<br/>clientes = IPs]
+  DEV -- "client_prefix.*, customer.*" --> I
   TI[traffic-intelligence] -- "catálogo global + overlay del tenant" --> I
   CH --> DET[detection<br/>botnets, scoring tipo]
   DET -- "customer.kind_suggested" --> DEV
@@ -68,12 +68,12 @@ flowchart LR
 | 2 | Identificar exportador por `(IP origen en el túnel WireGuard, observation_domain_id)` ⇒ `tenant_id`, `site_id`, `router_id`; ifIndex ⇒ interfaces | collector | IDs de origen |
 | 3 | Corregir muestreo (si lo hubiera) | collector/ingester | `bytes`, `packets` escalados, `sampling_rate` |
 | 4 | Pre-agregación opcional 60 s (§10) | collector | `merged_flows` |
-| 5 | **Atribución a cliente + dirección** (§4) | ingester | `realm_id` + `customer_ip` (clave natural del cliente), `remote_ip`, `direction`, `attribution_status` |
+| 5 | **Atribución a cliente + dirección** (§4) | ingester | `realm_id` + `client_ip` (clave natural del cliente), `remote_ip`, `direction`, `attribution_status` |
 | 6 | Descubrimiento de clientes nuevos (§4.5) | ingester | evento `client.first_seen` |
 | 7 | IP remota → prefijo → ASN → organización | ingester | `remote_*` |
 | 8 | Reglas → servicio (catálogo global vN + overlay del tenant vM) | ingester | `service_id`, `classification_*`, versiones |
-| 9 | Agregación (consumo y seguridad) | MVs ClickHouse | `customer_*`, `site_*`, `customer_security_*` |
-| 10 | Reputación (C2, escáneres) | detection, asíncrono | `detection.reputation_hits` |
+| 9 | Agregación (consumo 5 min/1 h/1 d y detección 1 min) | MVs ClickHouse | `customer_*`, `site_*`, `client_security_*`, `client_port_1m`, `reputation_hit` |
+| 10 | Reputación de la IP remota (C2, escáneres) con el snapshot de `detection` | ingester ([ADR-0024](adr/0024-deteccion-de-botnets-como-objetivo-principal.md)) | `reputation_category/source/confidence/version` ⇒ MV `flows.reputation_hit` |
 | 11 | Detección de botnets y scoring de tipo | detection, asíncrono | `detection.finding`, `customer_scores_1d`, `kind_suggested` |
 
 Si el ingester o ClickHouse caen, JetStream retiene los lotes (≥ 6 h de pico, ver
@@ -124,7 +124,7 @@ N (registro → Options Template → valor declarado → 1 con alerta `sampling_
 
 ### 4.1 Qué IPs son "de clientes"
 
-La respuesta la da la configuración del ISP por nodo: `devices.customer_prefix`
+La respuesta la da la configuración del ISP por nodo: `devices.client_prefix`
 ([`database.md` §2.2](database.md)). Cada prefijo tiene `role`:
 
 | `role` | Significado | Efecto |
@@ -147,7 +147,7 @@ Cómo se llenan:
 ### 4.2 Identidad y realm
 
 - Clave natural del cliente = `(tenant_id, realm_id, dirección canónica)`
-  ([ADR-0018](adr/0018-la-ip-es-el-cliente.md)); IPv4 /32; IPv6 truncada a `ipv6_customer_len` del
+  ([ADR-0018](adr/0018-la-ip-es-el-cliente.md)); IPv4 /32; IPv6 truncada a `ipv6_client_len` del
   prefijo (**/64 por defecto**, /56 configurable; coincide con el prefijo delegado que propone
   [`vendors/mikrotik.md`](vendors/mikrotik.md)). En PostgreSQL el cliente tiene además un
   `customer_id` UUIDv7; ClickHouse no lo guarda ([`database.md` §2.3.1](database.md)).
@@ -159,14 +159,14 @@ Cómo se llenan:
 
 ### 4.3 Algoritmo (en memoria, por flujo)
 
-Estructura: por `site_id` (nodo), un trie LPM de `customer_prefix` (decenas a cientos de prefijos
+Estructura: por `site_id` (nodo), un trie LPM de `client_prefix` (decenas a cientos de prefijos
 por nodo; KB de memoria). Para cada flujo del exportador del nodo `S`:
 
 1. `src_in = lookup(S, src_ip)`, `dst_in = lookup(S, dst_ip)` ⇒ cada uno es `customers`,
    `infrastructure`, `excluded` o `none`.
-2. Aplicar la tabla de dirección (§4.6) para decidir `customer_ip`, `remote_ip`, `direction`,
+2. Aplicar la tabla de dirección (§4.6) para decidir `client_ip`, `remote_ip`, `direction`,
    `attribution_status`.
-3. Si hay cliente: `customer_ip` = dirección canónica; si la clave `(realm_id, customer_ip)` no
+3. Si hay cliente: `client_ip` = dirección canónica; si la clave `(realm_id, client_ip)` no
    está en el conjunto de conocidos, añadirla y encolar un aviso `first_seen` (§4.5), con el
    límite anti-avalancha por realm.
 4. **Tránsito entre nodos**: una IP de un prefijo de **otro nodo** del mismo tenant (p. ej. el nodo
@@ -215,7 +215,7 @@ flujos**. Para no presentar consumos incompletos como reales:
 
 - Métrica de **cobertura** por nodo y hora: `bytes de flujos del nodo (site_1h) / bytes del uplink
   por SNMP (ifHCIn/OutOctets de las interfaces upstream)`. Se calcula en `analytics` y se guarda en
-  `analytics.flow_coverage_1h` (ClickHouse, `(tenant_id, site_id, bucket)`, TTL 13 meses).
+  `flows.flows_coverage` (ClickHouse, `(tenant_id, site_id, bucket)`, TTL 13 meses).
 - Cobertura < 80 % ⇒ alerta `flow_coverage_low` y aviso visible en los dashboards del nodo
   ("los datos de flujo cubren el 62 % del tráfico del uplink").
 - La detección de botnets reduce la confianza de señales de volumen en nodos con baja cobertura
@@ -226,7 +226,7 @@ flujos**. Para no presentar consumos incompletos como reales:
 - Cliente nuevo ⇒ el ingester publica `horus.flows.client.first_seen.<realm_id>` (lote cada 10 s,
   deduplicado; ADR-0018) y `devices` crea el cliente (`INSERT … ON CONFLICT DO NOTHING`) con el tipo
   por defecto del prefijo y emite `horus.devices.customer.discovered.<customer_id>`.
-- Cada hora el ingester publica `horus.flows.client.seen_summary.<realm_id>`, resumen de claves activas (para `last_seen` grueso y
+- Cada hora el ingester publica `horus.flows.client.activity_summary.<realm_id>`, resumen de claves activas (para `last_seen` grueso y
   reactivación de `inactive`).
 - Los flujos **no esperan** al descubrimiento: la fila ya lleva su clave natural.
 - Ciclo de vida (inactive, reset, purga) en [`database.md` §2.3.4](database.md).
@@ -235,14 +235,14 @@ flujos**. Para no presentar consumos incompletos como reales:
 
 Se calcula respecto a la IP del cliente, no con `flowDirection` del router:
 
-| `src_ip` | `dst_ip` | `direction` | `customer_ip` / `remote_ip` | `attribution_status` |
+| `src_ip` | `dst_ip` | `direction` | `client_ip` / `remote_ip` | `attribution_status` |
 |----------|----------|-------------|------------------------------|----------------------|
 | cliente del nodo | no cliente | `upload` | src / dst | `attributed` |
 | no cliente | cliente del nodo | `download` | dst / src | `attributed` |
 | cliente del nodo | cliente del nodo | `internal` | src / dst (una sola fila para el origen) | `internal` |
 | cliente de otro nodo | cualquiera | `unknown` | — | `transit` |
 | infraestructura | no cliente (o al revés) | `unknown` | — | `infrastructure` |
-| ninguno en prefijos | ninguno | `unknown` | IP del lado `customer_edge` en `customer_ip` | `unknown` ⇒ `flows.unattributed_1h` |
+| ninguno en prefijos | ninguno | `unknown` | IP del lado `customer_edge` en `client_ip` | `unknown` ⇒ `flows.unattributed_1h` |
 
 - `internal` (cliente a cliente del mismo nodo): relevante para seguridad (propagación lateral de
   gusanos, p. ej. 445/23 entre clientes) y P2P local; cuenta en el consumo del origen.
@@ -317,7 +317,7 @@ Nota: los rangos citados como ejemplo deben verificarse contra las fuentes al co
 Definidos físicamente en [`database.md` §6.2](database.md):
 
 - **Consumo**: `customer_5m/1h/1d`, `site_5m/1h/1d` (por servicio, ASN, dirección).
-- **Seguridad**: `customer_security_5m/1h` — una fila por cliente activo y ventana con los
+- **Detección**: `client_security_1m` (7 d) y `_1h`, `client_port_1m` (7 d) y `reputation_hit` — una fila por cliente activo y ventana con los
   contadores de §8.
 - **Calidad de atribución**: `unattributed_1h` (IPs que parecen de clientes fuera de prefijos).
 
@@ -331,16 +331,17 @@ contadores en ClickHouse), nunca payload.
 
 | Señal | Qué indica | Campos del flujo | Agregado / fuente | Regla inicial (orientativa, ajustable por tenant) |
 |-------|------------|------------------|-------------------|---------------------------------------------------|
-| **Contacto con C2 conocido** | Bot activo | `remote_ip`, `remote_port`, `protocol`, `bytes`, `ts` | cruce `flows_raw` × `dim.reputation` (categoría `botnet_cc`) ⇒ `detection.reputation_hits` | ≥ 1 flujo con respuesta (no solo SYN) a un indicador `botnet_cc` de confianza alta ⇒ hallazgo `high`; solo SYN ⇒ `medium` (C2 caído/sinkhole) |
+| **Contacto con C2 conocido** | Bot activo | `remote_ip`, `remote_port`, `protocol`, `bytes`, `ts` | marca en ingesta ⇒ `flows.reputation_hit`; retroactivo con `dim.reputation` sobre `flows_raw` (7 d) | ≥ 1 flujo con respuesta (no solo SYN) a un indicador `botnet_cc` de confianza alta ⇒ hallazgo `high`; solo SYN ⇒ `medium` (C2 caído/sinkhole) |
 | **Beaconing** (periodicidad) | Bot consultando a su C2 | `flow_start`, `remote_ip`, `bytes` | `flows_raw` (ventana ≤ 24 h, consulta de `detection`) | conexiones al mismo remoto con intervalo regular (coef. de variación < 0,2) y bytes pequeños y constantes durante ≥ 6 h |
-| **Fan-out** | Propagación, spam, DDoS | `remote_ip`, `direction` | `remote_ips_out`, `remote_nets24_out`, `flows_out` (`customer_security_5m`) | > 500 IPs remotas distintas en 5 min **y** dispersas en > 200 redes /24 (descarta CDN) |
+| **Participación en DDoS** | Bot atacando | `bytes`, `packets`, `remote_ip`, `remote_port`, `protocol` | `client_port_1m` (pps/bps por puerto y minuto), `client_security_1m` | ráfaga de pps/bps hacia ≤ 3 destinos durante ≥ 2 min muy por encima de la línea base; UDP saliente a puertos de amplificación (53, 123, 1900, 11211, 19) |
+| **Fan-out** | Propagación, spam, DDoS | `remote_ip`, `direction` | `remote_ips_out`, `remote_nets24_out`, `flows_out` (`client_security_1m`) | > 500 IPs remotas distintas en 5 min **y** dispersas en > 200 redes /24 (descarta CDN) |
 | **Escaneo** horizontal / vertical | Bot reclutando, gusano | `tcp_flags`, `packets`, `remote_ip`, `remote_port`, `icmp_type_code` | `syn_only_out`, `small_flows_out`, `remote_ports_out`, `icmp_flows_out` | > 70 % de flujos salientes SYN sin ACK con ≥ 100 destinos; o ≥ 50 puertos distintos en un mismo destino |
-| **Puertos típicos de botnet** | Mirai y variantes (23, 2323, 37215, 52869, 7547, 5555), SMB/EternalBlue (445, 139), IRC C2 (6667, 6697), RDP/MSSQL brute force (3389, 1433), Winbox MikroTik (8291) | `remote_port`, `customer_port`, `direction` | `watch_port_flows` (`dim.watch_port`, lista editable por `detection`) | flujos salientes a puertos vigilados hacia ≥ 20 destinos en 5 min |
+| **Puertos típicos de botnet** | Mirai y variantes (23, 2323, 37215, 52869, 7547, 5555), SMB/EternalBlue (445, 139), IRC C2 (6667, 6697), RDP/MSSQL brute force (3389, 1433), Winbox MikroTik (8291) | `remote_port`, `client_port`, `direction` | `watch_port_flows` (`dim.watch_port`, lista editable por `detection`) | flujos salientes a puertos vigilados hacia ≥ 20 destinos en 5 min |
 | **DNS anómalo** | Bot usando resolver propio, DGA (indirecto), túnel DNS, amplificación | `remote_port` 53/853, `remote_ip`, `bytes`, `packets` | `dns_flows_isp`, `dns_flows_other`, `dns_resolvers` (+ `dim.tenant_resolver`) | ráfagas de flujos DNS > 10× la línea base del cliente; ≥ 5 resolvers externos distintos; flujos DNS con bytes medios altos (túnel). **Limitación**: sin nombres consultados ni NXDOMAIN; DGA solo se infiere por volumen |
-| **Tráfico saliente sostenido** | DDoS saliente, proxy residencial, exfiltración, minería | `bytes`, `direction`, `ts` | `up_bytes`, `down_bytes` (`customer_security_5m/1h`) | subida > 80 % del total y > X Mbps sostenidos ≥ 30 min fuera del patrón del cliente |
+| **Tráfico saliente sostenido** | DDoS saliente, proxy residencial, exfiltración, minería | `bytes`, `direction`, `ts` | `up_bytes`, `down_bytes` (`client_security_1m/1h`) | subida > 80 % del total y > X Mbps sostenidos ≥ 30 min fuera del patrón del cliente |
 | **SMTP saliente directo** | Spam bot | `remote_port` 25 | `smtp_flows_out`, `smtp_remote_ips` | ≥ 20 servidores SMTP distintos/h desde un residencial |
-| **Servicios entrantes inesperados** | Dispositivo expuesto/comprometido (o comercial) | `customer_port`, `tcp_flags` (SYN+ACK de vuelta) | `inbound_service_ports` | puertos 23/2323/7547 aceptando conexiones entrantes ⇒ CPE/IoT vulnerable |
-| **Propagación interna** | Gusano dentro del nodo | `direction = internal`, puertos 445/23 | `flows_raw` / `customer_security_5m` | escaneo hacia otros clientes del mismo nodo |
+| **Servicios entrantes inesperados** | Dispositivo expuesto/comprometido (o comercial) | `client_port`, `tcp_flags` (SYN+ACK de vuelta) | `inbound_service_ports` | puertos 23/2323/7547 aceptando conexiones entrantes ⇒ CPE/IoT vulnerable |
+| **Propagación interna** | Gusano dentro del nodo | `direction = internal`, puertos 445/23 | `flows_raw` / `client_security_1m` | escaneo hacia otros clientes del mismo nodo |
 
 Requisitos de datos que se derivan:
 
@@ -348,7 +349,7 @@ Requisitos de datos que se derivan:
   exportada (Agente E).
 - Sin muestreo (o con `sampling_rate` conocido para reducir la confianza).
 - Línea base por cliente: `detection` calcula medias/percentiles de 7–28 días desde
-  `customer_security_1h`.
+  `client_security_1h`.
 - La **pre-agregación** (§10) conserva todo lo necesario (IP y puerto remotos, OR de flags,
   `merged_flows`), salvo el puerto efímero del cliente.
 - Falsos positivos conocidos: servidores legítimos del cliente comercial (fan-out entrante), CDN
@@ -372,7 +373,7 @@ El tipo por defecto es `residential` (D1). `detection` calcula un `commercial_sc
 | **Volumen de subida** | `up_bytes / down_bytes` | ratio alto y estable (backups, servidores, videovigilancia) |
 | **Diversidad de destinos simultáneos** | `remote_ips_out`, flujos concurrentes | muchos destinos simultáneos en horario laboral (varios puestos detrás del CPE). Es una **estimación**, nunca un conteo de dispositivos |
 | **Correo saliente autenticado** | 587/465 saliente regular | servidor o cliente de correo corporativo |
-| **IP estática** | `customer_prefix.assignment_mode = static` | refuerza (no decide) |
+| **IP estática** | `client_prefix.assignment_mode = static` | refuerza (no decide) |
 
 - En prefijos `dynamic` la confianza máxima del score se limita (la IP puede cambiar de persona).
 - Un cliente marcado manualmente no se toca; el scoring sigue calculándose y la UI muestra la
@@ -386,7 +387,7 @@ El tipo por defecto es `residential` (D1). `detection` calcula un `commercial_sc
 
 Configurable por exportador (desactivada en el primer incremento para medir):
 
-- Clave: `(router_id, input_if, output_if, customer_ip, remote_ip, protocol, remote_port)`,
+- Clave: `(router_id, input_if, output_if, client_ip, remote_ip, protocol, remote_port)`,
   ventana de 60 s alineada; `tcp_flags` = OR; `merged_flows` = nº de registros fusionados; `packets`
   y `bytes` sumados; `flow_start` = mínimo, `ts` = máximo.
 - Se pierde: puerto efímero del cliente, tiempos exactos por conexión (afecta al beaconing fino: se
@@ -397,20 +398,28 @@ Configurable por exportador (desactivada en el primer incremento para medir):
 
 ## 11. Reputación en el pipeline
 
-- Feeds **globales** en `detection` (C2 de botnets, escáneres, Tor, proxies), snapshot en NATS
-  Object Store + almacenamiento local y diccionario `IP_TRIE` `dim.reputation`.
-- Job de `detection` cada 5 min: cruza `flows_raw` reciente (por tenant) con `dim.reputation` y
-  escribe `detection.reputation_hits` con la versión vigente en ese momento.
-- `reputation_allowlist` por tenant para falsos positivos.
-- La reputación nunca va en la fila de flujo: no se congela un indicador que cambia a diario.
+Alineado con [ADR-0024](adr/0024-deteccion-de-botnets-como-objetivo-principal.md):
 
----
+- Feeds **de plataforma** en `detection` (módulo reputation): C2 de botnets, escáneres, listas de
+  bloqueo, pools de minería, Tor, proxies; con fuente, confianza, caducidad y licencia.
+- `detection` compila un **snapshot** (prefijos → categoría, fuente, confianza) y lo publica en NATS
+  Object Store (`reputation-snapshots`) con evento de versión; el **ingester** lo carga como el
+  catálogo y conmuta atómicamente.
+- El ingester marca cada flujo cuya IP remota esté en el snapshot (`reputation_category`,
+  `reputation_source_id`, `reputation_confidence`, `reputation_version`); la MV
+  `flows.reputation_hit` agrupa por cliente, IP remota y hora. El hit queda fechado con la versión
+  vigente en ese momento y no se reescribe el pasado.
+- `reputation_allowlist` **por tenant** (falsos positivos locales) se aplica en `detection` al
+  generar hallazgos, no en la ingesta (la marca es un hecho; la decisión es de `detection`).
+- `dim.reputation` (diccionario `IP_TRIE`) se mantiene para consultas *ad hoc* sobre `flows_raw`
+  con la reputación **actual** (p. ej. "¿quién habló en los últimos 7 días con este C2 que se
+  publicó hoy?").
 
 ## 12. Dependencias abiertas
 
 | Con | Tema |
 |-----|------|
 | Agente E (`vendors/mikrotik.md`) | Ya cubierto: IPFIX sin muestreo, timeouts, exportador por IP de túnel, NAT pre-NAT esperado, ifIndex PPPoE dinámicos, IPv6 por prefijo delegado, ceguera por offload. **Pendiente de laboratorio**: IP privada en la bajada con NAT en el mismo router; si `interfaces=` se respeta en CCR; campo ICMP type/code y TTL en IPFIX. Sus enlaces a `traffic-model.md` §9.1 y §11 deben pasar a §4.2 (realm) y §10 (pre-agregación). |
-| Agente C (`events.md`) | `horus.flows.client.first_seen.<realm_id>` y `horus.flows.client.seen_summary.<realm_id>` (lotes, telemetría), `horus.devices.customer.*` (ciclo de vida), `horus.detection.customer.kind_suggested`, `horus.detection.finding.{opened,updated,resolved}.<finding_id>`, `horus.devices.customer_prefix.*`; eliminar `customer.assigned/unassigned`; `tenant_id` en todos los sobres; lote `horus.flows.batch.received` con `tenant_id`, `site_id`, `router_id` ya resueltos por el collector. |
+| Agente C (`events.md`) | `horus.flows.client.first_seen.<realm_id>` y `horus.flows.client.activity_summary.<realm_id>` (lotes, telemetría), `horus.devices.customer.*` (ciclo de vida), `horus.detection.customer.kind_suggested`, `horus.detection.finding.{opened,updated,resolved}.<finding_id>`, `horus.devices.client_prefix.*`; eliminar `customer.assigned/unassigned`; `tenant_id` en todos los sobres; lote `horus.flows.batch.received` con `tenant_id`, `site_id`, `router_id` ya resueltos por el collector. |
 | Agente A | Dueño del cliente (`devices`) y del descubrimiento (ingester de `flows`); emparejamiento de NAT en el ingester; ADR de botnets (alcance de `detection`). |
 | Agente D | Historias: prefijos por nodo + modo descubrimiento, importación de pools del MikroTik, widgets de seguridad para el modo NOC, cola de hallazgos, cambio de tipo manual. |
