@@ -507,7 +507,7 @@ Best practices`: *"Provide clear next steps on any blank screens"*). Se distingu
 ### 8.4 Degradado
 
 Una dependencia caída **no debe tumbar la aplicación entera**; la UI muestra exactamente qué está
-afectado. Fuente: `GET /api/v1/system/status` (contrato en [`api.md`](api.md)) consultado al
+afectado. Fuente: `GET /api/v1/system/status` (propuesto; aún no está en [`api.md`](api.md), C-08 de [`roadmap.md`](roadmap.md)) más el aviso `realtime: degraded` del gateway por WebSocket, consultado al
 cargar y cada 30 s, más el evento WS correspondiente; mapa de capacidades
 `{ analytics: 'degraded', realtime: 'ok', ... }` en el composable `useSystemStatus()`.
 
