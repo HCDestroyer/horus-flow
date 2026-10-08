@@ -13,6 +13,10 @@
 //     503, espera HORUS_SHUTDOWN_DELAY, drena dentro de HORUS_SHUTDOWN_TIMEOUT
 //     y sale con código 0. Una segunda señal termina el proceso de inmediato.
 //
+// Subcomando `horus healthcheck [--live]`: consulta /readyz (o /healthz) del
+// proceso en marcha en HORUS_ADMIN_ADDR sin arrancar roles (healthcheck de
+// los contenedores); 0 si responde 200, 1 si no.
+//
 // Códigos de salida: 0 apagado limpio, 1 fallo en ejecución o apagado, 2
 // error de uso o de configuración.
 package main

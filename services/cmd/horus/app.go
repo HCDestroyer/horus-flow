@@ -27,6 +27,9 @@ const (
 // run es main sin efectos globales: recibe argumentos, entorno y salidas, y
 // devuelve el código de salida. ctx se cancela al recibir la señal de apagado.
 func run(ctx context.Context, args, environ []string, stdout, stderr io.Writer, catalog []roleSpec) int {
+	if len(args) > 0 && args[0] == "healthcheck" {
+		return healthcheck(ctx, args[1:], environ, stdout, stderr)
+	}
 	fs := flag.NewFlagSet("horus", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	rolesFlag := fs.String("roles", "", "comma-separated roles to run (overrides HORUS_ROLES); \"all\" = every public role")
