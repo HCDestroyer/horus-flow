@@ -1,0 +1,6 @@
+# Escáneres detectados por el SOC del ISP (lista personalizada de ejemplo, D20; formato csv)
+first_seen;ip_address;reason
+2026-10-01;192.0.2.60;ssh-bruteforce
+2026-10-02;"198.51.100.200";rdp-scan
+2026-10-03;2001:db8:5ca::1;telnet-scan
+2026-10-04;;fila sin IP

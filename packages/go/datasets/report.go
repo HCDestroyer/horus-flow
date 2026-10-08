@@ -55,13 +55,17 @@ func WriteResults(w io.Writer, results []Result) error {
 func WriteSources(w io.Writer, srcs []Source, allowUnverified bool) error {
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 	p := &Printer{W: tw}
-	p.Printf("FUENTE\tTIPO\tFORMATO\tUSO COMERCIAL\tFRECUENCIA\tDESCARGA\tLICENCIA\n")
+	p.Printf("FUENTE\tORIGEN\tTIPO\tFORMATO\tUSO COMERCIAL\tFRECUENCIA\tDESCARGA\tLICENCIA\n")
 	for _, s := range srcs {
 		dl := "sí"
 		if ok, reason := s.Allowed(allowUnverified); !ok {
 			dl = "no: " + reason
 		}
-		p.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\n", s.ID, s.Kind, s.Format, s.CommercialUse,
+		origin := s.Origin
+		if origin == "" {
+			origin = OriginCatalog
+		}
+		p.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", s.ID, origin, s.Kind, s.Format, s.CommercialUse,
 			time.Duration(s.Frequency), dl, s.License)
 	}
 	if p.Err != nil {

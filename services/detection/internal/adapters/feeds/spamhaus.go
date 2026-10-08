@@ -33,7 +33,7 @@ func parseDropTxt(r io.Reader, src datasets.Source, fetchedAt time.Time) (*Resul
 		}
 		res.Lines++
 		cidr, sbl, _ := strings.Cut(line, ";")
-		p, ok := parsePrefixOrAddr(cidr)
+		p, ok := parsePrefix(cidr)
 		if !ok {
 			res.Invalid++
 			continue
@@ -87,7 +87,7 @@ func parseDropJSON(r io.Reader, src datasets.Source, fetchedAt time.Time) (*Resu
 			continue
 		}
 		res.Lines++
-		p, ok := parsePrefixOrAddr(rec.CIDR)
+		p, ok := parsePrefix(rec.CIDR)
 		if !ok {
 			res.Invalid++
 			continue
@@ -127,7 +127,7 @@ func parseNetset(r io.Reader, src datasets.Source, fetchedAt time.Time) (*Result
 		}
 		res.Lines++
 		field := strings.Fields(line)[0]
-		p, ok := parsePrefixOrAddr(field)
+		p, ok := parsePrefix(field)
 		if !ok {
 			res.Invalid++
 			continue
