@@ -11,10 +11,11 @@ info:
     identifier: LicenseRef-Horus-Proprietary
 servers:
   - url: https://{domain}/api/v1
-    description: Dominio público configurable por instalación (D14, HORUS_PUBLIC_BASE_URL).
+    description: Host público por instalación (D14, D19, HORUS_PUBLIC_BASE_URL) — dominio propio, subdominio o solo la IP del servidor; siempre HTTPS.
     variables:
       domain:
         default: horus.example.net
+        description: Dominio, subdominio o IP literal (modo `ip_only`, p. ej. 203.0.113.10).
 tags:
   - name: auth
     description: Sesión y tokens.
@@ -2598,7 +2599,7 @@ paths:
       tags:
         - notifications
       operationId: createNotificationChannel
-      summary: Crea un canal (email o telegram en I1; librenms previsto)
+      summary: Crea un canal (email, telegram o librenms)
       x-module: alerts
       x-scope: tenant
       x-permission: alerts.manage
@@ -2718,6 +2719,42 @@ paths:
           $ref: '#/components/responses/NotFound'
         '412':
           $ref: '#/components/responses/PreconditionFailed'
+  /notification-channels/{channel_id}/connection-test:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    post:
+      tags:
+        - notifications
+      operationId: testNotificationChannelConnection
+      summary: Prueba de conexión sin enviar notificación (síncrona, timeout 10 s)
+      description: |
+        Comprueba alcance, TLS y autenticación del destino con las credenciales guardadas, sin publicar nada.
+        `librenms` (D17): resuelve `base_url`, valida el certificado (salvo `tls_verify=false`) y hace una llamada
+        de solo lectura autenticada a la API. `telegram`: `getMe` del bot. `email`: conexión y `EHLO`/`STARTTLS`
+        al SMTP de la instalación. Un resultado correcto pasa el canal de `unverified` a `ok`. El error nunca incluye
+        secretos ni el cuerpo de la respuesta remota.
+      x-module: alerts
+      x-scope: tenant
+      x-permission: alerts.manage
+      x-rate-limit: connection_test
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Resultado de la prueba (también cuando falla el destino; ver `ok`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConnectionTestResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
   /notification-channels/{channel_id}/credentials:
     parameters:
       - $ref: '#/components/parameters/ChannelId'
@@ -2725,12 +2762,19 @@ paths:
       tags:
         - notifications
       operationId: putNotificationChannelCredentials
-      summary: Secretos write-only del canal (p. ej. token de bot de Telegram propio del ISP)
-      description: Opcional para telegram (sin token propio se usa el bot de la instalación, HORUS_TELEGRAM_BOT_TOKEN_FILE). Email usa el SMTP de la instalación (HORUS_SMTP_*); no tiene secretos por canal.
+      summary: Secretos write-only del canal (token de bot de Telegram propio, contraseña y token de API de LibreNMS)
+      description: |
+        Write-only: nunca se devuelven (solo `has_credentials`); se cifran con la KEK de `alerts` y se borran con el
+        canal (crypto-shredding). Auditado. Solo se aceptan los campos del `kind` del canal (otro → `422 VALIDATION_FAILED`).
+        - `telegram`: opcional (sin token propio se usa el bot de la instalación, HORUS_TELEGRAM_BOT_TOKEN_FILE).
+        - `librenms` (D17): `password` obligatoria salvo que se envíe `api_token`; `api_token` opcional
+          (cabecera `X-Auth-Token` de la API de LibreNMS). Reemplaza el conjunto completo: lo no enviado se borra.
+        - `email`: usa el SMTP de la instalación (HORUS_SMTP_*); no tiene secretos por canal (`422`).
       x-module: alerts
       x-scope: tenant
       x-permission: alerts.manage
       x-reauth: true
+      x-audited: true
       x-increment: I1
       security:
         - tenantBearer: []
@@ -2739,12 +2783,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                telegram_bot_token:
-                  type: string
-                  writeOnly: true
-                  pattern: ^[0-9]+:[A-Za-z0-9_-]{30,}$
+              $ref: '#/components/schemas/NotificationChannelCredentials'
       responses:
         '204':
           $ref: '#/components/responses/NoContent'
@@ -2810,6 +2849,10 @@ paths:
               - sent
               - failed
               - throttled
+        - name: channel_kind
+          in: query
+          schema:
+            $ref: '#/components/schemas/NotificationChannelKind'
       responses:
         '200':
           description: Entregas.
@@ -2900,6 +2943,34 @@ paths:
                     $ref: '#/components/schemas/PageInfo'
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /platform/installation:
+    get:
+      tags:
+        - platform
+      operationId: platformGetInstallation
+      summary: Modo de acceso de la instalación (dominio, subdominio o solo IP), TLS y avisos (D19)
+      description: |
+        Solo lectura: la configuración es de despliegue (`HORUS_ACCESS_MODE`, `HORUS_PUBLIC_BASE_URL`,
+        `HORUS_TLS_MODE`), no se edita por API. En `ip_only` la consola de plataforma muestra siempre el aviso
+        `ip_only_access` (y `self_signed_certificate` si aplica) con la huella del certificado para verificarla
+        en el primer acceso.
+      x-module: gateway
+      x-scope: platform
+      x-permission: platform.status.read
+      x-increment: I1
+      security:
+        - platformBearer: []
+      responses:
+        '200':
+          description: Configuración de acceso efectiva.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstallationAccess'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /platform/overview:
     get:
       tags:
@@ -2991,6 +3062,220 @@ paths:
                             - 'null'
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /platform/reputation/sources:
+    get:
+      tags:
+        - platform
+      operationId: platformListReputationSources
+      summary: Fuentes de reputación (catálogo base y personalizadas) con estado de carga (D20)
+      x-module: detection
+      x-scope: platform
+      x-permission: platform.reputation_sources.manage
+      x-increment: I1
+      security:
+        - platformBearer: []
+      parameters:
+        - name: origin
+          in: query
+          schema:
+            $ref: '#/components/schemas/ReputationSourceOrigin'
+        - name: enabled
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Fuentes (sin secretos).
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ReputationSource'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+        - platform
+      operationId: platformCreateReputationSource
+      summary: Alta de una fuente de reputación personalizada (se carga automáticamente y entra en el snapshot)
+      description: |
+        D20: el superadministrador agrega las listas que desee. La URL debe ser `https://`, pública (se rechazan
+        loopback, link-local, rangos privados, CGNAT y las redes de la instalación, también tras resolver DNS y en
+        cada redirección → `422 REPUTATION_SOURCE_URL_NOT_ALLOWED`) y sin credenciales en la URL; si el feed pide
+        autenticación va en `auth_header_*` (write-only). `terms_acknowledged=true` deja constancia (auditada) de que
+        quien la da de alta confirmó que los términos de la lista permiten su uso. La primera carga se encola al
+        crearla; cada carga emite `horus.detection.reputation.source_refreshed`.
+      x-module: detection
+      x-scope: platform
+      x-permission: platform.reputation_sources.manage
+      x-reauth: true
+      x-audited: true
+      x-increment: I1
+      security:
+        - platformBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReputationSourceCreate'
+      responses:
+        '201':
+          description: Creada (`status=pending` hasta la primera carga).
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReputationSource'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /platform/reputation/sources/{source_id}:
+    parameters:
+      - $ref: '#/components/parameters/ReputationSourceId'
+    get:
+      tags:
+        - platform
+      operationId: platformGetReputationSource
+      summary: Detalle y estado de carga de una fuente
+      x-module: detection
+      x-scope: platform
+      x-permission: platform.reputation_sources.manage
+      x-increment: I1
+      security:
+        - platformBearer: []
+      responses:
+        '200':
+          description: Fuente.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReputationSource'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags:
+        - platform
+      operationId: platformUpdateReputationSource
+      summary: Edita una fuente personalizada (del catálogo base solo `enabled`)
+      description: Catálogo base con otro campo distinto de `enabled` → `422 REPUTATION_SOURCE_READ_ONLY`. Cambiar `url`, `format` o la autenticación encola una carga.
+      x-module: detection
+      x-scope: platform
+      x-permission: platform.reputation_sources.manage
+      x-reauth: true
+      x-audited: true
+      x-increment: I1
+      security:
+        - platformBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: '#/components/schemas/ReputationSourcePatch'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReputationSourcePatch'
+      responses:
+        '200':
+          description: Actualizada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReputationSource'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+    delete:
+      tags:
+        - platform
+      operationId: platformDeleteReputationSource
+      summary: Borra una fuente personalizada (sus indicadores salen del siguiente snapshot)
+      description: Una fuente del catálogo base no se borra (se deshabilita) → `422 REPUTATION_SOURCE_READ_ONLY`. Los hallazgos ya abiertos conservan la referencia a la fuente.
+      x-module: detection
+      x-scope: platform
+      x-permission: platform.reputation_sources.manage
+      x-reauth: true
+      x-audited: true
+      x-increment: I1
+      security:
+        - platformBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContent'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /platform/reputation/sources/{source_id}/refresh:
+    parameters:
+      - $ref: '#/components/parameters/ReputationSourceId'
+    post:
+      tags:
+        - platform
+      operationId: platformRefreshReputationSource
+      summary: Fuerza una carga ahora (asíncrona; el resultado llega como source_refreshed)
+      x-module: detection
+      x-scope: platform
+      x-permission: platform.reputation_sources.manage
+      x-audited: true
+      x-increment: I1
+      security:
+        - platformBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyRequired'
+      responses:
+        '202':
+          description: Carga encolada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReputationSource'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
   /platform/tenants:
     get:
       tags:
@@ -3524,6 +3809,7 @@ paths:
                       required:
                         - key
                         - name
+                        - origin
                         - category
                         - entries
                         - last_success_at
@@ -3535,6 +3821,16 @@ paths:
                             - abuse_ch_feodo
                         name:
                           type: string
+                        origin:
+                          type: string
+                          enum:
+                            - catalog
+                            - custom
+                          description: 'D20: catálogo base o agregada por el superadministrador.'
+                        confidence:
+                          type: integer
+                          minimum: 0
+                          maximum: 100
                         category:
                           type: string
                           enum:
@@ -3557,6 +3853,7 @@ paths:
                             - 'null'
                         commercial_use_allowed:
                           type: boolean
+                          description: true en el catálogo base (D20) y en las personalizadas (términos confirmados al darlas de alta).
         '401':
           $ref: '#/components/responses/Unauthorized'
   /roles:
@@ -3957,6 +4254,9 @@ paths:
         túnel, y `/tool fetch` a `<HORUS_PUBLIC_BASE_URL>/api/v1/enroll/wireguard` con cuerpo JSON
         `{"token", "public_key"}`. Contraseñas y token se muestran **una sola vez**: pedirlo de nuevo crea
         otros e invalida los anteriores (auditado). RouterOS < 7.12 → `422 ROUTEROS_VERSION_UNSUPPORTED` (D15).
+        `/tool fetch` siempre con `check-certificate=yes`: con TLS `self_signed` o `provided` (D19, p. ej. modo
+        `ip_only`) el script incluye el certificado público de la instalación y lo importa como confiable antes del
+        fetch; nunca desactiva la verificación.
       x-module: wireguard
       x-scope: tenant
       x-permission: wireguard.write
@@ -4898,7 +5198,12 @@ components:
             - NOTIFICATION_CHANNEL_NOT_FOUND
             - NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE
             - NOTIFICATION_CHANNEL_UNREACHABLE
+            - NOTIFICATION_CHANNEL_AUTH_FAILED
+            - NOTIFICATION_CHANNEL_CREDENTIALS_MISSING
             - STORAGE_TARGET_UNREACHABLE
+            - REPUTATION_SOURCE_NOT_FOUND
+            - REPUTATION_SOURCE_READ_ONLY
+            - REPUTATION_SOURCE_URL_NOT_ALLOWED
         - type: string
           pattern: ^[A-Z][A-Z0-9_]*$
     FieldError:
@@ -5217,7 +5522,10 @@ components:
         - 100.64.12.34
     SecurityState:
       type: string
-      description: Proyectado desde detection. La UI habla de "señales", nunca de "infectado".
+      description: |
+        Proyectado desde detection. Etiquetas de presentación (D18; `dashboard/v0/widget-data.schema.json#/$defs/SecurityState`):
+        `clean` "Limpio", `suspected` "Sospechoso", `infected` **"Infectado"**, `mitigated` "Mitigado". "Infectado" se
+        muestra siempre con las razones y el nivel de confianza de los hallazgos que lo sostienen.
       enum:
         - clean
         - suspected
@@ -7036,6 +7344,17 @@ components:
           $ref: '#/components/schemas/Meta'
       additionalProperties: false
       $defs:
+        SecurityState:
+          description: 'Estado de seguridad del cliente (= SecurityState de la API) con su etiqueta de presentación (D18): `title` es la etiqueta es-ES que usan UI, kiosco y alertas (clave i18n `security_state.<valor>`). `infected` se muestra como "Infectado", siempre junto a sus razones y nivel de confianza (nunca la palabra sola).'
+          oneOf:
+            - const: clean
+              title: Limpio
+            - const: suspected
+              title: Sospechoso
+            - const: infected
+              title: Infectado
+            - const: mitigated
+              title: Mitigado
         Meta:
           type: object
           required:
@@ -7582,8 +7901,8 @@ components:
     NotificationChannelKind:
       type: string
       description: |
-        `email` y `telegram`: disponibles en I1. `librenms`: previsto (D13), aún no disponible. Enum abierto
-        (después: webhook, whatsapp, sms).
+        `email`, `telegram` y `librenms` (D17, por API) disponibles. Enum abierto (después: webhook, whatsapp,
+        sms); un `kind` conocido por el contrato pero aún no implementado → `422 NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE`.
       enum:
         - email
         - telegram
@@ -7635,32 +7954,37 @@ components:
     LibreNmsChannelConfig:
       type: object
       title: LibreNmsChannelConfig
-      description: Previsto (D13). LibreNMS como destino de alertas por syslog, SNMP trap o su API; opcionalmente fuente de inventario (fuera del I1).
+      description: |
+        D17: LibreNMS como destino por **su API** (instancia dedicada a Horus), configurado a mano por cada ISP.
+        Solo la parte no secreta: contraseña y token van por `PUT /notification-channels/{id}/credentials`
+        (write-only). LibreNMS como fuente de inventario queda fuera del I1.
       required:
-        - mode
-        - target
+        - base_url
+        - username
       additionalProperties: false
       properties:
-        mode:
+        base_url:
           type: string
-          enum:
-            - syslog
-            - snmp_trap
-            - api
-        target:
+          format: uri
+          maxLength: 2048
+          pattern: ^https?://
+          description: URL base de la instancia (p. ej. `https://librenms.isp.example`); Horus añade `/api/v0`. Sin credenciales en la URL.
+          examples:
+            - https://librenms.isp.example
+        username:
           type: string
-          description: host[:puerto] o URL base de la API de LibreNMS.
-        syslog_facility:
-          type: string
-          default: local0
-        snmp_trap_version:
-          type: string
-          enum:
-            - v2c
-            - v3
-        api_tls_verify:
+          minLength: 1
+          maxLength: 128
+          description: Usuario de LibreNMS dedicado a Horus.
+        tls_verify:
           type: boolean
           default: true
+          description: false solo para certificados autofirmados (auditado).
+        timeout_seconds:
+          type: integer
+          minimum: 2
+          maximum: 30
+          default: 10
     NotificationEventType:
       type: string
       description: Tipos de evento a los que se suscribe un canal en el I1 (enum abierto).
@@ -7779,6 +8103,73 @@ components:
           $ref: '#/components/schemas/ChannelSubscription'
         include_personal_data:
           type: boolean
+    ConnectionTestResult:
+      type: object
+      required:
+        - ok
+        - channel_id
+        - channel_kind
+        - checked_at
+      additionalProperties: false
+      properties:
+        ok:
+          type: boolean
+        channel_id:
+          $ref: '#/components/schemas/Uuid'
+        channel_kind:
+          $ref: '#/components/schemas/NotificationChannelKind'
+        checked_at:
+          $ref: '#/components/schemas/Timestamp'
+        latency_ms:
+          type:
+            - integer
+            - 'null'
+        remote_version:
+          type:
+            - string
+            - 'null'
+          description: 'librenms: versión que informa la API, si la expone.'
+        error_code:
+          description: Sin valor si `ok`. Enum abierto.
+          anyOf:
+            - type: string
+              enum:
+                - dns_failed
+                - connect_failed
+                - tls_invalid
+                - auth_failed
+                - forbidden
+                - timeout
+                - unexpected_response
+                - missing_credentials
+            - type: 'null'
+        error:
+          type:
+            - string
+            - 'null'
+          description: Sin secretos ni cuerpo de la respuesta remota.
+    NotificationChannelCredentials:
+      type: object
+      description: Secretos write-only por `kind` (nunca devueltos). Ver `PUT /notification-channels/{id}/credentials`.
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        telegram_bot_token:
+          type: string
+          writeOnly: true
+          pattern: ^[0-9]+:[A-Za-z0-9_-]{30,}$
+        password:
+          type: string
+          writeOnly: true
+          minLength: 1
+          maxLength: 256
+          description: 'librenms: contraseña del usuario.'
+        api_token:
+          type: string
+          writeOnly: true
+          minLength: 16
+          maxLength: 256
+          description: 'librenms: token de API (opcional).'
     NotificationDelivery:
       type: object
       required:
@@ -7894,6 +8285,119 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Role'
+    AccessMode:
+      type: string
+      description: |
+        D19, por instalación (`HORUS_ACCESS_MODE`; si falta se deduce de `HORUS_PUBLIC_BASE_URL`: IP literal → `ip_only`).
+        `domain`: dominio propio del cliente. `subdomain`: subdominio (del cliente o del proveedor de la instalación).
+        `ip_only`: solo la IP pública del servidor; nada en Horus depende de tener dominio.
+      enum:
+        - domain
+        - subdomain
+        - ip_only
+    TlsMode:
+      type: string
+      description: |
+        `acme`: certificado automático (Let's Encrypt) para el nombre; obligatorio por defecto en `domain`/`subdomain`.
+        `acme_ip`: certificado para IP si el emisor ACME lo soporta (solo `ip_only`, opcional).
+        `self_signed`: certificado autogenerado en la instalación con SAN = IP (por defecto en `ip_only`).
+        `provided`: certificado aportado por el operador (CA interna del ISP), en cualquier modo.
+      enum:
+        - acme
+        - acme_ip
+        - self_signed
+        - provided
+    InstallationAccess:
+      type: object
+      required:
+        - access_mode
+        - public_base_url
+        - host
+        - allowed_origins
+        - wireguard_endpoint
+        - tls
+        - warnings
+      additionalProperties: false
+      properties:
+        access_mode:
+          $ref: '#/components/schemas/AccessMode'
+        public_base_url:
+          type: string
+          format: uri
+          description: HORUS_PUBLIC_BASE_URL; siempre `https://` (también en `ip_only`).
+          examples:
+            - https://horus.isp.example
+            - https://203.0.113.10
+        host:
+          type: string
+          description: Nombre o IP literal de HORUS_PUBLIC_BASE_URL.
+          examples:
+            - horus.isp.example
+            - 203.0.113.10
+        allowed_origins:
+          type: array
+          items:
+            type: string
+        wireguard_endpoint:
+          type: string
+          description: HORUS_WG_ENDPOINT (nombre o IP).
+        tls:
+          type: object
+          required:
+            - mode
+            - hsts
+            - not_after
+            - fingerprint_sha256
+          additionalProperties: false
+          properties:
+            mode:
+              $ref: '#/components/schemas/TlsMode'
+            hsts:
+              type: boolean
+              description: true solo con nombre y certificado de confianza pública (`domain`/`subdomain` + `acme`).
+            issuer:
+              type:
+                - string
+                - 'null'
+            not_after:
+              oneOf:
+                - $ref: '#/components/schemas/Timestamp'
+                - type: 'null'
+            fingerprint_sha256:
+              type:
+                - string
+                - 'null'
+              pattern: ^[0-9A-F]{2}(:[0-9A-F]{2}){31}$
+              description: Huella del certificado servido, para verificarla a mano con self_signed.
+        warnings:
+          type: array
+          description: Avisos para la consola de plataforma (enum abierto de `code`).
+          items:
+            type: object
+            required:
+              - code
+              - severity
+              - message
+            additionalProperties: false
+            properties:
+              code:
+                anyOf:
+                  - type: string
+                    enum:
+                      - ip_only_access
+                      - self_signed_certificate
+                      - certificate_expiring
+                      - acme_renewal_failed
+                  - type: string
+                    pattern: ^[a-z][a-z0-9_]*$
+              severity:
+                type: string
+                enum:
+                  - info
+                  - warning
+                  - critical
+              message:
+                type: string
     TenantOverview:
       type: object
       required:
@@ -7934,6 +8438,279 @@ components:
           type:
             - number
             - 'null'
+    ReputationSourceOrigin:
+      type: string
+      description: '`catalog`: catálogo base de la instalación (D20: uso comercial aprobado). `custom`: agregada por el superadministrador.'
+      enum:
+        - catalog
+        - custom
+    ReputationSourceFormat:
+      type: string
+      description: |
+        Formatos que sabe leer `detection` (enum abierto; uno nuevo exige parser y versión del contrato).
+        `netset`: una IP o CIDR por línea, `#` comentarios (también listas de salida de Tor).
+        `abusech-feodo-csv`, `abusech-threatfox-csv`: exportaciones CSV de abuse.ch. `spamhaus-drop-json`: DROP en JSON Lines.
+      enum:
+        - netset
+        - abusech-feodo-csv
+        - abusech-threatfox-csv
+        - spamhaus-drop-json
+    ReputationSourceFrequency:
+      type: string
+      description: Intervalo entre cargas (mínimo 15 min, máximo 7 d).
+      pattern: ^[1-9][0-9]*(m|h|d)$
+      examples:
+        - 1h
+        - 6h
+        - 24h
+    ReputationCategory:
+      type: string
+      description: Igual que `reputation_category` de ClickHouse (C3).
+      enum:
+        - botnet_cc
+        - scanner
+        - malware_dist
+        - mining_pool
+        - proxy_vpn
+        - tor_exit
+        - blocklist
+    ReputationSource:
+      type: object
+      required:
+        - id
+        - numeric_id
+        - key
+        - origin
+        - name
+        - url
+        - format
+        - frequency
+        - category
+        - confidence
+        - enabled
+        - commercial_use
+        - has_auth
+        - status
+        - entries
+        - last_attempt_at
+        - last_success_at
+        - last_error
+        - consecutive_failures
+        - version
+        - created_at
+        - updated_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        numeric_id:
+          type: integer
+          minimum: 1
+          maximum: 65535
+          description: '= reputation_source_id en ClickHouse (C3); asignado por detection.'
+        key:
+          type: string
+          examples:
+            - abuse_ch_feodo
+        origin:
+          $ref: '#/components/schemas/ReputationSourceOrigin'
+        name:
+          type: string
+        url:
+          type: string
+          format: uri
+        format:
+          $ref: '#/components/schemas/ReputationSourceFormat'
+        frequency:
+          $ref: '#/components/schemas/ReputationSourceFrequency'
+        category:
+          $ref: '#/components/schemas/ReputationCategory'
+        confidence:
+          type: integer
+          minimum: 0
+          maximum: 100
+        enabled:
+          type: boolean
+        license:
+          type:
+            - string
+            - 'null'
+        notes:
+          type:
+            - string
+            - 'null'
+        commercial_use:
+          type: string
+          description: '`approved` (catálogo base, D20) u `operator_acknowledged` (personalizada: términos confirmados por quien la dio de alta).'
+          enum:
+            - approved
+            - operator_acknowledged
+        has_auth:
+          type: boolean
+        status:
+          type: string
+          enum:
+            - pending
+            - ok
+            - failing
+            - disabled
+        entries:
+          type: integer
+        last_attempt_at:
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: 'null'
+        last_success_at:
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: 'null'
+        last_error:
+          type:
+            - string
+            - 'null'
+          description: Sin secretos.
+        consecutive_failures:
+          type: integer
+          minimum: 0
+        version:
+          type: integer
+        created_by:
+          type:
+            - string
+            - 'null'
+          description: user id; null en el catálogo base.
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    ReputationSourceCreate:
+      type: object
+      required:
+        - key
+        - name
+        - url
+        - format
+        - frequency
+        - category
+        - confidence
+        - terms_acknowledged
+      additionalProperties: false
+      properties:
+        key:
+          type: string
+          pattern: ^[a-z][a-z0-9_]{2,47}$
+          description: Identificador estable e inmutable (aparece en hallazgos y snapshots).
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        url:
+          type: string
+          format: uri
+          maxLength: 2048
+          pattern: ^https://
+        format:
+          $ref: '#/components/schemas/ReputationSourceFormat'
+        frequency:
+          $ref: '#/components/schemas/ReputationSourceFrequency'
+        category:
+          $ref: '#/components/schemas/ReputationCategory'
+        confidence:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Confianza de sus indicadores (= reputation_confidence).
+        enabled:
+          type: boolean
+          default: true
+        license:
+          type:
+            - string
+            - 'null'
+          maxLength: 200
+        notes:
+          type:
+            - string
+            - 'null'
+          maxLength: 1000
+        min_entries:
+          type: integer
+          minimum: 0
+          default: 1
+          description: Menos entradas → carga rechazada (se conserva la anterior).
+        max_bytes:
+          type: integer
+          minimum: 1024
+          maximum: 268435456
+          default: 67108864
+        auth_header_name:
+          type:
+            - string
+            - 'null'
+          pattern: ^[A-Za-z0-9-]{1,64}$
+          examples:
+            - Auth-Key
+        auth_header_value:
+          type:
+            - string
+            - 'null'
+          writeOnly: true
+          maxLength: 512
+        terms_acknowledged:
+          type: boolean
+          const: true
+    ReputationSourcePatch:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        url:
+          type: string
+          format: uri
+          maxLength: 2048
+          pattern: ^https://
+        format:
+          $ref: '#/components/schemas/ReputationSourceFormat'
+        frequency:
+          $ref: '#/components/schemas/ReputationSourceFrequency'
+        category:
+          $ref: '#/components/schemas/ReputationCategory'
+        confidence:
+          type: integer
+          minimum: 0
+          maximum: 100
+        enabled:
+          type: boolean
+        license:
+          type:
+            - string
+            - 'null'
+          maxLength: 200
+        notes:
+          type:
+            - string
+            - 'null'
+          maxLength: 1000
+        min_entries:
+          type: integer
+          minimum: 0
+        max_bytes:
+          type: integer
+          minimum: 1024
+          maximum: 268435456
+        auth_header_name:
+          type:
+            - string
+            - 'null'
+          pattern: ^[A-Za-z0-9-]{1,64}$
+        auth_header_value:
+          type:
+            - string
+            - 'null'
+          writeOnly: true
+          maxLength: 512
     TenantQuotas:
       type: object
       properties:
@@ -9115,6 +9892,12 @@ components:
         maxLength: 128
     ChannelId:
       name: channel_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+    ReputationSourceId:
+      name: source_id
       in: path
       required: true
       schema:

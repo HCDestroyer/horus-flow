@@ -21,7 +21,7 @@ events:
   pii_fields:
   - ip
   - user_agent
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.wireguard.audit.recorded.json
   notes: Único evento con IP y User-Agent; tenant_id null para acciones de plataforma. Solo auth lo persiste (cadena de hashes).
@@ -41,7 +41,7 @@ events:
   - wireguard.peers
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.wireguard.peer.created.json
   notes: 'Al consumir devices.router.created: IP de túnel /32 única en la plataforma.'
@@ -62,7 +62,7 @@ events:
   - wireguard.peers
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.wireguard.peer.enrolled.json
   notes: Clave pública recibida por POST /enroll/wireguard; sin token ni secretos.
@@ -82,7 +82,7 @@ events:
   - wireguard.peers
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.wireguard.peer.activated.json
 - type: horus.wireguard.peer.revoked
@@ -102,7 +102,7 @@ events:
   - wireguard.peers
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.wireguard.peer.revoked.json
 - type: horus.wireguard.peer.handshake_stale
@@ -122,7 +122,7 @@ events:
   - wireguard.peers
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.wireguard.peer.handshake_stale.json
 - type: horus.wireguard.peer.handshake_recovered
@@ -141,7 +141,7 @@ events:
   - wireguard.peers
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.wireguard.peer.handshake_recovered.json
 - type: horus.wireguard.hub.status_changed
@@ -160,7 +160,7 @@ events:
   - system
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.wireguard.hub.status_changed.json
 - type: horus.wireguard.peer_status.observed
@@ -177,7 +177,7 @@ events:
   websocket_topics: []
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.wireguard.peer_status.observed.json
   notes: Un lote por tenant y hub cada 15 s.

@@ -1,5 +1,7 @@
 # packages/schemas — esquemas de API y documentos (contratos v0)
 
+> **Estado: v0 aprobado (`stable`) el 2026-10-08 con D17–D21** ([`docs/contracts/G0.md`](../../docs/contracts/G0.md)). Desde aquí, todo cambio incompatible exige versión nueva (`v1`…) conviviendo con `v0`.
+
 - **Dueño:** INT (contrato; `openapi/v0/gateway-routes.yaml` y `permissions/` son rutas sensibles: persona).
 - **Gate:** G0 — ver [`docs/contracts/G0.md`](../../docs/contracts/G0.md).
 

@@ -11,7 +11,7 @@ message NotificationDelivery {
   string id = 1;
   optional string alert_id = 2;
   string channel_id = 3;
-  // email | telegram | librenms
+  // Tipo de canal (= NotificationChannelKind de la API): email | telegram | librenms (D17, por API).
   string channel = 4;
   optional string recipient_user_id = 5;
   // finding_opened | finding_reopened | exporter_silent | exporter_recovered | tunnel_down | tunnel_recovered | test
@@ -19,7 +19,7 @@ message NotificationDelivery {
   optional string source_event_type = 7;
   optional string source_event_id = 8;
   bool is_test = 9;
-  // Sin datos sensibles (solo failed).
+  // Sin datos sensibles ni secretos (solo failed); p. ej. "librenms: auth_failed (HTTP 401)".
   optional string error = 10;
   google.protobuf.Timestamp occurred_at = 11;
 }

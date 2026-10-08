@@ -5,8 +5,12 @@ info:
   description: |
     **D13** adelanta al I1 un canal mínimo de alertas: canales por ISP de tipo `email` (SMTP de la
     instalación) y `telegram` (bot), suscritos a tipos de evento con severidad mínima y filtro por nodo.
-    Sin motor de reglas, silencios ni escalado (llegan con alerts completo). `librenms` (syslog / SNMP trap /
-    API) queda **previsto** en el modelo: crear uno en v0 → `422 NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE`.
+    Sin motor de reglas, silencios ni escalado (llegan con alerts completo).
+    **D17** `librenms` es una integración por ISP **por la API de LibreNMS** (sin syslog ni SNMP trap): URL base,
+    usuario y, como secretos write-only cifrados (`PUT …/credentials`), contraseña y token de API opcional. Nada
+    se comparte entre ISPs aunque dos usen la misma instancia de LibreNMS: cada canal guarda sus propias
+    credenciales y Horus nunca reutiliza una sesión de otro tenant. Prueba de conexión
+    (`POST …/connection-test`) y registro de entregas como los demás canales.
     Los mensajes no incluyen la IP del cliente salvo `include_personal_data=true` (auditado): salen de la
     instalación hacia terceros (proveedor SMTP, Telegram). Los enlaces del mensaje son URLs absolutas sobre
     HORUS_PUBLIC_BASE_URL (D14). Cada envío emite `horus.alerts.notification.sent|failed`.
@@ -49,7 +53,7 @@ paths:
     post:
       tags: [notifications]
       operationId: createNotificationChannel
-      summary: Crea un canal (email o telegram en I1; librenms previsto)
+      summary: Crea un canal (email, telegram o librenms)
       x-module: alerts
       x-scope: tenant
       x-permission: alerts.manage
@@ -150,12 +154,19 @@ paths:
     put:
       tags: [notifications]
       operationId: putNotificationChannelCredentials
-      summary: Secretos write-only del canal (p. ej. token de bot de Telegram propio del ISP)
-      description: Opcional para telegram (sin token propio se usa el bot de la instalación, HORUS_TELEGRAM_BOT_TOKEN_FILE). Email usa el SMTP de la instalación (HORUS_SMTP_*); no tiene secretos por canal.
+      summary: Secretos write-only del canal (token de bot de Telegram propio, contraseña y token de API de LibreNMS)
+      description: |
+        Write-only: nunca se devuelven (solo `has_credentials`); se cifran con la KEK de `alerts` y se borran con el
+        canal (crypto-shredding). Auditado. Solo se aceptan los campos del `kind` del canal (otro → `422 VALIDATION_FAILED`).
+        - `telegram`: opcional (sin token propio se usa el bot de la instalación, HORUS_TELEGRAM_BOT_TOKEN_FILE).
+        - `librenms` (D17): `password` obligatoria salvo que se envíe `api_token`; `api_token` opcional
+          (cabecera `X-Auth-Token` de la API de LibreNMS). Reemplaza el conjunto completo: lo no enviado se borra.
+        - `email`: usa el SMTP de la instalación (HORUS_SMTP_*); no tiene secretos por canal (`422`).
       x-module: alerts
       x-scope: tenant
       x-permission: alerts.manage
       x-reauth: true
+      x-audited: true
       x-increment: I1
       security:
         - tenantBearer: []
@@ -163,13 +174,40 @@ paths:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              properties:
-                telegram_bot_token: { type: string, writeOnly: true, pattern: '^[0-9]+:[A-Za-z0-9_-]{30,}$' }
+            schema: { $ref: '#/components/schemas/NotificationChannelCredentials' }
       responses:
         '204': { $ref: './common.yaml#/components/responses/NoContent' }
         '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /notification-channels/{channel_id}/connection-test:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    post:
+      tags: [notifications]
+      operationId: testNotificationChannelConnection
+      summary: Prueba de conexión sin enviar notificación (síncrona, timeout 10 s)
+      description: |
+        Comprueba alcance, TLS y autenticación del destino con las credenciales guardadas, sin publicar nada.
+        `librenms` (D17): resuelve `base_url`, valida el certificado (salvo `tls_verify=false`) y hace una llamada
+        de solo lectura autenticada a la API. `telegram`: `getMe` del bot. `email`: conexión y `EHLO`/`STARTTLS`
+        al SMTP de la instalación. Un resultado correcto pasa el canal de `unverified` a `ok`. El error nunca incluye
+        secretos ni el cuerpo de la respuesta remota.
+      x-module: alerts
+      x-scope: tenant
+      x-permission: alerts.manage
+      x-rate-limit: connection_test
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Resultado de la prueba (también cuando falla el destino; ver `ok`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConnectionTestResult' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
         '404': { $ref: './common.yaml#/components/responses/NotFound' }
         '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
   /notification-channels/{channel_id}/test:
@@ -216,6 +254,9 @@ paths:
         - name: status
           in: query
           schema: { type: string, enum: [sent, failed, throttled] }
+        - name: channel_kind
+          in: query
+          schema: { $ref: '#/components/schemas/NotificationChannelKind' }
       responses:
         '200':
           description: Entregas.
@@ -241,8 +282,8 @@ components:
     NotificationChannelKind:
       type: string
       description: |
-        `email` y `telegram`: disponibles en I1. `librenms`: previsto (D13), aún no disponible. Enum abierto
-        (después: webhook, whatsapp, sms).
+        `email`, `telegram` y `librenms` (D17, por API) disponibles. Enum abierto (después: webhook, whatsapp,
+        sms); un `kind` conocido por el contrato pero aún no implementado → `422 NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE`.
       enum: [email, telegram, librenms]
     NotificationEventType:
       type: string
@@ -279,15 +320,50 @@ components:
     LibreNmsChannelConfig:
       type: object
       title: LibreNmsChannelConfig
-      description: Previsto (D13). LibreNMS como destino de alertas por syslog, SNMP trap o su API; opcionalmente fuente de inventario (fuera del I1).
-      required: [mode, target]
+      description: |
+        D17: LibreNMS como destino por **su API** (instancia dedicada a Horus), configurado a mano por cada ISP.
+        Solo la parte no secreta: contraseña y token van por `PUT /notification-channels/{id}/credentials`
+        (write-only). LibreNMS como fuente de inventario queda fuera del I1.
+      required: [base_url, username]
       additionalProperties: false
       properties:
-        mode: { type: string, enum: [syslog, snmp_trap, api] }
-        target: { type: string, description: 'host[:puerto] o URL base de la API de LibreNMS.' }
-        syslog_facility: { type: string, default: local0 }
-        snmp_trap_version: { type: string, enum: [v2c, v3] }
-        api_tls_verify: { type: boolean, default: true }
+        base_url:
+          type: string
+          format: uri
+          maxLength: 2048
+          pattern: '^https?://'
+          description: URL base de la instancia (p. ej. `https://librenms.isp.example`); Horus añade `/api/v0`. Sin credenciales en la URL.
+          examples: ['https://librenms.isp.example']
+        username: { type: string, minLength: 1, maxLength: 128, description: Usuario de LibreNMS dedicado a Horus. }
+        tls_verify: { type: boolean, default: true, description: false solo para certificados autofirmados (auditado). }
+        timeout_seconds: { type: integer, minimum: 2, maximum: 30, default: 10 }
+    NotificationChannelCredentials:
+      type: object
+      description: Secretos write-only por `kind` (nunca devueltos). Ver `PUT /notification-channels/{id}/credentials`.
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        telegram_bot_token: { type: string, writeOnly: true, pattern: '^[0-9]+:[A-Za-z0-9_-]{30,}$' }
+        password: { type: string, writeOnly: true, minLength: 1, maxLength: 256, description: 'librenms: contraseña del usuario.' }
+        api_token: { type: string, writeOnly: true, minLength: 16, maxLength: 256, description: 'librenms: token de API (opcional).' }
+    ConnectionTestResult:
+      type: object
+      required: [ok, channel_id, channel_kind, checked_at]
+      additionalProperties: false
+      properties:
+        ok: { type: boolean }
+        channel_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        channel_kind: { $ref: '#/components/schemas/NotificationChannelKind' }
+        checked_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        latency_ms: { type: [integer, 'null'] }
+        remote_version: { type: [string, 'null'], description: 'librenms: versión que informa la API, si la expone.' }
+        error_code:
+          description: Sin valor si `ok`. Enum abierto.
+          anyOf:
+            - type: string
+              enum: [dns_failed, connect_failed, tls_invalid, auth_failed, forbidden, timeout, unexpected_response, missing_credentials]
+            - type: 'null'
+        error: { type: [string, 'null'], description: Sin secretos ni cuerpo de la respuesta remota. }
     ChannelSubscription:
       type: object
       required: [event_types]

@@ -1,5 +1,7 @@
 # packages/protobuf — contratos internos y payloads de eventos (C4, contrato v0)
 
+> **Estado: v0 aprobado (`stable`) el 2026-10-08 con D17–D21** ([`docs/contracts/G0.md`](../../docs/contracts/G0.md)). Desde aquí, todo cambio incompatible exige versión nueva (`v1`…) conviviendo con `v0`.
+
 - **Dueño:** INT (ruta sensible, cambios en PR `contract:protobuf`).
 - **Documentación:** [ADR-0005](../../docs/adr/0005-grpc-protobuf-interno.md), [`docs/api.md`](../../docs/api.md) §5,
   [`docs/events.md`](../../docs/events.md) §5.3, [`docs/contracts/G0.md`](../../docs/contracts/G0.md).

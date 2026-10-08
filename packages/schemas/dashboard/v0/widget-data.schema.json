@@ -17,6 +17,15 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "SecurityState": {
+      "description": "Estado de seguridad del cliente (= SecurityState de la API) con su etiqueta de presentación (D18): `title` es la etiqueta es-ES que usan UI, kiosco y alertas (clave i18n `security_state.<valor>`). `infected` se muestra como \"Infectado\", siempre junto a sus razones y nivel de confianza (nunca la palabra sola).",
+      "oneOf": [
+        { "const": "clean", "title": "Limpio" },
+        { "const": "suspected", "title": "Sospechoso" },
+        { "const": "infected", "title": "Infectado" },
+        { "const": "mitigated", "title": "Mitigado" }
+      ]
+    },
     "Meta": {
       "type": "object",
       "required": ["widget_type", "data_endpoint_kind", "generated_at", "partial", "masked_personal_data"],
