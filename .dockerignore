@@ -1,0 +1,20 @@
+# Contexto de build de la imagen `horus` (Dockerfile): solo lo que necesita `go build`.
+# Lista blanca: se ignora todo y se reincluye lo imprescindible (docs/conventions.md §9).
+*
+
+!go.mod
+!go.sum
+!services/
+!packages/
+
+# Nunca en la imagen, aunque estén dentro de lo reincluido.
+**/.env
+**/.env.*
+**/secrets/
+**/*.pem
+**/*.key
+**/*.pcap
+**/*.pcapng
+**/node_modules/
+**/testdata/
+**/*_test.go

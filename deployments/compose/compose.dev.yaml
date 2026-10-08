@@ -1,0 +1,286 @@
+# Horus Flow — compose de DESARROLLO (historia I0-02).
+#
+# Perfil mínimo de ADR-0025: PostgreSQL, ClickHouse (ADR-0021), NATS JetStream, Valkey
+# (ADR-0020) y Traefik. Sin MinIO (ADR-0019) y sin Redis. Los contenedores propios
+# (horus-app, horus-collector, horus-wg-agent) salen de la MISMA imagen y van en el perfil
+# `app`, que solo se levanta con `COMPOSE_PROFILES=app` (necesita el binario de I0-04).
+#
+# Uso: `make up`, `make down` (conserva datos), `make reset` (borra volúmenes).
+# Variables: deployments/compose/.env (copiado de .env.example). Secretos:
+# deployments/compose/secrets/*.txt (scripts/dev-secrets.sh). Nunca secretos en este archivo.
+#
+# Reglas de este archivo (criterios de I0-02): cada servicio con imagen de versión fija (nunca
+# `latest`), healthcheck, volumen nombrado si guarda estado, límite de memoria y puertos
+# publicados solo en HORUS_BIND_ADDR (127.0.0.1 por defecto).
+
+name: ${COMPOSE_PROJECT_NAME:-horus-dev}
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-hardening: &hardening
+  security_opt:
+    - no-new-privileges:true
+  logging: *logging
+  restart: unless-stopped
+
+services:
+  # ------------------------------------------------------------------------------------------
+  # PostgreSQL — fuente de verdad (ADR-0007). Cada módulo tendrá su esquema y usuario (P2);
+  # los crean las migraciones de cada módulo (I0-06), no este compose.
+  # ------------------------------------------------------------------------------------------
+  postgres:
+    <<: *hardening
+    image: postgres:18.6-alpine
+    environment:
+      POSTGRES_DB: ${HORUS_PG_DB:?falta HORUS_PG_DB en deployments/compose/.env (ver .env.example)}
+      POSTGRES_USER: ${HORUS_PG_USER:?falta HORUS_PG_USER en deployments/compose/.env (ver .env.example)}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_INITDB_ARGS: --encoding=UTF8 --locale=C.UTF-8
+    secrets:
+      - postgres_password
+    volumes:
+      # PostgreSQL >= 18: el volumen se monta en /var/lib/postgresql (PGDATA va en 18/docker).
+      - pg-data:/var/lib/postgresql
+    ports:
+      - "${HORUS_BIND_ADDR:-127.0.0.1}:${HORUS_PG_PORT:-5432}:5432"
+    shm_size: 256m
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -q -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
+
+  # ------------------------------------------------------------------------------------------
+  # ClickHouse — flujos y series (ADR-0008, ADR-0021). El esquema lo aplica FLOW (I0-13).
+  # ------------------------------------------------------------------------------------------
+  clickhouse:
+    <<: *hardening
+    image: clickhouse/clickhouse-server:26.8.20.9
+    environment:
+      CLICKHOUSE_DB: ${HORUS_CH_DB:?falta HORUS_CH_DB en deployments/compose/.env (ver .env.example)}
+      CLICKHOUSE_USER: ${HORUS_CH_USER:?falta HORUS_CH_USER en deployments/compose/.env (ver .env.example)}
+      CLICKHOUSE_PASSWORD_FILE: /run/secrets/clickhouse_password
+      # Permite al usuario de desarrollo crear usuarios/roles por módulo (escritor único).
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    secrets:
+      - clickhouse_password
+    volumes:
+      - ch-data:/var/lib/clickhouse
+      - ch-logs:/var/log/clickhouse-server
+    ports:
+      - "${HORUS_BIND_ADDR:-127.0.0.1}:${HORUS_CH_HTTP_PORT:-8123}:8123"
+      - "${HORUS_BIND_ADDR:-127.0.0.1}:${HORUS_CH_NATIVE_PORT:-9000}:9000"
+    # ClickHouse recomienda 262144; si el host o el daemon tienen un límite menor (algunos
+    # sandboxes de CI), bájalo con HORUS_CH_NOFILE en .env.
+    ulimits:
+      nofile:
+        soft: ${HORUS_CH_NOFILE:-262144}
+        hard: ${HORUS_CH_NOFILE:-262144}
+    mem_limit: 2g
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8123/ping | grep -q Ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+
+  # ------------------------------------------------------------------------------------------
+  # NATS JetStream — bus de eventos y lotes de flujos (ADR-0006, ADR-0027).
+  # Desarrollo sin autenticación: solo accesible desde la red del compose y el loopback.
+  # ------------------------------------------------------------------------------------------
+  nats:
+    <<: *hardening
+    image: nats:2.14.7-alpine
+    command: ["nats-server", "--config", "/etc/nats/nats.conf"]
+    volumes:
+      - ../../infrastructure/nats/nats.dev.conf:/etc/nats/nats.conf:ro
+      - nats-data:/data
+    ports:
+      - "${HORUS_BIND_ADDR:-127.0.0.1}:${HORUS_NATS_PORT:-4222}:4222"
+      - "${HORUS_BIND_ADDR:-127.0.0.1}:${HORUS_NATS_MONITOR_PORT:-8222}:8222"
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- 'http://127.0.0.1:8222/healthz?js-enabled-only=true' | grep -q ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  # ------------------------------------------------------------------------------------------
+  # Valkey — caché, rate limit, sesiones (ADR-0020). La contraseña llega como ACL con hash
+  # (secrets/valkey_users.acl), nunca en la línea de comandos.
+  # ------------------------------------------------------------------------------------------
+  valkey:
+    <<: *hardening
+    image: valkey/valkey:8.1.10-alpine
+    command:
+      - valkey-server
+      - --appendonly
+      - "yes"
+      - --aclfile
+      - /run/secrets/valkey_acl
+      - --maxmemory
+      - 192mb
+      - --maxmemory-policy
+      - volatile-lru
+    secrets:
+      - valkey_acl
+      - valkey_password
+    volumes:
+      - valkey-data:/data
+    ports:
+      - "${HORUS_BIND_ADDR:-127.0.0.1}:${HORUS_VALKEY_PORT:-6379}:6379"
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$(cat /run/secrets/valkey_password)\" valkey-cli --no-auth-warning ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  # ------------------------------------------------------------------------------------------
+  # Traefik — borde HTTP (ADR-0013). En desarrollo: HTTP sin TLS, proveedor de archivos.
+  # ------------------------------------------------------------------------------------------
+  traefik:
+    <<: *hardening
+    image: traefik:v3.7.14
+    command: ["--configFile=/etc/traefik/traefik.yml"]
+    user: "65534:65534"
+    read_only: true
+    volumes:
+      - ../../infrastructure/traefik/traefik.dev.yml:/etc/traefik/traefik.yml:ro
+      - ../../infrastructure/traefik/dynamic:/etc/traefik/dynamic:ro
+      # Traefik no guarda estado en desarrollo (sin ACME); el volumen nombrado queda listo
+      # para los certificados de Let's Encrypt del instalador (I1-22).
+      - traefik-data:/data
+    ports:
+      - "${HORUS_BIND_ADDR:-127.0.0.1}:${HORUS_HTTP_PORT:-8000}:8000"
+      - "${HORUS_BIND_ADDR:-127.0.0.1}:${HORUS_TRAEFIK_ADMIN_PORT:-8082}:8082"
+    mem_limit: 128m
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--configFile=/etc/traefik/traefik.yml"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  # ------------------------------------------------------------------------------------------
+  # Contenedores propios — perfil `app` (ADR-0025 §2). Una sola imagen; cambian HORUS_ROLES,
+  # capacidades y redes. PREPARADOS, no activos: el binario de I0-04 (CORE) aporta los roles,
+  # /healthz, /readyz y el subcomando `healthcheck` que usan estos healthchecks.
+  # ------------------------------------------------------------------------------------------
+  horus-app:
+    <<: *hardening
+    profiles: [app]
+    image: ${HORUS_IMAGE:-horus:dev}
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    read_only: true
+    environment: &horus-env
+      HORUS_ENV: dev
+      HORUS_LOG_LEVEL: ${HORUS_LOG_LEVEL:-info}
+      HORUS_LOG_FORMAT: json
+      HORUS_ROLES: gateway,auth,devices,wireguard,snmp,traffic,detection,alerts,analytics,reporting,ingester,jobs
+      HORUS_HTTP_ADDR: ":8080"
+      HORUS_GRPC_ADDR: ":9090"
+      HORUS_ADMIN_ADDR: ":8081"
+      HORUS_DATA_DIR: /var/lib/horus
+      HORUS_POSTGRES_DSN: postgres://${HORUS_PG_USER:?falta HORUS_PG_USER}@postgres:5432/${HORUS_PG_DB:?falta HORUS_PG_DB}?sslmode=disable
+      HORUS_POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      HORUS_CLICKHOUSE_DSN: clickhouse://${HORUS_CH_USER:?falta HORUS_CH_USER}@clickhouse:9000/${HORUS_CH_DB:?falta HORUS_CH_DB}
+      HORUS_CLICKHOUSE_PASSWORD_FILE: /run/secrets/clickhouse_password
+      HORUS_NATS_URL: nats://nats:4222
+      HORUS_VALKEY_URL: redis://default@valkey:6379/0
+      HORUS_VALKEY_PASSWORD_FILE: /run/secrets/valkey_password
+      GOMEMLIMIT: 900MiB
+    secrets: &horus-secrets
+      - postgres_password
+      - clickhouse_password
+      - valkey_password
+    volumes:
+      - horus-data:/var/lib/horus
+    ports:
+      - "${HORUS_BIND_ADDR:-127.0.0.1}:${HORUS_APP_ADMIN_PORT:-8081}:8081"
+    depends_on: &horus-deps
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    mem_limit: 1g
+    healthcheck: &horus-healthcheck
+      test: ["CMD", "/horus", "healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 20s
+
+  horus-collector:
+    <<: *hardening
+    profiles: [app]
+    image: ${HORUS_IMAGE:-horus:dev}
+    read_only: true
+    environment:
+      <<: *horus-env
+      HORUS_ROLES: collector
+      GOMEMLIMIT: 450MiB
+    secrets: *horus-secrets
+    ports:
+      - "${HORUS_BIND_ADDR:-127.0.0.1}:${HORUS_COLLECTOR_IPFIX_PORT:-4739}:4739/udp"
+      - "${HORUS_BIND_ADDR:-127.0.0.1}:${HORUS_COLLECTOR_V9_PORT:-2055}:2055/udp"
+    depends_on:
+      nats:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    mem_limit: 512m
+    healthcheck: *horus-healthcheck
+
+  horus-wg-agent:
+    <<: *hardening
+    profiles: [app]
+    image: ${HORUS_IMAGE:-horus:dev}
+    read_only: true
+    environment:
+      <<: *horus-env
+      HORUS_ROLES: wg-agent
+      GOMEMLIMIT: 100MiB
+    secrets: *horus-secrets
+    # Único contenedor con CAP_NET_ADMIN (ADR-0025). En producción usa la red del host;
+    # en desarrollo se queda en la red del compose para no tocar la del portátil.
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN]
+    depends_on:
+      nats:
+        condition: service_healthy
+    mem_limit: 128m
+    healthcheck: *horus-healthcheck
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password.txt
+  clickhouse_password:
+    file: ./secrets/clickhouse_password.txt
+  valkey_password:
+    file: ./secrets/valkey_password.txt
+  valkey_acl:
+    file: ./secrets/valkey_users.acl
+
+volumes:
+  pg-data:
+  ch-data:
+  ch-logs:
+  nats-data:
+  valkey-data:
+  traefik-data:
+  horus-data:

@@ -15,6 +15,16 @@ GO_PACKAGES   := $(shell $(GO) list ./... 2>/dev/null)
 VERSION       ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS       := -X main.version=$(VERSION)
 
+# Compose de desarrollo (I0-02). Variables en deployments/compose/.env; perfiles opcionales
+# con COMPOSE_PROFILES (p. ej. `make up COMPOSE_PROFILES=app`).
+COMPOSE_DIR          := deployments/compose
+HORUS_COMPOSE_FILE   := $(COMPOSE_DIR)/compose.dev.yaml
+COMPOSE              ?= docker compose --project-directory $(COMPOSE_DIR) -f $(HORUS_COMPOSE_FILE)
+COMPOSE_WAIT_TIMEOUT ?= 120
+# down/reset funcionan aunque aún no exista .env (toman los valores de .env.example).
+COMPOSE_DOWN         := $(COMPOSE) $(if $(wildcard $(COMPOSE_DIR)/.env),,--env-file $(COMPOSE_DIR)/.env.example)
+export COMPOSE
+
 define pending
 	@echo "pendiente: $(1) — '$@' aún no está implementado."
 endef
@@ -30,16 +40,18 @@ help: ## Muestra esta ayuda
 ##@ Entorno de desarrollo
 
 .PHONY: up
-up: ## Levanta el compose de desarrollo (perfil mínimo)
-	$(call pending,I0-02)
+up: ## Levanta el compose de desarrollo (perfil mínimo) y espera a que esté healthy
+	@bash scripts/compose-preflight.sh $(HORUS_COMPOSE_FILE)
+	$(COMPOSE) up -d --wait --wait-timeout $(COMPOSE_WAIT_TIMEOUT)
+	@$(COMPOSE) ps --format 'table {{.Service}}\t{{.Status}}\t{{.Ports}}'
 
 .PHONY: down
 down: ## Detiene el compose de desarrollo (conserva los datos)
-	$(call pending,I0-02)
+	$(COMPOSE_DOWN) --profile "*" down --remove-orphans
 
 .PHONY: reset
-reset: ## Detiene el compose y borra sus volúmenes
-	$(call pending,I0-02)
+reset: ## Detiene el compose y borra sus volúmenes (datos de PostgreSQL, ClickHouse...)
+	$(COMPOSE_DOWN) --profile "*" down --volumes --remove-orphans
 
 ##@ Calidad
 
