@@ -1,0 +1,503 @@
+{
+  "schema": "horus.flowsim.expected/v1",
+  "scenario": "sustained_out",
+  "description": "Cliente que sube ~12 Mbit/s de forma sostenida durante 40 minutos hacia un único servidor (proxy residencial o exfiltración; I1-30), con la subida por encima del 80 % de su tráfico.",
+  "seed": 1,
+  "protocol": "v9",
+  "nat": true,
+  "ipv6": true,
+  "nat_fields": false,
+  "fixture": true,
+  "rate": 4,
+  "start": "2026-01-05T18:00:00Z",
+  "duration_seconds": 2100,
+  "export": {
+    "active_timeout_seconds": 60,
+    "inactive_timeout_seconds": 15,
+    "template_refresh_packets": 20,
+    "template_timeout_seconds": 60,
+    "max_datagram": 1392,
+    "collector_port": 2055
+  },
+  "exporters": [
+    {
+      "name": "node-a",
+      "exporter_ip": "10.255.0.2",
+      "collector_ip": "10.255.0.1",
+      "observation_domain_id": 0,
+      "boot_time": "2026-01-02T18:00:00Z",
+      "interfaces": {
+        "upstream": 1,
+        "tunnel": 30,
+        "transit": 3,
+        "access": "vlan"
+      },
+      "prefixes": {
+        "customers": [
+          "10.20.0.0/24",
+          "2001:db8:1000::/40"
+        ],
+        "infrastructure": [
+          "10.20.255.0/24",
+          "203.0.113.0/28",
+          "2001:db8:ff00::/48"
+        ],
+        "excluded": []
+      },
+      "ipv6_client_len": 64,
+      "totals": {
+        "datagrams": 1824,
+        "template_sends": 92,
+        "data_records": 8593,
+        "records_v4": 8009,
+        "records_v6": 584,
+        "bytes": 7297285851,
+        "packets": 7256139
+      },
+      "by_status": {
+        "attributed": 8308,
+        "infrastructure": 180,
+        "tunnel": 105
+      },
+      "clients": [
+        {
+          "key": "10.20.0.10",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 302,
+          "bytes_up": 7237013,
+          "bytes_down": 570711481,
+          "packets_up": 137097,
+          "packets_down": 408361
+        },
+        {
+          "key": "10.20.0.11",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 152,
+          "bytes_up": 112680,
+          "bytes_down": 2306051,
+          "packets_up": 1141,
+          "packets_down": 1997
+        },
+        {
+          "key": "10.20.0.12",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 312,
+          "bytes_up": 7740288,
+          "bytes_down": 610571018,
+          "packets_up": 146485,
+          "packets_down": 436764
+        },
+        {
+          "key": "10.20.0.13",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 258,
+          "bytes_up": 213301,
+          "bytes_down": 4090808,
+          "packets_up": 2035,
+          "packets_down": 3541
+        },
+        {
+          "key": "10.20.0.14",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 210,
+          "bytes_up": 213926,
+          "bytes_down": 4892892,
+          "packets_up": 2222,
+          "packets_down": 4048
+        },
+        {
+          "key": "10.20.0.15",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 284,
+          "bytes_up": 5038446,
+          "bytes_down": 395589855,
+          "packets_up": 95131,
+          "packets_down": 283117
+        },
+        {
+          "key": "10.20.0.16",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 202,
+          "bytes_up": 140393,
+          "bytes_down": 2245700,
+          "packets_up": 1209,
+          "packets_down": 2031
+        },
+        {
+          "key": "10.20.0.17",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 252,
+          "bytes_up": 181267,
+          "bytes_down": 3367097,
+          "packets_up": 1726,
+          "packets_down": 2971
+        },
+        {
+          "key": "10.20.0.18",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 248,
+          "bytes_up": 175442,
+          "bytes_down": 3096214,
+          "packets_up": 1623,
+          "packets_down": 2756
+        },
+        {
+          "key": "10.20.0.19",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 272,
+          "bytes_up": 971094,
+          "bytes_down": 65083304,
+          "packets_up": 16717,
+          "packets_down": 47161
+        },
+        {
+          "key": "10.20.0.2",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 298,
+          "bytes_up": 8080230,
+          "bytes_down": 638254473,
+          "packets_up": 152961,
+          "packets_down": 456491
+        },
+        {
+          "key": "10.20.0.20",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 250,
+          "bytes_up": 152066,
+          "bytes_down": 2102643,
+          "packets_up": 1228,
+          "packets_down": 1985
+        },
+        {
+          "key": "10.20.0.21",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 222,
+          "bytes_up": 180467,
+          "bytes_down": 2966296,
+          "packets_up": 1560,
+          "packets_down": 2646
+        },
+        {
+          "key": "10.20.0.22",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 298,
+          "bytes_up": 172754,
+          "bytes_down": 2876259,
+          "packets_up": 1583,
+          "packets_down": 2632
+        },
+        {
+          "key": "10.20.0.23",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 218,
+          "bytes_up": 191947,
+          "bytes_down": 3521958,
+          "packets_up": 1755,
+          "packets_down": 3053
+        },
+        {
+          "key": "10.20.0.24",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 322,
+          "bytes_up": 257134,
+          "bytes_down": 5165682,
+          "packets_up": 2593,
+          "packets_down": 4507
+        },
+        {
+          "key": "10.20.0.25",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 336,
+          "bytes_up": 266029,
+          "bytes_down": 4956496,
+          "packets_up": 2485,
+          "packets_down": 4313
+        },
+        {
+          "key": "10.20.0.26",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 138,
+          "bytes_up": 85859,
+          "bytes_down": 1543319,
+          "packets_up": 801,
+          "packets_down": 1368
+        },
+        {
+          "key": "10.20.0.27",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 288,
+          "bytes_up": 310703,
+          "bytes_down": 7447178,
+          "packets_up": 3395,
+          "packets_down": 6193
+        },
+        {
+          "key": "10.20.0.28",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 234,
+          "bytes_up": 167620,
+          "bytes_down": 2992277,
+          "packets_up": 1546,
+          "packets_down": 2642
+        },
+        {
+          "key": "10.20.0.29",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 284,
+          "bytes_up": 239893,
+          "bytes_down": 4579136,
+          "packets_up": 2282,
+          "packets_down": 3975
+        },
+        {
+          "key": "10.20.0.3",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 312,
+          "bytes_up": 5195075,
+          "bytes_down": 406883193,
+          "packets_up": 97890,
+          "packets_down": 291251
+        },
+        {
+          "key": "10.20.0.30",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 250,
+          "bytes_up": 287203,
+          "bytes_down": 5574709,
+          "packets_up": 2561,
+          "packets_down": 4635
+        },
+        {
+          "key": "10.20.0.31",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 240,
+          "bytes_up": 196764,
+          "bytes_down": 4195853,
+          "packets_up": 2058,
+          "packets_down": 3616
+        },
+        {
+          "key": "10.20.0.32",
+          "family": 4,
+          "population": "proxy-abuser",
+          "kind": "residential",
+          "records": 106,
+          "bytes_up": 3060030781,
+          "bytes_down": 57401335,
+          "packets_up": 2185982,
+          "packets_down": 1093336
+        },
+        {
+          "key": "10.20.0.4",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 348,
+          "bytes_up": 8210716,
+          "bytes_down": 649445341,
+          "packets_up": 155766,
+          "packets_down": 464602
+        },
+        {
+          "key": "10.20.0.5",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 262,
+          "bytes_up": 216003,
+          "bytes_down": 4246742,
+          "packets_up": 2056,
+          "packets_down": 3633
+        },
+        {
+          "key": "10.20.0.6",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 140,
+          "bytes_up": 202801,
+          "bytes_down": 5679584,
+          "packets_up": 2404,
+          "packets_down": 4551
+        },
+        {
+          "key": "10.20.0.7",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 256,
+          "bytes_up": 6809497,
+          "bytes_down": 537947037,
+          "packets_up": 128953,
+          "packets_down": 384763
+        },
+        {
+          "key": "10.20.0.8",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 212,
+          "bytes_up": 191332,
+          "bytes_down": 3676007,
+          "packets_up": 1733,
+          "packets_down": 3098
+        },
+        {
+          "key": "10.20.0.9",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 218,
+          "bytes_up": 1863455,
+          "bytes_down": 137573578,
+          "packets_up": 33575,
+          "packets_down": 98732
+        },
+        {
+          "key": "2001:db8:1000:1::/64",
+          "family": 6,
+          "population": "households",
+          "kind": "residential",
+          "records": 88,
+          "bytes_up": 75027,
+          "bytes_down": 1130001,
+          "packets_up": 593,
+          "packets_down": 1003
+        },
+        {
+          "key": "2001:db8:1000:2::/64",
+          "family": 6,
+          "population": "households",
+          "kind": "residential",
+          "records": 70,
+          "bytes_up": 72470,
+          "bytes_down": 1428501,
+          "packets_up": 664,
+          "packets_down": 1194
+        },
+        {
+          "key": "2001:db8:1000:3::/64",
+          "family": 6,
+          "population": "households",
+          "kind": "residential",
+          "records": 116,
+          "bytes_up": 121499,
+          "bytes_down": 3208649,
+          "packets_up": 1460,
+          "packets_down": 2669
+        },
+        {
+          "key": "2001:db8:1000:4::/64",
+          "family": 6,
+          "population": "households",
+          "kind": "residential",
+          "records": 90,
+          "bytes_up": 72524,
+          "bytes_down": 1079925,
+          "packets_up": 578,
+          "packets_down": 971
+        },
+        {
+          "key": "2001:db8:1000:5::/64",
+          "family": 6,
+          "population": "households",
+          "kind": "residential",
+          "records": 100,
+          "bytes_up": 73729,
+          "bytes_down": 1413618,
+          "packets_up": 739,
+          "packets_down": 1263
+        },
+        {
+          "key": "2001:db8:1000::/64",
+          "family": 6,
+          "population": "households",
+          "kind": "residential",
+          "records": 120,
+          "bytes_up": 82236,
+          "bytes_down": 1368173,
+          "packets_up": 749,
+          "packets_down": 1248
+        }
+      ],
+      "unattributed": []
+    }
+  ],
+  "indicators": [],
+  "signals": [
+    {
+      "exporter": "node-a",
+      "client": "10.20.0.32",
+      "signal": "sustained_upload",
+      "detail": {
+        "minutes": 34,
+        "peak_mbps": 12
+      }
+    }
+  ],
+  "findings": [
+    {
+      "exporter": "node-a",
+      "client": "10.20.0.32",
+      "kind": "open_proxy_abuse",
+      "severity": "medium",
+      "signals": [
+        "sustained_upload"
+      ],
+      "reasons": {
+        "sustained_upload": {
+          "minutes": 34,
+          "peak_mbps": 12
+        }
+      }
+    }
+  ]
+}

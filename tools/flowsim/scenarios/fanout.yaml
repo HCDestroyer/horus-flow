@@ -1,0 +1,26 @@
+name: fanout
+description: >
+  Bot P2P (tipo Mozi) que intercambia UDP con cientos de IPs dispersas en
+  cientos de redes /24 (fan-out sin SYN, así que no es un escaneo TCP).
+duration: 5m
+rate: 300
+fixture:
+  duration: 2m
+  rate: 60
+exporters:
+  - name: node-a
+    populations:
+      - name: households
+        count: 200
+        ipv6_share: 0.2
+        behaviors:
+          - residential: {}
+      - name: p2p-bot
+        count: 1
+        behaviors:
+          - residential: {}
+          - fanout: {rate: 6, src_port: 41234, respond_ratio: 0.25}
+        expect:
+          signals: [fanout]
+          findings:
+            - {kind: outbound_fanout, severity: medium, signals: [fanout]}

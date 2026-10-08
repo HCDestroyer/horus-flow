@@ -1,0 +1,37 @@
+name: scan
+description: >
+  Un CPE/IoT reclutado (tipo Mirai) escanea Internet con SYN a 23/2323
+  (escaneo horizontal: miles de destinos, >70 % SYN sin respuesta, puertos
+  vigilados) y otro cliente hace un escaneo vertical de los puertos 1-1024
+  de un único destino.
+duration: 5m
+rate: 300
+fixture:
+  duration: 2m
+  rate: 60
+exporters:
+  - name: node-a
+    populations:
+      - name: households
+        count: 200
+        ipv6_share: 0.2
+        behaviors:
+          - residential: {}
+      - name: mirai-scanner
+        count: 1
+        behaviors:
+          - residential: {}
+          - scan: {mode: horizontal, ports: [23, 2323], rate: 10, respond_ratio: 0.03}
+        expect:
+          signals: [scan_horizontal, fanout, watch_ports]
+          findings:
+            - {kind: outbound_scanning, severity: high, signals: [scan_horizontal, fanout, watch_ports]}
+      - name: vertical-scanner
+        count: 1
+        behaviors:
+          - residential: {}
+          - scan: {mode: vertical, target: 198.51.100.200, port_from: 1, port_to: 1024, rate: 6}
+        expect:
+          signals: [scan_vertical]
+          findings:
+            - {kind: outbound_scanning, severity: medium, signals: [scan_vertical]}

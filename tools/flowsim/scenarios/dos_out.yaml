@@ -1,0 +1,27 @@
+name: dos_out
+description: >
+  Cliente que participa en un DDoS: inundación UDP saliente de ~20 000 pps
+  hacia un único destino durante 3 minutos, en 4 flujos con distintos
+  puertos de origen.
+duration: 5m
+rate: 300
+fixture:
+  duration: 2m
+  rate: 60
+exporters:
+  - name: node-a
+    populations:
+      - name: households
+        count: 200
+        ipv6_share: 0.2
+        behaviors:
+          - residential: {}
+      - name: ddos-bot
+        count: 1
+        behaviors:
+          - residential: {}
+          - ddos: {targets: [198.51.100.50], port: 80, pps: 20000, packet_size: 1000, start: 10s, duration: 3m, flows: 4}
+        expect:
+          signals: [ddos]
+          findings:
+            - {kind: ddos_participation, severity: high, signals: [ddos]}

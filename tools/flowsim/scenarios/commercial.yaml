@@ -1,0 +1,30 @@
+name: commercial
+description: >
+  Nodo mixto: 200 hogares y 6 clientes comerciales con servidores propios
+  (HTTPS y SMTP entrantes desde muchas IPs), SaaS y videoconferencia,
+  copias de seguridad a la nube, varios TTL iniciales y mucho tráfico a una
+  CDN concentrada en pocas /24. Debe producir la señal de servicios
+  entrantes (scoring comercial, §9) y ningún hallazgo de botnet
+  (falsos positivos conocidos de §8).
+duration: 5m
+rate: 300
+fixture:
+  duration: 2m
+  rate: 60
+exporters:
+  - name: node-a
+    populations:
+      - name: households
+        count: 200
+        ipv6_share: 0.2
+        behaviors:
+          - residential: {}
+      - name: business
+        count: 6
+        ipv6_share: 0.5
+        behaviors:
+          - commercial:
+              inbound_ports: [443, 25]
+              inbound_rate: 1.2
+        expect:
+          signals: [inbound_service]

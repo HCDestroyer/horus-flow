@@ -1,0 +1,27 @@
+name: beacon
+description: >
+  Bot que consulta a su C2 (no listado en feeds) cada 5 minutos con un
+  jitter del 5 % y pocos bytes, durante más de 6 horas (beaconing, I1-30).
+  Tasa de fondo baja para mantener el volumen manejable.
+duration: 7h
+rate: 2
+fixture:
+  duration: 6h30m
+  rate: 0.3
+exporters:
+  - name: node-a
+    populations:
+      - name: households
+        count: 10
+        ipv6_share: 0.2
+        behaviors:
+          - residential: {}
+      - name: beaconing-bot
+        count: 1
+        behaviors:
+          - residential: {}
+          - beacon: {remote: 3.121.45.10, port: 8443, interval: 5m, jitter: 0.05, bytes_up: 420, bytes_down: 260}
+        expect:
+          signals: [beaconing]
+          findings:
+            - {kind: beaconing, severity: medium, signals: [beaconing]}

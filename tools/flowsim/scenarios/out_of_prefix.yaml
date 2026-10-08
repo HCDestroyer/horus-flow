@@ -1,0 +1,78 @@
+name: out_of_prefix
+description: >
+  Dos nodos del mismo ISP con el mismo rango privado 10.20.0.0/24 (realms
+  distintos). En node-a (acceso PPPoE: ifIndex dinámico por cliente y sin
+  MAC) aparecen además IPs del lado cliente fuera de los prefijos
+  configurados (172.16.50.0/24 y un /48 IPv6 no dado de alta), un rango
+  excluido por el ISP, tránsito de clientes IPv6 de node-b, tráfico
+  interno entre clientes (445/tcp) y el tráfico del propio router (túnel y
+  WireGuard). Prueba la atribución de docs/traffic-model.md §4.6.
+duration: 5m
+rate: 200
+fixture:
+  duration: 2m
+  rate: 50
+exporters:
+  - name: node-a
+    interfaces:
+      access: pppoe
+    prefixes:
+      nat:
+        customers: [10.20.0.0/24]
+        infrastructure: [10.20.255.0/24, 203.0.113.0/28]
+        excluded: [10.20.250.0/24]
+        unlisted: [172.16.50.0/24]
+        resolver: 10.20.255.53
+      public:
+        customers: [198.18.0.0/23]
+        infrastructure: [198.19.255.0/24, 203.0.113.0/28]
+        excluded: [198.19.250.0/24]
+        unlisted: [198.19.0.0/24]
+        resolver: 198.19.255.53
+      v6:
+        customers: [2001:db8:1000::/40]
+        infrastructure: [2001:db8:ff00::/48]
+        excluded: [2001:db8:fe00::/48]
+        unlisted: [2001:db8:f000::/48]
+        resolver: 2001:db8:ff00::53
+    populations:
+      - name: households
+        count: 60
+        ipv6_share: 0.25
+        behaviors:
+          - residential: {}
+      - name: worm-lateral
+        count: 1
+        behaviors:
+          - residential: {}
+          - lateral: {port: 445, rate: 0.05}
+      - name: unlisted-v4
+        count: 8
+        range: unlisted
+        behaviors:
+          - residential: {}
+      - name: unlisted-v6
+        count: 2
+        range: unlisted
+        family: v6
+        behaviors:
+          - residential: {}
+      - name: guest-excluded
+        count: 5
+        range: excluded
+        behaviors:
+          - residential: {}
+      - name: transit-from-b
+        count: 3
+        range: customers@node-b
+        family: v6
+        behaviors:
+          - residential: {}
+  - name: node-b
+    observation_domain_id: 1
+    populations:
+      - name: households
+        count: 40
+        ipv6_share: 0.25
+        behaviors:
+          - residential: {}
