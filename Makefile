@@ -16,10 +16,16 @@ VERSION       ?= $(shell git describe --tags --always --dirty 2>/dev/null || ech
 LDFLAGS       := -X main.version=$(VERSION)
 
 # Compose de desarrollo (I0-02). Variables en deployments/compose/.env; perfiles opcionales
-# con COMPOSE_PROFILES (p. ej. `make up COMPOSE_PROFILES=app`).
+# con PROFILE o COMPOSE_PROFILES (p. ej. `make up PROFILE=app,observability`).
+# compose.observability.yaml (I0-18) se fusiona siempre, pero sus servicios solo arrancan con el
+# perfil `observability`.
 COMPOSE_DIR          := deployments/compose
 HORUS_COMPOSE_FILE   := $(COMPOSE_DIR)/compose.dev.yaml
-COMPOSE              ?= docker compose --project-directory $(COMPOSE_DIR) -f $(HORUS_COMPOSE_FILE)
+HORUS_OBS_FILE       := $(COMPOSE_DIR)/compose.observability.yaml
+COMPOSE              ?= docker compose --project-directory $(COMPOSE_DIR) -f $(HORUS_COMPOSE_FILE) -f $(HORUS_OBS_FILE)
+ifneq ($(PROFILE),)
+export COMPOSE_PROFILES := $(PROFILE)
+endif
 COMPOSE_WAIT_TIMEOUT ?= 120
 # down/reset funcionan aunque aún no exista .env (toman los valores de .env.example).
 COMPOSE_DOWN         := $(COMPOSE) $(if $(wildcard $(COMPOSE_DIR)/.env),,--env-file $(COMPOSE_DIR)/.env.example)
@@ -41,7 +47,7 @@ help: ## Muestra esta ayuda
 
 .PHONY: up
 up: ## Levanta el compose de desarrollo (perfil mínimo) y espera a que esté healthy
-	@bash scripts/compose-preflight.sh $(HORUS_COMPOSE_FILE)
+	@bash scripts/compose-preflight.sh $(HORUS_COMPOSE_FILE) $(HORUS_OBS_FILE)
 	$(COMPOSE) up -d --wait --wait-timeout $(COMPOSE_WAIT_TIMEOUT)
 	@$(COMPOSE) ps --format 'table {{.Service}}\t{{.Status}}\t{{.Ports}}'
 
@@ -60,6 +66,10 @@ migrate-ch: ## Aplica el esquema ClickHouse (I0-13) al ClickHouse del compose (i
 	HORUS_CLICKHOUSE_DSN="$${HORUS_CLICKHOUSE_DSN:-clickhouse://$${HORUS_CH_USER}@127.0.0.1:$${HORUS_CH_NATIVE_PORT:-9000}/$${HORUS_CH_DB}}" \
 	HORUS_CLICKHOUSE_PASSWORD_FILE="$${HORUS_CLICKHOUSE_PASSWORD_FILE:-$(COMPOSE_DIR)/secrets/clickhouse_password.txt}" \
 	$(GO) run ./services/ingester/cmd/ch-migrate
+
+.PHONY: observability-smoke
+observability-smoke: ## Levanta el perfil observability y comprueba Prometheus, Loki y Grafana (I0-18)
+	@bash scripts/ci/observability-smoke.sh
 
 ##@ Calidad
 
@@ -130,13 +140,34 @@ else
 	$(GO) run ./tools/flowsim/cmd/sim-verify -selftest -fixtures $(SIM_FIXTURES) $(SIM_ARGS)
 endif
 
+# Laboratorio MikroTik CHR (I0-11, infrastructure/lab/chr/README.md). Necesita Linux, sudo y
+# /dev/kvm. Variables: ROS (7.12), LAB_ACCEL (kvm|tcg), PROFILE/CLIENT/DURATION en lab-traffic;
+# el resto en infrastructure/lab/chr/lab.env.
+LAB_SH := bash scripts/lab/lab.sh
+
 .PHONY: lab-up
-lab-up: ## Levanta el laboratorio MikroTik CHR
-	$(call pending,I0-11)
+lab-up: ## Levanta el laboratorio MikroTik CHR (make lab-up ROS=7.12)
+	$(LAB_SH) up
 
 .PHONY: lab-down
-lab-down: ## Detiene el laboratorio MikroTik CHR
-	$(call pending,I0-11)
+lab-down: ## Detiene el laboratorio MikroTik CHR y borra su red
+	$(LAB_SH) down
+
+.PHONY: lab-status
+lab-status: ## Estado del laboratorio (VM, túnel WireGuard, netns)
+	$(LAB_SH) status
+
+.PHONY: lab-traffic
+lab-traffic: ## Genera tráfico desde un cliente del laboratorio (PROFILE=beacon|scan|smtp|volume|dns)
+	$(LAB_SH) traffic
+
+.PHONY: lab-console
+lab-console: ## Consola serie del CHR (salir con Ctrl-])
+	$(LAB_SH) console
+
+.PHONY: lab-selftest
+lab-selftest: ## Validación §8.3 en un CHR limpio; deja la salida en .lab/selftest-<ROS>.log
+	bash scripts/lab/selftest.sh
 
 ##@ Aceptación
 

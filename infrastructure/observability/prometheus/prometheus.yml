@@ -1,0 +1,49 @@
+# Prometheus — configuración de DESARROLLO (compose.observability.yaml, historia I0-18).
+#
+# Telemetría de PLATAFORMA (docs/observability.md §0): salud de los procesos de Horus. Nunca
+# métricas por interfaz, IP o cliente: esas son datos de producto y van a ClickHouse.
+#
+# Objetivos estáticos por nombre de servicio del compose. Los contenedores horus-* solo existen
+# con el perfil `app`; si no están, su objetivo aparece como down (up == 0) y nada más falla.
+
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+  external_labels:
+    env: dev
+
+scrape_configs:
+  # Contenedores propios: puerto de administración HORUS_ADMIN_ADDR (:8081), nunca publicado.
+  # `process` identifica el contenedor (docs/observability.md: label `process`).
+  - job_name: horus
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["horus-app:8081"]
+        labels:
+          process: horus-app
+      - targets: ["horus-collector:8081"]
+        labels:
+          process: horus-collector
+      - targets: ["horus-wg-agent:8081"]
+        labels:
+          process: horus-wg-agent
+
+  # Borde HTTP: Traefik expone /metrics en su entrypoint interno (:8082).
+  - job_name: traefik
+    static_configs:
+      - targets: ["traefik:8082"]
+
+  # La propia pila de observabilidad.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+  - job_name: loki
+    static_configs:
+      - targets: ["loki:3100"]
+  - job_name: alloy
+    static_configs:
+      - targets: ["alloy:12345"]
+  - job_name: grafana
+    static_configs:
+      - targets: ["grafana:3000"]

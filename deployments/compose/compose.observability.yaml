@@ -1,0 +1,170 @@
+# Horus Flow — observabilidad mínima de DESARROLLO (historia I0-18, docs/observability.md).
+#
+# Se fusiona con compose.dev.yaml (el Makefile pasa los dos `-f`), pero TODOS sus servicios van
+# en el perfil `observability`: `make up` no los arranca y nada depende de ellos (criterio 2 de
+# I0-18). Para levantarlos:
+#
+#   make up PROFILE=observability            # dependencias + Prometheus, Loki, Alloy, Grafana
+#   make up PROFILE=app,observability        # además horus-app / horus-collector / horus-wg-agent
+#
+# Grafana: http://127.0.0.1:${HORUS_GRAFANA_PORT:-3001} (usuario admin, contraseña en
+# secrets/grafana_admin_password.txt). Prometheus: http://127.0.0.1:${HORUS_PROMETHEUS_PORT:-9091}.
+# Loki y Alloy solo son accesibles desde la red del compose (Grafana los consulta por dentro).
+#
+# Alcance (I0-18, talla S): métricas (Prometheus) y logs (Alloy → Loki). Trazas (OTLP → Alloy →
+# Tempo) y Alertmanager quedan fuera de I0-18; llegan cuando haya spans que guardar.
+# Mismas reglas que compose.dev.yaml: versión fija, healthcheck, volumen nombrado si guarda
+# estado, límite de memoria y puertos solo en HORUS_BIND_ADDR.
+
+x-obs-logging: &obs-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-obs-hardening: &obs-hardening
+  profiles: [observability]
+  security_opt:
+    - no-new-privileges:true
+  logging: *obs-logging
+  restart: unless-stopped
+
+services:
+  # ------------------------------------------------------------------------------------------
+  # Prometheus — raspa /metrics del puerto de admin (:8081) de los contenedores horus-* y la
+  # propia pila. Retención 30 días o 2 GB (lo que llegue antes) para no llenar el portátil.
+  # ------------------------------------------------------------------------------------------
+  prometheus:
+    <<: *obs-hardening
+    image: prom/prometheus:v3.13.4
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --storage.tsdb.retention.size=2GB
+      - --web.enable-lifecycle
+    read_only: true
+    volumes:
+      - ../../infrastructure/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "${HORUS_BIND_ADDR:-127.0.0.1}:${HORUS_PROMETHEUS_PORT:-9091}:9090"
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/-/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  # ------------------------------------------------------------------------------------------
+  # Loki — logs de los contenedores (monolítico, almacenamiento en disco local). La imagen
+  # oficial no trae shell ni wget: se le añade el busybox estático solo para el healthcheck.
+  # ------------------------------------------------------------------------------------------
+  loki:
+    <<: *obs-hardening
+    image: horus-loki:3.7.8-dev
+    build:
+      dockerfile_inline: |
+        FROM busybox:1.37.0-musl AS busybox
+        FROM grafana/loki:3.7.8
+        COPY --from=busybox /bin/busybox /usr/local/bin/busybox
+    command: ["-config.file=/etc/loki/loki.yml"]
+    read_only: true
+    volumes:
+      - ../../infrastructure/observability/loki/loki.yml:/etc/loki/loki.yml:ro
+      - loki-data:/loki
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/busybox", "wget", "-qO-", "http://127.0.0.1:3100/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 20s
+
+  # ------------------------------------------------------------------------------------------
+  # Grafana Alloy — agente único (docs/observability.md §1): lee los logs de los contenedores de
+  # ESTE proyecto compose por el socket de Docker (solo lectura) y los envía a Loki con
+  # redacción de respaldo (§3.3). Sin receptor OTLP todavía (no hay Tempo en I0-18).
+  # ------------------------------------------------------------------------------------------
+  alloy:
+    <<: *obs-hardening
+    image: grafana/alloy:v1.20.1
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --storage.path=/var/lib/alloy/data
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --disable-reporting
+    environment:
+      HORUS_COMPOSE_PROJECT: ${COMPOSE_PROJECT_NAME:-horus-dev}
+      HORUS_ENV: dev
+    volumes:
+      - ../../infrastructure/observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - alloy-data:/var/lib/alloy/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      loki:
+        condition: service_healthy
+    mem_limit: 256m
+    healthcheck:
+      # La imagen no trae wget/curl; bash abre la conexión con /dev/tcp.
+      test:
+        - CMD
+        - bash
+        - -c
+        - exec 3<>/dev/tcp/127.0.0.1/12345 && printf 'GET /-/ready HTTP/1.0\r\n\r\n' >&3 && head -n1 <&3 | grep -q ' 200 '
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  # ------------------------------------------------------------------------------------------
+  # Grafana — datasources y dashboards provisionados como código (carpeta "Horus Platform").
+  # Solo para quien opera la plataforma: nunca se expone a usuarios de un ISP.
+  # ------------------------------------------------------------------------------------------
+  grafana:
+    <<: *obs-hardening
+    image: grafana/grafana:13.2.3
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_LOG_MODE: console
+      GF_LOG_CONSOLE_FORMAT: json
+    secrets:
+      - grafana_admin_password
+    volumes:
+      - ../../infrastructure/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../../infrastructure/observability/grafana/dashboards:/var/lib/grafana/dashboards/horus:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "${HORUS_BIND_ADDR:-127.0.0.1}:${HORUS_GRAFANA_PORT:-3001}:3000"
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      loki:
+        condition: service_healthy
+    mem_limit: 384m
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 20s
+
+secrets:
+  grafana_admin_password:
+    file: ./secrets/grafana_admin_password.txt
+
+volumes:
+  prometheus-data:
+  loki-data:
+  alloy-data:
+  grafana-data:

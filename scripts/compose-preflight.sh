@@ -7,14 +7,18 @@
 #      entorno o en .env, y que cada archivo de secreto existe y no está vacío.
 #
 # Ante un error nombra la variable o el archivo, NUNCA imprime valores. Sale con 1 si falta algo.
-# Uso: scripts/compose-preflight.sh [archivo-compose]   (lo llama `make up`)
+# Uso: scripts/compose-preflight.sh [archivo-compose...]   (lo llama `make up` con compose.dev.yaml y
+#      compose.observability.yaml; el primero fija la carpeta de .env y secrets/)
 # Historia I0-02 (docs/backlog/increment-0.md).
 
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
-compose_file="${1:-$repo_root/deployments/compose/compose.dev.yaml}"
-compose_dir="$(cd "$(dirname "$compose_file")" && pwd)"
+if [ "$#" -eq 0 ]; then
+  set -- "$repo_root/deployments/compose/compose.dev.yaml"
+fi
+compose_files=("$@")
+compose_dir="$(cd "$(dirname "$1")" && pwd)"
 env_file="$compose_dir/.env"
 example="$compose_dir/.env.example"
 
@@ -41,7 +45,7 @@ env_file_value() {
 errors=0
 
 # Variables obligatorias: las que el compose declara con ${VAR:?...}.
-required="$(grep -oE '\$\{[A-Z0-9_]+:\?' "$compose_file" | sed -E 's/^\$\{//; s/:\?$//' | LC_ALL=C sort -u)"
+required="$(grep -hoE '\$\{[A-Z0-9_]+:\?' "${compose_files[@]}" | sed -E 's/^\$\{//; s/:\?$//' | LC_ALL=C sort -u)"
 for var in $required; do
   value="${!var:-}"
   if [ -z "$value" ]; then
@@ -56,10 +60,11 @@ done
 
 # Secretos declarados en el bloque `secrets:` de primer nivel (file: ./secrets/...).
 secret_files="$(awk '
+  FNR == 1 { in_s = 0 }
   /^secrets:/ { in_s = 1; next }
   /^[^[:space:]#]/ { in_s = 0 }
   in_s && $1 == "file:" { print $2 }
-' "$compose_file")"
+' "${compose_files[@]}")"
 for rel in $secret_files; do
   path="$compose_dir/${rel#./}"
   if [ ! -s "$path" ]; then

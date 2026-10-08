@@ -20,6 +20,15 @@ api:
   dashboard: true
   insecure: true
 
+# /metrics en el entrypoint interno (lo raspa Prometheus del perfil observability, I0-18).
+# Sin labels por router/servicio para mantener la cardinalidad baja.
+metrics:
+  prometheus:
+    entryPoint: traefik
+    addEntryPointsLabels: true
+    addRoutersLabels: false
+    addServicesLabels: false
+
 providers:
   file:
     directory: /etc/traefik/dynamic
