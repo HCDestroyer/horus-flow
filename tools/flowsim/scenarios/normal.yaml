@@ -1,0 +1,20 @@
+name: normal
+description: >
+  Nodo residencial típico: 250 hogares en 10.20.0.0/24 detrás del NAT del
+  router principal (D12), unos 50 de ellos con IPv6 y prefijo delegado /64
+  (≈300 claves de cliente). Navegación, DNS al resolver del ISP, QUIC,
+  streaming, notificaciones push y NTP, más el tráfico propio del router.
+  No debe producir ningún hallazgo.
+duration: 5m
+rate: 300
+fixture:
+  duration: 2m
+  rate: 60
+exporters:
+  - name: node-a
+    populations:
+      - name: households
+        count: 250
+        ipv6_share: 0.2
+        behaviors:
+          - residential: {}

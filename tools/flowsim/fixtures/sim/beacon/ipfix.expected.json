@@ -1,0 +1,249 @@
+{
+  "schema": "horus.flowsim.expected/v1",
+  "scenario": "beacon",
+  "description": "Bot que consulta a su C2 (no listado en feeds) cada 5 minutos con un jitter del 5 % y pocos bytes, durante más de 6 horas (beaconing, I1-30). Tasa de fondo baja para mantener el volumen manejable.",
+  "seed": 1,
+  "protocol": "ipfix",
+  "nat": true,
+  "ipv6": true,
+  "nat_fields": false,
+  "fixture": true,
+  "rate": 0.3,
+  "start": "2026-01-05T18:00:00Z",
+  "duration_seconds": 23400,
+  "export": {
+    "active_timeout_seconds": 60,
+    "inactive_timeout_seconds": 15,
+    "template_refresh_packets": 20,
+    "template_timeout_seconds": 60,
+    "max_datagram": 1392,
+    "collector_port": 4739
+  },
+  "exporters": [
+    {
+      "name": "node-a",
+      "exporter_ip": "10.255.0.2",
+      "collector_ip": "10.255.0.1",
+      "observation_domain_id": 0,
+      "boot_time": "2026-01-02T18:00:00Z",
+      "interfaces": {
+        "upstream": 1,
+        "tunnel": 30,
+        "transit": 3,
+        "access": "vlan"
+      },
+      "prefixes": {
+        "customers": [
+          "10.20.0.0/24",
+          "2001:db8:1000::/40"
+        ],
+        "infrastructure": [
+          "10.20.255.0/24",
+          "203.0.113.0/28",
+          "2001:db8:ff00::/48"
+        ],
+        "excluded": []
+      },
+      "ipv6_client_len": 64,
+      "totals": {
+        "datagrams": 5431,
+        "template_sends": 392,
+        "data_records": 10362,
+        "records_v4": 9942,
+        "records_v6": 420,
+        "bytes": 4319035130,
+        "packets": 4081942
+      },
+      "by_status": {
+        "attributed": 7210,
+        "infrastructure": 1982,
+        "tunnel": 1170
+      },
+      "clients": [
+        {
+          "key": "10.20.0.10",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 630,
+          "bytes_up": 11228899,
+          "bytes_down": 880515695,
+          "packets_up": 211640,
+          "packets_down": 630181
+        },
+        {
+          "key": "10.20.0.11",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 430,
+          "bytes_up": 1883533,
+          "bytes_down": 133696179,
+          "packets_up": 33397,
+          "packets_down": 96500
+        },
+        {
+          "key": "10.20.0.12",
+          "family": 4,
+          "population": "beaconing-bot",
+          "kind": "residential",
+          "records": 788,
+          "bytes_up": 10993962,
+          "bytes_down": 850343871,
+          "packets_up": 205681,
+          "packets_down": 609297
+        },
+        {
+          "key": "10.20.0.2",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 762,
+          "bytes_up": 4686062,
+          "bytes_down": 338843518,
+          "packets_up": 83636,
+          "packets_down": 243829
+        },
+        {
+          "key": "10.20.0.3",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 592,
+          "bytes_up": 3383021,
+          "bytes_down": 242961126,
+          "packets_up": 60021,
+          "packets_down": 174825
+        },
+        {
+          "key": "10.20.0.4",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 640,
+          "bytes_up": 3688024,
+          "bytes_down": 272590808,
+          "packets_up": 66988,
+          "packets_down": 196070
+        },
+        {
+          "key": "10.20.0.5",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 634,
+          "bytes_up": 8719452,
+          "bytes_down": 676287233,
+          "packets_up": 163178,
+          "packets_down": 484407
+        },
+        {
+          "key": "10.20.0.6",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 392,
+          "bytes_up": 255904,
+          "bytes_down": 4235210,
+          "packets_up": 2289,
+          "packets_down": 3836
+        },
+        {
+          "key": "10.20.0.7",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 650,
+          "bytes_up": 7808137,
+          "bytes_down": 600297736,
+          "packets_up": 145350,
+          "packets_down": 430207
+        },
+        {
+          "key": "10.20.0.8",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 642,
+          "bytes_up": 640536,
+          "bytes_down": 14818763,
+          "packets_up": 6915,
+          "packets_down": 12469
+        },
+        {
+          "key": "10.20.0.9",
+          "family": 4,
+          "population": "households",
+          "kind": "residential",
+          "records": 630,
+          "bytes_up": 536718,
+          "bytes_down": 10765319,
+          "packets_up": 5239,
+          "packets_down": 9238
+        },
+        {
+          "key": "2001:db8:1000:1::/64",
+          "family": 6,
+          "population": "households",
+          "kind": "residential",
+          "records": 158,
+          "bytes_up": 174417,
+          "bytes_down": 3861813,
+          "packets_up": 1751,
+          "packets_down": 3192
+        },
+        {
+          "key": "2001:db8:1000::/64",
+          "family": 6,
+          "population": "households",
+          "kind": "residential",
+          "records": 262,
+          "bytes_up": 188606,
+          "bytes_down": 3276042,
+          "packets_up": 1738,
+          "packets_down": 2938
+        }
+      ],
+      "unattributed": []
+    }
+  ],
+  "indicators": [],
+  "signals": [
+    {
+      "exporter": "node-a",
+      "client": "10.20.0.12",
+      "signal": "beaconing",
+      "detail": {
+        "connections": 78,
+        "cv": 0.03,
+        "interval_s": 301,
+        "mean_bytes_out": 418,
+        "remote_ip": "3.121.45.10",
+        "remote_port": 8443,
+        "span_h": 6.44
+      }
+    }
+  ],
+  "findings": [
+    {
+      "exporter": "node-a",
+      "client": "10.20.0.12",
+      "kind": "beaconing",
+      "severity": "medium",
+      "signals": [
+        "beaconing"
+      ],
+      "reasons": {
+        "beaconing": {
+          "connections": 78,
+          "cv": 0.03,
+          "interval_s": 301,
+          "mean_bytes_out": 418,
+          "remote_ip": "3.121.45.10",
+          "remote_port": 8443,
+          "span_h": 6.44
+        }
+      }
+    }
+  ]
+}

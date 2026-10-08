@@ -1,0 +1,40 @@
+name: c2
+description: >
+  Dos clientes infectados entre 200 hogares: uno mantiene sesiones con un C2
+  activo (IRC, 6667/tcp, el servidor responde) y otro insiste con SYN a un
+  C2 caído o en sinkhole (sin respuesta). Ambos C2 están en el feed de
+  prueba del escenario (indicators).
+duration: 5m
+rate: 300
+fixture:
+  duration: 2m
+  rate: 60
+indicators:
+  - {ip: 203.0.113.66, kind: botnet_cc, confidence: high}
+  - {ip: 203.0.113.77, kind: botnet_cc, confidence: high}
+exporters:
+  - name: node-a
+    populations:
+      - name: households
+        count: 200
+        ipv6_share: 0.2
+        behaviors:
+          - residential: {}
+      - name: bot-c2-alive
+        count: 1
+        behaviors:
+          - residential: {}
+          - c2: {remote: 203.0.113.66, port: 6667, interval: 45s, jitter: 0.2, responds: true}
+        expect:
+          signals: [c2_contact]
+          findings:
+            - {kind: botnet_c2_communication, severity: high, signals: [c2_contact]}
+      - name: bot-c2-sinkholed
+        count: 1
+        behaviors:
+          - residential: {}
+          - c2: {remote: 203.0.113.77, port: 443, interval: 30s, jitter: 0.2, responds: false}
+        expect:
+          signals: [c2_contact]
+          findings:
+            - {kind: botnet_c2_communication, severity: medium, signals: [c2_contact]}

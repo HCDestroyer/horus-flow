@@ -89,13 +89,38 @@ check-codeowners: ## Verifica que toda carpeta de primer nivel y cada módulo ti
 
 ##@ Datos de flujo simulados y laboratorio
 
+# Simulador de flujos (tools/flowsim, I0-10). Variables:
+#   SCENARIO (normal) SEED (1) PROTO (ipfix|v9) RATE DURATION NAT IPV6 SPEED (1)
+#   SIM_TARGET (127.0.0.1:4739 o :2055) SIM_OUT (fichero .hfsim/.pcap[.gz] en vez de UDP)
+#   SIM_EXPECTED (bin/sim/<escenario>-<proto>.expected.json) SIM_ARGS (flags extra)
+#   sim-verify: sin variables = prueba sin router de todos los escenarios + fixtures;
+#   SIM_IN=fichero o SIM_LISTEN=host:puerto verifican contra SIM_EXPECTED.
+SCENARIO     ?= normal
+SEED         ?= 1
+PROTO        ?= ipfix
+SPEED        ?= 1
+SIM_DIR      ?= bin/sim
+SIM_EXPECTED ?= $(SIM_DIR)/$(SCENARIO)-$(PROTO).expected.json
+SIM_FIXTURES ?= tools/flowsim/fixtures/sim
+
 .PHONY: sim
-sim: ## Genera flujos IPFIX/NetFlow v9 simulados con el simulador
-	$(call pending,I0-10)
+sim: ## Genera flujos IPFIX/NetFlow v9 simulados (make sim SCENARIO=scan PROTO=v9 RATE=2000)
+	@mkdir -p $(SIM_DIR) $(dir $(SIM_EXPECTED))
+	$(GO) run ./tools/flowsim/cmd/flowsim -scenario $(SCENARIO) -seed $(SEED) -proto $(PROTO) \
+		$(if $(RATE),-rate $(RATE)) $(if $(DURATION),-duration $(DURATION)) \
+		$(if $(NAT),-nat=$(NAT)) $(if $(IPV6),-ipv6=$(IPV6)) \
+		$(if $(SIM_OUT),-out $(SIM_OUT),$(if $(SIM_TARGET),-target $(SIM_TARGET)) -speed $(SPEED)) \
+		-expected $(SIM_EXPECTED) $(SIM_ARGS)
 
 .PHONY: sim-verify
-sim-verify: ## Decodifica y verifica los flujos generados por el simulador
-	$(call pending,I0-10)
+sim-verify: ## Decodifica y verifica flujos simulados (sin variables: prueba sin router para CI)
+ifneq ($(SIM_LISTEN),)
+	$(GO) run ./tools/flowsim/cmd/sim-verify -listen $(SIM_LISTEN) -expected $(SIM_EXPECTED) $(SIM_ARGS)
+else ifneq ($(SIM_IN),)
+	$(GO) run ./tools/flowsim/cmd/sim-verify -in $(SIM_IN) -expected $(SIM_EXPECTED) $(SIM_ARGS)
+else
+	$(GO) run ./tools/flowsim/cmd/sim-verify -selftest -fixtures $(SIM_FIXTURES) $(SIM_ARGS)
+endif
 
 .PHONY: lab-up
 lab-up: ## Levanta el laboratorio MikroTik CHR

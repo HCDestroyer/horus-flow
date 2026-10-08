@@ -1,0 +1,32 @@
+name: spam
+description: >
+  Spambot residencial que entrega correo directamente a decenas de
+  servidores MX distintos por 25/tcp (parte de las conexiones rechazadas).
+  Incluye un cliente comercial que envía correo legítimo por 587 (no debe
+  disparar la señal de SMTP directo).
+duration: 5m
+rate: 300
+fixture:
+  duration: 2m
+  rate: 60
+exporters:
+  - name: node-a
+    populations:
+      - name: households
+        count: 200
+        ipv6_share: 0.2
+        behaviors:
+          - residential: {}
+      - name: business-mail
+        count: 1
+        behaviors:
+          - commercial: {inbound_ports: [], inbound_rate: 0}
+      - name: spambot
+        count: 1
+        behaviors:
+          - residential: {}
+          - smtp: {rate: 0.5, refuse_ratio: 0.2}
+        expect:
+          signals: [smtp_outbound]
+          findings:
+            - {kind: spam_smtp_outbound, severity: high, signals: [smtp_outbound]}

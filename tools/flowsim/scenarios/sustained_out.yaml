@@ -1,0 +1,27 @@
+name: sustained_out
+description: >
+  Cliente que sube ~12 Mbit/s de forma sostenida durante 40 minutos hacia
+  un único servidor (proxy residencial o exfiltración; I1-30), con la
+  subida por encima del 80 % de su tráfico.
+duration: 45m
+rate: 20
+fixture:
+  duration: 35m
+  rate: 4
+exporters:
+  - name: node-a
+    populations:
+      - name: households
+        count: 30
+        ipv6_share: 0.2
+        behaviors:
+          - residential: {}
+      - name: proxy-abuser
+        count: 1
+        behaviors:
+          - residential: {intensity: 0.2}
+          - sustained: {remote: 3.122.200.7, port: 443, mbps: 12, start: 1m, duration: 40m}
+        expect:
+          signals: [sustained_upload]
+          findings:
+            - {kind: open_proxy_abuse, severity: medium, signals: [sustained_upload]}
