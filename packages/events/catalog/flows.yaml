@@ -21,7 +21,7 @@ events:
   pii_fields:
   - records.src_ip
   - records.dst_ip
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.flows.batch.received.json
   notes: 'Pre-NAT: con NAT en el router principal (D12) la IP de cliente es la privada en ambos sentidos.'
@@ -40,7 +40,7 @@ events:
   pii: true
   pii_fields:
   - clients.address
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.flows.client.first_seen.json
   notes: 'Sin spool: si se pierde, el siguiente flujo lo repite.'
@@ -59,7 +59,7 @@ events:
   pii: true
   pii_fields:
   - clients.address
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.flows.client.activity_summary.json
 - type: horus.flows.traffic_summary.observed
@@ -77,7 +77,7 @@ events:
   - traffic.summary
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.flows.traffic_summary.observed.json
   notes: 'Adición de C4 (I1-13): resumen cada 10 s por nodo y total del ISP (site_id null ⇒ clave = tenant_id).'
@@ -96,7 +96,7 @@ events:
   websocket_topics: []
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.flows.exporter.unregistered.json
 - type: horus.flows.exporter.rate_limited
@@ -114,7 +114,7 @@ events:
   websocket_topics: []
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.flows.exporter.rate_limited.json
 - type: horus.flows.exporter.silent
@@ -134,7 +134,7 @@ events:
   - exporters
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.flows.exporter.silent.json
   notes: 'I1-09: sin flujos > 2 min.'
@@ -155,7 +155,7 @@ events:
   - exporters
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.flows.exporter.recovered.json
 - type: horus.flows.exporter.state_changed
@@ -175,7 +175,7 @@ events:
   - exporters
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.flows.exporter.state_changed.json
   notes: Adición de C4 (I1-09). silent/recovered se siguen emitiendo en esas transiciones (consumidores de events.md).
@@ -194,6 +194,6 @@ events:
   websocket_topics: []
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.flows.collector.data_gap.json

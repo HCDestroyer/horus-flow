@@ -24,7 +24,7 @@ events:
   websocket_topics: []
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I0
   example: examples/horus.auth.tenant.created.json
   notes: 'Ciclo de vida del tenant: tenant_id = el propio tenant (events.md §8.1 nota 1).'
@@ -44,7 +44,7 @@ events:
   websocket_topics: []
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I0
   example: examples/horus.auth.tenant.updated.json
 - type: horus.auth.tenant.suspended
@@ -63,7 +63,7 @@ events:
   websocket_topics: []
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.auth.tenant.suspended.json
 - type: horus.auth.tenant.resumed
@@ -82,7 +82,7 @@ events:
   websocket_topics: []
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.auth.tenant.resumed.json
 - type: horus.auth.membership.granted
@@ -100,7 +100,7 @@ events:
   - me
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I0
   example: examples/horus.auth.membership.granted.json
 - type: horus.auth.membership.updated
@@ -118,7 +118,7 @@ events:
   - me
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.auth.membership.updated.json
 - type: horus.auth.membership.revoked
@@ -136,7 +136,7 @@ events:
   - me
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.auth.membership.revoked.json
 - type: horus.auth.kiosk.enrolled
@@ -154,7 +154,7 @@ events:
   websocket_topics: []
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.auth.kiosk.enrolled.json
 - type: horus.auth.kiosk.revoked
@@ -172,7 +172,7 @@ events:
   websocket_topics: []
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.auth.kiosk.revoked.json
 - type: horus.auth.session.revoked
@@ -190,7 +190,7 @@ events:
   - me
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I0
   example: examples/horus.auth.session.revoked.json
 - type: horus.auth.audit.recorded
@@ -209,7 +209,7 @@ events:
   pii_fields:
   - ip
   - user_agent
-  status: draft
+  status: stable
   since: I0
   example: examples/horus.auth.audit.recorded.json
   notes: Único evento con IP y User-Agent; tenant_id null para acciones de plataforma. Solo auth lo persiste (cadena de hashes).

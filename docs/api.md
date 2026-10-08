@@ -364,6 +364,13 @@ Modelo de tokens decidido en [`security.md`](./security.md) §5.1 (S4/S5); aquí
   2FA obligatorio para `tenant_admin`, `security_analyst`, `network_engineer` y roles de plataforma desde el I1
   (`POST /auth/token` → `403 MFA_ENROLLMENT_REQUIRED` si falta). Contrato: `packages/schemas/openapi/v0/`
   (`servers: https://{domain}/api/v1`).
+- **Modos de acceso (D19)**: el dominio es opcional. `HORUS_ACCESS_MODE` = `domain` (dominio propio) · `subdomain` ·
+  `ip_only` (solo la IP del servidor; `HORUS_PUBLIC_BASE_URL=https://203.0.113.10`, se deduce si es una IP literal).
+  Siempre HTTPS (las cookies `__Secure-` lo exigen). TLS (`HORUS_TLS_MODE`): `domain`/`subdomain` → ACME y HSTS;
+  `ip_only` → certificado autogenerado con SAN = IP (o `acme_ip` si el emisor emite certificados para IP), sin HSTS;
+  `provided` (CA del ISP) en cualquier modo. En `ip_only` la consola de plataforma muestra el aviso `ip_only_access`
+  y la huella del certificado (`GET /platform/installation`), y el script RouterOS importa el certificado público
+  para mantener `check-certificate=yes`. Las reglas (1)–(4) anteriores no cambian: el host puede ser una IP.
 - Correlación: el gateway acepta o genera `X-Request-Id` (UUIDv7) y `traceparent`; los reenvía y devuelve `X-Request-Id`.
 - Respuestas con secretos (configuración WireGuard con clave privada, credenciales reveladas) llevan
   `Cache-Control: no-store`. Por defecto toda la API responde `Cache-Control: no-store` salvo endpoints marcados.
@@ -594,6 +601,9 @@ auditoría, [ADR-0017](./adr/0017-multi-tenant-desde-v1.md) §2).
 | `PUT /platform/remote-destinations/{id}/credentials` 🔒 | jobs | Secretos write-only (llave SFTP, token OAuth, contraseña MEGA); nunca se devuelven. | `platform.storage.manage` |
 | `POST /platform/remote-destinations/{id}/test` | jobs | Escribe, lee, verifica y borra un objeto de prueba (`202`). | `platform.storage.manage` |
 | `POST /platform/remote-destinations/{id}/sync` | jobs | Fuerza una copia ahora (`202`). `Idempotency-Key` obligatorio. | `platform.storage.manage` |
+| `GET /platform/installation` | gateway | Modo de acceso (`domain` \| `subdomain` \| `ip_only`, D19), TLS efectivo, huella del certificado y avisos (`ip_only_access`). Solo lectura. | `platform.status.read` |
+| `GET /platform/reputation/sources` · `POST` · `GET/PATCH/DELETE /platform/reputation/sources/{id}` 🔒 | detection | Fuentes de reputación (D20): catálogo base (uso comercial aprobado; solo se habilita/deshabilita) y **personalizadas** del superadministrador (`key`, `name`, `url` https pública, `format` entre los soportados, `frequency`, `category`, `confidence`, `enabled`, cabecera de autenticación write-only, `terms_acknowledged`). Auditado. Carga automática; cada carga emite `horus.detection.reputation.source_refreshed` y entra en el siguiente snapshot. | `platform.reputation_sources.manage` |
+| `POST /platform/reputation/sources/{id}/refresh` | detection | Fuerza una carga (`202`). `Idempotency-Key` obligatorio. | `platform.reputation_sources.manage` |
 | `GET /platform/backups` | jobs | Copias locales y remotas por componente, verificación, antigüedad y última restauración de prueba ([`disaster-recovery.md`](./disaster-recovery.md)). | `platform.status.read` |
 
 ### 2.9 Clientes descubiertos (`devices`; D1)
@@ -630,7 +640,8 @@ los **prefijos de clientes** del realm. Identidad: `(tenant_id, realm_id, addres
   no lo cambia. `commercial_use_suspected` marca una IP residencial con indicios que aún no alcanzan el umbral.
 - `status`: `active` | `inactive` (sin tráfico `customer_inactivity_days`, **30** por defecto, configurable por
   tenant). Si reaparece, vuelve a `active` con el mismo `id`.
-- `security_state` (D5): `clean` | `suspected` | `infected` | `mitigated`, proyectado desde `detection` (§2.10).
+- `security_state` (D5): `clean` | `suspected` | `infected` | `mitigated`, proyectado desde `detection` (§2.10). Etiqueta de
+  presentación (D18): `infected` se muestra como **"Infectado"** en UI, kiosco y alertas, siempre con razones y confianza.
 - `alias` y `notes` son **datos personales** (pueden contener nombres; `alias_source = routeros_ppp` si se importó del
   usuario PPPoE). `last_seen` tiene resolución ≤ 1 h.
 - **Reset** ("reiniciar cliente"): para cuando el ISP sabe que la IP pasó a otra persona. Tipo al valor por defecto,
@@ -686,10 +697,14 @@ valores sustituidos **solo** para quien tiene `customers.read`; en kioscos y eve
 ### 2.10 ter Canal mínimo de notificaciones (D13, módulo `alerts`)
 
 Adelantado al I1: `GET/POST /notification-channels`, `GET/PATCH/DELETE /notification-channels/{id}`,
-`PUT /notification-channels/{id}/credentials` 🔒 (token propio de bot de Telegram, write-only),
-`POST /notification-channels/{id}/test` (`Idempotency-Key` obligatorio, `202`) y `GET /notification-deliveries`.
-`kind`: `email` (SMTP de la instalación, `HORUS_SMTP_*`) y `telegram` (bot de la instalación o propio del ISP) en I1;
-`librenms` (syslog, SNMP trap o API) **previsto**: crearlo en v0 → `422 NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE`.
+`PUT /notification-channels/{id}/credentials` 🔒 (secretos write-only, auditado),
+`POST /notification-channels/{id}/connection-test` (síncrona, sin enviar nada),
+`POST /notification-channels/{id}/test` (`Idempotency-Key` obligatorio, `202`) y `GET /notification-deliveries`
+(filtros `channel_id`, `channel_kind`, `status`).
+`kind`: `email` (SMTP de la instalación, `HORUS_SMTP_*`), `telegram` (bot de la instalación o propio del ISP) y
+**`librenms` por su API (D17)**: configuración manual por ISP con `base_url`, `username`, `tls_verify` y, por
+`…/credentials`, `password` y `api_token` opcional (nunca se devuelven; solo `has_credentials`). Cada ISP tiene sus
+propios canales y credenciales aunque compartan instancia de LibreNMS. Sin syslog ni SNMP trap.
 Suscripción por `event_types` (`finding_opened`, `finding_reopened`, `exporter_silent`, `exporter_recovered`,
 `tunnel_down`, `tunnel_recovered`), `min_severity`, `site_ids` y `throttle_minutes`. Los mensajes no llevan la IP del
 cliente salvo `include_personal_data=true` (auditado). Permisos `alerts.read` / `alerts.manage`. Reglas, silencios y

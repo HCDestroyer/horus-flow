@@ -10,6 +10,7 @@
 package datasets
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -55,6 +56,24 @@ func (d *Duration) UnmarshalYAML(n *yaml.Node) error {
 // MarshalYAML implementa yaml.Marshaler.
 func (d Duration) MarshalYAML() (any, error) { return time.Duration(d).String(), nil }
 
+// MarshalJSON escribe la duración como "24h0m0s" (API y PostgreSQL de las
+// fuentes personalizadas).
+func (d Duration) MarshalJSON() ([]byte, error) { return json.Marshal(time.Duration(d).String()) }
+
+// UnmarshalJSON lee "24h", "30m"…
+func (d *Duration) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
+		return fmt.Errorf("duración: %w", err)
+	}
+	v, err := time.ParseDuration(s)
+	if err != nil {
+		return fmt.Errorf("duración %q: %w", s, err)
+	}
+	*d = Duration(v)
+	return nil
+}
+
 // Source declara una fuente externa. Los campos de licencia son obligatorios:
 // una fuente sin licencia trazable no se puede declarar.
 type Source struct {
@@ -76,10 +95,54 @@ type Source struct {
 	// MinEntries: por debajo, el archivo se considera vacío o truncado.
 	MinEntries int `yaml:"min_entries,omitempty"`
 	// MaxBytes: tamaño máximo aceptado de la descarga (0 = DefaultMaxBytes).
-	MaxBytes int64  `yaml:"max_bytes,omitempty"`
-	Enabled  *bool  `yaml:"enabled,omitempty"`
-	Notes    string `yaml:"notes,omitempty"`
+	MaxBytes int64 `yaml:"max_bytes,omitempty"`
+	// MaxEntries: por encima, el archivo se rechaza (0 = sin límite).
+	MaxEntries int    `yaml:"max_entries,omitempty"`
+	Enabled    *bool  `yaml:"enabled,omitempty"`
+	Notes      string `yaml:"notes,omitempty"`
+
+	// Origin distingue las fuentes del catálogo embebido (OriginCatalog, o
+	// vacío) de las listas personalizadas dadas de alta en tiempo de
+	// ejecución por el superadmin (OriginCustom, D20).
+	Origin string `yaml:"origin,omitempty"`
+	// OnDangerous decide qué hacer con entradas peligrosas (prefijos
+	// demasiado amplios, rangos privados o reservados, prefijos protegidos):
+	// DangerReject rechaza la lista entera; DangerWarn descarta la entrada y
+	// avisa. Vacío = política por defecto del módulo según Origin.
+	OnDangerous string `yaml:"on_dangerous,omitempty"`
+	// CSV configura el formato genérico "csv".
+	CSV *CSVOptions `yaml:"csv,omitempty"`
 }
+
+// Valores de Source.Origin.
+const (
+	OriginCatalog = "catalog"
+	OriginCustom  = "custom"
+)
+
+// Valores de Source.OnDangerous.
+const (
+	DangerReject = "reject"
+	DangerWarn   = "warn"
+)
+
+// CSVOptions describe un CSV genérico con una columna de IP o CIDR.
+type CSVOptions struct {
+	// Column es el nombre de la columna en la cabecera o su posición
+	// (1 = primera).
+	Column string `yaml:"column" json:"column"`
+	// Delimiter: un carácter (por defecto ",").
+	Delimiter string `yaml:"delimiter,omitempty" json:"delimiter,omitempty"`
+	// Comment: prefijo de línea de comentario (por defecto "#"; "-" = sin
+	// comentarios).
+	Comment string `yaml:"comment,omitempty" json:"comment,omitempty"`
+	// Header indica si la primera fila es cabecera. Por defecto sí cuando
+	// Column es un nombre y no cuando es una posición.
+	Header *bool `yaml:"header,omitempty" json:"header,omitempty"`
+}
+
+// IsCustom indica si la fuente es una lista personalizada (D20).
+func (s Source) IsCustom() bool { return s.Origin == OriginCustom }
 
 // DefaultMaxBytes limita una descarga si la fuente no declara MaxBytes.
 const DefaultMaxBytes int64 = 512 << 20
@@ -166,8 +229,18 @@ func (s Source) Validate() error {
 	if s.Confidence < 0 || s.Confidence > 100 {
 		errs = append(errs, fmt.Errorf("confidence %d fuera de 0–100", s.Confidence))
 	}
-	if s.MinEntries < 0 || s.MaxBytes < 0 || s.TTL < 0 {
-		errs = append(errs, errors.New("min_entries, max_bytes y ttl no pueden ser negativos"))
+	if s.MinEntries < 0 || s.MaxBytes < 0 || s.MaxEntries < 0 || s.TTL < 0 {
+		errs = append(errs, errors.New("min_entries, max_entries, max_bytes y ttl no pueden ser negativos"))
+	}
+	switch s.Origin {
+	case "", OriginCatalog, OriginCustom:
+	default:
+		errs = append(errs, fmt.Errorf("origin %q inválido (catalog|custom)", s.Origin))
+	}
+	switch s.OnDangerous {
+	case "", DangerReject, DangerWarn:
+	default:
+		errs = append(errs, fmt.Errorf("on_dangerous %q inválido (reject|warn)", s.OnDangerous))
 	}
 	return errors.Join(errs...)
 }

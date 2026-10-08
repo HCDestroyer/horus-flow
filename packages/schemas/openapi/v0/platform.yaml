@@ -5,7 +5,7 @@ info:
   description: |
     Rutas `/platform/*` con token de ámbito `platform` (docs/api.md §2.8). Un usuario de plataforma no ve
     datos de negocio de los ISP (clientes, tráfico, hallazgos). Módulos dueños: `auth` (tenants, usuarios),
-    `gateway` (overview), `flows` (exportadores no registrados), `wireguard` (hubs e IPAM), `analytics`
+    `gateway` (overview, modo de acceso de la instalación — D19), `detection` (fuentes de reputación — D20), `flows` (exportadores no registrados), `wireguard` (hubs e IPAM), `analytics`
     (destinos remotos y copias en lectura; rol jobs).
   license:
     name: Propietaria
@@ -275,6 +275,201 @@ paths:
                         datagrams: { $ref: './common.yaml#/components/schemas/Uint64String' }
                   page: { $ref: './common.yaml#/components/schemas/PageInfo' }
         '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+  /platform/installation:
+    get:
+      tags: [platform]
+      operationId: platformGetInstallation
+      summary: Modo de acceso de la instalación (dominio, subdominio o solo IP), TLS y avisos (D19)
+      description: |
+        Solo lectura: la configuración es de despliegue (`HORUS_ACCESS_MODE`, `HORUS_PUBLIC_BASE_URL`,
+        `HORUS_TLS_MODE`), no se edita por API. En `ip_only` la consola de plataforma muestra siempre el aviso
+        `ip_only_access` (y `self_signed_certificate` si aplica) con la huella del certificado para verificarla
+        en el primer acceso.
+      x-module: gateway
+      x-scope: platform
+      x-permission: platform.status.read
+      x-increment: I1
+      security:
+        - platformBearer: []
+      responses:
+        '200':
+          description: Configuración de acceso efectiva.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InstallationAccess' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+  /platform/reputation/sources:
+    get:
+      tags: [platform]
+      operationId: platformListReputationSources
+      summary: Fuentes de reputación (catálogo base y personalizadas) con estado de carga (D20)
+      x-module: detection
+      x-scope: platform
+      x-permission: platform.reputation_sources.manage
+      x-increment: I1
+      security:
+        - platformBearer: []
+      parameters:
+        - name: origin
+          in: query
+          schema: { $ref: '#/components/schemas/ReputationSourceOrigin' }
+        - name: enabled
+          in: query
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: Fuentes (sin secretos).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/ReputationSource' } }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+    post:
+      tags: [platform]
+      operationId: platformCreateReputationSource
+      summary: Alta de una fuente de reputación personalizada (se carga automáticamente y entra en el snapshot)
+      description: |
+        D20: el superadministrador agrega las listas que desee. La URL debe ser `https://`, pública (se rechazan
+        loopback, link-local, rangos privados, CGNAT y las redes de la instalación, también tras resolver DNS y en
+        cada redirección → `422 REPUTATION_SOURCE_URL_NOT_ALLOWED`) y sin credenciales en la URL; si el feed pide
+        autenticación va en `auth_header_*` (write-only). `terms_acknowledged=true` deja constancia (auditada) de que
+        quien la da de alta confirmó que los términos de la lista permiten su uso. La primera carga se encola al
+        crearla; cada carga emite `horus.detection.reputation.source_refreshed`.
+      x-module: detection
+      x-scope: platform
+      x-permission: platform.reputation_sources.manage
+      x-reauth: true
+      x-audited: true
+      x-increment: I1
+      security:
+        - platformBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReputationSourceCreate' }
+      responses:
+        '201':
+          description: Creada (`status=pending` hasta la primera carga).
+          headers:
+            Location: { $ref: './common.yaml#/components/headers/Location' }
+            ETag: { $ref: './common.yaml#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReputationSource' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /platform/reputation/sources/{source_id}:
+    parameters:
+      - $ref: '#/components/parameters/ReputationSourceId'
+    get:
+      tags: [platform]
+      operationId: platformGetReputationSource
+      summary: Detalle y estado de carga de una fuente
+      x-module: detection
+      x-scope: platform
+      x-permission: platform.reputation_sources.manage
+      x-increment: I1
+      security:
+        - platformBearer: []
+      responses:
+        '200':
+          description: Fuente.
+          headers:
+            ETag: { $ref: './common.yaml#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReputationSource' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+    patch:
+      tags: [platform]
+      operationId: platformUpdateReputationSource
+      summary: Edita una fuente personalizada (del catálogo base solo `enabled`)
+      description: Catálogo base con otro campo distinto de `enabled` → `422 REPUTATION_SOURCE_READ_ONLY`. Cambiar `url`, `format` o la autenticación encola una carga.
+      x-module: detection
+      x-scope: platform
+      x-permission: platform.reputation_sources.manage
+      x-reauth: true
+      x-audited: true
+      x-increment: I1
+      security:
+        - platformBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/ReputationSourcePatch' }
+          application/json:
+            schema: { $ref: '#/components/schemas/ReputationSourcePatch' }
+      responses:
+        '200':
+          description: Actualizada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReputationSource' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+    delete:
+      tags: [platform]
+      operationId: platformDeleteReputationSource
+      summary: Borra una fuente personalizada (sus indicadores salen del siguiente snapshot)
+      description: Una fuente del catálogo base no se borra (se deshabilita) → `422 REPUTATION_SOURCE_READ_ONLY`. Los hallazgos ya abiertos conservan la referencia a la fuente.
+      x-module: detection
+      x-scope: platform
+      x-permission: platform.reputation_sources.manage
+      x-reauth: true
+      x-audited: true
+      x-increment: I1
+      security:
+        - platformBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      responses:
+        '204': { $ref: './common.yaml#/components/responses/NoContent' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /platform/reputation/sources/{source_id}/refresh:
+    parameters:
+      - $ref: '#/components/parameters/ReputationSourceId'
+    post:
+      tags: [platform]
+      operationId: platformRefreshReputationSource
+      summary: Fuerza una carga ahora (asíncrona; el resultado llega como source_refreshed)
+      x-module: detection
+      x-scope: platform
+      x-permission: platform.reputation_sources.manage
+      x-audited: true
+      x-increment: I1
+      security:
+        - platformBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IdempotencyKeyRequired'
+      responses:
+        '202':
+          description: Carga encolada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReputationSource' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+        '428': { $ref: './common.yaml#/components/responses/PreconditionRequired' }
   /platform/wireguard/hubs:
     get:
       tags: [platform]
@@ -341,6 +536,11 @@ components:
   parameters:
     TenantId:
       name: tenant_id
+      in: path
+      required: true
+      schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    ReputationSourceId:
+      name: source_id
       in: path
       required: true
       schema: { $ref: './common.yaml#/components/schemas/Uuid' }
@@ -457,3 +657,156 @@ components:
         addresses_used: { type: integer, examples: [37] }
         peers_active: { type: integer }
         tenants: { type: integer }
+    AccessMode:
+      type: string
+      description: |
+        D19, por instalación (`HORUS_ACCESS_MODE`; si falta se deduce de `HORUS_PUBLIC_BASE_URL`: IP literal → `ip_only`).
+        `domain`: dominio propio del cliente. `subdomain`: subdominio (del cliente o del proveedor de la instalación).
+        `ip_only`: solo la IP pública del servidor; nada en Horus depende de tener dominio.
+      enum: [domain, subdomain, ip_only]
+    TlsMode:
+      type: string
+      description: |
+        `acme`: certificado automático (Let's Encrypt) para el nombre; obligatorio por defecto en `domain`/`subdomain`.
+        `acme_ip`: certificado para IP si el emisor ACME lo soporta (solo `ip_only`, opcional).
+        `self_signed`: certificado autogenerado en la instalación con SAN = IP (por defecto en `ip_only`).
+        `provided`: certificado aportado por el operador (CA interna del ISP), en cualquier modo.
+      enum: [acme, acme_ip, self_signed, provided]
+    InstallationAccess:
+      type: object
+      required: [access_mode, public_base_url, host, allowed_origins, wireguard_endpoint, tls, warnings]
+      additionalProperties: false
+      properties:
+        access_mode: { $ref: '#/components/schemas/AccessMode' }
+        public_base_url:
+          type: string
+          format: uri
+          description: HORUS_PUBLIC_BASE_URL; siempre `https://` (también en `ip_only`).
+          examples: ['https://horus.isp.example', 'https://203.0.113.10']
+        host: { type: string, description: Nombre o IP literal de HORUS_PUBLIC_BASE_URL., examples: [horus.isp.example, 203.0.113.10] }
+        allowed_origins: { type: array, items: { type: string } }
+        wireguard_endpoint: { type: string, description: 'HORUS_WG_ENDPOINT (nombre o IP).' }
+        tls:
+          type: object
+          required: [mode, hsts, not_after, fingerprint_sha256]
+          additionalProperties: false
+          properties:
+            mode: { $ref: '#/components/schemas/TlsMode' }
+            hsts: { type: boolean, description: 'true solo con nombre y certificado de confianza pública (`domain`/`subdomain` + `acme`).' }
+            issuer: { type: [string, 'null'] }
+            not_after:
+              oneOf:
+                - $ref: './common.yaml#/components/schemas/Timestamp'
+                - type: 'null'
+            fingerprint_sha256: { type: [string, 'null'], pattern: '^[0-9A-F]{2}(:[0-9A-F]{2}){31}$', description: 'Huella del certificado servido, para verificarla a mano con self_signed.' }
+        warnings:
+          type: array
+          description: Avisos para la consola de plataforma (enum abierto de `code`).
+          items:
+            type: object
+            required: [code, severity, message]
+            additionalProperties: false
+            properties:
+              code:
+                anyOf:
+                  - type: string
+                    enum: [ip_only_access, self_signed_certificate, certificate_expiring, acme_renewal_failed]
+                  - type: string
+                    pattern: '^[a-z][a-z0-9_]*$'
+              severity: { type: string, enum: [info, warning, critical] }
+              message: { type: string }
+    ReputationSourceOrigin:
+      type: string
+      description: '`catalog`: catálogo base de la instalación (D20: uso comercial aprobado). `custom`: agregada por el superadministrador.'
+      enum: [catalog, custom]
+    ReputationCategory:
+      type: string
+      description: Igual que `reputation_category` de ClickHouse (C3).
+      enum: [botnet_cc, scanner, malware_dist, mining_pool, proxy_vpn, tor_exit, blocklist]
+    ReputationSourceFormat:
+      type: string
+      description: |
+        Formatos que sabe leer `detection` (enum abierto; uno nuevo exige parser y versión del contrato).
+        `netset`: una IP o CIDR por línea, `#` comentarios (también listas de salida de Tor).
+        `abusech-feodo-csv`, `abusech-threatfox-csv`: exportaciones CSV de abuse.ch. `spamhaus-drop-json`: DROP en JSON Lines.
+      enum: [netset, abusech-feodo-csv, abusech-threatfox-csv, spamhaus-drop-json]
+    ReputationSourceFrequency:
+      type: string
+      description: Intervalo entre cargas (mínimo 15 min, máximo 7 d).
+      pattern: '^[1-9][0-9]*(m|h|d)$'
+      examples: [1h, 6h, 24h]
+    ReputationSourceCreate:
+      type: object
+      required: [key, name, url, format, frequency, category, confidence, terms_acknowledged]
+      additionalProperties: false
+      properties:
+        key: { type: string, pattern: '^[a-z][a-z0-9_]{2,47}$', description: 'Identificador estable e inmutable (aparece en hallazgos y snapshots).' }
+        name: { type: string, minLength: 1, maxLength: 120 }
+        url: { type: string, format: uri, maxLength: 2048, pattern: '^https://' }
+        format: { $ref: '#/components/schemas/ReputationSourceFormat' }
+        frequency: { $ref: '#/components/schemas/ReputationSourceFrequency' }
+        category: { $ref: '#/components/schemas/ReputationCategory' }
+        confidence: { type: integer, minimum: 0, maximum: 100, description: 'Confianza de sus indicadores (= reputation_confidence).' }
+        enabled: { type: boolean, default: true }
+        license: { type: [string, 'null'], maxLength: 200 }
+        notes: { type: [string, 'null'], maxLength: 1000 }
+        min_entries: { type: integer, minimum: 0, default: 1, description: 'Menos entradas → carga rechazada (se conserva la anterior).' }
+        max_bytes: { type: integer, minimum: 1024, maximum: 268435456, default: 67108864 }
+        auth_header_name: { type: [string, 'null'], pattern: '^[A-Za-z0-9-]{1,64}$', examples: [Auth-Key] }
+        auth_header_value: { type: [string, 'null'], writeOnly: true, maxLength: 512 }
+        terms_acknowledged: { type: boolean, const: true }
+    ReputationSourcePatch:
+      type: object
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        url: { type: string, format: uri, maxLength: 2048, pattern: '^https://' }
+        format: { $ref: '#/components/schemas/ReputationSourceFormat' }
+        frequency: { $ref: '#/components/schemas/ReputationSourceFrequency' }
+        category: { $ref: '#/components/schemas/ReputationCategory' }
+        confidence: { type: integer, minimum: 0, maximum: 100 }
+        enabled: { type: boolean }
+        license: { type: [string, 'null'], maxLength: 200 }
+        notes: { type: [string, 'null'], maxLength: 1000 }
+        min_entries: { type: integer, minimum: 0 }
+        max_bytes: { type: integer, minimum: 1024, maximum: 268435456 }
+        auth_header_name: { type: [string, 'null'], pattern: '^[A-Za-z0-9-]{1,64}$' }
+        auth_header_value: { type: [string, 'null'], writeOnly: true, maxLength: 512 }
+    ReputationSource:
+      type: object
+      required: [id, numeric_id, key, origin, name, url, format, frequency, category, confidence, enabled, commercial_use, has_auth, status, entries, last_attempt_at, last_success_at, last_error, consecutive_failures, version, created_at, updated_at]
+      properties:
+        id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        numeric_id: { type: integer, minimum: 1, maximum: 65535, description: '= reputation_source_id en ClickHouse (C3); asignado por detection.' }
+        key: { type: string, examples: [abuse_ch_feodo] }
+        origin: { $ref: '#/components/schemas/ReputationSourceOrigin' }
+        name: { type: string }
+        url: { type: string, format: uri }
+        format: { $ref: '#/components/schemas/ReputationSourceFormat' }
+        frequency: { $ref: '#/components/schemas/ReputationSourceFrequency' }
+        category: { $ref: '#/components/schemas/ReputationCategory' }
+        confidence: { type: integer, minimum: 0, maximum: 100 }
+        enabled: { type: boolean }
+        license: { type: [string, 'null'] }
+        notes: { type: [string, 'null'] }
+        commercial_use:
+          type: string
+          description: '`approved` (catálogo base, D20) u `operator_acknowledged` (personalizada: términos confirmados por quien la dio de alta).'
+          enum: [approved, operator_acknowledged]
+        has_auth: { type: boolean }
+        status: { type: string, enum: [pending, ok, failing, disabled] }
+        entries: { type: integer }
+        last_attempt_at:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
+        last_success_at:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
+        last_error: { type: [string, 'null'], description: Sin secretos. }
+        consecutive_failures: { type: integer, minimum: 0 }
+        version: { type: integer }
+        created_by: { type: [string, 'null'], description: 'user id; null en el catálogo base.' }
+        created_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        updated_at: { $ref: './common.yaml#/components/schemas/Timestamp' }

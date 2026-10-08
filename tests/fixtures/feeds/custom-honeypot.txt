@@ -1,0 +1,11 @@
+# Honeypot propio del ISP: fuerza bruta SSH (lista personalizada de ejemplo, D20; formato ip-list)
+# Generado: 2026-10-08T03:00:00Z. Solo direcciones de documentación (RFC 5737, RFC 3849)
+192.0.2.50
+192.0.2.51  # comentario al final
+198.51.100.128/28 ; comentario estilo Spamhaus
+203.0.113.10-203.0.113.20
+203.0.113.77:2222
+2001:db8:beef::/48, visto 2026-10-07
+[2001:db8:cafe::9]:22   // comentario estilo C
+
+# fin

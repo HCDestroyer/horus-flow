@@ -21,8 +21,9 @@ import (
 const SourceKind = "reputation"
 
 // ParseFunc interpreta el archivo de una fuente (puerto implementado por
-// adapters/feeds).
-type ParseFunc func(path string, src datasets.Source, fetchedAt time.Time) ([]reputation.Entry, error)
+// adapters/feeds). warnings resume lo descartado sin rechazar el archivo
+// (p. ej. entradas peligrosas de una lista personalizada en modo "warn").
+type ParseFunc func(path string, src datasets.Source, fetchedAt time.Time) (entries []reputation.Entry, warnings []string, err error)
 
 // Service agrupa las dependencias del caso de uso.
 type Service struct {
@@ -41,9 +42,18 @@ func (s *Service) now() time.Time {
 }
 
 // Validator adapta Parse al pipeline de datasets.
-func (s *Service) Validator() datasets.Validator {
+func (s *Service) Validator() datasets.Validator { return s.validator(nil) }
+
+// validator registra en log (si no es nil) los avisos de cada descarga
+// aceptada.
+func (s *Service) validator(log *slog.Logger) datasets.Validator {
 	return func(_ context.Context, src datasets.Source, path string) (int, error) {
-		entries, err := s.Parse(path, src, s.now())
+		entries, warnings, err := s.Parse(path, src, s.now())
+		if err == nil && log != nil {
+			for _, w := range warnings {
+				log.Warn("entradas descartadas por la política de listas peligrosas", "source", src.ID, "detail", w)
+			}
+		}
 		return len(entries), err
 	}
 }
@@ -51,7 +61,7 @@ func (s *Service) Validator() datasets.Validator {
 // Fetch descarga y valida las fuentes de reputación.
 func (s *Service) Fetch(ctx context.Context, sources []datasets.Source, log *slog.Logger) []datasets.Result {
 	r := &datasets.Runner{
-		Store: s.Store, Fetcher: s.Fetcher, Validate: s.Validator(),
+		Store: s.Store, Fetcher: s.Fetcher, Validate: s.validator(log),
 		AllowUnverified: s.AllowUnverified, Now: s.now, Log: log,
 	}
 	return r.Run(ctx, filterKind(sources))
@@ -74,6 +84,7 @@ type SourceReport struct {
 	Entries  int
 	Expired  int
 	Reason   string
+	Warnings []string
 }
 
 // ErrNoSources indica que ninguna fuente tenía una versión válida: no se
@@ -106,7 +117,8 @@ func (s *Service) Compile(sources []datasets.Source) (*reputation.Snapshot, []So
 		}
 		path := f.Name()
 		_ = f.Close()
-		entries, err := s.Parse(path, src, m.FetchedAt)
+		entries, warnings, err := s.Parse(path, src, m.FetchedAt)
+		rep.Warnings = warnings
 		if err != nil {
 			rep.Reason = fmt.Sprintf("versión vigente ilegible: %v", err)
 			reports = append(reports, rep)

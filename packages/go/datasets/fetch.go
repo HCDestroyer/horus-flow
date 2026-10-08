@@ -27,6 +27,10 @@ var ErrNotFound = errors.New("datasets: contenido no disponible")
 type HTTPFetcher struct {
 	Client    *http.Client
 	UserAgent string
+	// Guard, si no es nil, protege las descargas de las fuentes
+	// personalizadas (Source.IsCustom): https público, también tras DNS y
+	// redirecciones. Las del catálogo son configuración de confianza.
+	Guard *EgressGuard
 }
 
 // NewHTTPFetcher crea un HTTPFetcher con un timeout total razonable.
@@ -49,6 +53,12 @@ func (f *HTTPFetcher) Fetch(ctx context.Context, src Source) (io.ReadCloser, err
 	client := f.Client
 	if client == nil {
 		client = http.DefaultClient
+	}
+	if f.Guard != nil && src.IsCustom() {
+		if err := f.Guard.CheckURL(ctx, req.URL); err != nil {
+			return nil, fmt.Errorf("descargar %s: %w", src.ID, err)
+		}
+		client = f.Guard.guardedClient(client, req)
 	}
 	resp, err := client.Do(req) //nolint:gosec // URL declarada en la configuración de fuentes
 	if err != nil {

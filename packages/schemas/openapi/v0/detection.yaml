@@ -315,10 +315,12 @@ paths:
                     type: array
                     items:
                       type: object
-                      required: [key, name, category, entries, last_success_at, commercial_use_allowed]
+                      required: [key, name, origin, category, entries, last_success_at, commercial_use_allowed]
                       properties:
                         key: { type: string, examples: [abuse_ch_feodo] }
                         name: { type: string }
+                        origin: { type: string, enum: [catalog, custom], description: 'D20: catálogo base o agregada por el superadministrador.' }
+                        confidence: { type: integer, minimum: 0, maximum: 100 }
                         category: { type: string, enum: [botnet_cc, scanner, malware_dist, mining_pool, proxy_vpn, tor_exit, blocklist] }
                         entries: { type: integer }
                         last_success_at:
@@ -326,7 +328,7 @@ paths:
                             - $ref: './common.yaml#/components/schemas/Timestamp'
                             - type: 'null'
                         age_seconds: { type: [integer, 'null'] }
-                        commercial_use_allowed: { type: boolean }
+                        commercial_use_allowed: { type: boolean, description: 'true en el catálogo base (D20) y en las personalizadas (términos confirmados al darlas de alta).' }
         '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
   /reputation/allowlist:
     get:

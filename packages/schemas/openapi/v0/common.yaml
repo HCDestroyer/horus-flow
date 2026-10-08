@@ -15,10 +15,11 @@ info:
     identifier: LicenseRef-Horus-Proprietary
 servers:
   - url: https://{domain}/api/v1
-    description: Dominio público configurable por instalación (D14, HORUS_PUBLIC_BASE_URL).
+    description: Host público por instalación (D14, D19, HORUS_PUBLIC_BASE_URL) — dominio propio, subdominio o solo la IP del servidor; siempre HTTPS.
     variables:
       domain:
         default: horus.example.net
+        description: 'Dominio, subdominio o IP literal (modo `ip_only`, p. ej. 203.0.113.10).'
 paths: {}
 components:
   securitySchemes:
@@ -403,7 +404,12 @@ components:
             - NOTIFICATION_CHANNEL_NOT_FOUND
             - NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE
             - NOTIFICATION_CHANNEL_UNREACHABLE
+            - NOTIFICATION_CHANNEL_AUTH_FAILED
+            - NOTIFICATION_CHANNEL_CREDENTIALS_MISSING
             - STORAGE_TARGET_UNREACHABLE
+            - REPUTATION_SOURCE_NOT_FOUND
+            - REPUTATION_SOURCE_READ_ONLY
+            - REPUTATION_SOURCE_URL_NOT_ALLOWED
         - type: string
           pattern: '^[A-Z][A-Z0-9_]*$'
     ActorRef:

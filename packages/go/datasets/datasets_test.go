@@ -86,6 +86,13 @@ func TestParseConfigRejectsIncomplete(t *testing.T) {
 		"versión":        "version: 2\nsources: []\n",
 		"duplicada":      "version: 1\nsources:\n  - {id: a1, kind: k, url: 'https://x.org/a', format: f, license: L, license_url: 'https://x.org/l', commercial_use: 'yes', frequency: 1h}\n  - {id: a1, kind: k, url: 'https://x.org/a', format: f, license: L, license_url: 'https://x.org/l', commercial_use: 'yes', frequency: 1h}\n",
 		"duración":       "version: 1\nsources:\n  - {id: a1, kind: k, url: 'https://x.org/a', format: f, license: L, license_url: 'https://x.org/l', commercial_use: 'yes', frequency: diario}\n",
+		"origen":         "version: 1\nsources:\n  - {id: a1, kind: k, url: 'https://x.org/a', format: f, license: L, license_url: 'https://x.org/l', commercial_use: 'yes', frequency: 1h, origin: ext}\n",
+		"on_dangerous":   "version: 1\nsources:\n  - {id: a1, kind: k, url: 'https://x.org/a', format: f, license: L, license_url: 'https://x.org/l', commercial_use: 'yes', frequency: 1h, on_dangerous: allow}\n",
+		"max_entries":    "version: 1\nsources:\n  - {id: a1, kind: k, url: 'https://x.org/a', format: f, license: L, license_url: 'https://x.org/l', commercial_use: 'yes', frequency: 1h, max_entries: -1}\n",
+	}
+	ok := "version: 1\nsources:\n  - {id: a1, kind: k, url: 'https://x.org/a', format: csv, license: L, license_url: 'https://x.org/l', commercial_use: 'yes', frequency: 1h, origin: custom, on_dangerous: warn, max_entries: 10, csv: {column: ip, delimiter: ';'}}\n"
+	if c, err := ParseConfig([]byte(ok)); err != nil || !c.Sources[0].IsCustom() || c.Sources[0].CSV.Delimiter != ";" {
+		t.Errorf("campos de D20: %v", err)
 	}
 	for name, y := range cases {
 		if _, err := ParseConfig([]byte(y)); err == nil {

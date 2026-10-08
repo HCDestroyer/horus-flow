@@ -62,9 +62,9 @@ func TestEndToEndWithFixtures(t *testing.T) {
 	now := time.Date(2026, 10, 8, 4, 0, 0, 0, time.UTC)
 	base := []string{"-config", cfg, "-data-dir", data, "-fixtures", fx}
 
-	// 1. Solo fuentes con uso comercial "yes" (iptoasn).
-	code, out := runCLI(t, now, append([]string{"sync"}, base...)...)
-	if code != 0 || !strings.Contains(out, "snapshot IP→ASN v1") || !strings.Contains(out, "caida-as2org  skipped") {
+	// 1. Arranque solo con iptoasn.
+	code, out := runCLI(t, now, append([]string{"sync", "-only", "iptoasn-v4,iptoasn-v6"}, base...)...)
+	if code != 0 || !strings.Contains(out, "snapshot IP→ASN v1") || strings.Contains(out, "ris-rrc00") {
 		t.Fatalf("sync iptoasn: %d\n%s", code, out)
 	}
 	code, out = runCLI(t, now, "lookup", "-data-dir", data, "192.0.2.1")
@@ -72,14 +72,16 @@ func TestEndToEndWithFixtures(t *testing.T) {
 		t.Fatalf("lookup v1:\n%s", out)
 	}
 
-	// 2. Con BGP, RIR y PeeringDB el cambio supera el 5 %: no se publica.
+	// 2. Con BGP, RIR y PeeringDB (aprobadas para uso comercial, D20; sin
+	// -allow-unverified) el cambio supera el 5 %: no se publica. CAIDA
+	// sigue sin descargarse.
 	now = now.Add(time.Hour)
-	code, out = runCLI(t, now, append([]string{"sync", "-allow-unverified"}, base...)...)
-	if code != 3 || !strings.Contains(out, "requiere revisión") || strings.Contains(out, "snapshot IP→ASN v2") {
+	code, out = runCLI(t, now, append([]string{"sync"}, base...)...)
+	if code != 3 || !strings.Contains(out, "caida-as2org  skipped") || !strings.Contains(out, "requiere revisión") || strings.Contains(out, "snapshot IP→ASN v2") {
 		t.Fatalf("sync con diff grande: %d\n%s", code, out)
 	}
 	// 3. Aceptado explícitamente: se publica v2 con la consolidación.
-	code, out = runCLI(t, now, append([]string{"build", "-allow-unverified", "-accept-large-diff"}, base...)...)
+	code, out = runCLI(t, now, append([]string{"build", "-accept-large-diff"}, base...)...)
 	if code != 0 || !strings.Contains(out, "snapshot IP→ASN v2") {
 		t.Fatalf("build aceptado: %d\n%s", code, out)
 	}
@@ -112,7 +114,7 @@ func TestEndToEndWithFixtures(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(fx, "ris-rrc00.mrt"), trunc, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	code, out = runCLI(t, now, append([]string{"sync", "-allow-unverified"}, base...)...)
+	code, out = runCLI(t, now, append([]string{"sync"}, base...)...)
 	if code != 1 || !strings.Contains(out, "ris-rrc00     failed") || !strings.Contains(out, "(0.0 %)") || !strings.Contains(out, "snapshot IP→ASN v3") {
 		t.Fatalf("sync con RIS truncado: %d\n%s", code, out)
 	}
