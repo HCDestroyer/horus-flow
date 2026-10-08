@@ -1005,7 +1005,7 @@ export interface paths {
         /** Canales de notificación del ISP */
         get: operations["listNotificationChannels"];
         put?: never;
-        /** Crea un canal (email o telegram en I1; librenms previsto) */
+        /** Crea un canal (email, telegram o librenms) */
         post: operations["createNotificationChannel"];
         delete?: never;
         options?: never;
@@ -1034,6 +1034,32 @@ export interface paths {
         patch: operations["updateNotificationChannel"];
         trace?: never;
     };
+    "/notification-channels/{channel_id}/connection-test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                channel_id: components["parameters"]["ChannelId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Prueba de conexión sin enviar notificación (síncrona, timeout 10 s)
+         * @description Comprueba alcance, TLS y autenticación del destino con las credenciales guardadas, sin publicar nada.
+         *     `librenms` (D17): resuelve `base_url`, valida el certificado (salvo `tls_verify=false`) y hace una llamada
+         *     de solo lectura autenticada a la API. `telegram`: `getMe` del bot. `email`: conexión y `EHLO`/`STARTTLS`
+         *     al SMTP de la instalación. Un resultado correcto pasa el canal de `unverified` a `ok`. El error nunca incluye
+         *     secretos ni el cuerpo de la respuesta remota.
+         */
+        post: operations["testNotificationChannelConnection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/notification-channels/{channel_id}/credentials": {
         parameters: {
             query?: never;
@@ -1045,8 +1071,13 @@ export interface paths {
         };
         get?: never;
         /**
-         * Secretos write-only del canal (p. ej. token de bot de Telegram propio del ISP)
-         * @description Opcional para telegram (sin token propio se usa el bot de la instalación, HORUS_TELEGRAM_BOT_TOKEN_FILE). Email usa el SMTP de la instalación (HORUS_SMTP_*); no tiene secretos por canal.
+         * Secretos write-only del canal (token de bot de Telegram propio, contraseña y token de API de LibreNMS)
+         * @description Write-only: nunca se devuelven (solo `has_credentials`); se cifran con la KEK de `alerts` y se borran con el
+         *     canal (crypto-shredding). Auditado. Solo se aceptan los campos del `kind` del canal (otro → `422 VALIDATION_FAILED`).
+         *     - `telegram`: opcional (sin token propio se usa el bot de la instalación, HORUS_TELEGRAM_BOT_TOKEN_FILE).
+         *     - `librenms` (D17): `password` obligatoria salvo que se envíe `api_token`; `api_token` opcional
+         *       (cabecera `X-Auth-Token` de la API de LibreNMS). Reemplaza el conjunto completo: lo no enviado se borra.
+         *     - `email`: usa el SMTP de la instalación (HORUS_SMTP_*); no tiene secretos por canal (`422`).
          */
         put: operations["putNotificationChannelCredentials"];
         post?: never;
@@ -1126,6 +1157,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/platform/installation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Modo de acceso de la instalación (dominio, subdominio o solo IP), TLS y avisos (D19)
+         * @description Solo lectura: la configuración es de despliegue (`HORUS_ACCESS_MODE`, `HORUS_PUBLIC_BASE_URL`,
+         *     `HORUS_TLS_MODE`), no se edita por API. En `ip_only` la consola de plataforma muestra siempre el aviso
+         *     `ip_only_access` (y `self_signed_certificate` si aplica) con la huella del certificado para verificarla
+         *     en el primer acceso.
+         */
+        get: operations["platformGetInstallation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/platform/overview": {
         parameters: {
             query?: never;
@@ -1154,6 +1208,78 @@ export interface paths {
         get: operations["platformListRemoteDestinations"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/reputation/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Fuentes de reputación (catálogo base y personalizadas) con estado de carga (D20) */
+        get: operations["platformListReputationSources"];
+        put?: never;
+        /**
+         * Alta de una fuente de reputación personalizada (se carga automáticamente y entra en el snapshot)
+         * @description D20: el superadministrador agrega las listas que desee. La URL debe ser `https://`, pública (se rechazan
+         *     loopback, link-local, rangos privados, CGNAT y las redes de la instalación, también tras resolver DNS y en
+         *     cada redirección → `422 REPUTATION_SOURCE_URL_NOT_ALLOWED`) y sin credenciales en la URL; si el feed pide
+         *     autenticación va en `auth_header_*` (write-only). `terms_acknowledged=true` deja constancia (auditada) de que
+         *     quien la da de alta confirmó que los términos de la lista permiten su uso. La primera carga se encola al
+         *     crearla; cada carga emite `horus.detection.reputation.source_refreshed`.
+         */
+        post: operations["platformCreateReputationSource"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/reputation/sources/{source_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                source_id: components["parameters"]["ReputationSourceId"];
+            };
+            cookie?: never;
+        };
+        /** Detalle y estado de carga de una fuente */
+        get: operations["platformGetReputationSource"];
+        put?: never;
+        post?: never;
+        /**
+         * Borra una fuente personalizada (sus indicadores salen del siguiente snapshot)
+         * @description Una fuente del catálogo base no se borra (se deshabilita) → `422 REPUTATION_SOURCE_READ_ONLY`. Los hallazgos ya abiertos conservan la referencia a la fuente.
+         */
+        delete: operations["platformDeleteReputationSource"];
+        options?: never;
+        head?: never;
+        /**
+         * Edita una fuente personalizada (del catálogo base solo `enabled`)
+         * @description Catálogo base con otro campo distinto de `enabled` → `422 REPUTATION_SOURCE_READ_ONLY`. Cambiar `url`, `format` o la autenticación encola una carga.
+         */
+        patch: operations["platformUpdateReputationSource"];
+        trace?: never;
+    };
+    "/platform/reputation/sources/{source_id}/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                source_id: components["parameters"]["ReputationSourceId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Fuerza una carga ahora (asíncrona; el resultado llega como source_refreshed) */
+        post: operations["platformRefreshReputationSource"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1506,6 +1632,9 @@ export interface paths {
          *     túnel, y `/tool fetch` a `<HORUS_PUBLIC_BASE_URL>/api/v1/enroll/wireguard` con cuerpo JSON
          *     `{"token", "public_key"}`. Contraseñas y token se muestran **una sola vez**: pedirlo de nuevo crea
          *     otros e invalida los anteriores (auditado). RouterOS < 7.12 → `422 ROUTEROS_VERSION_UNSUPPORTED` (D15).
+         *     `/tool fetch` siempre con `check-certificate=yes`: con TLS `self_signed` o `provided` (D19, p. ej. modo
+         *     `ip_only`) el script incluye el certificado público de la instalación y lo importa como confiable antes del
+         *     fetch; nunca desactiva la verificación.
          */
         post: operations["createProvisioningScript"];
         delete?: never;
@@ -1772,6 +1901,13 @@ export interface components {
         "$defs-Timestamp": string;
         /** Format: uuid */
         "$defs-Uuid": string;
+        /**
+         * @description D19, por instalación (`HORUS_ACCESS_MODE`; si falta se deduce de `HORUS_PUBLIC_BASE_URL`: IP literal → `ip_only`).
+         *     `domain`: dominio propio del cliente. `subdomain`: subdominio (del cliente o del proveedor de la instalación).
+         *     `ip_only`: solo la IP pública del servidor; nada en Horus depende de tener dominio.
+         * @enum {string}
+         */
+        AccessMode: "domain" | "subdomain" | "ip_only";
         AccessTokenResponse: {
             /** @description JWT EdDSA; solo en memoria de la SPA. */
             access_token: string;
@@ -1867,6 +2003,19 @@ export interface components {
         };
         /** @enum {string} */
         ClientPrefixRole: "customers" | "infrastructure" | "excluded";
+        ConnectionTestResult: {
+            channel_id: components["schemas"]["Uuid"];
+            channel_kind: components["schemas"]["NotificationChannelKind"];
+            checked_at: components["schemas"]["Timestamp"];
+            /** @description Sin secretos ni cuerpo de la respuesta remota. */
+            error?: string | null;
+            /** @description Sin valor si `ok`. Enum abierto. */
+            error_code?: ("dns_failed" | "connect_failed" | "tls_invalid" | "auth_failed" | "forbidden" | "timeout" | "unexpected_response" | "missing_credentials") | null;
+            latency_ms?: number | null;
+            ok: boolean;
+            /** @description librenms: versión que informa la API, si la expone. */
+            remote_version?: string | null;
+        };
         CredentialStatus: {
             configured: boolean;
             /** @enum {string} */
@@ -2026,7 +2175,7 @@ export interface components {
          * @description Código estable UPPER_SNAKE_CASE (= `ErrorInfo.reason` de gRPC). **Enum abierto**: se listan los
          *     conocidos en v0; el cliente trata un código desconocido según el `status` HTTP.
          */
-        ErrorCode: ("VALIDATION_FAILED" | "UNAUTHENTICATED" | "TOKEN_EXPIRED" | "SESSION_REVOKED" | "PERMISSION_DENIED" | "ORIGIN_NOT_ALLOWED" | "MFA_REQUIRED" | "MFA_ENROLLMENT_REQUIRED" | "REAUTH_REQUIRED" | "NOT_FOUND" | "ALREADY_EXISTS" | "CONFLICT" | "PRECONDITION_FAILED" | "PRECONDITION_REQUIRED" | "IDEMPOTENCY_KEY_REUSED" | "IDEMPOTENCY_IN_PROGRESS" | "RATE_LIMITED" | "TENANT_RATE_LIMITED" | "INTERNAL" | "SERVICE_UNAVAILABLE" | "ANALYTICS_UNAVAILABLE" | "TIMEOUT" | "INVALID_CREDENTIALS" | "INVALID_CURSOR" | "INVALID_FILTER" | "INVALID_SORT_FIELD" | "TIME_RANGE_TOO_LARGE" | "TENANT_NOT_FOUND" | "TENANT_MISMATCH" | "TENANT_SUSPENDED" | "TOKEN_SCOPE_INVALID" | "KIOSK_FORBIDDEN" | "ROUTER_NOT_FOUND" | "ROUTER_PRIMARY_EXISTS" | "ROUTEROS_VERSION_UNSUPPORTED" | "ROUTER_UNREACHABLE" | "ROUTER_TLS_FINGERPRINT_CHANGED" | "SITE_NOT_FOUND" | "SITE_NOT_EMPTY" | "PEER_ALREADY_REVOKED" | "WIREGUARD_IP_POOL_EXHAUSTED" | "WIREGUARD_PUBLIC_KEY_IN_USE" | "ENROLLMENT_TOKEN_INVALID" | "CUSTOMER_NOT_FOUND" | "CUSTOMER_KIND_LOCKED" | "CLIENT_PREFIX_OVERLAP" | "CLIENT_PREFIX_NOT_FOUND" | "FINDING_NOT_FOUND" | "FINDING_STATE_INVALID" | "DASHBOARD_NOT_FOUND" | "DASHBOARD_READ_ONLY" | "WIDGET_TYPE_NOT_ALLOWED" | "WIDGET_TYPE_UNKNOWN" | "WIDGET_CONFIG_INVALID" | "KIOSK_ENROLLMENT_CODE_INVALID" | "NOTIFICATION_CHANNEL_NOT_FOUND" | "NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE" | "NOTIFICATION_CHANNEL_UNREACHABLE" | "STORAGE_TARGET_UNREACHABLE") | string;
+        ErrorCode: ("VALIDATION_FAILED" | "UNAUTHENTICATED" | "TOKEN_EXPIRED" | "SESSION_REVOKED" | "PERMISSION_DENIED" | "ORIGIN_NOT_ALLOWED" | "MFA_REQUIRED" | "MFA_ENROLLMENT_REQUIRED" | "REAUTH_REQUIRED" | "NOT_FOUND" | "ALREADY_EXISTS" | "CONFLICT" | "PRECONDITION_FAILED" | "PRECONDITION_REQUIRED" | "IDEMPOTENCY_KEY_REUSED" | "IDEMPOTENCY_IN_PROGRESS" | "RATE_LIMITED" | "TENANT_RATE_LIMITED" | "INTERNAL" | "SERVICE_UNAVAILABLE" | "ANALYTICS_UNAVAILABLE" | "TIMEOUT" | "INVALID_CREDENTIALS" | "INVALID_CURSOR" | "INVALID_FILTER" | "INVALID_SORT_FIELD" | "TIME_RANGE_TOO_LARGE" | "TENANT_NOT_FOUND" | "TENANT_MISMATCH" | "TENANT_SUSPENDED" | "TOKEN_SCOPE_INVALID" | "KIOSK_FORBIDDEN" | "ROUTER_NOT_FOUND" | "ROUTER_PRIMARY_EXISTS" | "ROUTEROS_VERSION_UNSUPPORTED" | "ROUTER_UNREACHABLE" | "ROUTER_TLS_FINGERPRINT_CHANGED" | "SITE_NOT_FOUND" | "SITE_NOT_EMPTY" | "PEER_ALREADY_REVOKED" | "WIREGUARD_IP_POOL_EXHAUSTED" | "WIREGUARD_PUBLIC_KEY_IN_USE" | "ENROLLMENT_TOKEN_INVALID" | "CUSTOMER_NOT_FOUND" | "CUSTOMER_KIND_LOCKED" | "CLIENT_PREFIX_OVERLAP" | "CLIENT_PREFIX_NOT_FOUND" | "FINDING_NOT_FOUND" | "FINDING_STATE_INVALID" | "DASHBOARD_NOT_FOUND" | "DASHBOARD_READ_ONLY" | "WIDGET_TYPE_NOT_ALLOWED" | "WIDGET_TYPE_UNKNOWN" | "WIDGET_CONFIG_INVALID" | "KIOSK_ENROLLMENT_CODE_INVALID" | "NOTIFICATION_CHANNEL_NOT_FOUND" | "NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE" | "NOTIFICATION_CHANNEL_UNREACHABLE" | "NOTIFICATION_CHANNEL_AUTH_FAILED" | "NOTIFICATION_CHANNEL_CREDENTIALS_MISSING" | "STORAGE_TARGET_UNREACHABLE" | "REPUTATION_SOURCE_NOT_FOUND" | "REPUTATION_SOURCE_READ_ONLY" | "REPUTATION_SOURCE_URL_NOT_ALLOWED") | string;
         /** @description Evidencia agregada según kind (nunca payloads; nunca la IP del cliente). Campos conocidos; otros permitidos. */
         Evidence: {
             bps_peak?: number;
@@ -2191,6 +2340,41 @@ export interface components {
          * @enum {string}
          */
         FlowExporterState: "pending_configuration" | "exporting" | "silent" | "lossy" | "clock_skew";
+        InstallationAccess: {
+            access_mode: components["schemas"]["AccessMode"];
+            allowed_origins: string[];
+            /**
+             * @description Nombre o IP literal de HORUS_PUBLIC_BASE_URL.
+             * @example horus.isp.example
+             * @example 203.0.113.10
+             */
+            host: string;
+            /**
+             * Format: uri
+             * @description HORUS_PUBLIC_BASE_URL; siempre `https://` (también en `ip_only`).
+             * @example https://horus.isp.example
+             * @example https://203.0.113.10
+             */
+            public_base_url: string;
+            tls: {
+                /** @description Huella del certificado servido, para verificarla a mano con self_signed. */
+                fingerprint_sha256: string | null;
+                /** @description true solo con nombre y certificado de confianza pública (`domain`/`subdomain` + `acme`). */
+                hsts: boolean;
+                issuer?: string | null;
+                mode: components["schemas"]["TlsMode"];
+                not_after: components["schemas"]["Timestamp"] | null;
+            };
+            /** @description Avisos para la consola de plataforma (enum abierto de `code`). */
+            warnings: {
+                code: ("ip_only_access" | "self_signed_certificate" | "certificate_expiring" | "acme_renewal_failed") | string;
+                message: string;
+                /** @enum {string} */
+                severity: "info" | "warning" | "critical";
+            }[];
+            /** @description HORUS_WG_ENDPOINT (nombre o IP). */
+            wireguard_endpoint: string;
+        };
         /**
          * @description IPv4 o IPv6. **Dato personal** cuando es la IP de un cliente (nunca en URLs).
          * @example 100.64.12.34
@@ -2259,19 +2443,26 @@ export interface components {
         };
         /**
          * LibreNmsChannelConfig
-         * @description Previsto (D13). LibreNMS como destino de alertas por syslog, SNMP trap o su API; opcionalmente fuente de inventario (fuera del I1).
+         * @description D17: LibreNMS como destino por **su API** (instancia dedicada a Horus), configurado a mano por cada ISP.
+         *     Solo la parte no secreta: contraseña y token van por `PUT /notification-channels/{id}/credentials`
+         *     (write-only). LibreNMS como fuente de inventario queda fuera del I1.
          */
         LibreNmsChannelConfig: {
-            /** @default true */
-            api_tls_verify?: boolean;
-            /** @enum {string} */
-            mode: "syslog" | "snmp_trap" | "api";
-            /** @enum {string} */
-            snmp_trap_version?: "v2c" | "v3";
-            /** @default local0 */
-            syslog_facility?: string;
-            /** @description host[:puerto] o URL base de la API de LibreNMS. */
-            target: string;
+            /**
+             * Format: uri
+             * @description URL base de la instancia (p. ej. `https://librenms.isp.example`); Horus añade `/api/v0`. Sin credenciales en la URL.
+             * @example https://librenms.isp.example
+             */
+            base_url: string;
+            /** @default 10 */
+            timeout_seconds?: number;
+            /**
+             * @description false solo para certificados autofirmados (auditado).
+             * @default true
+             */
+            tls_verify?: boolean;
+            /** @description Usuario de LibreNMS dedicado a Horus. */
+            username: string;
         };
         Me: {
             default_tenant_id?: components["schemas"]["Uuid"] | null;
@@ -2362,6 +2553,14 @@ export interface components {
             /** @enum {string} */
             status: "unverified" | "ok" | "failing" | "disabled";
         };
+        /** @description Secretos write-only por `kind` (nunca devueltos). Ver `PUT /notification-channels/{id}/credentials`. */
+        NotificationChannelCredentials: {
+            /** @description librenms: token de API (opcional). */
+            api_token?: string;
+            /** @description librenms: contraseña del usuario. */
+            password?: string;
+            telegram_bot_token?: string;
+        };
         NotificationChannelInput: {
             config: components["schemas"]["EmailChannelConfig"] | components["schemas"]["TelegramChannelConfig"] | components["schemas"]["LibreNmsChannelConfig"];
             /** @default true */
@@ -2376,8 +2575,8 @@ export interface components {
             subscription: components["schemas"]["ChannelSubscription"];
         };
         /**
-         * @description `email` y `telegram`: disponibles en I1. `librenms`: previsto (D13), aún no disponible. Enum abierto
-         *     (después: webhook, whatsapp, sms).
+         * @description `email`, `telegram` y `librenms` (D17, por API) disponibles. Enum abierto (después: webhook, whatsapp,
+         *     sms); un `kind` conocido por el contrato pero aún no implementado → `422 NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE`.
          * @enum {string}
          */
         NotificationChannelKind: "email" | "telegram" | "librenms";
@@ -2605,6 +2804,111 @@ export interface components {
         };
         /** @enum {string} */
         RelativeRange: "15m" | "1h" | "6h" | "24h" | "7d" | "30d" | "90d";
+        /**
+         * @description Igual que `reputation_category` de ClickHouse (C3).
+         * @enum {string}
+         */
+        ReputationCategory: "botnet_cc" | "scanner" | "malware_dist" | "mining_pool" | "proxy_vpn" | "tor_exit" | "blocklist";
+        ReputationSource: {
+            category: components["schemas"]["ReputationCategory"];
+            /**
+             * @description `approved` (catálogo base, D20) u `operator_acknowledged` (personalizada: términos confirmados por quien la dio de alta).
+             * @enum {string}
+             */
+            commercial_use: "approved" | "operator_acknowledged";
+            confidence: number;
+            consecutive_failures: number;
+            created_at: components["schemas"]["Timestamp"];
+            /** @description user id; null en el catálogo base. */
+            created_by?: string | null;
+            enabled: boolean;
+            entries: number;
+            format: components["schemas"]["ReputationSourceFormat"];
+            frequency: components["schemas"]["ReputationSourceFrequency"];
+            has_auth: boolean;
+            id: components["schemas"]["Uuid"];
+            /** @example abuse_ch_feodo */
+            key: string;
+            last_attempt_at: components["schemas"]["Timestamp"] | null;
+            /** @description Sin secretos. */
+            last_error: string | null;
+            last_success_at: components["schemas"]["Timestamp"] | null;
+            license?: string | null;
+            name: string;
+            notes?: string | null;
+            /** @description = reputation_source_id en ClickHouse (C3); asignado por detection. */
+            numeric_id: number;
+            origin: components["schemas"]["ReputationSourceOrigin"];
+            /** @enum {string} */
+            status: "pending" | "ok" | "failing" | "disabled";
+            updated_at: components["schemas"]["Timestamp"];
+            /** Format: uri */
+            url: string;
+            version: number;
+        };
+        ReputationSourceCreate: {
+            /** @example Auth-Key */
+            auth_header_name?: string | null;
+            auth_header_value?: string | null;
+            category: components["schemas"]["ReputationCategory"];
+            /** @description Confianza de sus indicadores (= reputation_confidence). */
+            confidence: number;
+            /** @default true */
+            enabled?: boolean;
+            format: components["schemas"]["ReputationSourceFormat"];
+            frequency: components["schemas"]["ReputationSourceFrequency"];
+            /** @description Identificador estable e inmutable (aparece en hallazgos y snapshots). */
+            key: string;
+            license?: string | null;
+            /** @default 67108864 */
+            max_bytes?: number;
+            /**
+             * @description Menos entradas → carga rechazada (se conserva la anterior).
+             * @default 1
+             */
+            min_entries?: number;
+            name: string;
+            notes?: string | null;
+            /** @constant */
+            terms_acknowledged: true;
+            /** Format: uri */
+            url: string;
+        };
+        /**
+         * @description Formatos que sabe leer `detection` (enum abierto; uno nuevo exige parser y versión del contrato).
+         *     `netset`: una IP o CIDR por línea, `#` comentarios (también listas de salida de Tor).
+         *     `abusech-feodo-csv`, `abusech-threatfox-csv`: exportaciones CSV de abuse.ch. `spamhaus-drop-json`: DROP en JSON Lines.
+         * @enum {string}
+         */
+        ReputationSourceFormat: "netset" | "abusech-feodo-csv" | "abusech-threatfox-csv" | "spamhaus-drop-json";
+        /**
+         * @description Intervalo entre cargas (mínimo 15 min, máximo 7 d).
+         * @example 1h
+         * @example 6h
+         * @example 24h
+         */
+        ReputationSourceFrequency: string;
+        /**
+         * @description `catalog`: catálogo base de la instalación (D20: uso comercial aprobado). `custom`: agregada por el superadministrador.
+         * @enum {string}
+         */
+        ReputationSourceOrigin: "catalog" | "custom";
+        ReputationSourcePatch: {
+            auth_header_name?: string | null;
+            auth_header_value?: string | null;
+            category?: components["schemas"]["ReputationCategory"];
+            confidence?: number;
+            enabled?: boolean;
+            format?: components["schemas"]["ReputationSourceFormat"];
+            frequency?: components["schemas"]["ReputationSourceFrequency"];
+            license?: string | null;
+            max_bytes?: number;
+            min_entries?: number;
+            name?: string;
+            notes?: string | null;
+            /** Format: uri */
+            url?: string;
+        };
         Role: {
             id: components["schemas"]["Uuid"];
             is_system: boolean;
@@ -2668,7 +2972,9 @@ export interface components {
             tags?: string[];
         };
         /**
-         * @description Proyectado desde detection. La UI habla de "señales", nunca de "infectado".
+         * @description Proyectado desde detection. Etiquetas de presentación (D18; `dashboard/v0/widget-data.schema.json#/$defs/SecurityState`):
+         *     `clean` "Limpio", `suspected` "Sospechoso", `infected` **"Infectado"**, `mitigated` "Mitigado". "Infectado" se
+         *     muestra siempre con las razones y el nivel de confianza de los hallazgos que lo sostienen.
          * @enum {string}
          */
         SecurityState: "clean" | "suspected" | "infected" | "mitigated";
@@ -2927,6 +3233,14 @@ export interface components {
          * @example 2026-10-07T14:03:11.123Z
          */
         Timestamp: string;
+        /**
+         * @description `acme`: certificado automático (Let's Encrypt) para el nombre; obligatorio por defecto en `domain`/`subdomain`.
+         *     `acme_ip`: certificado para IP si el emisor ACME lo soporta (solo `ip_only`, opcional).
+         *     `self_signed`: certificado autogenerado en la instalación con SAN = IP (por defecto en `ip_only`).
+         *     `provided`: certificado aportado por el operador (CA interna del ISP), en cualquier modo.
+         * @enum {string}
+         */
+        TlsMode: "acme" | "acme_ip" | "self_signed" | "provided";
         TopResult: {
             dimension: string;
             others: {
@@ -3189,6 +3503,7 @@ export interface components {
         Q: string;
         /** @description Atajo relativo; el servidor lo resuelve y lo devuelve en `meta`. */
         Range: components["schemas"]["RelativeRange"];
+        ReputationSourceId: components["schemas"]["Uuid"];
         RouterId: components["schemas"]["Uuid"];
         SiteId: components["schemas"]["Uuid"];
         /** @description Filtro por nodo (multivalor por comas). */
@@ -5254,6 +5569,32 @@ export interface operations {
             422: components["responses"]["UnprocessableEntity"];
         };
     };
+    testNotificationChannelConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                channel_id: components["parameters"]["ChannelId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Resultado de la prueba (también cuando falla el destino; ver `ok`). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionTestResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["UnprocessableEntity"];
+        };
+    };
     putNotificationChannelCredentials: {
         parameters: {
             query?: never;
@@ -5265,9 +5606,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": {
-                    telegram_bot_token?: string;
-                };
+                "application/json": components["schemas"]["NotificationChannelCredentials"];
             };
         };
         responses: {
@@ -5309,6 +5648,7 @@ export interface operations {
         parameters: {
             query?: {
                 channel_id?: components["schemas"]["Uuid"];
+                channel_kind?: components["schemas"]["NotificationChannelKind"];
                 /** @description Cursor opaco (`page.next_cursor`); ligado a filtros, orden y `tid`. Ajeno → `400 INVALID_CURSOR`. */
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Tamaño de página (1–200, por defecto 50). Fuera de rango → 400. */
@@ -5391,6 +5731,28 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
         };
     };
+    platformGetInstallation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Configuración de acceso efectiva. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstallationAccess"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
     platformOverview: {
         parameters: {
             query?: never;
@@ -5445,6 +5807,175 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    platformListReputationSources: {
+        parameters: {
+            query?: {
+                enabled?: boolean;
+                origin?: components["schemas"]["ReputationSourceOrigin"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Fuentes (sin secretos). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ReputationSource"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    platformCreateReputationSource: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Recomendado en `POST`. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKeyOptional"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReputationSourceCreate"];
+            };
+        };
+        responses: {
+            /** @description Creada (`status=pending` hasta la primera carga). */
+            201: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    Location: components["headers"]["Location"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReputationSource"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
+        };
+    };
+    platformGetReputationSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                source_id: components["parameters"]["ReputationSourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Fuente. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReputationSource"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    platformDeleteReputationSource: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description ETag (`"<version>"`) del recurso; falta → 428, no coincide → 412 con `current`. */
+                "If-Match": components["parameters"]["IfMatch"];
+            };
+            path: {
+                source_id: components["parameters"]["ReputationSourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: components["responses"]["NoContent"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["UnprocessableEntity"];
+        };
+    };
+    platformUpdateReputationSource: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description ETag (`"<version>"`) del recurso; falta → 428, no coincide → 412 con `current`. */
+                "If-Match": components["parameters"]["IfMatch"];
+            };
+            path: {
+                source_id: components["parameters"]["ReputationSourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReputationSourcePatch"];
+                "application/merge-patch+json": components["schemas"]["ReputationSourcePatch"];
+            };
+        };
+        responses: {
+            /** @description Actualizada. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReputationSource"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["UnprocessableEntity"];
+        };
+    };
+    platformRefreshReputationSource: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUID generado por el cliente; obligatorio en acciones con efecto externo (falta → 428). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKeyRequired"];
+            };
+            path: {
+                source_id: components["parameters"]["ReputationSourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Carga encolada. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReputationSource"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["UnprocessableEntity"];
+            428: components["responses"]["PreconditionRequired"];
         };
     };
     platformListTenants: {
@@ -5881,12 +6412,19 @@ export interface operations {
                             age_seconds?: number | null;
                             /** @enum {string} */
                             category: "botnet_cc" | "scanner" | "malware_dist" | "mining_pool" | "proxy_vpn" | "tor_exit" | "blocklist";
+                            /** @description true en el catálogo base (D20) y en las personalizadas (términos confirmados al darlas de alta). */
                             commercial_use_allowed: boolean;
+                            confidence?: number;
                             entries: number;
                             /** @example abuse_ch_feodo */
                             key: string;
                             last_success_at: components["schemas"]["Timestamp"] | null;
                             name: string;
+                            /**
+                             * @description D20: catálogo base o agregada por el superadministrador.
+                             * @enum {string}
+                             */
+                            origin: "catalog" | "custom";
                         }[];
                     };
                 };
