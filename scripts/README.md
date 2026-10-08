@@ -16,3 +16,4 @@
 | `ci/scope_guard.py` | Check `scope-guard`: el agente de la rama solo toca sus rutas según CODEOWNERS. I0-03. |
 | `ci/dod.py` | Check `dod`: Definición de Terminado mínima verificada por máquina. I0-03. |
 | `ci/review_gates.py` | Checks `agent-review` y `persona-gate`. I0-03. |
+| `ci/observability-smoke.sh` | `make observability-smoke`: levanta el perfil `observability`, comprueba que Prometheus raspa la pila, que Grafana tiene datasources sanos y el dashboard con API e Ingesta, y que Loki recibe logs. `OBS_SMOKE_APP=1` incluye los `horus-*`. I0-18. |
