@@ -49,7 +49,7 @@ definidas **para** saber dónde escribir sin pisar a otros agentes.
 [`team.md`](team.md) §2; si [`../architecture.md`](../architecture.md) consolida módulos en menos
 procesos, se usa su mapa (C1).
 **Archivos:** raíz (`go.mod`, `Makefile`, `.editorconfig`, `.gitignore`), `.github/CODEOWNERS`,
-`cmd/horus/`, una carpeta por módulo `mod:<módulo>` con su README ([`team.md`](team.md) §2),
+`services/cmd/horus/`, una carpeta por módulo `mod:<módulo>` con su README ([`team.md`](team.md) §2),
 `apps/frontend/`, `packages/*/README.md`, `infrastructure/`, `deployments/`, `scripts/`,
 `tools/flowsim/`, `tests/acceptance/`.
 
@@ -134,7 +134,7 @@ y se puedan repartir en procesos solo con `HORUS_ROLES`.
 **Contexto:** [ADR-0025](../adr/0025-binario-modular-con-roles.md) (roles, readiness por rol,
 eventos siempre por NATS con outbox), [`../conventions.md`](../conventions.md) (layout, DI, config
 `HORUS_*`, errores), [`../observability.md`](../observability.md) (formato de log, métricas RED).
-**Archivos:** `cmd/horus/`, librerías comunes de Go (config, observability, httpx, testkit) en la
+**Archivos:** `services/cmd/horus/`, librerías comunes de Go (config, observability, httpx, testkit) en la
 ruta de `conventions.md`, `mod:_example` (módulo de ejemplo), `scripts/new-module.sh`, test de
 arquitectura de importaciones.
 
@@ -173,8 +173,8 @@ alcance de los contratos es **solo el de I0–I1** (ver `increment-1.md`).
    [`../api.md`](../api.md).
 2. **Dado** C4 y C8, **cuando** se valida cada ejemplo contra su JSON Schema, **entonces**
    todos pasan y cada evento lleva `tenant_id`.
-3. **Dado** C9, **cuando** se valida el layout de ejemplo de las plantillas "NOC del ISP" y
-   "Seguridad", **entonces** pasa el esquema.
+3. **Dado** C9, **cuando** se validan los documentos de las plantillas "NOC del ISP" y "Seguridad"
+   y la `config` de cada widget contra el `config_schema` de su tipo, **entonces** pasan.
 4. **Dado** un contrato que contradice un documento de `docs/`, **cuando** INT lo detecta,
    **entonces** abre una pregunta en `docs/open-questions/` con `needs:persona` y el contrato
    sigue el documento (no inventa).
@@ -204,8 +204,8 @@ usuarios, roles, membresías); [ADR-0017](../adr/0017-multi-tenant-desde-v1.md) 
 2. **Dado** una tabla con `tenant_id`, **cuando** corre el test de arquitectura, **entonces**
    comprueba que tiene RLS activado según `database.md`; una consulta con el rol de la aplicación
    sin contexto de tenant no devuelve filas.
-3. **Dado** un nodo con prefijo `10.20.0.0/24`, **cuando** intento añadir `10.20.0.128/25` al mismo
-   realm, **entonces** se rechaza por solapamiento; en otro realm se acepta.
+3. **Dado** un nodo con `client_prefix` `10.20.0.0/24`, **cuando** intento añadir `10.20.0.128/25` al
+   mismo realm, **entonces** se rechaza por solapamiento; en el realm privado de otro nodo se acepta.
 4. **Dado** `make seed`, **cuando** termina, **entonces** existe un superadmin cuya contraseña
    inicial se lee de `HORUS_SEED_ADMIN_PASSWORD_FILE` y se exige cambiarla en el primer login.
 5. **Dado** una migración, **cuando** corre squawk, **entonces** no hay errores; y la migración es
@@ -264,7 +264,7 @@ Fuera: TOTP, sesiones con UI, recuperación por email (I2).
 
 **Hecho cuando:** `make test-tenancy` en verde y enganchado como check requerido en CI.
 
-### I0-09 · Inventario mínimo: ISP, nodo, router, prefijos de clientes
+### I0-09 · Inventario mínimo: ISP, nodo, router y prefijos de clientes (`client_prefix`)
 - **Agente:** CORE · **Área:** backend · **Talla:** M · **Épica:** EP-05, EP-23
 - **Depende de:** I0-08
 
@@ -280,8 +280,11 @@ el módulo `wireguard` en I1 (I1-01); aquí el router queda "Pendiente de config
    asignarle un `isp_admin`; **dado** un `isp_admin`, **cuando** intenta crear un ISP, **entonces** `403`.
 2. **Dado** un `isp_admin`, **cuando** registra un router en un nodo, **entonces** queda en estado
    "Pendiente de configurar" y se publica el evento de alta (C4) que consumirá `wireguard`.
-3. **Dado** un router, **cuando** se declaran sus prefijos de clientes (IPv4 e IPv6), **entonces**
-   se validan (sin solapes en el realm) y se publica el evento de cambio de realm (C4).
+3. **Dado** un nodo, **cuando** se declaran sus prefijos (`client_prefix`, IPv4 e IPv6) con rol
+   *customers*, *infrastructure* o *excluded* y asignación estática/dinámica
+   ([`../traffic-model.md`](../traffic-model.md) §4.1), **entonces** se validan sin solapes en el realm
+   (`CLIENT_PREFIX_OVERLAP`) y se publica `client_prefix.*` (C4). Sin prefijos, el nodo queda en
+   "modo descubrimiento" (I1-29).
 4. **Dado** un nodo, **cuando** intento registrar un segundo router principal, **entonces** se
    rechaza (un router principal por nodo, D6) con error explicativo.
 5. **Dado** RouterOS < 7.12 declarado, **cuando** registro el router, **entonces** se acepta con
@@ -448,7 +451,7 @@ siempre en cuál estoy **para** no actuar sobre el ISP equivocado.
 1. **Dado** un usuario con un solo ISP, **cuando** entra, **entonces** no ve selector, solo el
    nombre del ISP en la cabecera de la barra lateral.
 2. **Dado** un usuario con 3 ISP, **cuando** cambia de ISP, **entonces** la URL cambia de prefijo
-   (`/isp/<slug>/…`), se conserva la sección actual si existe en el nuevo ISP y se recuerda como
+   (`/t/<slug>/…`), se conserva la sección actual si existe en el nuevo ISP y se recuerda como
    último ISP usado.
 3. **Dado** una URL de un ISP sin acceso, **cuando** la abro, **entonces** veo "No encontrado"
    (nunca "sin permiso").
@@ -466,16 +469,18 @@ siempre en cuál estoy **para** no actuar sobre el ISP equivocado.
 **Como** operador NOC **quiero** dashboards compuestos por widgets **para** que la pantalla de
 monitoreo muestre justo lo que necesito (D8).
 
-**Contexto:** [`../frontend.md`](../frontend.md) §6 (manifiesto de widget, grilla, plantillas,
-estados por widget) y §7 (requisitos de kiosco que el marco debe permitir: tamaño de texto por
+**Contexto:** [`../frontend.md`](../frontend.md) §6 (contrato de widget en dos mitades: catálogo
+`GET /widget-types` y datos resueltos en servidor según [`../api.md`](../api.md) §2.11, manifiesto de
+presentación en el frontend; grilla, plantillas, estados por widget) y §7 (requisitos de kiosco que el marco debe permitir: tamaño de texto por
 escala, sin hover obligatorio). En I0 la grilla es de **solo lectura**; el editor es de I2.
 **Archivos:** `apps/frontend/app/widgets/` (registro + `WidgetHost`), `apps/frontend/app/components/dashboard/`,
 `apps/frontend/app/widgets/_example/`.
 
 **Criterios de aceptación**
-1. **Dado** un manifiesto de widget válido (C9), **cuando** se registra, **entonces** aparece en el
-   catálogo con sus tamaños y parámetros; un manifiesto inválido falla en el build, no en ejecución.
-2. **Dado** un layout de dashboard (C9), **cuando** se renderiza, **entonces** cada widget ocupa su
+1. **Dado** un manifiesto de presentación válido (C9) cuyo `type` existe en el catálogo mock de
+   `widget-types`, **cuando** se registra, **entonces** el `WidgetHost` lo renderiza; un manifiesto
+   inválido o de un tipo inexistente falla en el build, no en ejecución.
+2. **Dado** un documento de dashboard (C9, `widgets[].position`), **cuando** se renderiza, **entonces** cada widget ocupa su
    posición en la grilla de 12 columnas y se adapta según §5.2 de `frontend.md`.
 3. **Dado** un widget cuya fuente falla, **cuando** se renderiza, **entonces** solo ese widget
    muestra su estado de error con "Reintentar"; el resto del dashboard sigue funcionando.

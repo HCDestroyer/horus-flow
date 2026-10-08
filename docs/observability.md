@@ -1,6 +1,9 @@
 # Horus Flow — Observabilidad
 
-> Estado: borrador Sprint 0 · Responsable: Agente 4.
+> Estado: **propuesta ronda 2** (aplica [`po-decisions.md`](po-decisions.md) D1–D10) · Responsable: Agente C.
+> "Sprint N" = el incremento que entrega esa capacidad (D9). Con el binario modular
+> ([ADR-0025](adr/0025-binario-modular-con-roles.md)) "servicio" = **rol/módulo**: el label `service` toma el nombre
+> del módulo (`devices`, `ingester`…) y se añade `process` (`horus-app`, `horus-collector`, `horus-wg-agent`).
 > Fuente: [`vision.md`](vision.md) §6 ("desde el primer sprint"). Relacionados:
 > [`architecture.md`](architecture.md), [`services.md`](services.md), [`events.md`](events.md),
 > [`security.md`](security.md), [`disaster-recovery.md`](disaster-recovery.md),
@@ -16,7 +19,7 @@ plataforma (vision §6: *Frontend → API → Device Service → PostgreSQL, sab
 | Qué | Salud de los servicios de Horus: latencias, errores, colas, recursos | Lo que Horus mide de la red del ISP: CPU de routers, tráfico de interfaces, flujos, consumo por cliente |
 | Dónde | Prometheus / Loki / Tempo | PostgreSQL / ClickHouse (ver [`database.md`](database.md), [`storage.md`](storage.md)) |
 | Cardinalidad | Baja y acotada | Alta (millones de series/filas) |
-| Usuario | Equipo que opera Horus | NOC, analistas, clientes del ISP |
+| Usuario | Quien opera la plataforma (IA + 1 persona, D7) | NOC y analistas de cada ISP |
 
 Las métricas SNMP **por interfaz** de cada router son datos de producto: van a ClickHouse
 (Agente 2), no a Prometheus. Prometheus solo recibe agregados sobre el funcionamiento del
@@ -42,6 +45,9 @@ Decisiones:
   de traducción. Se revisa si OTel Metrics se vuelve el estándar del equipo.
 - Configuraciones en `infrastructure/observability/` (las escribe quien implemente el Sprint 1;
   este documento no las define).
+- **Grafana, Prometheus, Loki y Tempo son de plataforma**: contienen datos de todos los tenants y **nunca** se exponen
+  a usuarios de un ISP. Lo que un ISP ve de "su" salud (ingesta, cobertura, routers) se lo da Horus por la API
+  ([`api.md`](api.md)), filtrado por tenant.
 - Puerto de administración separado en cada servicio Go (`HORUS_ADMIN_ADDR`, por defecto
   `:8081`): `/metrics`, `/healthz`, `/readyz`, `/debug/pprof/*` (este último solo si
   `HORUS_PPROF_ENABLED=true`). Nunca publicado al exterior. Convive con los puertos de
@@ -72,11 +78,12 @@ Decisiones:
 
 | Categoría | Labels | Regla |
 |-----------|--------|-------|
-| **Permitidos** (cardinalidad < 20 por label) | `service`, `env`, `instance`, `method`, `route` (plantilla, p. ej. `/api/v1/devices/{id}`), `status_class` (`2xx`…`5xx`), `code` (HTTP o gRPC), `grpc_method`, `stream`, `consumer`, `subject_prefix` (hasta `horus.<dominio>.<entidad>`), `protocol` (`netflow_v5`, `netflow_v9`, `ipfix`, `sflow`), `vendor`, `result` (`ok`, `timeout`, `error`, `auth_error`), `reason` (enumerado cerrado), `db` (`postgres`, `clickhouse`, `redis`), `operation` (enumerado) | Libres |
-| **Condicionados** (requieren análisis en el PR) | `site_id` (estimado < 200), `router_id`/`exporter_id` (hasta 1.000–5.000) | Solo en métricas de la familia de salud de colectores, **máx. 3 series por router**, y nunca combinados con otro label de cardinalidad media. Ej. permitido: `horus_snmp_router_last_success_timestamp_seconds{router_id}`. Alternativa preferida: agregados por `vendor`/`site_id` en Prometheus y el detalle por router en PostgreSQL/ClickHouse. |
-| **Prohibidos** | IP de abonado o de destino, `client_id`, `user_id`, `session_id`, `trace_id`/`request_id` (van en exemplars/logs), `interface_id`/`ifIndex`, ASN, puerto, path HTTP sin plantilla, mensajes de error, email, nombre de categoría/servicio de tráfico de forma libre | Bloquear en revisión; test de la librería rechaza labels con nombre de la lista negra |
+| **Permitidos** (cardinalidad < 20 por label) | `service`, `env`, `instance`, `method`, `route` (plantilla, p. ej. `/api/v1/devices/{id}`), `status_class` (`2xx`…`5xx`), `code` (HTTP o gRPC), `grpc_method`, `stream`, `consumer`, `subject_prefix` (hasta `horus.<dominio>.<entidad>`), `protocol` (`netflow_v5`, `netflow_v9`, `ipfix`, `sflow`), `vendor`, `result` (`ok`, `timeout`, `error`, `auth_error`), `reason` (enumerado cerrado), `db` (`postgres`, `clickhouse`, `valkey`), `operation` (enumerado) | Libres |
+| **Por tenant** (D6) | `tenant` (slug inmutable del ISP; < 100 por instalación) | Permitido **sólo** en la familia de métricas por tenant de §2.6 y en métricas de colectores por router (donde no añade series: cada router pertenece a un tenant). **Prohibido** en métricas RED HTTP/gRPC, de NATS por consumidor y de BD (multiplicaría `route × code × tenant`). |
+| **Condicionados** (requieren análisis en el PR) | `site_id` (nodo; estimado < 500 entre todos los ISP), `router_id`/`exporter_id` (hasta 1.000–5.000) | Solo en métricas de la familia de salud de colectores, **máx. 3 series por router**, y nunca combinados con otro label de cardinalidad media. Ej. permitido: `horus_snmp_router_last_success_timestamp_seconds{router_id}`. Alternativa preferida: agregados por `vendor`/`site_id` en Prometheus y el detalle por router en PostgreSQL/ClickHouse. |
+| **Prohibidos** | IP de cliente o de destino, `customer_id`, `realm_id`, `finding_id`, `kiosk_id`, `user_id`, `session_id`, `trace_id`/`request_id` (van en exemplars/logs), `interface_id`/`ifIndex`, ASN, puerto, path HTTP sin plantilla, mensajes de error, email, nombre de categoría/servicio de tráfico de forma libre | Bloquear en revisión; test de la librería rechaza labels con nombre de la lista negra |
 
-**Presupuesto de cardinalidad:** objetivo < 200k series activas en v1 (un Prometheus de 4 GB
+**Presupuesto de cardinalidad:** objetivo < 200k series activas en v1 **para toda la instalación** (todos los ISP) (un Prometheus de 4 GB
 de RAM lo soporta con holgura); máx. 15k series por servicio en el despliegue de 1.000 routers.
 Alerta cuando `prometheus_tsdb_head_series` > 70 % del presupuesto. Cálculo de referencia que
 justifica la prohibición: 1.000 routers × 50 interfaces × 8 contadores = 400k series solo de
@@ -102,9 +109,9 @@ interfaces.
 - Pools: `db_pool_connections{service, db, state}` (`pgxpool` stats), `db_query_duration_seconds{service, db, operation}`.
 - Host y contenedores: `node_exporter` y `cAdvisor`.
 - Infraestructura: `postgres_exporter`, métricas nativas de ClickHouse (`/metrics` puerto 9363),
-  `redis_exporter` (compatible con Valkey), `prometheus-nats-exporter` (o endpoint de NATS con *surveyor*), métricas
-  nativas de MinIO (`/minio/v2/metrics/cluster`), `blackbox_exporter` para el NAS (ICMP + TCP)
-  y para la URL pública.
+  `redis_exporter` (compatible con Valkey), `prometheus-nats-exporter` (o endpoint de NATS con *surveyor*),
+  `node_exporter` con *filesystem* del volumen local de datos (`HORUS_DATA_DIR`), `blackbox_exporter` para el destino
+  remoto SFTP si existe (TCP) y para la URL pública. (MinIO desaparece, D2/D3.)
 
 ### 2.5 Métricas de negocio / pipeline (las más importantes para operar)
 
@@ -134,8 +141,53 @@ interfaces.
 | `horus_wireguard_peers{state}` | gauge | `state` (`handshake_recent` < 3 min, `stale`, `never`) | Salud de túneles (sin label por peer) |
 | `horus_alerts_notifications_total` | counter | `channel, result` | Entrega de notificaciones |
 | `horus_alerts_pipeline_latency_seconds` | histogram | — | Desde evento detectado a notificación |
-| `horus_backup_last_success_timestamp_seconds` | gauge | `component` | Ver [`disaster-recovery.md`](disaster-recovery.md) |
+| `horus_backup_last_success_timestamp_seconds` | gauge | `component` (`postgres`, `clickhouse`, `secrets_bundle`) | Copia **local**; ver [`disaster-recovery.md`](disaster-recovery.md) |
+| `horus_backup_restore_test_last_success_timestamp_seconds` | gauge | `component` | Última restauración de prueba correcta |
+| `horus_remote_sync_configured` | gauge | — | Nº de destinos remotos activos (0 es válido: aviso, no fallo) |
+| `horus_remote_sync_lag_seconds` | gauge | `destination` (nombre corto, < 5) | Edad de lo más antiguo pendiente de copiar al destino ([ADR-0019](adr/0019-almacenamiento-local-y-destino-remoto.md)) |
+| `horus_remote_sync_pending_bytes` | gauge | `destination` | Bytes por copiar |
+| `horus_remote_sync_last_success_timestamp_seconds` | gauge | `destination` | Última copia completa verificada |
+| `horus_remote_sync_failures_total` | counter | `destination, reason` | Errores (auth, red, cuota del proveedor, verificación) |
+| `horus_local_store_used_ratio` | gauge | `volume` (`data`, `backups`) | Ocupación del almacén local (umbrales 70/85/95 %) |
 | `horus_audit_chain_verified_timestamp_seconds` | gauge | — | Integridad de auditoría ([`security.md`](security.md) §7) |
+
+### 2.6 Métricas por tenant (ISP) y por nodo (D6)
+
+Con varios ISP la pregunta "¿qué ISP está afectado?" debe responderse sin bajar a logs. Se añade una **familia
+acotada** de métricas con label `tenant` (slug); el resto no lo lleva.
+
+| Métrica | Tipo | Labels | Responde a |
+|---------|------|--------|------------|
+| `horus_tenant_routers` | gauge | `tenant, status` | Routers por estado y por ISP |
+| `horus_tenant_flows_records_total` | counter | `tenant` | Flujos/s por ISP (base de cuotas y capacidad) |
+| `horus_tenant_flows_dropped_total` | counter | `tenant, reason` (`rate_limited`, `unknown_exporter`→ sin tenant, `bus_unavailable`) | Descartes por ISP; vecino ruidoso |
+| `horus_tenant_flows_ingest_lag_seconds` | histogram (buckets reducidos: 5, 15, 30, 60, 120, 300) | `tenant` | Lag por ISP (un ISP no queda tapado por la media) |
+| `horus_tenant_flow_coverage_ratio` | gauge | `tenant` | Cobertura de flujos vs. contadores SNMP (umbral 0,8; [ADR-0022](adr/0022-mikrotik-routeros-v7-primer-fabricante.md)) |
+| `horus_tenant_exporters_silent` | gauge | `tenant` | Routers principales sin flujos > 5 min |
+| `horus_tenant_customers` | gauge | `tenant, status` (`active`, `inactive`) | Clientes descubiertos |
+| `horus_tenant_customers_discovered_total` / `horus_customers_discovery_throttled_total` | counter | `tenant` | Ritmo de descubrimiento; avalanchas por escaneo/IP falsificada ([ADR-0018](adr/0018-la-ip-es-el-cliente.md)) |
+| `horus_tenant_findings_open` | gauge | `tenant, severity` | Carga de seguridad por ISP (sin `kind` para acotar) |
+| `horus_tenant_api_requests_total` | counter | `tenant, status_class` | Uso de API por ISP (sustituye a añadir `tenant` a las RED) |
+| `horus_tenant_rate_limited_total` | counter | `tenant, policy` | Cuotas por tenant alcanzadas |
+| `horus_tenant_analytics_query_seconds` | histogram (reducido) | `tenant` | Coste de consultas por ISP |
+| `horus_tenant_ws_connections` | gauge | `tenant, principal` (`user`, `kiosk`) | Pantallas NOC y usuarios conectados |
+| `horus_events_tenant_invalid_total` / `horus_gateway_ws_tenant_mismatch_total` | counter | `consumer` / — | **Seguridad**: mensajes sin `Horus-Tenant` o incoherentes; debe ser 0 |
+
+Por **nodo**: sólo `horus_snmp_router_last_success_timestamp_seconds{router_id}` y
+`horus_flows_exporter_last_flow_timestamp_seconds{router_id}` (máx. 2 series por router, con `tenant` como label
+redundante sin coste). Cualquier otra vista por nodo (tráfico, clientes, hallazgos) es **dato de producto** y vive en
+ClickHouse/PostgreSQL, visible para el ISP en Horus.
+
+Cálculo de cardinalidad (referencia: 20 ISP, 1.000 routers): familia por tenant ≈ 20 × ~40 series = 800; por router
+2 × 1.000 = 2.000. Despreciable frente al presupuesto.
+
+Reglas:
+
+- El valor del label es el **slug** inmutable del tenant (legible en alertas), no el UUID; un tenant renombrado
+  conserva el slug.
+- *Recording rules* por tenant para los SLO de frescura e ingesta (§6), de modo que un ISP pequeño con todos sus
+  routers caídos no quede oculto en el 99 % global.
+- Al dar de baja un tenant sus series desaparecen solas (staleness); no hay limpieza manual.
 
 ## 3. Logs
 
@@ -156,7 +208,8 @@ Campos **obligatorios**:
 | `request_id` | UUIDv7 asignado por el gateway (`X-Request-Id`), o por el consumidor NATS | `0192…` |
 | `msg` | texto corto en inglés, estable (no interpolar valores) | `router created` |
 
-Campos recomendados: `version`, `env`, `component` (p. ej. `http`, `grpc`, `nats`, `poller`),
+Campo **obligatorio cuando aplica**: `tenant_id` (UUID; en toda línea emitida dentro de una petición o mensaje de un
+tenant; vacío en acciones de plataforma). Campos recomendados: `version`, `env`, `component` (p. ej. `http`, `grpc`, `nats`, `poller`),
 `actor_id` (UUID de usuario, no email), `event_id`, `subject`, `router_id`, `site_id`,
 `duration_ms`, `error` (mensaje), `error_kind`. Claves en `snake_case`.
 
@@ -184,8 +237,10 @@ minuto + contador en métricas).
 - Contraseñas, hashes, secretos TOTP, códigos 2FA o de recuperación, tokens de reset.
 - Cookies, cabecera `Authorization`, JWT internos, API tokens, refresh tokens, tickets de WebSocket (el reverse proxy redacta el query param `ticket`).
 - Credenciales de routers (communities SNMP, usuarios/claves v3, SSH/API), claves WireGuard
-  privadas o *preshared*, KEK/DEK, claves de MinIO.
-- **IPs de abonados, `client_id` asociado a tráfico, destinos de flujos** (dato personal).
+  privadas o *preshared*, KEK/DEK, credenciales de destinos remotos (SFTP, OAuth, MEGA), clave de `rclone crypt`,
+  tokens de enrolamiento WireGuard, códigos y credenciales de kiosco.
+- **IPs de clientes (D1: son su identidad), alias de clientes, destinos de flujos** (dato personal). `customer_id`
+  y `tenant_id` sí se pueden loguear (son UUID internos).
   Para depurar ingesta se loguean exportador, plantilla y contadores, no registros.
 - Cuerpos completos de peticiones/respuestas de la API (solo en `debug` local y con filtrado).
 - Emails completos de usuarios en `info`+ (usar `actor_id`).
@@ -198,7 +253,7 @@ prohíbe pasar campos con nombres sensibles; Alloy aplica un *stage* de redacci�
 ### 3.4 Loki
 
 - **Labels** (índice, baja cardinalidad): `service`, `env`, `level`, `host`, `container`.
-- `trace_id`, `request_id`, `router_id` **no** son labels: van como *structured metadata* o
+- `tenant_id`, `trace_id`, `request_id`, `router_id` **no** son labels: van como *structured metadata* o
   dentro del JSON (consultables con `| json`).
 - Derived field en Grafana: `trace_id` → enlace a Tempo.
 - Retención 30 días (`debug` 14 días si se activa); límites por *tenant* de ingesta
@@ -210,7 +265,7 @@ prohíbe pasar campos con nombres sensibles; Alloy aplica un *stage* de redacci�
 
 - **Go:** `go.opentelemetry.io/otel` + exportador OTLP gRPC; instrumentación con
   `otelhttp` (Chi), `otelgrpc` (stats handler), `otelpgx` (PostgreSQL), instrumentación manual
-  para ClickHouse, Redis (`redisotel`) y NATS (ver §4.2). Recurso:
+  para ClickHouse, Valkey (`redisotel`, compatible) y NATS (ver §4.2). Recurso:
   `service.name`, `service.version`, `deployment.environment`, `service.instance.id`.
   Inicialización en `packages/go/observability.Setup(ctx, cfg)`, con *shutdown* en el cierre
   ordenado.
@@ -269,14 +324,15 @@ Provisionados como código (JSON en `infrastructure/observability/grafana/`), ca
 | 1 | **Platform Overview** | Estado de SLOs y error budget, servicios up/down, tasa de errores 5xx, latencia p95 por servicio, alertas activas, últimas versiones desplegadas (`horus_build_info`) | 1 |
 | 2 | **Service RED** (plantilla por servicio) | Peticiones/s, errores por código, latencia p50/p95/p99 por ruta y método gRPC, enlaces a logs y trazas (exemplars) | 1 |
 | 3 | **Go Runtime** | Goroutines, heap, GC, CPU, FDs por instancia | 1 |
-| 4 | **Datastores** | PostgreSQL (conexiones, TPS, replicación/WAL, bloat, consultas lentas), Redis (memoria, hits, evictions), ClickHouse (inserts/s, merges, partes por tabla, consultas en curso, memoria), MinIO (capacidad, errores, latencia) | 1 / 6 |
+| 4 | **Datastores** | PostgreSQL (conexiones, TPS, replicación/WAL, bloat, consultas lentas), Valkey (memoria, hits, evictions), ClickHouse (inserts/s, merges, partes por tabla, consultas en curso, memoria), almacén local (ocupación por ruta: `backups/`, `archive/`, `reports/`) | 1 / 6 |
 | 5 | **NATS JetStream** | Mensajes/s por stream, bytes, pending y ack-pending por consumer, redeliveries, DLQ, uso de almacenamiento vs límites | 1 |
 | 6 | **Auth & Security** | Logins por resultado, 2FA, throttling, sesiones activas, rate limit, 403 por ruta | 2 |
 | 7 | **SNMP Collector** | Polls/s por vendor, tasa de éxito, duración, lag, routers obsoletos, top 10 routers con más fallos (consulta a PostgreSQL/ClickHouse vía datasource, no Prometheus) | 5 |
 | 8 | **Flow Ingestion** | Paquetes y flujos/s por protocolo, descartes por motivo, exportadores activos, lag de ingesta, inserción en ClickHouse, pending de NATS | 6 |
 | 9 | **Pipeline de eventos** | Publicados/consumidos por dominio, latencia de procesamiento, outbox pendiente | 3–8 |
-| 10 | **Backups & DR** | Antigüedad del último backup por componente, duración, tamaño, último test de restauración | 13 |
-| 11 | **Host & Containers** | CPU, RAM, disco (con predicción de llenado), red, I/O, NAS (latencia/disponibilidad) | 1 |
+| 10 | **Backups & DR** | Antigüedad del último backup local por componente, estado de cada destino remoto (lag, pendiente, errores) o aviso "sin copia fuera del servidor", último test de restauración | backups |
+| 11 | **Host & Containers** | CPU, RAM, disco (con predicción de llenado) por volumen (`data`, `backups`), red, I/O | 1 |
+| 12 | **Tenants** (D6) | Tabla por ISP: routers por estado, flujos/s y descartes, lag de ingesta, cobertura, exportadores silenciosos, clientes, hallazgos abiertos, uso de API y cuotas; variable `tenant` | multi-tenant |
 
 ## 6. SLOs y alertas de la plataforma
 
@@ -292,8 +348,12 @@ Provisionados como código (JSON en `infrastructure/observability/grafana/`), ca
 | Entrega de eventos en tiempo real | Evento → WebSocket del navegador < 5 s | 99 % | — |
 | Notificación de alertas | Detección → notificación enviada < 60 s | 99 % | — |
 
-Los SLOs son objetivos internos de ingeniería, no compromisos contractuales. Se revisan en el
-Sprint 15 con datos reales.
+Los SLOs son objetivos internos de ingeniería, no compromisos contractuales. Se revisan con datos
+reales en el incremento de endurecimiento.
+
+**Por tenant:** frescura SNMP e ingesta de flujos se evalúan además **por tenant** (recording rules con `tenant`): el
+SLO global puede cumplirse mientras un ISP pequeño está a ciegas. La alerta por tenant distingue "problema de la
+plataforma" (varios tenants a la vez) de "problema del ISP" (uno solo: su enlace, su router, su túnel).
 
 ### 6.2 Alertas
 
@@ -312,17 +372,36 @@ afectan al usuario (burn rate del SLO) y por pocas causas inminentes (disco, bac
 | `NATSStreamNearLimit` | uso de stream > 80 % de `max_bytes` | page |
 | `OutboxStuck` | `horus_outbox_oldest_age_seconds` > 300 | page |
 | `ServiceDown` | `up == 0` 2 min (servicios críticos: gateway, auth, devices) | page |
-| `PostgresDown` / `ClickHouseDown` / `RedisDown` (Valkey) / `MinIODown` / `NASUnreachable` | exporter/blackbox fallando 2 min | page |
+| `PostgresDown` / `ClickHouseDown` / `ValkeyDown` / `NATSDown` | exporter fallando 2 min | page |
 | `PostgresWALArchiveFailing` | `pg_stat_archiver` con fallos continuos > 15 min | page |
 | `PostgresWALTooLarge` | tamaño de `pg_wal` > 20 GB **o** > 50 % del volumen (riesgo de [`architecture.md`](architecture.md) §10.5) | page |
 | `FlowsBufferHigh` | stream de flujos > 70 % de `max_bytes` (autonomía ante caída de ClickHouse) | page |
-| `RouterMassOffline` | > 50 % de routers `offline` con razón `tunnel_down` (caída del hub WG) | page |
+| `RouterMassOffline` / `WireGuardHubDown` | > 50 % de routers de **varios tenants** `offline` con `tunnel_down`, o `horus.wireguard.hub.status_changed` a `down` (caída del hub de plataforma) | page |
 | `DiskWillFillIn24h` | `predict_linear` del FS de datos | page |
-| `BackupTooOld` | `time() - horus_backup_last_success_timestamp_seconds > 26h` (PG) | page |
+| `BackupTooOld` | `time() - horus_backup_last_success_timestamp_seconds > 26h` (copia **local** de PG) | page |
+| `RestoreTestTooOld` | última restauración de prueba > 35 días (mensual + margen) | ticket |
+| `RemoteCopyNotConfigured` | `horus_remote_sync_configured == 0` durante 7 días (y luego cada 7 días) | ticket (aviso; nunca page: D2 permite no tener destino) |
+| `RemoteCopyLagging` (`remote_copy_lagging`) | `horus_remote_sync_lag_seconds > 36h` | ticket; page si > 72 h |
+| `RemoteDestinationUnhealthy` (`remote_destination_unhealthy`) | `increase(horus_remote_sync_failures_total[6h]) > 3` y sin éxito en 24 h | ticket |
+| `LocalStoreFilling` | `horus_local_store_used_ratio` > 0,70 (ticket) / > 0,85 (page) / > 0,95 (page: se pausan archivado y reportes) | ticket / page |
 | `AuditChainBroken` | verificación falla | page (seguridad) |
 | `CertificateExpiringSoon` | < 14 días (blackbox) | ticket |
 | `PrometheusCardinalityHigh` | series > 70 % del presupuesto | ticket |
+| `TenantIsolationViolation` | `horus_events_tenant_invalid_total` o `horus_gateway_ws_tenant_mismatch_total` > 0 | page (seguridad) |
+| `TenantFlowsSilent` | todos los exportadores de **un** tenant silenciosos > 10 min mientras otros tenants reciben | ticket (problema del ISP; se avisa además al ISP por su módulo `alerts`) |
+| `TenantIngestLagHigh` | p99 lag de un tenant > 120 s durante 10 min | ticket |
+| `TenantFlowCoverageLow` (`flow_coverage_low`) | `horus_tenant_flow_coverage_ratio < 0.8` durante 2 h | ticket (lo ve también el ISP) |
+| `TenantNoisyNeighbor` | un tenant > 60 % de los flujos/s totales **y** descartes por cuota > 0 | ticket |
+| `CustomerDiscoveryAvalanche` | `rate(horus_customers_discovery_throttled_total[10m]) > 0` | ticket (posible escaneo o IPs falsificadas) |
 | `Watchdog` | Siempre activa → *dead man's switch* externo | — |
+
+**Plataforma ≠ red de cada ISP.** Alertmanager avisa a quien **opera la plataforma** (la persona, D7, y los agentes
+de operación). Las alertas de la red de un ISP (router caído, hallazgo de botnet) son **producto**: las genera el
+módulo `alerts` de Horus por tenant y van a los canales que configure cada ISP; nunca salen por Alertmanager (que
+mezclaría ISPs). Las alertas con `tenant` agrupan por `tenant` (`group_by: [alertname, tenant]`) para no generar una
+tormenta cuando cae un ISP entero, e inhiben las por router de ese tenant. Con **una sola persona** de guardia
+(D7): `page` sólo para lo que afecta a varios tenants, a la plataforma entera o a la seguridad; lo de un solo ISP es
+`ticket` en horario laboral.
 
 **Independencia:** las alertas de la plataforma van por **Alertmanager** directamente (email +
 Telegram) y **no** dependen del servicio `alerts` de Horus (que puede estar caído justo cuando
@@ -347,21 +426,26 @@ Respuesta JSON (200 o 503):
 {"status":"degraded","service":"analytics","version":"0.6.0","checks":{"postgres":{"status":"ok","latency_ms":2},"clickhouse":{"status":"fail","error":"dial timeout"}}}
 ```
 
-Dependencias imprescindibles por servicio (propuesta; Agente 1 la confirma en
-[`architecture.md`](architecture.md) con los modos de fallo):
+Con el binario modular ([ADR-0025](adr/0025-binario-modular-con-roles.md)) **readiness es por rol**: cada proceso
+agrega los chequeos de los roles de su `HORUS_ROLES`, y `/readyz?role=<rol>` permite consultar uno. El proceso está
+*ready* si **todos sus roles** lo están; un rol degradable no saca al proceso del balanceo. Así, ClickHouse caído no
+deja a `horus-app` fuera de servicio (login e inventario siguen) aunque `analytics` responda 503 en sus rutas.
 
-| Servicio | `/readyz` requiere | Degradable (reporta `degraded`, sigue *ready*) |
-|----------|--------------------|-----------------------------------------------|
-| `api-gateway` | JWKS de `auth` cargado (caché) | Valkey/Redis (revocación con fallback a `auth`, rate limit local); servicios aguas abajo (503 por ruta con circuit breaker, el gateway sigue listo) |
-| `auth` | PostgreSQL | Redis, NATS (auditoría queda en outbox) |
+| Rol | `/readyz` requiere | Degradable (reporta `degraded`, sigue *ready*) |
+|-----|--------------------|-----------------------------------------------|
+| `gateway` | JWKS de `auth` cargado (caché) | Valkey (revocación con fallback a `auth`, rate limit local); roles remotos (503 por ruta con circuit breaker) |
+| `auth` | PostgreSQL | Valkey, NATS (auditoría queda en outbox) |
 | `devices` | PostgreSQL | NATS (outbox) |
-| `wireguard` | PostgreSQL | NATS, `wireguard-agent` (cambios en cola de reconciliación) |
-| `wireguard-agent` | Interfaz WG presente en el kernel | `wireguard` (mantiene el último estado aplicado; nunca borra peers por no poder leer el deseado) |
-| `snmp` | Lista de objetivos cargada (snapshot de `devices` o caché local) | NATS (buffer en memoria), `devices` |
-| `flows` (collector) | Socket UDP abierto, snapshot de catálogo cargado | NATS (buffer acotado en memoria; al llenarse descarta con `reason=bus_unavailable`) |
-| `flows` (ingester) | NATS, ClickHouse | — |
-| `analytics` (+ módulo reporting) | PostgreSQL | ClickHouse (responde 503 `analytics_unavailable` en sus rutas, ver [`architecture.md`](architecture.md) §10.1), MinIO (exportaciones en cola) |
+| `wireguard` | PostgreSQL | NATS, `wg-agent` (cambios en cola de reconciliación) |
+| `wg-agent` | Interfaz WG presente en el kernel | `wireguard` (mantiene el último estado aplicado; nunca borra peers por no poder leer el deseado) |
+| `snmp` | Lista de objetivos cargada (snapshot o caché local) | NATS (buffer en memoria), `devices` |
+| `collector` | Socket UDP abierto, mapa exportador→(tenant, router) cargado | NATS (buffer acotado; al llenarse descarta con `reason=bus_unavailable`) |
+| `ingester` | NATS, ClickHouse, snapshots de catálogo y reputación cargados | — |
+| `traffic`, `detection` | PostgreSQL | ClickHouse (detección pausada y marcada), NATS |
+| `analytics` | PostgreSQL | ClickHouse (503 `ANALYTICS_UNAVAILABLE` en sus rutas) |
+| `reporting` | PostgreSQL | ClickHouse, almacén local lleno (reportes en cola) |
 | `alerts` | PostgreSQL, NATS | Canales de notificación externos |
+| `jobs` | PostgreSQL | Destino remoto (nunca afecta a readiness: sólo `remote_storage: degraded/not_configured`), ClickHouse |
 
 Además: `startupProbe` usa `/healthz` con margen amplio (migraciones/caches iniciales); el
 cierre ordenado pone `/readyz` en 503 inmediatamente al recibir `SIGTERM`, espera 5 s y drena.

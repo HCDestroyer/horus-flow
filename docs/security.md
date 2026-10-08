@@ -39,7 +39,7 @@ operador de su red). Este propósito acota qué se recoge, cuánto se guarda y q
 | S12 | Aislamiento entre tenants (D6) | Tenant explícito en rutas, topics, subjects y gRPC; repositorios que exigen `TenantScope`; **RLS de PostgreSQL** y *row policies* de ClickHouse como segunda barrera; batería automática de pruebas "A no ve B" obligatoria en CI (§3.9). | Base de datos o despliegue dedicado por tenant si un ISP lo exige por contrato. |
 | S13 | Pantallas NOC (D8) | **Kiosco = dispositivo registrado**: código de enrolamiento de un uso (10 min) → credencial de dispositivo HttpOnly rotativa → JWT de solo lectura limitado a dashboards asignados, CIDR opcional, sin datos personales por defecto; nunca tokens largos en la URL (§5.5). | Certificado de cliente en el dispositivo (mTLS) para videowalls gestionados. |
 | S14 | Roles de plataforma | `platform_admin`/`platform_operator`/`platform_auditor` **sin** acceso implícito a datos de negocio de los ISP; acceso de soporte temporal, con motivo, notificado y auditado en ambos lados (§6.6). | — |
-| S15 | Credenciales de MikroTik (D10) | API REST de RouterOS sólo por HTTPS dentro del túnel WireGuard, usuario de **solo lectura** con dirección permitida = IP de Horus; SSH con llave ed25519 generada por Horus; SNMPv3 authPriv. Todas con *envelope encryption* y KEK por tenant (§8.4). | Rotación automática programada. |
+| S15 | Credenciales de MikroTik (D10) | API de RouterOS sólo con TLS (8729 / HTTPS) dentro del túnel WireGuard, usuario `horus-ro` de **solo lectura** con `address=` = red de servicios de Horus; SNMPv3 authPriv; alta con token de enrolamiento de un solo uso; v1 no escribe en routers. *Envelope encryption* con clave por tenant (§8.4). | Rotación automática programada. |
 | S16 | Destinos remotos de copias (D2) | Cifrado **en cliente** antes de salir del servidor (las copias son ilegibles para SFTP/Drive/MEGA/Dropbox); credenciales con mínimo privilegio (carpeta de app, usuario SFTP enjaulado), cifradas en PostgreSQL y materializadas sólo en memoria del proceso de copia (§8.5). | Destino *pull* (el NAS recoge) para que un servidor comprometido no pueda borrar copias. |
 
 ## 1. Activos y actores
@@ -214,26 +214,26 @@ publicado; TLS si cruza de host.
 | S | Alguien suplanta el destino remoto (SFTP con *host key* cambiada) | `known_hosts` fijado al dar de alta el destino (TOFU con confirmación del `platform_admin`); TLS verificado para APIs de nube | backups |
 | T | Ransomware o atacante con root en el servidor borra copias locales y remotas | Copias remotas **cifradas en cliente** y, cuando el destino lo permite, sin permiso de borrado (SFTP enjaulado con usuario que sólo escribe; versionado de Drive/Dropbox; preferido: modo *pull* en el que el NAS recoge por SFTP y el servidor no tiene credencial sobre el NAS); retención en destino gestionada por el destino | backups |
 | I | El proveedor de nube o quien robe el NAS lee las copias | Cifrado en cliente (pgBackRest `repo-cipher-type`, `age`/rclone `crypt` para el resto) con clave distinta de la KEK y custodiada fuera del servidor ([`disaster-recovery.md`](disaster-recovery.md) §3.6) | backups |
-| I | Reportes exportados con datos personales accesibles | Descarga por URL firmada de 15 min ligada a usuario y tenant; archivos bajo `tenants/<tenant_id>/…`; nunca en el destino remoto sin cifrar | 12 |
+| I | Reportes exportados con datos personales accesibles | Descarga **sólo** a través de la API (`/reports/{id}/download`), autorizada por `tid` y permiso, sin URLs prefirmadas; archivos bajo `reports/<tenant_id>/`; nunca en el destino remoto sin cifrar | 12 |
 | D | Destino remoto lento o caído llena el disco local | Las copias locales tienen retención propia e independiente del envío; el envío reintenta con backoff y alerta; nunca bloquea a PostgreSQL ni a la ingesta | backups |
 | E | Credencial de nube con más permisos de los necesarios | OAuth con alcance mínimo (Google Drive `drive.file`; Dropbox "App folder"); cuenta dedicada; MEGA con cuenta exclusiva para Horus (§8.5) | backups |
 
 ### 3.9 Aislamiento entre tenants (amenaza principal de D6)
 
 Modelo: **base de datos y servicios compartidos, aislamiento lógico** (*pool model*). Cada fila de negocio lleva
-`tenant_id`; cada mensaje y cada ruta también. La pregunta de diseño es "¿cuántas cosas tienen que fallar a la vez
+`tenant_id`; cada token y cada mensaje también ([ADR-0017](adr/0017-multi-tenant-desde-v1.md)). La pregunta de diseño es "¿cuántas cosas tienen que fallar a la vez
 para que A vea datos de B?"; el objetivo es **al menos dos**.
 
 | Capa | Control primario | Segunda barrera |
 |------|------------------|-----------------|
-| REST | Tenant explícito en la ruta; el gateway comprueba la pertenencia (`tnt` del JWT) antes del proxy ([`api.md`](api.md) §0) | El servicio vuelve a comprobar pertenencia y permiso fino con alcance |
-| Repositorios PostgreSQL | Toda consulta de negocio recibe un `TenantScope` (tipo obligatorio en la firma; no existe `FindByID(id)` sin tenant); `WHERE tenant_id = $1` siempre | **RLS** (*Row Level Security*) en tablas de negocio con política `tenant_id = current_setting('horus.tenant_id')::uuid`, fijado con `SET LOCAL` al abrir la transacción; los roles de aplicación **no** tienen `BYPASSRLS`; los trabajos de plataforma (purgas, migraciones) usan un rol aparte. Coordinar con el Agente B ([`database.md`](database.md) decía "sin RLS en v1": con D6 se recomienda activarlo desde el principio) |
-| ClickHouse | Consultas con `tenant_id` como primer filtro (primera columna del `ORDER BY`) | *Row policy* para el usuario de lectura de la API: `USING tenant_id = getSetting('custom_tenant_id')`, con el ajuste fijado por consulta; sin él, la consulta no devuelve filas |
-| Caché (Valkey) y cachés en memoria | Claves con prefijo `t:<tenant_id>`; cachés en memoria con el tenant en la clave | Tests de propiedad: la misma clave lógica en dos tenants nunca colisiona |
-| WebSocket | Topics `tenants.<id>.…`; suscripción autorizada por tenant | El hub descarta mensajes cuyo `tenant_id` no coincide con el topic y lo cuenta (alerta si > 0) |
-| NATS | Tenant en subject y sobre ([`events.md`](events.md) §2.4) | El consumidor compara ambos; discrepancia ⇒ DLQ + alerta |
-| gRPC | `tenant_id` como campo del mensaje, validado por el interceptor | Respuestas incluyen `tenant_id` y el llamador lo comprueba |
-| Archivos (reportes, exportaciones, archivo) | Rutas `tenants/<tenant_id>/…`; URL firmada con tenant y usuario | El servicio que sirve la descarga revalida tenant y permiso |
+| REST | **Access token por tenant** (`tid`), emitido por `auth` sólo a miembros; el tenant nunca sale de path/query/header/body; un `tenant_id` en el body ≠ `tid` → `403` ([`api.md`](api.md) §0) | El módulo dueño vuelve a comprobar permiso fino con alcance dentro del `tid` |
+| Repositorios PostgreSQL | Toda consulta de negocio recibe un `TenantScope` (tipo obligatorio en la firma; no existe `FindByID(id)` sin tenant); `WHERE tenant_id = $1` siempre | **RLS** (`ENABLE` + `FORCE`) con política `tenant_id = current_setting('horus.tenant_id')::uuid`, fijado con `SET LOCAL` desde `tid` al abrir la transacción (sin fijar → cero filas); el rol de la aplicación **no** tiene `BYPASSRLS`; los jobs multi-tenant (relay del outbox, scoring, snapshots) usan un rol separado, acotado y nunca expuesto a rutas HTTP ([ADR-0017](adr/0017-multi-tenant-desde-v1.md) §4, [`database.md`](database.md)) |
+| ClickHouse | Consultas con `tenant_id` como primer filtro (primera columna del `ORDER BY`) | *Row policy* para el usuario de lectura de la API: `USING tenant_id = getSetting('SQL_horus_tenant')`, con el ajuste fijado por consulta; sin él, la consulta no devuelve filas |
+| Caché (Valkey) y cachés en memoria | Claves de datos de tenant con prefijo `t:<tenant_id>:`; cachés en memoria con el tenant en la clave | Tests de propiedad: la misma clave lógica en dos tenants nunca colisiona |
+| WebSocket | Conexión ligada al `tid` del token; el hub enruta por la cabecera `Horus-Tenant` | Mensajes sin cabecera o con cabecera ≠ sobre se descartan y cuentan (alerta si > 0) |
+| NATS | `tenant_id` obligatorio en el sobre y cabecera `Horus-Tenant` obligatoria; una sola cuenta ([`events.md`](events.md) §2.4) | El consumidor valida ambos; ausencia o discrepancia ⇒ DLQ + alerta; el handler fija `SET LOCAL` (RLS) |
+| Llamadas internas (gRPC o en proceso) | El `tid` del JWT viaja en el contexto; los métodos multi-tenant de servicio están declarados y acotados | Respuestas con `tenant_id` por elemento |
+| Archivos (reportes, exportaciones, archivo) | Rutas `reports/<tenant_id>/`, `archive/<tenant_id>/`; descarga **sólo** por la API (sin URLs prefirmadas) | El handler de descarga revalida `tid` y permiso |
 | Secretos | AAD de la *envelope encryption* incluye `tenant_id`; KEK por tenant (§8.2) | Un secreto copiado a otro tenant no descifra |
 | Logs/métricas/Grafana | `tenant_id` en logs; Grafana **sólo** para la plataforma, nunca expuesto a los ISP | — |
 
@@ -241,7 +241,7 @@ STRIDE específico:
 
 | STRIDE | Amenaza | Control | Sprint |
 |--------|---------|---------|--------|
-| S | Un usuario de A usa un API token o un kiosco de A contra rutas de B | Tokens y kioscos ligados a un solo tenant; el gateway compara el tenant de la ruta | 2 |
+| S | Un usuario de A obtiene un token de B | `POST /auth/token` sólo emite tokens de tenants con membresía activa (o acceso de soporte vigente); API tokens y kioscos nacen ligados a un tenant | 2 |
 | T | Un cuerpo de petición referencia `site_id`/`router_id` de otro tenant | Validación de referencias dentro del tenant (`422 NOT_FOUND`), FK compuestas `(tenant_id, id)` donde el Agente B lo permita | 3 |
 | R | Un ISP niega haber visto/cambiado algo; o el soporte de plataforma actúa sin que el ISP lo sepa | Auditoría con `tenant_id`; acceso de soporte visible en la auditoría **del tenant** (§6.6) | 2 |
 | I | IDOR entre tenants, cursor reutilizado, caché compartida, exportación con filtro mal construido, evento WS mal enrutado | Controles de la tabla anterior + batería automática "A no ve B" (abajo) | 1+ |
@@ -250,10 +250,12 @@ STRIDE específico:
 | E | Un `tenant_admin` se concede permisos de plataforma o acceso a otro tenant | Las membresías sólo las crea un admin **de ese tenant** o la plataforma; los roles de plataforma sólo los asigna `platform_admin` con re-auth; nadie se asigna a sí mismo | 2 |
 
 **Batería automática de aislamiento (obligatoria, bloquea el merge):** fixture con dos tenants (A y B) con datos
-equivalentes; para **cada operación** del bundle OpenAPI bajo `/tenants/{tenant_id}` se ejecuta con credenciales de A:
-(1) contra recursos de B por ID (`404` esperado), (2) con `tenant_id` de B en la ruta (`404 TENANT_NOT_FOUND`), (3)
-listados de A que no deben contener IDs de B; para cada topic WebSocket, que un suscriptor de A no recibe eventos de B;
-para cada consumidor NATS, que un evento con token y sobre discrepantes acaba en DLQ. El generador de casos lee la spec,
+equivalentes; para **cada operación** del bundle OpenAPI con `scope: tenant` se ejecuta con el token de A: (1) contra
+recursos de B por ID (`404` esperado), (2) con `tenant_id` de B en el cuerpo cuando el esquema lo admite
+(`403 TENANT_MISMATCH`), (3) listados de A que no deben contener IDs de B; `POST /auth/token` con el tenant B para un
+usuario sólo de A (`404`); para cada topic WebSocket, que una conexión de A no recibe eventos de B; para cada
+consumidor NATS, que un mensaje sin `Horus-Tenant` o con cabecera ≠ sobre acaba en DLQ; test de arquitectura: toda
+tabla con `tenant_id` tiene política RLS. El generador de casos lee la spec,
 así que un endpoint nuevo queda cubierto sin escribir el test a mano ([`conventions.md`](conventions.md) §11).
 
 ### 3.10 Dashboards y kioscos (D8)
@@ -381,13 +383,15 @@ Navegador ──Authorization: Bearer <access JWT>──► Traefik ──► ap
 
 - **Access token:** JWT firmado por `auth` con **Ed25519 (EdDSA)**, TTL **10 min**. Claims:
   `iss` (URL de `auth`), `aud=horus-api`, `sub` (UUIDv7 del usuario de plataforma, o
-  `kiosk:<id>`), `typ` (`user` | `kiosk` | `service`), `sid`, `tnt` (tenants con membresía, máx.
-  50), `pla` (roles de plataforma), `amr`, `auth_time`, `iat`, `exp`, `jti`, `perms` (permisos
-  efectivos **por tenant** con alcance, forma compacta, p. ej.
-  `{"<tenant_a>":{"devices.read":["site:018f…"],"users.manage":["*"]},"<tenant_b>":{…}}`). Si
-  superara 4 KiB se sustituye por `perms_ver` y los servicios resuelven permisos vía `auth` con
-  caché (60 s). Quitar una membresía surte efecto en ≤ 5 s aunque el token siga vivo: el gateway
-  consulta `membership_revoked:<user>:<tenant>` en Valkey (como la revocación de sesiones).
+  `kiosk:<id>`), `typ` (`user` | `kiosk` | `service`), `scope` (`session` | `tenant` |
+  `platform`), `sid`, **`tid`** (tenant del token, sólo con `scope=tenant`; [ADR-0017](adr/0017-multi-tenant-desde-v1.md)
+  §3), `via_platform` (true si es acceso de soporte), `amr`, `auth_time`, `iat`, `exp`, `jti`,
+  `perms` (permisos efectivos **en ese tenant** —o de plataforma— con alcance, p. ej.
+  `{"devices.read":["site:018f…"],"users.manage":["*"]}`). Si superara 4 KiB se sustituye por
+  `perms_ver` y los módulos resuelven permisos vía `auth` con caché (60 s). La **sesión** es del
+  usuario (sin tenant); cada pestaña pide su token de tenant con `POST /api/v1/auth/token`.
+  Quitar una membresía surte efecto en ≤ 5 s aunque el token siga vivo: el gateway consulta
+  `membership_revoked:<user>:<tenant>` en Valkey (como la revocación de sesiones).
   Rotación de clave de firma cada 90 días con `kid`; JWKS publica la actual y la anterior.
 - **En el navegador:** el access token vive **solo en memoria** (variable del store de sesión,
   nunca `localStorage`/`sessionStorage`/cookies legibles). Al recargar la página, la SPA llama a
@@ -480,7 +484,7 @@ Resuelve Q19. Contrato en [`api.md`](api.md) §2.12; aquí el análisis.
    reutilización (si se presenta una ya usada, se revoca el kiosco y se alerta: indica copia de la
    cookie). En BD sólo SHA-256. Caducidad absoluta configurable (180 días por defecto) y por
    inactividad (14 días sin uso).
-3. **JWT de kiosco**: 10 min, `typ=kiosk`, `tnt=[tenant]`, sin permisos de escritura; el gateway
+3. **JWT de kiosco**: 10 min, `typ=kiosk`, `tid` = su tenant, sin permisos de escritura; el gateway
    sólo lo acepta en las rutas con `principals: [kiosk]` y sólo para los dashboards asignados.
 4. **Red**: `allowed_cidrs` (recomendado: la red del NOC) aplicado en el canje del código, en el
    canje del JWT y en cada petición. Sin CIDR, la UI de administración lo marca como "riesgo".
@@ -518,10 +522,12 @@ Permisos de tenant:
 | `wireguard` | `read`, `write`, `keys.rotate` |
 | `snmp` | `read`, `manage` (perfiles, intervalos; también sondeo por API RouterOS) |
 | `flows` | `read` (exportadores), `manage` |
-| `customers` | `read` (lista y ficha de clientes = IPs, dato personal), `update` (alias/notas), `type.write` (cambio manual de tipo y desbloqueo), `export` |
+| `customers` | `read` (lista y ficha de clientes = IPs, dato personal), `update` (alias/notas), `kind.write` (cambio manual de tipo, desbloqueo, reinicio), `export` |
 | `traffic` | `read` (agregados por nodo/router/categoría), `customer.read` (tráfico de un cliente concreto — dato personal, auditado) |
 | `traffic.catalog` | `read` (el catálogo es de plataforma; los tenants sólo lo leen) |
-| `security` | `read` (hallazgos, estado de seguridad por cliente, feeds), `manage` (reconocer, resolver, falso positivo) |
+| `sites` (prefijos de clientes) | los prefijos de clientes del realm se gestionan con `sites.update` |
+| `security.findings` | `read` (hallazgos, estado de seguridad por cliente, feeds, allowlist), `manage` (reconocer, resolver, falso positivo, allowlist del tenant) |
+| `security.evidence` | `read` (flujos de evidencia de un cliente; auditado) — [ADR-0024](adr/0024-deteccion-de-botnets-como-objetivo-principal.md) §3 |
 | `alerts` | `read`, `ack`, `manage` (reglas, canales) |
 | `reports` | `read`, `export` |
 | `dashboards` | `read` (ver compartidos, crear privados), `manage` (dashboards y rotaciones compartidos con el tenant) |
@@ -529,10 +535,10 @@ Permisos de tenant:
 | `settings` | `read`, `manage` (configuración del tenant: inactividad de clientes, reglas de tipo, retenciones dentro de los límites de plataforma) |
 | `api_tokens` | `manage` (propios, ligados al tenant) |
 
-Permisos de plataforma: `platform.tenants.read`, `platform.tenants.manage`, `platform.nodes.manage`,
+Permisos de plataforma: `platform.tenants.read`, `platform.tenants.manage`,
 `platform.users.read`, `platform.users.manage`, `platform.support_access`, `platform.audit.read`,
-`platform.status.read`, `platform.storage.manage`, `platform.catalog.write`, `platform.catalog.publish` (catálogo de
-clasificación de tráfico y feeds de reputación, comunes a todos los ISP).
+`platform.status.read`, `platform.storage.manage`, `platform.catalog.manage` (catálogo de clasificación de tráfico y
+feeds de reputación, comunes a todos los ISP; [ADR-0017](adr/0017-multi-tenant-desde-v1.md) §2).
 
 Cambios respecto al Sprint 0: `subscribers.*` → `customers.*` (D1: no hay ficha de abonado con nombre/dirección);
 `traffic.client.read` → `traffic.customer.read`; `traffic.catalog.write/publish` pasan a plataforma; `sessions.*`
@@ -548,12 +554,12 @@ roles propios):
 | Rol | Propósito | Permisos (resumen) | 2FA |
 |-----|-----------|--------------------|-----|
 | `tenant_admin` | Administración del ISP en Horus | Todos los de tenant (incl. `devices.credentials.reveal`, `kiosks.manage`) | Obligatorio |
-| `security_analyst` | Botnets y seguridad de clientes (D5) | `security.*`, `customers.read`, `traffic.read`, `traffic.customer.read`, `alerts.*`, `audit.read`, `dashboards.read` | Obligatorio |
+| `security_analyst` | Botnets y seguridad de clientes (D5) | `security.findings.*`, `security.evidence.read`, `customers.read`, `traffic.read`, `traffic.customer.read`, `alerts.*`, `audit.read`, `dashboards.read` | Obligatorio |
 | `network_engineer` | Nodos, routers, WireGuard, SNMP/API, flujos | `sites.*`, `devices.*`, `devices.credentials.write`, `wireguard.*`, `snmp.*`, `flows.*`, `alerts.read/ack`, `traffic.read`, `dashboards.*` | Obligatorio |
-| `noc_operator` | Monitoreo 24/7 | `sites.read`, `devices.read`, `wireguard.read`, `snmp.read`, `flows.read`, `traffic.read`, `security.read`, `alerts.read/ack`, `reports.read`, `dashboards.read` | Recomendado |
+| `noc` | Monitoreo 24/7 | `sites.read`, `devices.read`, `wireguard.read`, `snmp.read`, `flows.read`, `traffic.read`, `security.findings.read`, `alerts.read/ack`, `reports.read`, `dashboards.read` | Recomendado |
 | `analyst` | Analítica y clasificación de clientes | `traffic.read`, `traffic.customer.read`, `customers.read`, `customers.type.write`, `reports.read/export`, `devices.read`, `sites.read`, `dashboards.*` | Recomendado |
 | `auditor` | Revisión de cumplimiento del ISP | `audit.read/export`, `users.read`, `roles.read` | Recomendado |
-| `viewer` | Solo lectura sin datos personales | `*.read` excepto `customers.read`, `traffic.customer.read`, `security.read` detallado, `audit.read`, `devices.credentials.*` | Opcional |
+| `viewer` | Solo lectura sin datos personales | `*.read` excepto `customers.read`, `traffic.customer.read`, `security.evidence.read`, `audit.read`, `devices.credentials.*` | Opcional |
 
 Roles **de plataforma** (no son de ningún tenant):
 
@@ -603,7 +609,7 @@ acceso a clientes, tráfico, hallazgos ni credenciales de un tenant (§6.6).
 
 El sobre de eventos ([`events.md`](events.md) §5.1) ya recoge lo que pedía seguridad: `actor` con
 `type` (`user`/`service`/`system`/`kiosk`), `id`, `sid` opcional, `via` (`session`/`api_token`),
-`platform_role` (incluido `support_access`) y `tenant_id`; `ip`/`user_agent` **sólo** en
+`via_platform`, `platform_role` y `tenant_id` (más la cabecera `Horus-Tenant`); `ip`/`user_agent` **sólo** en
 `*.audit.recorded`; sin nombres, tokens ni permisos.
 
 ### 6.6 Acceso de soporte de la plataforma a un tenant
@@ -617,8 +623,8 @@ defecto**.
   marca explícitamente).
 - El tenant puede fijar `support_access_policy`: `notify` (por defecto: se concede y se notifica al
   `tenant_admin`), `require_approval` (el `tenant_admin` aprueba) o `deny`.
-- Durante el acceso, el JWT incluye una membresía temporal con `actor.platform_role =
-  support_access`; todo queda en la auditoría del tenant **y** en la de plataforma.
+- Durante el acceso, `POST /auth/token` emite un token del tenant con `via_platform = true`; todo
+  queda en la auditoría del tenant **y** en la de plataforma.
 - Los agentes de IA de operación usan `platform_operator` (sin datos de tenants); nunca se les
   concede acceso de soporte de forma automática.
 
@@ -651,7 +657,7 @@ defecto**.
 ### 7.2 Formato del registro
 
 `id` (UUIDv7), `tenant_id` (`null` para acciones de plataforma), `occurred_at` (UTC), `actor`
-(`type`, `id`, `sid`, `platform_role`), `ip`, `user_agent`,
+(`type`, `id`, `sid`, `platform_role`), `via_platform`, `ip`, `user_agent`,
 `action` (p. ej. `devices.credentials.reveal`), `resource_type`, `resource_id`, `scope`
 (sitio), `outcome` (`success` | `denied` | `error`), `reason`, `changes` (diff JSON sin
 secretos), `request_id`, `trace_id`, `prev_hash`, `hash`. Esquema en [`database.md`](database.md)
@@ -722,8 +728,8 @@ secretos), `request_id`, `trace_id`, `prev_hash`, `hash`. Esquema en [`database.
 - **Rotación de KEK:** nueva `kek_id` activa para escrituras; job de re-envolvimiento de DEKs
   (no requiere re-cifrar los datos); la KEK anterior se retira cuando ya no hay referencias.
 - **Quién descifra:** solo `devices` (credenciales de routers), `wireguard` (claves WG),
-  `auth` (TOTP), `alerts` (secretos de canales de notificación) y el módulo de copias (`ops`,
-  destinos remotos), cada uno con **su propia KEK**. Si el Agente A agrupa módulos en un binario,
+  `auth` (TOTP), `alerts` (secretos de canales de notificación) y `jobs` (destinos remotos),
+  cada uno con **su propia KEK**. Con el binario modular ([ADR-0025](adr/0025-binario-modular-con-roles.md))
   las KEK siguen siendo distintas por módulo y cada módulo sólo carga la suya.
   `wireguard-agent` no tiene KEK: recibe el material en claro por mTLS desde `wireguard`. `snmp` obtiene credenciales en claro mediante
   la RPC interna `devices.CredentialService/Resolve`, autorizada solo para el certificado de `snmp`,
@@ -752,21 +758,30 @@ o USB cifrado en caja fuerte), cifrada con age; procedimiento en
 - **SNMPv3 (MikroTik, D10):** usuario, protocolo y claves auth/priv cifrados; authPriv con SHA-256
   si la versión de RouterOS lo soporta (mínimo SHA1) y AES; en el router, `addresses=` limitado a la
   IP de Horus en el túnel ([`vendors/mikrotik.md`](vendors/mikrotik.md), Agente E).
-- **API REST de RouterOS (D10):** sólo `www-ssl` (HTTPS) y sólo dentro del túnel WireGuard; nunca
-  el servicio `www` en claro ni la API binaria 8728 sin TLS. Usuario dedicado `horus-ro` en un
-  grupo de **solo lectura** (políticas `read`, `api`, `rest-api`; sin `write`, `policy`,
-  `sensitive`, `password`, `ftp`, `winbox`, `web`), con `address=` = IP de Horus en el túnel.
-  Certificado del router fijado en el primer contacto (TOFU con confirmación) o firmado por la CA
-  del ISP; el cliente HTTP de Horus **no** desactiva la verificación TLS en silencio: si el router
-  usa certificado autofirmado se fija su huella. Contraseña de ≥ 24 caracteres aleatoria generada
-  por Horus.
-- **SSH (MikroTik):** sólo para funciones que la API no cubra; llave ed25519 **generada por Horus
-  por router y tenant** (la privada cifrada con envelope; la pública se instala en el usuario del
-  router); `known_hosts` fijado por router (TOFU con aprobación); mismo usuario de solo lectura.
+- **API de RouterOS (D10, [ADR-0022](adr/0022-mikrotik-routeros-v7-primer-fabricante.md)):** API
+  binaria **con TLS** (`api-ssl`, 8729; camino principal de lectura) y REST sobre HTTPS (`www-ssl`),
+  ambas sólo dentro del túnel WireGuard; nunca `api` 8728 ni `www` en claro. Usuario dedicado
+  `horus-ro` en un grupo de **solo lectura** (políticas `read`, `api`, `rest-api`; sin `write`,
+  `policy`, `sensitive`, `password`, `ftp`, `winbox`, `web`, `ssh`), con `address=` = red de
+  servicios de Horus. Certificado del router fijado en el primer contacto (TOFU con confirmación) o
+  firmado por la CA del ISP; el cliente de Horus **no** desactiva la verificación TLS en silencio.
+  Contraseña de ≥ 24 caracteres aleatoria generada por Horus y entregada dentro del script de alta
+  `.rsc` (que por eso es `no-store`, se genera bajo re-auth y caduca con el token de enrolamiento).
+- **SSH:** no se usa en v1.
+- **Token de enrolamiento** (`POST /enroll/wireguard`): 256 bits, sólo su hash en BD, ligado a
+  (tenant, router, peer previsto), TTL 24 h, un uso, revocable, rate limit estricto; el endpoint
+  sólo acepta una clave pública y no devuelve secretos; una clave pública ya registrada se rechaza;
+  el admin del tenant recibe aviso del peer recién registrado (un token robado sólo permite
+  registrar una clave ajena antes que el router legítimo, lo que se detecta porque el router real
+  no completa el handshake). El script usa `check-certificate=yes`, **nunca** `no`.
 - **Escritura en routers:** v1 **no escribe** configuración en los MikroTik (ni mitigación de
-  botnets por `address-list`). Si el PO lo aprueba (C-21), será un usuario **distinto** con
-  permisos mínimos (`write` sólo sobre listas de direcciones, vía script) y cada acción con
-  aprobación humana y auditoría; la credencial de lectura nunca gana permisos de escritura.
+  botnets por `address-list`, [ADR-0024](adr/0024-deteccion-de-botnets-como-objetivo-principal.md)
+  §4). Si se aprueba más adelante, será un usuario **distinto** con permisos mínimos y cada acción
+  con aprobación humana y auditoría; la credencial de lectura nunca gana permisos de escritura.
+- **Hub WireGuard de plataforma:** su clave privada es el secreto más crítico de la instalación
+  (todos los routers de todos los ISP confían en su clave pública); cifrada con la KEK de
+  `wireguard`, incluida en la copia de secretos offline y con runbook de pérdida/rotación
+  ([`disaster-recovery.md`](disaster-recovery.md) RB-11). El hub deniega el reenvío entre peers.
 - **WireGuard** (alineado con [`database.md`](database.md) §2.3): clave privada del servidor y
   preshared keys cifradas; clave privada del peer router **no se guarda**: se genera solo si el
   router no puede generarla, se entrega **una vez** y se descarta (si se pierde → rotación).
@@ -776,7 +791,7 @@ o USB cifrado en caja fuerte), cifrada con age; procedimiento en
 ### 8.5 Credenciales de destinos remotos de copias (D2)
 
 Los destinos remotos son **de plataforma** (las copias contienen todos los tenants) y los gestiona
-`platform_admin` ([`api.md`](api.md) §2.8). La herramienta candidata es **rclone** (SFTP, Google
+`platform_admin` ([`api.md`](api.md) §2.8; módulo `jobs`, [ADR-0019](adr/0019-almacenamiento-local-y-destino-remoto.md)). La herramienta candidata es **rclone** (SFTP, Google
 Drive, MEGA, Dropbox, S3); MediaFire no tiene soporte estable en rclone y **no se ofrece**.
 
 | Destino | Credencial | Mínimo privilegio | Notas |
@@ -786,14 +801,15 @@ Drive, MEGA, Dropbox, S3); MediaFire no tiene soporte estable en rclone y **no s
 | **Google Drive** | Token OAuth (refresh token) | Alcance `drive.file` (sólo archivos creados por la app), cuenta de servicio o cuenta dedicada | El token se obtiene con el flujo de autorización de rclone desde la UI de plataforma |
 | **Dropbox** | Token OAuth | App con acceso "App folder" | Versionado de Dropbox como protección extra |
 | **MEGA** | Usuario + contraseña de una cuenta **exclusiva** | No hay alcances: la credencial da acceso a toda la cuenta | Por eso cuenta exclusiva y cifrado en cliente obligatorio |
-| **S3 compatible** | Access key/secret | Política de sólo `PutObject`/`GetObject` sobre un bucket; Object Lock si el proveedor lo ofrece | La opción más robusta frente a ransomware |
+| **S3 compatible** (no en v1) | Access key/secret | Política de sólo `PutObject`/`GetObject`; Object Lock si el proveedor lo ofrece | Se añade si aparece un disparador de [ADR-0019](adr/0019-almacenamiento-local-y-destino-remoto.md) §4; la opción más robusta frente a ransomware |
 
 Controles comunes:
 
 1. **Cifrado en cliente obligatorio** antes de que nada salga del servidor: pgBackRest cifra su
    repositorio; el resto (ClickHouse, configuración, anclas de auditoría) se cifra con rclone
-   `crypt` o `age`. La clave de cifrado de copias es distinta de la KEK y se custodia fuera del
-   servidor ([`disaster-recovery.md`](disaster-recovery.md) §3.6). El proveedor sólo ve blobs.
+   `crypt` o `age`. La clave de cifrado de copias es distinta de la KEK y se custodia **offline**
+   fuera del servidor ([`disaster-recovery.md`](disaster-recovery.md) §3.6): **sin ella no hay
+   recuperación** desde el destino remoto. El proveedor sólo ve blobs.
 2. Credenciales guardadas con envelope encryption (TEK de plataforma); nunca en archivos de
    configuración de rclone en disco: el proceso de copia las recibe en memoria (variables de
    entorno `RCLONE_CONFIG_<REMOTO>_*` del proceso hijo, que muere al terminar) y no las escribe en
@@ -914,7 +930,8 @@ Política de vulnerabilidades: CRITICAL ≤ 7 días, HIGH ≤ 30 días, MEDIUM e
   cliente está infectado").
 - **Tipo residencial/comercial por scoring**: perfilado automatizado con posible efecto
   contractual ⇒ transparencia, explicabilidad y revisión humana antes de actuar.
-- **Alias/notas** que un operador escriba sobre un cliente (pueden contener nombres): campo libre
+- **Alias/notas** que un operador escriba o que se importen del usuario PPPoE del MikroTik
+  (pueden contener nombres): campo libre
   marcado como PII.
 - Datos de usuarios de la plataforma (empleados de los ISP): email, IP de acceso, auditoría.
 - **No** se recogen payloads, DNS, URLs ni SNI (sólo metadatos de flujo).
@@ -931,26 +948,25 @@ propios registros a quién avisar.
 1. **Minimización:** sólo los campos de flujo de la lista cerrada de
    [`traffic-model.md`](traffic-model.md) (Agente B). Sin nombres ni datos de contacto de clientes.
 2. **Limitación del propósito por diseño:** los permisos separan agregados (`traffic.read`) de
-   detalle por cliente (`traffic.customer.read`, `customers.read`, `security.read`); el detalle por
+   detalle por cliente (`traffic.customer.read`, `customers.read`, `security.findings.read`, `security.evidence.read`); el detalle por
    cliente es **auditado** en cada acceso.
 3. **Retención acotada al propósito** (propuesta; la valida el PO por país, Q2):
 
    | Dato | Retención por defecto | Justificación |
    |------|-----------------------|---------------|
    | Flujos crudos | **7 días** (configurable 3–30 por tenant) | Investigación de un hallazgo reciente; lo antiguo se sirve con agregados |
-   | Agregados por cliente (5 min / 1 h) | 90 días / 13 meses | Patrones de comportamiento para scoring y líneas base de seguridad |
-   | Agregados por cliente diarios | 13 meses (no 5 años) | Comparativas anuales; más allá no hay propósito de seguridad |
+   | Agregados por cliente (5 min / 1 h / 1 día) | 90 días / 13 meses / **25 meses** (máximo por cliente; [`storage.md`](storage.md)) | Líneas base de seguridad, scoring y comparativa interanual; ningún dato por cliente supera 25 meses por defecto (D5: minimización) |
    | Agregados por nodo/router (sin cliente) | 5 años | Capacidad de red; no son datos personales |
-   | Hallazgos de seguridad | 13 meses tras resolverse | Reincidencia y ajuste de modelos |
-   | Historial de tipo de cliente | Mientras el cliente exista + 13 meses | Explicar cambios |
-   | Clientes expirados (IP sin tráfico) | Purga a los 13 meses de `expired` | Ya no hay propósito |
+   | Hallazgos de seguridad | 25 meses | Reincidencia y ajuste de modelos |
+   | Clientes (IP, alias) e historial de tipo | Hasta 25 meses sin actividad; luego purga | Ya no hay propósito |
    | Auditoría | 2 años en PostgreSQL + 5 años archivada (Q4) | Rendición de cuentas |
 
    Borrado efectivo con TTL de ClickHouse y purga programada en PostgreSQL; las copias caducan en
    su propio ciclo (35 días por defecto).
-4. **Seudonimización en el largo plazo:** los agregados de más de 90 días se guardan por
-   `customer_id`, no por IP (la correspondencia vive en `devices.customer`); al purgar el cliente,
-   los agregados quedan sin forma de volver a la IP.
+4. **Sin seudonimización por ID en ClickHouse:** por [ADR-0018](adr/0018-la-ip-es-el-cliente.md)
+   los agregados se guardan por `(tenant, realm, client_ip)`, así que la IP es la clave también
+   en el largo plazo; la protección es la **retención** (máx. 25 meses) y el acceso por permiso.
+   Las exportaciones a terceros sustituyen la IP por `HMAC(clave_tenant, ip)`.
 5. **Exportaciones:** registradas, con marca de agua (usuario, tenant, fecha), enlaces caducos.
 6. **Logs, trazas y métricas sin IPs de clientes** ([`observability.md`](observability.md) §3.3).
 7. **Pantallas NOC sin datos personales por defecto** (§5.5).
@@ -965,19 +981,21 @@ propios registros a quién avisar.
 ### 13.4 Derechos y supresión
 
 - La identificación del titular la hace el ISP (Horus no sabe quién es). Ante una solicitud de
-  supresión, el ISP (o la plataforma por su cuenta) purga la IP: `customer.purged` → se borran o
-  seudonimizan irreversiblemente los datos derivados; los flujos crudos caducan solos en ≤ 7 días.
+  supresión, el ISP (o la plataforma por su cuenta) purga la IP: `customer.purged` → se borran los
+  datos derivados por esa IP (mutación en ClickHouse por `(tenant, realm, client_ip)`); los flujos
+  crudos caducan solos en ≤ 7 días.
 - Proceso auditado.
 
 ### 13.5 Baja de un tenant (offboarding)
 
-1. `offboarding_started`: se corta el acceso de sus usuarios y kioscos y se pausa la ingesta.
+1. `horus.auth.tenant.offboarded`: se corta el acceso de sus usuarios y kioscos y se pausa la ingesta.
 2. Exportación final a petición del ISP (inventario, clientes, agregados, auditoría del tenant),
    entregada cifrada.
 3. Tras el plazo acordado (por defecto 30 días): purga de sus filas en PostgreSQL y ClickHouse
-   (por `tenant_id`, primera columna del orden en ClickHouse), purga de subjects NATS del tenant
-   ([`events.md`](events.md) §2.4), destrucción de su TEK (crypto-shredding de sus credenciales) y
-   borrado de sus archivos `tenants/<tenant_id>/`.
+   (por `tenant_id`, primera columna del orden en ClickHouse), destrucción de su TEK
+   (crypto-shredding de sus credenciales) y borrado de `archive/<tenant_id>/` y `reports/<tenant_id>/`.
+   Los mensajes NATS no se pueden purgar por tenant (no hay token de tenant en el subject,
+   [`events.md`](events.md) §2.4): caducan solos (dominio 30 días, telemetría ≤ 72 h).
 4. Sus datos desaparecen de las copias cuando éstas caducan (35 días); el certificado de baja lo
    indica.
 5. Se conserva sólo la auditoría exigible (registro de la baja y metadatos mínimos).

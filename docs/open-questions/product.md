@@ -1,218 +1,140 @@
 # Preguntas abiertas — Producto
 
-Preguntas para el product owner (PO). Cada una indica **por qué importa**, **qué bloquea** y
-**mi recomendación**, que se toma como supuesto de trabajo si no hay respuesta antes de la fecha
-límite. Las preguntas técnicas relacionadas viven en
-[`architecture.md`](architecture.md) (Q1–Q16), [`data.md`](data.md),
-[`contracts.md`](contracts.md) y [`security-ops.md`](security-ops.md); aquí se enlazan en lugar de
-duplicarse.
+Preguntas para el product owner (PO). Tras la ronda 1 de respuestas
+([`../po-decisions.md`](../po-decisions.md), D1–D10) se separan en **resueltas**, **resueltas en
+parte** (queda una pregunta más concreta) y **abiertas**. Cada abierta indica qué bloquea y la
+recomendación, que se toma como **supuesto de trabajo** hasta que haya respuesta. Las preguntas
+técnicas relacionadas viven en [`architecture.md`](architecture.md), [`data.md`](data.md),
+[`contracts.md`](contracts.md), [`security-ops.md`](security-ops.md) y en
+[`../vendors/mikrotik.md`](../vendors/mikrotik.md) §9.2; aquí se enlazan en lugar de duplicarse.
 
-Prioridad: **Bloquea S1** · **Antes de S3** · **Antes de S6** · **Puede esperar**.
+Prioridad (incrementos de [`../roadmap.md`](../roadmap.md)): **Bloquea I1** · **Antes de I2** ·
+**Antes de I3** · **Puede esperar**.
 
-## Resumen
+## 1. Resueltas
 
-| ID | Pregunta | Límite | Recomendación (supuesto si no hay respuesta) |
+| ID | Pregunta | Decisión | Efecto en el plan |
 | --- | --- | --- | --- |
-| P-01 | Fecha de inicio y calendario | Bloquea S1 | Sprint 1 empieza el lunes siguiente al cierre de S0 |
-| P-02 | Tamaño y composición del equipo humano | Bloquea S1 | 4 flujos (≥ 1 persona o agente cada uno) + PO con 4 h/semana |
-| P-03 | ¿Quién usa la plataforma? (personas y roles) | Antes de S2 | NOC, ingeniería de red, seguridad, gerencia; ventas como lector de reportes |
-| P-04 | Fuente del mapa IP ↔ cliente y verdad de tipo de plan | **Antes de S4** | RADIUS accounting si existe; si no, API del router (PPPoE/DHCP) |
-| P-05 | Escala real: routers, clientes, tráfico | Antes de S3 | Diseñar para 1 000 routers / 50 000 clientes; medir en S6 |
-| P-06 | Fabricantes y modelos reales; ¿hay sFlow? | Antes de S3 | MikroTik primero; NetFlow v9/IPFIX antes que sFlow |
-| P-07 | ¿Para qué es WireGuard: gestión de routers o servicio a clientes? | Antes de S3 | Túneles de gestión hacia routers |
-| P-08 | Idioma(s) de la interfaz | Bloquea S1 | Solo español en v1, con i18n preparado desde S1 |
-| P-09 | País, zona horaria y formatos | Antes de S2 | Zona de la organización por defecto, editable por usuario |
-| P-10 | Prioridad entre WireGuard (S4) y SNMP (S5) | Antes de S3 | Mantener el orden si los routers solo son alcanzables por túnel; invertir si son alcanzables directamente |
-| P-11 | Marco legal y uso aceptable del perfilado de clientes | Antes de S6 | Asesoría legal antes de S6; scoring solo como indicio con revisión humana |
-| P-12 | ¿Hay servidor SMTP disponible? | Antes de S3 | Sí → recuperación por email en S3; no → solo restablecimiento por admin hasta S11 |
-| P-13 | Política de 2FA y SSO corporativo | Antes de S2 | 2FA obligatorio para todos; SSO post 1.0 |
-| P-14 | Presupuesto para feeds de reputación comerciales | Antes de S7 | Solo feeds abiertos en v1 |
-| P-15 | ¿GitHub o GitLab? | Bloquea S1 | GitHub + GitHub Actions |
-| P-16 | Herramientas actuales (Zabbix, LibreNMS, The Dude, PRTG…) | Antes de S3 | Convivir hasta el piloto; importar inventario desde la actual |
-| P-17 | ¿Avisos de router caído por email/Telegram antes de S11? | Antes de S5 | Sí, solo routers core, vía Alertmanager |
-| P-18 | ¿Aceptar ClickHouse dentro del MVP técnico (S5)? | Antes de S4 | Sí |
-| P-19 | Entorno piloto y routers de laboratorio | Antes de S3 | 1 router de laboratorio por fabricante + 10 routers reales en S5 |
-| P-20 | Identidad visual (marca, color, logo) | Antes de S1 (fin) | Marca sobria con un único color primario; sin "estética NOC" |
-| P-21 | Contextos de uso: pantalla mural, móvil, campo | Antes de S3 | Escritorio primero; mural en S9; móvil de consulta |
-| P-22 | ¿Quién consume los reportes y con qué formato/branding? | Antes de S11 | PDF con logo del ISP para gerencia; CSV/Excel para análisis |
+| P-01 | Fecha de inicio y calendario | **D9**: no hay calendario de sprints; los agentes producen cada entregable en el menor tiempo posible | Roadmap por incrementos con tallas relativas y gates de la persona ([`../roadmap.md`](../roadmap.md) §1–§2) |
+| P-02 | Tamaño y composición del equipo | **D7**: IA + 1 persona | Reparto en agentes, DoD verificable por máquina, aprobación de la persona solo en contratos, seguridad y demos ([`../backlog/team.md`](../backlog/team.md)) |
+| P-04 | Fuente del mapa IP ↔ cliente | **D1**: la IP es el cliente, descubierta de los flujos; residencial por defecto | Desaparecen RADIUS/CRM/facturación como fuente; descubrimiento automático en I1 ([ADR-0018](../adr/0018-la-ip-es-el-cliente.md)) |
+| P-10 | Prioridad entre WireGuard y SNMP | **D9 + D10**: se ordena por valor | Flujos y túnel mínimo en I1; SNMP en I2; gestión completa de WireGuard en I3 |
+| P-18 | ¿ClickHouse en el MVP? | **D4**: desde donde se necesite | ClickHouse desde I0 ([ADR-0021](../adr/0021-clickhouse-desde-el-primer-incremento.md)) |
+| P-21 | Contextos de uso: pantalla mural, móvil, campo | **D8**: dashboard modular para pantallas de monitoreo | Modo NOC/kiosco en el primer entregable ([`../frontend.md`](../frontend.md) §7) |
 
----
+## 2. Resueltas en parte
 
-## P-01 · Fecha de inicio y calendario
-- **Por qué importa:** fija fechas reales de hitos (H4 MVP técnico en la semana 11, H7 Release 1.0
-  en la semana 33, [`../roadmap.md`](../roadmap.md) §1–2) y la disponibilidad del PO en reviews.
-- **Pregunta:** ¿cuándo arranca el Sprint 1? ¿Hay fechas comerciales o regulatorias que fijen el
-  MVP o la 1.0? ¿Vacaciones o congelaciones de cambios en la red?
-- **Recomendación:** S1 empieza el lunes siguiente al cierre de S0; no comprometer fecha de 1.0
-  hasta medir la velocidad de S1–S2.
+| ID | Decidido | Lo que queda (pregunta concreta) | Límite | Supuesto de trabajo |
+| --- | --- | --- | --- | --- |
+| P-03 | **D6**: varios ISP; usuarios con acceso a uno o varios | ¿Qué roles hay dentro de cada ISP (NOC, seguridad, gerencia, técnicos)? ¿Quién opera la plataforma (superadmin): tú o cada ISP? | Antes de I2 | Roles `superadmin`, `isp_admin`, `isp_operator`, `isp_viewer` en I0; rol de seguridad por ISP en I2 |
+| P-06 | **D10**: MikroTik primero | ¿Qué modelos y versiones de RouterOS tienen los routers principales? ¿Hay v6 que no se pueda actualizar? ¿Usan offload por hardware (L3HW, FastTrack HW)? (= `vendors/mikrotik.md` §9.2, preguntas 1 y 3) | **Bloquea I1** | RouterOS v7 ≥ 7.12; v6 fuera del primer entregable; offload detectado y avisado |
+| P-07 | Supuesto de `po-decisions.md`: WireGuard conecta los routers con Horus; diseño en [ADR-0022](../adr/0022-mikrotik-routeros-v7-primer-fabricante.md) | Confirmar que los routers pueden iniciar un túnel saliente UDP hacia Horus y que el ISP acepta pegar el script de onboarding | **Bloquea I1** | Sí; el router inicia el túnel y se enrola solo con un token de un uso |
+| P-11 | **D5**: propósito de seguridad (mitigar botnets) | País de cada ISP y ley aplicable; si los contratos/avisos de privacidad cubren este análisis | Antes de usar datos reales de terceros (antes del gate G1 si el router de la persona tiene clientes reales) | Minimización: crudo 7 días, IPs fuera de URLs y logs, acceso a fichas auditado, sin datos personales en kioscos por defecto |
+| P-19 | El PO probará con su MikroTik | ¿Modelo, versión de RouterOS y cuántos clientes ve ese router? ¿Tiene clientes reales o es de laboratorio? ¿Hay una máquina con KVM para el laboratorio CHR? | **Bloquea I1** | Router con RouterOS v7 y clientes de laboratorio; laboratorio CHR en la máquina de los agentes |
 
-## P-02 · Tamaño y composición del equipo
-- **Por qué importa:** el plan de 16 sprints solo cabe en 33 semanas con ~4 flujos en paralelo;
-  con 1–2 personas son ~20–22 sprints ([`../roadmap.md`](../roadmap.md) §6).
-- **Pregunta:** ¿cuántas personas (y con qué perfil: Go, frontend, redes, datos, DevOps)? ¿Se usan
-  agentes de IA por flujo? ¿Quién revisa y aprueba los PRs de los agentes?
-- **Recomendación:** mínimo 4 flujos de [`../backlog/team.md`](../backlog/team.md) (Plataforma,
-  Backend core, Frontend, Datos) con un humano que actúe como coordinador/revisor de contratos y
-  el PO con ≥ 4 h/semana (refinement + review). Si hay agentes de IA, un humano aprueba todo
-  merge que toque `area:security` o contratos.
+## 3. Abiertas
 
-## P-03 · ¿Quién usa la plataforma?
-- **Por qué importa:** define roles predefinidos ([`../security.md`](../security.md) §6.2),
-  prioridad de pantallas y personas de las historias ([`../frontend.md`](../frontend.md) §2).
-- **Pregunta:** ¿la usan el NOC 24/7, ingeniería de red, seguridad, soporte de primer nivel,
-  técnicos de campo, ventas, gerencia? ¿Cuántos usuarios de cada tipo? ¿Ventas debe ver datos de
-  consumo por cliente (dato personal)?
-- **Recomendación:** usuarios principales NOC e ingeniería de red (diseño centrado en ellos);
-  seguridad y gerencia como secundarios; ventas solo accede a reportes de "posibles comerciales"
-  agregados, sin navegación por tráfico individual. Confirmar si hace falta un rol de **técnico de
-  campo** con ACL por sitio (no existe en `security.md` §6.2; se podría derivar de
-  `noc_operator` + ACL).
+### Bloquean I1
 
-## P-04 · Fuente del mapa IP ↔ cliente *(crítica)*
-- **Por qué importa:** sin saber qué IP tiene cada cliente en cada momento, S7, S9 y S10 solo
-  entregan valor por IP, no por cliente (riesgo crítico, Q5 de [`architecture.md`](architecture.md),
-  [`../roadmap.md`](../roadmap.md) §4.5). El scoring residencial/comercial necesita además saber qué
-  plan tiene contratado cada cliente para calibrarse.
-- **Pregunta:** ¿cómo reciben IP los clientes (PPPoE, DHCP/IPoE, estática, CGNAT)? ¿Existe RADIUS
-  con accounting? ¿Qué sistema de facturación/CRM se usa y tiene API? ¿Qué campo distingue un plan
-  residencial de uno comercial? ¿Hay CGNAT y dónde se exportan los flujos (antes o después)
-  (Q6)?
-- **Recomendación:** RADIUS accounting si existe (fuente autoritativa y en tiempo real); si no, API
-  de los routers (sesiones PPPoE / leases DHCP de RouterOS). Importación CSV desde facturación para
-  datos del cliente y su plan. Decidir **antes de S4** (spike) para implementar el adaptador en S5.
+#### P-23 · ¿Detectar y avisar, o también actuar sobre el router?
+- **Por qué importa:** "mitigar que clientes entren en botnets" (D5) puede significar detectar y
+  avisar, o también **cortar o poner en cuarentena** a un cliente desde Horus (address-list en el
+  MikroTik). Actuar exige escribir en el router, un usuario con permisos de escritura y un riesgo de
+  cortar el servicio por error ([`../vendors/mikrotik.md`](../vendors/mikrotik.md) §9.2 pregunta 7;
+  [ADR-0024](../adr/0024-deteccion-de-botnets-como-objetivo-principal.md) §4).
+- **Pregunta:** ¿Horus solo detecta y explica, o quieres que en el futuro pueda aplicar una
+  cuarentena? Si es así, ¿siempre con aprobación humana?
+- **Recomendación:** v1 solo detecta, explica y avisa; Horus no escribe en el router. Cuarentena
+  asistida (con aprobación, caducidad y reversión) como opción de I4 si la pides.
 
-## P-05 · Escala real
-- **Por qué importa:** dimensiona ClickHouse, NATS, retención y el muestreo (necesario desde ~200
-  routers, [`../architecture.md`](../architecture.md)). Ver Q2 y Q10.
-- **Pregunta:** número de routers hoy y en 2–3 años; número de clientes; tráfico pico agregado
-  (Gbps); ¿cuántos routers exportarán flujos?
-- **Recomendación:** diseñar para 1 000 routers y 50 000 clientes; medir flujos/s reales con un
-  router en S6 antes de fijar retención (supuesto: raw 7 días).
+#### P-24 · ¿Dónde se hace el NAT/CGNAT y qué rangos son de clientes?
+- **Por qué importa:** D1 solo funciona si el router principal ve la IP del cliente. Si el CGNAT
+  está en otro equipo entre los clientes y el router, la IP observada es la pública compartida y no
+  identifica a nadie ([`../vendors/mikrotik.md`](../vendors/mikrotik.md) §2.4; supuesto abierto de
+  `po-decisions.md`). Además, Horus necesita saber qué rangos son de clientes, de infraestructura o
+  excluidos ([`../traffic-model.md`](../traffic-model.md) §4.1).
+- **Pregunta:** en cada ISP, ¿el NAT lo hace el router principal, otro equipo o el CPE? ¿Los pools de
+  clientes están definidos en el MikroTik (`/ip pool`)?
+- **Recomendación:** NAT en el router principal o en el CPE (ambos funcionan); prefijos importados
+  del MikroTik y confirmados por el ISP, con modo descubrimiento como respaldo.
 
-## P-06 · Fabricantes, modelos y protocolos de flujo
-- **Por qué importa:** orden de adaptadores SNMP (S5–S8) y colectores (NetFlow/IPFIX/sFlow, S6).
-- **Pregunta:** proporción por fabricante y modelo; versiones de firmware; ¿qué routers exportan
-  NetFlow v5/v9, IPFIX o sFlow? ¿Existe inventario en hoja de cálculo para importar en S3?
-- **Recomendación:** MikroTik + MIB estándar primero; NetFlow v9/IPFIX antes que sFlow; entregar
-  el inventario actual al inicio de S3 para la plantilla CSV.
+#### P-25 · ¿Quién recibe los hallazgos de botnet y qué hace con ellos?
+- **Por qué importa:** define severidades por defecto, el lenguaje de la UI, la plantilla
+  "Seguridad" y, en I3, a quién se avisa.
+- **Pregunta:** en cada ISP, ¿quién revisa los hallazgos (NOC, soporte, seguridad)? ¿Se contacta al
+  abonado? ¿Hace falta registrar qué se hizo (llamada, visita, cambio de CPE)?
+- **Recomendación:** los revisa el NOC o seguridad del ISP; la UI registra el estado y un comentario;
+  el contacto con el abonado queda fuera de Horus en v1.
 
-## P-07 · ¿Para qué es WireGuard?
-- **Por qué importa:** cambia el alcance de S4 (túneles de gestión vs producto VPN para clientes)
-  y la seguridad (Q3, Q9 de [`architecture.md`](architecture.md)).
-- **Pregunta:** ¿los túneles conectan los routers a un hub central para gestión/monitoreo? ¿O el
-  ISP venderá VPN a clientes? ¿Quién genera las claves y Horus debe configurar el lado del router?
-- **Recomendación:** v1 = túneles de **gestión** hacia routers, claves generadas por Horus,
-  configuración del router descargable (no se empuja automáticamente hasta post-MVP).
+#### P-26 · ¿La interfaz se expone a Internet?
+- **Por qué importa:** con varios ISP (D6) puede hacer falta acceso desde fuera de una red privada;
+  eso adelanta 2FA y endurecimiento ([`security-ops.md`](security-ops.md) Q13). El endpoint de
+  enrolamiento del router sí debe ser alcanzable desde los routers.
+- **Pregunta:** ¿los usuarios de los ISP entrarán por Internet o por VPN/red privada?
+- **Recomendación:** en I1, UI solo en red privada o VPN y endpoint de enrolamiento + UDP de
+  WireGuard públicos; 2FA en I2 antes de exponer la UI.
 
-## P-08 · Idioma(s) de la interfaz
-- **Por qué importa:** coste de i18n y de copia; tiene que decidirse antes de escribir textos.
-- **Pregunta:** ¿solo español? ¿Algún usuario necesita inglés (proveedores, auditores)?
-- **Recomendación:** solo español en v1, con todas las cadenas en archivos de i18n desde S1
-  (coste marginal); inglés si un cliente o auditor lo pide.
+### Antes de I2
 
-## P-09 · País, zona horaria y formatos
-- **Por qué importa:** los datos se guardan en UTC; los dashboards diarios, reportes mensuales y
-  el scoring por horario dependen de la zona local. También afecta al marco legal (P-11).
-- **Pregunta:** ¿en qué país(es) opera el ISP? ¿Una sola zona horaria? ¿Formato de números y
-  fechas?
-- **Recomendación:** zona horaria de la organización como valor por defecto (cortes diarios y
-  reportes), preferencia por usuario para la visualización.
+#### P-05 · Escala real
+- **Pregunta:** número de ISP, nodos por ISP, clientes por nodo y tráfico pico; ¿cuántos routers
+  exportarán flujos en 12 meses?
+- **Recomendación:** medir con el router de la persona en I1; diseñar para 100 routers en un
+  servidor y 1 000 con el perfil estándar ([ADR-0025](../adr/0025-binario-modular-con-roles.md)).
 
-## P-10 · Prioridad entre WireGuard y SNMP
-- **Por qué importa:** el plan pone WireGuard (S4) antes que SNMP (S5). Tiene sentido si los routers
-  solo son alcanzables por túnel; si no, el NOC obtendría valor antes con SNMP.
-- **Pregunta:** ¿los routers son alcanzables hoy por la red de gestión sin túnel? ¿Qué aporta más
-  al NOC en el primer mes: ver métricas o gestionar túneles?
-- **Recomendación:** mantener el orden si la respuesta a P-07/Q3 es "gestión por túnel"; si los
-  routers ya son alcanzables, **intercambiar S4 y S5** (no cambia dependencias técnicas: el
-  sondeo ICMP ya está en S3).
+#### P-27 · ¿Quién opera Horus para varios ISP?
+- **Por qué importa:** si un tercero (tú) opera una instalación para varios ISP, hacen falta vista
+  global, límites por ISP y contratos de tratamiento de datos; si cada ISP instala el suyo, la vista
+  global pierde peso. Afecta a P-11 y a la consola de plataforma.
+- **Pregunta:** ¿una instalación compartida para varios ISP, una por ISP, o ambas?
+- **Recomendación:** diseño multi-tenant (D6) válido para ambas; priorizar la instalación compartida
+  operada por ti.
 
-## P-11 · Marco legal del perfilado de clientes
-- **Por qué importa:** S6–S10 procesan metadatos de tráfico de abonados (dato personal) y S10
-  etiqueta clientes como "posible uso comercial" (Q14 de [`architecture.md`](architecture.md)).
-- **Pregunta:** ¿qué ley de protección de datos y de retención de telecomunicaciones aplica? ¿Los
-  contratos permiten este análisis? ¿Qué se hará con un "posible comercial": revisión, contacto
-  comercial, cambio de plan automático?
-- **Recomendación:** consulta legal antes de S6; el scoring es un **indicio para revisión
-  humana**, nunca una acción automática; acceso por cliente restringido a `traffic.client.read`
-  y auditado.
+#### P-28 · Criterios de "uso comercial"
+- **Por qué importa:** el scoring de I2 necesita saber qué consideras comercial
+  ([`../traffic-model.md`](../traffic-model.md) §9) y qué se hace con el resultado.
+- **Pregunta:** ¿qué señales te parecen comerciales (servidores expuestos, muchos dispositivos,
+  horario laboral, volumen de subida)? ¿El resultado es solo informativo o tiene consecuencias
+  (cambio de plan)?
+- **Recomendación:** solo informativo, con razones y confianza; el tipo manual siempre prevalece.
 
-## P-12 · SMTP disponible
-- **Por qué importa:** recuperación de contraseña por email ([`../roadmap.md`](../roadmap.md) §4.1)
-  y canal Email de alertas (S11).
-- **Pregunta:** ¿hay servidor SMTP corporativo o servicio transaccional utilizable?
-- **Recomendación:** si existe, recuperación por email en S3 (historia S03-18); si no, solo
-  restablecimiento asistido por administrador hasta S11.
+#### P-13 · 2FA y SSO
+- **Recomendación:** 2FA obligatorio para todos en I2; SSO después de 1.0.
 
-## P-13 · Política de 2FA y SSO
-- **Por qué importa:** S2 implementa TOTP; `security.md` lo hace obligatorio para roles con
-  permisos de gestión.
-- **Pregunta:** ¿2FA obligatorio para todos? ¿Existe un IdP corporativo (Entra ID, Google
-  Workspace) con el que se espere SSO?
-- **Recomendación:** 2FA obligatorio para todos (son pocos usuarios con acceso a datos sensibles);
-  SSO como relying party después de 1.0 salvo que sea requisito de compra.
+#### P-09 · Zona horaria y formatos
+- **Recomendación:** zona horaria por ISP (cortes diarios y kioscos) y preferencia por usuario.
 
-## P-14 · Feeds de reputación
-- **Por qué importa:** calidad de detección en S8 y coste recurrente.
-- **Pregunta:** ¿hay presupuesto para feeds comerciales? ¿Alguna lista que el ISP ya use?
-- **Recomendación:** feeds abiertos (abuse.ch, Spamhaus DROP, listas de Tor exit, etc., sujeto a
-  sus licencias) en v1; evaluar comerciales con datos de falsos positivos del piloto.
+### Antes de I3
 
-## P-15 · Plataforma de repositorio y CI
-- **Por qué importa:** S01-03 implementa el pipeline.
-- **Pregunta:** ¿GitHub o GitLab (vision.md §10 admite ambos)? ¿Runners propios para pruebas con
-  hardware?
-- **Recomendación:** GitHub + GitHub Actions (el repo ya está ahí); runner propio en S5 para las
-  pruebas con routers de laboratorio.
+#### P-17 · Avisos externos antes de I3
+- **Pregunta:** ¿necesitas avisos por Telegram/email antes de I3 (p. ej. router *Silencioso*)?
+- **Recomendación:** no; si urge, se adelanta un aviso mínimo de exportador silencioso.
 
-## P-16 · Herramientas actuales
-- **Por qué importa:** migración de inventario, expectativas del NOC y coexistencia durante el
-  piloto.
-- **Pregunta:** ¿qué usa hoy el NOC para monitoreo, inventario y alertas? ¿Qué echa de menos?
-- **Recomendación:** coexistir hasta H6 (piloto); importar inventario de la herramienta actual en
-  S3; entrevistar a 2–3 operadores antes de S3 para validar el Resumen y el detalle de router.
+#### P-12 · SMTP disponible
+- **Recomendación:** si hay SMTP, canal email en I3; si no, Telegram y webhook.
 
-## P-17 · Avisos de router caído antes de S11
-- **Por qué importa:** entre S5 y S11 la plataforma detecta caídas pero solo las muestra en la UI
-  ([`../roadmap.md`](../roadmap.md) §4.6, Q13 de [`architecture.md`](architecture.md)).
-- **Pregunta:** ¿el NOC necesita email/Telegram por caída de router desde el MVP?
-- **Recomendación:** sí, solo para routers marcados como core/críticos, mediante una métrica
-  `horus_router_up` en Prometheus y Alertmanager (ya desplegado para infraestructura), sin
-  adelantar el servicio `alerts`.
+#### P-14 · Feeds de reputación
+- **Pregunta:** ¿presupuesto para feeds comerciales? ¿El ISP ya usa alguna lista?
+- **Recomendación:** solo feeds abiertos con licencia de uso comercial en I1; evaluar comerciales con
+  la tasa de falsos positivos medida.
 
-## P-18 · ClickHouse en el MVP técnico
-- **Por qué importa:** `vision.md` §14 define el MVP sin ClickHouse; el Agente 2 propone guardar
-  las series SNMP en ClickHouse desde S5 (C-03 de [`../roadmap.md`](../roadmap.md) §7). Cambia el
-  documento fuente y requiere ADR.
-- **Pregunta:** ¿se acepta añadir ClickHouse al MVP técnico?
-- **Recomendación:** sí: evita una tabla puente en PostgreSQL y una migración de datos en S6, y
-  adelanta el aprendizaje operativo de ClickHouse a un sprint con poco volumen.
+#### P-22 · Reportes
+- **Recomendación:** reporte semanal de seguridad y de consumo por ISP en PDF/CSV en I3.
 
-## P-19 · Entorno piloto y laboratorio
-- **Por qué importa:** la DoR de S3–S6 exige probar con equipos reales; las reviews deben mostrar
-  funcionalidad real (`vision.md` §12).
-- **Pregunta:** ¿hay routers de laboratorio? ¿Qué routers de producción pueden usarse en el piloto
-  y con qué ventana de cambios? ¿Qué servidor aloja el entorno de staging/piloto (Q16)?
-- **Recomendación:** 1 router de laboratorio por fabricante principal desde S3, 10 routers reales
-  en S5 (H4) y exportación de flujos de 1–3 routers desde S6.
+#### P-29 · Destino de la copia remota
+- **Por qué importa:** D2 deja el NAS opcional; sin copia remota no hay recuperación ante la pérdida
+  del servidor ([ADR-0019](../adr/0019-almacenamiento-local-y-destino-remoto.md)). MediaFire no es
+  viable (rclone no lo soporta).
+- **Pregunta:** ¿qué destino usarás primero (SFTP a un NAS, Google Drive, MEGA, Dropbox)?
+- **Recomendación:** SFTP a un NAS o servidor propio; cifrado del lado cliente con clave de
+  recuperación guardada fuera de Horus.
 
-## P-20 · Identidad visual
-- **Por qué importa:** tokens de color y logo se fijan en S1 (S01-13).
-- **Pregunta:** ¿Horus Flow tiene marca propia o usa la del ISP? ¿Color corporativo?
-- **Recomendación:** marca propia sobria con un único color primario reservado a acciones
-  principales; estados con colores semánticos independientes de la marca
-  ([`../frontend.md`](../frontend.md) §10.2); evitar la estética genérica de "NOC" negro y verde.
+### Pueden esperar
 
-## P-21 · Contextos de uso
-- **Por qué importa:** prioridad de responsive, modo mural y rendimiento en móvil.
-- **Pregunta:** ¿hay pantalla mural en el NOC? ¿Los técnicos de campo usarán tablet/móvil y con qué
-  conectividad?
-- **Recomendación:** escritorio primero; modo mural en S9; móvil para consulta (estado, alertas,
-  detalle de router) sin edición compleja.
-
-## P-22 · Reportes
-- **Por qué importa:** alcance de S12 (plantillas, programación, distribución).
-- **Pregunta:** ¿quién recibe reportes, con qué frecuencia, en qué formato? ¿Necesitan logo del
-  ISP? ¿Se envían por email automáticamente?
-- **Recomendación:** PDF mensual con logo para gerencia, CSV/Excel bajo demanda para analistas;
-  envío programado por email después de S12 si P-12 lo permite.
+| ID | Pregunta | Recomendación |
+| --- | --- | --- |
+| P-08 | Idiomas de la interfaz | Solo español en v1, con i18n desde I0 |
+| P-15 | GitHub o GitLab | GitHub + GitHub Actions (el repositorio ya está ahí; supuesto vigente en [`../conventions.md`](../conventions.md)) |
+| P-16 | Herramientas actuales (The Dude, Zabbix, LibreNMS…) | Convivir; Horus no sustituye el monitoreo general en I1 |
+| P-20 | Identidad visual | Marca propia sobria con un único color primario; estados con colores semánticos independientes ([`../frontend.md`](../frontend.md) §13.2) |
+| P-30 | ¿Las pantallas NOC pueden mostrar IPs de clientes? | No por defecto (las ven visitas y cámaras); cada ISP puede activarlo por kiosco ([`../api.md`](../api.md) §2.12) |

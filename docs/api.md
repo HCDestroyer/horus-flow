@@ -450,7 +450,7 @@ de cualquiera es de plataforma (§2.8).
 | `GET /routers` | Lista (filtros `site_id`, `status`, `observed_state`, `vendor_id`, `tag`, `group_id`, `q`; orden `name`, `status`, `last_observed_at`). Incluye `status`, `observed_state`, `status_reason`, `last_observed_at` (§2.6). | `devices.read` |
 | `GET /routers/status-summary` | Conteo por `status` efectivo (los 8 valores de §2.6), opcional `site_id`/`group_id`. Base del dashboard online/offline/warning/critical. | `devices.read` |
 | `POST /routers` · `GET /routers/{id}` · `PATCH /routers/{id}` · `DELETE /routers/{id}` | Registrar / detalle / editar / baja. | `devices.create` / `devices.read` / `devices.update` / `devices.delete` |
-| `PUT /routers/{id}/credentials/{kind}` 🔒 | Credencial **write-only** por tipo: `snmp` (v3 authPriv preferente; v2c sólo dentro del túnel), `routeros_api` (usuario + contraseña o certificado para la API REST de RouterOS v7 sobre HTTPS, D10), `ssh` (usuario + llave ed25519 generada por Horus; se devuelve sólo la **pública** para instalarla en el router). Respuesta sin secretos (`configured`, `kind`, `updated_at`, `last_used_at`, `last_result`). Sustituye a `PUT /routers/{id}/snmp-credentials`. | `devices.credentials.write` |
+| `PUT /routers/{id}/credentials/{kind}` 🔒 | Credencial **write-only** por tipo: `snmp` (v3 authPriv preferente; v2c sólo dentro del túnel), `routeros_api` (usuario `horus-ro` de solo lectura para la API binaria con TLS 8729 y la API REST sobre HTTPS de RouterOS v7, D10; [ADR-0022](./adr/0022-mikrotik-routeros-v7-primer-fabricante.md)). `ssh` queda reservado (no se usa en v1). Respuesta sin secretos (`configured`, `kind`, `updated_at`, `last_used_at`, `last_result`). Sustituye a `PUT /routers/{id}/snmp-credentials`. | `devices.credentials.write` |
 | `POST /routers/{id}/credentials/{kind}/test` | Prueba de conectividad/autenticación con la credencial guardada (`202`; resultado por WebSocket). `Idempotency-Key` obligatorio. | `devices.update` |
 | `POST /routers/{id}/credentials/{kind}/reveal` 🔒 | Revela en claro (auditado, 2FA). Nadie lo tiene por defecto salvo `tenant_admin`. | `devices.credentials.reveal` |
 | `POST /routers/{id}/maintenance` · `DELETE /routers/{id}/maintenance` | Ventana de mantenimiento. | `devices.update` |
@@ -472,6 +472,9 @@ de cualquiera es de plataforma (§2.8).
 | `POST /wireguard/peers/{id}/revoke` | Revocación inmediata (el registro permanece). `Idempotency-Key` obligatorio. | `wireguard.write` |
 | `DELETE /wireguard/peers/{id}` | Borrado de un peer ya revocado. | `wireguard.write` |
 | `GET /wireguard/peers/{id}/config` 🔒 | Configuración del lado del router (`text/plain`, `no-store`). | `wireguard.write` |
+| `POST /routers/{id}/provisioning-script` 🔒 | Genera el script RouterOS `.rsc` de alta (WireGuard sin clave privada, Traffic Flow IPFIX, SNMPv3, usuario `horus-ro`, firewall, `/tool fetch` de enrolamiento) con un **token de enrolamiento** de un solo uso embebido. `Idempotency-Key` obligatorio. Respuesta `text/plain`, `no-store`. | `wireguard.write` |
+| `POST /wireguard/enrollment-tokens/{id}/revoke` | Revoca un token de enrolamiento no usado. | `wireguard.write` |
+| `POST /enroll/wireguard` | **Público** (sin sesión): el router envía `{"token", "public_key"}`. Token de 256 bits, sólo su hash en BD, ligado a (tenant, router, peer previsto), TTL 24 h, un uso, revocable. Sólo acepta una clave pública WireGuard válida (44 caracteres base64) y rechaza una ya registrada. No devuelve secretos: `202 {"peer_status": "pending_handshake"}`. Rate limit estricto (10/min por IP, 5 fallos por token lo invalidan). Auditado y notificado al admin del tenant. Ver [ADR-0022](./adr/0022-mikrotik-routeros-v7-primer-fabricante.md) §1.1. | token de enrolamiento |
 
 ### 2.5 Métricas SNMP de un router
 
@@ -482,10 +485,10 @@ de cualquiera es de plataforma (§2.8).
 | `GET /analytics/routers/{id}/metrics` | `analytics` | Series de dispositivo con rango (§1.7): `cpu_percent`, `memory_percent`, `temperature_celsius`, `uptime_seconds`, `poll_latency_ms`, `availability_ratio`. | `snmp.read` |
 | `GET /analytics/routers/{id}/interfaces/metrics` | ídem | Series por interfaz (`interface_id=a,b`): `rx_bps`, `tx_bps`, `rx_errors`, `tx_errors`, `rx_drops`, `tx_drops`, `oper_status`. | `snmp.read` |
 
-> Con D4 ClickHouse existe desde el primer incremento que guarda series, así que las históricas las sirve siempre su
-> dueño analítico ([`services.md`](./services.md)); desaparece el enrutado temporal a `snmp` (C-17 resuelta). Las
-> métricas de MikroTik obtenidas por la API REST de RouterOS (D10, [`vendors/mikrotik.md`](./vendors/mikrotik.md))
-> se exponen por los mismos endpoints: el campo `meta.source` indica `snmp` o `routeros_api`.
+> Con D4 ClickHouse existe desde el primer incremento que guarda series, así que las históricas las sirve siempre
+> `analytics` ([`services.md`](./services.md)); desaparece el enrutado temporal a `snmp` (C-17 resuelta). Las métricas
+> de MikroTik salen de SNMP (MIKROTIK-MIB incluida); la API de RouterOS se usa para datos del alta y del realm, no como
+> fuente de series ([ADR-0022](./adr/0022-mikrotik-routeros-v7-primer-fabricante.md)).
 
 ### 2.6 Estado del router: un solo conjunto de valores
 
@@ -549,111 +552,125 @@ topología).
   "key":"status","data":{...}}`).
 - Rate limit propio: la UI lo consulta como máximo cada 30 s (o sólo al reconectar el WebSocket).
 
-### 2.8 Plataforma: tenants, nodos y usuarios (`auth` + `devices`; sólo roles de plataforma)
+### 2.8 Plataforma: tenants, usuarios y copias (`auth` + `jobs`; token de ámbito `platform`)
 
-Rutas **absolutas** bajo `/api/v1/platform`. Un `platform_admin` gestiona la plataforma, **no** ve datos de negocio de
-los ISP (clientes, tráfico, hallazgos) salvo con acceso de soporte explícito y temporal ([`security.md`](./security.md)
-§6.6).
+Rutas bajo `/api/v1/platform`. Un usuario de plataforma gestiona la instalación y **no** ve datos de negocio de los ISP
+(clientes, tráfico, hallazgos). Para operar dentro de un ISP **entra** en él pidiendo un token de ese tenant, lo que
+exige acceso de soporte explícito, temporal y auditado ([`security.md`](./security.md) §6.6; `via_platform = true` en la
+auditoría, [ADR-0017](./adr/0017-multi-tenant-desde-v1.md) §2).
 
 | Método y ruta | Servicio | Descripción | Permiso |
 | --- | --- | --- | --- |
-| `GET /platform/tenants` · `GET /platform/tenants/{id}` | auth | ISP: `slug`, `name`, `status` (`active`/`suspended`/`offboarding`), país (para la ley aplicable), cuotas, conteos (nodos, routers, clientes, flujos/s), `support_access_policy`. | `platform.tenants.read` |
+| `GET /platform/overview` | gateway (compone de `auth`/`devices`/`alerts`) | Estado por tenant: routers caídos, alertas abiertas, salud de ingesta y cobertura de flujos, cuotas; **sin** datos de clientes. Única vista multi-ISP de v1. | `platform.status.read` |
+| `GET /platform/tenants` · `GET /platform/tenants/{id}` | auth | ISP: `slug`, `name`, `status` (`active`/`suspended`/`offboarded`), país (ley aplicable), cuotas, conteos, `support_access_policy`. | `platform.tenants.read` |
 | `POST /platform/tenants` 🔒 | auth | Alta de ISP + invitación al primer `tenant_admin`. `Idempotency-Key` obligatorio. | `platform.tenants.manage` |
 | `PATCH /platform/tenants/{id}` | auth | Nombre, cuotas (`max_routers`, `max_flows_per_second`, `max_customers`), retenciones dentro de los límites de plataforma. | `platform.tenants.manage` |
-| `POST /platform/tenants/{id}/suspend` · `/resume` 🔒 | auth | Suspender: sus usuarios reciben `403 TENANT_SUSPENDED`; la ingesta sigue o se pausa según `pause_ingest`. | `platform.tenants.manage` |
-| `POST /platform/tenants/{id}/offboard` 🔒 | auth | Baja: exportación final + borrado programado (crypto-shredding de la KEK del tenant y purga de datos, [`security.md`](./security.md) §13.5). Requiere confirmación con el `slug`. | `platform.tenants.manage` |
-| `GET /platform/tenants/{id}/nodes` · `POST ...` · `PATCH /platform/nodes/{id}` | devices | Alta asistida de nodos y su router principal (*onboarding*): crea `site` + `router` + peer WireGuard + exportador esperado en el tenant. Equivale a las rutas de tenant, pero sin necesitar membresía. | `platform.nodes.manage` |
-| `GET /platform/exporters/unassigned` | flows | Exportadores que envían flujos sin estar asociados a ningún router/tenant (descartados). Sólo plataforma: aún no tienen tenant. | `platform.nodes.manage` |
-| `GET /platform/users` · `GET /platform/users/{id}` | auth | Usuarios de la plataforma con sus membresías. | `platform.users.read` |
-| `POST /platform/users/{id}/disable` · `/enable` 🔒 | auth | Bloquear (revoca sesiones y tokens en todos los tenants). | `platform.users.manage` |
+| `POST /platform/tenants/{id}/suspend` · `/resume` 🔒 | auth | Suspender: sus tokens dejan de emitirse y los vigentes reciben `403 TENANT_SUSPENDED`. | `platform.tenants.manage` |
+| `POST /platform/tenants/{id}/offboard` 🔒 | auth | Baja: exportación final + purga programada ([`security.md`](./security.md) §13.5). Confirmación con el `slug`. | `platform.tenants.manage` |
+| `POST /platform/tenants/{id}/support-access` 🔒 | auth | Abre acceso de soporte (motivo, ≤ 4 h); después `POST /auth/token {"tenant_id"}` emite el token del tenant con `via_platform`. | `platform.support_access` |
+| `GET /platform/exporters/unregistered` | flows | Exportadores que envían flujos sin estar registrados (descartados; evento `horus.flows.exporter.unregistered`). | `platform.tenants.read` |
+| `GET /platform/users` · `GET /platform/users/{id}` | auth | Usuarios con sus membresías. | `platform.users.read` |
+| `POST /platform/users/{id}/disable` · `/enable` 🔒 | auth | Bloquear (revoca sesión y tokens en todos los tenants). | `platform.users.manage` |
 | `PUT /platform/users/{id}/platform-roles` 🔒 | auth | Roles de plataforma. Nadie se asigna a sí mismo. | `platform.users.manage` |
 | `GET /platform/sessions` · `DELETE /platform/sessions/{id}` | auth | Sesiones de cualquier usuario. | `platform.users.manage` |
-| `POST /platform/tenants/{id}/support-access` 🔒 | auth | Acceso de soporte temporal (motivo obligatorio, ≤ 4 h, notificado al `tenant_admin`, auditado en ambos registros). | `platform.support_access` |
-| `GET /platform/audit-events` | auth | Auditoría de plataforma (acciones sin tenant y de roles de plataforma). | `platform.audit.read` |
-| `GET /platform/storage-targets` · `POST` · `PATCH /platform/storage-targets/{id}` · `DELETE` | ops (dueño lo fija el Agente A) | Destinos remotos de copias (D2): `kind` `sftp` \| `gdrive` \| `dropbox` \| `mega` \| `s3`, parámetros no secretos, `schedule`, `encryption: client_side` (obligatorio). | `platform.storage.manage` |
-| `PUT /platform/storage-targets/{id}/credentials` 🔒 | ídem | Secretos write-only (llave SFTP, token OAuth, contraseña); nunca se devuelven. | `platform.storage.manage` |
-| `POST /platform/storage-targets/{id}/test` | ídem | Prueba escritura/lectura/borrado de un objeto de prueba (`202`). | `platform.storage.manage` |
-| `GET /platform/backups` | ídem | Últimas copias locales y remotas por componente, verificación y antigüedad ([`disaster-recovery.md`](./disaster-recovery.md)). | `platform.status.read` |
+| `GET /platform/audit-events` | auth | Auditoría de plataforma. | `platform.audit.read` |
+| `GET /platform/remote-destinations` · `POST` · `PATCH /platform/remote-destinations/{id}` · `DELETE` | jobs | Destinos remotos de copias (D2, [ADR-0019](./adr/0019-almacenamiento-local-y-destino-remoto.md)): `kind` `sftp` \| `gdrive` \| `dropbox` \| `mega`, parámetros no secretos, rutas a replicar (`backups/`, `archive/`, `audit/`, `reports/`), calendario, retención remota, `encryption: rclone_crypt` (obligatorio en nube de consumo). Estado: `last_success_at`, `lag_seconds`, `pending_bytes`, `last_error`. Cero destinos es válido. | `platform.storage.manage` |
+| `PUT /platform/remote-destinations/{id}/credentials` 🔒 | jobs | Secretos write-only (llave SFTP, token OAuth, contraseña MEGA); nunca se devuelven. | `platform.storage.manage` |
+| `POST /platform/remote-destinations/{id}/test` | jobs | Escribe, lee, verifica y borra un objeto de prueba (`202`). | `platform.storage.manage` |
+| `POST /platform/remote-destinations/{id}/sync` | jobs | Fuerza una copia ahora (`202`). `Idempotency-Key` obligatorio. | `platform.storage.manage` |
+| `GET /platform/backups` | jobs | Copias locales y remotas por componente, verificación, antigüedad y última restauración de prueba ([`disaster-recovery.md`](./disaster-recovery.md)). | `platform.status.read` |
 
 ### 2.9 Clientes descubiertos (`devices`; D1)
 
-Un **cliente es una IP** vista en los flujos del router principal de un nodo. Identidad: `(tenant_id, realm_id, ip)`
-(el *realm* distingue espacios de direcciones que se repiten, p. ej. 100.64.0.0/10 en dos nodos con CGNAT; modelo del
-Agente B en [`database.md`](./database.md)). No hay alta manual, ni CRM, ni asignaciones IP↔cliente: los antiguos
-`customer.assigned/unassigned` y `subscribers.*` desaparecen.
-
-Representación:
+Un **cliente es una IP** (o un prefijo IPv6 delegado) vista en los flujos del router principal de un nodo, dentro de
+los **prefijos de clientes** del realm. Identidad: `(tenant_id, realm_id, address)` ([ADR-0018](./adr/0018-la-ip-es-el-cliente.md),
+[`database.md`](./database.md) §2.3). No hay alta manual, ni CRM, ni asignaciones IP↔cliente: desaparecen
+`customer.assigned/unassigned` y `subscribers.*`.
 
 ```json
 {
   "id": "0192f0c4-7a1e-7c3a-9b1d-2f6e8a4c1d55",
   "tenant_id": "0192e000-0000-7000-8000-000000000001",
-  "ip": "100.64.12.34",
-  "realm_id": "0192e111-...", "site_id": "0192e222-...", "router_id": "0192e333-...",
+  "address": "100.64.12.34",
+  "realm_id": "0192e111-...", "site_id": "0192e222-...", "client_prefix_id": "0192e444-...",
   "status": "active",
-  "type": "commercial",
-  "type_source": "scoring",
-  "type_locked": false,
-  "type_confidence": 0.87,
-  "type_changed_at": "2026-10-06T09:00:00.000Z",
+  "kind": "commercial",
+  "kind_source": "scoring",
+  "kind_locked": false,
+  "kind_confidence": 87,
+  "kind_changed_at": "2026-10-06T09:00:00.000Z",
+  "commercial_use_suspected": false,
   "security_state": "suspected",
-  "alias": null,
-  "first_seen_at": "2026-09-01T10:12:00.000Z",
-  "last_seen_at": "2026-10-07T14:00:00.000Z",
+  "alias": null, "alias_source": null, "notes": null,
+  "first_seen": "2026-09-01T10:12:00.000Z",
+  "last_seen": "2026-10-07T14:00:00.000Z",
+  "reset_at": null,
   "version": 6
 }
 ```
 
-- `type`: `residential` (por defecto al descubrir) | `commercial` (enum abierto). `type_source`: `default` | `scoring` |
-  `manual`. `type_locked = true` cuando el tipo es manual: el scoring sigue calculando y mostrando su sugerencia
-  (`suggested_type` en el detalle), pero **no** lo cambia hasta que alguien lo desbloquee.
-- `status`: `active` | `expired` (sin tráfico durante `customer_inactivity_days`, por defecto 90, configurable por tenant;
-  C-18). Una IP expirada que vuelve a verse se reactiva **con el mismo `id`** y su historial (D1: la IP es el cliente).
-- `security_state` (D5): `clean` | `suspected` | `infected` | `mitigated`; lo calcula `detection` (§2.10).
-- `last_seen_at` tiene resolución de 1 h (no se escribe por cada flujo).
+- `kind`: `residential` (por defecto) | `commercial` | `unknown` (enum abierto). `kind_source`: `default` | `scoring` |
+  `manual`. `kind_locked = true` al fijarlo a mano: el scoring sigue sugiriendo (`suggested_kind` en el detalle) pero
+  no lo cambia. `commercial_use_suspected` marca una IP residencial con indicios que aún no alcanzan el umbral.
+- `status`: `active` | `inactive` (sin tráfico `customer_inactivity_days`, **30** por defecto, configurable por
+  tenant). Si reaparece, vuelve a `active` con el mismo `id`.
+- `security_state` (D5): `clean` | `suspected` | `infected` | `mitigated`, proyectado desde `detection` (§2.10).
+- `alias` y `notes` son **datos personales** (pueden contener nombres; `alias_source = routeros_ppp` si se importó del
+  usuario PPPoE). `last_seen` tiene resolución ≤ 1 h.
+- **Reset** ("reiniciar cliente"): para cuando el ISP sabe que la IP pasó a otra persona. Tipo al valor por defecto,
+  borra alias/notas, fija `reset_at`; los dashboards por cliente muestran datos desde `reset_at`.
 
 | Método y ruta | Servicio | Descripción | Permiso |
 | --- | --- | --- | --- |
-| `GET /customers` | devices | Lista (filtros `site_id`, `router_id`, `realm_id`, `status`, `type`, `type_source`, `type_locked`, `security_state`, `last_seen_at_gte/lte`; orden `last_seen_at`, `first_seen_at`, `type_changed_at`). **Sin** filtro por IP en la URL. | `customers.read` |
-| `POST /customers/lookup` | devices | Búsqueda por IP o prefijo en el **cuerpo**: `{"ip": "100.64.12.34"}` o `{"prefix": "100.64.12.0/24", "realm_id": "..."}` → misma forma que la colección, con cursor. `200` (no crea nada; `POST` sólo para sacar la IP de la URL). | `customers.read` |
-| `GET /customers/{id}` | devices | Detalle + `suggested_type` y `suggested_confidence` del último scoring. | `customers.read` |
-| `PATCH /customers/{id}` | devices | `alias`, `notes` (opcionales; pueden ser PII: se registran en auditoría sin valor). | `customers.update` |
-| `POST /customers/{id}/set-type` | devices | Cambio **manual**: `{"type": "commercial", "reason": "Contrato empresarial verificado", "lock": true}`. `reason` obligatorio (≥ 10 caracteres). Emite `horus.devices.customer.type_changed` con `source=manual`. | `customers.type.write` |
-| `POST /customers/{id}/unlock-type` | devices | Devuelve el control al scoring (`type_locked=false`); el siguiente scoring puede cambiar el tipo. | `customers.type.write` |
-| `GET /customers/{id}/type-history` | devices | Historial de tipo: `[{changed_at, previous_type, type, source, actor, reason, model_version, confidence, reasons[]}]`. Las razones del scoring se copian al historial en el momento del cambio (no dependen de la retención de `detection`). | `customers.read` |
-| `GET /customers/{id}/scoring` | detection | Último scoring y su explicación: `model_version`, `scores` por clase, `features` (con valor y peso), `reasons[]` en lenguaje natural, ventana evaluada. Serie de scorings con `?range=90d`. | `customers.read` |
-| `GET /customers/{id}/findings` | detection | Hallazgos de seguridad del cliente (§2.10). | `security.read` |
-| `GET /analytics/customers/{id}/traffic` | analytics | Series de tráfico del cliente (§1.7): `rx_bps`, `tx_bps`, por servicio/categoría/ASN. Acceso a detalle por cliente auditado. | `traffic.customer.read` |
-| `GET /customers/stats` | devices | Conteos por `type`, `type_source`, `status`, `security_state` y `site_id` (widgets de dashboard). | `customers.read` |
-| `POST /customers/exports` | devices | Exportación CSV (asíncrona, auditada, con IPs). | `customers.export` |
+| `GET /customers` | devices | Lista (filtros `site_id`, `realm_id`, `client_prefix_id`, `status`, `kind`, `kind_source`, `kind_locked`, `commercial_use_suspected`, `security_state`, `last_seen_gte/lte`, `q` sobre `alias`; orden `last_seen`, `first_seen`, `kind_changed_at`). **Sin** filtro por IP en la URL. | `customers.read` |
+| `POST /customers/lookup` | devices | Búsqueda por IP o prefijo en el **cuerpo**: `{"address": "100.64.12.34"}` o `{"prefix": "100.64.12.0/24", "realm_id": "..."}` → misma forma que la colección, con cursor. `200`; no crea nada (`POST` sólo para sacar la IP de URLs y logs). | `customers.read` |
+| `GET /customers/{id}` | devices | Detalle + `suggested_kind`, `suggested_confidence` y razones del último scoring. | `customers.read` |
+| `PATCH /customers/{id}` | devices | `alias`, `notes`. Auditado sin el valor. `If-Match`. | `customers.update` |
+| `POST /customers/{id}/set-kind` | devices | Cambio **manual**: `{"kind": "commercial", "reason": "Contrato empresarial verificado"}` → `kind_source = manual`, `kind_locked = true`. `reason` obligatorio. `If-Match`. Evento `horus.devices.customer.kind_changed`. | `customers.kind.write` |
+| `POST /customers/{id}/unlock-kind` | devices | `kind_locked = false`: el siguiente scoring puede cambiarlo. `If-Match`. | `customers.kind.write` |
+| `POST /customers/{id}/reset` 🔒 | devices | Reinicio del cliente (arriba). `reason` obligatorio. `If-Match`. Evento `horus.devices.customer.reset`. | `customers.kind.write` + `customers.update` |
+| `GET /customers/{id}/kind-history` | devices | Historial inmutable: `[{changed_at, from_kind, to_kind, source, reason_codes, reasons, confidence, model_ref, actor_id, reason}]`. Las razones se copian al historial en el momento del cambio. | `customers.read` |
+| `GET /customers/{id}/scoring` | detection | Último scoring y su explicación (`model_version`, scores por clase, `features` con valor y peso, `reasons[]`, ventana); `?range=90d` para la serie. | `customers.read` |
+| `GET /customers/{id}/findings` | detection | Hallazgos del cliente (§2.10). | `security.findings.read` |
+| `GET /analytics/customers/{id}/traffic` | analytics | Series de tráfico del cliente (§1.7) por servicio/categoría/ASN. Acceso auditado. | `traffic.customer.read` |
+| `GET /customers/stats` | devices | Conteos por `kind`, `kind_source`, `status`, `security_state` y `site_id` (widgets). | `customers.read` |
+| `POST /customers/exports` | devices | Exportación CSV (asíncrona, auditada, con IPs); descarga por `GET /exports/{id}/download`. | `customers.export` |
+| `GET /sites/{site_id}/client-prefixes` · `POST` | devices | Prefijos de clientes de los realms del nodo: `prefix`, `realm_id`, `assignment_mode` (`static`/`dynamic`), `source` (`suggested`/`manual`), `confirmed`. Los sugeridos por el alta (pools leídos del MikroTik) quedan sin confirmar hasta que el admin los acepta. Solapes dentro del realm → `409 CLIENT_PREFIX_OVERLAP`. | `sites.read` / `sites.update` |
+| `PATCH /client-prefixes/{id}` · `DELETE /client-prefixes/{id}` · `POST /client-prefixes/{id}/confirm` | devices | Editar/borrar/confirmar. Borrar o reducir pasa a `inactive` los clientes fuera de todo prefijo (razón `prefix_removed`). Eventos `horus.devices.client_prefix.*`. | `sites.update` |
 
-Notas:
-
-- **Concurrencia**: `set-type` y `unlock-type` requieren `If-Match` (la versión del cliente): si un scoring cambió el
-  tipo mientras el operador miraba la ficha → `412` con `current`.
-- `set-type` sobre un cliente con `type_locked=true` y el mismo tipo → `200` sin cambio (idempotente); con otro tipo →
-  permitido (manual sobre manual), queda en el historial.
-- El borrado de un cliente sólo existe como **purga** por privacidad o por baja del tenant (plataforma), no en la API
-  del tenant.
+Notas: `set-kind`/`unlock-kind`/`reset` exigen `If-Match` (si un scoring cambió el tipo mientras el operador miraba →
+`412` con `current`). `set-kind` con el mismo tipo y ya bloqueado → `200` sin cambio. El borrado de clientes sólo
+existe como **purga** (retención, privacidad o baja del tenant), no en la API.
 
 ### 2.10 Seguridad: hallazgos y botnets (`detection`; D5)
 
 | Método y ruta | Descripción | Permiso |
 | --- | --- | --- |
-| `GET /findings` | Hallazgos (filtros `kind`, `severity`, `state` `open`/`acknowledged`/`resolved`/`false_positive`, `customer_id`, `site_id`, `created_at_gte`). | `security.read` |
-| `GET /findings/{id}` | Detalle con `reasons[]` (código, detalle, peso), evidencias agregadas (destinos por ASN/puerto, periodicidad, feeds de reputación coincidentes) y ventana. Nunca payloads. | `security.read` |
-| `POST /findings/{id}/acknowledge` · `/resolve` · `/mark-false-positive` | Gestión; `comment` obligatorio en `mark-false-positive` (alimenta el ajuste del modelo). | `security.manage` |
-| `GET /security/summary` | Conteos por `security_state` y `kind` por nodo (widgets NOC). | `security.read` |
-| `GET /reputation/sources` | Estado de los feeds de reputación (última actualización, entradas). | `security.read` |
+| `GET /findings` | Hallazgos (filtros `kind`, `severity`, `state` `open`/`acknowledged`/`resolved`/`false_positive`, `customer_id`, `site_id`, `opened_at_gte`). | `security.findings.read` |
+| `GET /findings/{id}` | Detalle con `reasons[]` (código, detalle, peso), evidencias agregadas (destinos por ASN/puerto, periodicidad, feeds coincidentes), versión de regla y ventana. Nunca payloads. | `security.findings.read` |
+| `GET /findings/{id}/evidence` | Flujos de evidencia del cliente en la ventana (IPs de destino, puertos, tiempos). Acceso auditado. | `security.evidence.read` |
+| `POST /findings/{id}/acknowledge` · `/resolve` · `/mark-false-positive` | Gestión; `comment` obligatorio en `mark-false-positive`. | `security.findings.manage` |
+| `GET /security/summary` | Conteos por `security_state` y `kind` por nodo (widgets NOC). | `security.findings.read` |
+| `GET /reputation/sources` | Estado de los feeds de reputación de plataforma (última actualización, entradas). | `security.findings.read` |
+| `GET /reputation/allowlist` · `POST` · `DELETE /reputation/allowlist/{id}` | Allowlist **del tenant** (prefijos/ASN que no deben generar hallazgos, p. ej. servidores propios); la aplica `detection`. | `security.findings.read` / `security.findings.manage` |
 
-`kind` (enum abierto): `botnet_c2_communication`, `ddos_participation`, `outbound_scanning`, `spam_smtp_outbound`,
-`open_proxy_abuse`, `cryptomining`, `reputation_hit`. La **mitigación activa** (p. ej. añadir la IP a un
-`address-list` del MikroTik) no forma parte de v1: requiere decisión del PO (C-21) y escribiría en routers.
+`kind` del hallazgo (enum abierto): `botnet_c2_communication`, `ddos_participation`, `outbound_scanning`,
+`spam_smtp_outbound`, `open_proxy_abuse`, `cryptomining`, `beaconing`, `reputation_hit`. La **mitigación activa**
+(escribir en el MikroTik) está fuera de v1 ([ADR-0024](./adr/0024-deteccion-de-botnets-como-objetivo-principal.md) §4).
+
+### 2.10 bis Reportes y descargas
+
+Los archivos (reportes, exportaciones) viven en el almacenamiento local (`reports/<tenant_id>/`,
+[ADR-0019](./adr/0019-almacenamiento-local-y-destino-remoto.md)) y **sólo** se descargan a través de la API, autorizados
+por tenant y permiso; no hay URLs prefirmadas.
+
+| Método y ruta | Descripción | Permiso |
+| --- | --- | --- |
+| `GET /reports/{id}/download` · `GET /exports/{id}/download` | Stream del archivo (`Content-Disposition: attachment`, `no-store`). Auditado. Otro tenant → `404`. | `reports.read` / permiso de la exportación |
 
 ### 2.11 Dashboards modulares (D8)
 
-Dueño: módulo `dashboards` (servicio que fije el Agente A; candidato natural: `analytics`, porque resuelve datos de
-widgets). Un dashboard es **un documento** con su layout y sus widgets; widgets y layout también tienen rutas propias
+Dueño: módulo `analytics` ([`services.md`](./services.md)), que resuelve también los datos de los widgets. Un dashboard es **un documento** con su layout y sus widgets; widgets y layout también tienen rutas propias
 para que el editor no reescriba el documento entero, pero todas incrementan la `version` del dashboard (un solo ETag).
 
 ```json
@@ -693,7 +710,7 @@ Reglas de datos de widgets:
 - Widgets con `contains_personal_data = true` (p. ej. "top clientes por consumo", "clientes con hallazgos") muestran IPs
   sólo a usuarios con `customers.read` y **nunca** a kioscos salvo política explícita del tenant (§2.12).
 - Cada respuesta lleva `Cache-Control: private, max-age=<refresh_seconds/2>` y `ETag`; el servidor cachea por
-  `(tenant, widget_type, config_hash, range_bucket, alcance)` en Valkey para que diez pantallas iguales no hagan diez
+  `t:<tenant_id>:wcache:<widget_type>:<config_hash>:<range_bucket>:<alcance>` en Valkey para que diez pantallas iguales no hagan diez
   consultas a ClickHouse.
 - Timeout por widget 10 s; un widget lento no bloquea a los demás (peticiones independientes).
 
@@ -717,26 +734,26 @@ quien lo copie tiene acceso indefinido desde cualquier lugar. Se descarta.
    `__Secure-hf_kiosk` (`HttpOnly; Secure; SameSite=Strict; Path=/api/v1/kiosk`), rotativa en cada uso y con detección
    de reutilización (como el refresh de usuario). En BD sólo su SHA-256.
 4. La SPA en modo kiosco llama `POST /api/v1/kiosk/token` (cookie + `X-Requested-With: horus`) → access JWT de
-   **10 min** con `sub = kiosk:<id>`, `typ = kiosk`, `tnt = [tenant]`, sin `perms` de escritura. Renovación igual que un
+   **10 min** con `sub = kiosk:<id>`, `typ = kiosk`, `tid` = su tenant, sin permisos de escritura. Renovación igual que un
    usuario; WebSocket con ticket (§4.2).
 5. `GET /api/v1/kiosk/config` devuelve la playlist/dashboards asignados; la UI entra en pantalla completa, rota y se
    autorrefresca.
 
 | Método y ruta | Descripción | Permiso |
 | --- | --- | --- |
-| `GET /kiosks` · `GET /kiosks/{id}` (tenant) | Kioscos, `last_seen_at`, `last_ip`, estado. | `kiosks.manage` |
-| `POST /kiosks` · `PATCH /kiosks/{id}` (tenant) | Alta/edición (dashboards, CIDR, política de datos personales, caducidad). | `kiosks.manage` |
-| `POST /kiosks/{id}/enrollment-codes` 🔒 (tenant) | Código de un uso (10 min). `Idempotency-Key` obligatorio. | `kiosks.manage` |
-| `POST /kiosks/{id}/revoke` (tenant) | Revocación inmediata: invalida la credencial y cierra su WebSocket (`4409`). | `kiosks.manage` |
+| `GET /kiosks` · `GET /kiosks/{id}` | Kioscos, `last_seen_at`, `last_ip`, estado. | `kiosks.manage` |
+| `POST /kiosks` · `PATCH /kiosks/{id}` | Alta/edición (dashboards, CIDR, política de datos personales, caducidad). | `kiosks.manage` |
+| `POST /kiosks/{id}/enrollment-codes` 🔒 | Código de un uso (10 min). `Idempotency-Key` obligatorio. | `kiosks.manage` |
+| `POST /kiosks/{id}/revoke` | Revocación inmediata: invalida la credencial y cierra su WebSocket (`4409`). | `kiosks.manage` |
 | `POST /kiosk/enroll` | Canje del código → cookie de dispositivo. | público, rate limited |
 | `POST /kiosk/token` | Cookie de dispositivo → access JWT de kiosco. | cookie de kiosco |
 | `GET /kiosk/config` | Dashboards/playlist asignados y parámetros de rotación. | JWT de kiosco |
 
 Qué puede hacer un JWT de kiosco (lista blanca en la tabla del gateway, `principal: kiosk`):
 
-- `GET /tenants/{su_tenant}/dashboards/{id}` y `.../widgets/{wid}/data` **sólo** de los dashboards asignados y de
-  widgets con `kiosk_allowed = true`; `GET /api/v1/system/status` (resumen); WebSocket a los topics de esos widgets.
-- Nada más: ni `/me`, ni listas, ni exportaciones, ni `preview`, ni otros tenants. Cualquier otra ruta →
+- `GET /dashboards/{id}` y `GET /dashboards/{id}/widgets/{wid}/data` **sólo** de los dashboards asignados y de
+  widgets con `kiosk_allowed = true`; `GET /api/v1/system/status` (resumen); WebSocket con los eventos de esos widgets.
+- Nada más: ni `/me`, ni listas, ni exportaciones, ni `preview`, ni otro tenant (su token sólo lleva el suyo). Cualquier otra ruta →
   `403 KIOSK_FORBIDDEN`.
 - Si `allowed_cidrs` está definido, el gateway rechaza peticiones desde otras IPs (también el canje del código).
 
@@ -755,36 +772,40 @@ crea un `platform_admin`.
 `packages/schemas/openapi/gateway-routes.yaml` (declarativa, versionada; ilustrativo):
 
 ```yaml
-- prefix: /api/v1/tenants/{tenant_id}/routers/{id}/metrics/live
+- prefix: /api/v1/routers/{id}/metrics/live
   service: snmp
-  tenant: path                 # path | none | platform
+  scope: tenant                # tenant | platform | session | public
   methods: { GET: snmp.read }
-- prefix: /api/v1/tenants/{tenant_id}/routers
+- prefix: /api/v1/routers
   service: devices
-  tenant: path
+  scope: tenant
   methods: { GET: devices.read, POST: devices.create, PATCH: devices.update, DELETE: devices.delete }
-- prefix: /api/v1/tenants/{tenant_id}/dashboards/{id}/widgets/{widget_id}/data
+- prefix: /api/v1/dashboards/{id}/widgets/{widget_id}/data
   service: analytics
-  tenant: path
+  scope: tenant
   principals: [user, api_token, kiosk]   # por defecto sólo [user, api_token]
   methods: { GET: widget }               # permiso según el tipo de widget (lo evalúa el dueño)
 - prefix: /api/v1/platform/tenants
   service: auth
-  tenant: platform
+  scope: platform
   methods: { GET: platform.tenants.read, POST: platform.tenants.manage, PATCH: platform.tenants.manage }
+- prefix: /api/v1/enroll/wireguard
+  service: wireguard
+  scope: public
+  rate_limit: enroll
 - prefix: /api/v1/auth/login
   service: auth
-  tenant: none
-  public: true
+  scope: public
   rate_limit: login
 ```
 
-- Coincidencia por prefijo más específico. Permiso **grueso**: "¿es miembro del tenant de la ruta y tiene X en algún
-  alcance **de ese tenant**?" ([`security.md`](./security.md) §6.4). `tenant: platform` exige un rol de plataforma;
-  `tenant: none` sólo autenticación (o `public`).
+- Coincidencia por prefijo más específico. `scope: tenant` exige un token con `tid` (un token de sesión o de
+  plataforma → `403 TOKEN_SCOPE_INVALID`); `scope: platform`, un token de plataforma; `session`, cualquier token de
+  sesión válido. Permiso **grueso**: "¿tiene X en algún alcance del `tid`?" ([`security.md`](./security.md) §6.4).
+- El gateway pone `tid` en el contexto de la petición (módulo local) o lo reenvía en el JWT (módulo remoto) y rechaza
+  un `tenant_id` del body distinto de `tid` (`403 TENANT_MISMATCH`).
 - `principals` limita qué tipo de identidad puede usar la ruta; un kiosco sólo alcanza las rutas que lo declaran.
-- Test de CI: toda ruta bajo `/tenants/{tenant_id}` declara `tenant: path`; ninguna ruta `tenant: none` devuelve datos
-  de negocio (revisión de la tabla en cada PR que la toque).
+- Test de CI: toda operación del bundle tiene `scope`; ninguna ruta `session`/`public` devuelve datos de negocio.
 - Timeouts por ruta: 5 s CRUD, 15 s acciones, 30 s analítica. Circuit breaker por servicio.
 - El gateway **no** agrega respuestas de varios servicios (sin BFF de composición en v1).
 - Operaciones largas: `202 Accepted` + `Location` al recurso de ejecución (`/reports/{id}`, `/audit-events/exports/{id}`)
@@ -797,7 +818,7 @@ crea un `platform_admin`.
 | Cabecera | Contenido |
 | --- | --- |
 | `Authorization: Bearer <access JWT>` | El mismo JWT del cliente, ya validado (identidad, `sid`, tenants, permisos con alcance; [`security.md`](./security.md) §5.1) |
-| `X-Horus-Tenant` | Tenant de la ruta, añadido por el gateway **sólo** como ayuda de observabilidad (logs/trazas). El servicio decide por la ruta y el JWT, nunca por esta cabecera. |
+| `X-Horus-Tenant` | `tid` del token, añadido por el gateway **sólo** como ayuda de observabilidad (logs/trazas). El servicio decide por el JWT, nunca por esta cabecera. |
 | `X-Request-Id` | ID de correlación |
 | `traceparent`, `tracestate` | W3C Trace Context |
 | `Idempotency-Key`, `If-Match`, `If-None-Match` | Tal cual |
@@ -824,7 +845,7 @@ Los navegadores no permiten cabeceras arbitrarias en el handshake WebSocket y el
 cookie). Decisión alineada con [`security.md`](./security.md) §5.1: **ticket de un solo uso**.
 
 1. La SPA llama `POST /api/v1/ws/tickets` con su access token → `{"ticket": "<256 bits base64url>", "expires_at": "..."}`.
-   El gateway guarda en Valkey `ws_ticket:<sha256(ticket)> → {principal, sid, tnt, exp_del_token}` con TTL 30 s
+   El gateway guarda en Valkey `ws_ticket:<sha256(ticket)> → {principal, sid, tid, exp_del_token}` con TTL 30 s
    (`principal` = usuario o `kiosk:<id>`).
 2. Abre `wss://<host>/api/v1/ws?ticket=<ticket>` con subprotocolo `horus.ws.v1`. El gateway hace `GETDEL` (un uso), valida
    `Origin` contra la lista permitida (defensa contra *cross-site WebSocket hijacking*) y acepta. El ticket en la URL es
@@ -845,47 +866,45 @@ cookie). Decisión alineada con [`security.md`](./security.md) §5.1: **ticket d
 ### 4.3 Topics
 
 Los topics son nombres lógicos del protocolo, **desacoplados de los subjects NATS** (el gateway mapea; el frontend nunca ve
-subjects internos). **Todo topic de negocio lleva el tenant** como prefijo: `tenants.<tenant_id>.<topic>`. Una misma
-conexión puede suscribirse a topics de varios tenants (usuario con varios ISP, vista NOC combinada); cada suscripción se
-autoriza contra la membresía y los permisos **de ese tenant**. Sin prefijo sólo quedan `me`, `system` y los de
-plataforma (`platform.*`).
-
-En la tabla, `T.` abrevia `tenants.<tenant_id>.` y `<t>` el tenant en el subject ([`events.md`](./events.md) §2.4).
+subjects internos). **La conexión queda ligada al `tid` del token** con el que se pidió el ticket
+([ADR-0017](./adr/0017-multi-tenant-desde-v1.md) §6): todos los topics de negocio son de ese tenant y el hub sólo
+reenvía mensajes cuyo `Horus-Tenant` coincide con el `tid`. Una pestaña con otro ISP abre otra conexión con su propio
+token. La renovación en banda (§4.2) debe traer un token del **mismo** `tid`; si no, cierre `4403`.
 
 | Topic | Contenido | Clase | Permiso (+ alcance) | Subjects NATS de origen |
 | --- | --- | --- | --- | --- |
-| `T.routers.status` | Cambios de estado observado de routers visibles | evento | `devices.read` | `horus.snmp.router.state_changed.<t>.*` |
-| `T.routers` | Altas/bajas/cambios de inventario de routers y nodos | evento | `devices.read` | `horus.devices.router.*.<t>.*`, `horus.devices.site.*.<t>.*` |
-| `T.router.<id>` | Todo lo del router: inventario, interfaces, estado, `rebooted`, `interfaces_discovered`, `oper_status_changed`, capacidades RouterOS | evento | `devices.read` en el alcance del router | `horus.devices.*.*.<t>.<id>`, `horus.snmp.*.*.<t>.<id>` (+ interfaces filtradas por `router_id`) |
-| `T.router.<id>.metrics` | Cada sondeo (dispositivo + interfaces; SNMP o API RouterOS) | estado | `snmp.read` en el alcance | `horus.telemetry.snmp.*.<t>.<id>`, `horus.telemetry.routeros.*.<t>.<id>` |
-| `T.customers` | Clientes descubiertos, cambios de tipo, expirados/reactivados | evento | `customers.read` | `horus.devices.customer.*.<t>.*` |
-| `T.security` | Hallazgos abiertos/actualizados/resueltos y cambios de `security_state` | evento | `security.read` | `horus.detection.finding.*.<t>.*`, `horus.detection.customer_security.*.<t>.*` |
-| `T.wireguard.peers` | Peers creados/revocados/rotados, `handshake_stale/recovered` | evento | `wireguard.read` | `horus.wireguard.peer.*.<t>.*` |
-| `T.wireguard.server.<id>.status` | Handshakes/contadores en vivo del hub (sólo peers del tenant) | estado | `wireguard.read` | `horus.telemetry.wireguard.peer_status.<t>.<id>` |
-| `T.alerts` | `alert.opened/acknowledged/resolved` | evento | `alerts.read` | `horus.alerts.alert.*.<t>.*` |
-| `T.dashboard.<id>` | Cambios del dashboard (la pantalla recarga layout/widgets) | evento | acceso al dashboard (usuario o kiosco asignado) | `horus.dashboards.dashboard.*.<t>.<id>`, `horus.dashboards.playlist.*.<t>.*` |
-| `T.summary` | Conteos para la cabecera NOC (routers por estado, alertas abiertas, clientes con hallazgos) | estado | `devices.read` | calculado por el gateway desde los eventos anteriores + snapshot REST |
-| `me` | Notificaciones al usuario, reportes listos, exportaciones listas, aviso de cierre de sesión, membresías cambiadas | evento | autenticado (filtro por `user_id`) | `horus.alerts.notification.*.*.*`, `horus.reporting.report.*.*.*`, `horus.auth.session.revoked.*.*`, `horus.auth.membership.*.*.*` |
-| `system` | `capabilities` de `GET /system/status` (§2.7), `realtime_status` y heartbeat del poller | estado | autenticado o kiosco | health checks del gateway + `horus.snmp.poller.heartbeat.platform.*` |
-| `platform.tenants` | Salud agregada por tenant (ingesta, exportadores silenciosos, cuotas) | estado | `platform.status.read` | `horus.flows.exporter.*.*.*`, `horus.auth.tenant.*.*.*` |
+| `routers.status` | Cambios de estado observado de routers visibles | evento | `devices.read` | `horus.snmp.router.state_changed.*` |
+| `routers` | Altas/bajas/cambios de inventario de routers y nodos | evento | `devices.read` | `horus.devices.router.*.*`, `horus.devices.site.*.*` |
+| `router.<id>` | Todo lo del router: inventario, interfaces, estado, `rebooted`, `interfaces_discovered`, `oper_status_changed` | evento | `devices.read` en el alcance del router | `horus.devices.*.*.<id>`, `horus.snmp.*.*.<id>` (+ interfaces filtradas por `router_id`) |
+| `router.<id>.metrics` | Cada sondeo (dispositivo + interfaces) | estado | `snmp.read` en el alcance | `horus.telemetry.snmp.*.<id>` |
+| `customers` | Clientes descubiertos, cambios de tipo, inactivos/reactivados, reinicios | evento | `customers.read` | `horus.devices.customer.*.*` |
+| `security` | Hallazgos abiertos/actualizados/resueltos y cambios de `security_state` | evento | `security.findings.read` | `horus.detection.finding.*.*`, `horus.detection.customer.security_state_changed.*` |
+| `wireguard.peers` | Peers creados/enrolados/activados/revocados/rotados, `handshake_stale/recovered` | evento | `wireguard.read` | `horus.wireguard.peer.*.*` |
+| `alerts` | `alert.opened/acknowledged/resolved` | evento | `alerts.read` | `horus.alerts.alert.*.*` |
+| `dashboard.<id>` | Cambios del dashboard (la pantalla recarga layout/widgets) | evento | acceso al dashboard (usuario o kiosco asignado) | `horus.analytics.dashboard.*.<id>`, `horus.analytics.playlist.*.*` |
+| `summary` | Conteos para la cabecera NOC (routers por estado, alertas abiertas, clientes con hallazgos) | estado | `devices.read` | calculado por el gateway desde los eventos anteriores + snapshot REST |
+| `me` | Notificaciones al usuario, reportes listos, exportaciones listas, aviso de cierre de sesión, membresías cambiadas | evento | autenticado (filtro por `user_id`) | `horus.alerts.notification.*.*`, `horus.reporting.report.*.*`, `horus.auth.session.revoked.*`, `horus.auth.membership.*.*` |
+| `system` | `capabilities` de `GET /system/status` (§2.7), `realtime_status` y heartbeat del poller | estado | autenticado o kiosco | health checks del gateway + `horus.snmp.poller.heartbeat.*` (plataforma) |
+| `platform.overview` | Estado por tenant (sólo conexiones con token de plataforma) | estado | `platform.status.read` | `horus.flows.exporter.*.*`, `horus.wireguard.hub.status_changed.*`, `horus.jobs.*.*`, `horus.auth.tenant.*.*` |
 
 - **Evento**: cada mensaje cuenta; se entrega en orden de llegada; puede perderse ante desconexión.
 - **Estado**: sólo importa el último valor por clave; al suscribirse se envía el último snapshot conocido; luego como
   máximo **1 actualización/s por topic y cliente** (coalescencia, [`architecture.md`](./architecture.md) §9.3).
-- Permiso al suscribirse **y** filtro por alcance por mensaje en topics colectivos (`T.routers.status`): un operador
+- Permiso al suscribirse **y** filtro por alcance por mensaje en topics colectivos (`routers.status`): un operador
   con alcance `site:X` sólo recibe routers de X. El evento trae `site_id` para filtrar sin consultas.
-- **Filtro de tenant por mensaje** (defensa en profundidad): además de suscribirse sólo a los subjects del tenant, el
-  hub descarta cualquier mensaje cuyo `tenant_id` del sobre no coincida con el del topic, y lo cuenta
-  (`horus_api_gateway_ws_tenant_mismatch_total`, alerta si > 0).
-- Kioscos: sólo los topics que usan los widgets de sus dashboards asignados, más `T.dashboard.<id>` y `system`.
+- **Filtro de tenant por mensaje**: el hub indexa conexiones por `tid` y enruta por la cabecera `Horus-Tenant` (sin
+  deserializar). Un mensaje de negocio **sin** cabecera, o cuya cabecera no coincide con `tenant_id` del sobre, se
+  descarta y se cuenta (`horus_gateway_ws_tenant_mismatch_total`, alerta si > 0). Los eventos de plataforma
+  (`tenant_id` nulo) sólo van a `system`/`platform.*`.
+- Kioscos: sólo los topics que usan los widgets de sus dashboards asignados, más `dashboard.<id>` y `system`.
 
 ### 4.4 Mensajes
 
 Cliente → servidor:
 
 ```json
-{ "type": "subscribe",   "id": "c-17", "topic": "tenants.0192e000-0000-7000-8000-000000000001.router.0192f0c4-7a1e-7c3a-9b1d-2f6e8a4c1d55.metrics" }
-{ "type": "unsubscribe", "id": "c-18", "topic": "tenants.0192e000-0000-7000-8000-000000000001.routers.status" }
+{ "type": "subscribe",   "id": "c-17", "topic": "router.0192f0c4-7a1e-7c3a-9b1d-2f6e8a4c1d55.metrics" }
+{ "type": "unsubscribe", "id": "c-18", "topic": "routers.status" }
 { "type": "auth",        "id": "c-20", "access_token": "eyJ..." }
 { "type": "ping",        "id": "c-19" }
 ```
@@ -893,17 +912,17 @@ Cliente → servidor:
 Servidor → cliente:
 
 ```json
-{ "type": "ack",   "id": "c-17", "topic": "tenants.0192e000-....router.0192...metrics" }
+{ "type": "ack",   "id": "c-17", "topic": "router.0192...metrics" }
 { "type": "error", "id": "c-17", "code": "PERMISSION_DENIED", "message": "falta snmp.read en el alcance del router" }
-{ "type": "event", "topic": "tenants.0192e000-....routers.status",
+{ "type": "event", "topic": "routers.status",
   "event": { "id": "0192f0d1-1b2c-7e44-8a10-6b9c2d1e0f33", "type": "horus.snmp.router.state_changed",
              "time": "2026-10-07T14:03:11.123Z", "subject": "0192f0c4-...", "aggregate_version": 42,
              "tenant_id": "0192e000-0000-7000-8000-000000000001",
              "data": { "router_id": "0192f0c4-...", "site_id": "0192e111-...", "previous_state": "online",
                        "state": "offline", "reason": "tunnel_down" } } }
-{ "type": "state", "topic": "tenants.0192e000-....router.0192...metrics", "key": "device", "time": "2026-10-07T14:03:00Z",
+{ "type": "state", "topic": "router.0192...metrics", "key": "device", "time": "2026-10-07T14:03:00Z",
   "data": { "cpu_percent": 13.2, "memory_percent": 61.0, "uptime_seconds": 1209600, "temperature_celsius": 47 } }
-{ "type": "unsubscribed", "topic": "tenants.0192e000-....alerts", "reason": "forbidden" }
+{ "type": "unsubscribed", "topic": "alerts", "reason": "forbidden" }
 { "type": "realtime_status", "status": "degraded", "reason": "event_bus_unavailable" }
 { "type": "heartbeat", "time": "2026-10-07T14:03:25Z" }
 { "type": "pong", "id": "c-19" }
@@ -962,11 +981,12 @@ NATS core ─ suscripciones estáticas (dominio, bajo volumen) ─┐
   un stream también se entregan a suscriptores core. Sin estado en NATS, sin acks, coste mínimo.
 - Suscripciones estáticas (todas las de dominio, de todos los tenants; volumen bajo): `horus.snmp.router.>`,
   `horus.snmp.interface.>`, `horus.snmp.poller.heartbeat.>`, `horus.devices.>`, `horus.wireguard.>`,
-  `horus.detection.finding.>`, `horus.detection.customer_security.>`, `horus.dashboards.>`, `horus.auth.session.>`,
-  `horus.auth.user.>`, `horus.auth.role.>`, `horus.auth.membership.>`, `horus.auth.tenant.>`, `horus.auth.kiosk.>`,
-  `horus.alerts.>`, `horus.reporting.>`. El hub enruta por el token de tenant del subject (sin deserializar).
-  Dinámicas (telemetría, sólo mientras haya suscriptores): `horus.telemetry.snmp.*.<t>.<router_id>`,
-  `horus.telemetry.routeros.*.<t>.<router_id>`, `horus.telemetry.wireguard.peer_status.<t>.<server_id>`.
+  `horus.detection.finding.>`, `horus.detection.customer.>`, `horus.analytics.dashboard.>`, `horus.analytics.playlist.>`,
+  `horus.auth.session.>`, `horus.auth.user.>`, `horus.auth.role.>`, `horus.auth.membership.>`, `horus.auth.tenant.>`,
+  `horus.auth.kiosk.>`, `horus.alerts.>`, `horus.reporting.>`, `horus.jobs.>` (eventos del módulo `jobs`). El hub
+  enruta por la cabecera `Horus-Tenant`.
+- Dinámicas (telemetría, sólo mientras haya suscriptores): `horus.telemetry.snmp.*.<router_id>`; el hub comprueba que
+  el router pertenece al `tid` de la conexión antes de suscribirse (snapshot de `devices`).
 - El último snapshot de topics estado se cachea en memoria; si no hay valor caliente, el gateway lo pide al servicio por
   REST interno (`GET /routers/{id}/metrics/live`).
 - Cada réplica se suscribe de forma independiente ⇒ escalado horizontal sin estado compartido (salvo Valkey de sesiones).
@@ -977,7 +997,7 @@ NATS core ─ suscripciones estáticas (dominio, bajo volumen) ─┐
 | Límite | Valor |
 | --- | --- |
 | Conexiones por sesión | 5 ([`security.md`](./security.md)); la 6ª cierra la más antigua con `4429`. Kiosco: 2 |
-| Conexiones por tenant | 500 (cuota ajustable por plataforma) |
+| Conexiones por tenant (suma de usuarios y kioscos) | 500 (cuota ajustable por plataforma) |
 | Suscripciones por conexión | 50 |
 | Topics `router.<id>.metrics` por conexión | 20 |
 | Mensaje entrante máximo | 16 KiB |
@@ -1020,11 +1040,13 @@ packages/protobuf/
   telemetría; enums con `<ENUM>_UNSPECIFIED = 0` y prefijo en cada valor.
 - Regla de uso ([ADR-0005](./adr/0005-grpc-protobuf-interno.md)): gRPC sólo si el llamador necesita la respuesta para
   continuar; máximo 2 saltos síncronos; para notificar hechos, NATS.
-- **Tenant explícito**: toda petición de un recurso de negocio lleva `string tenant_id = 1` en el **mensaje** (no sólo
-  en metadata), y toda respuesta/elemento lo devuelve. El interceptor de `packages/go/authz` comprueba que, si la
-  llamada va en nombre de un usuario, `tenant_id` ∈ `tnt` del JWT; si va en nombre de un servicio, el método debe estar
-  autorizado para "todos los tenants" (p. ej. `ListPollingTargets` del poller) y lo declara en su política. Lint de
-  `buf`/CI: un `*Request` de los paquetes de negocio sin campo `tenant_id` falla salvo excepción anotada.
+- **Tenant en llamadas internas**: si la llamada va en nombre de un usuario, el tenant es el `tid` de su JWT
+  propagado (nunca un campo que el llamador pueda elegir libremente); el interceptor de `packages/go/authz` lo pone en
+  el contexto y los repositorios lo exigen. Los métodos que trabajan **para todos los tenants** en nombre de un servicio
+  (p. ej. `ListPollingTargets` del poller, snapshot de IPs conocidas para el ingester) lo declaran en su política, usan
+  el rol de BD con `BYPASSRLS` acotado ([ADR-0017](./adr/0017-multi-tenant-desde-v1.md) §4) y devuelven `tenant_id` en
+  cada elemento. Si el módulo proveedor está en el mismo proceso ([ADR-0025](./adr/0025-binario-modular-con-roles.md))
+  la regla es idéntica: misma interfaz de contrato.
 
 ```protobuf
 // ilustrativo
@@ -1048,7 +1070,6 @@ message PollingTarget {
   SnmpCredentials credentials = 5; // nunca aparece en eventos ni en logs
   reserved 6; reserved "community";
   string tenant_id = 7;            // el poller sirve a todos los tenants; cada objetivo sabe el suyo
-  RouterOsApiCredentials routeros_api = 8; // D10; opcional
 }
 ```
 
@@ -1083,7 +1104,7 @@ message PollingTarget {
 | `traceparent`, `tracestate` | W3C (interceptores `otelgrpc`) |
 | `x-request-id` | Correlación; termina también en `correlation_id` de los eventos |
 | `x-horus-caller` | Nombre del servicio llamante (informativo; la identidad real es el certificado mTLS + JWT) |
-| `x-horus-tenant` | Copia del `tenant_id` del mensaje, **sólo** para logs/trazas; la autorización usa el campo del mensaje |
+| `x-horus-tenant` | Copia del `tid` en llamadas de servicio sin JWT de usuario (jobs multi-tenant que actúan sobre un tenant concreto); con JWT de usuario manda el `tid` del JWT y una discrepancia es `PERMISSION_DENIED` |
 
 Interceptor común (`packages/go/authz`, [`conventions.md`](./conventions.md)) que valida el JWT, extrae un `Actor`
 (`type`, `id`, `sid`) y el `TenantScope` de la petición al `context.Context`; lo reutilizan logs, auditoría, los

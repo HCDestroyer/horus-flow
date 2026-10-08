@@ -33,7 +33,7 @@ PLAT + INT al final de I1), pero nunca revisa su propio PR.
 | Agente | Misión | Propiedad | Módulos / roles de `horus` ([ADR-0025](../adr/0025-binario-modular-con-roles.md)) |
 | --- | --- | --- | --- |
 | **INT — Integrador** | Congela y versiona contratos; asigna historias; fusiona PRs; mantiene `make accept-iN`; prepara la demo y el siguiente `increment-N.md`; vigila alarmas (§5.3) | `packages/` (OpenAPI, Protobuf, esquemas de eventos, layout de dashboard, hallazgo), `tests/acceptance/`, `docs/` (salvo lo que la persona reserve) | — |
-| **PLAT — Plataforma** | Repo, compose, CI, imagen única, observabilidad, laboratorio CHR, instalador, backup, pruebas de fallo y de carga | `infrastructure/`, `deployments/`, `scripts/`, `.github/`, `Makefile`, `cmd/horus` (arranque y registro de roles, revisa CORE) | — |
+| **PLAT — Plataforma** | Repo, compose, CI, imagen única, observabilidad, laboratorio CHR, instalador, backup, pruebas de fallo y de carga | `infrastructure/`, `deployments/`, `scripts/`, `.github/`, `Makefile`, `services/cmd/horus` (arranque y registro de roles, revisa CORE) | — |
 | **CORE — Backend core** | Borde HTTP/WS, identidad y tenants, inventario, registro de clientes, WireGuard, tokens de kiosco, persistencia de dashboards, script RouterOS | `mod:gateway`, `mod:auth`, `mod:devices`, `mod:wireguard`, `mod:wg-agent`, `mod:analytics/dashboards`, librerías comunes de Go (revisa PLAT) | gateway, auth (tenants, membresías, roles), devices (nodos, routers, realms, clientes), wireguard, wg-agent |
 | **FLOW — Datos de tráfico** | Simulador, fixtures RouterOS, colector, ingester (enriquecimiento, descubrimiento de IPs), ClickHouse, catálogo, consultas de tráfico, estado de exportadores | `mod:collector`, `mod:ingester`, `mod:traffic`, `mod:analytics` (salvo `dashboards`), `infrastructure/clickhouse`, `tools/flowsim` | collector, ingester, traffic, analytics |
 | **SEC — Seguridad y detección** | Feeds de reputación, detectores de botnet, hallazgos y su ciclo de vida; después scoring comercial y mitigación | `mod:detection` | detection (reputation, correlation, scoring) |
@@ -41,12 +41,12 @@ PLAT + INT al final de I1), pero nunca revisa su propio PR.
 | **PERSONA** | Aprobar, probar con su MikroTik real, decidir | — | — |
 
 **Notación `mod:<módulo>`.** Con el binario modular de
-[ADR-0025](../adr/0025-binario-modular-con-roles.md) cada módulo vive en su carpeta con fronteras
-estrictas; `mod:<módulo>` designa esa carpeta en la ruta que fije
-[`../conventions.md`](../conventions.md) (estructura del repo). La **propiedad es por módulo**:
-CODEOWNERS se genera a partir de esta tabla en el PR que congela C1. Ningún módulo importa el
-`internal/` de otro, solo su paquete público de contrato (lo comprueban los tests de arquitectura
-de [ADR-0023](../adr/0023-entrega-por-incrementos-y-equipo-ia.md)).
+[ADR-0025](../adr/0025-binario-modular-con-roles.md) cada módulo vive en `services/<módulo>/`, con
+`api/` (contrato público) e `internal/`; `services/cmd/horus/` compone los módulos según
+`HORUS_ROLES` ([`../services.md`](../services.md) §1.4). `mod:<módulo>` designa esa carpeta.
+La **propiedad es por módulo**: CODEOWNERS se genera a partir de esta tabla en el PR que congela
+C1. Un módulo solo importa `services/<otro>/api`, nunca su `internal/` (lo comprueban los tests de
+arquitectura de [ADR-0023](../adr/0023-entrega-por-incrementos-y-equipo-ia.md)).
 
 ## 3. Contratos que se congelan antes de paralelizar
 
@@ -65,7 +65,7 @@ consumidores.
 | C6 | Temas WebSocket con ámbito de ISP y su payload | `api.md` | CORE → UI | I1-13, widgets en vivo |
 | C7 | Catálogo de permisos, roles y token de kiosco | `security.md` | CORE → todos | I0-07, I1-14 |
 | C8 | Esquema de hallazgo (detector, severidad, confianza, evidencia, estado) | `events.md`, `packages/schemas` | SEC → CORE, UI | I1-10…I1-12, I1-18 |
-| C9 | Manifiesto de widget y formato de layout de dashboard | [`../frontend.md`](../frontend.md) §6, `packages/schemas/dashboard` | UI → CORE (persistencia) | I0-16, I1-15, I1-20 |
+| C9 | Catálogo de tipos de widget (`widget-types`), documento de dashboard y playlist, manifiesto de presentación | `api.md` §2.11, [`../frontend.md`](../frontend.md) §6, `packages/schemas/dashboard` | CORE/FLOW ↔ UI | I0-16, I1-15, I1-20 |
 | C10 | Escenarios del simulador y fixtures de RouterOS (plantillas NetFlow v9/IPFIX) | `vendors/mikrotik.md`, `tools/flowsim/scenarios` | FLOW → SEC, INT | Pruebas de detección y aceptación |
 
 ### Cómo se trabaja sin bloquear
@@ -91,8 +91,8 @@ comprobación pasa.
 | **Gate G0** | Abre el PR de congelación | | | | | | **Aprueba contratos** (una revisión) |
 | **1 · Cimientos** | `make accept-i0` (I0-19) | Laboratorio CHR (I0-11), observabilidad (I0-18) | Modelo tenant, auth, aislamiento, inventario (I0-06…09) | Verificación "a verificar" y fixtures (I0-12), esquema ClickHouse (I0-13) | Motor de detección sobre fixtures (inicio de I1-10) | Selector de ISP, cliente API, marco de widgets (I0-15, I0-16) | Opcional: captura de su router (`make capture`, I0-12) |
 | **Cierre I0** | Demo I0 | | | | | | Comprueba `make up` y el alta de su router |
-| **2 · Núcleo I1** | Esqueleto de `make accept-i1` (I1-24) | Instalador, backup (I1-22, I1-23) | WireGuard mínimo, script, clientes, WS, kiosco, dashboards (I1-01, I1-02, I1-06, I1-13…15) | Colector, ingesta, descubrimiento, enriquecimiento, tráfico, exportador (I1-03…05, I1-07…09) | Detectores y hallazgos (I1-10…12) | Vistas contra mocks (I1-16…19) | — |
-| **3 · Integración I1** | Aceptación completa (I1-24) y laboratorio (I1-25, con FLOW) | Carga y fallos (I1-26) | Correcciones | Rendimiento; apoyo a I1-25 | Ajuste de umbrales con escenarios y laboratorio | Widgets, plantillas y kiosco contra backend real (I1-20, I1-21) | — |
+| **2 · Núcleo I1** | Esqueleto de `make accept-i1` (I1-24) | Instalador, backup (I1-22, I1-23) | WireGuard mínimo con enrolamiento, script, clientes, WS, kioscos, dashboards, importación de pools (I1-01, I1-02, I1-06, I1-13…15, I1-28) | Colector, ingesta, descubrimiento, modo descubrimiento, enriquecimiento, tráfico y datos de widgets, exportador (I1-03…05, I1-07…09, I1-29) | Detectores y hallazgos (I1-10…12) | Vistas contra mocks y consola de plataforma (I1-16…19, I1-31) | — |
+| **3 · Integración I1** | Aceptación completa (I1-24) y laboratorio (I1-25, con FLOW) | Carga y fallos (I1-26) | Correcciones | Rendimiento; apoyo a I1-25 | Ajuste de umbrales; beaconing y salida sostenida (I1-30, *should*) | Widgets, plantillas y kiosco contra backend real (I1-20, I1-21) | — |
 | **Gate G1** | Guía de prueba | | | | | | **Prueba con su MikroTik real** (I1-27) y acepta/rechaza hallazgos |
 
 Camino crítico de I1: **I0-05 (contratos) → I0-12 (hechos de RouterOS) → I0-06 (modelo tenant) →

@@ -1,6 +1,8 @@
 # Horus Flow — Convenciones de ingeniería
 
-> Estado: borrador Sprint 0 · Responsable: Agente 4.
+> Estado: **propuesta ronda 2** (aplica [`po-decisions.md`](po-decisions.md) D3, D6, D7, D9 y los ADR 0017–0025) ·
+> Responsable: Agente C. Desarrollo por **agentes de IA + 1 persona** (D7, [ADR-0023](adr/0023-entrega-por-incrementos-y-equipo-ia.md));
+> entrega por **incrementos** en lugar de sprints (D9); **binario modular** ([ADR-0025](adr/0025-binario-modular-con-roles.md)).
 > Fuente: [`vision.md`](vision.md) §1, §2, §10–13. Relacionados: [`architecture.md`](architecture.md)
 > y [`services.md`](services.md) (Agente 1), [`api.md`](api.md) y [`events.md`](events.md)
 > (Agente 3), [`database.md`](database.md) (Agente 2), [`security.md`](security.md),
@@ -14,77 +16,66 @@ de API REST, errores y eventos son del Agente 3; las de esquema de BD, del Agent
 | Tema | Decisión |
 |------|----------|
 | Módulo Go | **Un solo módulo** `github.com/hcdestroyer/horus-flow` en la raíz (con `go.work` solo si un servicio necesita otro ciclo de dependencias) |
-| Layout de servicio | `cmd/` + `internal/{config,domain,app,transport,store,…}`; cableado manual en `main` |
+| Binario | **Un binario `horus`** (`services/cmd/horus`) que compone los módulos según `HORUS_ROLES`; **una imagen** ([ADR-0025](adr/0025-binario-modular-con-roles.md)) |
+| Layout de módulo | `services/<módulo>/{api,internal/{domain,app,adapters}}`; cableado manual en `services/cmd/horus` |
 | DI | Constructores explícitos, sin `wire`/`fx`/`dig` |
 | Config | Variables de entorno 12-factor con prefijo `HORUS_`, `_FILE` para secretos, `caarlos0/env` |
 | Frontend | Nuxt 4 en modo **SPA** (`ssr: false`), estático tras el reverse proxy; gateway como BFF |
 | Cliente API | Generado del OpenAPI con `openapi-typescript` + `openapi-fetch` |
 | Lint/format | golangci-lint v2 (+ gofumpt, goimports), ESLint (`@nuxt/eslint`) + Prettier, `vue-tsc`, buf, hadolint, actionlint, squawk |
 | Tests | `go test -race`; testcontainers-go; contrato OpenAPI/buf/JSON Schema; Playwright; k6 |
-| Git | **Trunk-based** con ramas cortas, squash merge, Conventional Commits |
-| Versionado | **Versión única de producto** SemVer para el monorepo (release-please) |
-| CI | GitHub Actions; detección de servicios afectados por grafo de dependencias Go + filtros de rutas |
-| Imágenes | Multi-stage → `distroless/static:nonroot`; tags `vX.Y.Z` y `sha-<7>`; despliegue por digest |
+| Git | **Trunk-based**, una rama corta por agente y tarea (`agent/<agente>/<tarea>`), PR revisado por **otro agente** + CI obligatorio + persona sólo en áreas sensibles (CODEOWNERS); merge queue; squash; Conventional Commits (§6) |
+| Definición de Terminado | **Verificada por máquina** (job `dod`), no por casillas marcadas a mano (§11) |
+| Versionado | **Versión única de producto** SemVer para el monorepo (release-please); un `0.<incremento>.z` por incremento |
+| CI | GitHub Actions; detección de **módulos** afectados por grafo de dependencias Go + filtros de rutas; tests de arquitectura y de aislamiento de tenant siempre |
+| Imágenes | **Una** imagen `horus` multi-stage → `distroless/static:nonroot` (+ imagen del frontend); tags `vX.Y.Z` y `sha-<7>`; despliegue por digest |
 
-## 1. Estructura del monorepo (complemento de vision §11)
+## 1. Estructura del monorepo
 
 ```
 horus-flow/
 ├── go.mod / go.sum                # módulo único Go
 ├── apps/frontend/                 # Nuxt 4
-├── services/<servicio>/           # api-gateway, auth, devices, wireguard, snmp, flows, ...
+├── services/
+│   ├── cmd/horus/                 # main único: lee HORUS_ROLES y compone los módulos
+│   └── <módulo>/                  # auth, devices, wireguard, snmp, flows (collector+ingester), traffic,
+│                                  # detection, alerts, analytics, reporting, jobs, gateway, wgagent
 ├── packages/
-│   ├── protobuf/                  # .proto + buf.yaml (código generado en packages/protobuf/gen/go)
-│   ├── events/                    # esquemas de eventos (Agente 3)
-│   ├── schemas/                   # OpenAPI y JSON Schema compartidos
-│   └── go/                        # librerías Go compartidas de plataforma
-│       ├── observability/         # slog, OTel, métricas RED, health, admin server
-│       ├── authz/                 # verificación JWT interno, Require(), interceptores
-│       ├── config/                # helpers de env y _FILE
-│       ├── natsx/                 # publicación/consumo con envelope, outbox relay, trazas
-│       ├── crypto/envelope/       # envelope encryption (security.md §8)
-│       ├── httpx/ grpcx/          # servidores con timeouts, middlewares comunes
-│       └── testkit/               # helpers de testcontainers
-├── infrastructure/ deployments/ scripts/ docs/
+│   ├── protobuf/                  # .proto + buf.yaml (contratos internos y payloads de eventos)
+│   ├── events/                    # catalog/<dominio>.yaml, streams/, examples/ (events.md)
+│   ├── schemas/openapi/           # una spec por módulo + gateway-routes.yaml + bundle
+│   └── go/                        # librerías de plataforma: observability, authz (TenantScope), config,
+│                                  # natsx (sobre + Horus-Tenant), crypto/envelope, httpx, grpcx, testkit,
+│                                  # archtest (tests de arquitectura), tenanttest (batería de aislamiento)
+├── infrastructure/ deployments/ scripts/ (scripts/dr/, scripts/ci/) docs/
+└── .github/ (workflows, CODEOWNERS, pull_request_template.md)
 ```
 
-Regla: `packages/go/*` **no** contiene lógica de dominio; un servicio nunca importa el
-`internal/` de otro (Go lo impide). La estructura final del repo la confirma el Agente 1.
+Reglas (verificadas por tests de arquitectura, §5): `packages/go/*` **no** contiene lógica de dominio; un módulo sólo
+importa el paquete **`api/`** (contrato) de otro, nunca su `internal/`; `domain` no importa adaptadores.
 
-**¿Por qué un solo módulo Go?** Un solo `go.sum`, una versión de cada dependencia, refactors
-atómicos y detección de afectados con `go list -deps`. Los despliegues siguen siendo
-independientes (un binario/imagen por servicio). Se reconsidera si un servicio necesita
-dependencias incompatibles.
+**¿Por qué un solo módulo Go y un solo binario?** Un solo `go.sum`, refactors atómicos, detección de afectados con
+`go list -deps`, una imagen que operar (D7). Separar un rol en otro contenedor es cambiar `HORUS_ROLES`, no código.
 
-## 2. Servicio Go
+## 2. Módulo Go
 
 ### 2.1 Layout
 
 ```
 services/devices/
-├── cmd/devices/main.go          # solo: config → wiring → run → exit code
+├── api/                         # contrato público: interfaces generadas de Protobuf, tipos de eventos
 ├── internal/
-│   ├── config/config.go         # struct Config con tags env, Validate()
-│   ├── domain/                  # entidades, value objects, errores de dominio, reglas puras
-│   │   ├── router.go
-│   │   └── errors.go            # ErrRouterNotFound, ErrDuplicateIP …
-│   ├── app/                     # casos de uso (orquestan dominio + puertos)
-│   │   ├── create_router.go
-│   │   └── ports.go             # interfaces que necesita app: RouterRepository, EventPublisher
-│   ├── store/postgres/          # implementación de repositorios (pgx, sqlc opcional)
-│   ├── transport/
-│   │   ├── grpc/                # handlers gRPC ↔ app, mapeo de errores a códigos
-│   │   ├── http/                # (solo api-gateway expone REST público)
-│   │   └── nats/                # consumidores de eventos ↔ app
-│   └── clients/                 # clientes gRPC a otros servicios
-├── migrations/                  # SQL versionado (herramienta: ver database.md)
-├── Dockerfile
-└── README.md                    # propósito, env vars, métricas, eventos que publica/consume
+│   ├── config/config.go         # struct Config del módulo con tags env, Validate()
+│   ├── domain/                  # entidades, value objects, errores de dominio, reglas puras (sin I/O)
+│   ├── app/                     # casos de uso (orquestan dominio + puertos); ports.go con las interfaces
+│   └── adapters/                # http (Chi), grpc, postgres (con TenantScope + SET LOCAL), nats, clickhouse,
+│                                # vendor/mikrotik …
+├── migrations/                  # SQL versionado con nombre por marca de tiempo UTC (evita choques entre agentes)
+└── README.md                    # propósito, env vars, métricas, eventos que publica/consume, roles
 ```
 
-Dependencias permitidas: `transport → app → domain`; `store`/`clients` implementan
-interfaces de `app/ports.go`; `domain` no importa nada del proyecto (ni `context` de
-infraestructura, ni pgx). Se verifica con la regla `depguard` de golangci-lint.
+Dependencias permitidas: `adapters → app → domain`; `adapters` implementa interfaces de `app/ports.go`. Cada
+módulo expone `func Register(ctx, deps) (Module, error)` y `services/cmd/horus` sólo arranca los módulos de sus roles.
 
 ### 2.2 Inyección de dependencias
 
@@ -122,8 +113,8 @@ func run(ctx context.Context, getenv func(string) string) error {
 - Nombres: `HORUS_<CLAVE>` en mayúsculas; las comunes son idénticas en todos los servicios:
   `HORUS_ENV` (`dev|staging|prod`), `HORUS_LOG_LEVEL`, `HORUS_LOG_FORMAT` (`json|text`),
   `HORUS_GRPC_ADDR`, `HORUS_HTTP_ADDR`, `HORUS_ADMIN_ADDR`, `HORUS_POSTGRES_DSN`,
-  `HORUS_NATS_URL`, `HORUS_REDIS_URL` (Valkey, protocolo compatible), `HORUS_CLICKHOUSE_DSN`,
-  `HORUS_S3_ENDPOINT`, las de mTLS `HORUS_TLS_CA_FILE`, `HORUS_TLS_CERT_FILE`,
+  `HORUS_NATS_URL`, `HORUS_VALKEY_URL`, `HORUS_CLICKHOUSE_DSN`, **`HORUS_ROLES`** (lista de roles
+  del proceso), **`HORUS_DATA_DIR`** (almacén local, [ADR-0019](adr/0019-almacenamiento-local-y-destino-remoto.md)), las de mTLS `HORUS_TLS_CA_FILE`, `HORUS_TLS_CERT_FILE`,
   `HORUS_TLS_KEY_FILE` (gRPC interno, [`security.md`](security.md) §5.3), más las `OTEL_*`
   estándar.
 - Secretos: variante `_FILE` (p. ej. `HORUS_POSTGRES_PASSWORD_FILE=/run/secrets/devices_pg_password`)
@@ -138,7 +129,7 @@ func run(ctx context.Context, getenv func(string) string) error {
 - Errores de dominio como valores centinela o tipos (`domain.ErrNotFound`,
   `*domain.ValidationError{Field, Reason}`).
 - Mapeo a gRPC (`codes.NotFound`, `InvalidArgument`, `PermissionDenied`, `FailedPrecondition`,
-  `Unavailable`, `Internal`) en `transport/grpc`; el gateway mapea a HTTP + Problem Details
+  `Unavailable`, `Internal`) en `adapters/grpc`; el gateway mapea a HTTP + Problem Details
   (formato del Agente 3 en [`api.md`](api.md)). Mensajes internos nunca llegan al cliente.
 - Un error se loguea **una sola vez** (en el borde que lo maneja). Prohibido `panic` para
   control de flujo; recuperación de pánicos en interceptores/handlers y por paquete UDP.
@@ -289,45 +280,92 @@ cargados de forma diferida. Accesibilidad AA en componentes propios. i18n con `@
 | Unitarios Go | `domain` y `app` con fakes de puertos; tablas de casos | `go test -race -shuffle=on`, `testing`, `go-cmp` (sin frameworks de mocks pesados; fakes a mano o `mockery` solo si hace falta) | Cada PR | Cobertura ≥ 70 % en `domain`/`app` (no global) |
 | Fuzzing | Parsers de NetFlow/IPFIX/sFlow, SNMP, entradas de config WG | Fuzzing nativo de Go (`go test -fuzz`) | PR: 30 s por objetivo; nocturno: 10 min | Sin pánicos |
 | Unitarios frontend | Composables, utilidades, componentes | Vitest + `@nuxt/test-utils` + Vue Test Utils | Cada PR | Lógica crítica cubierta |
-| Integración | Repositorios contra PostgreSQL/ClickHouse reales, consumidores NATS, Redis, MinIO | `testcontainers-go` (módulos postgres, clickhouse, nats, redis, minio), build tag `integration` | PR (solo servicios afectados) | Todos los repositorios y consumidores |
+| Integración | Repositorios contra PostgreSQL (con RLS activo)/ClickHouse reales, consumidores NATS, Valkey; **replay de fixtures MikroTik** (pcap IPFIX/v9, snmpwalk, JSON REST) | `testcontainers-go` (postgres, clickhouse, nats, valkey), build tag `integration` | PR (sólo módulos afectados) | Todos los repositorios y consumidores |
+| **Arquitectura** | Importaciones entre módulos sólo vía `api/`; `domain` sin adaptadores; toda tabla con `tenant_id` tiene política RLS; ninguna consulta ClickHouse sin `tenant_id`; todo repositorio exige `TenantScope`; toda operación OpenAPI declara `scope`; todo tipo de evento declara `tenant_scope` | `packages/go/archtest` (go/packages + análisis de SQL de migraciones) | **Cada PR, siempre** (no sólo afectados) | 0 violaciones |
+| **Aislamiento de tenant** | Batería generada desde el OpenAPI, los topics WS y el catálogo de eventos ([`security.md`](security.md) §3.9) | `packages/go/tenanttest` con fixture de dos tenants | **Cada PR, siempre** | 100 % de operaciones `scope: tenant` |
 | Contrato API | Respuestas del gateway validadas contra el OpenAPI; cliente generado sin diff | `kin-openapi` (validación de request/response en tests de integración del gateway), `openapi-typescript` | PR | 100 % de endpoints |
 | Contrato gRPC | Compatibilidad de `.proto` | `buf breaking` | PR | Sin cambios incompatibles sin ADR |
 | Contrato eventos | Eventos publicados validan contra su JSON Schema / proto (Agente 3); tests de productor y de consumidor usan los mismos ejemplos (*golden files*) | `santhosh-tekuri/jsonschema` o validación proto | PR | Todos los eventos |
 | E2E | Flujos de usuario reales contra el stack compose (login + 2FA, CRUD de routers, WireGuard, permisos) | Playwright (Chromium; Firefox nocturno) | `main` y nocturno; en PR con etiqueta `e2e` | Recorridos críticos del sprint |
-| Carga | API/WebSocket; ingesta de flujos; polling SNMP a 10/100/500/1.000 routers (vision Sprint 15) | **k6** (HTTP/WS), generador de NetFlow/IPFIX en Go (`scripts/`), `snmpsim` | Manual / programado en staging | Umbrales de SLO de [`observability.md`](observability.md) |
-| Caos | Ver [`disaster-recovery.md`](disaster-recovery.md) §6 | Toxiproxy, Pumba | Sprint 14 | — |
+| Carga | API/WebSocket (incluidas pantallas kiosco); ingesta de flujos con varios tenants; polling SNMP a 10/100/500/1.000 routers | **k6** (HTTP/WS), generador de NetFlow/IPFIX en Go (`scripts/`), `snmpsim` | Manual / programado en staging | Umbrales de SLO de [`observability.md`](observability.md) |
+| Caos | Ver [`disaster-recovery.md`](disaster-recovery.md) §6 | Toxiproxy, nftables, `fallocate` | Nocturno en staging | — |
 | Seguridad | Autorización por endpoint (403 y alcance), escaneos | Tests de integración + herramientas de [`security.md`](security.md) §12 | PR | — |
 
 Reglas: los tests no dependen del orden ni de la hora real (reloj inyectado); prohibido
 `time.Sleep` para sincronizar (usar `require.Eventually` o canales); datos de prueba
 sintéticos, nunca datos reales de abonados.
 
-## 6. Git workflow
+## 6. Flujo de trabajo: agentes de IA + 1 persona (D7)
 
-**Recomendación: trunk-based development con ramas de vida corta** (frente a GitFlow).
-Motivos: equipo pequeño, sprints de 2 semanas, CI fuerte y una sola versión de producto;
-GitFlow añade ramas `develop`/`release` de larga vida y merges complejos sin beneficio aquí.
+Base: [ADR-0023](adr/0023-entrega-por-incrementos-y-equipo-ia.md). Principio: **todo lo que se pueda verificar por
+máquina bloquea el merge; la persona revisa sólo donde su juicio aporta** (producto, decisiones, áreas sensibles).
 
-- Rama principal `main`, siempre desplegable.
-- Ramas `tipo/descripcion-corta` (`feat/devices-crud`, `fix/snmp-timeout`), vida ≤ 2–3 días;
-  el trabajo grande se parte en PRs pequeños (< 400 líneas cambiadas como guía) y se oculta con
-  *feature flags* (variables `HORUS_FEATURE_*`) si aún no está terminado.
-- **Squash merge** al cerrar el PR; el título del PR es el mensaje del commit y debe cumplir
-  Conventional Commits.
-- **Conventional Commits:** `tipo(alcance): descripción` con tipos `feat`, `fix`, `perf`,
-  `refactor`, `test`, `docs`, `build`, `ci`, `chore`, `revert`; alcance = nombre de servicio
-  (`devices`, `snmp`…), `frontend`, `protobuf`, `events`, `infra`, `docs`. Cambio
-  incompatible: `!` y pie `BREAKING CHANGE:`. Referencia a la historia: `Refs: HF-123`.
-- **Protección de `main`** (rulesets de GitHub): PR obligatorio, 1 aprobación mínima
-  (2 para `services/auth`, `packages/go/authz`, `packages/go/crypto`, `.github/workflows`
-  vía CODEOWNERS), checks requeridos en verde, rama actualizada, historial lineal, sin
-  force-push, resolución de conversaciones obligatoria, firma de commits recomendada
-  (obligatoria desde Release 1.0).
-- **CODEOWNERS** por carpeta de servicio y para docs de arquitectura/seguridad.
-- **Revisiones:** el autor rellena la plantilla de PR (qué/por qué/cómo se probó/checklist de
-  DoD); el revisor verifica DoD y seguridad; respuesta en < 1 día laboral; se prefiere
-  *merge queue* de GitHub cuando haya > 3 PRs/día.
-- Hotfixes: rama desde `main`, PR normal acelerado, release de parche.
+### 6.1 Roles
+
+| Rol | Quién | Hace | No hace |
+|-----|-------|------|---------|
+| **Agente autor** | Una sesión de agente por tarea | Implementa una tarea del backlog en su rama; abre el PR con la plantilla; corrige lo que digan CI y el revisor | Fusionar su propio PR; tocar rutas fuera del alcance declarado de la tarea; cambiar CI, `CODEOWNERS`, reglas de protección o secretos |
+| **Agente revisor** | Otra sesión (otro contexto, instrucciones de revisión) | Revisa el diff contra la DoD, contratos, seguridad y aislamiento; publica el check `agent-review` (aprobado / cambios pedidos) con hallazgos en línea | Escribir código en la rama del autor (sólo sugerencias) |
+| **Agente de operación** | Sesión con rol `platform_operator` | Ejecuta runbooks en `--dry-run`, prepara restauraciones, lee métricas | Acciones destructivas sin aprobación de la persona |
+| **Persona** (PO / revisora) | La única persona del equipo | Acepta cada incremento (demo), aprueba ADRs, revisa PRs en áreas sensibles (§6.2), aprueba despliegues a producción y acciones destructivas de DR, hace una auditoría por muestreo semanal de PRs fusionados | Revisar línea a línea lo que ya verifica CI |
+
+### 6.2 Qué revisa la persona (CODEOWNERS)
+
+Su aprobación es **obligatoria** sólo en:
+
+- `services/auth/**`, `packages/go/authz/**`, `packages/go/crypto/**`, `packages/go/natsx/**` (sobre y `Horus-Tenant`),
+  `packages/go/tenanttest/**`, `packages/go/archtest/**` (quien cambia las reglas no puede ser quien las incumple).
+- Migraciones que crean/alteran políticas RLS, borran datos o cambian retención de datos personales.
+- `packages/schemas/openapi/gateway-routes.yaml` (permisos y `scope` de rutas), `packages/events/catalog/**` cuando
+  cambia `pii` o `tenant_scope`.
+- Aprovisionamiento de routers (plantillas `.rsc`, enrolamiento), credenciales y destinos remotos.
+- `.github/**` (workflows, `CODEOWNERS`), `deployments/**`, `infrastructure/**` de producción.
+- `docs/adr/**` y `docs/po-decisions.md`.
+
+Todo lo demás se fusiona con **CI verde + `agent-review` aprobado**, sin esperar a la persona. Para que la
+aprobación de la persona sea distinguible, los agentes trabajan con una identidad de bot (GitHub App) y la persona con
+su cuenta; las reglas de protección exigen el check `agent-review` (lo publica la app del revisor, no cuenta como
+aprobación humana) y la revisión de CODEOWNERS en las rutas anteriores.
+
+### 6.3 Ramas, PRs y cómo se evitan conflictos entre agentes
+
+- **Trunk-based**: `main` siempre desplegable; **una rama por agente y tarea**:
+  `agent/<agente>/<incremento>-<tarea-kebab>` (p. ej. `agent/b/i3-client-discovery`); la persona usa
+  `human/<tarea>`. Vida ≤ 1–2 días; PRs pequeños (< 400 líneas cambiadas sin contar generado).
+- **Una tarea declara su alcance** (rutas que puede tocar) en el issue; un check de CI (`scope-guard`) falla si el
+  diff toca rutas fuera de ese alcance sin la etiqueta `scope-extended` puesta por la persona o por el agente
+  coordinador.
+- **Dueño único por módulo e incremento**: dos agentes no trabajan a la vez en el mismo `services/<módulo>/`; el
+  backlog asigna módulo → agente. El reparto de documentos de esta ronda es el modelo.
+- **Contratos primero**: un cambio de OpenAPI/Protobuf/catálogo de eventos/esquema de tabla va en un **PR de
+  contrato** propio, que se fusiona antes que los PRs de implementación que lo consumen (el generador de código y los
+  mocks salen de ahí).
+- **Archivos compartidos sin conflictos**: registros partidos por dueño (`packages/events/catalog/<dominio>.yaml`,
+  una spec OpenAPI por módulo, `gateway-routes.yaml` con un bloque por módulo y orden alfabético verificado),
+  migraciones con **marca de tiempo UTC** en el nombre (no números secuenciales), `CHANGELOG.md` generado (nadie lo
+  edita), código generado **nunca** se resuelve a mano: ante conflicto se regenera.
+- **Merge queue** de GitHub obligatoria: cada PR se prueba rebasado sobre lo que entrará antes que él (detecta
+  conflictos semánticos entre agentes); los workflows escuchan `merge_group`.
+- **Squash merge**; título del PR en Conventional Commits (`tipo(alcance): descripción`, alcance = módulo,
+  `frontend`, `protobuf`, `events`, `infra`, `docs`); `!` + `BREAKING CHANGE:` si rompe. Trailers de coautoría del
+  agente según la configuración del repositorio. Referencia a la tarea: `Refs: HF-123`.
+- **Protección de `main`**: PR obligatorio, checks `ci-ok` + `agent-review` + `dod` requeridos, CODEOWNERS en rutas
+  sensibles, historial lineal, sin force-push, conversaciones resueltas, commits firmados (la app de los agentes firma).
+- Hotfix: rama `agent/<agente>/hotfix-…` o `human/hotfix-…`, mismo flujo con prioridad en la cola.
+
+### 6.4 Qué revisa el agente revisor (lista fija, versionada en `.github/agent-review.md`)
+
+1. ¿El diff cumple la tarea y sólo la tarea? ¿Hay código muerto, TODO sin issue, secretos?
+2. Contratos: ¿cambio compatible? ¿eventos con `tenant_id` y `Horus-Tenant`? ¿rutas con `scope` y permiso?
+3. Aislamiento: ¿consultas con `TenantScope`? ¿claves de caché con `t:<tenant_id>:`? ¿datos de otro tenant
+   alcanzables por algún camino que la batería no cubre (exportaciones, jobs, WS)?
+4. Seguridad y privacidad: checklist de [`security.md`](security.md) §15; IPs de clientes fuera de logs/métricas.
+5. Observabilidad: logs/métricas/alertas según [`observability.md`](observability.md) §10.
+6. Pruebas: ¿prueban el comportamiento o sólo la implementación? ¿casos de error y de aislamiento?
+7. Documentación: README del módulo, ADR si hay decisión, runbook si hay nuevo modo de fallo.
+
+El revisor deja hallazgos en línea y un resumen; "cambios pedidos" bloquea. Si autor y revisor discrepan dos rondas,
+se escala a la persona con ambos argumentos.
 
 ## 7. Versionado y releases
 
@@ -339,13 +377,12 @@ servicio.
   se prueban juntas en e2e. Versionar 12 servicios por separado añade matrices de
   compatibilidad sin beneficio hasta tener equipos/despliegues independientes (revisable
   con ADR al migrar a Kubernetes).
-- `0.y.z` hasta la Release 1.0 (Sprint 16); cada sprint termina con un `0.<sprint>.0`
-  candidato.
+- `0.y.z` hasta la Release 1.0; cada **incremento** aceptado por la persona produce un `0.<incremento>.0` (D9).
 - **release-please** (modo simple, raíz) genera la PR de release, el `CHANGELOG.md` desde
   Conventional Commits y la etiqueta `vX.Y.Z`.
-- Al etiquetar: se construyen **todas** las imágenes con esa versión (aunque un servicio no
-  cambiara), se firman, se adjuntan SBOMs y se publica un `release-manifest.json` con los
-  digests de cada imagen; el compose de `deployments/` referencia ese manifiesto.
+- Al etiquetar: se construyen la imagen `horus` y la del frontend con esa versión, se firman, se adjuntan SBOMs y
+  se publica un `release-manifest.json` con sus digests; el compose de `deployments/` referencia ese manifiesto.
+  Desplegar en producción requiere aprobación de la persona (environment protegido de GitHub).
 - Versionado independiente para contratos: paquetes proto con versión en el paquete
   (`horus.devices.v1`), API REST `/api/v1`, eventos con versión de esquema (Agente 3).
 - Migraciones de BD: siempre compatibles hacia atrás durante una versión menor
@@ -364,20 +401,15 @@ Pipeline del plan (vision §12): `Code → Lint → Unit Test → Integration Te
 | `nightly.yml` | `schedule` diario | Todo el repo: tests completos, fuzz largo, e2e multi-navegador, `trivy image` sobre imágenes publicadas, `govulncheck`, licencias |
 | `codeql.yml` | PR + semanal | Si el plan de GitHub lo permite (ver preguntas abiertas) |
 
-### 8.2 Detección de servicios afectados
+### 8.2 Detección de módulos afectados
 
-1. Job `changes` calcula la lista de objetivos afectados con un script (`scripts/ci/affected.sh`)
-   que combina:
-   - `git diff --name-only <base>...HEAD`;
-   - para Go: por cada `services/<s>/cmd/<s>`, `go list -deps -f '{{.Dir}}'` → si algún archivo
-     cambiado está en un paquete del que depende, el servicio está afectado (cubre
-     `packages/go/*` y código generado de `packages/protobuf`);
-   - reglas fijas: cambios en `go.mod/go.sum` → todos los servicios Go; `packages/schemas/` →
-     gateway + frontend; `packages/events/` → todos los servicios Go; `apps/frontend/**` →
-     frontend; `.github/workflows/**` o `infrastructure/docker/**` → todo.
-2. Salida JSON → `strategy.matrix` de los jobs siguientes. Alternativa más simple aceptada para
-   Sprint 1: `dorny/paths-filter` con filtros por carpeta + "todo" si cambian `packages/` o
-   `go.mod`.
+1. Job `changes` (`scripts/ci/affected.sh`): `git diff --name-only <base>...HEAD` + `go list -deps` por paquete
+   de `services/<módulo>/...` → módulos afectados (cubre `packages/go/*` y código generado). Reglas fijas:
+   `go.mod/go.sum`, `packages/events/`, `packages/protobuf/` → todos los módulos; `packages/schemas/` → gateway +
+   frontend; `apps/frontend/**` → frontend; `.github/**` o `infrastructure/**` → todo.
+2. Salida JSON → `strategy.matrix` para tests unitarios y de integración por módulo.
+3. **Siempre**, afecte a lo que afecte: tests de arquitectura, batería de aislamiento de tenant, `scope-guard`,
+   `dod`, build de la imagen única `horus` y smoke del perfil mínimo (3 contenedores) en `merge_group`.
 
 ### 8.3 Etapas y herramientas
 
@@ -387,8 +419,9 @@ Pipeline del plan (vision §12): `Code → Lint → Unit Test → Integration Te
 | **Unit Test** | `go test -race -shuffle=on -coverprofile` (afectados) + fuzz corto | `vitest run --coverage` | Cobertura publicada como comentario/artefacto | Sí |
 | **Integration Test** | `go test -tags=integration` con testcontainers (Docker del runner) | — | Validación de contratos OpenAPI/eventos | Sí |
 | **Security Check** | `govulncheck`, `gosec` (vía lint) | `pnpm audit --prod` (advertencia) | `osv-scanner`, `gitleaks`, `trivy fs` + `trivy config`, CodeQL/semgrep | Sí (umbrales de [`security.md`](security.md) §12) |
-| **Build** | `docker buildx build` multi-stage por servicio afectado (con caché `type=gha`); en PR sin push | `pnpm build` + imagen | `trivy image` sobre la imagen construida; en `main`: push a GHCR + `cosign sign` + `syft` SBOM + `attest-build-provenance` | Sí |
-| E2E (opcional en PR) | — | Playwright contra `docker compose up` | — | Requerido en `main` |
+| **Build** | `docker buildx build` de la imagen **única** `horus` (caché `type=gha`); en PR sin push | `pnpm build` + imagen | `trivy image` sobre la imagen construida; en `main`: push a GHCR + `cosign sign` + `syft` SBOM + `attest-build-provenance` | Sí |
+| E2E | — | Playwright contra el perfil mínimo (`docker compose up`) con capturas de pantalla adjuntas al PR si cambia la UI | — | En `merge_group` (smoke) y nocturno (completo) |
+| **DoD** | Job `dod` (§11) | | | Sí |
 
 Prácticas: Actions fijadas por SHA; `permissions: contents: read` por defecto (solo `release.yml`
 con `packages: write`, `id-token: write`, `attestations: write`); `concurrency` para cancelar

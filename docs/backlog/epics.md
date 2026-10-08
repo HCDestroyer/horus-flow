@@ -16,7 +16,7 @@ las épicas nuevas usan números ≥ 23. La columna **Agente** es el responsable
 | EP-02 | Shell del frontend | I0 | UI | Ampliada con selector de ISP |
 | EP-03 | Autenticación y sesiones | I0 (mínima definitiva) · I2 (TOTP, sesiones) | CORE | Dividida |
 | EP-04 | Autorización y auditoría | I0 (roles + aislamiento por ISP) · I2 (roles por ISP, auditoría) | CORE | ACL por sitio sustituida por aislamiento por ISP |
-| EP-05 | Inventario de red | I0 (ISP, nodo, router, prefijos) · I2 (descubrimiento por API) | CORE | Recortada |
+| EP-05 | Inventario de red | I0 (ISP, nodo, router, prefijos) · I1 (importación de pools) · I2 (asistente) | CORE | Recortada |
 | EP-06 | **Clientes por IP (descubrimiento automático)** | I1 · I2 (tipo comercial) | FLOW + CORE | **Reescrita por D1** |
 | EP-07 | WireGuard | I1 (script RouterOS) · I3 (gestionado) | CORE | Aplazada en parte |
 | EP-08 | Monitoreo de routers (ICMP + SNMP) | I2 | FLOW | Aplazada |
@@ -25,12 +25,12 @@ las épicas nuevas usan números ≥ 23. La columna **Agente** es el responsable
 | EP-11 | Enriquecimiento IP → ASN → organización | I0 (datasets) · I1 (ingesta) | FLOW | Sin cambios de fondo |
 | EP-12 | Catálogo de servicios y categorías | I1 (semilla) · I4 (editor) | FLOW | Editor aplazado |
 | EP-13 | Reputación | I0 (feeds) · I1 (match) · I4 (decaimiento) | SEC | Adelantada por D5 |
-| EP-14 | **Detección de botnets** | I1 (4 detectores) · I4 (madurez) | SEC | **Prioridad máxima por D5** |
+| EP-14 | **Detección de botnets** | I1 (señales de `traffic-model.md` §8) · I4 (madurez) | SEC | **Prioridad máxima por D5** |
 | EP-15 | Analítica de tráfico | I1 (tops) · I2 (vistas avanzadas) | FLOW + UI | Repartida |
 | EP-16 | Perfil residencial / comercial | I1 (manual) · I2 (scoring) | SEC | Reorientada por D1 |
 | EP-17 | Alertas y notificaciones externas | I3 | CORE | Aplazada |
 | EP-18 | Reportes | I3 | FLOW + UI | Recortada |
-| EP-19 | Retención, backup y archivo externo | I1 (TTL, backup local) · I3 (SFTP) | PLAT | Reescrita por D2 |
+| EP-19 | Retención, backup y copia remota | I1 (TTL, backup local, aviso) · I3 (destinos remotos) | PLAT | Reescrita por D2 |
 | EP-20 | Resiliencia | Continuo · I5 | PLAT | Sin cambios de fondo |
 | EP-21 | Rendimiento y escala | I1 (básica) · I5 | PLAT + FLOW | Sin cambios de fondo |
 | EP-22 | Release 1.0 y operación | I1 (instalador) · I5 | PLAT | |
@@ -81,27 +81,31 @@ las épicas nuevas usan números ≥ 23. La columna **Agente** es el responsable
 - **Cierre:** matriz de permisos y de tenants automatizada para cada endpoint y tema WebSocket.
 
 ## EP-05 · Inventario de red
-- **I0:** ISP → nodo → router principal (IP de exportador, vendor MikroTik, modelo/versión
-  opcional) → prefijos de clientes del nodo (realm).
-- **I2:** asistente de alta, credenciales de API RouterOS cifradas, descubrimiento de identidad,
-  interfaces y pools (propuesta de prefijos).
+- **I0:** ISP → nodo → router principal (MikroTik, versión de RouterOS) → prefijos de clientes
+  del nodo (`client_prefix` con rol *customers* / *infrastructure* / *excluded*).
+- **I1:** importación de pools desde el MikroTik (API de solo lectura, credenciales cifradas) y modo
+  descubrimiento con propuestas de prefijos ([`../traffic-model.md`](../traffic-model.md) §4.1).
+- **I2:** asistente de alta, interfaces y su `flow_role`, alias PPPoE opcionales.
 - **Fuera:** catálogo de modelos/firmware, CSV, tags y grupos (hasta que se pidan).
 
 ## EP-06 · Clientes por IP (descubrimiento automático) *(reescrita por D1)*
 - **Objetivo:** que cada IP de cliente vista en los flujos del router de un nodo sea un cliente,
   sin CRM, RADIUS ni facturación.
-- **Alcance I1:** identidad `(ISP, nodo/realm, IP)`; alta automática con `first_seen`,
-  `last_seen`, tipo `residential` por defecto; alias opcional; cambio manual de tipo con motivo
-  (auditado, y el automático no lo pisa); lista y detalle; consumo por cliente.
-- **Alcance I2:** tipo `commercial` detectado (ver EP-16), IPv6 por prefijo delegado si se usa.
+- **Alcance I1:** identidad `(ISP, realm, IP)` (IPv6 por `/64`); alta automática con `first_seen`,
+  `last_seen`, tipo por defecto del prefijo (`residential`); ciclo de vida *activo* → *inactivo*
+  (30 días) → purga (25 meses) y "reiniciar cliente" ([`../database.md`](../database.md) §2.3.4);
+  alias opcional; cambio manual de tipo con motivo, `kind_locked` e historial inmutable; lista,
+  detalle y consumo por cliente.
+- **Alcance I2:** tipo `commercial` detectado (ver EP-16) con desbloqueo del tipo manual.
 - **Fuera:** sincronización con CRM, datos personales del abonado (nombre, dirección).
 - **Cierre:** ≥ 95 % de los bytes del lado cliente del router piloto atribuidos a un cliente
   descubierto (el resto, fuera de prefijos declarados, se muestra como "No atribuido").
 
 ## EP-07 · WireGuard
-- **I1:** script RouterOS con el peer del router y comando del instalador para el lado servidor.
-- **I3:** gestión desde la UI (hub, peers, IPAM, rotación, revocación, estado de handshake).
-- Supuesto pendiente de confirmar (P-07).
+- **I1:** hub mínimo, IPAM de plataforma, enrolamiento del router con token de un uso
+  (`POST /enroll/wireguard`), estado de handshake; clave privada generada en el router
+  ([ADR-0022](../adr/0022-mikrotik-routeros-v7-primer-fabricante.md), [`../vendors/mikrotik.md`](../vendors/mikrotik.md) §5).
+- **I3:** rotación de claves del router, revocación desde la UI, segundo hub, gestión de rangos.
 
 ## EP-08 · Monitoreo de routers (ICMP + SNMP)
 - **I2:** ICMP + SNMP v2c/v3 (MikroTik + MIB estándar), estado observado con razón
@@ -138,10 +142,12 @@ las épicas nuevas usan números ≥ 23. La columna **Agente** es el responsable
 ## EP-14 · Detección de botnets *(prioridad máxima por D5)*
 - **Objetivo:** detectar clientes cuyas IPs muestran señales compatibles con participación en
   botnets, con explicación suficiente para actuar.
-- **I1:** cuatro detectores explicables (C2 conocido, escaneo saliente, SMTP masivo, ataque
-  saliente); hallazgos con severidad, confianza, evidencia, deduplicación y ciclo de vida;
-  retroalimentación "falso positivo".
-- **I4:** beaconing, DGA/DNS si hay datos, proxies residenciales, minería, línea base por IP.
+- **I1:** señales de [`../traffic-model.md`](../traffic-model.md) §8: C2 conocido por reputación
+  (también retroactivo), escaneo, fan-out, puertos vigilados, SMTP saliente, DDoS; beaconing y
+  salida sostenida como *should*. Hallazgos con razones, confianza, deduplicación, allowlist del ISP
+  y estados de [`../api.md`](../api.md) §2.10; retroalimentación "falso positivo".
+- **I4:** DNS anómalo, servicios entrantes inesperados, propagación interna, línea base por
+  cliente, mejores pesos de reputación.
 - **Cierre I1:** los escenarios del simulador producen exactamente los hallazgos esperados y el
   escenario normal ninguno.
 
@@ -166,8 +172,11 @@ las épicas nuevas usan números ≥ 23. La columna **Agente** es el responsable
 ## EP-19 · Retención, backup y archivo externo *(reescrita por D2)*
 - **I1:** TTL de ClickHouse desde la primera migración; backup local diario de PostgreSQL (y
   de configuración) con restauración probada en CI.
-- **I3:** destino remoto opcional por SFTP (luego Drive/MEGA/Dropbox con rclone), cifrado del
-  lado cliente, verificación de checksum. Ningún componente depende de que exista.
+- **I1:** consola de plataforma con uso de disco y aviso permanente "Sin copia remota configurada".
+- **I3:** destino remoto opcional por SFTP (luego Drive/MEGA/Dropbox con rclone; **MediaFire fuera
+  de alcance**, rclone no lo soporta), cifrado del lado cliente con confirmación de que la clave de
+  recuperación se guardó fuera de Horus, verificación de checksum. Ningún componente depende de
+  que exista ([ADR-0019](../adr/0019-almacenamiento-local-y-destino-remoto.md)).
 
 ## EP-20 · Resiliencia
 - Cada incremento añade pruebas de fallo de lo nuevo (p. ej. I1: reiniciar ClickHouse durante la
@@ -196,16 +205,17 @@ las épicas nuevas usan números ≥ 23. La columna **Agente** es el responsable
 - Diseño en [`../frontend.md`](../frontend.md) §6.
 
 ## EP-25 · Modo NOC / kiosco *(nueva por D8)*
-- **I1:** pantalla registrada con token revocable de solo lectura, pantalla completa, rotación de
+- **I1:** kiosco como dispositivo registrado ([`../api.md`](../api.md) §2.12: código de un uso,
+  credencial HttpOnly rotativa, CIDR permitido, sin datos de clientes por defecto), pantalla completa, rotación de
   dashboards, autorrefresco, legibilidad a distancia, tema oscuro, sin interacción, recuperación
   automática de desconexiones y de versiones nuevas. Diseño en [`../frontend.md`](../frontend.md) §7.
 - **Cierre:** 24 h sin intervención con cortes simulados.
 
 ## EP-26 · Onboarding MikroTik *(nueva por D10)*
-- **I1:** generador de script RouterOS (Traffic Flow + peer WireGuard opcional) desde la ficha
-  del router, con instrucciones y verificación "recibiendo flujos". Basado en
-  [`../vendors/mikrotik.md`](../vendors/mikrotik.md).
-- **I2:** asistente con API RouterOS (descubrimiento y propuesta de prefijos).
+- **I1:** script de onboarding de [`../vendors/mikrotik.md`](../vendors/mikrotik.md) §7 con
+  enrolamiento automático, verificación en vivo (clave → handshake → flujos → clientes), importación
+  de pools y script de desinstalación. Horus no escribe en el router.
+- **I2:** asistente con lecturas adicionales por API (interfaces, alias PPPoE, comparación de CPU).
 
 ## EP-27 · Mitigación asistida *(condicionada a P-23)*
 - **I4:** cuarentena de una IP en address-list de MikroTik vía API, con aprobación humana,
