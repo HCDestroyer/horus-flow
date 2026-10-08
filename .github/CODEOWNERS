@@ -136,7 +136,8 @@
 
 # Agente: INT
 # [SENSIBLE] Permisos y scope de rutas; pii/tenant_scope de eventos.
-/packages/schemas/openapi/gateway-routes.yaml @hcdestroyer
+/packages/schemas/openapi/v0/gateway-routes.yaml @hcdestroyer
+/packages/schemas/permissions/      @hcdestroyer
 /packages/events/catalog/           @hcdestroyer
 
 # ---------------------------------------------------------------------------------------------

@@ -178,14 +178,20 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: make contracts-check
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - name: Herramientas (buf, pglast, chdb)
         run: |
-          # Lo aporta INT con I0-05 (lint OpenAPI, esquemas, ejemplos, DDL ClickHouse).
-          if ! grep -qE '^contracts-check:' Makefile; then
-            echo "contracts: 'make contracts-check' aún no existe (I0-05); se omite"
-            exit 0
-          fi
-          make contracts-check
+          go install github.com/bufbuild/buf/cmd/buf@v1.47.2
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          python3 -m pip install --user pglast==7.2 chdb==3.1.2
+      - name: make contracts-check
+        run: make contracts-check
 
   # -------------------------------------------------------------------------------------------
   security:

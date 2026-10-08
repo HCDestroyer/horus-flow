@@ -76,6 +76,13 @@ lint: check-codeowners ## Ejecuta golangci-lint y la verificación de CODEOWNERS
 vet: ## Ejecuta go vet ./...
 	$(GO) vet ./...
 
+.PHONY: contracts-check
+contracts-check: ## Verifica los contratos v0 (OpenAPI, eventos, Protobuf, esquemas, DDL)
+	@command -v $${BUF_BIN:-buf} >/dev/null 2>&1 || { \
+		echo "contracts-check: falta 'buf' (go install github.com/bufbuild/buf/cmd/buf@v1.47.2)"; exit 1; }
+	npm ci --prefix packages/schemas --no-audit --no-fund
+	npm --prefix packages/schemas run check:db
+
 .PHONY: check-codeowners
 check-codeowners: ## Verifica que toda carpeta de primer nivel y cada módulo tiene dueño
 	@bash scripts/check-codeowners.sh
