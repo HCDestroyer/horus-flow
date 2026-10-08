@@ -20,7 +20,7 @@ exporters:
       - name: mirai-scanner
         count: 1
         behaviors:
-          - residential: {}
+          - residential: {intensity: 0.2}   # cámara/IoT: poco tráfico propio
           - scan: {mode: horizontal, ports: [23, 2323], rate: 10, respond_ratio: 0.03}
         expect:
           signals: [scan_horizontal, fanout, watch_ports]

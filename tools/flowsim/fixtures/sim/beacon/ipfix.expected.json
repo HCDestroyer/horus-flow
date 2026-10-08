@@ -46,13 +46,13 @@
       },
       "ipv6_client_len": 64,
       "totals": {
-        "datagrams": 5309,
-        "template_sends": 391,
+        "datagrams": 5431,
+        "template_sends": 392,
         "data_records": 10362,
-        "records_v4": 9944,
-        "records_v6": 418,
-        "bytes": 4319219934,
-        "packets": 4082166
+        "records_v4": 9942,
+        "records_v6": 420,
+        "bytes": 4319035130,
+        "packets": 4081942
       },
       "by_status": {
         "attributed": 7210,
@@ -87,11 +87,11 @@
           "family": 4,
           "population": "beaconing-bot",
           "kind": "residential",
-          "records": 790,
-          "bytes_up": 10999893,
-          "bytes_down": 850411956,
-          "packets_up": 205717,
-          "packets_down": 609358
+          "records": 788,
+          "bytes_up": 10993962,
+          "bytes_down": 850343871,
+          "packets_up": 205681,
+          "packets_down": 609297
         },
         {
           "key": "10.20.0.2",
@@ -109,22 +109,22 @@
           "family": 4,
           "population": "households",
           "kind": "residential",
-          "records": 594,
-          "bytes_up": 3388635,
-          "bytes_down": 243069054,
-          "packets_up": 60067,
-          "packets_down": 174912
+          "records": 592,
+          "bytes_up": 3383021,
+          "bytes_down": 242961126,
+          "packets_up": 60021,
+          "packets_down": 174825
         },
         {
           "key": "10.20.0.4",
           "family": 4,
           "population": "households",
           "kind": "residential",
-          "records": 636,
-          "bytes_up": 3687858,
-          "bytes_down": 272590558,
-          "packets_up": 66986,
-          "packets_down": 196068
+          "records": 640,
+          "bytes_up": 3688024,
+          "bytes_down": 272590808,
+          "packets_up": 66988,
+          "packets_down": 196070
         },
         {
           "key": "10.20.0.5",
@@ -132,10 +132,10 @@
           "population": "households",
           "kind": "residential",
           "records": 634,
-          "bytes_up": 8719173,
-          "bytes_down": 676286877,
-          "packets_up": 163175,
-          "packets_down": 484404
+          "bytes_up": 8719452,
+          "bytes_down": 676287233,
+          "packets_up": 163178,
+          "packets_down": 484407
         },
         {
           "key": "10.20.0.6",
@@ -143,10 +143,10 @@
           "population": "households",
           "kind": "residential",
           "records": 392,
-          "bytes_up": 253836,
-          "bytes_down": 4214817,
-          "packets_up": 2281,
-          "packets_down": 3820
+          "bytes_up": 255904,
+          "bytes_down": 4235210,
+          "packets_up": 2289,
+          "packets_down": 3836
         },
         {
           "key": "10.20.0.7",
@@ -164,11 +164,11 @@
           "family": 4,
           "population": "households",
           "kind": "residential",
-          "records": 644,
-          "bytes_up": 642289,
-          "bytes_down": 14838091,
-          "packets_up": 6927,
-          "packets_down": 12487
+          "records": 642,
+          "bytes_up": 640536,
+          "bytes_down": 14818763,
+          "packets_up": 6915,
+          "packets_down": 12469
         },
         {
           "key": "10.20.0.9",
@@ -197,11 +197,11 @@
           "family": 6,
           "population": "households",
           "kind": "residential",
-          "records": 260,
-          "bytes_up": 188522,
-          "bytes_down": 3275803,
-          "packets_up": 1737,
-          "packets_down": 2937
+          "records": 262,
+          "bytes_up": 188606,
+          "bytes_down": 3276042,
+          "packets_up": 1738,
+          "packets_down": 2938
         }
       ],
       "unattributed": []
@@ -217,10 +217,10 @@
         "connections": 78,
         "cv": 0.03,
         "interval_s": 301,
-        "mean_bytes_out": 417,
+        "mean_bytes_out": 418,
         "remote_ip": "3.121.45.10",
         "remote_port": 8443,
-        "span_h": 6.43
+        "span_h": 6.44
       }
     }
   ],
@@ -238,10 +238,10 @@
           "connections": 78,
           "cv": 0.03,
           "interval_s": 301,
-          "mean_bytes_out": 417,
+          "mean_bytes_out": 418,
           "remote_ip": "3.121.45.10",
           "remote_port": 8443,
-          "span_h": 6.43
+          "span_h": 6.44
         }
       }
     }

@@ -306,6 +306,7 @@ type shape struct {
 	upPkts, upBytes     uint64
 	downPkts, downBytes uint64
 	v6ok                bool
+	heavy               bool // sesión larga y pesada (streaming, videollamada)
 }
 
 func webShape(r *rand.Rand, proto uint8, svcs []string) shape {
@@ -343,7 +344,7 @@ func residentialShape(r *rand.Rand) shape {
 		dp := down / 1400
 		return shape{
 			proto: flow.ProtoTCP, service: pick(r, []string{"netflix", "google", "akamai"}), rport: 443, dur: dur,
-			upPkts: dp / 3, upBytes: dp / 3 * 52, downPkts: dp, downBytes: down, v6ok: true,
+			upPkts: dp / 3, upBytes: dp / 3 * 52, downPkts: dp, downBytes: down, v6ok: true, heavy: true,
 		}
 	case x < 0.97:
 		dur := between(r, 120_000, 600_000)
@@ -373,7 +374,7 @@ func commercialShape(r *rand.Rand) shape {
 		pk := uint64(dur / 20) // 50 pps
 		return shape{
 			proto: flow.ProtoUDP, service: "zoom", rport: 8801, dur: dur,
-			upPkts: pk, upBytes: pk * 900, downPkts: pk, downBytes: pk * 1000,
+			upPkts: pk, upBytes: pk * 900, downPkts: pk, downBytes: pk * 1000, heavy: true,
 		}
 	case x < 0.90:
 		s := webShape(r, flow.ProtoTCP, []string{"akamai"})
@@ -422,14 +423,53 @@ func (g *gen) remoteFor(c *client, s shape, v6 bool, cdn []netip.Prefix) netip.A
 	case "cdn":
 		return randomIn(c.rng, pick(c.rng, cdn))
 	}
-	sv := services[s.service]
-	if v6 && len(sv.v6) > 0 {
-		return randomIn(c.rng, pick(c.rng, sv.v6))
+	// Un hogar reutiliza un conjunto acotado de servidores por servicio (lo
+	// que le devuelve su DNS): realista y sin fan-out espurio a tasas altas.
+	key := s.service + "/4"
+	if v6 {
+		key = s.service + "/6"
 	}
-	return randomIn(c.rng, pick(c.rng, sv.v4))
+	pool := c.remotes[key]
+	if len(pool) > 0 && (len(pool) >= remotePoolSize || c.rng.Float64() > 0.2) {
+		return pick(c.rng, pool)
+	}
+	sv := services[s.service]
+	var a netip.Addr
+	if v6 && len(sv.v6) > 0 {
+		a = randomIn(c.rng, pick(c.rng, sv.v6))
+	} else {
+		a = randomIn(c.rng, pick(c.rng, sv.v4))
+	}
+	if c.remotes == nil {
+		c.remotes = map[string][]netip.Addr{}
+	}
+	c.remotes[key] = append(pool, a)
+	return a
 }
 
+// remotePoolSize es el máximo de servidores distintos por servicio y familia
+// que usa un cliente.
+const remotePoolSize = 16
+
+// maxHeavy es el máximo de sesiones pesadas simultáneas por cliente: a tasas
+// altas sube el nº de conexiones, no el nº de películas a la vez.
+const maxHeavy = 2
+
 func (g *gen) shapeConn(c *client, s shape, start int64, cdn []netip.Prefix) {
+	if s.heavy {
+		live := c.heavyUntil[:0]
+		for _, e := range c.heavyUntil {
+			if e > start {
+				live = append(live, e)
+			}
+		}
+		c.heavyUntil = live
+		if len(live) >= maxHeavy {
+			s = webShape(c.rng, flow.ProtoTCP, []string{"google", "cloudflare", "akamai"})
+		} else {
+			c.heavyUntil = append(c.heavyUntil, start+s.dur)
+		}
+	}
 	v6 := false
 	if s.v6ok && len(c.v6) > 0 {
 		v6 = !c.v4.IsValid() || c.rng.Float64() < 0.35

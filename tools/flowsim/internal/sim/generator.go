@@ -206,23 +206,25 @@ func newGen(sc *Scenario, opt Options) (*gen, error) {
 
 // client es un cliente simulado (una IPv4 y, opcionalmente, un prefijo IPv6).
 type client struct {
-	exp       *expState
-	pop       *Population
-	idx       int
-	status    string
-	v4        netip.Addr
-	v6        []netip.Addr
-	keyV4     string
-	keyV6     string
-	kind      string
-	rng       *rand.Rand
-	mac       [6]byte
-	ttl64     float64 // probabilidad de TTL inicial 64 (resto 128)
-	accessIf  uint32
-	behaviors []behavior
-	weight    float64 // peso en el tráfico de fondo
-	lambda    float64 // conexiones de fondo por segundo
-	bgKind    string
+	exp        *expState
+	pop        *Population
+	idx        int
+	status     string
+	v4         netip.Addr
+	v6         []netip.Addr
+	keyV4      string
+	keyV6      string
+	kind       string
+	rng        *rand.Rand
+	mac        [6]byte
+	ttl64      float64 // probabilidad de TTL inicial 64 (resto 128)
+	accessIf   uint32
+	behaviors  []behavior
+	weight     float64 // peso en el tráfico de fondo
+	lambda     float64 // conexiones de fondo por segundo
+	bgKind     string
+	remotes    map[string][]netip.Addr
+	heavyUntil []int64
 }
 
 func (g *gen) buildClients(es *expState) error {
