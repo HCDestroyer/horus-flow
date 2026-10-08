@@ -1001,6 +1001,12 @@ de seguridad del cliente** (resumen que consume el NOC) y el **scoring de tipo**
     { "code": "unusual_port", "detail": "TCP/8443 a ASN sin historial", "weight": 0.12 } ],
   "evidence": { "distinct_destinations": 3, "destination_asns": [64512], "flows": 51, "bytes_est": "48200" },
   "rule_version": "c2-contact@4", "reputation_snapshot_version": 233, "min_sampling_rate": 1 }
+// D11: además "summary", "primary_target", "occurrences" y "recommended_actions": [{ "code", "title", "explanation",
+//   "priority", "risk", "audience", "execution": "manual", "customer_message",
+//   "routeros": { "min_version": "7.12", "commands": ["/ip firewall filter add … src-address={{customer_address}} …"],
+//                 "undo_commands": [...], "placeholders": [...], "rendered_commands": null, "rendered_undo_commands": null } }]
+//   Plantillas con placeholders: el evento NUNCA lleva la IP del cliente (§5.7); Horus no ejecuta los comandos.
+//   Forma completa: packages/schemas/finding/v0/finding.schema.json (C8) y horus.events.detection.v1.Finding.
 // ddos_participation: evidence { "target_asn", "target_prefix", "pps_peak", "protocol", "spoofing_suspected" }
 // outbound_scanning:  evidence { "distinct_destinations", "destination_ports", "syn_ratio" }
 
@@ -1049,9 +1055,18 @@ de seguridad del cliente** (resumen que consume el NOC) y el **scoring de tipo**
 // horus.alerts.alert.resolved
 { "id": "0192...", "version": 3, "state": "resolved", "resolution": "auto", "resolved_by": null, "duration_seconds": 1440 }
 
-// horus.alerts.notification.sent
-{ "id": "0192...", "alert_id": "0192...", "channel": "telegram", "recipient_user_id": "0192..." }
+// horus.alerts.notification.sent   (D13: campos añadidos de forma compatible; en I1 alert_id = null porque el
+// canal mínimo reacciona directamente al evento de origen, sin motor de reglas)
+{ "id": "0192...", "alert_id": "0192...", "channel_id": "0192...", "channel": "telegram", "recipient_user_id": "0192...",
+  "event_type": "finding_opened", "source_event_type": "horus.detection.finding.opened", "source_event_id": "0192...",
+  "is_test": false, "error": null, "occurred_at": "2026-10-07T14:03:12Z" }
+// channel: email | telegram | librenms (previsto, D13: syslog / SNMP trap / API)
 ```
+
+> **Contrato v0 (I0-05)**: catálogo por dominio en `packages/events/catalog/`, golden files en `packages/events/examples/`,
+> payloads en `packages/protobuf/horus/events/`. Añade para el I1: `horus.flows.exporter.state_changed` (estados del
+> exportador de I1-09; `silent`/`recovered` se siguen emitiendo) y la telemetría `horus.flows.traffic_summary.observed`
+> en `horus.telemetry.flows.summary.<site_id>` (topic WebSocket `traffic.summary`). Ver `docs/contracts/G0.md`.
 
 ### 8.10 `analytics` y `reporting`
 
