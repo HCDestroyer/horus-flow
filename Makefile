@@ -53,6 +53,14 @@ down: ## Detiene el compose de desarrollo (conserva los datos)
 reset: ## Detiene el compose y borra sus volúmenes (datos de PostgreSQL, ClickHouse...)
 	$(COMPOSE_DOWN) --profile "*" down --volumes --remove-orphans
 
+.PHONY: migrate-ch
+migrate-ch: ## Aplica el esquema ClickHouse (I0-13) al ClickHouse del compose (idempotente)
+	@test -f $(COMPOSE_DIR)/.env || { echo "migrate-ch: falta $(COMPOSE_DIR)/.env (ejecuta 'make up')"; exit 1; }
+	@set -a; . ./$(COMPOSE_DIR)/.env; set +a; \
+	HORUS_CLICKHOUSE_DSN="$${HORUS_CLICKHOUSE_DSN:-clickhouse://$${HORUS_CH_USER}@127.0.0.1:$${HORUS_CH_NATIVE_PORT:-9000}/$${HORUS_CH_DB}}" \
+	HORUS_CLICKHOUSE_PASSWORD_FILE="$${HORUS_CLICKHOUSE_PASSWORD_FILE:-$(COMPOSE_DIR)/secrets/clickhouse_password.txt}" \
+	$(GO) run ./services/ingester/cmd/ch-migrate
+
 ##@ Calidad
 
 .PHONY: build
