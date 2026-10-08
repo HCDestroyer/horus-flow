@@ -53,3 +53,6 @@ Thumbs.db
 
 # Worktrees temporales de agentes de IA
 .claude/worktrees/
+
+# Estado local del laboratorio CHR (claves, discos, logs; I0-11)
+/.lab/

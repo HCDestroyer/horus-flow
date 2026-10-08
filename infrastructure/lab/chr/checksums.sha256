@@ -1,0 +1,14 @@
+# SHA-256 de las imágenes CHR que usa el laboratorio (historia I0-11). Formato sha256sum:
+#   <sha256>  chr-<versión>.img.zip
+#
+# scripts/lab/fetch-chr.sh descarga la imagen de download.mikrotik.com y la acepta SOLO si su
+# SHA-256 coincide con:
+#   1. la línea de este archivo para esa versión (fijada en Git, revisable en el PR), o
+#   2. si no hay línea, el checksum que MikroTik publica junto a la imagen (fetch-chr.sh lo busca
+#      en <base>/<versión>/; la ruta exacta está "a verificar" porque download.mikrotik.com no era
+#      accesible desde el entorno del agente), o
+#   3. CHR_SHA256=<hash> en el entorno (copiado a mano de https://mikrotik.com/download, botón
+#      "SHA256" de "Cloud Hosted Router" → "Raw disk image").
+# Sin ninguno de los tres, la descarga falla: nunca se arranca una imagen sin verificar.
+# Al añadir una versión, copia el valor desde mikrotik.com/download (no lo calcules del archivo
+# descargado) y anota la fecha en el mensaje del commit.
