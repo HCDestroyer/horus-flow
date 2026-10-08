@@ -1,0 +1,99 @@
+syntax = "proto3";
+
+// Contrato síncrono de devices para roles de otros contenedores (collector, ingester) en el I1
+// (docs/api.md §5.1; docs/database.md §2.3.3). Métodos multi-tenant: solo identidades de servicio
+// autorizadas (svc:collector, svc:ingester) sobre mTLS; cada elemento lleva su tenant_id.
+package horus.devices.v1;
+
+import "google/protobuf/timestamp.proto";
+import "horus/common/v1/common.proto";
+
+// InventoryService snapshots del inventario para el plano de datos.
+service InventoryService {
+  // Mapa IP de túnel → (tenant, router, nodo) para que el collector identifique exportadores.
+  rpc ListExporters(ListExportersRequest) returns (ListExportersResponse);
+  // Prefijos de clientes (con realm y rol) para la atribución en el ingester.
+  rpc ListClientPrefixes(ListClientPrefixesRequest) returns (ListClientPrefixesResponse);
+  // Claves (tenant, realm, address) de clientes conocidos para el conjunto "conocidos" del ingester.
+  rpc ListCustomerKeys(ListCustomerKeysRequest) returns (ListCustomerKeysResponse);
+}
+
+// ListExportersRequest pide una página de exportadores.
+message ListExportersRequest {
+  horus.common.v1.PageRequest page = 1;
+}
+
+// Exporter router principal con su IP de túnel.
+message Exporter {
+  string tenant_id = 1;
+  string router_id = 2;
+  string site_id = 3;
+  string tunnel_ip = 4;
+  int32 version = 5;
+  // active | maintenance | decommissioned
+  string admin_state = 6;
+  // Cuota del tenant para el limitador del collector.
+  int32 tenant_max_flows_per_second = 7;
+  repeated InterfaceRole interfaces = 8;
+}
+
+// InterfaceRole ifIndex → flow_role.
+message InterfaceRole {
+  uint32 if_index = 1;
+  string interface_id = 2;
+  // customer_edge | upstream | peering | core | management | none
+  string flow_role = 3;
+}
+
+// ListExportersResponse página de exportadores.
+message ListExportersResponse {
+  repeated Exporter exporters = 1;
+  horus.common.v1.PageInfo page = 2;
+  google.protobuf.Timestamp snapshot_at = 3;
+}
+
+// ListClientPrefixesRequest pide prefijos (opcionalmente de un tenant).
+message ListClientPrefixesRequest {
+  horus.common.v1.PageRequest page = 1;
+  optional string tenant_id = 2;
+}
+
+// ClientPrefixEntry prefijo con su realm y rol.
+message ClientPrefixEntry {
+  string tenant_id = 1;
+  string id = 2;
+  string site_id = 3;
+  string realm_id = 4;
+  string prefix = 5;
+  string role = 6;
+  string default_kind = 7;
+  optional int32 ipv6_client_len = 8;
+  int32 version = 9;
+}
+
+// ListClientPrefixesResponse página de prefijos.
+message ListClientPrefixesResponse {
+  repeated ClientPrefixEntry prefixes = 1;
+  horus.common.v1.PageInfo page = 2;
+}
+
+// ListCustomerKeysRequest pide claves naturales de clientes.
+message ListCustomerKeysRequest {
+  horus.common.v1.PageRequest page = 1;
+  optional string tenant_id = 2;
+  optional string realm_id = 3;
+}
+
+// CustomerKey clave natural (tenant, realm, address) del cliente.
+message CustomerKey {
+  string tenant_id = 1;
+  string realm_id = 2;
+  string address = 3;
+  string customer_id = 4;
+}
+
+// ListCustomerKeysResponse página de claves.
+message ListCustomerKeysResponse {
+  repeated CustomerKey keys = 1;
+  horus.common.v1.PageInfo page = 2;
+}

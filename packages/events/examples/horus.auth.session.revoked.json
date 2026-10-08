@@ -1,0 +1,25 @@
+{
+  "id": "0192f0d2-0000-7000-8000-000000000010",
+  "type": "horus.auth.session.revoked",
+  "source": "horus/auth",
+  "subject": "0192bbbb-0000-7000-8000-0000000000b1",
+  "time": "2026-10-07T14:03:11.123Z",
+  "schema_version": 1,
+  "tenant_id": null,
+  "aggregate_type": "session",
+  "aggregate_version": 1,
+  "actor": {
+    "type": "system",
+    "id": "system:auth",
+    "via_platform": false
+  },
+  "trace_parent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+  "correlation_id": null,
+  "causation_id": null,
+  "data": {
+    "session_id": "0192bbbb-0000-7000-8000-0000000000b1",
+    "user_id": "0192aaaa-0000-7000-8000-0000000000a1",
+    "reason": "refresh_token_reuse",
+    "revoked_by": null
+  }
+}

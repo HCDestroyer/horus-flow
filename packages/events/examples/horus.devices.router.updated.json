@@ -1,0 +1,44 @@
+{
+  "id": "0192f0d2-0000-7000-8000-000000000106",
+  "type": "horus.devices.router.updated",
+  "source": "horus/devices",
+  "subject": "0192e333-0000-7000-8000-000000000033",
+  "time": "2026-10-07T14:03:11.123Z",
+  "schema_version": 1,
+  "tenant_id": "0192e000-0000-7000-8000-000000000001",
+  "aggregate_type": "router",
+  "aggregate_version": 4,
+  "actor": {
+    "type": "service",
+    "id": "svc:devices",
+    "via_platform": false
+  },
+  "trace_parent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+  "correlation_id": null,
+  "causation_id": null,
+  "data": {
+    "id": "0192e333-0000-7000-8000-000000000033",
+    "version": 4,
+    "site_id": "0192e222-0000-7000-8000-000000000022",
+    "name": "rt-centro-01",
+    "display_name": null,
+    "is_primary": true,
+    "vendor": "mikrotik",
+    "model": "CCR2116-12G-4S+",
+    "routeros_version": "7.16.1",
+    "routeros_version_supported": true,
+    "admin_state": "active",
+    "onboarding_state": "tunnel_up",
+    "tunnel_address": "10.255.3.17/32",
+    "tags": [
+      "core"
+    ],
+    "created_at": "2026-10-07T12:00:00.000Z",
+    "updated_at": "2026-10-07T14:03:11.123Z",
+    "deleted_at": null,
+    "changed_fields": [
+      "onboarding_state",
+      "tunnel_address"
+    ]
+  }
+}

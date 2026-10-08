@@ -1,0 +1,23 @@
+{
+  "$comment": "Telemetría: el sobre viaja en cabeceras NATS; aquí se muestra en forma de sobre para validar. Cuerpo real = Protobuf binario.",
+  "headers": {
+    "Nats-Msg-Id": "0192f0f0-0000-7000-8000-000000000040",
+    "Horus-Type": "horus.flows.traffic_summary.observed",
+    "Horus-Schema-Version": "1",
+    "Horus-Source": "horus/flows",
+    "Horus-Time": "2026-10-07T14:03:11.123Z",
+    "Horus-Tenant": "0192e000-0000-7000-8000-000000000001",
+    "Content-Type": "application/x-protobuf; proto=horus.events.flows.v1.TrafficSummary"
+  },
+  "data": {
+    "batch_id": "0192f0f0-0000-7000-8000-000000000040",
+    "site_id": "0192e222-0000-7000-8000-000000000022",
+    "window_from": "2026-10-07T14:02:50.000Z",
+    "window_to": "2026-10-07T14:03:00.000Z",
+    "down_bps": 4213456789.5,
+    "up_bps": 812345678.2,
+    "flows_per_second": 1850.0,
+    "active_customers": 912,
+    "partial": false
+  }
+}

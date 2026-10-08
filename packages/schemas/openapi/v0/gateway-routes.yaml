@@ -1,0 +1,507 @@
+# Tabla de rutas del gateway (C5; docs/api.md §3.1). GENERADA desde las extensiones x-* de las specs de módulo
+# con `npm run generate` en packages/schemas; CI comprueba que está al día. Ruta sensible (persona).
+version: v0
+generated_from: packages/schemas/openapi/v0/*.yaml (x-module, x-scope, x-permission, x-principals, x-reauth, x-rate-limit, x-audited)
+defaults:
+  principals:
+    - user
+    - api_token
+  timeouts:
+    crud: 5s
+    action: 15s
+    analytics: 30s
+  deny_by_default: true
+  match: prefijo más específico
+  special_permissions:
+    public: sin autenticación (rate limit propio)
+    authenticated: cualquier token válido del ámbito indicado
+    refresh_cookie: "cookie __Secure-hf_rt + X-Requested-With: horus + Origin permitido"
+    kiosk_cookie: "cookie __Secure-hf_kiosk + X-Requested-With: horus + allowed_cidrs"
+    enrollment_token: token de enrolamiento de un uso en el cuerpo (lo valida wireguard)
+    widget_type: required_permission del tipo de widget (lo evalúa analytics) + acceso al dashboard
+    dashboard_access: dueño del dashboard o dashboards.manage si es del ISP (lo evalúa analytics)
+    kiosk_self: JWT de kiosco; devuelve solo su propia configuración
+modules:
+  alerts:
+    - prefix: /api/v1/notification-channels
+      scope: tenant
+      methods:
+        GET: alerts.read
+        POST: alerts.manage
+    - prefix: /api/v1/notification-channels/{channel_id}
+      scope: tenant
+      methods:
+        GET: alerts.read
+        PATCH: alerts.manage
+        DELETE: alerts.manage
+    - prefix: /api/v1/notification-channels/{channel_id}/credentials
+      scope: tenant
+      methods:
+        PUT: alerts.manage
+      reauth:
+        - PUT
+    - prefix: /api/v1/notification-channels/{channel_id}/test
+      scope: tenant
+      methods:
+        POST: alerts.manage
+      idempotency_key_required:
+        - POST
+    - prefix: /api/v1/notification-deliveries
+      scope: tenant
+      methods:
+        GET: alerts.read
+  analytics:
+    - prefix: /api/v1/analytics/customers/{customer_id}/traffic
+      scope: tenant
+      methods:
+        GET: traffic.customer.read
+      audited:
+        - GET
+    - prefix: /api/v1/analytics/traffic/attribution
+      scope: tenant
+      methods:
+        GET: traffic.read
+    - prefix: /api/v1/analytics/traffic/timeseries
+      scope: tenant
+      methods:
+        GET: traffic.read
+    - prefix: /api/v1/analytics/traffic/top
+      scope: tenant
+      methods:
+        GET: traffic.read
+    - prefix: /api/v1/dashboards
+      scope: tenant
+      methods:
+        GET: dashboards.read
+        POST: dashboards.read
+    - prefix: /api/v1/dashboards/{dashboard_id}
+      scope: tenant
+      methods:
+        GET: dashboards.read
+        PATCH: dashboard_access
+        DELETE: dashboard_access
+      principals:
+        - user
+        - api_token
+        - kiosk
+    - prefix: /api/v1/dashboards/{dashboard_id}/duplicate
+      scope: tenant
+      methods:
+        POST: dashboards.read
+    - prefix: /api/v1/dashboards/{dashboard_id}/layout
+      scope: tenant
+      methods:
+        PUT: dashboard_access
+    - prefix: /api/v1/dashboards/{dashboard_id}/widgets
+      scope: tenant
+      methods:
+        POST: dashboard_access
+    - prefix: /api/v1/dashboards/{dashboard_id}/widgets/{widget_id}
+      scope: tenant
+      methods:
+        PATCH: dashboard_access
+        DELETE: dashboard_access
+    - prefix: /api/v1/dashboards/{dashboard_id}/widgets/{widget_id}/data
+      scope: tenant
+      methods:
+        GET: widget_type
+      principals:
+        - user
+        - api_token
+        - kiosk
+    - prefix: /api/v1/kiosk/config
+      scope: tenant
+      methods:
+        GET: kiosk_self
+      principals:
+        - kiosk
+    - prefix: /api/v1/platform/remote-destinations
+      scope: platform
+      methods:
+        GET: platform.storage.manage
+    - prefix: /api/v1/playlists
+      scope: tenant
+      methods:
+        GET: dashboards.read
+        POST: dashboards.manage
+    - prefix: /api/v1/playlists/{playlist_id}
+      scope: tenant
+      methods:
+        PATCH: dashboards.manage
+        DELETE: dashboards.manage
+    - prefix: /api/v1/sites/{site_id}/prefix-proposals
+      scope: tenant
+      methods:
+        GET: sites.read
+    - prefix: /api/v1/widget-data/preview
+      scope: tenant
+      methods:
+        POST: widget_type
+    - prefix: /api/v1/widget-types
+      scope: session
+      methods:
+        GET: authenticated
+      principals:
+        - user
+        - api_token
+        - kiosk
+  auth:
+    - prefix: /api/v1/auth/invitations/accept
+      scope: public
+      methods:
+        POST: public
+      rate_limit: login
+    - prefix: /api/v1/auth/login
+      scope: public
+      methods:
+        POST: public
+      rate_limit: login
+    - prefix: /api/v1/auth/logout
+      scope: session
+      methods:
+        POST: refresh_cookie
+    - prefix: /api/v1/auth/mfa/verify
+      scope: public
+      methods:
+        POST: public
+      rate_limit: login
+    - prefix: /api/v1/auth/reauth
+      scope: session
+      methods:
+        POST: authenticated
+    - prefix: /api/v1/auth/refresh
+      scope: public
+      methods:
+        POST: refresh_cookie
+    - prefix: /api/v1/auth/token
+      scope: session
+      methods:
+        POST: authenticated
+    - prefix: /api/v1/kiosk/enroll
+      scope: public
+      methods:
+        POST: public
+      rate_limit: kiosk_enroll
+    - prefix: /api/v1/kiosk/token
+      scope: public
+      methods:
+        POST: kiosk_cookie
+    - prefix: /api/v1/kiosks
+      scope: tenant
+      methods:
+        GET: kiosks.manage
+        POST: kiosks.manage
+    - prefix: /api/v1/kiosks/{kiosk_id}
+      scope: tenant
+      methods:
+        GET: kiosks.manage
+        PATCH: kiosks.manage
+    - prefix: /api/v1/kiosks/{kiosk_id}/enrollment-codes
+      scope: tenant
+      methods:
+        POST: kiosks.manage
+      reauth:
+        - POST
+      idempotency_key_required:
+        - POST
+    - prefix: /api/v1/kiosks/{kiosk_id}/revoke
+      scope: tenant
+      methods:
+        POST: kiosks.manage
+    - prefix: /api/v1/me
+      scope: session
+      methods:
+        GET: authenticated
+        PATCH: authenticated
+    - prefix: /api/v1/me/password
+      scope: session
+      methods:
+        POST: authenticated
+    - prefix: /api/v1/me/totp/confirm
+      scope: session
+      methods:
+        POST: authenticated
+    - prefix: /api/v1/me/totp/enroll
+      scope: session
+      methods:
+        POST: authenticated
+    - prefix: /api/v1/members
+      scope: tenant
+      methods:
+        GET: users.read
+        POST: users.manage
+    - prefix: /api/v1/members/{user_id}
+      scope: tenant
+      methods:
+        DELETE: users.manage
+    - prefix: /api/v1/members/{user_id}/role-assignments
+      scope: tenant
+      methods:
+        PUT: roles.assign
+      reauth:
+        - PUT
+    - prefix: /api/v1/permissions
+      scope: session
+      methods:
+        GET: authenticated
+    - prefix: /api/v1/platform/tenants
+      scope: platform
+      methods:
+        GET: platform.tenants.read
+        POST: platform.tenants.manage
+      reauth:
+        - POST
+      idempotency_key_required:
+        - POST
+    - prefix: /api/v1/platform/tenants/{tenant_id}
+      scope: platform
+      methods:
+        GET: platform.tenants.read
+        PATCH: platform.tenants.manage
+    - prefix: /api/v1/platform/tenants/{tenant_id}/resume
+      scope: platform
+      methods:
+        POST: platform.tenants.manage
+      reauth:
+        - POST
+    - prefix: /api/v1/platform/tenants/{tenant_id}/suspend
+      scope: platform
+      methods:
+        POST: platform.tenants.manage
+      reauth:
+        - POST
+    - prefix: /api/v1/platform/users
+      scope: platform
+      methods:
+        GET: platform.users.read
+    - prefix: /api/v1/roles
+      scope: tenant
+      methods:
+        GET: roles.read
+  detection:
+    - prefix: /api/v1/customers/{customer_id}/findings
+      scope: tenant
+      methods:
+        GET: security.findings.read
+    - prefix: /api/v1/findings
+      scope: tenant
+      methods:
+        GET: security.findings.read
+    - prefix: /api/v1/findings/{finding_id}
+      scope: tenant
+      methods:
+        GET: security.findings.read
+    - prefix: /api/v1/findings/{finding_id}/acknowledge
+      scope: tenant
+      methods:
+        POST: security.findings.manage
+    - prefix: /api/v1/findings/{finding_id}/evidence
+      scope: tenant
+      methods:
+        GET: security.evidence.read
+      audited:
+        - GET
+    - prefix: /api/v1/findings/{finding_id}/mark-false-positive
+      scope: tenant
+      methods:
+        POST: security.findings.manage
+    - prefix: /api/v1/findings/{finding_id}/resolve
+      scope: tenant
+      methods:
+        POST: security.findings.manage
+    - prefix: /api/v1/reputation/allowlist
+      scope: tenant
+      methods:
+        GET: security.findings.read
+        POST: security.findings.manage
+    - prefix: /api/v1/reputation/allowlist/{entry_id}
+      scope: tenant
+      methods:
+        DELETE: security.findings.manage
+    - prefix: /api/v1/reputation/sources
+      scope: tenant
+      methods:
+        GET: security.findings.read
+    - prefix: /api/v1/security/summary
+      scope: tenant
+      methods:
+        GET: security.findings.read
+      principals:
+        - user
+        - api_token
+        - kiosk
+  devices:
+    - prefix: /api/v1/client-prefixes/{client_prefix_id}
+      scope: tenant
+      methods:
+        PATCH: sites.update
+        DELETE: sites.update
+    - prefix: /api/v1/client-prefixes/{client_prefix_id}/confirm
+      scope: tenant
+      methods:
+        POST: sites.update
+    - prefix: /api/v1/customers
+      scope: tenant
+      methods:
+        GET: customers.read
+    - prefix: /api/v1/customers/lookup
+      scope: tenant
+      methods:
+        POST: customers.read
+    - prefix: /api/v1/customers/stats
+      scope: tenant
+      methods:
+        GET: customers.read
+      principals:
+        - user
+        - api_token
+        - kiosk
+    - prefix: /api/v1/customers/{customer_id}
+      scope: tenant
+      methods:
+        GET: customers.read
+        PATCH: customers.update
+      audited:
+        - GET
+    - prefix: /api/v1/customers/{customer_id}/kind-history
+      scope: tenant
+      methods:
+        GET: customers.read
+    - prefix: /api/v1/customers/{customer_id}/reset
+      scope: tenant
+      methods:
+        POST: customers.kind.write
+      reauth:
+        - POST
+    - prefix: /api/v1/customers/{customer_id}/set-kind
+      scope: tenant
+      methods:
+        POST: customers.kind.write
+    - prefix: /api/v1/customers/{customer_id}/unlock-kind
+      scope: tenant
+      methods:
+        POST: customers.kind.write
+    - prefix: /api/v1/routers
+      scope: tenant
+      methods:
+        GET: devices.read
+        POST: devices.create
+    - prefix: /api/v1/routers/{router_id}
+      scope: tenant
+      methods:
+        GET: devices.read
+        PATCH: devices.update
+        DELETE: devices.delete
+    - prefix: /api/v1/routers/{router_id}/credentials/{kind}
+      scope: tenant
+      methods:
+        PUT: devices.credentials.write
+      reauth:
+        - PUT
+    - prefix: /api/v1/routers/{router_id}/prefix-import-preview
+      scope: tenant
+      methods:
+        POST: sites.update
+    - prefix: /api/v1/sites
+      scope: tenant
+      methods:
+        GET: sites.read
+        POST: sites.create
+    - prefix: /api/v1/sites/{site_id}
+      scope: tenant
+      methods:
+        GET: sites.read
+        PATCH: sites.update
+        DELETE: sites.delete
+    - prefix: /api/v1/sites/{site_id}/client-prefixes
+      scope: tenant
+      methods:
+        GET: sites.read
+        POST: sites.update
+    - prefix: /api/v1/sites/{site_id}/client-prefixes/batch
+      scope: tenant
+      methods:
+        POST: sites.update
+      idempotency_key_required:
+        - POST
+  flows:
+    - prefix: /api/v1/flow-exporters
+      scope: tenant
+      methods:
+        GET: flows.read
+      principals:
+        - user
+        - api_token
+        - kiosk
+    - prefix: /api/v1/flow-exporters/{router_id}
+      scope: tenant
+      methods:
+        GET: flows.read
+    - prefix: /api/v1/platform/exporters/unregistered
+      scope: platform
+      methods:
+        GET: platform.tenants.read
+  gateway:
+    - prefix: /api/v1/platform/overview
+      scope: platform
+      methods:
+        GET: platform.status.read
+    - prefix: /api/v1/system/status
+      scope: session
+      methods:
+        GET: authenticated
+      principals:
+        - user
+        - api_token
+        - kiosk
+    - prefix: /api/v1/ws
+      scope: session
+      methods:
+        GET: authenticated
+      principals:
+        - user
+        - api_token
+        - kiosk
+      note: Upgrade WebSocket con ticket de un uso (?ticket=); subprotocolo horus.ws.v1; ticket redactado en logs.
+    - prefix: /api/v1/ws/tickets
+      scope: session
+      methods:
+        POST: authenticated
+      principals:
+        - user
+        - api_token
+        - kiosk
+  wireguard:
+    - prefix: /api/v1/enroll/wireguard
+      scope: public
+      methods:
+        POST: enrollment_token
+      rate_limit: enroll
+    - prefix: /api/v1/platform/wireguard/hubs
+      scope: platform
+      methods:
+        GET: platform.status.read
+    - prefix: /api/v1/routers/{router_id}/deprovisioning-script
+      scope: tenant
+      methods:
+        POST: wireguard.write
+    - prefix: /api/v1/routers/{router_id}/provisioning-script
+      scope: tenant
+      methods:
+        POST: wireguard.write
+      reauth:
+        - POST
+      idempotency_key_required:
+        - POST
+    - prefix: /api/v1/wireguard/enrollment-tokens/{token_id}/revoke
+      scope: tenant
+      methods:
+        POST: wireguard.write
+    - prefix: /api/v1/wireguard/peers
+      scope: tenant
+      methods:
+        GET: wireguard.read
+    - prefix: /api/v1/wireguard/peers/{peer_id}
+      scope: tenant
+      methods:
+        GET: wireguard.read

@@ -1,0 +1,219 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.horus-flow.local/finding/v0/finding.schema.json",
+  "title": "Finding",
+  "description": "Hallazgo de seguridad (C8): correlación explicable de señales compatibles con botnet en una ventana, por cliente (= IP). Misma forma en la API (GET /findings/{id}) y en el payload de horus.detection.finding.opened|updated|resolved (events.md §8.8), salvo `customer` y `recommended_actions[].routeros.rendered_*`, que solo la API rellena y solo para quien tiene customers.read (nunca kioscos ni eventos, events.md §5.7). D11: `recommended_actions` explica qué hacer y propone comandos RouterOS que Horus NUNCA ejecuta (ADR-0022). Lenguaje: 'señales compatibles con…', nunca 'infectado'.",
+  "type": "object",
+  "required": [
+    "id", "tenant_id", "version", "state", "kind", "category", "severity", "confidence", "confidence_level",
+    "subject_type", "customer_id", "realm_id", "site_id", "router_id", "summary", "window_from", "window_to",
+    "first_seen_at", "last_seen_at", "opened_at", "updated_at", "occurrences", "reasons", "evidence",
+    "primary_target", "rule_version", "recommended_actions"
+  ],
+  "properties": {
+    "id": { "$ref": "#/$defs/Uuid" },
+    "tenant_id": { "$ref": "#/$defs/Uuid" },
+    "version": { "type": "integer", "minimum": 1 },
+    "state": { "$ref": "#/$defs/FindingState" },
+    "kind": { "$ref": "#/$defs/FindingKind" },
+    "category": { "type": "string", "enum": ["security"], "description": "Abierto: 'commercial' llegará con el scoring (I2)." },
+    "severity": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "confidence_level": { "type": "string", "enum": ["low", "medium", "high"], "description": "Banda derivada de confidence (la UI muestra severidad y confianza por separado)." },
+    "subject_type": { "type": "string", "enum": ["customer"] },
+    "customer_id": { "$ref": "#/$defs/Uuid" },
+    "realm_id": { "$ref": "#/$defs/Uuid" },
+    "site_id": { "$ref": "#/$defs/Uuid" },
+    "router_id": { "$ref": "#/$defs/Uuid" },
+    "customer": {
+      "description": "Solo API. null en eventos. address solo con customers.read y nunca a kioscos (enmascarada).",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["address", "address_masked", "alias", "kind"],
+          "properties": {
+            "address": { "type": "string" },
+            "address_masked": { "type": "boolean" },
+            "alias": { "type": ["string", "null"] },
+            "kind": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "summary": {
+      "type": "object",
+      "required": ["code", "text"],
+      "properties": {
+        "code": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+        "text": { "type": "string", "maxLength": 300, "description": "Resumen legible en español, sin IP del cliente (p. ej. 'Escaneo del puerto 23 a 1 240 destinos en 5 min')." },
+        "params": { "type": "object", "additionalProperties": { "type": ["string", "number", "boolean"] } }
+      },
+      "additionalProperties": false
+    },
+    "window_from": { "$ref": "#/$defs/Timestamp" },
+    "window_to": { "$ref": "#/$defs/Timestamp" },
+    "first_seen_at": { "$ref": "#/$defs/Timestamp" },
+    "last_seen_at": { "$ref": "#/$defs/Timestamp" },
+    "opened_at": { "$ref": "#/$defs/Timestamp" },
+    "updated_at": { "$ref": "#/$defs/Timestamp" },
+    "occurrences": { "type": "integer", "minimum": 1, "description": "Ocurrencias acumuladas en el hallazgo abierto (deduplicación por ISP, cliente, kind y objetivo principal)." },
+    "reasons": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Reason" } },
+    "evidence": { "$ref": "#/$defs/Evidence" },
+    "primary_target": {
+      "type": "object",
+      "description": "Objetivo principal que forma la clave de deduplicación junto con (tenant, customer, kind).",
+      "required": ["type", "value"],
+      "properties": {
+        "type": { "type": "string", "enum": ["remote_ip", "remote_port", "remote_asn", "remote_prefix", "none"] },
+        "value": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "rule_version": { "type": "string", "examples": ["c2-contact@4"] },
+    "reputation_snapshot_version": { "type": ["integer", "null"] },
+    "min_sampling_rate": { "type": ["integer", "null"], "minimum": 1 },
+    "sampling_reduced_confidence": { "type": "boolean", "default": false },
+    "previous_finding_id": { "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }], "description": "Hallazgo resuelto anterior del mismo patrón (reincidente)." },
+    "acknowledged_by": { "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }] },
+    "acknowledged_at": { "oneOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] },
+    "resolution": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["verdict", "resolved_at", "resolved_by"],
+          "properties": {
+            "verdict": { "type": "string", "enum": ["resolved", "false_positive", "auto_expired"] },
+            "resolved_at": { "$ref": "#/$defs/Timestamp" },
+            "resolved_by": { "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }] },
+            "comment": { "type": ["string", "null"], "maxLength": 2000 },
+            "silence_until": { "oneOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] },
+            "actions_taken": { "type": "array", "items": { "type": "string" } }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "recommended_actions": { "type": "array", "items": { "$ref": "#/$defs/RecommendedAction" } }
+  },
+  "unevaluatedProperties": false,
+  "$defs": {
+    "Uuid": { "type": "string", "format": "uuid" },
+    "Timestamp": { "type": "string", "format": "date-time" },
+    "FindingState": { "type": "string", "enum": ["open", "acknowledged", "resolved", "false_positive"] },
+    "FindingKind": {
+      "description": "Enum abierto (api.md §2.10, events.md §8.8). Consumidores tratan valores desconocidos como 'otro'.",
+      "anyOf": [
+        { "type": "string", "enum": ["botnet_c2_communication", "ddos_participation", "outbound_scanning", "spam_smtp_outbound", "open_proxy_abuse", "cryptomining", "beaconing", "reputation_hit"] },
+        { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" }
+      ]
+    },
+    "Reason": {
+      "type": "object",
+      "required": ["code", "detail"],
+      "properties": {
+        "code": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+        "detail": { "type": "string", "maxLength": 500 },
+        "weight": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "data": { "type": ["object", "null"], "additionalProperties": true }
+      },
+      "additionalProperties": false
+    },
+    "Evidence": {
+      "type": "object",
+      "description": "Evidencia agregada según kind (nunca payloads; nunca la IP del cliente). Campos conocidos; otros permitidos.",
+      "properties": {
+        "flows": { "type": "integer", "minimum": 0 },
+        "bytes_est": { "type": "string", "pattern": "^[0-9]{1,20}$" },
+        "packets_est": { "type": "string", "pattern": "^[0-9]{1,20}$" },
+        "distinct_destinations": { "type": "integer", "minimum": 0 },
+        "distinct_nets24": { "type": "integer", "minimum": 0 },
+        "destination_asns": { "type": "array", "items": { "type": "integer" } },
+        "destination_ports": { "type": "array", "items": { "type": "integer", "minimum": 0, "maximum": 65535 } },
+        "destination_sample": { "type": "array", "maxItems": 20, "items": { "type": "string" }, "description": "Muestra de IPs remotas (no del cliente)." },
+        "syn_ratio": { "type": "number", "minimum": 0, "maximum": 1 },
+        "destinations_per_minute": { "type": "array", "items": { "type": "integer" } },
+        "reputation_sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["source", "indicator", "listed_at"],
+            "properties": {
+              "source": { "type": "string" },
+              "indicator": { "type": "string" },
+              "category": { "type": "string" },
+              "listed_at": { "type": "string", "format": "date-time" },
+              "responded": { "type": "boolean", "description": "true si hubo respuesta (no solo SYN)." }
+            },
+            "additionalProperties": false
+          }
+        },
+        "target_asn": { "type": "integer" },
+        "target_prefix": { "type": "string" },
+        "pps_peak": { "type": "number" },
+        "bps_peak": { "type": "number" },
+        "protocol": { "type": "string" },
+        "spoofing_suspected": { "type": "boolean" },
+        "smtp_servers_per_hour": { "type": "integer" },
+        "interval_seconds": { "type": "number" },
+        "interval_cv": { "type": "number" },
+        "upload_ratio": { "type": "number" },
+        "duration_seconds": { "type": "integer" }
+      },
+      "additionalProperties": true
+    },
+    "RecommendedAction": {
+      "type": "object",
+      "description": "D11. Acción recomendada explicada, lista para que el operador la aplique A MANO. Horus nunca escribe en el router (execution = manual).",
+      "required": ["code", "title", "explanation", "priority", "risk", "audience", "execution", "routeros"],
+      "properties": {
+        "code": {
+          "description": "Enum abierto.",
+          "anyOf": [
+            { "type": "string", "enum": ["contact_customer", "quarantine_address_list", "block_destination", "block_outbound_port", "block_smtp_outbound", "rate_limit_customer", "inspect_device", "change_default_credentials", "update_firmware", "add_to_allowlist", "monitor"] },
+            { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" }
+          ]
+        },
+        "title": { "type": "string", "maxLength": 120 },
+        "explanation": { "type": "string", "maxLength": 1500, "description": "Por qué se recomienda, qué efecto tiene en el cliente y cómo deshacerlo." },
+        "priority": { "type": "integer", "minimum": 1, "maximum": 10, "description": "1 = primero." },
+        "risk": { "type": "string", "enum": ["low", "medium", "high"], "description": "Impacto sobre el servicio del cliente si se aplica." },
+        "audience": { "type": "string", "enum": ["noc", "network_engineer", "customer_support"] },
+        "execution": { "type": "string", "const": "manual", "description": "Siempre manual en v1 (ADR-0022, ADR-0024 §4)." },
+        "customer_message": { "type": ["string", "null"], "maxLength": 2000, "description": "Texto sugerido para avisar al cliente (contact_customer)." },
+        "routeros": {
+          "description": "Comandos RouterOS sugeridos (null si la acción no es en el router).",
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["min_version", "commands", "undo_commands", "placeholders", "rendered_commands", "rendered_undo_commands"],
+              "properties": {
+                "min_version": { "type": "string", "pattern": "^7\\.[0-9]+$", "description": "D15: solo RouterOS 7.x (≥ 7.12)." },
+                "commands": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/RouterosTemplate" } },
+                "undo_commands": { "type": "array", "items": { "$ref": "#/$defs/RouterosTemplate" } },
+                "placeholders": {
+                  "type": "array",
+                  "items": { "type": "string", "enum": ["customer_address", "finding_id", "remote_ip", "remote_prefix", "remote_port", "protocol", "address_list", "rate_limit"] }
+                },
+                "rendered_commands": { "type": ["array", "null"], "items": { "type": "string" }, "description": "Solo API y con customers.read: plantillas con los valores sustituidos." },
+                "rendered_undo_commands": { "type": ["array", "null"], "items": { "type": "string" } },
+                "notes": { "type": ["string", "null"], "maxLength": 1000 }
+              },
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "RouterosTemplate": {
+      "type": "string",
+      "maxLength": 1000,
+      "description": "Línea de comando RouterOS con placeholders {{nombre}}; todo lo que crea lleva comment=\"horus finding {{finding_id}}\" para poder deshacerlo.",
+      "pattern": "^/"
+    }
+  }
+}

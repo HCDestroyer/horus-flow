@@ -1,0 +1,68 @@
+syntax = "proto3";
+
+// Payloads de horus.wireguard.* (docs/events.md §8.3). D16: el router inicia el túnel hacia el hub;
+// por él viajan gestión y flujos. Nunca claves privadas ni tokens.
+package horus.events.wireguard.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Peer: horus.wireguard.peer.{created,updated,deleted,enrolled,activated,revoked}.
+message Peer {
+  string id = 1;
+  int32 version = 2;
+  string server_id = 3;
+  string router_id = 4;
+  // awaiting_enrollment | pending_handshake | active | revoked
+  string status = 5;
+  optional string public_key = 6;
+  // /32 de túnel.
+  string address = 7;
+  repeated string allowed_ips = 8;
+  int32 persistent_keepalive_seconds = 9;
+  // Solo enrolled: IP pública desde la que llamó el router a /enroll/wireguard.
+  optional string enrolled_from_ip = 10;
+  optional google.protobuf.Timestamp enrolled_at = 11;
+  optional google.protobuf.Timestamp activated_at = 12;
+  optional string reason = 13;
+  optional google.protobuf.Timestamp created_at = 14;
+  repeated string changed_fields = 15;
+}
+
+// PeerHandshake: horus.wireguard.peer.handshake_stale | handshake_recovered.
+message PeerHandshake {
+  string id = 1;
+  string server_id = 2;
+  string router_id = 3;
+  optional google.protobuf.Timestamp last_handshake_at = 4;
+  int32 stale_after_seconds = 5;
+  google.protobuf.Timestamp detected_at = 6;
+}
+
+// HubStatusChanged: horus.wireguard.hub.status_changed (plataforma, tenant_id null).
+message HubStatusChanged {
+  string hub_id = 1;
+  string previous = 2;
+  // up | down | degraded
+  string status = 3;
+  string reason = 4;
+  int32 peers_affected = 5;
+  int32 tenants_affected = 6;
+  google.protobuf.Timestamp changed_at = 7;
+}
+
+// PeerStatus estado observado de un peer.
+message PeerStatus {
+  string peer_id = 1;
+  optional string endpoint = 2;
+  optional google.protobuf.Timestamp last_handshake_at = 3;
+  uint64 rx_bytes = 4;
+  uint64 tx_bytes = 5;
+}
+
+// PeerStatusBatch: horus.wireguard.peer_status.observed (telemetría; un lote por tenant y hub cada 15 s).
+message PeerStatusBatch {
+  string batch_id = 1;
+  string server_id = 2;
+  google.protobuf.Timestamp observed_at = 3;
+  repeated PeerStatus peers = 4;
+}

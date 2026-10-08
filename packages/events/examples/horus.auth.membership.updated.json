@@ -1,0 +1,40 @@
+{
+  "id": "0192f0d2-0000-7000-8000-000000000006",
+  "type": "horus.auth.membership.updated",
+  "source": "horus/auth",
+  "subject": "0192cccc-0000-7000-8000-0000000000c1",
+  "time": "2026-10-07T14:03:11.123Z",
+  "schema_version": 1,
+  "tenant_id": "0192e000-0000-7000-8000-000000000001",
+  "aggregate_type": "membership",
+  "aggregate_version": 5,
+  "actor": {
+    "type": "user",
+    "id": "0192aaaa-0000-7000-8000-0000000000a1",
+    "sid": "0192bbbb-0000-7000-8000-0000000000b1",
+    "via": "session",
+    "via_platform": false
+  },
+  "trace_parent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+  "correlation_id": null,
+  "causation_id": null,
+  "data": {
+    "id": "0192cccc-0000-7000-8000-0000000000c1",
+    "user_id": "0192aaaa-0000-7000-8000-0000000000a1",
+    "version": 5,
+    "status": "active",
+    "assignments": [
+      {
+        "role_id": "0192dddd-0000-7000-8000-0000000000d2",
+        "scope": "site:0192e222-0000-7000-8000-000000000022"
+      }
+    ],
+    "previous_assignments": [
+      {
+        "role_id": "0192dddd-0000-7000-8000-0000000000d1",
+        "scope": "tenant"
+      }
+    ],
+    "reason": null
+  }
+}

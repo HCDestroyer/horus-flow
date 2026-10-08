@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+// Tipos comunes de contratos internos y payloads (docs/api.md §5.1).
+package horus.common.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+// Reason es una razón explicable: código estable traducible + texto humano + peso.
+message Reason {
+  string code = 1;
+  string detail = 2;
+  optional double weight = 3;
+  google.protobuf.Struct data = 4;
+}
+
+// ActorRef identifica a quien actuó (sin nombre ni datos personales).
+message ActorRef {
+  string type = 1;
+  string id = 2;
+  optional string sid = 3;
+  optional string via = 4;
+  bool via_platform = 5;
+}
+
+// AuditRecord es el payload de horus.<dominio>.audit.recorded (docs/security.md §7.2, docs/events.md §8.11).
+// Es el único evento con IP y User-Agent del actor. Sin prev_hash/hash: los calcula auth al persistir.
+message AuditRecord {
+  string id = 1;
+  optional string tenant_id = 2;
+  google.protobuf.Timestamp occurred_at = 3;
+  string source_service = 4;
+  ActorRef actor = 5;
+  optional string ip = 6;
+  optional string user_agent = 7;
+  string action = 8;
+  string resource_type = 9;
+  optional string resource_id = 10;
+  optional string scope = 11;
+  // success | denied | failure
+  string outcome = 12;
+  optional string reason = 13;
+  google.protobuf.Struct changes = 14;
+  optional string request_id = 15;
+  optional string trace_id = 16;
+}
+
+// PageRequest paginación de RPC (estilo AIP).
+message PageRequest {
+  int32 page_size = 1;
+  string page_token = 2;
+}
+
+// PageInfo respuesta paginada de RPC.
+message PageInfo {
+  string next_page_token = 1;
+}

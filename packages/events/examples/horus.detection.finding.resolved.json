@@ -1,0 +1,181 @@
+{
+  "id": "0192f0d2-0000-7000-8000-000000000504",
+  "type": "horus.detection.finding.resolved",
+  "source": "horus/detection",
+  "subject": "0192f0d1-1b2c-7e44-8a10-6b9c2d1e0f33",
+  "time": "2026-10-07T14:03:11.123Z",
+  "schema_version": 1,
+  "tenant_id": "0192e000-0000-7000-8000-000000000001",
+  "aggregate_type": "finding",
+  "aggregate_version": 3,
+  "actor": {
+    "type": "user",
+    "id": "0192aaaa-0000-7000-8000-0000000000a1",
+    "sid": "0192bbbb-0000-7000-8000-0000000000b1",
+    "via": "session",
+    "via_platform": false
+  },
+  "trace_parent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+  "correlation_id": null,
+  "causation_id": null,
+  "data": {
+    "id": "0192f0d1-1b2c-7e44-8a10-6b9c2d1e0f33",
+    "tenant_id": "0192e000-0000-7000-8000-000000000001",
+    "version": 3,
+    "state": "false_positive",
+    "kind": "outbound_scanning",
+    "category": "security",
+    "severity": "high",
+    "confidence": 0.86,
+    "confidence_level": "high",
+    "subject_type": "customer",
+    "customer_id": "0192f0c4-7a1e-7c3a-9b1d-2f6e8a4c1d55",
+    "realm_id": "0192e111-0000-7000-8000-000000000011",
+    "site_id": "0192e222-0000-7000-8000-000000000022",
+    "router_id": "0192e333-0000-7000-8000-000000000033",
+    "customer": null,
+    "summary": {
+      "code": "outbound_scanning_port",
+      "text": "Escaneo del puerto 23 a 1 240 destinos en 5 min",
+      "params": {
+        "port": 23,
+        "destinations": 1240,
+        "window_minutes": 5
+      }
+    },
+    "window_from": "2026-10-07T10:00:00.000Z",
+    "window_to": "2026-10-07T10:05:00.000Z",
+    "first_seen_at": "2026-10-07T10:02:00.000Z",
+    "last_seen_at": "2026-10-07T10:47:00.000Z",
+    "opened_at": "2026-10-07T10:05:12.000Z",
+    "updated_at": "2026-10-07T11:00:00.000Z",
+    "occurrences": 14,
+    "reasons": [
+      {
+        "code": "syn_only_ratio_high",
+        "detail": "96 % de los flujos salientes fueron SYN sin respuesta",
+        "weight": 0.45,
+        "data": {
+          "syn_ratio": 0.96
+        }
+      },
+      {
+        "code": "watched_port_fanout",
+        "detail": "Telnet (23) hacia 1 240 destinos en 1 180 redes /24",
+        "weight": 0.41,
+        "data": {
+          "port": 23,
+          "destinations": 1240,
+          "nets24": 1180
+        }
+      }
+    ],
+    "evidence": {
+      "flows": 1302,
+      "bytes_est": "93744",
+      "distinct_destinations": 1240,
+      "distinct_nets24": 1180,
+      "destination_ports": [
+        23,
+        2323
+      ],
+      "syn_ratio": 0.96,
+      "destinations_per_minute": [
+        210,
+        260,
+        255,
+        251,
+        264
+      ],
+      "destination_sample": [
+        "198.51.100.7",
+        "203.0.113.19",
+        "192.0.2.200"
+      ]
+    },
+    "primary_target": {
+      "type": "remote_port",
+      "value": "23"
+    },
+    "rule_version": "outbound-scan@2",
+    "reputation_snapshot_version": 233,
+    "min_sampling_rate": 1,
+    "sampling_reduced_confidence": false,
+    "previous_finding_id": null,
+    "acknowledged_by": null,
+    "acknowledged_at": null,
+    "resolution": {
+      "verdict": "false_positive",
+      "resolved_at": "2026-10-07T11:00:00.000Z",
+      "resolved_by": "0192aaaa-0000-7000-8000-0000000000a1",
+      "comment": "Auditoría de seguridad autorizada por el cliente",
+      "silence_until": "2026-11-06T11:00:00.000Z",
+      "actions_taken": []
+    },
+    "recommended_actions": [
+      {
+        "code": "contact_customer",
+        "title": "Avisar al cliente",
+        "explanation": "El patrón es típico de cámaras, DVR o routers con contraseñas por defecto reclutados por botnets tipo Mirai. Avisar al cliente para que revise sus equipos suele resolverlo sin cortar el servicio.",
+        "priority": 1,
+        "risk": "low",
+        "audience": "customer_support",
+        "execution": "manual",
+        "customer_message": "Detectamos desde su conexión intentos de conexión masivos al puerto 23 (Telnet), compatibles con un equipo comprometido. Le recomendamos cambiar las contraseñas por defecto de cámaras, DVR y router y actualizar su firmware.",
+        "routeros": null
+      },
+      {
+        "code": "block_outbound_port",
+        "title": "Bloquear Telnet saliente de esta IP",
+        "explanation": "Corta la propagación sin dejar al cliente sin Internet. Se deshace borrando la regla con el comentario del hallazgo.",
+        "priority": 2,
+        "risk": "low",
+        "audience": "network_engineer",
+        "execution": "manual",
+        "customer_message": null,
+        "routeros": {
+          "min_version": "7.12",
+          "commands": [
+            "/ip firewall filter add chain=forward src-address={{customer_address}} protocol=tcp dst-port=23,2323 action=drop comment=\"horus finding {{finding_id}}\" place-before=0"
+          ],
+          "undo_commands": [
+            "/ip firewall filter remove [find comment=\"horus finding {{finding_id}}\"]"
+          ],
+          "placeholders": [
+            "customer_address",
+            "finding_id"
+          ],
+          "rendered_commands": null,
+          "rendered_undo_commands": null,
+          "notes": "Revise el orden de reglas si usa listas de interfaces o reglas propias en forward."
+        }
+      },
+      {
+        "code": "quarantine_address_list",
+        "title": "Aislar la IP en la address-list de cuarentena",
+        "explanation": "Si el cliente no responde y el escaneo continúa, añadir la IP a una address-list que su política de cuarentena ya trate (walled garden). Afecta a todo el servicio del cliente.",
+        "priority": 3,
+        "risk": "high",
+        "audience": "network_engineer",
+        "execution": "manual",
+        "customer_message": null,
+        "routeros": {
+          "min_version": "7.12",
+          "commands": [
+            "/ip firewall address-list add list=horus-quarantine address={{customer_address}} timeout=1d comment=\"horus finding {{finding_id}}\""
+          ],
+          "undo_commands": [
+            "/ip firewall address-list remove [find list=horus-quarantine comment=\"horus finding {{finding_id}}\"]"
+          ],
+          "placeholders": [
+            "customer_address",
+            "finding_id"
+          ],
+          "rendered_commands": null,
+          "rendered_undo_commands": null,
+          "notes": "La address-list no hace nada por sí sola: requiere una regla de cuarentena existente en su router."
+        }
+      }
+    ]
+  }
+}

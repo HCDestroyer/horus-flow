@@ -1,0 +1,145 @@
+syntax = "proto3";
+
+// Payloads de horus.detection.* (docs/events.md §8.7–§8.8). El hallazgo replica C8
+// (packages/schemas/finding/v0/finding.schema.json): misma forma JSON, sin la IP del cliente (§5.7);
+// `customer` y `routeros.rendered_*` van siempre ausentes/null en eventos.
+package horus.events.detection.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+import "horus/common/v1/common.proto";
+
+// Summary resumen legible sin IP del cliente.
+message Summary {
+  string code = 1;
+  string text = 2;
+  google.protobuf.Struct params = 3;
+}
+
+// PrimaryTarget objetivo principal (clave de deduplicación junto con tenant, cliente y kind).
+message PrimaryTarget {
+  // remote_ip | remote_port | remote_asn | remote_prefix | none
+  string type = 1;
+  optional string value = 2;
+}
+
+// RouterosCommands comandos RouterOS sugeridos (D11). Plantillas con {{placeholder}}; Horus nunca los ejecuta.
+message RouterosCommands {
+  // D15: "7.12" o superior.
+  string min_version = 1;
+  repeated string commands = 2;
+  repeated string undo_commands = 3;
+  repeated string placeholders = 4;
+  // Siempre vacíos en eventos (solo la API los rellena para quien tiene customers.read).
+  repeated string rendered_commands = 5;
+  repeated string rendered_undo_commands = 6;
+  optional string notes = 7;
+}
+
+// RecommendedAction acción recomendada explicada (D11).
+message RecommendedAction {
+  string code = 1;
+  string title = 2;
+  string explanation = 3;
+  int32 priority = 4;
+  // low | medium | high
+  string risk = 5;
+  // noc | network_engineer | customer_support
+  string audience = 6;
+  // Siempre "manual".
+  string execution = 7;
+  optional string customer_message = 8;
+  RouterosCommands routeros = 9;
+}
+
+// Resolution cierre del hallazgo.
+message Resolution {
+  // resolved | false_positive | auto_expired
+  string verdict = 1;
+  google.protobuf.Timestamp resolved_at = 2;
+  optional string resolved_by = 3;
+  optional string comment = 4;
+  optional google.protobuf.Timestamp silence_until = 5;
+  repeated string actions_taken = 6;
+}
+
+// Finding: horus.detection.finding.opened | updated | resolved (entity = finding_id).
+message Finding {
+  string id = 1;
+  string tenant_id = 2;
+  int32 version = 3;
+  // open | acknowledged | resolved | false_positive
+  string state = 4;
+  string kind = 5;
+  string category = 6;
+  // low | medium | high | critical
+  string severity = 7;
+  double confidence = 8;
+  string confidence_level = 9;
+  string subject_type = 10;
+  string customer_id = 11;
+  string realm_id = 12;
+  string site_id = 13;
+  string router_id = 14;
+  // Siempre null en eventos (la API lo rellena según permisos).
+  google.protobuf.Value customer = 15;
+  Summary summary = 16;
+  google.protobuf.Timestamp window_from = 17;
+  google.protobuf.Timestamp window_to = 18;
+  google.protobuf.Timestamp first_seen_at = 19;
+  google.protobuf.Timestamp last_seen_at = 20;
+  google.protobuf.Timestamp opened_at = 21;
+  google.protobuf.Timestamp updated_at = 22;
+  int32 occurrences = 23;
+  repeated horus.common.v1.Reason reasons = 24;
+  // Evidencia agregada por kind (sin payloads ni IP del cliente).
+  google.protobuf.Struct evidence = 25;
+  PrimaryTarget primary_target = 26;
+  string rule_version = 27;
+  optional int32 reputation_snapshot_version = 28;
+  optional int32 min_sampling_rate = 29;
+  bool sampling_reduced_confidence = 30;
+  optional string previous_finding_id = 31;
+  optional string acknowledged_by = 32;
+  optional google.protobuf.Timestamp acknowledged_at = 33;
+  Resolution resolution = 34;
+  repeated RecommendedAction recommended_actions = 35;
+}
+
+// SecurityStateChanged: horus.detection.customer.security_state_changed (entity = customer_id).
+message SecurityStateChanged {
+  string customer_id = 1;
+  int32 version = 2;
+  // clean | suspected | infected | mitigated
+  string previous_state = 3;
+  string state = 4;
+  int32 open_findings = 5;
+  optional string top_kind = 6;
+  optional string max_severity = 7;
+  google.protobuf.Timestamp since = 8;
+  string model_version = 9;
+  optional string site_id = 10;
+}
+
+// ReputationSnapshotPublished: horus.detection.reputation.snapshot_published (plataforma).
+message ReputationSnapshotPublished {
+  string snapshot_id = 1;
+  int32 snapshot_version = 2;
+  string object_store = 3;
+  string object_name = 4;
+  string sha256 = 5;
+  int64 entries = 6;
+  repeated string sources = 7;
+  google.protobuf.Timestamp published_at = 8;
+}
+
+// ReputationSourceRefreshed: horus.detection.reputation.source_refreshed (plataforma).
+message ReputationSourceRefreshed {
+  string source = 1;
+  // ok | failed | rejected
+  string result = 2;
+  int64 entries = 3;
+  optional string sha256 = 4;
+  optional string error = 5;
+  google.protobuf.Timestamp refreshed_at = 6;
+}

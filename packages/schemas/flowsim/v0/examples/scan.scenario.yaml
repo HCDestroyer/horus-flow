@@ -1,0 +1,30 @@
+# Ejemplo de escenario C10 (lo implementa FLOW en tools/flowsim/scenarios/scan.yaml, I0-10).
+name: scan
+description: 300 clientes residenciales; uno (índice 41) escanea Telnet (23/2323) a ~250 destinos/min durante 45 min.
+seed: 1
+duration_seconds: 3600
+exporter:
+  routeros_version: '7.12'
+  protocol: ipfix
+  tunnel_ip: 10.255.3.17
+  observation_domain_id: 0
+  active_flow_timeout_seconds: 60
+  inactive_flow_timeout_seconds: 15
+  sampling_rate: 1
+  template_refresh_seconds: 60
+  nat: true
+  interfaces:
+    - { if_index: 7, name: sfp-sfpplus1, flow_role: upstream }
+    - { if_index: 12, name: bridge-clientes, flow_role: customer_edge }
+client_prefixes:
+  - { prefix: 10.20.0.0/24, role: customers, assignment_mode: dynamic }
+clients:
+  count: 300
+  ipv4_prefix: 10.20.0.0/24
+  ipv6_delegated_prefix: null
+  ipv6_client_len: 64
+profiles:
+  - { kind: residential_browsing, clients: 299 }
+  - kind: telnet_scan
+    clients: [41]
+    params: { ports: [23, 2323], destinations_per_minute: 250, syn_only_ratio: 0.96, start_offset_seconds: 120, duration_seconds: 2700 }

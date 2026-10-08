@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.horus-flow.local/dashboard/v0/presentation-manifest.schema.json",
+  "title": "WidgetPresentationManifest",
+  "description": "Mitad frontend del contrato de widget (C9; frontend.md §6.3): apps/frontend/app/widgets/<type>/manifest.ts exporta un objeto con esta forma; el build falla si no valida o si `type` no existe en widget-types.json, o si sus tamaños no están en `sizes.allowed` del tipo.",
+  "type": "object",
+  "required": ["type", "sizes", "description", "category", "placeholder", "wall"],
+  "properties": {
+    "type": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+    "sizes": {
+      "type": "object",
+      "required": ["normal", "wall"],
+      "properties": {
+        "normal": { "$ref": "#/$defs/SizeSet" },
+        "wall": { "$ref": "#/$defs/SizeSet" }
+      },
+      "additionalProperties": false
+    },
+    "description": { "type": "string", "pattern": "^widgets\\.[a-z0-9_]+\\.description$", "description": "Clave i18n; el texto empieza por verbo." },
+    "category": { "type": "string", "enum": ["traffic", "customers", "security", "infrastructure", "platform", "layout"] },
+    "configForm": {
+      "type": ["object", "null"],
+      "description": "Overrides de presentación del formulario generado desde config_schema (I2).",
+      "additionalProperties": true
+    },
+    "placeholder": { "type": "string", "enum": ["kpi", "sparkline", "timeseries", "table", "list", "grid", "header", "bars"] },
+    "wall": {
+      "type": "object",
+      "required": ["hide", "enlarge"],
+      "properties": {
+        "hide": { "type": "array", "items": { "type": "string" } },
+        "enlarge": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "Size": {
+      "type": "object",
+      "required": ["w", "h"],
+      "properties": { "w": { "type": "integer", "minimum": 1, "maximum": 12 }, "h": { "type": "integer", "minimum": 1, "maximum": 12 } },
+      "additionalProperties": false
+    },
+    "SizeSet": {
+      "type": "object",
+      "required": ["default", "min"],
+      "properties": {
+        "default": { "$ref": "#/$defs/Size" },
+        "min": { "$ref": "#/$defs/Size" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

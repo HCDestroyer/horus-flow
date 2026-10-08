@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+// Payloads de horus.traffic.* (docs/events.md §8.6).
+package horus.events.traffic.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// CatalogStats tamaño del snapshot.
+message CatalogStats {
+  int64 prefixes = 1;
+  int64 asns = 2;
+  int64 services = 3;
+  int64 categories = 4;
+}
+
+// CatalogPublished: horus.traffic.catalog.published (plataforma; artefacto en NATS Object Store, nunca URL).
+message CatalogPublished {
+  string catalog_version_id = 1;
+  int32 catalog_version = 2;
+  string object_store = 3;
+  string object_name = 4;
+  string sha256 = 5;
+  uint64 size_bytes = 6;
+  int32 format_version = 7;
+  google.protobuf.Timestamp published_at = 8;
+  CatalogStats stats = 9;
+}

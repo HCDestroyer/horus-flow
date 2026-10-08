@@ -1,0 +1,268 @@
+openapi: 3.1.0
+info:
+  title: Horus Flow API — módulo wireguard (contrato v0)
+  version: 0.1.0
+  description: |
+    Túnel WireGuard router → hub de Horus (D16): por él viajan gestión (REST/API-SSL, SNMPv3) y exportación
+    IPFIX. El router es iniciador; su clave privada se genera en el router y **nunca** sale de él; Horus
+    recibe solo la pública por `POST /enroll/wireguard` con un token de un uso (docs/api.md §2.4,
+    ADR-0022, docs/vendors/mikrotik.md §5, §7). **Horus no escribe en el router** (ADR-0022, D11).
+  license:
+    name: Propietaria
+    identifier: LicenseRef-Horus-Proprietary
+servers:
+  - url: https://{domain}/api/v1
+    variables:
+      domain:
+        default: horus.example.net
+tags:
+  - name: onboarding
+    description: Script de alta, enrolamiento y script inverso.
+  - name: wireguard
+    description: Estado de los peers (túneles) del ISP.
+paths:
+  /routers/{router_id}/provisioning-script:
+    parameters:
+      - $ref: '#/components/parameters/RouterId'
+    post:
+      tags: [onboarding]
+      operationId: createProvisioningScript
+      summary: Genera el script RouterOS .rsc de alta con un token de enrolamiento de un uso embebido
+      description: |
+        Plantilla versionada por RouterOS (7.12 y última long-term). Contiene: interfaz WireGuard sin clave
+        privada, peer al hub (`HORUS_WG_ENDPOINT:HORUS_WG_PORT`), firewall solo desde el túnel, usuario de
+        solo lectura `horus-ro`, SNMPv3 authPriv, Traffic Flow IPFIX sin muestreo hacia el colector por el
+        túnel, y `/tool fetch` a `<HORUS_PUBLIC_BASE_URL>/api/v1/enroll/wireguard` con cuerpo JSON
+        `{"token", "public_key"}`. Contraseñas y token se muestran **una sola vez**: pedirlo de nuevo crea
+        otros e invalida los anteriores (auditado). RouterOS < 7.12 → `422 ROUTEROS_VERSION_UNSUPPORTED` (D15).
+      x-module: wireguard
+      x-scope: tenant
+      x-permission: wireguard.write
+      x-reauth: true
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IdempotencyKeyRequired'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                routeros_version: { type: [string, 'null'], pattern: '^7\.[0-9]+(\.[0-9]+)?$' }
+                ntp_server: { type: [string, 'null'], examples: [pool.ntp.org] }
+      responses:
+        '201':
+          description: Script (`text/plain`, `Cache-Control no-store`). Cabeceras con el token creado.
+          headers:
+            X-Horus-Enrollment-Token-Id:
+              description: ID del token de enrolamiento (para revocarlo).
+              schema: { type: string, format: uuid }
+            X-Horus-Enrollment-Token-Expires-At:
+              schema: { type: string, format: date-time }
+          content:
+            text/plain:
+              schema: { type: string }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+        '428': { $ref: './common.yaml#/components/responses/PreconditionRequired' }
+  /routers/{router_id}/deprovisioning-script:
+    parameters:
+      - $ref: '#/components/parameters/RouterId'
+    post:
+      tags: [onboarding]
+      operationId: createDeprovisioningScript
+      summary: Script inverso (elimina lo que lleva comment="horus" y solo el target de Traffic Flow de Horus)
+      x-module: wireguard
+      x-scope: tenant
+      x-permission: wireguard.write
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Script (`text/plain`, `no-store`).
+          content:
+            text/plain:
+              schema: { type: string }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+  /wireguard/enrollment-tokens/{token_id}/revoke:
+    parameters:
+      - name: token_id
+        in: path
+        required: true
+        schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    post:
+      tags: [onboarding]
+      operationId: revokeEnrollmentToken
+      summary: Revoca un token de enrolamiento no usado
+      x-module: wireguard
+      x-scope: tenant
+      x-permission: wireguard.write
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '204': { $ref: './common.yaml#/components/responses/NoContent' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+  /enroll/wireguard:
+    post:
+      tags: [onboarding]
+      operationId: enrollWireguard
+      summary: El router registra su clave pública con el token de un uso (público, sin sesión)
+      description: |
+        Token de 256 bits (solo su hash en BD) ligado a (tenant, router, peer previsto), TTL 24 h, un uso,
+        revocable; 5 fallos lo invalidan; 10/min por IP. Usado, caducado, revocado o de otro router →
+        `ENROLLMENT_TOKEN_INVALID` sin distinguir el caso. Clave pública ya registrada → `409
+        WIREGUARD_PUBLIC_KEY_IN_USE`. No devuelve secretos. Auditado y notificado al admin del ISP.
+        RouterOS envía el cuerpo con `/tool fetch http-method=post http-header-field="Content-Type: application/json"`.
+      x-module: wireguard
+      x-scope: public
+      x-permission: enrollment_token
+      x-rate-limit: enroll
+      x-increment: I1
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, public_key]
+              additionalProperties: false
+              properties:
+                token: { type: string, minLength: 43, maxLength: 64, writeOnly: true }
+                public_key:
+                  type: string
+                  pattern: '^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw480]=$'
+                  description: Clave pública WireGuard (44 caracteres base64).
+      responses:
+        '202':
+          description: Clave aceptada; el hub añade el peer en < 10 s.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [peer_status]
+                properties:
+                  peer_status: { type: string, const: pending_handshake }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+        '429': { $ref: './common.yaml#/components/responses/TooManyRequests' }
+  /wireguard/peers:
+    get:
+      tags: [wireguard]
+      operationId: listWireguardPeers
+      summary: Túneles (peers) de los routers del ISP
+      x-module: wireguard
+      x-scope: tenant
+      x-permission: wireguard.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Limit'
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - name: router_id
+          in: query
+          schema: { type: string }
+        - name: status
+          in: query
+          schema: { type: string }
+        - name: handshake_state
+          in: query
+          schema: { type: string }
+        - name: sort
+          in: query
+          schema: { type: string, enum: [last_handshake_at, -last_handshake_at] }
+      responses:
+        '200':
+          description: Página de peers.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Peer' } }
+                  page: { $ref: './common.yaml#/components/schemas/PageInfo' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+  /wireguard/peers/{peer_id}:
+    parameters:
+      - name: peer_id
+        in: path
+        required: true
+        schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    get:
+      tags: [wireguard]
+      operationId: getWireguardPeer
+      summary: Detalle del túnel ("Túnel activo · último handshake hace N s")
+      x-module: wireguard
+      x-scope: tenant
+      x-permission: wireguard.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Peer.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Peer' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+components:
+  securitySchemes:
+    tenantBearer: { $ref: './common.yaml#/components/securitySchemes/tenantBearer' }
+  parameters:
+    RouterId:
+      name: router_id
+      in: path
+      required: true
+      schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+  schemas:
+    Peer:
+      allOf:
+        - $ref: './common.yaml#/components/schemas/TenantScopedResource'
+        - type: object
+          required: [server_id, router_id, status, handshake_state, address, public_key, last_handshake_at, enrollment]
+          properties:
+            server_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+            router_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+            status: { type: string, enum: [awaiting_enrollment, pending_handshake, active, revoked] }
+            handshake_state: { type: string, enum: [never, ok, stale] }
+            address: { type: string, description: '/32 de túnel (identidad del exportador)', examples: [10.255.3.17/32] }
+            public_key: { type: [string, 'null'] }
+            last_handshake_at:
+              oneOf:
+                - $ref: './common.yaml#/components/schemas/Timestamp'
+                - type: 'null'
+            endpoint: { type: [string, 'null'], description: IP:puerto público visto del router. }
+            rx_bytes: { $ref: './common.yaml#/components/schemas/Uint64String' }
+            tx_bytes: { $ref: './common.yaml#/components/schemas/Uint64String' }
+            persistent_keepalive_seconds: { type: integer, examples: [25] }
+            enrollment:
+              type: object
+              required: [token_state]
+              properties:
+                token_id:
+                  oneOf:
+                    - $ref: './common.yaml#/components/schemas/Uuid'
+                    - type: 'null'
+                token_state: { type: string, enum: [none, pending, used, expired, revoked] }
+                token_expires_at:
+                  oneOf:
+                    - $ref: './common.yaml#/components/schemas/Timestamp'
+                    - type: 'null'
+                enrolled_at:
+                  oneOf:
+                    - $ref: './common.yaml#/components/schemas/Timestamp'
+                    - type: 'null'

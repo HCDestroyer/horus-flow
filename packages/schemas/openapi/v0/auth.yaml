@@ -1,0 +1,928 @@
+openapi: 3.1.0
+info:
+  title: Horus Flow API — módulo auth (contrato v0)
+  version: 0.1.0
+  description: |
+    Sesión, token por tenant, cuenta propia, miembros y roles del tenant, catálogo de permisos y
+    kioscos (identidad del dispositivo). Módulo dueño: `auth` (docs/api.md §2.1, §2.2, §2.12;
+    docs/security.md §5–§6). Extensiones por operación: `x-module`, `x-scope`, `x-permission`,
+    `x-principals`, `x-reauth` (🔒 re-autenticación reciente), `x-increment`.
+  license:
+    name: Propietaria
+    identifier: LicenseRef-Horus-Proprietary
+servers:
+  - url: https://{domain}/api/v1
+    variables:
+      domain:
+        default: horus.example.net
+tags:
+  - name: auth
+    description: Sesión y tokens.
+  - name: me
+    description: Cuenta propia.
+  - name: members
+    description: Miembros, roles y permisos del tenant.
+  - name: kiosks
+    description: Kioscos (pantallas NOC) como dispositivos registrados.
+paths:
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: authLogin
+      summary: Inicio de sesión con usuario y contraseña
+      description: |
+        Sin 2FA → access token de **sesión** (`scope=session`) + cookie de refresh. Con 2FA →
+        `mfa_required` + `mfa_token` (5 min, un uso). Errores sin revelar si el usuario existe
+        (`INVALID_CREDENTIALS`). Bloqueo progresivo según docs/security.md §4.2.
+      x-module: auth
+      x-scope: public
+      x-permission: public
+      x-rate-limit: login
+      x-increment: I0
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string, maxLength: 254 }
+                password: { type: string, maxLength: 1024, writeOnly: true }
+      responses:
+        '200':
+          description: Sesión creada o 2FA requerida.
+          headers:
+            Set-Cookie:
+              description: '`__Secure-hf_rt` (solo si no se requiere 2FA).'
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/AccessTokenResponse'
+                  - $ref: '#/components/schemas/MfaChallenge'
+        '400': { $ref: './common.yaml#/components/responses/BadRequest' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '429': { $ref: './common.yaml#/components/responses/TooManyRequests' }
+  /auth/mfa/verify:
+    post:
+      tags: [auth]
+      operationId: authMfaVerify
+      summary: Segundo factor (TOTP o código de recuperación)
+      x-module: auth
+      x-scope: public
+      x-permission: public
+      x-rate-limit: login
+      x-increment: I1
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mfa_token, code]
+              properties:
+                mfa_token: { type: string }
+                code: { type: string, minLength: 6, maxLength: 16 }
+      responses:
+        '200':
+          description: Sesión creada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AccessTokenResponse' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '429': { $ref: './common.yaml#/components/responses/TooManyRequests' }
+  /auth/token:
+    post:
+      tags: [auth]
+      operationId: authIssueToken
+      summary: Access token de un tenant o de plataforma
+      description: |
+        `{"tenant_id"}` → JWT de 10 min con `tid` y los permisos de ese tenant. No miembro →
+        `404 TENANT_NOT_FOUND` (no revela si existe); tenant suspendido → `403 TENANT_SUSPENDED`;
+        rol que exige 2FA sin TOTP activo → `403 MFA_ENROLLMENT_REQUIRED` (D14: 2FA obligatorio para
+        administradores). `{"scope": "platform"}` → token de plataforma (solo roles de plataforma).
+      x-module: auth
+      x-scope: session
+      x-permission: authenticated
+      x-increment: I0
+      security:
+        - sessionBearer: []
+        - refreshCookie: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  required: [tenant_id]
+                  additionalProperties: false
+                  properties:
+                    tenant_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+                - type: object
+                  required: [scope]
+                  additionalProperties: false
+                  properties:
+                    scope: { type: string, const: platform }
+      responses:
+        '200':
+          description: Token emitido.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AccessTokenResponse' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+  /auth/refresh:
+    post:
+      tags: [auth]
+      operationId: authRefresh
+      summary: Rota el refresh y devuelve un access token de sesión
+      description: Reutilización de un refresh ya usado ⇒ revoca la sesión (`refresh_token_reuse`). Exige `Origin` permitido (HORUS_ALLOWED_ORIGINS, D14).
+      x-module: auth
+      x-scope: public
+      x-permission: refresh_cookie
+      x-increment: I0
+      security:
+        - refreshCookie: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/XRequestedWith'
+      responses:
+        '200':
+          description: Nuevo par (cookie rotada).
+          headers:
+            Set-Cookie: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AccessTokenResponse' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+  /auth/reauth:
+    post:
+      tags: [auth]
+      operationId: authReauth
+      summary: Re-autenticación reciente (marca `auth_time`)
+      x-module: auth
+      x-scope: session
+      x-permission: authenticated
+      x-increment: I1
+      security:
+        - sessionBearer: []
+        - tenantBearer: []
+        - platformBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password: { type: string, writeOnly: true }
+                code: { type: [string, 'null'] }
+      responses:
+        '200':
+          description: Token renovado con `auth_time` reciente (mismo ámbito que el presentado).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AccessTokenResponse' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+  /auth/logout:
+    post:
+      tags: [auth]
+      operationId: authLogout
+      summary: Revoca la sesión actual y borra la cookie
+      x-module: auth
+      x-scope: session
+      x-permission: refresh_cookie
+      x-increment: I0
+      security:
+        - refreshCookie: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/XRequestedWith'
+      responses:
+        '204': { $ref: './common.yaml#/components/responses/NoContent' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+  /auth/invitations/accept:
+    post:
+      tags: [auth]
+      operationId: authAcceptInvitation
+      summary: Acepta una invitación a un tenant (crea el usuario si no existe)
+      x-module: auth
+      x-scope: public
+      x-permission: public
+      x-rate-limit: login
+      x-increment: I1
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string, minLength: 32 }
+                display_name: { type: [string, 'null'], maxLength: 120 }
+                password: { type: [string, 'null'], writeOnly: true, minLength: 12 }
+      responses:
+        '204': { $ref: './common.yaml#/components/responses/NoContent' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+        '429': { $ref: './common.yaml#/components/responses/TooManyRequests' }
+  /me:
+    get:
+      tags: [me]
+      operationId: getMe
+      summary: Usuario actual, roles de plataforma y membresías con permisos por ISP
+      x-module: auth
+      x-scope: session
+      x-permission: authenticated
+      x-increment: I0
+      security:
+        - sessionBearer: []
+        - tenantBearer: []
+        - platformBearer: []
+      responses:
+        '200':
+          description: Usuario.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+    patch:
+      tags: [me]
+      operationId: updateMe
+      summary: Nombre, idioma, zona horaria, tenant por defecto
+      x-module: auth
+      x-scope: session
+      x-permission: authenticated
+      x-increment: I1
+      security:
+        - sessionBearer: []
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/MePatch' }
+          application/json:
+            schema: { $ref: '#/components/schemas/MePatch' }
+      responses:
+        '200':
+          description: Actualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /me/password:
+    post:
+      tags: [me]
+      operationId: changeMyPassword
+      summary: Cambio de contraseña (revoca las demás sesiones)
+      x-module: auth
+      x-scope: session
+      x-permission: authenticated
+      x-increment: I0
+      security:
+        - sessionBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password, new_password]
+              properties:
+                current_password: { type: string, writeOnly: true }
+                new_password: { type: string, writeOnly: true, minLength: 12 }
+      responses:
+        '204': { $ref: './common.yaml#/components/responses/NoContent' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /me/totp/enroll:
+    post:
+      tags: [me]
+      operationId: enrollMyTotp
+      summary: Inicia el alta de TOTP (devuelve secreto y URI otpauth, una vez)
+      description: Adelantado a I1 por D14 (acceso por Internet ⇒ 2FA obligatorio para administradores).
+      x-module: auth
+      x-scope: session
+      x-permission: authenticated
+      x-increment: I1
+      security:
+        - sessionBearer: []
+      responses:
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '200':
+          description: 'Secreto (solo esta vez; `Cache-Control: no-store`).'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [otpauth_uri, secret]
+                properties:
+                  otpauth_uri: { type: string }
+                  secret: { type: string }
+  /me/totp/confirm:
+    post:
+      tags: [me]
+      operationId: confirmMyTotp
+      summary: Confirma TOTP con un código y devuelve los códigos de recuperación
+      x-module: auth
+      x-scope: session
+      x-permission: authenticated
+      x-increment: I1
+      security:
+        - sessionBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, minLength: 6, maxLength: 8 }
+      responses:
+        '200':
+          description: 10 códigos de recuperación (solo esta vez).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [recovery_codes]
+                properties:
+                  recovery_codes: { type: array, items: { type: string }, minItems: 10, maxItems: 10 }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /permissions:
+    get:
+      tags: [members]
+      operationId: listPermissions
+      summary: Catálogo de permisos y roles de sistema (C7)
+      x-module: auth
+      x-scope: session
+      x-permission: authenticated
+      x-increment: I0
+      security:
+        - sessionBearer: []
+        - tenantBearer: []
+        - platformBearer: []
+      responses:
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '200':
+          description: 'Catálogo (fuente: packages/schemas/permissions/v0/permissions.yaml).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PermissionCatalog' }
+  /members:
+    get:
+      tags: [members]
+      operationId: listMembers
+      summary: Miembros del tenant
+      x-module: auth
+      x-scope: tenant
+      x-permission: users.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Limit'
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/IncludeTotal'
+        - $ref: './common.yaml#/components/parameters/Q'
+        - name: status
+          in: query
+          schema: { type: string, enum: [active, invited, revoked] }
+      responses:
+        '200':
+          description: Página de miembros.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Member' } }
+                  page: { $ref: './common.yaml#/components/schemas/PageInfo' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+    post:
+      tags: [members]
+      operationId: inviteMember
+      summary: Invita por email con roles iniciales (misma respuesta exista o no el email)
+      x-module: auth
+      x-scope: tenant
+      x-permission: users.manage
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, role_assignments]
+              properties:
+                email: { type: string, format: email }
+                role_assignments:
+                  type: array
+                  minItems: 1
+                  items: { $ref: '#/components/schemas/RoleAssignment' }
+      responses:
+        '202': { description: Invitación aceptada para envío. }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /members/{user_id}:
+    parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    delete:
+      tags: [members]
+      operationId: removeMember
+      summary: Quita al usuario del tenant (corta su acceso en ≤ 5 s)
+      x-module: auth
+      x-scope: tenant
+      x-permission: users.manage
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '204': { $ref: './common.yaml#/components/responses/NoContent' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+  /members/{user_id}/role-assignments:
+    parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    put:
+      tags: [members]
+      operationId: replaceMemberRoleAssignments
+      summary: Reemplaza las asignaciones (rol, alcance) del miembro
+      x-module: auth
+      x-scope: tenant
+      x-permission: roles.assign
+      x-reauth: true
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items: { $ref: '#/components/schemas/RoleAssignment' }
+      responses:
+        '200':
+          description: Asignaciones vigentes.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RoleAssignment' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+  /roles:
+    get:
+      tags: [members]
+      operationId: listRoles
+      summary: Roles del tenant (plantillas de sistema + propios)
+      x-module: auth
+      x-scope: tenant
+      x-permission: roles.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '200':
+          description: Roles.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Role' } }
+                  page: { $ref: './common.yaml#/components/schemas/PageInfo' }
+  /kiosks:
+    get:
+      tags: [kiosks]
+      operationId: listKiosks
+      summary: Kioscos (pantallas NOC) del tenant
+      x-module: auth
+      x-scope: tenant
+      x-permission: kiosks.manage
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Limit'
+        - $ref: './common.yaml#/components/parameters/Cursor'
+      responses:
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '200':
+          description: Página de kioscos.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Kiosk' } }
+                  page: { $ref: './common.yaml#/components/schemas/PageInfo' }
+    post:
+      tags: [kiosks]
+      operationId: createKiosk
+      summary: Alta de kiosco
+      x-module: auth
+      x-scope: tenant
+      x-permission: kiosks.manage
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/KioskInput' }
+      responses:
+        '201':
+          description: Creado.
+          headers:
+            Location: { $ref: './common.yaml#/components/headers/Location' }
+            ETag: { $ref: './common.yaml#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Kiosk' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /kiosks/{kiosk_id}:
+    parameters:
+      - $ref: '#/components/parameters/KioskId'
+    get:
+      tags: [kiosks]
+      operationId: getKiosk
+      summary: Detalle de kiosco
+      x-module: auth
+      x-scope: tenant
+      x-permission: kiosks.manage
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Kiosco.
+          headers:
+            ETag: { $ref: './common.yaml#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Kiosk' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+    patch:
+      tags: [kiosks]
+      operationId: updateKiosk
+      summary: Edita dashboards/playlist, CIDR, política de datos personales y caducidad
+      x-module: auth
+      x-scope: tenant
+      x-permission: kiosks.manage
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/KioskInput' }
+          application/json:
+            schema: { $ref: '#/components/schemas/KioskInput' }
+      responses:
+        '200':
+          description: Actualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Kiosk' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /kiosks/{kiosk_id}/enrollment-codes:
+    parameters:
+      - $ref: '#/components/parameters/KioskId'
+    post:
+      tags: [kiosks]
+      operationId: createKioskEnrollmentCode
+      summary: Código de enrolamiento de un uso (10 min) + URL del QR
+      description: '`qr_url` = `<HORUS_PUBLIC_BASE_URL>/kiosk/enroll#code=<código>` (fragmento: no viaja al servidor).'
+      x-module: auth
+      x-scope: tenant
+      x-permission: kiosks.manage
+      x-reauth: true
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IdempotencyKeyRequired'
+      responses:
+        '201':
+          description: Código (solo esta vez; `no-store`).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, qr_url, expires_at]
+                properties:
+                  code: { type: string, pattern: '^[A-HJ-NP-Z2-9]{8}$' }
+                  qr_url: { type: string, format: uri }
+                  expires_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        '428': { $ref: './common.yaml#/components/responses/PreconditionRequired' }
+  /kiosks/{kiosk_id}/revoke:
+    parameters:
+      - $ref: '#/components/parameters/KioskId'
+    post:
+      tags: [kiosks]
+      operationId: revokeKiosk
+      summary: Revocación inmediata (cierra su WebSocket con 4409 en < 5 s)
+      x-module: auth
+      x-scope: tenant
+      x-permission: kiosks.manage
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string, maxLength: 200 }
+      responses:
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '200':
+          description: Kiosco revocado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Kiosk' }
+  /kiosk/enroll:
+    post:
+      tags: [kiosks]
+      operationId: kioskEnroll
+      summary: Canje del código → cookie de dispositivo
+      description: Público, rate limited (5/min por IP; 10 fallos invalidan el código); aplica `allowed_cidrs`.
+      x-module: auth
+      x-scope: public
+      x-permission: public
+      x-rate-limit: kiosk_enroll
+      x-increment: I1
+      security: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/XRequestedWith'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, pattern: '^[A-HJ-NP-Z2-9]{8}$' }
+      responses:
+        '204':
+          description: 'Enrolado; `Set-Cookie: __Secure-hf_kiosk`.'
+          headers:
+            Set-Cookie: { schema: { type: string } }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+        '429': { $ref: './common.yaml#/components/responses/TooManyRequests' }
+  /kiosk/token:
+    post:
+      tags: [kiosks]
+      operationId: kioskIssueToken
+      summary: Cookie de dispositivo (rotativa) → access JWT de kiosco
+      x-module: auth
+      x-scope: public
+      x-permission: kiosk_cookie
+      x-increment: I1
+      security:
+        - kioskCookie: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/XRequestedWith'
+      responses:
+        '200':
+          description: JWT de kiosco (10 min) y cookie rotada.
+          headers:
+            Set-Cookie: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AccessTokenResponse' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+components:
+  securitySchemes:
+    tenantBearer: { $ref: './common.yaml#/components/securitySchemes/tenantBearer' }
+    sessionBearer: { $ref: './common.yaml#/components/securitySchemes/sessionBearer' }
+    platformBearer: { $ref: './common.yaml#/components/securitySchemes/platformBearer' }
+    kioskBearer: { $ref: './common.yaml#/components/securitySchemes/kioskBearer' }
+    refreshCookie: { $ref: './common.yaml#/components/securitySchemes/refreshCookie' }
+    kioskCookie: { $ref: './common.yaml#/components/securitySchemes/kioskCookie' }
+  parameters:
+    KioskId:
+      name: kiosk_id
+      in: path
+      required: true
+      schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+  schemas:
+    AccessTokenResponse:
+      type: object
+      required: [access_token, token_type, expires_at, scope]
+      properties:
+        access_token: { type: string, description: 'JWT EdDSA; solo en memoria de la SPA.' }
+        token_type: { type: string, const: Bearer }
+        expires_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        scope: { type: string, enum: [session, tenant, platform, kiosk] }
+        tenant_id:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Uuid'
+            - type: 'null'
+          description: '`tid` del token (solo `scope=tenant` o `kiosk`).'
+    MfaChallenge:
+      type: object
+      required: [mfa_required, mfa_token]
+      properties:
+        mfa_required: { type: boolean, const: true }
+        mfa_token: { type: string }
+    Me:
+      type: object
+      required: [id, email, display_name, platform_roles, platform_permissions, memberships, mfa_enabled, must_change_password]
+      properties:
+        id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        email: { type: string, format: email }
+        display_name: { type: string }
+        locale: { type: [string, 'null'], examples: [es-MX] }
+        timezone: { type: [string, 'null'], examples: [America/Mexico_City] }
+        default_tenant_id:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Uuid'
+            - type: 'null'
+        mfa_enabled: { type: boolean }
+        must_change_password: { type: boolean }
+        platform_roles:
+          type: array
+          items: { type: string, enum: [platform_admin, platform_operator, platform_auditor] }
+        platform_permissions:
+          type: array
+          items: { type: string, pattern: '^platform\.' }
+        memberships:
+          type: array
+          items: { $ref: '#/components/schemas/Membership' }
+    MePatch:
+      type: object
+      additionalProperties: false
+      properties:
+        display_name: { type: string, maxLength: 120 }
+        locale: { type: [string, 'null'] }
+        timezone: { type: [string, 'null'] }
+        default_tenant_id:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Uuid'
+            - type: 'null'
+    Membership:
+      type: object
+      required: [tenant_id, tenant_slug, tenant_name, tenant_status, roles, permissions_with_scope]
+      properties:
+        tenant_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        tenant_slug: { type: string, pattern: '^[a-z0-9][a-z0-9-]{1,62}$' }
+        tenant_name: { type: string }
+        tenant_status: { type: string, enum: [active, suspended, offboarding] }
+        roles:
+          type: array
+          items: { $ref: '#/components/schemas/RoleAssignment' }
+        permissions_with_scope:
+          type: object
+          description: 'Permiso → alcances (`["*"]` = todo el tenant; `site:<uuid>`, `router_group:<uuid>`).'
+          additionalProperties:
+            type: array
+            items: { type: string }
+          examples:
+            - devices.read: ['*']
+              customers.kind.write: ['site:0192e111-0000-7000-8000-000000000001']
+    RoleAssignment:
+      type: object
+      required: [role_id, scope]
+      properties:
+        role_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        role_key: { type: string, examples: [noc] }
+        scope:
+          type: string
+          pattern: '^(tenant|site:[0-9a-f-]{36}|router_group:[0-9a-f-]{36})$'
+    Member:
+      type: object
+      required: [user_id, display_name, email, status, mfa_enabled, role_assignments, version]
+      properties:
+        user_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        tenant_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        display_name: { type: string }
+        email: { type: string, format: email }
+        status: { type: string, enum: [active, invited, revoked] }
+        mfa_enabled: { type: boolean }
+        role_assignments:
+          type: array
+          items: { $ref: '#/components/schemas/RoleAssignment' }
+        version: { $ref: './common.yaml#/components/schemas/Version' }
+    Role:
+      type: object
+      required: [id, key, name, is_system, permissions]
+      properties:
+        id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        tenant_id:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Uuid'
+            - type: 'null'
+        key: { type: string }
+        name: { type: string }
+        is_system: { type: boolean }
+        requires_mfa: { type: boolean }
+        permissions: { type: array, items: { type: string } }
+    PermissionCatalog:
+      type: object
+      required: [version, permissions, roles]
+      properties:
+        version: { type: string, examples: [v0] }
+        permissions:
+          type: array
+          items:
+            type: object
+            required: [key, family, description]
+            properties:
+              key: { type: string }
+              family: { type: string, enum: [tenant, platform] }
+              description: { type: string }
+              personal_data: { type: boolean }
+              audited: { type: boolean }
+        roles:
+          type: array
+          items: { $ref: '#/components/schemas/Role' }
+    KioskInput:
+      type: object
+      additionalProperties: false
+      properties:
+        name: { type: string, maxLength: 80 }
+        playlist_id:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Uuid'
+            - type: 'null'
+        dashboard_ids:
+          type: array
+          maxItems: 20
+          items: { $ref: './common.yaml#/components/schemas/Uuid' }
+        allowed_cidrs:
+          type: array
+          maxItems: 32
+          items: { $ref: './common.yaml#/components/schemas/Cidr' }
+        show_personal_data: { type: boolean, default: false }
+        show_personal_data_reason:
+          type: [string, 'null']
+          maxLength: 300
+          description: Obligatorio (auditado) si `show_personal_data = true`.
+        critical_finding_banner: { type: boolean, default: false }
+        expires_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+    Kiosk:
+      allOf:
+        - $ref: './common.yaml#/components/schemas/TenantScopedResource'
+        - type: object
+          required: [name, status, show_personal_data, allowed_cidrs, dashboard_ids, playlist_id, expires_at]
+          properties:
+            name: { type: string }
+            status: { type: string, enum: [pending_enrollment, active, revoked, expired] }
+            playlist_id:
+              oneOf:
+                - $ref: './common.yaml#/components/schemas/Uuid'
+                - type: 'null'
+            dashboard_ids:
+              type: array
+              items: { $ref: './common.yaml#/components/schemas/Uuid' }
+            allowed_cidrs:
+              type: array
+              items: { $ref: './common.yaml#/components/schemas/Cidr' }
+            cidr_risk: { type: boolean, description: true si no hay `allowed_cidrs` (la UI lo marca como riesgo). }
+            show_personal_data: { type: boolean }
+            critical_finding_banner: { type: boolean }
+            expires_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+            last_seen_at:
+              oneOf:
+                - $ref: './common.yaml#/components/schemas/Timestamp'
+                - type: 'null'
+            last_ip: { type: [string, 'null'] }
+            frontend_version: { type: [string, 'null'] }

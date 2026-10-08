@@ -1,0 +1,29 @@
+{
+  "id": "0192f0d2-0000-7000-8000-000000000004",
+  "type": "horus.auth.tenant.resumed",
+  "source": "horus/auth",
+  "subject": "0192e000-0000-7000-8000-000000000001",
+  "time": "2026-10-07T14:03:11.123Z",
+  "schema_version": 1,
+  "tenant_id": "0192e000-0000-7000-8000-000000000001",
+  "aggregate_type": "tenant",
+  "aggregate_version": 4,
+  "actor": {
+    "type": "user",
+    "id": "0192aaaa-0000-7000-8000-0000000000a1",
+    "via_platform": true,
+    "platform_role": "platform_admin"
+  },
+  "trace_parent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+  "correlation_id": null,
+  "causation_id": null,
+  "data": {
+    "id": "0192e000-0000-7000-8000-000000000001",
+    "version": 4,
+    "previous_status": "suspended",
+    "status": "active",
+    "reason": null,
+    "pause_ingest": false,
+    "changed_at": "2026-10-07T14:03:11.123Z"
+  }
+}

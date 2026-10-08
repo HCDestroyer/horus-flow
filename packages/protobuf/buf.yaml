@@ -1,0 +1,15 @@
+# Contratos internos y payloads de eventos (C4). docs/api.md §5, docs/events.md §5.3–§5.6.
+# - lint STANDARD sin excepciones.
+# - breaking FILE (categoría más estricta; incluye WIRE_JSON, necesaria para horus/events/** porque los
+#   eventos de dominio viajan en JSON y renombrar un campo rompe aunque el número no cambie).
+#   CI: buf breaking packages/protobuf --against '.git#branch=main,subdir=packages/protobuf'
+# Solo tipos bien conocidos de google/protobuf (incluidos en buf): sin dependencias remotas.
+version: v2
+modules:
+  - path: .
+lint:
+  use:
+    - STANDARD
+breaking:
+  use:
+    - FILE

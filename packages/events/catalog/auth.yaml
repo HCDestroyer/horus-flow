@@ -1,0 +1,215 @@
+# Catálogo de eventos v0 del dominio `auth` (C4; docs/events.md §5.6, §8).
+# Un archivo por dominio para que dos agentes no editen el mismo. Cada tipo: mensaje Protobuf en
+# packages/protobuf/horus/events/<dominio>/v1/ y golden file en packages/events/examples/<type>.json.
+# Cambios de pii / tenant_scope requieren a la persona.
+domain: auth
+version: v0
+events:
+- type: horus.auth.tenant.created
+  subject: horus.auth.tenant.created.{tenant_id}
+  tenant_scope: tenant
+  stream: AUTH_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.auth.v1.Tenant
+  schema_version: 1
+  producer: auth
+  consumers:
+  - devices
+  - flows
+  - analytics
+  - detection
+  - alerts
+  - gateway
+  websocket_topics: []
+  pii: false
+  pii_fields: []
+  status: draft
+  since: I0
+  example: examples/horus.auth.tenant.created.json
+  notes: 'Ciclo de vida del tenant: tenant_id = el propio tenant (events.md §8.1 nota 1).'
+- type: horus.auth.tenant.updated
+  subject: horus.auth.tenant.updated.{tenant_id}
+  tenant_scope: tenant
+  stream: AUTH_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.auth.v1.Tenant
+  schema_version: 1
+  producer: auth
+  consumers:
+  - flows
+  - analytics
+  - gateway
+  websocket_topics: []
+  pii: false
+  pii_fields: []
+  status: draft
+  since: I0
+  example: examples/horus.auth.tenant.updated.json
+- type: horus.auth.tenant.suspended
+  subject: horus.auth.tenant.suspended.{tenant_id}
+  tenant_scope: tenant
+  stream: AUTH_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.auth.v1.TenantStatusChanged
+  schema_version: 1
+  producer: auth
+  consumers:
+  - gateway
+  - flows
+  - alerts
+  websocket_topics: []
+  pii: false
+  pii_fields: []
+  status: draft
+  since: I1
+  example: examples/horus.auth.tenant.suspended.json
+- type: horus.auth.tenant.resumed
+  subject: horus.auth.tenant.resumed.{tenant_id}
+  tenant_scope: tenant
+  stream: AUTH_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.auth.v1.TenantStatusChanged
+  schema_version: 1
+  producer: auth
+  consumers:
+  - gateway
+  - flows
+  - alerts
+  websocket_topics: []
+  pii: false
+  pii_fields: []
+  status: draft
+  since: I1
+  example: examples/horus.auth.tenant.resumed.json
+- type: horus.auth.membership.granted
+  subject: horus.auth.membership.granted.{membership_id}
+  tenant_scope: tenant
+  stream: AUTH_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.auth.v1.Membership
+  schema_version: 1
+  producer: auth
+  consumers:
+  - gateway
+  websocket_topics:
+  - me
+  pii: false
+  pii_fields: []
+  status: draft
+  since: I0
+  example: examples/horus.auth.membership.granted.json
+- type: horus.auth.membership.updated
+  subject: horus.auth.membership.updated.{membership_id}
+  tenant_scope: tenant
+  stream: AUTH_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.auth.v1.Membership
+  schema_version: 1
+  producer: auth
+  consumers:
+  - gateway
+  websocket_topics:
+  - me
+  pii: false
+  pii_fields: []
+  status: draft
+  since: I1
+  example: examples/horus.auth.membership.updated.json
+- type: horus.auth.membership.revoked
+  subject: horus.auth.membership.revoked.{membership_id}
+  tenant_scope: tenant
+  stream: AUTH_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.auth.v1.Membership
+  schema_version: 1
+  producer: auth
+  consumers:
+  - gateway
+  websocket_topics:
+  - me
+  pii: false
+  pii_fields: []
+  status: draft
+  since: I1
+  example: examples/horus.auth.membership.revoked.json
+- type: horus.auth.kiosk.enrolled
+  subject: horus.auth.kiosk.enrolled.{kiosk_id}
+  tenant_scope: tenant
+  stream: AUTH_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.auth.v1.Kiosk
+  schema_version: 1
+  producer: auth
+  consumers:
+  - gateway
+  - alerts
+  websocket_topics: []
+  pii: false
+  pii_fields: []
+  status: draft
+  since: I1
+  example: examples/horus.auth.kiosk.enrolled.json
+- type: horus.auth.kiosk.revoked
+  subject: horus.auth.kiosk.revoked.{kiosk_id}
+  tenant_scope: tenant
+  stream: AUTH_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.auth.v1.Kiosk
+  schema_version: 1
+  producer: auth
+  consumers:
+  - gateway
+  - alerts
+  websocket_topics: []
+  pii: false
+  pii_fields: []
+  status: draft
+  since: I1
+  example: examples/horus.auth.kiosk.revoked.json
+- type: horus.auth.session.revoked
+  subject: horus.auth.session.revoked.{session_id}
+  tenant_scope: platform
+  stream: AUTH_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.auth.v1.SessionRevoked
+  schema_version: 1
+  producer: auth
+  consumers:
+  - gateway
+  websocket_topics:
+  - me
+  pii: false
+  pii_fields: []
+  status: draft
+  since: I0
+  example: examples/horus.auth.session.revoked.json
+- type: horus.auth.audit.recorded
+  subject: horus.auth.audit.recorded.{entry_id}
+  tenant_scope: tenant
+  stream: AUTH_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.common.v1.AuditRecord
+  schema_version: 1
+  producer: auth
+  consumers:
+  - auth
+  websocket_topics: []
+  pii: true
+  pii_fields:
+  - ip
+  - user_agent
+  status: draft
+  since: I0
+  example: examples/horus.auth.audit.recorded.json
+  notes: Único evento con IP y User-Agent; tenant_id null para acciones de plataforma. Solo auth lo persiste (cadena de hashes).

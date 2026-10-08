@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.horus-flow.local/flowsim/v0/scenario.schema.json",
+  "title": "FlowsimScenario",
+  "description": "C10 — formato de tools/flowsim/scenarios/<name>.yaml (I0-10). Determinista por semilla. Emula el router principal MikroTik RouterOS 7.x (≥ 7.12, D15) exportando IPFIX (o NetFlow v9) sin muestreo por el túnel WireGuard (src = IP de túnel, D16), con NAT en el mismo router (IPs de cliente privadas en ambos sentidos, D12, a confirmar en I0-12).",
+  "type": "object",
+  "required": ["name", "description", "seed", "duration_seconds", "exporter", "clients", "profiles"],
+  "properties": {
+    "name": { "type": "string", "enum": ["normal", "scan", "c2", "spam", "dos_out", "commercial", "beacon", "sustained_out"], "description": "Los seis primeros son obligatorios en I1; beacon y sustained_out para I1-30 (should)." },
+    "description": { "type": "string" },
+    "seed": { "type": "integer", "minimum": 0 },
+    "duration_seconds": { "type": "integer", "minimum": 60 },
+    "exporter": {
+      "type": "object",
+      "required": ["routeros_version", "protocol", "tunnel_ip", "observation_domain_id", "active_flow_timeout_seconds", "inactive_flow_timeout_seconds", "sampling_rate", "template_refresh_seconds"],
+      "properties": {
+        "routeros_version": { "type": "string", "pattern": "^7\\.[0-9]+(\\.[0-9]+)?$" },
+        "protocol": { "type": "string", "enum": ["ipfix", "netflow_v9"] },
+        "tunnel_ip": { "type": "string", "description": "IP origen de los datagramas (IP de túnel del router simulado)." },
+        "observation_domain_id": { "type": "integer", "minimum": 0 },
+        "active_flow_timeout_seconds": { "type": "integer", "const": 60 },
+        "inactive_flow_timeout_seconds": { "type": "integer", "const": 15 },
+        "sampling_rate": { "type": "integer", "minimum": 1, "default": 1 },
+        "template_refresh_seconds": { "type": "integer", "minimum": 1 },
+        "nat": { "type": "boolean", "default": true },
+        "interfaces": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["if_index", "name", "flow_role"],
+            "properties": {
+              "if_index": { "type": "integer" },
+              "name": { "type": "string" },
+              "flow_role": { "type": "string", "enum": ["customer_edge", "upstream", "peering", "core", "management", "none"] }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "client_prefixes": {
+      "type": "array",
+      "description": "Prefijos que el escenario espera configurados (vacío ⇒ modo descubrimiento).",
+      "items": {
+        "type": "object",
+        "required": ["prefix", "role"],
+        "properties": {
+          "prefix": { "type": "string" },
+          "role": { "type": "string", "enum": ["customers", "infrastructure", "excluded"] },
+          "assignment_mode": { "type": "string", "enum": ["static", "dynamic", "unknown"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "clients": {
+      "type": "object",
+      "required": ["count", "ipv4_prefix"],
+      "properties": {
+        "count": { "type": "integer", "minimum": 1 },
+        "ipv4_prefix": { "type": "string" },
+        "ipv6_delegated_prefix": { "type": ["string", "null"] },
+        "ipv6_client_len": { "type": "integer", "enum": [56, 64] }
+      },
+      "additionalProperties": false
+    },
+    "profiles": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["kind", "clients"],
+        "properties": {
+          "kind": { "type": "string", "enum": ["residential_browsing", "streaming", "gaming", "commercial_server", "c2_contact", "c2_syn_only", "telnet_scan", "smtp_spam", "udp_flood", "beacon", "sustained_upload", "nightly_backup"] },
+          "clients": { "description": "Nº de clientes o lista de índices de cliente.", "oneOf": [{ "type": "integer", "minimum": 1 }, { "type": "array", "items": { "type": "integer" } }] },
+          "params": { "type": "object", "additionalProperties": true }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

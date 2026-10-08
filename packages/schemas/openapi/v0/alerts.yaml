@@ -1,0 +1,377 @@
+openapi: 3.1.0
+info:
+  title: Horus Flow API — módulo alerts, canal mínimo de notificación (contrato v0)
+  version: 0.1.0
+  description: |
+    **D13** adelanta al I1 un canal mínimo de alertas: canales por ISP de tipo `email` (SMTP de la
+    instalación) y `telegram` (bot), suscritos a tipos de evento con severidad mínima y filtro por nodo.
+    Sin motor de reglas, silencios ni escalado (llegan con alerts completo). `librenms` (syslog / SNMP trap /
+    API) queda **previsto** en el modelo: crear uno en v0 → `422 NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE`.
+    Los mensajes no incluyen la IP del cliente salvo `include_personal_data=true` (auditado): salen de la
+    instalación hacia terceros (proveedor SMTP, Telegram). Los enlaces del mensaje son URLs absolutas sobre
+    HORUS_PUBLIC_BASE_URL (D14). Cada envío emite `horus.alerts.notification.sent|failed`.
+  license:
+    name: Propietaria
+    identifier: LicenseRef-Horus-Proprietary
+servers:
+  - url: https://{domain}/api/v1
+    variables:
+      domain:
+        default: horus.example.net
+tags:
+  - name: notifications
+    description: Canales de notificación del ISP y entregas.
+paths:
+  /notification-channels:
+    get:
+      tags: [notifications]
+      operationId: listNotificationChannels
+      summary: Canales de notificación del ISP
+      x-module: alerts
+      x-scope: tenant
+      x-permission: alerts.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Canales (sin secretos).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/NotificationChannel' } }
+                  page: { $ref: './common.yaml#/components/schemas/PageInfo' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+    post:
+      tags: [notifications]
+      operationId: createNotificationChannel
+      summary: Crea un canal (email o telegram en I1; librenms previsto)
+      x-module: alerts
+      x-scope: tenant
+      x-permission: alerts.manage
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NotificationChannelInput' }
+      responses:
+        '201':
+          description: Creado (estado `unverified` hasta la primera prueba correcta).
+          headers:
+            Location: { $ref: './common.yaml#/components/headers/Location' }
+            ETag: { $ref: './common.yaml#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NotificationChannel' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /notification-channels/{channel_id}:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    get:
+      tags: [notifications]
+      operationId: getNotificationChannel
+      summary: Detalle del canal
+      x-module: alerts
+      x-scope: tenant
+      x-permission: alerts.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Canal.
+          headers:
+            ETag: { $ref: './common.yaml#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NotificationChannel' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+    patch:
+      tags: [notifications]
+      operationId: updateNotificationChannel
+      summary: Edita nombre, destino, suscripciones o lo habilita/deshabilita
+      x-module: alerts
+      x-scope: tenant
+      x-permission: alerts.manage
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/NotificationChannelPatch' }
+          application/json:
+            schema: { $ref: '#/components/schemas/NotificationChannelPatch' }
+      responses:
+        '200':
+          description: Actualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NotificationChannel' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+    delete:
+      tags: [notifications]
+      operationId: deleteNotificationChannel
+      summary: Borra el canal (y sus secretos, crypto-shredding)
+      x-module: alerts
+      x-scope: tenant
+      x-permission: alerts.manage
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      responses:
+        '204': { $ref: './common.yaml#/components/responses/NoContent' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+  /notification-channels/{channel_id}/credentials:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    put:
+      tags: [notifications]
+      operationId: putNotificationChannelCredentials
+      summary: Secretos write-only del canal (p. ej. token de bot de Telegram propio del ISP)
+      description: Opcional para telegram (sin token propio se usa el bot de la instalación, HORUS_TELEGRAM_BOT_TOKEN_FILE). Email usa el SMTP de la instalación (HORUS_SMTP_*); no tiene secretos por canal.
+      x-module: alerts
+      x-scope: tenant
+      x-permission: alerts.manage
+      x-reauth: true
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                telegram_bot_token: { type: string, writeOnly: true, pattern: '^[0-9]+:[A-Za-z0-9_-]{30,}$' }
+      responses:
+        '204': { $ref: './common.yaml#/components/responses/NoContent' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /notification-channels/{channel_id}/test:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    post:
+      tags: [notifications]
+      operationId: testNotificationChannel
+      summary: Envía una notificación de prueba (asíncrona; el resultado llega por WebSocket `me` y en el canal)
+      x-module: alerts
+      x-scope: tenant
+      x-permission: alerts.manage
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IdempotencyKeyRequired'
+      responses:
+        '202':
+          description: Prueba encolada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NotificationDelivery' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '428': { $ref: './common.yaml#/components/responses/PreconditionRequired' }
+  /notification-deliveries:
+    get:
+      tags: [notifications]
+      operationId: listNotificationDeliveries
+      summary: Entregas recientes (enviadas o fallidas) por canal
+      x-module: alerts
+      x-scope: tenant
+      x-permission: alerts.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Limit'
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - name: channel_id
+          in: query
+          schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+        - name: status
+          in: query
+          schema: { type: string, enum: [sent, failed, throttled] }
+      responses:
+        '200':
+          description: Entregas.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/NotificationDelivery' } }
+                  page: { $ref: './common.yaml#/components/schemas/PageInfo' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+components:
+  securitySchemes:
+    tenantBearer: { $ref: './common.yaml#/components/securitySchemes/tenantBearer' }
+  parameters:
+    ChannelId:
+      name: channel_id
+      in: path
+      required: true
+      schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+  schemas:
+    NotificationChannelKind:
+      type: string
+      description: |
+        `email` y `telegram`: disponibles en I1. `librenms`: previsto (D13), aún no disponible. Enum abierto
+        (después: webhook, whatsapp, sms).
+      enum: [email, telegram, librenms]
+    NotificationEventType:
+      type: string
+      description: Tipos de evento a los que se suscribe un canal en el I1 (enum abierto).
+      enum:
+        - finding_opened
+        - finding_reopened
+        - exporter_silent
+        - exporter_recovered
+        - tunnel_down
+        - tunnel_recovered
+    EmailChannelConfig:
+      type: object
+      title: EmailChannelConfig
+      required: [recipients]
+      additionalProperties: false
+      properties:
+        recipients:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items: { type: string, format: email }
+        subject_prefix: { type: string, maxLength: 40, default: '[Horus]' }
+        language: { type: string, enum: [es, en], default: es }
+    TelegramChannelConfig:
+      type: object
+      title: TelegramChannelConfig
+      required: [chat_id]
+      additionalProperties: false
+      properties:
+        chat_id: { type: string, pattern: '^-?[0-9]{1,20}$|^@[A-Za-z0-9_]{5,32}$' }
+        uses_own_bot: { type: boolean, default: false, readOnly: true }
+        language: { type: string, enum: [es, en], default: es }
+    LibreNmsChannelConfig:
+      type: object
+      title: LibreNmsChannelConfig
+      description: Previsto (D13). LibreNMS como destino de alertas por syslog, SNMP trap o su API; opcionalmente fuente de inventario (fuera del I1).
+      required: [mode, target]
+      additionalProperties: false
+      properties:
+        mode: { type: string, enum: [syslog, snmp_trap, api] }
+        target: { type: string, description: 'host[:puerto] o URL base de la API de LibreNMS.' }
+        syslog_facility: { type: string, default: local0 }
+        snmp_trap_version: { type: string, enum: [v2c, v3] }
+        api_tls_verify: { type: boolean, default: true }
+    ChannelSubscription:
+      type: object
+      required: [event_types]
+      additionalProperties: false
+      properties:
+        event_types:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/NotificationEventType' }
+        min_severity: { $ref: './common.yaml#/components/schemas/Severity' }
+        site_ids:
+          type: array
+          description: Vacío = todos los nodos.
+          items: { $ref: './common.yaml#/components/schemas/Uuid' }
+        throttle_minutes:
+          type: integer
+          minimum: 0
+          maximum: 1440
+          default: 15
+          description: Ventana de agrupación por (canal, tipo, recurso) para no inundar.
+    NotificationChannelInput:
+      type: object
+      required: [name, kind, config, subscription]
+      additionalProperties: false
+      properties:
+        name: { type: string, maxLength: 80 }
+        kind: { $ref: '#/components/schemas/NotificationChannelKind' }
+        enabled: { type: boolean, default: true }
+        config:
+          oneOf:
+            - $ref: '#/components/schemas/EmailChannelConfig'
+            - $ref: '#/components/schemas/TelegramChannelConfig'
+            - $ref: '#/components/schemas/LibreNmsChannelConfig'
+        subscription: { $ref: '#/components/schemas/ChannelSubscription' }
+        include_personal_data:
+          type: boolean
+          default: false
+          description: true ⇒ los mensajes incluyen la IP del cliente (auditado). Por defecto alias o IP enmascarada.
+    NotificationChannelPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        name: { type: string, maxLength: 80 }
+        enabled: { type: boolean }
+        config:
+          oneOf:
+            - $ref: '#/components/schemas/EmailChannelConfig'
+            - $ref: '#/components/schemas/TelegramChannelConfig'
+            - $ref: '#/components/schemas/LibreNmsChannelConfig'
+        subscription: { $ref: '#/components/schemas/ChannelSubscription' }
+        include_personal_data: { type: boolean }
+    NotificationChannel:
+      allOf:
+        - $ref: './common.yaml#/components/schemas/TenantScopedResource'
+        - $ref: '#/components/schemas/NotificationChannelInput'
+        - type: object
+          required: [status, has_credentials, last_delivery_at, last_error]
+          properties:
+            status: { type: string, enum: [unverified, ok, failing, disabled] }
+            has_credentials: { type: boolean }
+            last_delivery_at:
+              oneOf:
+                - $ref: './common.yaml#/components/schemas/Timestamp'
+                - type: 'null'
+            last_error: { type: [string, 'null'], description: Sin datos sensibles. }
+    NotificationDelivery:
+      type: object
+      required: [id, tenant_id, channel_id, channel_kind, status, source_event_type, source_event_id, created_at]
+      properties:
+        id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        tenant_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        channel_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        channel_kind: { $ref: '#/components/schemas/NotificationChannelKind' }
+        status: { type: string, enum: [queued, sent, failed, throttled] }
+        event_type: { $ref: '#/components/schemas/NotificationEventType' }
+        source_event_type: { type: [string, 'null'], examples: [horus.detection.finding.opened] }
+        source_event_id:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Uuid'
+            - type: 'null'
+        is_test: { type: boolean }
+        error: { type: [string, 'null'] }
+        created_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        sent_at:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'

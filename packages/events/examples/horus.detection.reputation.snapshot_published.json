@@ -1,0 +1,32 @@
+{
+  "id": "0192f0d2-0000-7000-8000-000000000506",
+  "type": "horus.detection.reputation.snapshot_published",
+  "source": "horus/detection",
+  "subject": "0192f0f0-0000-7000-8000-000000000060",
+  "time": "2026-10-07T14:03:11.123Z",
+  "schema_version": 1,
+  "tenant_id": null,
+  "aggregate_type": "reputation_snapshot",
+  "aggregate_version": 1,
+  "actor": {
+    "type": "service",
+    "id": "svc:detection",
+    "via_platform": false
+  },
+  "trace_parent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+  "correlation_id": null,
+  "causation_id": null,
+  "data": {
+    "snapshot_id": "0192f0f0-0000-7000-8000-000000000060",
+    "snapshot_version": 233,
+    "object_store": "reputation-snapshots",
+    "object_name": "v233/rep.bin",
+    "sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+    "entries": "182733",
+    "sources": [
+      "abuse_ch_feodo",
+      "spamhaus_drop"
+    ],
+    "published_at": "2026-10-07T14:03:11.123Z"
+  }
+}

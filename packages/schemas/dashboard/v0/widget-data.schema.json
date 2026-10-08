@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.horus-flow.local/dashboard/v0/widget-data.schema.json",
+  "title": "WidgetData",
+  "description": "Respuesta de GET /dashboards/{id}/widgets/{wid}/data y POST /widget-data/preview (C9). La forma de `data` depende de data_endpoint_kind del tipo: state (valores actuales), series (series temporales con huecos null) o table (filas). Huecos como ausencia, nunca ceros.",
+  "type": "object",
+  "required": ["data", "meta"],
+  "properties": {
+    "data": {
+      "oneOf": [
+        { "$ref": "#/$defs/StateData" },
+        { "$ref": "#/$defs/SeriesData" },
+        { "$ref": "#/$defs/TableData" }
+      ]
+    },
+    "meta": { "$ref": "#/$defs/Meta" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "Meta": {
+      "type": "object",
+      "required": ["widget_type", "data_endpoint_kind", "generated_at", "partial", "masked_personal_data"],
+      "properties": {
+        "widget_type": { "type": "string" },
+        "data_endpoint_kind": { "type": "string", "enum": ["state", "series", "table"] },
+        "generated_at": { "type": "string", "format": "date-time" },
+        "from": { "type": ["string", "null"], "format": "date-time" },
+        "to": { "type": ["string", "null"], "format": "date-time" },
+        "step": { "type": ["integer", "null"] },
+        "partial": { "type": "boolean" },
+        "coverage": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "freshness_seconds": { "type": ["integer", "null"], "description": "Edad del dato más reciente (la UI marca atrasado > 2× el intervalo esperado y obsoleto > 5×)." },
+        "masked_personal_data": { "type": "boolean", "description": "true si se enmascararon IPs (kiosco sin show_personal_data o usuario sin customers.read)." },
+        "cache": { "type": "string", "enum": ["hit", "miss"] }
+      },
+      "additionalProperties": false
+    },
+    "StateData": {
+      "type": "object",
+      "required": ["kind", "values"],
+      "properties": {
+        "kind": { "const": "state" },
+        "values": {
+          "type": "object",
+          "description": "Clave → valor (número, string, booleano, null o mapa de conteos).",
+          "additionalProperties": {
+            "type": ["number", "string", "boolean", "null", "object"]
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "SeriesData": {
+      "type": "object",
+      "required": ["kind", "series"],
+      "properties": {
+        "kind": { "const": "series" },
+        "series": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["metric", "unit", "points"],
+            "properties": {
+              "metric": { "type": "string" },
+              "unit": { "type": "string" },
+              "group": { "type": ["string", "null"] },
+              "points": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "prefixItems": [{ "type": "string", "format": "date-time" }, { "type": ["number", "null"] }],
+                  "minItems": 2,
+                  "maxItems": 2
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "TableData": {
+      "type": "object",
+      "required": ["kind", "columns", "rows"],
+      "properties": {
+        "kind": { "const": "table" },
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["key", "type"],
+            "properties": {
+              "key": { "type": "string" },
+              "type": { "type": "string", "enum": ["string", "number", "bytes", "bps", "percent", "timestamp", "ip", "severity", "state"] },
+              "personal_data": { "type": "boolean", "default": false }
+            },
+            "additionalProperties": false
+          }
+        },
+        "rows": { "type": "array", "maxItems": 200, "items": { "type": "object" } },
+        "others": { "type": ["object", "null"], "description": "Fila 'Otros' de los top N." }
+      },
+      "additionalProperties": false
+    }
+  }
+}

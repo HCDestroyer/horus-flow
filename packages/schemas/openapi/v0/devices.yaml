@@ -1,0 +1,1199 @@
+openapi: 3.1.0
+info:
+  title: Horus Flow API — módulo devices (contrato v0)
+  version: 0.1.0
+  description: |
+    Inventario por ISP (nodos, routers MikroTik, prefijos de clientes) y clientes = IPs descubiertas
+    (docs/api.md §2.3, §2.9; docs/database.md §2.2–§2.3; ADR-0018). Reglas:
+    - La IP de un cliente **nunca** viaja en la URL: búsqueda por `POST /customers/lookup`.
+    - Un router principal por nodo; RouterOS 7.x ≥ 7.12 (D15): una versión inferior se registra con aviso
+      `routeros_version_unsupported` y bloquea la generación del script (módulo wireguard).
+    - El realm de un prefijo lo decide el servidor: privado/CGNAT → realm `node_private` del nodo (NAT en el
+      router principal, D12); público → realm `public` del ISP.
+  license:
+    name: Propietaria
+    identifier: LicenseRef-Horus-Proprietary
+servers:
+  - url: https://{domain}/api/v1
+    variables:
+      domain:
+        default: horus.example.net
+tags:
+  - name: sites
+    description: Nodos (sitios) del ISP.
+  - name: routers
+    description: Routers (el principal de cada nodo exporta los flujos).
+  - name: client-prefixes
+    description: Qué IPs son de clientes en cada nodo.
+  - name: customers
+    description: Clientes = IPs observadas (D1).
+paths:
+  /sites:
+    get:
+      tags: [sites]
+      operationId: listSites
+      summary: Nodos del ISP
+      x-module: devices
+      x-scope: tenant
+      x-permission: sites.read
+      x-increment: I0
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Limit'
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/IncludeTotal'
+        - $ref: './common.yaml#/components/parameters/Q'
+        - name: kind
+          in: query
+          schema: { type: string }
+        - name: parent_id
+          in: query
+          schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+        - name: sort
+          in: query
+          schema: { type: string, enum: [name, -name, created_at, -created_at] }
+      responses:
+        '200':
+          description: Página de nodos.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Site' } }
+                  page: { $ref: './common.yaml#/components/schemas/PageInfo' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+    post:
+      tags: [sites]
+      operationId: createSite
+      summary: Alta de nodo
+      x-module: devices
+      x-scope: tenant
+      x-permission: sites.create
+      x-increment: I0
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SiteInput' }
+      responses:
+        '201':
+          description: Creado.
+          headers:
+            Location: { $ref: './common.yaml#/components/headers/Location' }
+            ETag: { $ref: './common.yaml#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Site' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /sites/{site_id}:
+    parameters:
+      - $ref: '#/components/parameters/SiteId'
+    get:
+      tags: [sites]
+      operationId: getSite
+      summary: Detalle de nodo
+      x-module: devices
+      x-scope: tenant
+      x-permission: sites.read
+      x-increment: I0
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Nodo.
+          headers:
+            ETag: { $ref: './common.yaml#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Site' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+    patch:
+      tags: [sites]
+      operationId: updateSite
+      summary: Edita un nodo
+      x-module: devices
+      x-scope: tenant
+      x-permission: sites.update
+      x-increment: I0
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/SiteInput' }
+          application/json:
+            schema: { $ref: '#/components/schemas/SiteInput' }
+      responses:
+        '200':
+          description: Actualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Site' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+        '428': { $ref: './common.yaml#/components/responses/PreconditionRequired' }
+    delete:
+      tags: [sites]
+      operationId: deleteSite
+      summary: Baja lógica de un nodo (con routers → 409 SITE_NOT_EMPTY)
+      x-module: devices
+      x-scope: tenant
+      x-permission: sites.delete
+      x-increment: I0
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      responses:
+        '204': { $ref: './common.yaml#/components/responses/NoContent' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+  /routers:
+    get:
+      tags: [routers]
+      operationId: listRouters
+      summary: Routers del ISP
+      x-module: devices
+      x-scope: tenant
+      x-permission: devices.read
+      x-increment: I0
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Limit'
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/IncludeTotal'
+        - $ref: './common.yaml#/components/parameters/Q'
+        - $ref: './common.yaml#/components/parameters/SiteIdFilter'
+        - name: onboarding_state
+          in: query
+          schema: { type: string }
+        - name: is_primary
+          in: query
+          schema: { type: boolean }
+        - name: sort
+          in: query
+          schema: { type: string, enum: [name, -name, created_at, -created_at] }
+      responses:
+        '200':
+          description: Página de routers.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Router' } }
+                  page: { $ref: './common.yaml#/components/schemas/PageInfo' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+    post:
+      tags: [routers]
+      operationId: createRouter
+      summary: Registra un router (queda "Pendiente de configurar"; publica horus.devices.router.created)
+      description: 'Segundo router principal en el nodo → `409 ROUTER_PRIMARY_EXISTS`. RouterOS < 7.12 → se acepta con `warnings: [routeros_version_unsupported]`.'
+      x-module: devices
+      x-scope: tenant
+      x-permission: devices.create
+      x-increment: I0
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RouterInput' }
+      responses:
+        '201':
+          description: Creado.
+          headers:
+            Location: { $ref: './common.yaml#/components/headers/Location' }
+            ETag: { $ref: './common.yaml#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Router' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /routers/{router_id}:
+    parameters:
+      - $ref: '#/components/parameters/RouterId'
+    get:
+      tags: [routers]
+      operationId: getRouter
+      summary: Detalle del router
+      x-module: devices
+      x-scope: tenant
+      x-permission: devices.read
+      x-increment: I0
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Router.
+          headers:
+            ETag: { $ref: './common.yaml#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Router' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+    patch:
+      tags: [routers]
+      operationId: updateRouter
+      summary: Edita un router
+      x-module: devices
+      x-scope: tenant
+      x-permission: devices.update
+      x-increment: I0
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/RouterPatch' }
+          application/json:
+            schema: { $ref: '#/components/schemas/RouterPatch' }
+      responses:
+        '200':
+          description: Actualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Router' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+    delete:
+      tags: [routers]
+      operationId: deleteRouter
+      summary: Baja lógica del router
+      x-module: devices
+      x-scope: tenant
+      x-permission: devices.delete
+      x-increment: I0
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      responses:
+        '204': { $ref: './common.yaml#/components/responses/NoContent' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+  /routers/{router_id}/credentials/{kind}:
+    parameters:
+      - $ref: '#/components/parameters/RouterId'
+      - name: kind
+        in: path
+        required: true
+        schema: { type: string, enum: [snmp, routeros_api] }
+    put:
+      tags: [routers]
+      operationId: putRouterCredential
+      summary: Credencial write-only (SNMPv3 o usuario de solo lectura de la API de RouterOS)
+      description: Nunca devuelve el secreto. En I1 el script de onboarding genera ambas y las guarda cifradas; este endpoint permite reemplazarlas.
+      x-module: devices
+      x-scope: tenant
+      x-permission: devices.credentials.write
+      x-reauth: true
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  title: SnmpV3Credential
+                  required: [username, auth_protocol, auth_password, priv_protocol, priv_password]
+                  properties:
+                    username: { type: string }
+                    auth_protocol: { type: string, enum: [sha1, sha256] }
+                    auth_password: { type: string, writeOnly: true, minLength: 8 }
+                    priv_protocol: { type: string, enum: [aes128] }
+                    priv_password: { type: string, writeOnly: true, minLength: 8 }
+                - type: object
+                  title: RouterosApiCredential
+                  required: [username, password]
+                  properties:
+                    username: { type: string, examples: [horus-ro] }
+                    password: { type: string, writeOnly: true, minLength: 16 }
+                    tls_fingerprint_sha256: { type: [string, 'null'], description: Huella fijada en el primer contacto. }
+      responses:
+        '200':
+          description: Estado de la credencial (sin secretos).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CredentialStatus' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /routers/{router_id}/prefix-import-preview:
+    parameters:
+      - $ref: '#/components/parameters/RouterId'
+    post:
+      tags: [client-prefixes]
+      operationId: previewRouterPrefixImport
+      summary: Lee del MikroTik (REST, solo lectura) pools y redes de cara al cliente y propone prefijos
+      description: |
+        No aplica nada (I1-28). Usa el usuario de solo lectura por el túnel; solo métodos GET hacia RouterOS.
+        Router inalcanzable → `502 ROUTER_UNREACHABLE`; huella TLS distinta → `409 ROUTER_TLS_FINGERPRINT_CHANGED`
+        (requiere confirmación explícita, auditada).
+      x-module: devices
+      x-scope: tenant
+      x-permission: sites.update
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                accept_new_tls_fingerprint: { type: [string, 'null'], description: Huella nueva que el admin confirma. }
+      responses:
+        '200':
+          description: Propuesta.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PrefixImportPreview' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+        '502':
+          description: Router inalcanzable por el túnel.
+          content:
+            application/problem+json:
+              schema: { $ref: './common.yaml#/components/schemas/Problem' }
+  /sites/{site_id}/client-prefixes:
+    parameters:
+      - $ref: '#/components/parameters/SiteId'
+    get:
+      tags: [client-prefixes]
+      operationId: listClientPrefixes
+      summary: Prefijos del nodo (vacío = modo descubrimiento)
+      x-module: devices
+      x-scope: tenant
+      x-permission: sites.read
+      x-increment: I0
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Limit'
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - name: role
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Página de prefijos.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/ClientPrefix' } }
+                  page: { $ref: './common.yaml#/components/schemas/PageInfo' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+    post:
+      tags: [client-prefixes]
+      operationId: createClientPrefix
+      summary: Declara un prefijo (solape en el realm → 409 CLIENT_PREFIX_OVERLAP)
+      x-module: devices
+      x-scope: tenant
+      x-permission: sites.update
+      x-increment: I0
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClientPrefixInput' }
+      responses:
+        '201':
+          description: Creado.
+          headers:
+            Location: { $ref: './common.yaml#/components/headers/Location' }
+            ETag: { $ref: './common.yaml#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClientPrefix' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /sites/{site_id}/client-prefixes/batch:
+    parameters:
+      - $ref: '#/components/parameters/SiteId'
+    post:
+      tags: [client-prefixes]
+      operationId: batchCreateClientPrefixes
+      summary: Confirma una selección (importación del MikroTik o propuestas del modo descubrimiento), todo o nada
+      x-module: devices
+      x-scope: tenant
+      x-permission: sites.update
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IdempotencyKeyRequired'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  minItems: 1
+                  maxItems: 500
+                  items: { $ref: '#/components/schemas/ClientPrefixInput' }
+      responses:
+        '201':
+          description: Prefijos creados.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/ClientPrefix' } }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+        '428': { $ref: './common.yaml#/components/responses/PreconditionRequired' }
+  /client-prefixes/{client_prefix_id}:
+    parameters:
+      - $ref: '#/components/parameters/ClientPrefixId'
+    patch:
+      tags: [client-prefixes]
+      operationId: updateClientPrefix
+      summary: Edita un prefijo (reducirlo pasa a inactive los clientes fuera de todo prefijo)
+      x-module: devices
+      x-scope: tenant
+      x-permission: sites.update
+      x-increment: I0
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/ClientPrefixPatch' }
+          application/json:
+            schema: { $ref: '#/components/schemas/ClientPrefixPatch' }
+      responses:
+        '200':
+          description: Actualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClientPrefix' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+    delete:
+      tags: [client-prefixes]
+      operationId: deleteClientPrefix
+      summary: Borra un prefijo (clientes fuera de todo prefijo → inactive, razón prefix_removed)
+      x-module: devices
+      x-scope: tenant
+      x-permission: sites.update
+      x-increment: I0
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      responses:
+        '204': { $ref: './common.yaml#/components/responses/NoContent' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+  /client-prefixes/{client_prefix_id}/confirm:
+    parameters:
+      - $ref: '#/components/parameters/ClientPrefixId'
+    post:
+      tags: [client-prefixes]
+      operationId: confirmClientPrefix
+      summary: Confirma un prefijo no confirmado
+      x-module: devices
+      x-scope: tenant
+      x-permission: sites.update
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: Confirmado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClientPrefix' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+  /customers:
+    get:
+      tags: [customers]
+      operationId: listCustomers
+      summary: Clientes descubiertos (sin filtro por IP en la URL)
+      x-module: devices
+      x-scope: tenant
+      x-permission: customers.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Limit'
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/SiteIdFilter'
+        - name: q
+          in: query
+          description: Búsqueda sobre `alias` (nunca IP).
+          schema: { type: string, maxLength: 128 }
+        - name: realm_id
+          in: query
+          schema: { type: string }
+        - name: client_prefix_id
+          in: query
+          schema: { type: string }
+        - name: status
+          in: query
+          schema: { type: string, description: 'active,inactive' }
+        - name: kind
+          in: query
+          schema: { type: string }
+        - name: kind_source
+          in: query
+          schema: { type: string }
+        - name: kind_locked
+          in: query
+          schema: { type: boolean }
+        - name: commercial_use_suspected
+          in: query
+          schema: { type: boolean }
+        - name: security_state
+          in: query
+          schema: { type: string, description: 'clean,suspected,infected,mitigated' }
+        - name: has_open_findings
+          in: query
+          schema: { type: boolean }
+        - name: last_seen_gte
+          in: query
+          schema: { type: string, format: date-time }
+        - name: last_seen_lte
+          in: query
+          schema: { type: string, format: date-time }
+        - name: sort
+          in: query
+          schema: { type: string, enum: [last_seen, -last_seen, first_seen, -first_seen, kind_changed_at, -kind_changed_at] }
+      responses:
+        '200':
+          description: Página de clientes.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerPage' }
+        '400': { $ref: './common.yaml#/components/responses/BadRequest' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+  /customers/lookup:
+    post:
+      tags: [customers]
+      operationId: lookupCustomers
+      summary: Búsqueda por IP o prefijo en el cuerpo (POST solo para sacar la IP de URLs y logs; no crea nada)
+      x-module: devices
+      x-scope: tenant
+      x-permission: customers.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Limit'
+        - $ref: './common.yaml#/components/parameters/Cursor'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  required: [address]
+                  additionalProperties: false
+                  properties:
+                    address: { $ref: './common.yaml#/components/schemas/IpAddress' }
+                    site_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+                - type: object
+                  required: [prefix]
+                  additionalProperties: false
+                  properties:
+                    prefix: { $ref: './common.yaml#/components/schemas/Cidr' }
+                    realm_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+                    site_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+      responses:
+        '200':
+          description: Coincidencias (misma forma que la colección).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerPage' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /customers/stats:
+    get:
+      tags: [customers]
+      operationId: getCustomerStats
+      summary: Conteos por tipo, origen, estado, estado de seguridad y nodo (widgets)
+      x-module: devices
+      x-scope: tenant
+      x-permission: customers.read
+      x-principals: [user, api_token, kiosk]
+      x-increment: I1
+      security:
+        - tenantBearer: []
+        - kioskBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/SiteIdFilter'
+      responses:
+        '200':
+          description: Conteos (sin IPs; apto para kioscos).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerStats' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+  /customers/{customer_id}:
+    parameters:
+      - $ref: '#/components/parameters/CustomerId'
+    get:
+      tags: [customers]
+      operationId: getCustomer
+      summary: Ficha del cliente (acceso auditado) con sugerencia de tipo
+      x-module: devices
+      x-scope: tenant
+      x-permission: customers.read
+      x-audited: true
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Cliente.
+          headers:
+            ETag: { $ref: './common.yaml#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerDetail' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+    patch:
+      tags: [customers]
+      operationId: updateCustomer
+      summary: Alias y notas (datos personales; auditado sin el valor)
+      x-module: devices
+      x-scope: tenant
+      x-permission: customers.update
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/CustomerPatch' }
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomerPatch' }
+      responses:
+        '200':
+          description: Actualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerDetail' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+        '428': { $ref: './common.yaml#/components/responses/PreconditionRequired' }
+  /customers/{customer_id}/set-kind:
+    parameters:
+      - $ref: '#/components/parameters/CustomerId'
+    post:
+      tags: [customers]
+      operationId: setCustomerKind
+      summary: Cambio manual de tipo (kind_source=manual, kind_locked=true; reason obligatorio)
+      x-module: devices
+      x-scope: tenant
+      x-permission: customers.kind.write
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, reason]
+              additionalProperties: false
+              properties:
+                kind: { $ref: '#/components/schemas/CustomerKind' }
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Tipo aplicado (o sin cambio si ya estaba así y bloqueado).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerDetail' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+        '428': { $ref: './common.yaml#/components/responses/PreconditionRequired' }
+  /customers/{customer_id}/unlock-kind:
+    parameters:
+      - $ref: '#/components/parameters/CustomerId'
+    post:
+      tags: [customers]
+      operationId: unlockCustomerKind
+      summary: kind_locked=false (el siguiente scoring puede cambiarlo)
+      x-module: devices
+      x-scope: tenant
+      x-permission: customers.kind.write
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: Desbloqueado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerDetail' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+  /customers/{customer_id}/reset:
+    parameters:
+      - $ref: '#/components/parameters/CustomerId'
+    post:
+      tags: [customers]
+      operationId: resetCustomer
+      summary: Reinicia el cliente (tipo por defecto, borra alias/notas, reset_at=now)
+      x-module: devices
+      x-scope: tenant
+      x-permission: customers.kind.write
+      x-permission-all: [customers.kind.write, customers.update]
+      x-reauth: true
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Reiniciado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerDetail' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /customers/{customer_id}/kind-history:
+    parameters:
+      - $ref: '#/components/parameters/CustomerId'
+    get:
+      tags: [customers]
+      operationId: listCustomerKindHistory
+      summary: Historial inmutable de cambios de tipo
+      x-module: devices
+      x-scope: tenant
+      x-permission: customers.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Limit'
+        - $ref: './common.yaml#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Historial (más reciente primero).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/KindChange' } }
+                  page: { $ref: './common.yaml#/components/schemas/PageInfo' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+components:
+  securitySchemes:
+    tenantBearer: { $ref: './common.yaml#/components/securitySchemes/tenantBearer' }
+    kioskBearer: { $ref: './common.yaml#/components/securitySchemes/kioskBearer' }
+  parameters:
+    SiteId:
+      name: site_id
+      in: path
+      required: true
+      schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    RouterId:
+      name: router_id
+      in: path
+      required: true
+      schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    ClientPrefixId:
+      name: client_prefix_id
+      in: path
+      required: true
+      schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    CustomerId:
+      name: customer_id
+      in: path
+      required: true
+      schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+  schemas:
+    SiteInput:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, maxLength: 120 }
+        code: { type: [string, 'null'], maxLength: 32 }
+        kind: { type: string, enum: [node, region, datacenter, other], default: node }
+        parent_id:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Uuid'
+            - type: 'null'
+        address: { type: [string, 'null'], maxLength: 300 }
+        latitude: { type: [number, 'null'], minimum: -90, maximum: 90 }
+        longitude: { type: [number, 'null'], minimum: -180, maximum: 180 }
+        timezone: { type: [string, 'null'] }
+        tags: { type: array, items: { type: string } }
+    Site:
+      allOf:
+        - $ref: './common.yaml#/components/schemas/TenantScopedResource'
+        - $ref: '#/components/schemas/SiteInput'
+        - type: object
+          required: [discovery_mode, primary_router_id, private_realm_id]
+          properties:
+            discovery_mode:
+              type: boolean
+              description: true si el nodo no tiene prefijos de clientes (el tráfico cuenta para el nodo, no crea clientes).
+            primary_router_id:
+              oneOf:
+                - $ref: './common.yaml#/components/schemas/Uuid'
+                - type: 'null'
+            private_realm_id:
+              $ref: './common.yaml#/components/schemas/Uuid'
+              description: Realm `node_private` del nodo (RFC1918 y 100.64.0.0/10).
+    RouterInput:
+      type: object
+      additionalProperties: false
+      required: [site_id, name]
+      properties:
+        site_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        name: { type: string, maxLength: 120, description: Hostname / identidad del router. }
+        display_name: { type: [string, 'null'], maxLength: 120 }
+        is_primary: { type: boolean, default: true }
+        vendor: { type: string, enum: [mikrotik], default: mikrotik }
+        model: { type: [string, 'null'], examples: [CCR2116-12G-4S+] }
+        routeros_version:
+          type: [string, 'null']
+          pattern: '^7\.[0-9]+(\.[0-9]+)?$'
+          description: 'Declarada por el admin (D15: solo RouterOS 7.x). Se sobrescribe con la detectada.'
+        tags: { type: array, items: { type: string } }
+    RouterPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        name: { type: string, maxLength: 120 }
+        display_name: { type: [string, 'null'] }
+        model: { type: [string, 'null'] }
+        routeros_version: { type: [string, 'null'], pattern: '^7\.[0-9]+(\.[0-9]+)?$' }
+        admin_state: { type: string, enum: [active, maintenance, decommissioned] }
+        tags: { type: array, items: { type: string } }
+    Router:
+      allOf:
+        - $ref: './common.yaml#/components/schemas/TenantScopedResource'
+        - $ref: '#/components/schemas/RouterInput'
+        - type: object
+          required: [admin_state, onboarding_state, routeros_version_supported, tunnel_address, warnings]
+          properties:
+            admin_state: { type: string, enum: [active, maintenance, decommissioned] }
+            onboarding_state:
+              type: string
+              description: |
+                Pasos del asistente (I1-19): `pending_configuration` → `key_received` (clave pública enrolada)
+                → `tunnel_up` (primer handshake) → `exporting` (primer flujo). Enum abierto.
+              enum: [pending_configuration, key_received, tunnel_up, exporting]
+            routeros_version_detected: { type: [string, 'null'] }
+            routeros_version_supported:
+              type: [boolean, 'null']
+              description: false si la versión (detectada o declarada) es < 7.12 (D15); null si se desconoce.
+            tunnel_address:
+              type: [string, 'null']
+              description: IP /32 de túnel WireGuard asignada por la IPAM de plataforma = identidad del exportador.
+            wireguard_peer_id:
+              oneOf:
+                - $ref: './common.yaml#/components/schemas/Uuid'
+                - type: 'null'
+            warnings:
+              type: array
+              items: { type: string, enum: [routeros_version_unsupported, traffic_flow_target_drift, hardware_offload_suspected] }
+            credentials:
+              type: array
+              items: { $ref: '#/components/schemas/CredentialStatus' }
+    CredentialStatus:
+      type: object
+      required: [kind, configured]
+      properties:
+        kind: { type: string, enum: [snmp, routeros_api] }
+        configured: { type: boolean }
+        updated_at:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
+        last_used_at:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
+        last_result: { type: [string, 'null'], enum: [ok, auth_failed, unreachable, tls_fingerprint_changed, null] }
+    ClientPrefixRole:
+      type: string
+      enum: [customers, infrastructure, excluded]
+    ClientPrefixInput:
+      type: object
+      additionalProperties: false
+      required: [prefix, role]
+      properties:
+        prefix: { $ref: './common.yaml#/components/schemas/Cidr' }
+        role: { $ref: '#/components/schemas/ClientPrefixRole' }
+        assignment_mode: { type: string, enum: [static, dynamic, unknown], default: unknown }
+        default_kind: { $ref: '#/components/schemas/CustomerKind' }
+        ipv6_client_len: { type: [integer, 'null'], enum: [48, 56, 60, 64, null], description: Solo IPv6 (por defecto 64). }
+        source: { type: string, enum: [manual, routeros_api, discovery_confirmed], default: manual }
+        note: { type: [string, 'null'], maxLength: 300 }
+    ClientPrefixPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        role: { $ref: '#/components/schemas/ClientPrefixRole' }
+        assignment_mode: { type: string, enum: [static, dynamic, unknown] }
+        default_kind: { $ref: '#/components/schemas/CustomerKind' }
+        ipv6_client_len: { type: [integer, 'null'] }
+        note: { type: [string, 'null'] }
+    ClientPrefix:
+      allOf:
+        - $ref: './common.yaml#/components/schemas/TenantScopedResource'
+        - $ref: '#/components/schemas/ClientPrefixInput'
+        - type: object
+          required: [site_id, realm_id, realm_kind, confirmed]
+          properties:
+            site_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+            realm_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+            realm_kind: { type: string, enum: [public, node_private] }
+            confirmed: { type: boolean }
+            customers_count: { type: [integer, 'null'] }
+    PrefixImportPreview:
+      type: object
+      required: [router_id, read_at, routeros_version, items]
+      properties:
+        router_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        read_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        routeros_version: { type: string }
+        tls_fingerprint_sha256: { type: string }
+        items:
+          type: array
+          items:
+            type: object
+            required: [prefix, origin, suggested_role, diff]
+            properties:
+              prefix: { $ref: './common.yaml#/components/schemas/Cidr' }
+              origin: { type: string, enum: [ip_pool, ipv6_pool, interface_address] }
+              origin_name: { type: string, examples: [pool-pppoe] }
+              suggested_role: { $ref: '#/components/schemas/ClientPrefixRole' }
+              suggested_assignment_mode: { type: string, enum: [static, dynamic, unknown] }
+              diff: { type: string, enum: [new, exists, overlaps] }
+              existing_client_prefix_id:
+                oneOf:
+                  - $ref: './common.yaml#/components/schemas/Uuid'
+                  - type: 'null'
+    CustomerKind:
+      type: string
+      description: Tipo de cliente (enum abierto). Por defecto `residential` (D1).
+      enum: [residential, commercial, unknown]
+    SecurityState:
+      type: string
+      description: Proyectado desde detection. La UI habla de "señales", nunca de "infectado".
+      enum: [clean, suspected, infected, mitigated]
+    Customer:
+      type: object
+      required: [id, tenant_id, version, address, realm_id, site_id, client_prefix_id, status, kind, kind_source, kind_locked, kind_confidence, kind_changed_at, commercial_use_suspected, security_state, open_findings, alias, alias_source, first_seen, last_seen, reset_at]
+      properties:
+        id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        tenant_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        version: { $ref: './common.yaml#/components/schemas/Version' }
+        address:
+          $ref: './common.yaml#/components/schemas/IpAddress'
+          description: IP canónica (IPv6 truncada al prefijo del cliente). Dato personal.
+        realm_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        site_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        client_prefix_id:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Uuid'
+            - type: 'null'
+        status: { type: string, enum: [active, inactive] }
+        inactive_reason: { type: [string, 'null'], enum: [no_traffic, prefix_removed, null] }
+        kind: { $ref: '#/components/schemas/CustomerKind' }
+        kind_source: { type: string, enum: [default, scoring, manual] }
+        kind_locked: { type: boolean }
+        kind_confidence: { type: [integer, 'null'], minimum: 0, maximum: 100 }
+        kind_changed_at:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
+        commercial_use_suspected: { type: boolean }
+        security_state: { $ref: '#/components/schemas/SecurityState' }
+        open_findings: { type: integer, minimum: 0 }
+        alias: { type: [string, 'null'], maxLength: 120, description: Dato personal. }
+        alias_source: { type: [string, 'null'], enum: [manual, routeros_ppp, null] }
+        first_seen: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        last_seen:
+          $ref: './common.yaml#/components/schemas/Timestamp'
+          description: Resolución ≤ 1 h.
+        reset_at:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
+        traffic_24h:
+          type: [object, 'null']
+          description: Resumen opcional (lo rellena analytics si está disponible; null si ClickHouse no responde).
+          properties:
+            down_bytes: { $ref: './common.yaml#/components/schemas/Uint64String' }
+            up_bytes: { $ref: './common.yaml#/components/schemas/Uint64String' }
+            top_category: { type: [string, 'null'] }
+    CustomerDetail:
+      allOf:
+        - $ref: '#/components/schemas/Customer'
+        - type: object
+          properties:
+            notes: { type: [string, 'null'], maxLength: 2000, description: Dato personal. }
+            suggested_kind:
+              oneOf:
+                - $ref: '#/components/schemas/CustomerKind'
+                - type: 'null'
+            suggested_confidence: { type: [integer, 'null'], minimum: 0, maximum: 100 }
+            suggested_reasons:
+              type: array
+              items: { $ref: './common.yaml#/components/schemas/Reason' }
+    CustomerPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        alias: { type: [string, 'null'], maxLength: 120 }
+        notes: { type: [string, 'null'], maxLength: 2000 }
+    CustomerPage:
+      type: object
+      required: [data, page]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Customer' } }
+        page: { $ref: './common.yaml#/components/schemas/PageInfo' }
+    CustomerStats:
+      type: object
+      required: [total, active, new_today, by_kind, by_kind_source, by_status, by_security_state, by_site, generated_at]
+      properties:
+        total: { type: integer }
+        active: { type: integer }
+        new_today: { type: integer }
+        by_kind: { type: object, additionalProperties: { type: integer } }
+        by_kind_source: { type: object, additionalProperties: { type: integer } }
+        by_status: { type: object, additionalProperties: { type: integer } }
+        by_security_state: { type: object, additionalProperties: { type: integer } }
+        by_site:
+          type: array
+          items:
+            type: object
+            required: [site_id, active]
+            properties:
+              site_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+              active: { type: integer }
+              with_open_findings: { type: integer }
+        generated_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+    KindChange:
+      type: object
+      required: [id, changed_at, from_kind, to_kind, source, reasons, confidence, model_ref, actor_id, manual_reason]
+      properties:
+        id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        changed_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        from_kind:
+          oneOf:
+            - $ref: '#/components/schemas/CustomerKind'
+            - type: 'null'
+        to_kind: { $ref: '#/components/schemas/CustomerKind' }
+        source: { type: string, enum: [default, scoring, manual, reset] }
+        reasons:
+          type: array
+          items: { $ref: './common.yaml#/components/schemas/Reason' }
+        confidence: { type: [integer, 'null'] }
+        model_ref: { type: [string, 'null'] }
+        actor_id:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Uuid'
+            - type: 'null'
+        manual_reason: { type: [string, 'null'] }

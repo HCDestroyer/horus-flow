@@ -1,0 +1,27 @@
+{
+  "id": "0192f0d2-0000-7000-8000-000000000306",
+  "type": "horus.flows.exporter.rate_limited",
+  "source": "horus/flows",
+  "subject": "0192e333-0000-7000-8000-000000000033",
+  "time": "2026-10-07T14:03:11.123Z",
+  "schema_version": 1,
+  "tenant_id": "0192e000-0000-7000-8000-000000000001",
+  "aggregate_type": "router",
+  "aggregate_version": 1,
+  "actor": {
+    "type": "service",
+    "id": "svc:flows",
+    "via_platform": false
+  },
+  "trace_parent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+  "correlation_id": null,
+  "causation_id": null,
+  "data": {
+    "router_id": "0192e333-0000-7000-8000-000000000033",
+    "quota_flows_per_second": 20000,
+    "observed_flows_per_second": 31250,
+    "dropped_records": "675000",
+    "window_from": "2026-10-07T14:00:00.000Z",
+    "window_to": "2026-10-07T14:01:00.000Z"
+  }
+}

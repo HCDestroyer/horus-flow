@@ -1,0 +1,181 @@
+{
+  "id": "0192f000-0000-7000-8000-00000000d001",
+  "tenant_id": null,
+  "version": 1,
+  "name": "NOC del ISP",
+  "visibility": "system",
+  "owner_id": null,
+  "template_key": "noc_isp",
+  "template_version": 1,
+  "layout": {
+    "grid": "12-col",
+    "columns": 12,
+    "row_height_px": 80,
+    "breakpoints": {
+      "lg": 1600,
+      "md": 1200
+    }
+  },
+  "default_range": "24h",
+  "refresh_seconds": 30,
+  "variables": {
+    "site_id": null,
+    "range": "24h"
+  },
+  "widgets": [
+    {
+      "id": "w-header",
+      "type": "noc_header",
+      "title": null,
+      "position": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 1
+      },
+      "config": {
+        "show_clock": true,
+        "show_tenant": true,
+        "show_rotation": true
+      }
+    },
+    {
+      "id": "w-traffic-now",
+      "type": "traffic_now",
+      "title": "Tráfico ahora",
+      "position": {
+        "x": 0,
+        "y": 1,
+        "w": 4,
+        "h": 2
+      },
+      "config": {
+        "site_ids": [],
+        "compare": "yesterday"
+      },
+      "refresh_seconds": 15
+    },
+    {
+      "id": "w-customers",
+      "type": "customers_active",
+      "title": "Clientes activos",
+      "position": {
+        "x": 4,
+        "y": 1,
+        "w": 3,
+        "h": 2
+      },
+      "config": {
+        "site_ids": []
+      }
+    },
+    {
+      "id": "w-findings-summary",
+      "type": "findings_summary",
+      "title": "Hallazgos abiertos",
+      "position": {
+        "x": 7,
+        "y": 1,
+        "w": 4,
+        "h": 2
+      },
+      "config": {
+        "site_ids": [],
+        "min_severity": "medium"
+      },
+      "refresh_seconds": 15
+    },
+    {
+      "id": "w-exporters",
+      "type": "exporters_status",
+      "title": "Exportadores",
+      "position": {
+        "x": 0,
+        "y": 3,
+        "w": 12,
+        "h": 2
+      },
+      "config": {
+        "site_ids": [],
+        "show": []
+      },
+      "refresh_seconds": 15
+    },
+    {
+      "id": "w-traffic-24h",
+      "type": "traffic_timeseries",
+      "title": "Tráfico 24 h",
+      "position": {
+        "x": 0,
+        "y": 5,
+        "w": 8,
+        "h": 3
+      },
+      "config": {
+        "site_ids": [],
+        "range": "24h",
+        "metrics": [
+          "down_bps",
+          "up_bps"
+        ]
+      }
+    },
+    {
+      "id": "w-top-categories",
+      "type": "top_categories",
+      "title": "Top categorías",
+      "position": {
+        "x": 8,
+        "y": 5,
+        "w": 4,
+        "h": 4
+      },
+      "config": {
+        "site_ids": [],
+        "range": "24h",
+        "n": 8,
+        "direction": "both"
+      }
+    },
+    {
+      "id": "w-top-customers",
+      "type": "top_customers",
+      "title": "Top clientes",
+      "position": {
+        "x": 0,
+        "y": 9,
+        "w": 6,
+        "h": 4
+      },
+      "config": {
+        "site_ids": [],
+        "range": "24h",
+        "n": 10,
+        "direction": "both"
+      }
+    },
+    {
+      "id": "w-findings-feed",
+      "type": "findings_feed",
+      "title": "Hallazgos recientes",
+      "position": {
+        "x": 6,
+        "y": 9,
+        "w": 6,
+        "h": 4
+      },
+      "config": {
+        "site_ids": [],
+        "min_severity": "medium",
+        "states": [
+          "open",
+          "acknowledged"
+        ],
+        "limit": 8
+      },
+      "refresh_seconds": 15
+    }
+  ],
+  "created_at": "2026-10-01T00:00:00.000Z",
+  "updated_at": "2026-10-01T00:00:00.000Z"
+}

@@ -1,0 +1,459 @@
+openapi: 3.1.0
+info:
+  title: Horus Flow API — plataforma (contrato v0)
+  version: 0.1.0
+  description: |
+    Rutas `/platform/*` con token de ámbito `platform` (docs/api.md §2.8). Un usuario de plataforma no ve
+    datos de negocio de los ISP (clientes, tráfico, hallazgos). Módulos dueños: `auth` (tenants, usuarios),
+    `gateway` (overview), `flows` (exportadores no registrados), `wireguard` (hubs e IPAM), `analytics`
+    (destinos remotos y copias en lectura; rol jobs).
+  license:
+    name: Propietaria
+    identifier: LicenseRef-Horus-Proprietary
+servers:
+  - url: https://{domain}/api/v1
+    variables:
+      domain:
+        default: horus.example.net
+tags:
+  - name: platform
+    description: Consola de plataforma (superadministración de la instalación).
+paths:
+  /platform/tenants:
+    get:
+      tags: [platform]
+      operationId: platformListTenants
+      summary: ISP de la instalación
+      x-module: auth
+      x-scope: platform
+      x-permission: platform.tenants.read
+      x-increment: I0
+      security:
+        - platformBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Limit'
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/IncludeTotal'
+        - $ref: './common.yaml#/components/parameters/Q'
+        - name: status
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Página de tenants.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Tenant' } }
+                  page: { $ref: './common.yaml#/components/schemas/PageInfo' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+    post:
+      tags: [platform]
+      operationId: platformCreateTenant
+      summary: Alta de ISP + invitación al primer administrador del ISP
+      x-module: auth
+      x-scope: platform
+      x-permission: platform.tenants.manage
+      x-reauth: true
+      x-increment: I0
+      security:
+        - platformBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IdempotencyKeyRequired'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TenantCreate' }
+      responses:
+        '201':
+          description: Creado.
+          headers:
+            Location: { $ref: './common.yaml#/components/headers/Location' }
+            ETag: { $ref: './common.yaml#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tenant' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+        '428': { $ref: './common.yaml#/components/responses/PreconditionRequired' }
+  /platform/tenants/{tenant_id}:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+    get:
+      tags: [platform]
+      operationId: platformGetTenant
+      summary: Detalle de un ISP
+      x-module: auth
+      x-scope: platform
+      x-permission: platform.tenants.read
+      x-increment: I0
+      security:
+        - platformBearer: []
+      responses:
+        '200':
+          description: Tenant.
+          headers:
+            ETag: { $ref: './common.yaml#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tenant' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+    patch:
+      tags: [platform]
+      operationId: platformUpdateTenant
+      summary: Nombre, país, zona horaria, cuotas y ajustes dentro de los límites de plataforma
+      x-module: auth
+      x-scope: platform
+      x-permission: platform.tenants.manage
+      x-increment: I0
+      security:
+        - platformBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/TenantPatch' }
+          application/json:
+            schema: { $ref: '#/components/schemas/TenantPatch' }
+      responses:
+        '200':
+          description: Actualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tenant' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /platform/tenants/{tenant_id}/suspend:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+    post:
+      tags: [platform]
+      operationId: platformSuspendTenant
+      summary: Suspende un ISP (sus tokens dejan de emitirse; los vigentes reciben 403 TENANT_SUSPENDED)
+      x-module: auth
+      x-scope: platform
+      x-permission: platform.tenants.manage
+      x-reauth: true
+      x-increment: I1
+      security:
+        - platformBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, maxLength: 300 }
+                pause_ingest: { type: boolean, default: true }
+      responses:
+        '200':
+          description: Suspendido.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tenant' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+  /platform/tenants/{tenant_id}/resume:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+    post:
+      tags: [platform]
+      operationId: platformResumeTenant
+      summary: Reactiva un ISP suspendido
+      x-module: auth
+      x-scope: platform
+      x-permission: platform.tenants.manage
+      x-reauth: true
+      x-increment: I1
+      security:
+        - platformBearer: []
+      responses:
+        '200':
+          description: Reactivado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tenant' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+  /platform/users:
+    get:
+      tags: [platform]
+      operationId: platformListUsers
+      summary: Usuarios de la plataforma con sus membresías
+      x-module: auth
+      x-scope: platform
+      x-permission: platform.users.read
+      x-increment: I1
+      security:
+        - platformBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Limit'
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/Q'
+      responses:
+        '200':
+          description: Página de usuarios.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/PlatformUser' } }
+                  page: { $ref: './common.yaml#/components/schemas/PageInfo' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+  /platform/overview:
+    get:
+      tags: [platform]
+      operationId: platformOverview
+      summary: Estado por ISP sin datos de clientes (única vista multi-ISP de v1)
+      x-module: gateway
+      x-scope: platform
+      x-permission: platform.status.read
+      x-increment: I1
+      security:
+        - platformBearer: []
+      responses:
+        '200':
+          description: Resumen por tenant.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, generated_at]
+                properties:
+                  generated_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/TenantOverview' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+  /platform/exporters/unregistered:
+    get:
+      tags: [platform]
+      operationId: platformListUnregisteredExporters
+      summary: Exportadores que envían flujos sin estar registrados (descartados)
+      x-module: flows
+      x-scope: platform
+      x-permission: platform.tenants.read
+      x-increment: I1
+      security:
+        - platformBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Limit'
+        - $ref: './common.yaml#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Exportadores no registrados.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [exporter_ip, first_seen_at, last_seen_at, datagrams]
+                      properties:
+                        exporter_ip: { $ref: './common.yaml#/components/schemas/IpAddress' }
+                        first_seen_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+                        last_seen_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+                        datagrams: { $ref: './common.yaml#/components/schemas/Uint64String' }
+                  page: { $ref: './common.yaml#/components/schemas/PageInfo' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+  /platform/wireguard/hubs:
+    get:
+      tags: [platform]
+      operationId: platformListWireguardHubs
+      summary: Hubs WireGuard de plataforma con endpoint, rango de túneles y ocupación (lectura, I1-31)
+      x-module: wireguard
+      x-scope: platform
+      x-permission: platform.status.read
+      x-increment: I1
+      security:
+        - platformBearer: []
+      responses:
+        '200':
+          description: Hubs.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/WireguardHub' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+  /platform/remote-destinations:
+    get:
+      tags: [platform]
+      operationId: platformListRemoteDestinations
+      summary: Destinos remotos de copias (lectura en I1; cero destinos es válido; escritura en I3)
+      x-module: analytics
+      x-scope: platform
+      x-permission: platform.storage.manage
+      x-increment: I1
+      security:
+        - platformBearer: []
+      responses:
+        '200':
+          description: Destinos (puede ser vacío → la UI muestra "Sin copia remota configurada").
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, kind, name, status]
+                      properties:
+                        id: { $ref: './common.yaml#/components/schemas/Uuid' }
+                        kind: { type: string, enum: [sftp, gdrive, dropbox, mega] }
+                        name: { type: string }
+                        status: { type: string, enum: [ok, lagging, failing, disabled] }
+                        last_success_at:
+                          oneOf:
+                            - $ref: './common.yaml#/components/schemas/Timestamp'
+                            - type: 'null'
+                        lag_seconds: { type: [integer, 'null'] }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+components:
+  securitySchemes:
+    platformBearer: { $ref: './common.yaml#/components/securitySchemes/platformBearer' }
+  parameters:
+    TenantId:
+      name: tenant_id
+      in: path
+      required: true
+      schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+  schemas:
+    TenantQuotas:
+      type: object
+      properties:
+        max_routers: { type: integer, minimum: 1 }
+        max_flows_per_second: { type: integer, minimum: 100 }
+        max_customers: { type: integer, minimum: 1 }
+    TenantSettings:
+      type: object
+      description: Ajustes del ISP (también editables por el ISP con `settings.manage`).
+      properties:
+        customer_inactivity_days: { type: integer, minimum: 1, maximum: 365, default: 30 }
+        customer_default_kind: { type: string, enum: [residential, commercial, unknown], default: residential }
+        kind_auto_apply_min_confidence: { type: integer, minimum: 50, maximum: 100, default: 80 }
+        retention_overrides:
+          type: object
+          additionalProperties: { type: integer }
+          description: Retenciones más cortas que las de plataforma (días), por dato.
+    TenantCreate:
+      type: object
+      required: [slug, name, country, timezone, initial_admin_email]
+      additionalProperties: false
+      properties:
+        slug: { type: string, pattern: '^[a-z0-9][a-z0-9-]{1,62}$' }
+        name: { type: string, maxLength: 120 }
+        country: { type: string, pattern: '^[A-Z]{2}$', description: ISO-3166 (ley aplicable). }
+        timezone: { type: string, examples: [America/Mexico_City] }
+        quotas: { $ref: '#/components/schemas/TenantQuotas' }
+        settings: { $ref: '#/components/schemas/TenantSettings' }
+        initial_admin_email: { type: string, format: email }
+    TenantPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        name: { type: string, maxLength: 120 }
+        country: { type: string, pattern: '^[A-Z]{2}$' }
+        timezone: { type: string }
+        quotas: { $ref: '#/components/schemas/TenantQuotas' }
+        settings: { $ref: '#/components/schemas/TenantSettings' }
+        support_access_policy: { type: string, enum: [notify, require_approval, deny] }
+    Tenant:
+      type: object
+      required: [id, version, slug, name, status, country, timezone, quotas, settings, created_at, updated_at]
+      properties:
+        id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        version: { $ref: './common.yaml#/components/schemas/Version' }
+        slug: { type: string }
+        name: { type: string }
+        status: { type: string, enum: [active, suspended, offboarding] }
+        country: { type: string }
+        timezone: { type: string }
+        quotas: { $ref: '#/components/schemas/TenantQuotas' }
+        settings: { $ref: '#/components/schemas/TenantSettings' }
+        support_access_policy: { type: string, enum: [notify, require_approval, deny] }
+        counts:
+          type: object
+          properties:
+            sites: { type: integer }
+            routers: { type: integer }
+            members: { type: integer }
+        created_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        updated_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+    PlatformUser:
+      type: object
+      required: [id, email, display_name, status, platform_roles, memberships]
+      properties:
+        id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        email: { type: string, format: email }
+        display_name: { type: string }
+        status: { type: string, enum: [active, disabled, locked, pending] }
+        mfa_enabled: { type: boolean }
+        platform_roles: { type: array, items: { type: string } }
+        memberships:
+          type: array
+          items:
+            type: object
+            required: [tenant_id, tenant_slug, role_keys]
+            properties:
+              tenant_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+              tenant_slug: { type: string }
+              role_keys: { type: array, items: { type: string } }
+    TenantOverview:
+      type: object
+      required: [tenant_id, slug, name, status, routers_total, exporters_exporting, exporters_silent, open_findings_critical, ingest_flows_per_second]
+      properties:
+        tenant_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        slug: { type: string }
+        name: { type: string }
+        status: { type: string }
+        routers_total: { type: integer }
+        exporters_exporting: { type: integer }
+        exporters_silent: { type: integer }
+        tunnels_down: { type: integer }
+        open_findings_critical: { type: integer, description: Solo conteo; nunca clientes. }
+        ingest_flows_per_second: { type: number }
+        flows_dropped_quota_last_hour: { $ref: './common.yaml#/components/schemas/Uint64String' }
+        flow_coverage_ratio: { type: [number, 'null'] }
+    WireguardHub:
+      type: object
+      required: [id, name, endpoint, listen_port, public_key, status, tunnel_cidr, addresses_total, addresses_used]
+      properties:
+        id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        name: { type: string }
+        endpoint: { type: string, description: 'Host público (HORUS_WG_ENDPOINT, D14/D16).', examples: [horus.example.net] }
+        listen_port: { type: integer, examples: [51820] }
+        public_key: { type: string }
+        status: { type: string, enum: [up, down, degraded] }
+        tunnel_cidr: { $ref: './common.yaml#/components/schemas/Cidr' }
+        services_cidr: { $ref: './common.yaml#/components/schemas/Cidr' }
+        addresses_total: { type: integer, examples: [65534] }
+        addresses_used: { type: integer, examples: [37] }
+        peers_active: { type: integer }
+        tenants: { type: integer }

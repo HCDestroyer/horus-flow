@@ -1,0 +1,27 @@
+{
+  "id": "0192f0d2-0000-7000-8000-000000000507",
+  "type": "horus.detection.reputation.source_refreshed",
+  "source": "horus/detection",
+  "subject": "7e2f8c60-4d3b-5c99-9e50-3f4a5b6c7d8e",
+  "time": "2026-10-07T14:03:11.123Z",
+  "schema_version": 1,
+  "tenant_id": null,
+  "aggregate_type": "reputation_source",
+  "aggregate_version": 1,
+  "actor": {
+    "type": "service",
+    "id": "svc:detection",
+    "via_platform": false
+  },
+  "trace_parent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+  "correlation_id": null,
+  "causation_id": null,
+  "data": {
+    "source": "abuse_ch_feodo",
+    "result": "ok",
+    "entries": "412",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "error": null,
+    "refreshed_at": "2026-10-07T14:03:11.123Z"
+  }
+}
