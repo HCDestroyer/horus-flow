@@ -1,0 +1,117 @@
+@import 'tailwindcss';
+@import '@nuxt/ui';
+
+/*
+ * Tokens de Horus Flow (frontend.md §5.3, §13). Nunca colores crudos de Tailwind en
+ * componentes: solo utilidades semánticas de Nuxt UI (text-muted, bg-elevated, text-error…).
+ */
+@theme {
+  /* Fuente del sistema para la interfaz; monoespaciada para IPs, claves y trace_id (§13.3). */
+  --font-sans:
+    system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', 'Noto Sans', 'Liberation Sans',
+    Arial, sans-serif;
+  --font-mono:
+    ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+}
+
+/*
+ * Contraste AA (WCAG 1.4.3 / 1.4.11) en ambos temas: los tonos 500 por defecto no llegan a
+ * 4,5:1 sobre blanco, así que en claro se usan 600–700 y en oscuro 300–500 (primary 500:
+ * menos saturado que 400, evita el acento "neón" que frontend.md §1 descarta).
+ */
+:root,
+.light {
+  --ui-primary: var(--ui-color-primary-700);
+  --ui-secondary: var(--ui-color-secondary-600);
+  --ui-success: var(--ui-color-success-700);
+  --ui-info: var(--ui-color-info-600);
+  --ui-warning: var(--ui-color-warning-700);
+  --ui-error: var(--ui-color-error-600);
+  --ui-text-muted: var(--ui-color-neutral-600);
+  --ui-text-dimmed: var(--ui-color-neutral-500);
+  /* Fondo claro suavizado para la estructura; el contenido va sobre blanco (HIG dark-mode). */
+  --ui-bg-muted: var(--ui-color-neutral-50);
+  --ui-radius: 0.375rem;
+}
+
+.dark {
+  --ui-primary: var(--ui-color-primary-500);
+  --ui-secondary: var(--ui-color-secondary-300);
+  --ui-success: var(--ui-color-success-400);
+  --ui-info: var(--ui-color-info-400);
+  --ui-warning: var(--ui-color-warning-400);
+  --ui-error: var(--ui-color-error-400);
+  --ui-text-muted: var(--ui-color-neutral-400);
+  --ui-text-dimmed: var(--ui-color-neutral-400);
+  /* Sin negro puro (§7.8): superficie base muy oscura, elevaciones algo más claras. */
+  --ui-bg: #121214;
+  --ui-bg-muted: #18181b;
+  --ui-bg-elevated: #232327;
+  --ui-border: #2a2a2f;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-default text-default antialiased;
+  }
+
+  /* Cifras tabulares por defecto en datos (§13.3). */
+  .tabular,
+  table,
+  [data-numeric] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Tracking dependiente del tamaño (apple-design §15). */
+  h1 {
+    letter-spacing: -0.015em;
+  }
+
+  /* Foco siempre visible (WCAG 2.4.7). */
+  :focus-visible {
+    outline: 2px solid var(--ui-primary);
+    outline-offset: 2px;
+  }
+}
+
+/* Material translúcido solo en la capa funcional (§13.1); sólido si se pide menos transparencia. */
+.chrome-material {
+  background-color: color-mix(in oklab, var(--ui-bg) 82%, transparent);
+  backdrop-filter: blur(16px) saturate(160%);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .chrome-material {
+    background-color: var(--ui-bg);
+    backdrop-filter: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root,
+  .light {
+    --ui-text-muted: var(--ui-color-neutral-800);
+    --ui-border: var(--ui-color-neutral-500);
+  }
+
+  .dark {
+    --ui-text-muted: var(--ui-color-neutral-200);
+    --ui-border: var(--ui-color-neutral-400);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
