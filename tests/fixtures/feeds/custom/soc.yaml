@@ -1,0 +1,18 @@
+# Listas personalizadas (D20) en formato de lista. Con -fixtures se lee de
+# tests/fixtures/feeds/custom-scanners.csv.
+version: 1
+sources:
+  - id: custom-scanners
+    name: Escáneres detectados por el SOC
+    url: https://soc.example.net/feeds/scanners.csv
+    format: csv
+    csv:
+      column: ip_address
+      delimiter: ";"
+    category: scanner
+    confidence: 60
+    frequency: 6h
+    max_entries: 1000
+    on_dangerous: warn
+    license: Uso interno del ISP
+    created_by: superadmin@example.net
