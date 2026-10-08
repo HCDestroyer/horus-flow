@@ -1,0 +1,99 @@
+# Etiquetas automáticas por ruta (actions/labeler, workflow pr-gates.yml). Historia I0-03.
+#
+# Las etiquetas que exigen a la persona (persona-gate, scripts/ci/review_gates.py):
+#   contract:*     cambios de contrato (team.md §3, §5.2)
+#   area:security  auth, autorización, cifrado, WireGuard y workflows (criterio 5 de I0-03)
+#   area:sensitive resto de rutas [SENSIBLE] de CODEOWNERS (conventions.md §6.2)
+# El resto son informativas y sirven para filtrar.
+
+# --- Exigen a la persona ---------------------------------------------------------------------
+"area:security":
+  - changed-files:
+      - any-glob-to-any-file:
+          - services/auth/**
+          - packages/go/authz/**
+          - packages/go/crypto/**
+          - packages/go/natsx/**
+          - services/wireguard/**
+          - services/wgagent/**
+          - .github/workflows/**
+
+"area:sensitive":
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/**
+          - scripts/ci/**
+          - scripts/check-codeowners.sh
+          - deployments/**
+          - infrastructure/**
+          - packages/go/tenanttest/**
+          - packages/go/archtest/**
+          - services/*/migrations/**
+          - infrastructure/clickhouse/migrations/**
+          - docs/adr/**
+          - docs/po-decisions.md
+
+"contract:openapi":
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/schemas/openapi/**
+
+"contract:events":
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/events/**
+
+"contract:protobuf":
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/protobuf/**
+
+"contract:schemas":
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/schemas/dashboard/**
+          - packages/schemas/finding/**
+
+"contract:clickhouse":
+  - changed-files:
+      - any-glob-to-any-file:
+          - infrastructure/clickhouse/contract-*.sql
+
+# --- Informativas ----------------------------------------------------------------------------
+"area:infra":
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/**
+          - deployments/**
+          - infrastructure/**
+          - scripts/**
+          - Dockerfile
+          - .dockerignore
+          - Makefile
+
+"area:backend":
+  - changed-files:
+      - any-glob-to-any-file:
+          - services/**
+          - packages/go/**
+          - go.mod
+          - go.sum
+
+"area:data":
+  - changed-files:
+      - any-glob-to-any-file:
+          - infrastructure/clickhouse/**
+          - services/ingester/**
+          - services/collector/**
+          - tools/flowsim/**
+
+"area:frontend":
+  - changed-files:
+      - any-glob-to-any-file:
+          - apps/frontend/**
+
+"area:docs":
+  - changed-files:
+      - any-glob-to-any-file:
+          - docs/**
+          - "**/*.md"

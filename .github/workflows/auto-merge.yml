@@ -1,0 +1,46 @@
+# Auto-merge de PRs (historia I0-03; D7, team.md §5.2).
+#
+# Activa el auto-merge en cada PR no borrador de una rama de este repositorio. GitHub lo
+# fusiona (o lo mete en la merge queue, si está activa) SOLO cuando se cumplen las reglas de
+# `main`: checks requeridos en verde (ci-ok, dod, scope-guard, agent-review, persona-gate) y las
+# revisiones exigidas. Por eso un PR normal entra solo con CI verde + agent-review, y uno con
+# contract:* / area:security / area:sensitive espera a la persona (persona-gate).
+#
+# Excluye PRs con la etiqueta `no-automerge`. Token: AUTOMERGE_TOKEN (GitHub App o PAT con
+# contents+pull-requests de escritura) si existe; si no, GITHUB_TOKEN. Con GITHUB_TOKEN el push
+# resultante a `main` no dispara otros workflows (limitación de GitHub): ver .github/README.md.
+
+name: auto-merge
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  enable:
+    name: enable-auto-merge
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !contains(github.event.pull_request.labels.*.name, 'no-automerge')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: gh pr merge --auto
+        env:
+          GH_TOKEN: ${{ secrets.AUTOMERGE_TOKEN || github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          MERGE_QUEUE: ${{ vars.MERGE_QUEUE }}
+        run: |
+          if [ "$MERGE_QUEUE" = "true" ]; then
+            # Con merge queue el método (squash) lo fija la regla de la cola.
+            gh pr merge --auto "$PR_URL"
+          else
+            gh pr merge --auto --squash "$PR_URL"
+          fi
