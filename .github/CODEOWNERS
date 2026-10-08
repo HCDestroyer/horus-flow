@@ -53,6 +53,7 @@
 # Agente: CORE
 /services/gateway/                  @hcdestroyer
 /services/devices/                  @hcdestroyer
+/services/_example/                 @hcdestroyer
 
 # Agente: CORE
 # [SENSIBLE] Identidad, tenants, permisos y auditoría: aprobación de la persona obligatoria.
