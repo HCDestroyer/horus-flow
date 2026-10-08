@@ -5261,7 +5261,10 @@ components:
         - 100.64.12.34
     SecurityState:
       type: string
-      description: Proyectado desde detection. La UI habla de "señales", nunca de "infectado".
+      description: |
+        Proyectado desde detection. Etiquetas de presentación (D18; `dashboard/v0/widget-data.schema.json#/$defs/SecurityState`):
+        `clean` "Limpio", `suspected` "Sospechoso", `infected` **"Infectado"**, `mitigated` "Mitigado". "Infectado" se
+        muestra siempre con las razones y el nivel de confianza de los hallazgos que lo sostienen.
       enum:
         - clean
         - suspected
@@ -7080,6 +7083,17 @@ components:
           $ref: '#/components/schemas/Meta'
       additionalProperties: false
       $defs:
+        SecurityState:
+          description: 'Estado de seguridad del cliente (= SecurityState de la API) con su etiqueta de presentación (D18): `title` es la etiqueta es-ES que usan UI, kiosco y alertas (clave i18n `security_state.<valor>`). `infected` se muestra como "Infectado", siempre junto a sus razones y nivel de confianza (nunca la palabra sola).'
+          oneOf:
+            - const: clean
+              title: Limpio
+            - const: suspected
+              title: Sospechoso
+            - const: infected
+              title: Infectado
+            - const: mitigated
+              title: Mitigado
         Meta:
           type: object
           required:

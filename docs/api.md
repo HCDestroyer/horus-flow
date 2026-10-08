@@ -630,7 +630,8 @@ los **prefijos de clientes** del realm. Identidad: `(tenant_id, realm_id, addres
   no lo cambia. `commercial_use_suspected` marca una IP residencial con indicios que aún no alcanzan el umbral.
 - `status`: `active` | `inactive` (sin tráfico `customer_inactivity_days`, **30** por defecto, configurable por
   tenant). Si reaparece, vuelve a `active` con el mismo `id`.
-- `security_state` (D5): `clean` | `suspected` | `infected` | `mitigated`, proyectado desde `detection` (§2.10).
+- `security_state` (D5): `clean` | `suspected` | `infected` | `mitigated`, proyectado desde `detection` (§2.10). Etiqueta de
+  presentación (D18): `infected` se muestra como **"Infectado"** en UI, kiosco y alertas, siempre con razones y confianza.
 - `alias` y `notes` son **datos personales** (pueden contener nombres; `alias_source = routeros_ppp` si se importó del
   usuario PPPoE). `last_seen` tiene resolución ≤ 1 h.
 - **Reset** ("reiniciar cliente"): para cuando el ISP sabe que la IP pasó a otra persona. Tipo al valor por defecto,
