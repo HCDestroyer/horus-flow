@@ -1,0 +1,7 @@
+2|ripencc|20261007|6|19830705|20261007|+0100
+ripencc|*|asn|*|2|summary
+ripencc|*|ipv4|*|3|summary
+ripencc|*|ipv6|*|1|summary
+ripencc|NL|asn|64496|1|20100101|allocated|org-a
+ripencc|AR|asn|64498|2|20100101|allocated|org-b
+ripencc|ES|ipv4|192.0.2.0|256|20100101|allocated|org-a

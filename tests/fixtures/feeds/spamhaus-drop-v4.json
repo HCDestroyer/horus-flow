@@ -1,0 +1,4 @@
+{"cidr":"192.0.2.0/24","sblid":"SBL000001","rir":"apnic"}
+{"cidr":"198.51.100.0/25","sblid":"SBL000002","rir":"ripencc"}
+{"cidr":"203.0.113.128/26","sblid":"SBL000003","rir":"lacnic"}
+{"type":"metadata","timestamp":1791428400,"size":190,"records":3,"copyright":"(c) 2026 The Spamhaus Project SLU (fixture sintético Horus Flow)","terms":"https://www.spamhaus.org/drop/terms/"}

@@ -1,0 +1,140 @@
+# Fuentes del dataset de plataforma prefijo → ASN → organización de `mod:traffic`
+# (I0-17; docs/traffic-model.md §5; D3: fuentes abiertas). Embebido en el binario; se
+# sustituye con -config / HORUS_ASN_DATASETS_CONFIG.
+#
+# commercial_use: "yes" se descarga · "no" nunca · unverified solo con --allow-unverified
+# (laboratorio) hasta que el PO confirme los términos (P-14).
+#
+# Consolidación: BGP (MRT) > iptoasn > RIR (docs/traffic-model.md §5); un cambio de más del
+# 5 % de los prefijos respecto al snapshot anterior exige revisión (--accept-large-diff).
+# Los datasets crudos se guardan 90 días y no van a la copia remota (docs/storage.md §3).
+version: 1
+sources:
+  - id: ris-rrc00
+    name: RIPE RIS rrc00 — volcado de la tabla BGP (bview)
+    kind: asn
+    url: https://data.ris.ripe.net/rrc00/latest-bview.gz
+    format: mrt-table-dump-v2
+    license: Términos de uso de los datos de RIPE NCC RIS (atribución)
+    license_url: https://www.ripe.net/analyse/internet-measurements/routing-information-service-ris/
+    commercial_use: unverified
+    attribution: RIPE NCC Routing Information Service (RIS)
+    frequency: 24h
+    min_entries: 500000
+    max_bytes: 2147483648
+    notes: >-
+      Fuente primaria (BGP). RIPE NCC publica los datos de RIS como datos abiertos con
+      atribución; confirmar que el uso comercial multi-ISP está cubierto. RouteViews es
+      equivalente pero su URL lleva fecha (pendiente de plantillas de URL).
+
+  - id: iptoasn-v4
+    name: iptoasn.com — IPv4
+    kind: asn
+    url: https://iptoasn.com/data/ip2asn-v4.tsv.gz
+    format: iptoasn-tsv
+    license: PDDL-1.0 (Open Data Commons Public Domain Dedication and License)
+    license_url: https://iptoasn.com/
+    commercial_use: "yes"
+    attribution: iptoasn.com
+    frequency: 24h
+    min_entries: 100000
+    max_bytes: 134217728
+    notes: Arranque y respaldo de BGP; dominio público (PDDL), uso comercial permitido.
+
+  - id: iptoasn-v6
+    name: iptoasn.com — IPv6
+    kind: asn
+    url: https://iptoasn.com/data/ip2asn-v6.tsv.gz
+    format: iptoasn-tsv
+    license: PDDL-1.0 (Open Data Commons Public Domain Dedication and License)
+    license_url: https://iptoasn.com/
+    commercial_use: "yes"
+    attribution: iptoasn.com
+    frequency: 24h
+    min_entries: 10000
+    max_bytes: 134217728
+
+  - id: rir-afrinic
+    name: AFRINIC — estadísticas delegadas extendidas
+    kind: asn
+    url: https://ftp.afrinic.net/pub/stats/afrinic/delegated-afrinic-extended-latest
+    format: rir-delegated
+    license: Estadísticas públicas del RIR (formato NRO); términos del RIR
+    license_url: https://www.nro.net/about/rirs/statistics/
+    commercial_use: unverified
+    frequency: 24h
+    min_entries: 1000
+    max_bytes: 67108864
+  - id: rir-apnic
+    name: APNIC — estadísticas delegadas extendidas
+    kind: asn
+    url: https://ftp.apnic.net/stats/apnic/delegated-apnic-extended-latest
+    format: rir-delegated
+    license: Estadísticas públicas del RIR (formato NRO); términos del RIR
+    license_url: https://www.nro.net/about/rirs/statistics/
+    commercial_use: unverified
+    frequency: 24h
+    min_entries: 1000
+    max_bytes: 67108864
+  - id: rir-arin
+    name: ARIN — estadísticas delegadas extendidas
+    kind: asn
+    url: https://ftp.arin.net/pub/stats/arin/delegated-arin-extended-latest
+    format: rir-delegated
+    license: Estadísticas públicas del RIR (formato NRO); términos del RIR
+    license_url: https://www.nro.net/about/rirs/statistics/
+    commercial_use: unverified
+    frequency: 24h
+    min_entries: 1000
+    max_bytes: 67108864
+  - id: rir-lacnic
+    name: LACNIC — estadísticas delegadas extendidas
+    kind: asn
+    url: https://ftp.lacnic.net/pub/stats/lacnic/delegated-lacnic-extended-latest
+    format: rir-delegated
+    license: Estadísticas públicas del RIR (formato NRO); términos del RIR
+    license_url: https://www.nro.net/about/rirs/statistics/
+    commercial_use: unverified
+    frequency: 24h
+    min_entries: 1000
+    max_bytes: 67108864
+  - id: rir-ripencc
+    name: RIPE NCC — estadísticas delegadas extendidas
+    kind: asn
+    url: https://ftp.ripe.net/pub/stats/ripencc/delegated-ripencc-extended-latest
+    format: rir-delegated
+    license: Estadísticas públicas del RIR (formato NRO); términos del RIR
+    license_url: https://www.nro.net/about/rirs/statistics/
+    commercial_use: unverified
+    frequency: 24h
+    min_entries: 1000
+    max_bytes: 67108864
+
+  - id: peeringdb
+    name: PeeringDB — redes (asn, nombre, tipo)
+    kind: asn
+    url: https://www.peeringdb.com/api/net?depth=0
+    format: peeringdb-net
+    license: PeeringDB Acceptable Use Policy
+    license_url: https://www.peeringdb.com/aup
+    commercial_use: unverified
+    frequency: 24h
+    min_entries: 10000
+    max_bytes: 268435456
+    notes: >-
+      Aporta asn.network_type. La AUP limita usos (p. ej. marketing); confirmar que la
+      clasificación de tráfico y seguridad del ISP entra en el uso permitido. Sin API key la
+      API aplica límites de tasa.
+
+  - id: caida-as2org
+    name: CAIDA AS-to-Organization
+    kind: asn
+    url: https://publicdata.caida.org/datasets/as-organizations/
+    format: caida-as2org
+    license: CAIDA Acceptable Use Agreement (investigación; uso comercial requiere acuerdo)
+    license_url: https://www.caida.org/about/legal/aua/
+    commercial_use: "no"
+    frequency: 720h
+    notes: >-
+      Declarado para dejar constancia de la revisión (traffic-model.md §5 "revisar uso
+      comercial"): no se descarga ni tiene parser.

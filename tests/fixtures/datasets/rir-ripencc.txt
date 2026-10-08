@@ -1,0 +1,12 @@
+# Fixture sintético de Horus Flow (I0-17): formato NRO "delegated-extended" con recursos de
+# documentación (RFC 5737, RFC 3849, RFC 5398).
+2|ripencc|20261007|6|19830705|20261007|+0100
+ripencc|*|asn|*|2|summary
+ripencc|*|ipv4|*|3|summary
+ripencc|*|ipv6|*|1|summary
+ripencc|NL|asn|64496|1|20100101|allocated|org-a
+ripencc|AR|asn|64498|2|20100101|allocated|org-b
+ripencc|ES|ipv4|192.0.2.0|256|20100101|allocated|org-a
+ripencc|CO|ipv4|203.0.113.0|128|20100101|assigned|org-b
+ripencc||ipv4|203.0.113.128|128||available|
+ripencc|DE|ipv6|2001:db8::|32|20100101|allocated|org-c
