@@ -74,18 +74,18 @@
 /tools/flowsim/                     @hcdestroyer
 
 # Agente: FLOW
-# Supuesto: snmp no tiene dueño en team.md §2; se confirma al congelar C1.
+# Decisión D21 (po-decisions.md): snmp → FLOW.
 /services/snmp/                     @hcdestroyer
 
 # Agente: SEC
 /services/detection/                @hcdestroyer
 
-# Agente: SEC
-# Supuesto: alerts no tiene dueño en team.md §2; se confirma al congelar C1.
+# Agente: CORE
+# Decisión D21 (po-decisions.md): alerts → CORE (canales e integraciones, incluido LibreNMS).
 /services/alerts/                   @hcdestroyer
 
 # Agente: PLAT
-# Supuesto: jobs no tiene dueño en team.md §2; se confirma al congelar C1.
+# Decisión D21 (po-decisions.md): jobs → PLAT.
 /services/jobs/                     @hcdestroyer
 
 # ---------------------------------------------------------------------------------------------
