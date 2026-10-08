@@ -184,6 +184,12 @@ paths:
     $ref: ./platform.yaml#/paths/~1platform~1overview
   /platform/remote-destinations:
     $ref: ./platform.yaml#/paths/~1platform~1remote-destinations
+  /platform/reputation/sources:
+    $ref: ./platform.yaml#/paths/~1platform~1reputation~1sources
+  /platform/reputation/sources/{source_id}:
+    $ref: ./platform.yaml#/paths/~1platform~1reputation~1sources~1{source_id}
+  /platform/reputation/sources/{source_id}/refresh:
+    $ref: ./platform.yaml#/paths/~1platform~1reputation~1sources~1{source_id}~1refresh
   /platform/tenants:
     $ref: ./platform.yaml#/paths/~1platform~1tenants
   /platform/tenants/{tenant_id}:

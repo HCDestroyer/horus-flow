@@ -601,6 +601,9 @@ auditoría, [ADR-0017](./adr/0017-multi-tenant-desde-v1.md) §2).
 | `PUT /platform/remote-destinations/{id}/credentials` 🔒 | jobs | Secretos write-only (llave SFTP, token OAuth, contraseña MEGA); nunca se devuelven. | `platform.storage.manage` |
 | `POST /platform/remote-destinations/{id}/test` | jobs | Escribe, lee, verifica y borra un objeto de prueba (`202`). | `platform.storage.manage` |
 | `POST /platform/remote-destinations/{id}/sync` | jobs | Fuerza una copia ahora (`202`). `Idempotency-Key` obligatorio. | `platform.storage.manage` |
+| `GET /platform/installation` | gateway | Modo de acceso (`domain` \| `subdomain` \| `ip_only`, D19), TLS efectivo, huella del certificado y avisos (`ip_only_access`). Solo lectura. | `platform.status.read` |
+| `GET /platform/reputation/sources` · `POST` · `GET/PATCH/DELETE /platform/reputation/sources/{id}` 🔒 | detection | Fuentes de reputación (D20): catálogo base (uso comercial aprobado; solo se habilita/deshabilita) y **personalizadas** del superadministrador (`key`, `name`, `url` https pública, `format` entre los soportados, `frequency`, `category`, `confidence`, `enabled`, cabecera de autenticación write-only, `terms_acknowledged`). Auditado. Carga automática; cada carga emite `horus.detection.reputation.source_refreshed` y entra en el siguiente snapshot. | `platform.reputation_sources.manage` |
+| `POST /platform/reputation/sources/{id}/refresh` | detection | Fuerza una carga (`202`). `Idempotency-Key` obligatorio. | `platform.reputation_sources.manage` |
 | `GET /platform/backups` | jobs | Copias locales y remotas por componente, verificación, antigüedad y última restauración de prueba ([`disaster-recovery.md`](./disaster-recovery.md)). | `platform.status.read` |
 
 ### 2.9 Clientes descubiertos (`devices`; D1)

@@ -316,6 +316,35 @@ modules:
       scope: tenant
       methods:
         POST: security.findings.manage
+    - prefix: /api/v1/platform/reputation/sources
+      scope: platform
+      methods:
+        GET: platform.reputation_sources.manage
+        POST: platform.reputation_sources.manage
+      reauth:
+        - POST
+      audited:
+        - POST
+    - prefix: /api/v1/platform/reputation/sources/{source_id}
+      scope: platform
+      methods:
+        GET: platform.reputation_sources.manage
+        PATCH: platform.reputation_sources.manage
+        DELETE: platform.reputation_sources.manage
+      reauth:
+        - PATCH
+        - DELETE
+      audited:
+        - PATCH
+        - DELETE
+    - prefix: /api/v1/platform/reputation/sources/{source_id}/refresh
+      scope: platform
+      methods:
+        POST: platform.reputation_sources.manage
+      idempotency_key_required:
+        - POST
+      audited:
+        - POST
     - prefix: /api/v1/reputation/allowlist
       scope: tenant
       methods:

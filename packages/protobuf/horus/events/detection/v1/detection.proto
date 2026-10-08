@@ -133,13 +133,27 @@ message ReputationSnapshotPublished {
   google.protobuf.Timestamp published_at = 8;
 }
 
-// ReputationSourceRefreshed: horus.detection.reputation.source_refreshed (plataforma).
+// ReputationSourceRefreshed: horus.detection.reputation.source_refreshed (plataforma; entity = source_id).
+// Carga completada (ok) o fallida (failed | rejected) de una fuente del catálogo base o personalizada (D20).
 message ReputationSourceRefreshed {
+  // Clave estable de la fuente (p. ej. abuse_ch_feodo).
   string source = 1;
-  // ok | failed | rejected
+  // ok | failed (descarga/parseo) | rejected (validación: min_entries, max_bytes, formato)
   string result = 2;
   int64 entries = 3;
   optional string sha256 = 4;
+  // Sin secretos (nunca la cabecera de autenticación).
   optional string error = 5;
   google.protobuf.Timestamp refreshed_at = 6;
+  // UUID de la fuente (= subject).
+  string source_id = 7;
+  // catalog | custom
+  string origin = 8;
+  // botnet_cc | scanner | malware_dist | mining_pool | proxy_vpn | tor_exit | blocklist
+  string category = 9;
+  // schedule | manual | created | updated
+  string trigger = 10;
+  int32 consecutive_failures = 11;
+  // Versión del snapshot en la que entran los indicadores (solo ok).
+  optional int32 next_snapshot_version = 12;
 }

@@ -144,3 +144,4 @@ events:
   status: draft
   since: I1
   example: examples/horus.detection.reputation.source_refreshed.json
+  notes: 'D20: carga completada (result=ok) o fallida (failed | rejected) de una fuente del catálogo base o personalizada (origin); las personalizadas se gestionan en /platform/reputation/sources.'

@@ -961,6 +961,11 @@ snapshot que usa el ingester).
 | `horus.detection.reputation.snapshot_published` (plataforma) | **flows** (ingester: marca `reputation_hit` en ingesta), detection |
 | `horus.detection.reputation.source_refreshed` (plataforma) | alerts (fallo de feeds), api-gateway |
 
+`source_refreshed` es el evento de **carga completada o fallida** (`result` `ok` | `failed` | `rejected`) de cualquier
+fuente, del catálogo base o personalizada (D20, `origin`), con `source_id`, `category`, `trigger`
+(`schedule` | `manual` | `created` | `updated`) y `consecutive_failures`. El alta, edición y baja de fuentes
+personalizadas (`/platform/reputation/sources`) solo deja auditoría (`horus.detection.audit.recorded`, `tenant_id` nulo).
+
 ```jsonc
 // horus.detection.reputation.snapshot_published   (artefacto en NATS Object Store, bucket reputation-snapshots)
 { "snapshot_id": "0192...", "snapshot_version": 233, "object_store": "reputation-snapshots", "object_name": "v233/rep.bin",
