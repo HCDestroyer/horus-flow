@@ -19,9 +19,20 @@
 
 ## Supuestos que quedan abiertos
 
-- **WireGuard**: se asume que sirve para conectar los routers de los nodos con Horus (gestión
-  SNMP/API y envío de flujos a través de Internet). Confirmar.
-- **CGNAT**: si el router principal del nodo hace NAT, los flujos se toman del lado del cliente
-  (antes del NAT) para que la IP observada sea la del cliente. Confirmar por ISP.
+- ~~WireGuard~~ y ~~NAT/CGNAT~~: confirmados en la ronda 2 (D16, D12).
 - **Ley aplicable**: con D5 el tratamiento tiene un propósito de seguridad; aun así se revisará
   por país de cada ISP antes de producción.
+
+# Decisiones del product owner (ronda 2)
+
+> Respuestas a las preguntas que bloqueaban el primer entregable (I1). Prevalecen sobre los
+> documentos anteriores; los contratos del Incremento 0 (I0-05) deben reflejarlas.
+
+| # | Decisión del PO | Interpretación para el diseño |
+| --- | --- | --- |
+| D11 | **Horus solo avisa, pero recomienda qué hacer.** | Horus no escribe en el router (se mantiene ADR-0022). Cada hallazgo incluye **acciones recomendadas** concretas y explicadas (p. ej. comandos RouterOS para aislar la IP en una address-list, limitar puertos, avisar al cliente), listas para que el operador las copie y aplique a mano. |
+| D12 | **El NAT está en el router principal del nodo.** | Caso soportado de ADR-0018: los flujos se toman del lado del cliente (pre-NAT) y la IP privada identifica al cliente dentro del realm del nodo. Sigue pendiente verificarlo en el laboratorio CHR (I0-12). |
+| D13 | **Alertas por correo o Telegram, y poder usar LibreNMS.** | Canales de notificación email (SMTP) y Telegram. Integración con **LibreNMS** como destino de alertas (por syslog/SNMP trap o su API) y, opcionalmente, como fuente de inventario/estado de los routers. Se adelanta un canal mínimo de alertas al I1. |
+| D14 | **La plataforma se accede por Internet, con dominios configurables.** | UI y API públicas detrás de Traefik con TLS automático (Let's Encrypt) y dominio configurable por instalación (posible dominio por ISP más adelante). Exige 2FA para administradores, rate limit y endurecimiento del borde desde el I1. |
+| D15 | **Solo RouterOS 7.x.x.** | Se descarta RouterOS v6 por completo. Mínimo 7.12, recomendada la última long-term. |
+| D16 | **WireGuard es el túnel que conecta el router con Horus, para que el tráfico se vea de forma transparente.** | Confirma el supuesto: el router principal inicia un túnel WireGuard hacia el hub de Horus; por él viajan gestión (API, SNMP) y exportación de flujos. |
