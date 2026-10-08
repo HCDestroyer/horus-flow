@@ -48,6 +48,13 @@ func server() (string, error) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
+		// testcontainers entra en pánico si no encuentra Docker: se convierte
+		// en error para omitir el test.
+		defer func() {
+			if r := recover(); r != nil {
+				startErr = fmt.Errorf("pgtest: docker: %v", r)
+			}
+		}()
 		c, err := tcpostgres.Run(ctx, Image,
 			tcpostgres.WithDatabase("horus"),
 			tcpostgres.WithUsername("horus"),
