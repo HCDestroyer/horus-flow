@@ -51,7 +51,7 @@ permissions:
     - { key: security.evidence.read, description: 'Flujos de evidencia de un cliente', pii: true, audited: true }
     - { key: alerts.read, description: 'Ver canales de notificación y entregas (I1) y alertas (I3)' }
     - { key: alerts.ack, description: 'Reconocer alertas (I3)' }
-    - { key: alerts.manage, description: 'Gestionar canales de notificación (I1, D13) y reglas (I3)' }
+    - { key: alerts.manage, description: 'Gestionar canales de notificación email, Telegram y LibreNMS por API (I1, D13, D17), sus credenciales write-only y reglas (I3)', audited: true }
     - { key: reports.read, description: 'Ver y descargar reportes' }
     - { key: reports.export, description: 'Generar exportaciones' }
     - { key: dashboards.read, description: 'Ver dashboards compartidos y plantillas, crear privados' }
@@ -69,7 +69,8 @@ permissions:
     - { key: platform.audit.read, description: 'Auditoría de plataforma' }
     - { key: platform.status.read, description: 'Estado detallado de la instalación, hubs WireGuard, overview' }
     - { key: platform.storage.manage, description: 'Destinos remotos de copias' }
-    - { key: platform.catalog.manage, description: 'Catálogo de clasificación y feeds de reputación' }
+    - { key: platform.catalog.manage, description: 'Catálogo de clasificación de tráfico' }
+    - { key: platform.reputation_sources.manage, description: 'Fuentes de reputación: ver estado, alta/edición/baja de listas personalizadas, habilitar las del catálogo base y forzar cargas (D20)', reauth: true, audited: true }
 roles:
   tenant:
     - key: tenant_admin
@@ -106,7 +107,7 @@ roles:
     - key: platform_admin
       name: Superadministrador
       requires_mfa: true
-      permissions: [platform.tenants.read, platform.tenants.manage, platform.users.read, platform.users.manage, platform.audit.read, platform.status.read, platform.storage.manage, platform.catalog.manage]
+      permissions: [platform.tenants.read, platform.tenants.manage, platform.users.read, platform.users.manage, platform.audit.read, platform.status.read, platform.storage.manage, platform.catalog.manage, platform.reputation_sources.manage]
       note: platform.support_access se concede aparte aunque sea a la misma persona.
     - key: platform_operator
       name: Operador de plataforma
