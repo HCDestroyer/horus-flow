@@ -1,5 +1,7 @@
 # packages/events — catálogo de eventos (C4, contrato v0)
 
+> **Estado: v0 aprobado (`stable`) el 2026-10-08 con D17–D21** ([`docs/contracts/G0.md`](../../docs/contracts/G0.md)). Desde aquí, todo cambio incompatible exige versión nueva (`v1`…) conviviendo con `v0`.
+
 - **Dueño:** INT (cambios de `pii`/`tenant_scope` requieren a la persona).
 - **Documentación:** [`docs/events.md`](../../docs/events.md), [ADR-0006](../../docs/adr/0006-nats-jetstream-bus-de-eventos.md),
   [ADR-0027](../../docs/adr/0027-tenant-en-cabecera-nats-y-subjects-de-trabajo.md), [`docs/contracts/G0.md`](../../docs/contracts/G0.md).

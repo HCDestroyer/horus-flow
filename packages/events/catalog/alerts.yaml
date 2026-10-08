@@ -21,7 +21,7 @@ events:
   pii_fields:
   - ip
   - user_agent
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.alerts.audit.recorded.json
   notes: Único evento con IP y User-Agent; tenant_id null para acciones de plataforma. Solo auth lo persiste (cadena de hashes).
@@ -40,7 +40,7 @@ events:
   - me
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.alerts.notification.sent.json
   notes: 'D13/D17: canal mínimo; `channel` = tipo de canal (email | telegram | librenms); alert_id ausente en I1 (sin motor de reglas).'
@@ -59,7 +59,7 @@ events:
   - me
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.alerts.notification.failed.json
   notes: '`channel` = tipo de canal (email | telegram | librenms, D17); `error` sin secretos ni cuerpo remoto.'

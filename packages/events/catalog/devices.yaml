@@ -21,7 +21,7 @@ events:
   pii_fields:
   - ip
   - user_agent
-  status: draft
+  status: stable
   since: I0
   example: examples/horus.devices.audit.recorded.json
   notes: Único evento con IP y User-Agent; tenant_id null para acciones de plataforma. Solo auth lo persiste (cadena de hashes).
@@ -42,7 +42,7 @@ events:
   - routers
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I0
   example: examples/horus.devices.site.created.json
 - type: horus.devices.site.updated
@@ -62,7 +62,7 @@ events:
   - routers
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I0
   example: examples/horus.devices.site.updated.json
 - type: horus.devices.site.deleted
@@ -82,7 +82,7 @@ events:
   - routers
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I0
   example: examples/horus.devices.site.deleted.json
 - type: horus.devices.router.created
@@ -103,7 +103,7 @@ events:
   - routers
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I0
   example: examples/horus.devices.router.created.json
   notes: wireguard asigna la IP de túnel al consumirlo (I1-01).
@@ -125,7 +125,7 @@ events:
   - routers
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I0
   example: examples/horus.devices.router.updated.json
 - type: horus.devices.router.deleted
@@ -146,7 +146,7 @@ events:
   - routers
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I0
   example: examples/horus.devices.router.deleted.json
 - type: horus.devices.router.capabilities_detected
@@ -166,7 +166,7 @@ events:
   - routers
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.devices.router.capabilities_detected.json
   notes: 'D15: os_version_supported=false si < 7.12 (aviso). targets_ok=false = deriva de configuración (alerta, nunca corrección).'
@@ -184,7 +184,7 @@ events:
   websocket_topics: []
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I0
   example: examples/horus.devices.realm.updated.json
 - type: horus.devices.client_prefix.created
@@ -203,7 +203,7 @@ events:
   - routers
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I0
   example: examples/horus.devices.client_prefix.created.json
 - type: horus.devices.client_prefix.updated
@@ -222,7 +222,7 @@ events:
   - routers
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I0
   example: examples/horus.devices.client_prefix.updated.json
 - type: horus.devices.client_prefix.deleted
@@ -241,7 +241,7 @@ events:
   - routers
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I0
   example: examples/horus.devices.client_prefix.deleted.json
 - type: horus.devices.customer.discovered
@@ -264,7 +264,7 @@ events:
   pii_fields:
   - address
   - alias
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.devices.customer.discovered.json
 - type: horus.devices.customer.updated
@@ -285,7 +285,7 @@ events:
   pii_fields:
   - address
   - alias
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.devices.customer.updated.json
 - type: horus.devices.customer.kind_changed
@@ -308,7 +308,7 @@ events:
   pii_fields:
   - address
   - alias
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.devices.customer.kind_changed.json
 - type: horus.devices.customer.inactivated
@@ -330,7 +330,7 @@ events:
   pii: true
   pii_fields:
   - address
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.devices.customer.inactivated.json
 - type: horus.devices.customer.reactivated
@@ -352,7 +352,7 @@ events:
   pii: true
   pii_fields:
   - address
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.devices.customer.reactivated.json
 - type: horus.devices.customer.reset
@@ -373,7 +373,7 @@ events:
   pii: true
   pii_fields:
   - address
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.devices.customer.reset.json
 - type: horus.devices.customer.purged
@@ -392,7 +392,7 @@ events:
   websocket_topics: []
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.devices.customer.purged.json
   notes: 'Sin IP: el objetivo es olvidarla.'

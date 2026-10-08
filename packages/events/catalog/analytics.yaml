@@ -21,7 +21,7 @@ events:
   pii_fields:
   - ip
   - user_agent
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.analytics.audit.recorded.json
   notes: Único evento con IP y User-Agent; tenant_id null para acciones de plataforma. Solo auth lo persiste (cadena de hashes).
@@ -41,7 +41,7 @@ events:
   - dashboard.{dashboard_id}
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.analytics.dashboard.created.json
 - type: horus.analytics.dashboard.updated
@@ -60,7 +60,7 @@ events:
   - dashboard.{dashboard_id}
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.analytics.dashboard.updated.json
 - type: horus.analytics.dashboard.deleted
@@ -79,7 +79,7 @@ events:
   - dashboard.{dashboard_id}
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.analytics.dashboard.deleted.json
 - type: horus.analytics.playlist.updated
@@ -97,7 +97,7 @@ events:
   - dashboard.{dashboard_id}
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.analytics.playlist.updated.json
 - type: horus.analytics.playlist.deleted
@@ -115,6 +115,6 @@ events:
   - dashboard.{dashboard_id}
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.analytics.playlist.deleted.json

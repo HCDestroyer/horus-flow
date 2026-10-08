@@ -21,7 +21,7 @@ events:
   pii_fields:
   - ip
   - user_agent
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.detection.audit.recorded.json
   notes: Único evento con IP y User-Agent; tenant_id null para acciones de plataforma. Solo auth lo persiste (cadena de hashes).
@@ -42,7 +42,7 @@ events:
   - security
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.detection.finding.opened.json
   json_schema: packages/schemas/finding/v0/finding.schema.json
@@ -63,7 +63,7 @@ events:
   - security
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.detection.finding.updated.json
   json_schema: packages/schemas/finding/v0/finding.schema.json
@@ -83,7 +83,7 @@ events:
   - security
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.detection.finding.resolved.json
   json_schema: packages/schemas/finding/v0/finding.schema.json
@@ -105,7 +105,7 @@ events:
   - security
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.detection.customer.security_state_changed.json
 - type: horus.detection.reputation.snapshot_published
@@ -123,7 +123,7 @@ events:
   websocket_topics: []
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.detection.reputation.snapshot_published.json
 - type: horus.detection.reputation.source_refreshed
@@ -141,7 +141,7 @@ events:
   websocket_topics: []
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.detection.reputation.source_refreshed.json
   notes: 'D20: carga completada (result=ok) o fallida (failed | rejected) de una fuente del catálogo base o personalizada (origin); las personalizadas se gestionan en /platform/reputation/sources.'
