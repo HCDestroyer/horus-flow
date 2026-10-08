@@ -50,3 +50,6 @@ test-results/
 *.swp
 .DS_Store
 Thumbs.db
+
+# Worktrees temporales de agentes de IA
+.claude/worktrees/
