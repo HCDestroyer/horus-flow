@@ -5,7 +5,7 @@ Plantilla: copiar cualquier ADR y mantener las secciones **Contexto, Decisión, 
 consideradas, Consecuencias**.
 
 Las decisiones del product owner ([`po-decisions.md`](../po-decisions.md), D1–D10) **prevalecen**
-sobre cualquier ADR anterior; los ADR 0017–0025 las registran.
+sobre cualquier ADR anterior; los ADR 0017–0029 las registran o desarrollan.
 
 | # | Título | Estado | Área |
 | --- | --- | --- | --- |
@@ -34,10 +34,14 @@ sobre cualquier ADR anterior; los ADR 0017–0025 las registran.
 | [0023](0023-entrega-por-incrementos-y-equipo-ia.md) | Entrega por incrementos; desarrollo por agentes de IA + 1 persona | Aceptada (D7, D9) | Proceso |
 | [0024](0024-deteccion-de-botnets-como-objetivo-principal.md) | Detección de clientes en botnets como objetivo de primer nivel | Aceptada (D5) | Seguridad |
 | [0025](0025-binario-modular-con-roles.md) | Monolito modular: un binario `horus` con roles | Aceptada | Servicios / despliegue |
+| [0026](0026-kiosco-como-dispositivo-registrado.md) | Modo kiosco como dispositivo registrado | Aceptada (D8) | Seguridad / UI |
+| [0027](0027-tenant-en-cabecera-nats-y-subjects-de-trabajo.md) | Tenant en la cabecera `Horus-Tenant`; órdenes de trabajo en `horus.work.>` | Aceptada | Mensajería |
+| [0028](0028-flujo-de-trabajo-de-agentes-de-ia.md) | Flujo de trabajo de agentes de IA con verificación automática | Aceptada (D7) | Proceso |
+| [0029](0029-copias-locales-siempre-y-paquete-de-secretos-offline.md) | Copias locales siempre, copia remota opcional y paquete de secretos offline | Aceptada (D2) | Operación |
 
 "Aceptada" en Sprint 0 = elección ya fijada en [vision.md](../vision.md) y justificada aquí.
 "Propuesta" = decisión que cuestiona el plan y espera aprobación del PO. "Aceptada (D#)" = registra
 una decisión del product owner. Un ADR sustituido no se edita salvo su estado.
 
-Numeración: los números **0017–0029** están reservados para el Agente A (arquitectura) en la
-ronda 2; el resto de agentes no crea ADRs y el coordinador asigna los siguientes.
+Numeración: el siguiente ADR libre es el **0030**; el coordinador asigna los números para evitar
+colisiones entre agentes.

@@ -106,7 +106,7 @@ origen, SNMPv3 por Internet o por un túnel alternativo, sin API REST. La vía p
 | `enabled` | `no` | `yes` | |
 | `interfaces` | `all` | `all` (v1) | Las interfaces PPPoE son dinámicas y no se pueden enumerar; Horus filtra por `flow_role` de la interfaz de entrada/salida. Hay reportes de que el filtro de interfaces no se respeta en algunos CCR (**a verificar**). |
 | `cache-entries` | `4k` | `64k` (≤ 500 clientes), `256k` (≤ 5 000), `512k`+ (mayor) | Si la caché se llena, el router exporta antes de tiempo o descarta (**a verificar** cuál). Valores enumerados en la doc: 1k…512k (v7 puede admitir más, **a verificar**). Coste en RAM ≈ decenas de MB a 256k (**a verificar** con `/system resource`). |
-| `active-flow-timeout` | `30m` | **`1m`** | Con 30 min, una descarga larga aparece de golpe media hora después: rompe los agregados de 5 min y la detección casi en tiempo real (D5). 1 min alinea con la ventana de pre-agregación de 60 s ([`traffic-model.md` §11](../traffic-model.md)). |
+| `active-flow-timeout` | `30m` | **`1m`** | Con 30 min, una descarga larga aparece de golpe media hora después: rompe los agregados de 5 min y la detección casi en tiempo real (D5). 1 min alinea con la ventana de pre-agregación de 60 s ([`traffic-model.md` §10](../traffic-model.md)). |
 | `inactive-flow-timeout` | `15s` | `15s` | Más bajo multiplica registros y puede desbordar la caché (advertencia de la doc oficial). |
 | `packet-sampling` | `no` | `no` | Ver §2.6. |
 | `sampling-interval` / `sampling-space` | `0` / `0` | — | Solo si se activa muestreo. |
@@ -156,7 +156,7 @@ en `forward`:
 | Topología del nodo | IP de cliente observada | Atribución (D1) |
 | --- | --- | --- |
 | **IP pública por cliente** (sin NAT) | Pública del cliente | Directa. |
-| **NAT/CGNAT en el mismo router principal** | **Privada del cliente (pre-NAT) en subida y bajada** — esperado, **a verificar en laboratorio** | Directa en el *realm* del router ([`traffic-model.md` §9.1](../traffic-model.md)). La IP pública compartida solo aparece si se activan los campos `nat-*`. |
+| **NAT/CGNAT en el mismo router principal** | **Privada del cliente (pre-NAT) en subida y bajada** — esperado, **a verificar en laboratorio** | Directa en el *realm* del router ([`traffic-model.md` §4.2](../traffic-model.md)). La IP pública compartida solo aparece si se activan los campos `nat-*`. |
 | **CGNAT en otro equipo, detrás del router principal** (hacia Internet) | Privada/CGNAT del cliente (el router está antes del NAT) | Directa. |
 | **CGNAT en otro equipo, entre clientes y router principal** | IP pública compartida: **no identifica al cliente** | No atribuible sin logs de NAT del otro equipo. Hay que exportar desde el equipo de CGNAT o el BNG. Pregunta al PO (§9). |
 | **NAT en el CPE del cliente** (residencial típico) | WAN del CPE | Una IP = un cliente (D1). Los dispositivos detrás no son visibles. |

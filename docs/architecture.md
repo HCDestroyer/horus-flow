@@ -288,7 +288,7 @@ Clientes:  horus.flows.client.first_seen ──► devices (upsert por tenant+re
 Snapshots: traffic ──► Object Store catalog-snapshots + horus.traffic.catalog.published ──► ingester
            detection ──► Object Store reputation-snapshots + …reputation.snapshot_published ──► ingester
 
-Seguridad: ClickHouse (agregados 1–5 min, reputation_hit) ──► detection ──► horus.detection.finding.created ──► alerts
+Seguridad: ClickHouse (agregados 1–5 min, reputation_hit) ──► detection ──► horus.detection.finding.opened ──► alerts
            detection (scoring) ──► horus.detection.customer.kind_suggested ──► devices (tipo de cliente)
 
 Cobertura: jobs (hora) compara bytes de flujos vs contadores SNMP ──► flow_coverage_low ──► alerts

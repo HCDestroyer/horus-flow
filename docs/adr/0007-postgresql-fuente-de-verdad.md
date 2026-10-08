@@ -20,7 +20,7 @@ transacciones. Varios servicios los poseen y no deben compartir tablas (P2).
 - Tipos: UUIDv7 como PK, `timestamptz` en UTC, `organization_id` en entidades raíz.
 - Migraciones versionadas por servicio (herramienta a definir en [conventions.md](../conventions.md)), ejecutadas como paso explícito.
 - Tabla `outbox` por esquema ([ADR-0016](0016-transactional-outbox.md)).
-- Backups: base + archivado continuo de WAL a MinIO (PITR) según [disaster-recovery.md](../disaster-recovery.md).
+- Backups: base + archivado continuo de WAL en almacenamiento local con pgBackRest (PITR; ADR-0019) según [disaster-recovery.md](../disaster-recovery.md).
 - **No** se guardan series temporales de telemetría en PostgreSQL (van a ClickHouse); como
   máximo el "último valor" proyectado.
 - Pool de conexiones por servicio (`pgxpool`, máx. ~10 por réplica); PgBouncer solo si el número

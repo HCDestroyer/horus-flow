@@ -178,7 +178,7 @@ NATS KV); **Sharded** = N instancias con *leases*.
 | --- | --- |
 | Responsabilidad | Escuchar UDP (IPFIX, NetFlow v9/v5, sFlow v5); identificar el exportador por **IP origen = IP de túnel** → router → tenant (proyección de `devices.ListExporters`); **descartar** exportadores no registrados; plantillas por exportador; decodificar con `FlowExporterQuirks` (MikroTik primero); normalizar; **límite de flujos/s por exportador y por tenant**; lotes por exportador con `Horus-Tenant`; exportadores silenciosos. Sin captura de paquetes. |
 | Dueño de datos | NATS: stream FLOWS (escritor). |
-| Publica | `flows.batch.received` (telemetría), `flows.exporter.discovered/silent/recovered`, `flows.exporter.unregistered`. |
+| Publica | `flows.batch.received` (telemetría), `flows.exporter.silent/recovered`, `flows.exporter.unregistered`. |
 | Consume | `devices.router.*` (mapa exportadores). |
 | Incremento | 3 |
 | Estado | **Sharded por exportador** (afinidad por IP origen). Contenedor propio. |
@@ -213,7 +213,7 @@ NATS KV); **Sharded** = N instancias con *leases*.
 | Responsabilidad | **Objetivo de primer nivel** ([ADR-0024](adr/0024-deteccion-de-botnets-como-objetivo-principal.md)). **reputation**: feeds de plataforma (C2 de botnets, listas de bloqueo, escáneres, pools de minería) con fuente, confianza, caducidad y licencia; compila y publica el **snapshot de reputación** para el ingester. **correlation**: reglas versionadas y explicables sobre agregados de 1–5 min y `reputation_hit` (contacto con C2, escaneo saliente, participación en DDoS, spam, *beaconing*, proxy/minería) → **hallazgos por cliente** (tenant, realm, IP) con evidencias, confianza y estado; gestión de falsos positivos; umbrales por tenant. **scoring**: residencial/comercial y anomalía por IP, explicable; publica sugerencias de tipo a `devices`. |
 | Dueño de datos | PG `detection`: `reputation_sources`, `reputation_entries` (o en ClickHouse si el volumen lo exige; [database.md](database.md)), `detection_rules`, `findings`, `finding_evidence`, `tenant_detection_settings`, `scoring_models`, `outbox`. ClickHouse: `customer_scores`, `detection_windows`. Object Store: `reputation-snapshots`. |
 | API pública | `/api/v1/security/findings` (+ `ack`, `resolve`, `false-positive`), `/api/v1/security/findings/{id}/evidence` (permiso propio, auditado), `/api/v1/security/reputation?ip=`, `/api/v1/security/rules`, `/api/v1/customers/{id}/scores`, `/api/v1/platform/reputation/sources`. |
-| Publica | `detection.finding.created/updated/resolved`, `detection.reputation.snapshot_published`, `detection.customer.kind_suggested`, `detection.score.changed`, `detection.audit.recorded`. |
+| Publica | `detection.finding.opened/updated/resolved`, `detection.reputation.snapshot_published`, `detection.customer.kind_suggested`, `detection.score.changed`, `detection.audit.recorded`. |
 | Consume | `devices.customer.discovered`, `snmp.router.state_changed`, `flows.exporter.silent`; consultas periódicas a tablas publicadas de ClickHouse (por tenant, con *watermark* para reprocesar tras caídas). |
 | Dependencias | ClickHouse (degradable: sin hallazgos nuevos), PostgreSQL, NATS, fuentes externas. |
 | Incremento | 4 (reputation), 5 (correlation), 7 (scoring) |
