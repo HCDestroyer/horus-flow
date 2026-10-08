@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+// Comprobación de sesión del gateway contra auth cuando Valkey no responde (docs/security.md §5.1–§5.2).
+package horus.auth.v1;
+
+// SessionService revocación de sesiones y membresías.
+service SessionService {
+  // CheckSession indica si la sesión sigue vigente y si la membresía del tenant no fue revocada.
+  rpc CheckSession(CheckSessionRequest) returns (CheckSessionResponse);
+}
+
+// CheckSessionRequest sesión y tenant a comprobar.
+message CheckSessionRequest {
+  string sid = 1;
+  string user_id = 2;
+  optional string tenant_id = 3;
+}
+
+// CheckSessionResponse resultado (caché ≤ 30 s en el gateway salvo operaciones críticas).
+message CheckSessionResponse {
+  bool active = 1;
+  bool membership_active = 2;
+  bool tenant_active = 3;
+  optional string revoked_reason = 4;
+}

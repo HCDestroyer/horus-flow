@@ -1,0 +1,64 @@
+# Catálogo de eventos v0 del dominio `alerts` (C4; docs/events.md §5.6, §8).
+# Un archivo por dominio para que dos agentes no editen el mismo. Cada tipo: mensaje Protobuf en
+# packages/protobuf/horus/events/<dominio>/v1/ y golden file en packages/events/examples/<type>.json.
+# Cambios de pii / tenant_scope requieren a la persona.
+domain: alerts
+version: v0
+events:
+- type: horus.alerts.audit.recorded
+  subject: horus.alerts.audit.recorded.{entry_id}
+  tenant_scope: tenant
+  stream: ALERTS_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.common.v1.AuditRecord
+  schema_version: 1
+  producer: alerts
+  consumers:
+  - auth
+  websocket_topics: []
+  pii: true
+  pii_fields:
+  - ip
+  - user_agent
+  status: draft
+  since: I1
+  example: examples/horus.alerts.audit.recorded.json
+  notes: Único evento con IP y User-Agent; tenant_id null para acciones de plataforma. Solo auth lo persiste (cadena de hashes).
+- type: horus.alerts.notification.sent
+  subject: horus.alerts.notification.sent.{notification_id}
+  tenant_scope: tenant
+  stream: ALERTS_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.alerts.v1.NotificationDelivery
+  schema_version: 1
+  producer: alerts
+  consumers:
+  - gateway
+  websocket_topics:
+  - me
+  pii: false
+  pii_fields: []
+  status: draft
+  since: I1
+  example: examples/horus.alerts.notification.sent.json
+  notes: 'D13: canal mínimo; alert_id ausente en I1 (sin motor de reglas).'
+- type: horus.alerts.notification.failed
+  subject: horus.alerts.notification.failed.{notification_id}
+  tenant_scope: tenant
+  stream: ALERTS_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.alerts.v1.NotificationDelivery
+  schema_version: 1
+  producer: alerts
+  consumers:
+  - gateway
+  websocket_topics:
+  - me
+  pii: false
+  pii_fields: []
+  status: draft
+  since: I1
+  example: examples/horus.alerts.notification.failed.json

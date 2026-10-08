@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+// Payloads de horus.alerts.* del I1 (docs/events.md §8.9; D13 canal mínimo de notificación).
+package horus.events.alerts.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// NotificationDelivery: horus.alerts.notification.sent | failed (entity = delivery id).
+// En I1 no hay entidad Alert: el canal reacciona al evento de origen (alert_id ausente).
+message NotificationDelivery {
+  string id = 1;
+  optional string alert_id = 2;
+  string channel_id = 3;
+  // email | telegram | librenms
+  string channel = 4;
+  optional string recipient_user_id = 5;
+  // finding_opened | finding_reopened | exporter_silent | exporter_recovered | tunnel_down | tunnel_recovered | test
+  string event_type = 6;
+  optional string source_event_type = 7;
+  optional string source_event_id = 8;
+  bool is_test = 9;
+  // Sin datos sensibles (solo failed).
+  optional string error = 10;
+  google.protobuf.Timestamp occurred_at = 11;
+}

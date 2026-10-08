@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.horus-flow.local/events/v0/envelope.schema.json",
+  "title": "EventEnvelope",
+  "description": "C4 — sobre de eventos de dominio y trabajos en JSON (docs/events.md §5.1). Protobuf (horus.events.v1.Envelope) sigue siendo el IDL; este JSON Schema es el artefacto de validación de golden files que pide I0-05 (criterio 2) y lo usa make contracts-check. `data` se valida contra el mensaje Protobuf que declara el catálogo (buf convert) y, en hallazgos, también contra C8.",
+  "type": "object",
+  "required": ["id", "type", "source", "subject", "time", "schema_version", "tenant_id", "aggregate_type", "aggregate_version", "actor", "data"],
+  "properties": {
+    "id": { "$ref": "#/$defs/Uuid" },
+    "type": { "type": "string", "pattern": "^horus\\.[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$" },
+    "source": { "type": "string", "pattern": "^horus/[a-z][a-z0-9_-]*(/[a-z][a-z0-9_-]*)?$" },
+    "subject": { "type": "string", "pattern": "^[a-z0-9_-]{1,64}$" },
+    "time": { "type": "string", "format": "date-time" },
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "tenant_id": {
+      "description": "Siempre presente. null solo en tipos tenant_scope=platform (y en *.audit.recorded de acciones de plataforma). Copia obligatoria en la cabecera Horus-Tenant.",
+      "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }]
+    },
+    "aggregate_type": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+    "aggregate_version": { "type": "integer", "minimum": 0 },
+    "actor": { "$ref": "#/$defs/Actor" },
+    "trace_parent": { "type": ["string", "null"], "pattern": "^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$" },
+    "correlation_id": { "type": ["string", "null"] },
+    "causation_id": { "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }] },
+    "data": { "type": "object" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "Uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+    "Actor": {
+      "type": "object",
+      "required": ["type", "id"],
+      "properties": {
+        "type": { "type": "string", "enum": ["user", "service", "system", "kiosk"] },
+        "id": { "type": "string", "pattern": "^([0-9a-f-]{36}|svc:[a-z][a-z0-9_-]*|system:[a-z][a-z0-9_-]*)$" },
+        "via_platform": { "type": "boolean" },
+        "platform_role": { "type": ["string", "null"], "enum": ["platform_admin", "platform_operator", "platform_auditor", null] },
+        "sid": { "type": ["string", "null"] },
+        "via": { "type": ["string", "null"], "enum": ["session", "api_token", null] },
+        "api_token_id": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "TelemetryEnvelope": {
+      "type": "object",
+      "description": "Golden de telemetría: cabeceras NATS + data (el cuerpo real es Protobuf binario).",
+      "required": ["headers", "data"],
+      "properties": {
+        "$comment": { "type": "string" },
+        "headers": {
+          "type": "object",
+          "required": ["Nats-Msg-Id", "Horus-Type", "Horus-Schema-Version", "Horus-Source", "Horus-Time", "Horus-Tenant", "Content-Type"],
+          "properties": {
+            "Nats-Msg-Id": { "$ref": "#/$defs/Uuid" },
+            "Horus-Type": { "type": "string", "pattern": "^horus\\.[a-z_]+\\.[a-z_]+\\.[a-z_]+$" },
+            "Horus-Schema-Version": { "type": "string", "pattern": "^[0-9]+$" },
+            "Horus-Source": { "type": "string" },
+            "Horus-Time": { "type": "string", "format": "date-time" },
+            "Horus-Tenant": { "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "const": "platform" }] },
+            "Content-Type": { "type": "string", "pattern": "^application/x-protobuf; proto=horus\\.events\\.[a-z]+\\.v[0-9]+\\.[A-Za-z]+$" },
+            "traceparent": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "data": { "type": "object" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

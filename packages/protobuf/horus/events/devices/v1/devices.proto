@@ -1,0 +1,164 @@
+syntax = "proto3";
+
+// Payloads de horus.devices.* (docs/events.md §8.2). Entidades con estado completo + version;
+// *.updated añade changed_fields; *.deleted lleva el último estado + deleted_at.
+package horus.events.devices.v1;
+
+import "google/protobuf/timestamp.proto";
+import "horus/common/v1/common.proto";
+
+// Site: horus.devices.site.created | updated | deleted.
+message Site {
+  string id = 1;
+  int32 version = 2;
+  string name = 3;
+  optional string code = 4;
+  // node | region | datacenter | other
+  string kind = 5;
+  optional string parent_id = 6;
+  optional string address = 7;
+  optional double latitude = 8;
+  optional double longitude = 9;
+  optional string timezone = 10;
+  repeated string tags = 11;
+  string private_realm_id = 12;
+  google.protobuf.Timestamp created_at = 13;
+  optional google.protobuf.Timestamp updated_at = 14;
+  optional google.protobuf.Timestamp deleted_at = 15;
+  repeated string changed_fields = 16;
+}
+
+// Router: horus.devices.router.created | updated | deleted. Sin secretos.
+message Router {
+  string id = 1;
+  int32 version = 2;
+  string site_id = 3;
+  string name = 4;
+  optional string display_name = 5;
+  bool is_primary = 6;
+  string vendor = 7;
+  optional string model = 8;
+  // D15: solo RouterOS 7.x; < 7.12 => routeros_version_supported=false (aviso, no bloqueo del registro).
+  optional string routeros_version = 9;
+  optional bool routeros_version_supported = 10;
+  // active | maintenance | decommissioned
+  string admin_state = 11;
+  // pending_configuration | key_received | tunnel_up | exporting
+  string onboarding_state = 12;
+  // IP /32 de túnel = identidad del exportador (la asigna wireguard).
+  optional string tunnel_address = 13;
+  repeated string tags = 14;
+  optional google.protobuf.Timestamp created_at = 15;
+  optional google.protobuf.Timestamp updated_at = 16;
+  optional google.protobuf.Timestamp deleted_at = 17;
+  repeated string changed_fields = 18;
+}
+
+// TrafficFlowCapabilities lo leído de /ip traffic-flow.
+message TrafficFlowCapabilities {
+  bool enabled = 1;
+  // ipfix | netflow_v9 | netflow_v5
+  string version = 2;
+  bool targets_ok = 3;
+  int32 active_flow_timeout_seconds = 4;
+  int32 inactive_flow_timeout_seconds = 5;
+  bool packet_sampling = 6;
+}
+
+// ApiCapabilities APIs de RouterOS disponibles.
+message ApiCapabilities {
+  bool rest = 1;
+  bool rest_tls = 2;
+  bool api_ssl = 3;
+}
+
+// RouterCapabilitiesDetected: horus.devices.router.capabilities_detected (tras el alta y al cambiar firmware).
+message RouterCapabilitiesDetected {
+  string id = 1;
+  int32 version = 2;
+  string vendor = 3;
+  string os = 4;
+  string os_version = 5;
+  // D15: false si os_version < 7.12.
+  bool os_version_supported = 6;
+  string board = 7;
+  ApiCapabilities api = 8;
+  TrafficFlowCapabilities traffic_flow = 9;
+  bool snmp_v3 = 10;
+  bool wireguard = 11;
+  google.protobuf.Timestamp detected_at = 12;
+}
+
+// Realm: horus.devices.realm.updated (espacio donde una IP es única; entity = realm_id).
+message Realm {
+  string id = 1;
+  int32 version = 2;
+  // public | node_private
+  string kind = 3;
+  optional string site_id = 4;
+  string name = 5;
+  repeated string router_ids = 6;
+}
+
+// ClientPrefix: horus.devices.client_prefix.created | updated | deleted.
+message ClientPrefix {
+  string id = 1;
+  int32 version = 2;
+  string site_id = 3;
+  string realm_id = 4;
+  string prefix = 5;
+  // customers | infrastructure | excluded
+  string role = 6;
+  // static | dynamic | unknown
+  string assignment_mode = 7;
+  string default_kind = 8;
+  optional int32 ipv6_client_len = 9;
+  // manual | routeros_api | discovery_confirmed
+  string source = 10;
+  bool confirmed = 11;
+  optional google.protobuf.Timestamp created_at = 12;
+  optional google.protobuf.Timestamp deleted_at = 13;
+  repeated string changed_fields = 14;
+}
+
+// KindChange detalle de un cambio de tipo (se copia al historial; no depende de la retención de detection).
+message KindChange {
+  optional string from_kind = 1;
+  string to_kind = 2;
+  // default | scoring | manual | reset
+  string source = 3;
+  optional string model_ref = 4;
+  repeated horus.common.v1.Reason reasons = 5;
+  optional string manual_reason = 6;
+  optional string causation_event_id = 7;
+  google.protobuf.Timestamp changed_at = 8;
+}
+
+// Customer: payload de horus.devices.customer.{discovered,updated,kind_changed,inactivated,reactivated,reset,purged}.
+// pii: [address, alias]. purged NO lleva address (el objetivo es olvidarla).
+message Customer {
+  string id = 1;
+  int32 version = 2;
+  optional string address = 3;
+  optional string realm_id = 4;
+  optional string site_id = 5;
+  optional string client_prefix_id = 6;
+  // residential | commercial | unknown
+  optional string kind = 7;
+  // default | scoring | manual
+  optional string kind_source = 8;
+  optional bool kind_locked = 9;
+  optional int32 kind_confidence = 10;
+  optional bool commercial_use_suspected = 11;
+  // active | inactive
+  optional string status = 12;
+  optional string alias = 13;
+  optional google.protobuf.Timestamp first_seen = 14;
+  optional google.protobuf.Timestamp last_seen = 15;
+  optional google.protobuf.Timestamp reset_at = 16;
+  // Solo kind_changed.
+  KindChange change = 17;
+  // inactivated: no_traffic | prefix_removed; purged: privacy_request | tenant_offboarding | retention.
+  optional string reason = 18;
+  repeated string changed_fields = 19;
+}

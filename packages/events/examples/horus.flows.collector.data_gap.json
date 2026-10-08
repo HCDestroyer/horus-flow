@@ -1,0 +1,27 @@
+{
+  "id": "0192f0d2-0000-7000-8000-000000000310",
+  "type": "horus.flows.collector.data_gap",
+  "source": "horus/flows",
+  "subject": "6d1e7b5f-3c2a-5b88-8d4f-2e3a4b5c6d7e",
+  "time": "2026-10-07T14:03:11.123Z",
+  "schema_version": 1,
+  "tenant_id": null,
+  "aggregate_type": "collector",
+  "aggregate_version": 1,
+  "actor": {
+    "type": "service",
+    "id": "svc:flows",
+    "via_platform": false
+  },
+  "trace_parent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+  "correlation_id": null,
+  "causation_id": null,
+  "data": {
+    "collector_id": "flows-collector-1",
+    "from": "2026-10-07T14:10:00.000Z",
+    "to": "2026-10-07T14:22:13.000Z",
+    "dropped_batches": "731",
+    "dropped_records_estimated": "365500",
+    "reason": "bus_unavailable"
+  }
+}

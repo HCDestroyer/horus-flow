@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+// Sobre común de los eventos de dominio y trabajos (C4; docs/events.md §5.1–§5.2).
+// En dominio y trabajos viaja en el cuerpo como JSON (protojson, nombres proto snake_case); en telemetría
+// el sobre va solo en cabeceras NATS (Horus-Type, Horus-Tenant…) y el cuerpo es el lote Protobuf.
+package horus.events.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+// Envelope es el sobre de todo evento de dominio.
+message Envelope {
+  // UUIDv7 = event_id = Nats-Msg-Id = PK del outbox.
+  string id = 1;
+  // horus.<dominio>.<entidad>.<evento>
+  string type = 2;
+  // horus/<módulo>[/<rol>]
+  string source = 3;
+  // ID del agregado = 5º token del subject.
+  string subject = 4;
+  // Cuándo ocurrió (commit u observación), no cuándo se publicó.
+  google.protobuf.Timestamp time = 5;
+  // Versión mayor del payload (= vN del paquete Protobuf).
+  int32 schema_version = 6;
+  // ISP dueño del hecho; ausente/null solo en tipos tenant_scope=platform. Copia obligatoria en Horus-Tenant.
+  optional string tenant_id = 7;
+  string aggregate_type = 8;
+  // version de la entidad tras el cambio (orden e idempotencia).
+  int32 aggregate_version = 9;
+  Actor actor = 10;
+  optional string trace_parent = 11;
+  optional string correlation_id = 12;
+  optional string causation_id = 13;
+  // Payload; su esquema es el mensaje que declara el catálogo (packages/events/catalog/<dominio>.yaml).
+  google.protobuf.Struct data = 14;
+}
+
+// Actor sin datos personales ni secretos (docs/security.md §6.5).
+message Actor {
+  // user | service | system | kiosk
+  string type = 1;
+  // UUIDv7 del usuario o kiosco, svc:<nombre> o system:<proceso>.
+  string id = 2;
+  bool via_platform = 3;
+  optional string platform_role = 4;
+  optional string sid = 5;
+  // session | api_token
+  optional string via = 6;
+  optional string api_token_id = 7;
+}

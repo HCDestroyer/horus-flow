@@ -1,0 +1,95 @@
+# C6 — Temas WebSocket del I1 con ámbito de ISP (docs/api.md §4.3).
+# Endpoint: wss://<HORUS_PUBLIC_BASE_URL host>/api/v1/ws?ticket=<ticket>, subprotocolo horus.ws.v1.
+# La conexión queda ligada al `tid` del token con el que se pidió el ticket: todos los temas de negocio
+# son de ese ISP y el hub solo reenvía mensajes cuyo `Horus-Tenant` coincide con `tid`.
+# Clase `event`: cada mensaje cuenta, puede perderse ante desconexión (se resincroniza por REST).
+# Clase `state`: solo importa el último valor por clave; snapshot al suscribirse; ≤ 1 actualización/s.
+# Kioscos: solo los temas que usan los widgets de sus dashboards asignados + dashboard.<id> + system; los
+# campos `pii` del catálogo de eventos se eliminan salvo show_personal_data.
+version: v0
+protocol: horus.ws.v1
+topics:
+  - topic: routers
+    class: event
+    increment: I1
+    permission: devices.read
+    scope_filter: site_id
+    payload: event_projection
+    nats_subjects: ['horus.devices.router.*.*', 'horus.devices.site.*.*']
+    description: Altas, bajas y cambios de inventario de routers y nodos (incluye onboarding_state).
+  - topic: customers
+    class: event
+    increment: I1
+    permission: customers.read
+    kiosk_permission: counts_only
+    scope_filter: site_id
+    payload: event_projection
+    nats_subjects: ['horus.devices.customer.*.*']
+    description: Clientes descubiertos, cambios de tipo, inactivos/reactivados, reinicios. Kioscos sin show_personal_data reciben solo el contador (`customers.discovered_count`).
+  - topic: security
+    class: event
+    increment: I1
+    permission: security.findings.read
+    scope_filter: site_id
+    payload: event_projection
+    nats_subjects: ['horus.detection.finding.*.*', 'horus.detection.customer.security_state_changed.*']
+    description: Hallazgos abiertos/actualizados/resueltos y cambios de security_state. Los payloads no llevan la IP del cliente (events.md §5.7).
+  - topic: exporters
+    class: event
+    increment: I1
+    permission: flows.read
+    scope_filter: site_id
+    payload: event_projection
+    nats_subjects: ['horus.flows.exporter.state_changed.*', 'horus.flows.exporter.silent.*', 'horus.flows.exporter.recovered.*']
+    description: Cambios de estado de los exportadores (I1-09). Adición de C6 respecto a api.md §4.3.
+  - topic: traffic.summary
+    class: state
+    increment: I1
+    permission: traffic.read
+    keys: ['tenant', 'site:<site_id>']
+    payload: traffic_summary
+    nats_subjects: ['horus.telemetry.flows.summary.*']
+    description: Resumen de tráfico del ISP y por nodo cada 10 s (down_bps, up_bps, flows_per_second, active_customers). Lo publica el ingester. Adición de C6 respecto a api.md §4.3.
+  - topic: wireguard.peers
+    class: event
+    increment: I1
+    permission: wireguard.read
+    payload: event_projection
+    nats_subjects: ['horus.wireguard.peer.*.*']
+    description: Peers enrolados, activados (primer handshake), revocados, handshake_stale/recovered (pasos del onboarding en vivo).
+  - topic: 'dashboard.{dashboard_id}'
+    class: event
+    increment: I1
+    permission: dashboard_access
+    payload: event_projection
+    nats_subjects: ['horus.analytics.dashboard.*.{dashboard_id}', 'horus.analytics.playlist.*.*']
+    description: Cambios del dashboard o de la playlist; la pantalla recarga layout/widgets.
+  - topic: me
+    class: event
+    increment: I1
+    permission: authenticated
+    payload: event_projection
+    nats_subjects: ['horus.alerts.notification.*.*', 'horus.auth.session.revoked.*', 'horus.auth.membership.*.*']
+    description: Avisos al usuario (prueba de canal de notificación, sesión revocada, membresías cambiadas). Filtrado por user_id.
+  - topic: system
+    class: state
+    increment: I0
+    permission: authenticated_or_kiosk
+    keys: ['status']
+    payload: system_status
+    nats_subjects: []
+    description: capabilities de GET /system/status y realtime_status.
+deferred:
+  - { topic: routers.status, increment: I2, reason: estado observado por SNMP }
+  - { topic: 'router.{router_id}', increment: I2 }
+  - { topic: 'router.{router_id}.metrics', increment: I2 }
+  - { topic: alerts, increment: I3, reason: motor de alertas completo }
+  - { topic: summary, increment: I2 }
+  - { topic: platform.overview, increment: I2 }
+close_codes:
+  4400: mensaje inválido
+  4401: ticket inválido o token vencido sin renovar
+  4403: Origin no permitido o renovación con otro tid
+  4408: cliente lento
+  4409: sesión revocada, usuario deshabilitado o kiosco revocado
+  4429: límite superado

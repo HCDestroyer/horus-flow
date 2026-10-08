@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.horus-flow.local/flowsim/v0/expected.schema.json",
+  "title": "FlowsimExpected",
+  "description": "C10 — expected.json que el simulador genera junto a cada escenario (I0-10 criterio 2): clientes y hallazgos esperados, base de make test-flowsim, de los tests de detección (SEC) y de make accept-i1 (INT). `findings` vacío en `normal` y `commercial`.",
+  "type": "object",
+  "required": ["scenario", "seed", "generator_version", "clients", "findings", "totals"],
+  "properties": {
+    "scenario": { "type": "string" },
+    "seed": { "type": "integer" },
+    "generator_version": { "type": "string" },
+    "clients": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["address", "realm", "expected_kind"],
+        "properties": {
+          "address": { "type": "string", "description": "IP canónica (IPv6 truncada a ipv6_client_len). Solo IPs de laboratorio/documentación." },
+          "realm": { "type": "string", "enum": ["node_private", "public"] },
+          "expected_kind": { "type": "string", "enum": ["residential", "commercial", "unknown"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["address", "kind", "min_severity", "min_reasons", "window_from_offset_seconds", "window_to_offset_seconds"],
+        "properties": {
+          "address": { "type": "string" },
+          "kind": { "type": "string", "enum": ["botnet_c2_communication", "ddos_participation", "outbound_scanning", "spam_smtp_outbound", "open_proxy_abuse", "cryptomining", "beaconing", "reputation_hit"] },
+          "min_severity": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+          "min_reasons": { "type": "integer", "minimum": 1 },
+          "reason_codes": { "type": "array", "items": { "type": "string" } },
+          "primary_target": { "type": ["string", "null"] },
+          "recommended_action_codes": { "type": "array", "items": { "type": "string" }, "description": "D11: acciones que el hallazgo debe proponer." },
+          "window_from_offset_seconds": { "type": "integer", "minimum": 0 },
+          "window_to_offset_seconds": { "type": "integer", "minimum": 0 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "totals": {
+      "type": "object",
+      "required": ["flows", "bytes_down", "bytes_up"],
+      "properties": {
+        "flows": { "type": "integer" },
+        "bytes_down": { "type": "string", "pattern": "^[0-9]+$" },
+        "bytes_up": { "type": "string", "pattern": "^[0-9]+$" },
+        "tolerance_ratio": { "type": "number", "default": 0.01 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

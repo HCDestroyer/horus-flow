@@ -1,0 +1,468 @@
+openapi: 3.1.0
+info:
+  title: Horus Flow API — módulo detection (contrato v0)
+  version: 0.1.0
+  description: |
+    Hallazgos de seguridad (señales compatibles con botnet), resumen para widgets NOC, feeds de reputación y
+    allowlist del ISP (docs/api.md §2.10; ADR-0024). Esquema del hallazgo (C8):
+    packages/schemas/finding/v0/finding.schema.json. **D11**: cada hallazgo trae `recommended_actions[]`
+    (explicación + comandos RouterOS sugeridos) que **Horus nunca ejecuta**; el operador los copia.
+    Los comandos llevan la IP del cliente solo en `rendered_commands`, y solo si quien mira tiene
+    `customers.read` (nunca kioscos).
+  license:
+    name: Propietaria
+    identifier: LicenseRef-Horus-Proprietary
+servers:
+  - url: https://{domain}/api/v1
+    variables:
+      domain:
+        default: horus.example.net
+tags:
+  - name: findings
+    description: Hallazgos y su ciclo de vida.
+  - name: reputation
+    description: Feeds de reputación (plataforma) y allowlist (ISP).
+paths:
+  /findings:
+    get:
+      tags: [findings]
+      operationId: listFindings
+      summary: Hallazgos del ISP (orden por defecto severidad y recencia)
+      x-module: detection
+      x-scope: tenant
+      x-permission: security.findings.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Limit'
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/SiteIdFilter'
+        - name: kind
+          in: query
+          schema: { type: string }
+        - name: severity
+          in: query
+          schema: { type: string }
+        - name: state
+          in: query
+          schema: { type: string, description: 'open,acknowledged,resolved,false_positive' }
+        - name: customer_id
+          in: query
+          schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+        - name: opened_at_gte
+          in: query
+          schema: { type: string, format: date-time }
+        - name: sort
+          in: query
+          schema: { type: string, enum: [-severity, -last_seen_at, -opened_at, opened_at], default: -severity }
+      responses:
+        '200':
+          description: Página de hallazgos.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data: { type: array, items: { $ref: '../../finding/v0/finding.schema.json' } }
+                  page: { $ref: './common.yaml#/components/schemas/PageInfo' }
+        '400': { $ref: './common.yaml#/components/responses/BadRequest' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+  /findings/{finding_id}:
+    parameters:
+      - $ref: '#/components/parameters/FindingId'
+    get:
+      tags: [findings]
+      operationId: getFinding
+      summary: Detalle con razones, evidencia agregada, acciones recomendadas y línea de tiempo
+      x-module: detection
+      x-scope: tenant
+      x-permission: security.findings.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Hallazgo.
+          headers:
+            ETag: { $ref: './common.yaml#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '../../finding/v0/finding.schema.json' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+  /findings/{finding_id}/evidence:
+    parameters:
+      - $ref: '#/components/parameters/FindingId'
+    get:
+      tags: [findings]
+      operationId: getFindingEvidence
+      summary: Flujos de evidencia del cliente en la ventana (sin payloads). Acceso auditado
+      x-module: detection
+      x-scope: tenant
+      x-permission: security.evidence.read
+      x-audited: true
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Limit'
+        - $ref: './common.yaml#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Flujos.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [ts, remote_ip, remote_port, protocol, direction, bytes, packets]
+                      properties:
+                        ts: { $ref: './common.yaml#/components/schemas/Timestamp' }
+                        remote_ip: { $ref: './common.yaml#/components/schemas/IpAddress' }
+                        remote_port: { type: integer }
+                        remote_asn: { type: [integer, 'null'] }
+                        protocol: { type: integer }
+                        tcp_flags: { type: [integer, 'null'] }
+                        direction: { type: string, enum: [upload, download, internal, unknown] }
+                        bytes: { $ref: './common.yaml#/components/schemas/Uint64String' }
+                        packets: { $ref: './common.yaml#/components/schemas/Uint64String' }
+                        reputation_category: { type: [string, 'null'] }
+                  page: { $ref: './common.yaml#/components/schemas/PageInfo' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
+  /findings/{finding_id}/acknowledge:
+    parameters:
+      - $ref: '#/components/parameters/FindingId'
+    post:
+      tags: [findings]
+      operationId: acknowledgeFinding
+      summary: Reconocer (queda asignado a quien lo pulsa)
+      x-module: detection
+      x-scope: tenant
+      x-permission: security.findings.manage
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FindingTransition' }
+      responses:
+        '200':
+          description: Hallazgo actualizado.
+          content:
+            application/json:
+              schema: { $ref: '../../finding/v0/finding.schema.json' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+  /findings/{finding_id}/resolve:
+    parameters:
+      - $ref: '#/components/parameters/FindingId'
+    post:
+      tags: [findings]
+      operationId: resolveFinding
+      summary: Resolver (si el patrón vuelve se abre uno nuevo enlazado, "reincidente")
+      x-module: detection
+      x-scope: tenant
+      x-permission: security.findings.manage
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FindingTransition' }
+      responses:
+        '200':
+          description: Hallazgo resuelto.
+          content:
+            application/json:
+              schema: { $ref: '../../finding/v0/finding.schema.json' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+  /findings/{finding_id}/mark-false-positive:
+    parameters:
+      - $ref: '#/components/parameters/FindingId'
+    post:
+      tags: [findings]
+      operationId: markFindingFalsePositive
+      summary: Falso positivo (comentario obligatorio; alimenta verdict_feedback y el periodo de silencio)
+      x-module: detection
+      x-scope: tenant
+      x-permission: security.findings.manage
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [comment]
+              properties:
+                comment: { type: string, minLength: 3, maxLength: 2000 }
+                silence_days: { type: integer, minimum: 1, maximum: 365, default: 30 }
+      responses:
+        '200':
+          description: Marcado como falso positivo.
+          content:
+            application/json:
+              schema: { $ref: '../../finding/v0/finding.schema.json' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /customers/{customer_id}/findings:
+    parameters:
+      - name: customer_id
+        in: path
+        required: true
+        schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    get:
+      tags: [findings]
+      operationId: listCustomerFindings
+      summary: Hallazgos de un cliente
+      x-module: detection
+      x-scope: tenant
+      x-permission: security.findings.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Limit'
+        - $ref: './common.yaml#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Página de hallazgos.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data: { type: array, items: { $ref: '../../finding/v0/finding.schema.json' } }
+                  page: { $ref: './common.yaml#/components/schemas/PageInfo' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+  /security/summary:
+    get:
+      tags: [findings]
+      operationId: getSecuritySummary
+      summary: Conteos por severidad, señal, kind, estado de seguridad y nodo (widgets; sin IPs)
+      x-module: detection
+      x-scope: tenant
+      x-permission: security.findings.read
+      x-principals: [user, api_token, kiosk]
+      x-increment: I1
+      security:
+        - tenantBearer: []
+        - kioskBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/SiteIdFilter'
+        - $ref: './common.yaml#/components/parameters/Range'
+      responses:
+        '200':
+          description: Resumen.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SecuritySummary' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+  /reputation/sources:
+    get:
+      tags: [reputation]
+      operationId: listReputationSources
+      summary: Estado de los feeds de reputación de plataforma (última actualización, entradas, licencia)
+      x-module: detection
+      x-scope: tenant
+      x-permission: security.findings.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Feeds.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [key, name, category, entries, last_success_at, commercial_use_allowed]
+                      properties:
+                        key: { type: string, examples: [abuse_ch_feodo] }
+                        name: { type: string }
+                        category: { type: string, enum: [botnet_cc, scanner, malware_dist, mining_pool, proxy_vpn, tor_exit, blocklist] }
+                        entries: { type: integer }
+                        last_success_at:
+                          oneOf:
+                            - $ref: './common.yaml#/components/schemas/Timestamp'
+                            - type: 'null'
+                        age_seconds: { type: [integer, 'null'] }
+                        commercial_use_allowed: { type: boolean }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+  /reputation/allowlist:
+    get:
+      tags: [reputation]
+      operationId: listAllowlist
+      summary: Allowlist del ISP (prefijos/ASN que no deben generar hallazgos)
+      x-module: detection
+      x-scope: tenant
+      x-permission: security.findings.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Entradas.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/AllowlistEntry' } }
+                  page: { $ref: './common.yaml#/components/schemas/PageInfo' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+    post:
+      tags: [reputation]
+      operationId: createAllowlistEntry
+      summary: Añade una entrada a la allowlist
+      x-module: detection
+      x-scope: tenant
+      x-permission: security.findings.manage
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                prefix: { $ref: './common.yaml#/components/schemas/Cidr' }
+                asn: { type: integer, minimum: 1 }
+                kinds: { type: array, items: { type: string }, description: Vacío = todos. }
+                reason: { type: string, maxLength: 300 }
+      responses:
+        '201':
+          description: Creada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AllowlistEntry' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /reputation/allowlist/{entry_id}:
+    parameters:
+      - name: entry_id
+        in: path
+        required: true
+        schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    delete:
+      tags: [reputation]
+      operationId: deleteAllowlistEntry
+      summary: Quita una entrada de la allowlist
+      x-module: detection
+      x-scope: tenant
+      x-permission: security.findings.manage
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '204': { $ref: './common.yaml#/components/responses/NoContent' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+components:
+  securitySchemes:
+    tenantBearer: { $ref: './common.yaml#/components/securitySchemes/tenantBearer' }
+    kioskBearer: { $ref: './common.yaml#/components/securitySchemes/kioskBearer' }
+  parameters:
+    FindingId:
+      name: finding_id
+      in: path
+      required: true
+      schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+  schemas:
+    FindingTransition:
+      type: object
+      properties:
+        comment: { type: [string, 'null'], maxLength: 2000 }
+        actions_taken:
+          type: array
+          description: Códigos de las acciones recomendadas que el operador aplicó a mano (D11; informativo).
+          items: { type: string }
+    SecuritySummary:
+      type: object
+      required: [open_by_severity, new_last_24h, affected_customers, by_signal, by_kind, by_security_state, by_site, generated_at]
+      properties:
+        open_by_severity: { type: object, additionalProperties: { type: integer } }
+        new_last_24h: { type: integer }
+        affected_customers: { type: integer }
+        by_signal:
+          type: object
+          description: Clientes afectados por señal (c2_contact, beaconing, fan_out, scanning, watched_ports, sustained_upload, smtp, ddos).
+          additionalProperties: { type: integer }
+        by_kind: { type: object, additionalProperties: { type: integer } }
+        by_security_state: { type: object, additionalProperties: { type: integer } }
+        by_site:
+          type: array
+          items:
+            type: object
+            required: [site_id, customers_with_signals, open_findings]
+            properties:
+              site_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+              customers_with_signals: { type: integer }
+              open_findings: { type: integer }
+        watched_ports:
+          type: array
+          items:
+            type: object
+            required: [port, protocol, customers, flows]
+            properties:
+              port: { type: integer }
+              protocol: { type: string, enum: [tcp, udp] }
+              customers: { type: integer }
+              flows: { $ref: './common.yaml#/components/schemas/Uint64String' }
+        generated_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+    AllowlistEntry:
+      type: object
+      required: [id, tenant_id, reason, created_at, created_by]
+      properties:
+        id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        tenant_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        prefix: { type: [string, 'null'] }
+        asn: { type: [integer, 'null'] }
+        kinds: { type: array, items: { type: string } }
+        reason: { type: string }
+        created_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        created_by: { $ref: './common.yaml#/components/schemas/Uuid' }

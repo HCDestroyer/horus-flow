@@ -1,0 +1,257 @@
+# GENERADO: no editar (npm run generate en packages/schemas).
+openapi: 3.1.0
+info:
+  title: Horus Flow API (contrato v0)
+  version: 0.1.0
+  description: |-
+    GENERADO por packages/schemas/tools/contracts-check.mjs --write a partir de las specs de módulo. No editar.
+    API pública /api/v1 (docs/api.md). Tenant solo por el claim `tid` del token. Errores RFC 9457, paginación por cursor.
+  license:
+    name: Propietaria
+    identifier: LicenseRef-Horus-Proprietary
+servers:
+  - url: https://{domain}/api/v1
+    description: Dominio público configurable por instalación (D14, HORUS_PUBLIC_BASE_URL).
+    variables:
+      domain:
+        default: horus.example.net
+tags:
+  - name: auth
+    description: Sesión y tokens.
+  - name: me
+    description: Cuenta propia.
+  - name: members
+    description: Miembros, roles y permisos del tenant.
+  - name: kiosks
+    description: Kioscos (pantallas NOC) como dispositivos registrados.
+  - name: realtime
+    description: Tiempo real (WebSocket `wss://<dominio>/api/v1/ws`, subprotocolo `horus.ws.v1`).
+  - name: system
+    description: Estado del sistema y modos degradados.
+  - name: platform
+    description: Consola de plataforma (superadministración de la instalación).
+  - name: sites
+    description: Nodos (sitios) del ISP.
+  - name: routers
+    description: Routers (el principal de cada nodo exporta los flujos).
+  - name: client-prefixes
+    description: Qué IPs son de clientes en cada nodo.
+  - name: customers
+    description: Clientes = IPs observadas (D1).
+  - name: onboarding
+    description: Script de alta, enrolamiento y script inverso.
+  - name: wireguard
+    description: Estado de los peers (túneles) del ISP.
+  - name: exporters
+    description: Exportadores de flujos (router principal de cada nodo).
+  - name: traffic
+    description: Tops y series de tráfico.
+  - name: dashboards
+    description: Dashboards, widgets y playlists (D8).
+  - name: kiosk
+    description: Configuración del kiosco.
+  - name: findings
+    description: Hallazgos y su ciclo de vida.
+  - name: reputation
+    description: Feeds de reputación (plataforma) y allowlist (ISP).
+  - name: notifications
+    description: Canales de notificación del ISP y entregas.
+paths:
+  /analytics/customers/{customer_id}/traffic:
+    $ref: ./analytics.yaml#/paths/~1analytics~1customers~1{customer_id}~1traffic
+  /analytics/traffic/attribution:
+    $ref: ./analytics.yaml#/paths/~1analytics~1traffic~1attribution
+  /analytics/traffic/timeseries:
+    $ref: ./analytics.yaml#/paths/~1analytics~1traffic~1timeseries
+  /analytics/traffic/top:
+    $ref: ./analytics.yaml#/paths/~1analytics~1traffic~1top
+  /auth/invitations/accept:
+    $ref: ./auth.yaml#/paths/~1auth~1invitations~1accept
+  /auth/login:
+    $ref: ./auth.yaml#/paths/~1auth~1login
+  /auth/logout:
+    $ref: ./auth.yaml#/paths/~1auth~1logout
+  /auth/mfa/verify:
+    $ref: ./auth.yaml#/paths/~1auth~1mfa~1verify
+  /auth/reauth:
+    $ref: ./auth.yaml#/paths/~1auth~1reauth
+  /auth/refresh:
+    $ref: ./auth.yaml#/paths/~1auth~1refresh
+  /auth/token:
+    $ref: ./auth.yaml#/paths/~1auth~1token
+  /client-prefixes/{client_prefix_id}:
+    $ref: ./devices.yaml#/paths/~1client-prefixes~1{client_prefix_id}
+  /client-prefixes/{client_prefix_id}/confirm:
+    $ref: ./devices.yaml#/paths/~1client-prefixes~1{client_prefix_id}~1confirm
+  /customers:
+    $ref: ./devices.yaml#/paths/~1customers
+  /customers/lookup:
+    $ref: ./devices.yaml#/paths/~1customers~1lookup
+  /customers/stats:
+    $ref: ./devices.yaml#/paths/~1customers~1stats
+  /customers/{customer_id}:
+    $ref: ./devices.yaml#/paths/~1customers~1{customer_id}
+  /customers/{customer_id}/findings:
+    $ref: ./detection.yaml#/paths/~1customers~1{customer_id}~1findings
+  /customers/{customer_id}/kind-history:
+    $ref: ./devices.yaml#/paths/~1customers~1{customer_id}~1kind-history
+  /customers/{customer_id}/reset:
+    $ref: ./devices.yaml#/paths/~1customers~1{customer_id}~1reset
+  /customers/{customer_id}/set-kind:
+    $ref: ./devices.yaml#/paths/~1customers~1{customer_id}~1set-kind
+  /customers/{customer_id}/unlock-kind:
+    $ref: ./devices.yaml#/paths/~1customers~1{customer_id}~1unlock-kind
+  /dashboards:
+    $ref: ./analytics.yaml#/paths/~1dashboards
+  /dashboards/{dashboard_id}:
+    $ref: ./analytics.yaml#/paths/~1dashboards~1{dashboard_id}
+  /dashboards/{dashboard_id}/duplicate:
+    $ref: ./analytics.yaml#/paths/~1dashboards~1{dashboard_id}~1duplicate
+  /dashboards/{dashboard_id}/layout:
+    $ref: ./analytics.yaml#/paths/~1dashboards~1{dashboard_id}~1layout
+  /dashboards/{dashboard_id}/widgets:
+    $ref: ./analytics.yaml#/paths/~1dashboards~1{dashboard_id}~1widgets
+  /dashboards/{dashboard_id}/widgets/{widget_id}:
+    $ref: ./analytics.yaml#/paths/~1dashboards~1{dashboard_id}~1widgets~1{widget_id}
+  /dashboards/{dashboard_id}/widgets/{widget_id}/data:
+    $ref: ./analytics.yaml#/paths/~1dashboards~1{dashboard_id}~1widgets~1{widget_id}~1data
+  /enroll/wireguard:
+    $ref: ./wireguard.yaml#/paths/~1enroll~1wireguard
+  /findings:
+    $ref: ./detection.yaml#/paths/~1findings
+  /findings/{finding_id}:
+    $ref: ./detection.yaml#/paths/~1findings~1{finding_id}
+  /findings/{finding_id}/acknowledge:
+    $ref: ./detection.yaml#/paths/~1findings~1{finding_id}~1acknowledge
+  /findings/{finding_id}/evidence:
+    $ref: ./detection.yaml#/paths/~1findings~1{finding_id}~1evidence
+  /findings/{finding_id}/mark-false-positive:
+    $ref: ./detection.yaml#/paths/~1findings~1{finding_id}~1mark-false-positive
+  /findings/{finding_id}/resolve:
+    $ref: ./detection.yaml#/paths/~1findings~1{finding_id}~1resolve
+  /flow-exporters:
+    $ref: ./flows.yaml#/paths/~1flow-exporters
+  /flow-exporters/{router_id}:
+    $ref: ./flows.yaml#/paths/~1flow-exporters~1{router_id}
+  /kiosk/config:
+    $ref: ./analytics.yaml#/paths/~1kiosk~1config
+  /kiosk/enroll:
+    $ref: ./auth.yaml#/paths/~1kiosk~1enroll
+  /kiosk/token:
+    $ref: ./auth.yaml#/paths/~1kiosk~1token
+  /kiosks:
+    $ref: ./auth.yaml#/paths/~1kiosks
+  /kiosks/{kiosk_id}:
+    $ref: ./auth.yaml#/paths/~1kiosks~1{kiosk_id}
+  /kiosks/{kiosk_id}/enrollment-codes:
+    $ref: ./auth.yaml#/paths/~1kiosks~1{kiosk_id}~1enrollment-codes
+  /kiosks/{kiosk_id}/revoke:
+    $ref: ./auth.yaml#/paths/~1kiosks~1{kiosk_id}~1revoke
+  /me:
+    $ref: ./auth.yaml#/paths/~1me
+  /me/password:
+    $ref: ./auth.yaml#/paths/~1me~1password
+  /me/totp/confirm:
+    $ref: ./auth.yaml#/paths/~1me~1totp~1confirm
+  /me/totp/enroll:
+    $ref: ./auth.yaml#/paths/~1me~1totp~1enroll
+  /members:
+    $ref: ./auth.yaml#/paths/~1members
+  /members/{user_id}:
+    $ref: ./auth.yaml#/paths/~1members~1{user_id}
+  /members/{user_id}/role-assignments:
+    $ref: ./auth.yaml#/paths/~1members~1{user_id}~1role-assignments
+  /notification-channels:
+    $ref: ./alerts.yaml#/paths/~1notification-channels
+  /notification-channels/{channel_id}:
+    $ref: ./alerts.yaml#/paths/~1notification-channels~1{channel_id}
+  /notification-channels/{channel_id}/credentials:
+    $ref: ./alerts.yaml#/paths/~1notification-channels~1{channel_id}~1credentials
+  /notification-channels/{channel_id}/test:
+    $ref: ./alerts.yaml#/paths/~1notification-channels~1{channel_id}~1test
+  /notification-deliveries:
+    $ref: ./alerts.yaml#/paths/~1notification-deliveries
+  /permissions:
+    $ref: ./auth.yaml#/paths/~1permissions
+  /platform/exporters/unregistered:
+    $ref: ./platform.yaml#/paths/~1platform~1exporters~1unregistered
+  /platform/overview:
+    $ref: ./platform.yaml#/paths/~1platform~1overview
+  /platform/remote-destinations:
+    $ref: ./platform.yaml#/paths/~1platform~1remote-destinations
+  /platform/tenants:
+    $ref: ./platform.yaml#/paths/~1platform~1tenants
+  /platform/tenants/{tenant_id}:
+    $ref: ./platform.yaml#/paths/~1platform~1tenants~1{tenant_id}
+  /platform/tenants/{tenant_id}/resume:
+    $ref: ./platform.yaml#/paths/~1platform~1tenants~1{tenant_id}~1resume
+  /platform/tenants/{tenant_id}/suspend:
+    $ref: ./platform.yaml#/paths/~1platform~1tenants~1{tenant_id}~1suspend
+  /platform/users:
+    $ref: ./platform.yaml#/paths/~1platform~1users
+  /platform/wireguard/hubs:
+    $ref: ./platform.yaml#/paths/~1platform~1wireguard~1hubs
+  /playlists:
+    $ref: ./analytics.yaml#/paths/~1playlists
+  /playlists/{playlist_id}:
+    $ref: ./analytics.yaml#/paths/~1playlists~1{playlist_id}
+  /reputation/allowlist:
+    $ref: ./detection.yaml#/paths/~1reputation~1allowlist
+  /reputation/allowlist/{entry_id}:
+    $ref: ./detection.yaml#/paths/~1reputation~1allowlist~1{entry_id}
+  /reputation/sources:
+    $ref: ./detection.yaml#/paths/~1reputation~1sources
+  /roles:
+    $ref: ./auth.yaml#/paths/~1roles
+  /routers:
+    $ref: ./devices.yaml#/paths/~1routers
+  /routers/{router_id}:
+    $ref: ./devices.yaml#/paths/~1routers~1{router_id}
+  /routers/{router_id}/credentials/{kind}:
+    $ref: ./devices.yaml#/paths/~1routers~1{router_id}~1credentials~1{kind}
+  /routers/{router_id}/deprovisioning-script:
+    $ref: ./wireguard.yaml#/paths/~1routers~1{router_id}~1deprovisioning-script
+  /routers/{router_id}/prefix-import-preview:
+    $ref: ./devices.yaml#/paths/~1routers~1{router_id}~1prefix-import-preview
+  /routers/{router_id}/provisioning-script:
+    $ref: ./wireguard.yaml#/paths/~1routers~1{router_id}~1provisioning-script
+  /security/summary:
+    $ref: ./detection.yaml#/paths/~1security~1summary
+  /sites:
+    $ref: ./devices.yaml#/paths/~1sites
+  /sites/{site_id}:
+    $ref: ./devices.yaml#/paths/~1sites~1{site_id}
+  /sites/{site_id}/client-prefixes:
+    $ref: ./devices.yaml#/paths/~1sites~1{site_id}~1client-prefixes
+  /sites/{site_id}/client-prefixes/batch:
+    $ref: ./devices.yaml#/paths/~1sites~1{site_id}~1client-prefixes~1batch
+  /sites/{site_id}/prefix-proposals:
+    $ref: ./analytics.yaml#/paths/~1sites~1{site_id}~1prefix-proposals
+  /system/status:
+    $ref: ./gateway.yaml#/paths/~1system~1status
+  /widget-data/preview:
+    $ref: ./analytics.yaml#/paths/~1widget-data~1preview
+  /widget-types:
+    $ref: ./analytics.yaml#/paths/~1widget-types
+  /wireguard/enrollment-tokens/{token_id}/revoke:
+    $ref: ./wireguard.yaml#/paths/~1wireguard~1enrollment-tokens~1{token_id}~1revoke
+  /wireguard/peers:
+    $ref: ./wireguard.yaml#/paths/~1wireguard~1peers
+  /wireguard/peers/{peer_id}:
+    $ref: ./wireguard.yaml#/paths/~1wireguard~1peers~1{peer_id}
+  /ws/tickets:
+    $ref: ./gateway.yaml#/paths/~1ws~1tickets
+components:
+  securitySchemes:
+    tenantBearer:
+      $ref: ./common.yaml#/components/securitySchemes/tenantBearer
+    sessionBearer:
+      $ref: ./common.yaml#/components/securitySchemes/sessionBearer
+    platformBearer:
+      $ref: ./common.yaml#/components/securitySchemes/platformBearer
+    kioskBearer:
+      $ref: ./common.yaml#/components/securitySchemes/kioskBearer
+    refreshCookie:
+      $ref: ./common.yaml#/components/securitySchemes/refreshCookie
+    kioskCookie:
+      $ref: ./common.yaml#/components/securitySchemes/kioskCookie

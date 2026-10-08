@@ -1,0 +1,414 @@
+openapi: 3.1.0
+info:
+  title: Horus Flow API — componentes comunes (contrato v0)
+  version: 0.1.0
+  description: |
+    Componentes compartidos por todas las specs de módulo (C5, docs/api.md §1). No define rutas.
+    Reglas que materializan estos componentes:
+    - Errores RFC 9457 `application/problem+json`; `code` es el contrato (docs/api.md §1.4).
+    - Paginación por cursor opaco keyset `{data, page}`; sin offset (§1.5).
+    - Tenant: lo da **solo** el claim `tid` del access token (`scope=tenant`); las rutas de negocio no
+      llevan tenant (§0, ADR-0017). `tenant_id` en el cuerpo distinto de `tid` → `403 TENANT_MISMATCH`.
+    - Concurrencia optimista `ETag`/`If-Match` con `version` (§1.9); idempotencia `Idempotency-Key` (§1.8).
+  license:
+    name: Propietaria
+    identifier: LicenseRef-Horus-Proprietary
+servers:
+  - url: https://{domain}/api/v1
+    description: Dominio público configurable por instalación (D14, HORUS_PUBLIC_BASE_URL).
+    variables:
+      domain:
+        default: horus.example.net
+paths: {}
+components:
+  securitySchemes:
+    tenantBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Access JWT EdDSA de 10 min con `scope=tenant` y claim **`tid`** (ISP del token), emitido por
+        `POST /auth/token {"tenant_id"}`. Todo endpoint con datos de ISP lo exige; el tenant nunca se
+        toma de la ruta, query, cabecera o cuerpo. Un token `session`/`platform` en una ruta de tenant →
+        `403 TOKEN_SCOPE_INVALID`. También lo obtienen los API tokens `hf_pat_…` (canjeados por el gateway).
+    sessionBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access JWT con `scope=session` (sin `tid`). Solo `/me*`, `/auth/*`, `/ws/tickets`, catálogos sin tenant.
+    platformBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access JWT con `scope=platform` (sin `tid`), solo para usuarios con rol de plataforma. Rutas `/platform/*`.
+    kioskBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access JWT de kiosco (`typ=kiosk`, `sub=kiosk:<id>`, `tid`), 10 min, solo lectura; solo rutas con `x-principals` que incluyan `kiosk`.
+    refreshCookie:
+      type: apiKey
+      in: cookie
+      name: __Secure-hf_rt
+      description: Refresh opaco rotativo (`HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth`, sin atributo `Domain`).
+    kioskCookie:
+      type: apiKey
+      in: cookie
+      name: __Secure-hf_kiosk
+      description: Credencial de dispositivo kiosco (`HttpOnly; Secure; SameSite=Strict; Path=/api/v1/kiosk`, sin `Domain`).
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      description: Tamaño de página (1–200, por defecto 50). Fuera de rango → 400.
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    Cursor:
+      name: cursor
+      in: query
+      description: Cursor opaco (`page.next_cursor`); ligado a filtros, orden y `tid`. Ajeno → `400 INVALID_CURSOR`.
+      schema: { type: string, maxLength: 2048 }
+    IncludeTotal:
+      name: include_total
+      in: query
+      description: Solo en colecciones administrativas pequeñas; ignorado en las grandes.
+      schema: { type: boolean, default: false }
+    Q:
+      name: q
+      in: query
+      description: Búsqueda libre por prefijo/trigram sobre los campos documentados. Nunca IPs de clientes (D1).
+      schema: { type: string, maxLength: 128 }
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: ETag (`"<version>"`) del recurso; falta → 428, no coincide → 412 con `current`.
+      schema: { type: string, examples: ['"7"'] }
+    IfNoneMatch:
+      name: If-None-Match
+      in: header
+      required: false
+      schema: { type: string }
+    IdempotencyKeyRequired:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: UUID generado por el cliente; obligatorio en acciones con efecto externo (falta → 428).
+      schema: { type: string, format: uuid }
+    IdempotencyKeyOptional:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: Recomendado en `POST`.
+      schema: { type: string, format: uuid }
+    XRequestedWith:
+      name: X-Requested-With
+      in: header
+      required: true
+      description: Defensa CSRF en rutas autenticadas por cookie; valor fijo `horus`.
+      schema: { type: string, const: horus }
+    From:
+      name: from
+      in: query
+      description: Inicio RFC 3339 UTC, intervalo semiabierto `[from, to)`. Excluyente con `range`.
+      schema: { type: string, format: date-time }
+    To:
+      name: to
+      in: query
+      description: Fin RFC 3339 UTC (por defecto, ahora).
+      schema: { type: string, format: date-time }
+    Range:
+      name: range
+      in: query
+      description: Atajo relativo; el servidor lo resuelve y lo devuelve en `meta`.
+      schema: { $ref: '#/components/schemas/RelativeRange' }
+    Step:
+      name: step
+      in: query
+      description: Segundos por bucket; omitido → el servidor elige (≤ ~500 puntos/serie).
+      schema: { type: integer, minimum: 60 }
+    SiteIdFilter:
+      name: site_id
+      in: query
+      description: Filtro por nodo (multivalor por comas).
+      schema: { type: string }
+  headers:
+    ETag:
+      description: Versión del recurso (`"<version>"`).
+      schema: { type: string }
+    Location:
+      description: URL absoluta o relativa del recurso creado; las absolutas se construyen con HORUS_PUBLIC_BASE_URL (D14), nunca con `Host`.
+      schema: { type: string }
+    RetryAfter:
+      description: Segundos hasta reintentar.
+      schema: { type: integer }
+    RateLimit:
+      description: 'Draft IETF ratelimit-headers, p. ej. `"default";r=412;t=23`.'
+      schema: { type: string }
+    RateLimitPolicy:
+      description: 'p. ej. `"default";q=600;w=60`.'
+      schema: { type: string }
+    XRequestId:
+      description: ID de correlación (UUIDv7) generado o aceptado por el gateway.
+      schema: { type: string }
+  responses:
+    NoContent:
+      description: Sin contenido.
+    BadRequest:
+      description: JSON mal formado, parámetro inválido, cursor corrupto, filtro u orden no permitido.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Unauthorized:
+      description: Sin token, token expirado (`TOKEN_EXPIRED`) o sesión revocada.
+      headers:
+        WWW-Authenticate:
+          schema: { type: string, examples: ['Bearer error="invalid_token"'] }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Forbidden:
+      description: Sin permiso, ámbito de token inválido, `Origin` no permitido, 2FA/re-auth requerida, kiosco fuera de su lista blanca.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: No existe o el llamante no puede saber que existe (otro tenant → siempre 404).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Conflict:
+      description: Conflicto de estado o unicidad; `Idempotency-Key` en vuelo.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    PreconditionFailed:
+      description: '`If-Match` no coincide; incluye `current`.'
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    PreconditionRequired:
+      description: Falta `If-Match` o `Idempotency-Key` obligatorio.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    UnprocessableEntity:
+      description: Validación semántica (`errors[]`).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    TooManyRequests:
+      description: Rate limit por sesión, IP o tenant (`RATE_LIMITED`, `TENANT_RATE_LIMITED`).
+      headers:
+        Retry-After: { $ref: '#/components/headers/RetryAfter' }
+        RateLimit: { $ref: '#/components/headers/RateLimit' }
+        RateLimit-Policy: { $ref: '#/components/headers/RateLimitPolicy' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    ServiceUnavailable:
+      description: Módulo caído o degradado (`SERVICE_UNAVAILABLE`, `ANALYTICS_UNAVAILABLE`).
+      headers:
+        Retry-After: { $ref: '#/components/headers/RetryAfter' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    GatewayTimeout:
+      description: Timeout (`TIMEOUT`).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    InternalError:
+      description: Error no controlado (con `trace_id`, sin detalles internos).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+  schemas:
+    Uuid:
+      type: string
+      format: uuid
+      description: UUIDv7 canónico.
+      examples: [0192f0c4-7a1e-7c3a-9b1d-2f6e8a4c1d55]
+    Timestamp:
+      type: string
+      format: date-time
+      description: UTC, RFC 3339 con `Z` y milisegundos.
+      examples: ['2026-10-07T14:03:11.123Z']
+    Version:
+      type: integer
+      minimum: 1
+      description: Versión para concurrencia optimista (= ETag, = `aggregate_version` de los eventos).
+    Uint64String:
+      type: string
+      pattern: '^[0-9]{1,20}$'
+      description: Contador que puede superar 2^53, serializado como string decimal.
+    IpAddress:
+      type: string
+      description: IPv4 o IPv6. **Dato personal** cuando es la IP de un cliente (nunca en URLs).
+      examples: [100.64.12.34]
+    Cidr:
+      type: string
+      description: Prefijo IPv4/IPv6 en notación CIDR.
+      examples: [100.64.0.0/16]
+    RelativeRange:
+      type: string
+      enum: [15m, 1h, 6h, 24h, 7d, 30d, 90d]
+    Severity:
+      type: string
+      description: Severidad (enum abierto; el cliente trata valores desconocidos como "otro").
+      enum: [info, low, medium, high, critical]
+    TenantScopedResource:
+      type: object
+      required: [id, tenant_id, version, created_at, updated_at]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        tenant_id:
+          $ref: '#/components/schemas/Uuid'
+          description: Redundante con `tid`; permite al cliente detectar un token equivocado.
+        version: { $ref: '#/components/schemas/Version' }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    PageInfo:
+      type: object
+      required: [next_cursor, prev_cursor, has_more, limit]
+      properties:
+        next_cursor: { type: [string, 'null'] }
+        prev_cursor: { type: [string, 'null'] }
+        has_more: { type: boolean }
+        limit: { type: integer }
+        total:
+          type: [integer, 'null']
+          description: Solo con `include_total=true` en colecciones administrativas.
+    AnalyticsMeta:
+      type: object
+      required: [from, to, step, partial, coverage]
+      properties:
+        from: { $ref: '#/components/schemas/Timestamp' }
+        to: { $ref: '#/components/schemas/Timestamp' }
+        step: { type: [integer, 'null'] }
+        agg: { type: string, enum: [avg, max, min, sum, last, p95] }
+        source: { type: string, examples: [flows, snmp] }
+        partial:
+          type: boolean
+          description: true si parte del rango no está disponible (retención, exportador silencioso, backend degradado).
+        coverage:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Fracción del rango con datos. Huecos como ausencia, nunca ceros.
+        generated_at: { $ref: '#/components/schemas/Timestamp' }
+    Reason:
+      type: object
+      description: Razón explicable `{code, detail, weight}` (código estable traducible + texto humano).
+      required: [code, detail]
+      properties:
+        code: { type: string, pattern: '^[a-z0-9_]+$' }
+        detail: { type: string, maxLength: 500 }
+        weight: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        data:
+          type: [object, 'null']
+          additionalProperties: true
+          description: Datos estructurados de la razón (puerto, nº de destinos, feed, ventana…).
+    FieldError:
+      type: object
+      required: [field, code, message]
+      properties:
+        field: { type: string, description: 'Notación de puntos (`allowed_ips.0`).' }
+        code: { type: string, examples: [INVALID_IP, NOT_FOUND, REQUIRED] }
+        message: { type: string }
+    Problem:
+      type: object
+      description: RFC 9457 `application/problem+json`. Lo producen los módulos y el gateway con el mismo formato.
+      required: [type, title, status, code]
+      properties:
+        type:
+          type: string
+          format: uri
+          examples: ['https://docs.horus-flow.local/errors/validation-failed']
+        title: { type: string, description: Texto humano en español; puede cambiar. }
+        status: { type: integer, minimum: 400, maximum: 599 }
+        detail: { type: string }
+        instance: { type: string }
+        code: { $ref: '#/components/schemas/ErrorCode' }
+        trace_id: { type: string }
+        request_id: { type: string }
+        errors:
+          type: array
+          items: { $ref: '#/components/schemas/FieldError' }
+        current:
+          type: object
+          additionalProperties: true
+          description: Solo en 412; representación actual del recurso.
+    ErrorCode:
+      description: |
+        Código estable UPPER_SNAKE_CASE (= `ErrorInfo.reason` de gRPC). **Enum abierto**: se listan los
+        conocidos en v0; el cliente trata un código desconocido según el `status` HTTP.
+      anyOf:
+        - type: string
+          enum:
+            - VALIDATION_FAILED
+            - UNAUTHENTICATED
+            - TOKEN_EXPIRED
+            - SESSION_REVOKED
+            - PERMISSION_DENIED
+            - ORIGIN_NOT_ALLOWED
+            - MFA_REQUIRED
+            - MFA_ENROLLMENT_REQUIRED
+            - REAUTH_REQUIRED
+            - NOT_FOUND
+            - ALREADY_EXISTS
+            - CONFLICT
+            - PRECONDITION_FAILED
+            - PRECONDITION_REQUIRED
+            - IDEMPOTENCY_KEY_REUSED
+            - IDEMPOTENCY_IN_PROGRESS
+            - RATE_LIMITED
+            - TENANT_RATE_LIMITED
+            - INTERNAL
+            - SERVICE_UNAVAILABLE
+            - ANALYTICS_UNAVAILABLE
+            - TIMEOUT
+            - INVALID_CREDENTIALS
+            - INVALID_CURSOR
+            - INVALID_FILTER
+            - INVALID_SORT_FIELD
+            - TIME_RANGE_TOO_LARGE
+            - TENANT_NOT_FOUND
+            - TENANT_MISMATCH
+            - TENANT_SUSPENDED
+            - TOKEN_SCOPE_INVALID
+            - KIOSK_FORBIDDEN
+            - ROUTER_NOT_FOUND
+            - ROUTER_PRIMARY_EXISTS
+            - ROUTEROS_VERSION_UNSUPPORTED
+            - ROUTER_UNREACHABLE
+            - ROUTER_TLS_FINGERPRINT_CHANGED
+            - SITE_NOT_FOUND
+            - SITE_NOT_EMPTY
+            - PEER_ALREADY_REVOKED
+            - WIREGUARD_IP_POOL_EXHAUSTED
+            - WIREGUARD_PUBLIC_KEY_IN_USE
+            - ENROLLMENT_TOKEN_INVALID
+            - CUSTOMER_NOT_FOUND
+            - CUSTOMER_KIND_LOCKED
+            - CLIENT_PREFIX_OVERLAP
+            - CLIENT_PREFIX_NOT_FOUND
+            - FINDING_NOT_FOUND
+            - FINDING_STATE_INVALID
+            - DASHBOARD_NOT_FOUND
+            - DASHBOARD_READ_ONLY
+            - WIDGET_TYPE_NOT_ALLOWED
+            - WIDGET_TYPE_UNKNOWN
+            - WIDGET_CONFIG_INVALID
+            - KIOSK_ENROLLMENT_CODE_INVALID
+            - NOTIFICATION_CHANNEL_NOT_FOUND
+            - NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE
+            - NOTIFICATION_CHANNEL_UNREACHABLE
+            - STORAGE_TARGET_UNREACHABLE
+        - type: string
+          pattern: '^[A-Z][A-Z0-9_]*$'
+    ActorRef:
+      type: object
+      required: [type, id]
+      properties:
+        type: { type: string, enum: [user, service, system, kiosk] }
+        id: { type: string }

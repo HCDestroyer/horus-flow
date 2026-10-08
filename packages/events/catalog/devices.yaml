@@ -1,0 +1,398 @@
+# Catálogo de eventos v0 del dominio `devices` (C4; docs/events.md §5.6, §8).
+# Un archivo por dominio para que dos agentes no editen el mismo. Cada tipo: mensaje Protobuf en
+# packages/protobuf/horus/events/<dominio>/v1/ y golden file en packages/events/examples/<type>.json.
+# Cambios de pii / tenant_scope requieren a la persona.
+domain: devices
+version: v0
+events:
+- type: horus.devices.audit.recorded
+  subject: horus.devices.audit.recorded.{entry_id}
+  tenant_scope: tenant
+  stream: DEVICES_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.common.v1.AuditRecord
+  schema_version: 1
+  producer: devices
+  consumers:
+  - auth
+  websocket_topics: []
+  pii: true
+  pii_fields:
+  - ip
+  - user_agent
+  status: draft
+  since: I0
+  example: examples/horus.devices.audit.recorded.json
+  notes: Único evento con IP y User-Agent; tenant_id null para acciones de plataforma. Solo auth lo persiste (cadena de hashes).
+- type: horus.devices.site.created
+  subject: horus.devices.site.created.{site_id}
+  tenant_scope: tenant
+  stream: DEVICES_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.devices.v1.Site
+  schema_version: 1
+  producer: devices
+  consumers:
+  - flows
+  - analytics
+  - gateway
+  websocket_topics:
+  - routers
+  pii: false
+  pii_fields: []
+  status: draft
+  since: I0
+  example: examples/horus.devices.site.created.json
+- type: horus.devices.site.updated
+  subject: horus.devices.site.updated.{site_id}
+  tenant_scope: tenant
+  stream: DEVICES_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.devices.v1.Site
+  schema_version: 1
+  producer: devices
+  consumers:
+  - flows
+  - analytics
+  - gateway
+  websocket_topics:
+  - routers
+  pii: false
+  pii_fields: []
+  status: draft
+  since: I0
+  example: examples/horus.devices.site.updated.json
+- type: horus.devices.site.deleted
+  subject: horus.devices.site.deleted.{site_id}
+  tenant_scope: tenant
+  stream: DEVICES_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.devices.v1.Site
+  schema_version: 1
+  producer: devices
+  consumers:
+  - flows
+  - analytics
+  - gateway
+  websocket_topics:
+  - routers
+  pii: false
+  pii_fields: []
+  status: draft
+  since: I0
+  example: examples/horus.devices.site.deleted.json
+- type: horus.devices.router.created
+  subject: horus.devices.router.created.{router_id}
+  tenant_scope: tenant
+  stream: DEVICES_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.devices.v1.Router
+  schema_version: 1
+  producer: devices
+  consumers:
+  - wireguard
+  - flows
+  - analytics
+  - gateway
+  websocket_topics:
+  - routers
+  pii: false
+  pii_fields: []
+  status: draft
+  since: I0
+  example: examples/horus.devices.router.created.json
+  notes: wireguard asigna la IP de túnel al consumirlo (I1-01).
+- type: horus.devices.router.updated
+  subject: horus.devices.router.updated.{router_id}
+  tenant_scope: tenant
+  stream: DEVICES_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.devices.v1.Router
+  schema_version: 1
+  producer: devices
+  consumers:
+  - wireguard
+  - flows
+  - analytics
+  - gateway
+  websocket_topics:
+  - routers
+  pii: false
+  pii_fields: []
+  status: draft
+  since: I0
+  example: examples/horus.devices.router.updated.json
+- type: horus.devices.router.deleted
+  subject: horus.devices.router.deleted.{router_id}
+  tenant_scope: tenant
+  stream: DEVICES_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.devices.v1.Router
+  schema_version: 1
+  producer: devices
+  consumers:
+  - wireguard
+  - flows
+  - analytics
+  - gateway
+  websocket_topics:
+  - routers
+  pii: false
+  pii_fields: []
+  status: draft
+  since: I0
+  example: examples/horus.devices.router.deleted.json
+- type: horus.devices.router.capabilities_detected
+  subject: horus.devices.router.capabilities_detected.{router_id}
+  tenant_scope: tenant
+  stream: DEVICES_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.devices.v1.RouterCapabilitiesDetected
+  schema_version: 1
+  producer: devices
+  consumers:
+  - flows
+  - gateway
+  - alerts
+  websocket_topics:
+  - routers
+  pii: false
+  pii_fields: []
+  status: draft
+  since: I1
+  example: examples/horus.devices.router.capabilities_detected.json
+  notes: 'D15: os_version_supported=false si < 7.12 (aviso). targets_ok=false = deriva de configuración (alerta, nunca corrección).'
+- type: horus.devices.realm.updated
+  subject: horus.devices.realm.updated.{realm_id}
+  tenant_scope: tenant
+  stream: DEVICES_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.devices.v1.Realm
+  schema_version: 1
+  producer: devices
+  consumers:
+  - flows
+  websocket_topics: []
+  pii: false
+  pii_fields: []
+  status: draft
+  since: I0
+  example: examples/horus.devices.realm.updated.json
+- type: horus.devices.client_prefix.created
+  subject: horus.devices.client_prefix.created.{client_prefix_id}
+  tenant_scope: tenant
+  stream: DEVICES_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.devices.v1.ClientPrefix
+  schema_version: 1
+  producer: devices
+  consumers:
+  - flows
+  - detection
+  websocket_topics:
+  - routers
+  pii: false
+  pii_fields: []
+  status: draft
+  since: I0
+  example: examples/horus.devices.client_prefix.created.json
+- type: horus.devices.client_prefix.updated
+  subject: horus.devices.client_prefix.updated.{client_prefix_id}
+  tenant_scope: tenant
+  stream: DEVICES_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.devices.v1.ClientPrefix
+  schema_version: 1
+  producer: devices
+  consumers:
+  - flows
+  - detection
+  websocket_topics:
+  - routers
+  pii: false
+  pii_fields: []
+  status: draft
+  since: I0
+  example: examples/horus.devices.client_prefix.updated.json
+- type: horus.devices.client_prefix.deleted
+  subject: horus.devices.client_prefix.deleted.{client_prefix_id}
+  tenant_scope: tenant
+  stream: DEVICES_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.devices.v1.ClientPrefix
+  schema_version: 1
+  producer: devices
+  consumers:
+  - flows
+  - detection
+  websocket_topics:
+  - routers
+  pii: false
+  pii_fields: []
+  status: draft
+  since: I0
+  example: examples/horus.devices.client_prefix.deleted.json
+- type: horus.devices.customer.discovered
+  subject: horus.devices.customer.discovered.{customer_id}
+  tenant_scope: tenant
+  stream: DEVICES_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.devices.v1.Customer
+  schema_version: 1
+  producer: devices
+  consumers:
+  - flows
+  - detection
+  - analytics
+  - gateway
+  websocket_topics:
+  - customers
+  pii: true
+  pii_fields:
+  - address
+  - alias
+  status: draft
+  since: I1
+  example: examples/horus.devices.customer.discovered.json
+- type: horus.devices.customer.updated
+  subject: horus.devices.customer.updated.{customer_id}
+  tenant_scope: tenant
+  stream: DEVICES_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.devices.v1.Customer
+  schema_version: 1
+  producer: devices
+  consumers:
+  - analytics
+  - gateway
+  websocket_topics:
+  - customers
+  pii: true
+  pii_fields:
+  - address
+  - alias
+  status: draft
+  since: I1
+  example: examples/horus.devices.customer.updated.json
+- type: horus.devices.customer.kind_changed
+  subject: horus.devices.customer.kind_changed.{customer_id}
+  tenant_scope: tenant
+  stream: DEVICES_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.devices.v1.Customer
+  schema_version: 1
+  producer: devices
+  consumers:
+  - detection
+  - analytics
+  - alerts
+  - gateway
+  websocket_topics:
+  - customers
+  pii: true
+  pii_fields:
+  - address
+  - alias
+  status: draft
+  since: I1
+  example: examples/horus.devices.customer.kind_changed.json
+- type: horus.devices.customer.inactivated
+  subject: horus.devices.customer.inactivated.{customer_id}
+  tenant_scope: tenant
+  stream: DEVICES_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.devices.v1.Customer
+  schema_version: 1
+  producer: devices
+  consumers:
+  - flows
+  - detection
+  - analytics
+  - gateway
+  websocket_topics:
+  - customers
+  pii: true
+  pii_fields:
+  - address
+  status: draft
+  since: I1
+  example: examples/horus.devices.customer.inactivated.json
+- type: horus.devices.customer.reactivated
+  subject: horus.devices.customer.reactivated.{customer_id}
+  tenant_scope: tenant
+  stream: DEVICES_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.devices.v1.Customer
+  schema_version: 1
+  producer: devices
+  consumers:
+  - flows
+  - detection
+  - analytics
+  - gateway
+  websocket_topics:
+  - customers
+  pii: true
+  pii_fields:
+  - address
+  status: draft
+  since: I1
+  example: examples/horus.devices.customer.reactivated.json
+- type: horus.devices.customer.reset
+  subject: horus.devices.customer.reset.{customer_id}
+  tenant_scope: tenant
+  stream: DEVICES_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.devices.v1.Customer
+  schema_version: 1
+  producer: devices
+  consumers:
+  - detection
+  - analytics
+  - gateway
+  websocket_topics:
+  - customers
+  pii: true
+  pii_fields:
+  - address
+  status: draft
+  since: I1
+  example: examples/horus.devices.customer.reset.json
+- type: horus.devices.customer.purged
+  subject: horus.devices.customer.purged.{customer_id}
+  tenant_scope: tenant
+  stream: DEVICES_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.devices.v1.Customer
+  schema_version: 1
+  producer: devices
+  consumers:
+  - flows
+  - detection
+  - analytics
+  websocket_topics: []
+  pii: false
+  pii_fields: []
+  status: draft
+  since: I1
+  example: examples/horus.devices.customer.purged.json
+  notes: 'Sin IP: el objetivo es olvidarla.'

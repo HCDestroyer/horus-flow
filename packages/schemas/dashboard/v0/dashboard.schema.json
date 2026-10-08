@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.horus-flow.local/dashboard/v0/dashboard.schema.json",
+  "title": "Dashboard",
+  "description": "Documento de dashboard (C9; api.md §2.11, frontend.md §6.4): layout en grilla de 12 columnas + widgets con posición y config. Un solo ETag (version) para todo el documento. Las plantillas de Horus son documentos con visibility=system, tenant_id=null, de solo lectura (se duplican).",
+  "type": "object",
+  "required": ["id", "tenant_id", "version", "name", "visibility", "owner_id", "layout", "default_range", "refresh_seconds", "widgets", "created_at", "updated_at"],
+  "properties": {
+    "id": { "$ref": "#/$defs/Uuid" },
+    "tenant_id": { "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }], "description": "null solo en plantillas de sistema." },
+    "version": { "type": "integer", "minimum": 1 },
+    "name": { "type": "string", "maxLength": 120 },
+    "visibility": { "$ref": "#/$defs/Visibility" },
+    "owner_id": { "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }] },
+    "template_key": { "type": ["string", "null"], "pattern": "^[a-z][a-z0-9_]*$", "description": "Clave estable de la plantilla (noc_isp, security) o de la que se duplicó." },
+    "template_version": { "type": ["integer", "null"], "minimum": 1 },
+    "layout": { "$ref": "#/$defs/Layout" },
+    "default_range": { "$ref": "#/$defs/RelativeRange" },
+    "refresh_seconds": { "type": "integer", "minimum": 10, "maximum": 3600 },
+    "variables": { "$ref": "#/$defs/Variables" },
+    "widgets": { "type": "array", "maxItems": 30, "items": { "$ref": "#/$defs/Widget" } },
+    "created_at": { "$ref": "#/$defs/Timestamp" },
+    "updated_at": { "$ref": "#/$defs/Timestamp" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "Uuid": { "type": "string", "format": "uuid" },
+    "Timestamp": { "type": "string", "format": "date-time" },
+    "RelativeRange": { "type": "string", "enum": ["15m", "1h", "6h", "24h", "7d", "30d", "90d"] },
+    "Visibility": { "type": "string", "enum": ["system", "tenant", "private", "platform"] },
+    "Layout": {
+      "type": "object",
+      "required": ["grid", "columns", "row_height_px"],
+      "properties": {
+        "grid": { "type": "string", "const": "12-col" },
+        "columns": { "type": "integer", "const": 12 },
+        "row_height_px": { "type": "integer", "minimum": 40, "maximum": 200 },
+        "breakpoints": {
+          "type": "object",
+          "properties": {
+            "lg": { "type": "integer" },
+            "md": { "type": "integer" },
+            "sm": { "type": "integer" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "Variables": {
+      "type": "object",
+      "description": "Variables comunes de la toolbar que heredan los widgets que las aceptan.",
+      "properties": {
+        "site_id": { "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }] },
+        "range": { "$ref": "#/$defs/RelativeRange" }
+      },
+      "additionalProperties": false
+    },
+    "Position": {
+      "type": "object",
+      "required": ["x", "y", "w", "h"],
+      "properties": {
+        "x": { "type": "integer", "minimum": 0, "maximum": 11 },
+        "y": { "type": "integer", "minimum": 0 },
+        "w": { "type": "integer", "minimum": 1, "maximum": 12 },
+        "h": { "type": "integer", "minimum": 1, "maximum": 12 }
+      },
+      "additionalProperties": false
+    },
+    "Widget": {
+      "type": "object",
+      "required": ["id", "type", "title", "position", "config"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$" },
+        "type": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$", "description": "Debe existir en GET /widget-types; config valida contra su config_schema." },
+        "title": { "type": ["string", "null"], "maxLength": 80 },
+        "position": { "$ref": "#/$defs/Position" },
+        "config": { "type": "object" },
+        "refresh_seconds": { "type": ["integer", "null"], "minimum": 5, "maximum": 3600 }
+      },
+      "additionalProperties": false
+    },
+    "WidgetPatch": {
+      "type": "object",
+      "properties": {
+        "title": { "type": ["string", "null"], "maxLength": 80 },
+        "position": { "$ref": "#/$defs/Position" },
+        "config": { "type": "object" },
+        "refresh_seconds": { "type": ["integer", "null"], "minimum": 5, "maximum": 3600 }
+      },
+      "additionalProperties": false
+    },
+    "DashboardInput": {
+      "type": "object",
+      "required": ["name", "layout", "widgets"],
+      "properties": {
+        "name": { "type": "string", "maxLength": 120 },
+        "visibility": { "type": "string", "enum": ["private", "tenant"], "default": "private" },
+        "layout": { "$ref": "#/$defs/Layout" },
+        "default_range": { "$ref": "#/$defs/RelativeRange" },
+        "refresh_seconds": { "type": "integer", "minimum": 10, "maximum": 3600 },
+        "variables": { "$ref": "#/$defs/Variables" },
+        "widgets": { "type": "array", "maxItems": 30, "items": { "$ref": "#/$defs/Widget" } }
+      },
+      "additionalProperties": false
+    },
+    "DashboardPatch": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 120 },
+        "visibility": { "type": "string", "enum": ["private", "tenant"] },
+        "default_range": { "$ref": "#/$defs/RelativeRange" },
+        "refresh_seconds": { "type": "integer", "minimum": 10, "maximum": 3600 },
+        "variables": { "$ref": "#/$defs/Variables" }
+      },
+      "additionalProperties": false
+    },
+    "LayoutReplace": {
+      "type": "object",
+      "required": ["layout", "positions"],
+      "properties": {
+        "layout": { "$ref": "#/$defs/Layout" },
+        "positions": {
+          "type": "object",
+          "description": "widget_id → posición; debe cubrir todos los widgets del dashboard.",
+          "additionalProperties": { "$ref": "#/$defs/Position" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "DashboardSummary": {
+      "type": "object",
+      "required": ["id", "tenant_id", "version", "name", "visibility", "owner_id", "widget_count", "updated_at"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Uuid" },
+        "tenant_id": { "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }] },
+        "version": { "type": "integer" },
+        "name": { "type": "string" },
+        "visibility": { "$ref": "#/$defs/Visibility" },
+        "owner_id": { "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }] },
+        "template_key": { "type": ["string", "null"] },
+        "widget_count": { "type": "integer" },
+        "updated_at": { "$ref": "#/$defs/Timestamp" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

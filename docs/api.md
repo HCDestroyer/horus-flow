@@ -51,6 +51,7 @@ Nuxt ──HTTPS/WSS──► Traefik (TLS, estáticos) ──► api-gateway (G
 | WebSocket | Conexión ligada al `tid` del token; el fan-out filtra por `Horus-Tenant` (§4) | D6 |
 | Series históricas | Las sirve siempre `analytics` sobre ClickHouse desde el primer incremento | D4 |
 | Almacén clave-valor | Valkey, claves de tenant con prefijo `t:<tenant_id>:` | D3 |
+| Ronda 2 del PO | Acciones recomendadas en hallazgos (§2.10), canal mínimo de notificaciones (§2.10 ter), dominio configurable y URLs absolutas (§1.11), RouterOS ≥ 7.12 (`ROUTEROS_VERSION_UNSUPPORTED`). Contrato v0: `packages/schemas/openapi/v0/` | D11, D13–D15 |
 
 ---
 
@@ -348,6 +349,21 @@ Modelo de tokens decidido en [`security.md`](./security.md) §5.1 (S4/S5); aquí
   (`Authorization: Bearer`); el servicio lo revalida (JWKS) y aplica permiso fino + alcance.
 - **CORS: mismo origen** (Traefik sirve SPA y `/api` en el mismo host) ⇒ CORS deshabilitado. Si algún día cambian los
   dominios, lista blanca explícita (ver C-01).
+- **Acceso por Internet con dominio configurable (D14)**. Configuración por instalación:
+  `HORUS_PUBLIC_BASE_URL` (p. ej. `https://horus.isp.example`; origen de la SPA y de `/api/v1`),
+  `HORUS_ALLOWED_ORIGINS` (por defecto = el origen de `HORUS_PUBLIC_BASE_URL`; admite varios para dominios por ISP
+  más adelante), `HORUS_WG_ENDPOINT`/`HORUS_WG_PORT` (host público del hub WireGuard, puede diferir del web).
+  Reglas: (1) toda URL absoluta que emite el servidor (`Location`, URL del WebSocket en `POST /ws/tickets`, QR de
+  kiosco, `/tool fetch` del script RouterOS, enlaces en notificaciones email/Telegram) se construye con
+  `HORUS_PUBLIC_BASE_URL`, **nunca** con `Host`/`X-Forwarded-Host`; (2) las cookies (`__Secure-hf_rt`,
+  `__Secure-hf_kiosk`) son *host-only* (sin atributo `Domain`), `Secure`, `SameSite=Strict`, así funcionan con
+  cualquier dominio sin compartirse con subdominios; (3) `Origin` se valida contra `HORUS_ALLOWED_ORIGINS` en
+  `/auth/refresh`, `/auth/logout`, `/kiosk/*` y el upgrade del WebSocket; (4) CORS sigue deshabilitado mientras SPA y
+  API compartan origen; si se separan, CORS con lista blanca = `HORUS_ALLOWED_ORIGINS`, sin credenciales cruzadas;
+  (5) Traefik termina TLS con ACME (Let's Encrypt) para el dominio configurado, HSTS, y aplica el rate limit de borde;
+  2FA obligatorio para `tenant_admin`, `security_analyst`, `network_engineer` y roles de plataforma desde el I1
+  (`POST /auth/token` → `403 MFA_ENROLLMENT_REQUIRED` si falta). Contrato: `packages/schemas/openapi/v0/`
+  (`servers: https://{domain}/api/v1`).
 - Correlación: el gateway acepta o genera `X-Request-Id` (UUIDv7) y `traceparent`; los reenvía y devuelve `X-Request-Id`.
 - Respuestas con secretos (configuración WireGuard con clave privada, credenciales reveladas) llevan
   `Cache-Control: no-store`. Por defecto toda la API responde `Cache-Control: no-store` salvo endpoints marcados.
@@ -657,6 +673,27 @@ existe como **purga** (retención, privacidad o baja del tenant), no en la API.
 `kind` del hallazgo (enum abierto): `botnet_c2_communication`, `ddos_participation`, `outbound_scanning`,
 `spam_smtp_outbound`, `open_proxy_abuse`, `cryptomining`, `beaconing`, `reputation_hit`. La **mitigación activa**
 (escribir en el MikroTik) está fuera de v1 ([ADR-0024](./adr/0024-deteccion-de-botnets-como-objetivo-principal.md) §4).
+
+**Acciones recomendadas (D11).** Cada hallazgo trae `recommended_actions[]`: `code` (enum abierto:
+`contact_customer`, `block_outbound_port`, `quarantine_address_list`, `block_smtp_outbound`, `rate_limit_customer`…),
+`title`, `explanation` (por qué, efecto sobre el cliente y cómo deshacerlo), `priority`, `risk`, `audience`,
+`execution: "manual"` (Horus **nunca** las ejecuta), `customer_message` opcional y `routeros` con `min_version`
+(≥ 7.12, D15), `commands`/`undo_commands` como **plantillas** con `{{customer_address}}`, `{{finding_id}}`… y todo lo
+creado con `comment="horus finding {{finding_id}}"`. La API añade `rendered_commands`/`rendered_undo_commands` con los
+valores sustituidos **solo** para quien tiene `customers.read`; en kioscos y eventos van `null`. Esquema:
+`packages/schemas/finding/v0/finding.schema.json` (C8).
+
+### 2.10 ter Canal mínimo de notificaciones (D13, módulo `alerts`)
+
+Adelantado al I1: `GET/POST /notification-channels`, `GET/PATCH/DELETE /notification-channels/{id}`,
+`PUT /notification-channels/{id}/credentials` 🔒 (token propio de bot de Telegram, write-only),
+`POST /notification-channels/{id}/test` (`Idempotency-Key` obligatorio, `202`) y `GET /notification-deliveries`.
+`kind`: `email` (SMTP de la instalación, `HORUS_SMTP_*`) y `telegram` (bot de la instalación o propio del ISP) en I1;
+`librenms` (syslog, SNMP trap o API) **previsto**: crearlo en v0 → `422 NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE`.
+Suscripción por `event_types` (`finding_opened`, `finding_reopened`, `exporter_silent`, `exporter_recovered`,
+`tunnel_down`, `tunnel_recovered`), `min_severity`, `site_ids` y `throttle_minutes`. Los mensajes no llevan la IP del
+cliente salvo `include_personal_data=true` (auditado). Permisos `alerts.read` / `alerts.manage`. Reglas, silencios y
+escalado siguen en el incremento de alertas completo.
 
 ### 2.10 bis Reportes y descargas
 

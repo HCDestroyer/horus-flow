@@ -40,6 +40,7 @@ operador de su red). Este propósito acota qué se recoge, cuánto se guarda y q
 | S13 | Pantallas NOC (D8) | **Kiosco = dispositivo registrado**: código de enrolamiento de un uso (10 min) → credencial de dispositivo HttpOnly rotativa → JWT de solo lectura limitado a dashboards asignados, CIDR opcional, sin datos personales por defecto; nunca tokens largos en la URL (§5.5). | Certificado de cliente en el dispositivo (mTLS) para videowalls gestionados. |
 | S14 | Roles de plataforma | `platform_admin`/`platform_operator`/`platform_auditor` **sin** acceso implícito a datos de negocio de los ISP; acceso de soporte temporal, con motivo, notificado y auditado en ambos lados (§6.6). | — |
 | S15 | Credenciales de MikroTik (D10) | API de RouterOS sólo con TLS (8729 / HTTPS) dentro del túnel WireGuard, usuario `horus-ro` de **solo lectura** con `address=` = red de servicios de Horus; SNMPv3 authPriv; alta con token de enrolamiento de un solo uso; v1 no escribe en routers. *Envelope encryption* con clave por tenant (§8.4). | Rotación automática programada. |
+| S17 | Ronda 2 del PO (D11, D13–D16) | **D14** acceso por Internet: dominio por instalación (`HORUS_PUBLIC_BASE_URL`, `HORUS_ALLOWED_ORIGINS`), TLS ACME en Traefik, cookies host-only sin `Domain`, URLs absolutas solo desde la configuración (nunca `Host`), `Origin` validado en refresh/kiosco/WebSocket, 2FA obligatorio en `tenant_admin`, `security_analyst`, `network_engineer` y roles de plataforma desde el I1, rate limit de borde (api.md §1.11). **D13** canales email/Telegram por ISP: token de bot propio write-only cifrado como los demás secretos (KEK de `alerts`), mensajes sin IP de cliente salvo `include_personal_data` auditado (salen a terceros: proveedor SMTP, Telegram); LibreNMS previsto. **D11** acciones recomendadas: comandos RouterOS sugeridos, nunca ejecutados (no hay credenciales de escritura; ADR-0022); la IP solo aparece renderizada para quien tiene `customers.read`. **D15/D16** RouterOS ≥ 7.12 y túnel WireGuard iniciado por el router como único camino de gestión y flujos. | Dominio por ISP (lista de orígenes por tenant). |
 | S16 | Destinos remotos de copias (D2) | Cifrado **en cliente** antes de salir del servidor (las copias son ilegibles para SFTP/Drive/MEGA/Dropbox); credenciales con mínimo privilegio (carpeta de app, usuario SFTP enjaulado), cifradas en PostgreSQL y materializadas sólo en memoria del proceso de copia (§8.5). | Destino *pull* (el NAS recoge) para que un servidor comprometido no pueda borrar copias. |
 
 ## 1. Activos y actores
@@ -505,7 +506,9 @@ mismos dashboards que ya se ven en la pantalla.
 
 ### 6.1 Catálogo de permisos `recurso.accion`
 
-El catálogo canónico vive en código (`auth`) y se expone en `GET /api/v1/permissions`. Hay dos familias: permisos
+Contrato v0 (C7): `packages/schemas/permissions/v0/permissions.yaml` (permisos, roles de sistema, token de kiosco y
+equivalencias con los nombres del backlog: `isp_admin`→`tenant_admin`, `isp_operator`→`noc`, `isp_viewer`→`viewer`,
+`superadmin`→`platform_admin`). El catálogo canónico vive en código (`auth`) y se expone en `GET /api/v1/permissions`. Hay dos familias: permisos
 **de tenant** (se conceden dentro de una membresía y se evalúan en el tenant de la ruta) y permisos **de plataforma**
 (prefijo `platform.`, sólo en roles de plataforma).
 
@@ -528,7 +531,7 @@ Permisos de tenant:
 | `sites` (prefijos de clientes) | los prefijos de clientes del realm se gestionan con `sites.update` |
 | `security.findings` | `read` (hallazgos, estado de seguridad por cliente, feeds, allowlist), `manage` (reconocer, resolver, falso positivo, allowlist del tenant) |
 | `security.evidence` | `read` (flujos de evidencia de un cliente; auditado) — [ADR-0024](adr/0024-deteccion-de-botnets-como-objetivo-principal.md) §3 |
-| `alerts` | `read`, `ack`, `manage` (reglas, canales) |
+| `alerts` | `read`, `ack`, `manage` (reglas, canales de notificación email/Telegram del I1 — D13) |
 | `reports` | `read`, `export` |
 | `dashboards` | `read` (ver compartidos, crear privados), `manage` (dashboards y rotaciones compartidos con el tenant) |
 | `kiosks` | `manage` |

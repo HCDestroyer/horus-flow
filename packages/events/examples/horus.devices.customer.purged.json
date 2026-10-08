@@ -1,0 +1,24 @@
+{
+  "id": "0192f0d2-0000-7000-8000-000000000119",
+  "type": "horus.devices.customer.purged",
+  "source": "horus/devices",
+  "subject": "0192f0c4-7a1e-7c3a-9b1d-2f6e8a4c1d55",
+  "time": "2026-10-07T14:03:11.123Z",
+  "schema_version": 1,
+  "tenant_id": "0192e000-0000-7000-8000-000000000001",
+  "aggregate_type": "customer",
+  "aggregate_version": 7,
+  "actor": {
+    "type": "system",
+    "id": "system:devices-lifecycle",
+    "via_platform": false
+  },
+  "trace_parent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+  "correlation_id": null,
+  "causation_id": null,
+  "data": {
+    "id": "0192f0c4-7a1e-7c3a-9b1d-2f6e8a4c1d55",
+    "version": 7,
+    "reason": "retention"
+  }
+}

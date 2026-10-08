@@ -1,0 +1,28 @@
+{
+  "id": "0192f0d2-0000-7000-8000-000000000208",
+  "type": "horus.wireguard.hub.status_changed",
+  "source": "horus/wireguard",
+  "subject": "0192e666-0000-7000-8000-000000000066",
+  "time": "2026-10-07T14:03:11.123Z",
+  "schema_version": 1,
+  "tenant_id": null,
+  "aggregate_type": "hub",
+  "aggregate_version": 1,
+  "actor": {
+    "type": "service",
+    "id": "svc:wireguard",
+    "via_platform": false
+  },
+  "trace_parent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+  "correlation_id": null,
+  "causation_id": null,
+  "data": {
+    "hub_id": "0192e666-0000-7000-8000-000000000066",
+    "previous": "up",
+    "status": "down",
+    "reason": "interface_missing",
+    "peers_affected": 143,
+    "tenants_affected": 4,
+    "changed_at": "2026-10-07T14:03:11.123Z"
+  }
+}

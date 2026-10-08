@@ -1,0 +1,27 @@
+{
+  "id": "0192f0d2-0000-7000-8000-000000000206",
+  "type": "horus.wireguard.peer.handshake_stale",
+  "source": "horus/wireguard",
+  "subject": "0192e555-0000-7000-8000-000000000055",
+  "time": "2026-10-07T14:03:11.123Z",
+  "schema_version": 1,
+  "tenant_id": "0192e000-0000-7000-8000-000000000001",
+  "aggregate_type": "peer",
+  "aggregate_version": 6,
+  "actor": {
+    "type": "service",
+    "id": "svc:wireguard",
+    "via_platform": false
+  },
+  "trace_parent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+  "correlation_id": null,
+  "causation_id": null,
+  "data": {
+    "id": "0192e555-0000-7000-8000-000000000055",
+    "server_id": "0192e666-0000-7000-8000-000000000066",
+    "router_id": "0192e333-0000-7000-8000-000000000033",
+    "last_handshake_at": "2026-10-07T13:58:02.000Z",
+    "stale_after_seconds": 180,
+    "detected_at": "2026-10-07T14:03:11.123Z"
+  }
+}

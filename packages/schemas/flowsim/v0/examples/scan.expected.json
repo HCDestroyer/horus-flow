@@ -1,0 +1,23 @@
+{
+  "scenario": "scan",
+  "seed": 1,
+  "generator_version": "0.1.0",
+  "clients": [
+    { "address": "10.20.0.41", "realm": "node_private", "expected_kind": "residential" },
+    { "address": "10.20.0.42", "realm": "node_private", "expected_kind": "residential" }
+  ],
+  "findings": [
+    {
+      "address": "10.20.0.41",
+      "kind": "outbound_scanning",
+      "min_severity": "high",
+      "min_reasons": 2,
+      "reason_codes": ["syn_only_ratio_high", "watched_port_fanout"],
+      "primary_target": "23",
+      "recommended_action_codes": ["contact_customer", "block_outbound_port"],
+      "window_from_offset_seconds": 120,
+      "window_to_offset_seconds": 2820
+    }
+  ],
+  "totals": { "flows": 1250000, "bytes_down": "41000000000", "bytes_up": "3900000000", "tolerance_ratio": 0.01 }
+}

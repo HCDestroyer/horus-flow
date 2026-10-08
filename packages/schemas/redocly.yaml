@@ -1,0 +1,58 @@
+# Lint de C5 (OpenAPI v0). Ejecutar desde packages/schemas: `npx @redocly/cli lint`.
+# Reglas propias (docs/api.md §1.12): operationId, x-permission/x-scope/x-module en cada operación,
+# errores con problem+json.
+apis:
+  horus@v0:
+    root: openapi/v0/horus-api.yaml
+extends:
+  - recommended
+rules:
+  operation-operationId: error
+  operation-operationId-unique: error
+  operation-summary: error
+  operation-4xx-response: error
+  no-unused-components: off
+  info-license-url: off
+  security-defined: error
+  no-server-example.com: off
+  rule/operation-x-permission:
+    subject:
+      type: Operation
+      property: x-permission
+    assertions:
+      defined: true
+    message: Toda operación declara x-permission (permiso, o public/authenticated/refresh_cookie/kiosk_cookie/enrollment_token/widget_type/dashboard_access).
+    severity: error
+  rule/operation-x-scope:
+    subject:
+      type: Operation
+      property: x-scope
+    assertions:
+      defined: true
+      enum: [tenant, platform, session, public]
+    message: Toda operación declara x-scope (tenant | platform | session | public).
+    severity: error
+  rule/operation-x-module:
+    subject:
+      type: Operation
+      property: x-module
+    assertions:
+      defined: true
+      enum: [gateway, auth, devices, wireguard, flows, analytics, detection, alerts]
+    severity: error
+  rule/operation-x-increment:
+    subject:
+      type: Operation
+      property: x-increment
+    assertions:
+      defined: true
+      enum: [I0, I1]
+    severity: error
+  rule/problem-json-errors:
+    subject:
+      type: Response
+      filterInParentKeys: ['400', '401', '403', '404', '409', '412', '422', '428', '429', '503', '504']
+    assertions:
+      required: [content]
+    message: Los errores devuelven application/problem+json (RFC 9457).
+    severity: error

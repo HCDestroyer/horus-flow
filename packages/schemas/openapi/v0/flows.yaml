@@ -1,0 +1,114 @@
+openapi: 3.1.0
+info:
+  title: Horus Flow API — módulo flows (contrato v0)
+  version: 0.1.0
+  description: |
+    Estado de los exportadores de flujos (I1-09): *Pendiente de configurar*, *Exportando*, *Silencioso*
+    (sin flujos > 2 min), *Con pérdidas* (pérdida por secuencia > 1 % en 5 min), *Reloj desfasado*
+    (exportTime > 30 s). Principio "ausencia de datos ≠ cero". Lo sirve el rol `ingester` (horus-app) a
+    partir de las métricas del collector (estado en NATS KV `flow_exporter_state`; decisión C1 de G0).
+  license:
+    name: Propietaria
+    identifier: LicenseRef-Horus-Proprietary
+servers:
+  - url: https://{domain}/api/v1
+    variables:
+      domain:
+        default: horus.example.net
+tags:
+  - name: exporters
+    description: Exportadores de flujos (router principal de cada nodo).
+paths:
+  /flow-exporters:
+    get:
+      tags: [exporters]
+      operationId: listFlowExporters
+      summary: Estado de los exportadores del ISP
+      x-module: flows
+      x-scope: tenant
+      x-permission: flows.read
+      x-principals: [user, api_token, kiosk]
+      x-increment: I1
+      security:
+        - tenantBearer: []
+        - kioskBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/SiteIdFilter'
+        - name: state
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Exportadores (uno por router principal).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/FlowExporter' } }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+  /flow-exporters/{router_id}:
+    parameters:
+      - name: router_id
+        in: path
+        required: true
+        schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    get:
+      tags: [exporters]
+      operationId: getFlowExporter
+      summary: Estado del exportador de un router
+      x-module: flows
+      x-scope: tenant
+      x-permission: flows.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Exportador.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FlowExporter' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+components:
+  securitySchemes:
+    tenantBearer: { $ref: './common.yaml#/components/securitySchemes/tenantBearer' }
+    kioskBearer: { $ref: './common.yaml#/components/securitySchemes/kioskBearer' }
+  schemas:
+    FlowExporterState:
+      type: string
+      description: Enum abierto.
+      enum: [pending_configuration, exporting, silent, lossy, clock_skew]
+    FlowExporter:
+      type: object
+      required: [tenant_id, router_id, site_id, state, state_since, exporter_ip, last_flow_at, flows_per_second, loss_ratio_5m, clock_skew_seconds, flow_source, sampling_rate, version]
+      properties:
+        tenant_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        router_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        site_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        version: { $ref: './common.yaml#/components/schemas/Version' }
+        state: { $ref: '#/components/schemas/FlowExporterState' }
+        state_since: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        exporter_ip:
+          type: [string, 'null']
+          description: IP de túnel del router (identidad del exportador).
+        last_flow_at:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
+        flows_per_second: { type: [number, 'null'] }
+        loss_ratio_5m: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        clock_skew_seconds: { type: [number, 'null'] }
+        flow_source: { type: [string, 'null'], enum: [ipfix, netflow_v9, netflow_v5, null] }
+        sampling_rate: { type: [integer, 'null'], minimum: 1 }
+        coverage_ratio:
+          type: [number, 'null']
+          description: Bytes en flujos / bytes del uplink por SNMP (I2+); null si no hay SNMP.
+        dropped_records_quota_1h: { $ref: './common.yaml#/components/schemas/Uint64String' }
+        hints:
+          type: array
+          description: Qué revisar (códigos traducibles), p. ej. firewall, ruta al hub, Traffic Flow, offload por hardware.
+          items: { type: string, enum: [check_tunnel, check_traffic_flow_target, check_firewall, hardware_offload_suspected, check_ntp] }

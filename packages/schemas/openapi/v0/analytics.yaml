@@ -1,0 +1,808 @@
+openapi: 3.1.0
+info:
+  title: Horus Flow API — módulo analytics (contrato v0)
+  version: 0.1.0
+  description: |
+    Consultas de tráfico sobre ClickHouse (C3), propuestas del modo descubrimiento, dashboards modulares,
+    catálogo de widgets, datos por widget resueltos en servidor, playlists y configuración del kiosco
+    (docs/api.md §1.7, §2.11, §2.12; docs/frontend.md §6). Esquemas del documento de dashboard, tipos de
+    widget y playlist: packages/schemas/dashboard/v0/ (C9). ClickHouse caído → `503 ANALYTICS_UNAVAILABLE`.
+  license:
+    name: Propietaria
+    identifier: LicenseRef-Horus-Proprietary
+servers:
+  - url: https://{domain}/api/v1
+    variables:
+      domain:
+        default: horus.example.net
+tags:
+  - name: traffic
+    description: Tops y series de tráfico.
+  - name: dashboards
+    description: Dashboards, widgets y playlists (D8).
+  - name: kiosk
+    description: Configuración del kiosco.
+paths:
+  /analytics/traffic/top:
+    get:
+      tags: [traffic]
+      operationId: getTrafficTop
+      summary: Top N (≤ 10) + "Otros" por clientes, servicios, categorías, organizaciones o ASN
+      description: '`dimension=customers` exige además `customers.read` (datos personales); sin él → 403.'
+      x-module: analytics
+      x-scope: tenant
+      x-permission: traffic.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - name: dimension
+          in: query
+          required: true
+          schema: { type: string, enum: [customers, services, categories, organizations, asns] }
+        - $ref: './common.yaml#/components/parameters/SiteIdFilter'
+        - name: customer_id
+          in: query
+          description: Ámbito de cliente (exige `traffic.customer.read`).
+          schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+        - name: direction
+          in: query
+          schema: { type: string, enum: [both, download, upload], default: both }
+        - name: n
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 10, default: 10 }
+        - $ref: './common.yaml#/components/parameters/Range'
+        - $ref: './common.yaml#/components/parameters/From'
+        - $ref: './common.yaml#/components/parameters/To'
+      responses:
+        '200':
+          description: Top.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: '#/components/schemas/TopResult' }
+                  meta: { $ref: './common.yaml#/components/schemas/AnalyticsMeta' }
+        '400': { $ref: './common.yaml#/components/responses/BadRequest' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+        '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
+        '504': { $ref: './common.yaml#/components/responses/GatewayTimeout' }
+  /analytics/traffic/timeseries:
+    get:
+      tags: [traffic]
+      operationId: getTrafficTimeseries
+      summary: Serie de tráfico ↓/↑ del ISP o de un nodo (huecos como null)
+      x-module: analytics
+      x-scope: tenant
+      x-permission: traffic.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/SiteIdFilter'
+        - name: metrics
+          in: query
+          schema: { type: string, default: 'down_bps,up_bps', description: 'down_bps,up_bps,flows_per_second,active_customers' }
+        - $ref: './common.yaml#/components/parameters/Range'
+        - $ref: './common.yaml#/components/parameters/From'
+        - $ref: './common.yaml#/components/parameters/To'
+        - $ref: './common.yaml#/components/parameters/Step'
+      responses:
+        '200':
+          description: Series.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SeriesResponse' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+        '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
+        '504': { $ref: './common.yaml#/components/responses/GatewayTimeout' }
+  /analytics/traffic/attribution:
+    get:
+      tags: [traffic]
+      operationId: getTrafficAttribution
+      summary: Cobertura de atribución (bytes atribuidos a clientes, de infraestructura y fuera de prefijos)
+      x-module: analytics
+      x-scope: tenant
+      x-permission: traffic.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/SiteIdFilter'
+        - $ref: './common.yaml#/components/parameters/Range'
+      responses:
+        '200':
+          description: Proporciones.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: object
+                    required: [attributed_ratio, infrastructure_ratio, unattributed_ratio]
+                    properties:
+                      attributed_ratio: { type: number }
+                      infrastructure_ratio: { type: number }
+                      unattributed_ratio: { type: number }
+                  meta: { $ref: './common.yaml#/components/schemas/AnalyticsMeta' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
+  /analytics/customers/{customer_id}/traffic:
+    parameters:
+      - name: customer_id
+        in: path
+        required: true
+        schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    get:
+      tags: [traffic]
+      operationId: getCustomerTraffic
+      summary: Series de tráfico de un cliente (desde reset_at si existe). Acceso auditado
+      x-module: analytics
+      x-scope: tenant
+      x-permission: traffic.customer.read
+      x-audited: true
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - name: group_by
+          in: query
+          schema: { type: string, enum: [none, service, category, asn], default: none }
+        - $ref: './common.yaml#/components/parameters/Range'
+        - $ref: './common.yaml#/components/parameters/From'
+        - $ref: './common.yaml#/components/parameters/To'
+        - $ref: './common.yaml#/components/parameters/Step'
+      responses:
+        '200':
+          description: Series.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SeriesResponse' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
+  /sites/{site_id}/prefix-proposals:
+    parameters:
+      - name: site_id
+        in: path
+        required: true
+        schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    get:
+      tags: [traffic]
+      operationId: listPrefixProposals
+      summary: Propuestas del modo descubrimiento (prefijos agregados vistos del lado customer_edge)
+      x-module: analytics
+      x-scope: tenant
+      x-permission: sites.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Range'
+      responses:
+        '200':
+          description: Propuestas (se confirman con POST /sites/{site_id}/client-prefixes/batch).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [prefix, distinct_ips, bytes, suggested_role]
+                      properties:
+                        prefix: { $ref: './common.yaml#/components/schemas/Cidr' }
+                        distinct_ips: { type: integer }
+                        bytes: { $ref: './common.yaml#/components/schemas/Uint64String' }
+                        suggested_role: { type: string, enum: [customers, infrastructure, excluded] }
+                        reason: { type: string, enum: [private_or_cgnat, isp_public_asn] }
+                  meta: { $ref: './common.yaml#/components/schemas/AnalyticsMeta' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
+  /widget-types:
+    get:
+      tags: [dashboards]
+      operationId: listWidgetTypes
+      summary: Catálogo de tipos de widget (sin tenant; autoritativo)
+      x-module: analytics
+      x-scope: session
+      x-permission: authenticated
+      x-principals: [user, api_token, kiosk]
+      x-increment: I0
+      security:
+        - tenantBearer: []
+        - kioskBearer: []
+        - sessionBearer: []
+      responses:
+        '200':
+          description: Catálogo (fuente packages/schemas/dashboard/v0/widget-types.json).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '../../dashboard/v0/widget-type.schema.json' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+  /dashboards:
+    get:
+      tags: [dashboards]
+      operationId: listDashboards
+      summary: Plantillas de sistema + propios + compartidos con el ISP
+      x-module: analytics
+      x-scope: tenant
+      x-permission: dashboards.read
+      x-increment: I0
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Limit'
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - name: visibility
+          in: query
+          schema: { type: string, description: 'system,tenant,private' }
+      responses:
+        '200':
+          description: Página de dashboards (sin widgets).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '../../dashboard/v0/dashboard.schema.json#/$defs/DashboardSummary' }
+                  page: { $ref: './common.yaml#/components/schemas/PageInfo' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+    post:
+      tags: [dashboards]
+      operationId: createDashboard
+      summary: Crea un dashboard (privado por defecto; config de cada widget validada contra su config_schema)
+      description: '`visibility=tenant` exige `dashboards.manage`. Tipo desconocido → `422 WIDGET_TYPE_UNKNOWN`; config inválida → `422 WIDGET_CONFIG_INVALID`.'
+      x-module: analytics
+      x-scope: tenant
+      x-permission: dashboards.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '../../dashboard/v0/dashboard.schema.json#/$defs/DashboardInput' }
+      responses:
+        '201':
+          description: Creado.
+          headers:
+            Location: { $ref: './common.yaml#/components/headers/Location' }
+            ETag: { $ref: './common.yaml#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '../../dashboard/v0/dashboard.schema.json' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /dashboards/{dashboard_id}:
+    parameters:
+      - $ref: '#/components/parameters/DashboardId'
+    get:
+      tags: [dashboards]
+      operationId: getDashboard
+      summary: Documento de dashboard (kiosco solo si está asignado)
+      x-module: analytics
+      x-scope: tenant
+      x-permission: dashboards.read
+      x-principals: [user, api_token, kiosk]
+      x-increment: I0
+      security:
+        - tenantBearer: []
+        - kioskBearer: []
+      responses:
+        '200':
+          description: Dashboard.
+          headers:
+            ETag: { $ref: './common.yaml#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '../../dashboard/v0/dashboard.schema.json' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+    patch:
+      tags: [dashboards]
+      operationId: updateDashboard
+      summary: Edita nombre, visibilidad, rango y refresco (dueño, o dashboards.manage si es del ISP)
+      description: Plantillas de sistema → `409 DASHBOARD_READ_ONLY` (se duplican).
+      x-module: analytics
+      x-scope: tenant
+      x-permission: dashboard_access
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '../../dashboard/v0/dashboard.schema.json#/$defs/DashboardPatch' }
+          application/json:
+            schema: { $ref: '../../dashboard/v0/dashboard.schema.json#/$defs/DashboardPatch' }
+      responses:
+        '200':
+          description: Actualizado.
+          content:
+            application/json:
+              schema: { $ref: '../../dashboard/v0/dashboard.schema.json' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+    delete:
+      tags: [dashboards]
+      operationId: deleteDashboard
+      summary: Borra un dashboard propio o del ISP
+      x-module: analytics
+      x-scope: tenant
+      x-permission: dashboard_access
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      responses:
+        '204': { $ref: './common.yaml#/components/responses/NoContent' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+  /dashboards/{dashboard_id}/duplicate:
+    parameters:
+      - $ref: '#/components/parameters/DashboardId'
+    post:
+      tags: [dashboards]
+      operationId: duplicateDashboard
+      summary: Copia privada (forma de editar una plantilla)
+      x-module: analytics
+      x-scope: tenant
+      x-permission: dashboards.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, maxLength: 120 }
+      responses:
+        '201':
+          description: Copia.
+          content:
+            application/json:
+              schema: { $ref: '../../dashboard/v0/dashboard.schema.json' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+  /dashboards/{dashboard_id}/layout:
+    parameters:
+      - $ref: '#/components/parameters/DashboardId'
+    put:
+      tags: [dashboards]
+      operationId: replaceDashboardLayout
+      summary: Reemplaza layout y posiciones de todos los widgets
+      x-module: analytics
+      x-scope: tenant
+      x-permission: dashboard_access
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '../../dashboard/v0/dashboard.schema.json#/$defs/LayoutReplace' }
+      responses:
+        '200':
+          description: Dashboard con el layout nuevo.
+          content:
+            application/json:
+              schema: { $ref: '../../dashboard/v0/dashboard.schema.json' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /dashboards/{dashboard_id}/widgets:
+    parameters:
+      - $ref: '#/components/parameters/DashboardId'
+    post:
+      tags: [dashboards]
+      operationId: addDashboardWidget
+      summary: Añade un widget (If-Match con la versión del dashboard)
+      x-module: analytics
+      x-scope: tenant
+      x-permission: dashboard_access
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '../../dashboard/v0/dashboard.schema.json#/$defs/Widget' }
+      responses:
+        '201':
+          description: Dashboard actualizado.
+          content:
+            application/json:
+              schema: { $ref: '../../dashboard/v0/dashboard.schema.json' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /dashboards/{dashboard_id}/widgets/{widget_id}:
+    parameters:
+      - $ref: '#/components/parameters/DashboardId'
+      - $ref: '#/components/parameters/WidgetId'
+    patch:
+      tags: [dashboards]
+      operationId: updateDashboardWidget
+      summary: Edita título, posición, config o refresco de un widget
+      x-module: analytics
+      x-scope: tenant
+      x-permission: dashboard_access
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '../../dashboard/v0/dashboard.schema.json#/$defs/WidgetPatch' }
+          application/json:
+            schema: { $ref: '../../dashboard/v0/dashboard.schema.json#/$defs/WidgetPatch' }
+      responses:
+        '200':
+          description: Dashboard actualizado.
+          content:
+            application/json:
+              schema: { $ref: '../../dashboard/v0/dashboard.schema.json' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+    delete:
+      tags: [dashboards]
+      operationId: deleteDashboardWidget
+      summary: Quita un widget
+      x-module: analytics
+      x-scope: tenant
+      x-permission: dashboard_access
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: Dashboard actualizado.
+          content:
+            application/json:
+              schema: { $ref: '../../dashboard/v0/dashboard.schema.json' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+  /dashboards/{dashboard_id}/widgets/{widget_id}/data:
+    parameters:
+      - $ref: '#/components/parameters/DashboardId'
+      - $ref: '#/components/parameters/WidgetId'
+    get:
+      tags: [dashboards]
+      operationId: getWidgetData
+      summary: Datos del widget resueltos en servidor desde su config guardada, con los permisos de quien mira
+      description: |
+        Sin el `required_permission` del tipo → `403 WIDGET_TYPE_NOT_ALLOWED` (solo ese widget). Kiosco: solo
+        dashboards asignados y tipos `kiosk_allowed`; sin `show_personal_data` las IPs llegan enmascaradas
+        (`meta.masked_personal_data = true`). `Cache-Control: private, max-age=<refresh/2>`, `ETag`; caché Valkey
+        `t:<tenant_id>:wcache:…`. Timeout 10 s por widget.
+      x-module: analytics
+      x-scope: tenant
+      x-permission: widget_type
+      x-principals: [user, api_token, kiosk]
+      x-increment: I1
+      security:
+        - tenantBearer: []
+        - kioskBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Range'
+        - $ref: './common.yaml#/components/parameters/From'
+        - $ref: './common.yaml#/components/parameters/To'
+        - name: site_id
+          in: query
+          description: Variable de dashboard (si el tipo la acepta).
+          schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+      responses:
+        '200':
+          description: Datos.
+          headers:
+            ETag: { $ref: './common.yaml#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '../../dashboard/v0/widget-data.schema.json' }
+        '304': { description: Sin cambios. }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
+        '504': { $ref: './common.yaml#/components/responses/GatewayTimeout' }
+  /widget-data/preview:
+    post:
+      tags: [dashboards]
+      operationId: previewWidgetData
+      summary: Datos de un widget no guardado (editor; no disponible para kioscos)
+      x-module: analytics
+      x-scope: tenant
+      x-permission: widget_type
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, config]
+              properties:
+                type: { type: string }
+                config: { type: object }
+                range: { $ref: './common.yaml#/components/schemas/RelativeRange' }
+      responses:
+        '200':
+          description: Datos.
+          content:
+            application/json:
+              schema: { $ref: '../../dashboard/v0/widget-data.schema.json' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /playlists:
+    get:
+      tags: [dashboards]
+      operationId: listPlaylists
+      summary: Listas de reproducción para pantallas
+      x-module: analytics
+      x-scope: tenant
+      x-permission: dashboards.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Playlists.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data: { type: array, items: { $ref: '../../dashboard/v0/playlist.schema.json' } }
+                  page: { $ref: './common.yaml#/components/schemas/PageInfo' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+    post:
+      tags: [dashboards]
+      operationId: createPlaylist
+      summary: Crea una playlist
+      x-module: analytics
+      x-scope: tenant
+      x-permission: dashboards.manage
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '../../dashboard/v0/playlist.schema.json#/$defs/PlaylistInput' }
+      responses:
+        '201':
+          description: Creada.
+          content:
+            application/json:
+              schema: { $ref: '../../dashboard/v0/playlist.schema.json' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /playlists/{playlist_id}:
+    parameters:
+      - name: playlist_id
+        in: path
+        required: true
+        schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    patch:
+      tags: [dashboards]
+      operationId: updatePlaylist
+      summary: Edita una playlist (emite horus.analytics.playlist.updated → los kioscos la aplican)
+      x-module: analytics
+      x-scope: tenant
+      x-permission: dashboards.manage
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '../../dashboard/v0/playlist.schema.json#/$defs/PlaylistInput' }
+          application/json:
+            schema: { $ref: '../../dashboard/v0/playlist.schema.json#/$defs/PlaylistInput' }
+      responses:
+        '200':
+          description: Actualizada.
+          content:
+            application/json:
+              schema: { $ref: '../../dashboard/v0/playlist.schema.json' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+    delete:
+      tags: [dashboards]
+      operationId: deletePlaylist
+      summary: Borra una playlist
+      x-module: analytics
+      x-scope: tenant
+      x-permission: dashboards.manage
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      responses:
+        '204': { $ref: './common.yaml#/components/responses/NoContent' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+  /kiosk/config:
+    get:
+      tags: [kiosk]
+      operationId: getKioskConfig
+      summary: Dashboards/playlist asignados al kiosco y parámetros de rotación
+      x-module: analytics
+      x-scope: tenant
+      x-permission: kiosk_self
+      x-principals: [kiosk]
+      x-increment: I1
+      security:
+        - kioskBearer: []
+      responses:
+        '200':
+          description: Configuración.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [kiosk_id, tenant_id, items, show_personal_data, critical_finding_banner, frontend_min_version]
+                properties:
+                  kiosk_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+                  tenant_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+                  tenant_name: { type: string }
+                  playlist_id:
+                    oneOf:
+                      - $ref: './common.yaml#/components/schemas/Uuid'
+                      - type: 'null'
+                  items:
+                    type: array
+                    items: { $ref: '../../dashboard/v0/playlist.schema.json#/$defs/PlaylistItem' }
+                  transition: { type: string, enum: [fade, none] }
+                  show_personal_data: { type: boolean }
+                  critical_finding_banner: { type: boolean }
+                  frontend_min_version: { type: [string, 'null'], description: 'Si la versión del frontend cambió, la TV se recarga en el siguiente cambio de dashboard.' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+components:
+  securitySchemes:
+    tenantBearer: { $ref: './common.yaml#/components/securitySchemes/tenantBearer' }
+    sessionBearer: { $ref: './common.yaml#/components/securitySchemes/sessionBearer' }
+    kioskBearer: { $ref: './common.yaml#/components/securitySchemes/kioskBearer' }
+  parameters:
+    DashboardId:
+      name: dashboard_id
+      in: path
+      required: true
+      schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    WidgetId:
+      name: widget_id
+      in: path
+      required: true
+      schema: { type: string, pattern: '^[a-z0-9][a-z0-9_-]{0,63}$' }
+  schemas:
+    TopRow:
+      type: object
+      required: [key, label, down_bytes, up_bytes, share]
+      properties:
+        key: { type: string, description: 'ID de servicio/categoría/organización, ASN o customer_id.' }
+        label: { type: string }
+        down_bytes: { $ref: './common.yaml#/components/schemas/Uint64String' }
+        up_bytes: { $ref: './common.yaml#/components/schemas/Uint64String' }
+        share: { type: number, minimum: 0, maximum: 1 }
+        customer:
+          type: [object, 'null']
+          description: Solo con dimension=customers.
+          properties:
+            customer_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+            address: { type: string, description: IP completa o enmascarada (`10.20.0.•••`) según permisos/kiosco. }
+            address_masked: { type: boolean }
+            alias: { type: [string, 'null'] }
+            kind: { type: string }
+    TopResult:
+      type: object
+      required: [dimension, rows, others, totals]
+      properties:
+        dimension: { type: string }
+        rows: { type: array, maxItems: 10, items: { $ref: '#/components/schemas/TopRow' } }
+        others:
+          type: object
+          required: [down_bytes, up_bytes]
+          properties:
+            down_bytes: { $ref: './common.yaml#/components/schemas/Uint64String' }
+            up_bytes: { $ref: './common.yaml#/components/schemas/Uint64String' }
+        totals:
+          type: object
+          required: [down_bytes, up_bytes]
+          properties:
+            down_bytes: { $ref: './common.yaml#/components/schemas/Uint64String' }
+            up_bytes: { $ref: './common.yaml#/components/schemas/Uint64String' }
+    SeriesResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: object
+          required: [series]
+          properties:
+            series:
+              type: array
+              items:
+                type: object
+                required: [metric, unit, points]
+                properties:
+                  metric: { type: string, examples: [down_bps] }
+                  unit: { type: string, examples: [bps] }
+                  group: { type: [string, 'null'] }
+                  points:
+                    type: array
+                    description: '[timestamp, valor|null]; huecos como null.'
+                    items:
+                      type: array
+                      prefixItems:
+                        - { type: string, format: date-time }
+                        - { type: [number, 'null'] }
+                      minItems: 2
+                      maxItems: 2
+        meta: { $ref: './common.yaml#/components/schemas/AnalyticsMeta' }

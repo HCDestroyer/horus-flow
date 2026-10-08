@@ -1,0 +1,26 @@
+# Catálogo de eventos v0 del dominio `traffic` (C4; docs/events.md §5.6, §8).
+# Un archivo por dominio para que dos agentes no editen el mismo. Cada tipo: mensaje Protobuf en
+# packages/protobuf/horus/events/<dominio>/v1/ y golden file en packages/events/examples/<type>.json.
+# Cambios de pii / tenant_scope requieren a la persona.
+domain: traffic
+version: v0
+events:
+- type: horus.traffic.catalog.published
+  subject: horus.traffic.catalog.published.{catalog_version_id}
+  tenant_scope: platform
+  stream: TRAFFIC_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.traffic.v1.CatalogPublished
+  schema_version: 1
+  producer: traffic
+  consumers:
+  - flows
+  - analytics
+  - detection
+  websocket_topics: []
+  pii: false
+  pii_fields: []
+  status: draft
+  since: I1
+  example: examples/horus.traffic.catalog.published.json

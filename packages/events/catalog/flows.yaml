@@ -1,0 +1,199 @@
+# Catálogo de eventos v0 del dominio `flows` (C4; docs/events.md §5.6, §8).
+# Un archivo por dominio para que dos agentes no editen el mismo. Cada tipo: mensaje Protobuf en
+# packages/protobuf/horus/events/<dominio>/v1/ y golden file en packages/events/examples/<type>.json.
+# Cambios de pii / tenant_scope requieren a la persona.
+domain: flows
+version: v0
+events:
+- type: horus.flows.batch.received
+  subject: horus.telemetry.flows.batch.{router_id}
+  tenant_scope: tenant
+  stream: TLM_FLOWS
+  family: telemetry
+  encoding: protobuf
+  schema: horus.events.flows.v1.FlowBatch
+  schema_version: 1
+  producer: flows
+  consumers:
+  - flows
+  websocket_topics: []
+  pii: true
+  pii_fields:
+  - records.src_ip
+  - records.dst_ip
+  status: draft
+  since: I1
+  example: examples/horus.flows.batch.received.json
+  notes: 'Pre-NAT: con NAT en el router principal (D12) la IP de cliente es la privada en ambos sentidos.'
+- type: horus.flows.client.first_seen
+  subject: horus.flows.client.first_seen.{realm_id}
+  tenant_scope: tenant
+  stream: FLOWS_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.flows.v1.ClientFirstSeen
+  schema_version: 1
+  producer: flows
+  consumers:
+  - devices
+  websocket_topics: []
+  pii: true
+  pii_fields:
+  - clients.address
+  status: draft
+  since: I1
+  example: examples/horus.flows.client.first_seen.json
+  notes: 'Sin spool: si se pierde, el siguiente flujo lo repite.'
+- type: horus.flows.client.activity_summary
+  subject: horus.telemetry.flows.client_activity.{realm_id}
+  tenant_scope: tenant
+  stream: TLM_FLOWS
+  family: telemetry
+  encoding: protobuf
+  schema: horus.events.flows.v1.ClientActivitySummary
+  schema_version: 1
+  producer: flows
+  consumers:
+  - devices
+  websocket_topics: []
+  pii: true
+  pii_fields:
+  - clients.address
+  status: draft
+  since: I1
+  example: examples/horus.flows.client.activity_summary.json
+- type: horus.flows.traffic_summary.observed
+  subject: horus.telemetry.flows.summary.{site_id}
+  tenant_scope: tenant
+  stream: TLM_FLOWS
+  family: telemetry
+  encoding: protobuf
+  schema: horus.events.flows.v1.TrafficSummary
+  schema_version: 1
+  producer: flows
+  consumers:
+  - gateway
+  websocket_topics:
+  - traffic.summary
+  pii: false
+  pii_fields: []
+  status: draft
+  since: I1
+  example: examples/horus.flows.traffic_summary.observed.json
+  notes: 'Adición de C4 (I1-13): resumen cada 10 s por nodo y total del ISP (site_id null ⇒ clave = tenant_id).'
+- type: horus.flows.exporter.unregistered
+  subject: horus.flows.exporter.unregistered.{exporter_id}
+  tenant_scope: platform
+  stream: FLOWS_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.flows.v1.ExporterUnregistered
+  schema_version: 1
+  producer: flows
+  consumers:
+  - gateway
+  - alerts
+  websocket_topics: []
+  pii: false
+  pii_fields: []
+  status: draft
+  since: I1
+  example: examples/horus.flows.exporter.unregistered.json
+- type: horus.flows.exporter.rate_limited
+  subject: horus.flows.exporter.rate_limited.{router_id}
+  tenant_scope: tenant
+  stream: FLOWS_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.flows.v1.ExporterRateLimited
+  schema_version: 1
+  producer: flows
+  consumers:
+  - alerts
+  - gateway
+  websocket_topics: []
+  pii: false
+  pii_fields: []
+  status: draft
+  since: I1
+  example: examples/horus.flows.exporter.rate_limited.json
+- type: horus.flows.exporter.silent
+  subject: horus.flows.exporter.silent.{router_id}
+  tenant_scope: tenant
+  stream: FLOWS_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.flows.v1.ExporterSilence
+  schema_version: 1
+  producer: flows
+  consumers:
+  - alerts
+  - detection
+  - gateway
+  websocket_topics:
+  - exporters
+  pii: false
+  pii_fields: []
+  status: draft
+  since: I1
+  example: examples/horus.flows.exporter.silent.json
+  notes: 'I1-09: sin flujos > 2 min.'
+- type: horus.flows.exporter.recovered
+  subject: horus.flows.exporter.recovered.{router_id}
+  tenant_scope: tenant
+  stream: FLOWS_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.flows.v1.ExporterSilence
+  schema_version: 1
+  producer: flows
+  consumers:
+  - alerts
+  - detection
+  - gateway
+  websocket_topics:
+  - exporters
+  pii: false
+  pii_fields: []
+  status: draft
+  since: I1
+  example: examples/horus.flows.exporter.recovered.json
+- type: horus.flows.exporter.state_changed
+  subject: horus.flows.exporter.state_changed.{router_id}
+  tenant_scope: tenant
+  stream: FLOWS_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.flows.v1.ExporterStateChanged
+  schema_version: 1
+  producer: flows
+  consumers:
+  - devices
+  - gateway
+  - alerts
+  websocket_topics:
+  - exporters
+  pii: false
+  pii_fields: []
+  status: draft
+  since: I1
+  example: examples/horus.flows.exporter.state_changed.json
+  notes: Adición de C4 (I1-09). silent/recovered se siguen emitiendo en esas transiciones (consumidores de events.md).
+- type: horus.flows.collector.data_gap
+  subject: horus.flows.collector.data_gap.{collector_id}
+  tenant_scope: platform
+  stream: FLOWS_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.flows.v1.CollectorDataGap
+  schema_version: 1
+  producer: flows
+  consumers:
+  - alerts
+  - analytics
+  websocket_topics: []
+  pii: false
+  pii_fields: []
+  status: draft
+  since: I1
+  example: examples/horus.flows.collector.data_gap.json

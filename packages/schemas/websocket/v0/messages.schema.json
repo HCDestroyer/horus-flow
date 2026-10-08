@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.horus-flow.local/websocket/v0/messages.schema.json",
+  "title": "WebSocketMessage",
+  "description": "C6 — mensajes del protocolo horus.ws.v1 (api.md §4.4). JSON de texto, snake_case. `event.event` es la proyección pública del sobre NATS (sin actor salvo type/id, sin trace_parent ni correlation_id).",
+  "oneOf": [
+    { "$ref": "#/$defs/ClientMessage" },
+    { "$ref": "#/$defs/ServerMessage" }
+  ],
+  "$defs": {
+    "Uuid": { "type": "string", "format": "uuid" },
+    "Timestamp": { "type": "string", "format": "date-time" },
+    "Topic": { "type": "string", "pattern": "^(routers|customers|security|exporters|traffic\\.summary|wireguard\\.peers|me|system|dashboard\\.[0-9a-f-]{36})$" },
+    "ClientMessage": {
+      "oneOf": [
+        {
+          "type": "object", "title": "Subscribe",
+          "required": ["type", "id", "topic"],
+          "properties": { "type": { "const": "subscribe" }, "id": { "type": "string", "maxLength": 32 }, "topic": { "$ref": "#/$defs/Topic" } },
+          "additionalProperties": false
+        },
+        {
+          "type": "object", "title": "Unsubscribe",
+          "required": ["type", "id", "topic"],
+          "properties": { "type": { "const": "unsubscribe" }, "id": { "type": "string", "maxLength": 32 }, "topic": { "$ref": "#/$defs/Topic" } },
+          "additionalProperties": false
+        },
+        {
+          "type": "object", "title": "Auth",
+          "required": ["type", "id", "access_token"],
+          "properties": { "type": { "const": "auth" }, "id": { "type": "string", "maxLength": 32 }, "access_token": { "type": "string" } },
+          "additionalProperties": false
+        },
+        {
+          "type": "object", "title": "Ping",
+          "required": ["type", "id"],
+          "properties": { "type": { "const": "ping" }, "id": { "type": "string", "maxLength": 32 } },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "EventProjection": {
+      "type": "object",
+      "required": ["id", "type", "time", "subject", "tenant_id", "data"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Uuid" },
+        "type": { "type": "string", "pattern": "^horus\\.[a-z_]+\\.[a-z_]+\\.[a-z_]+$" },
+        "time": { "$ref": "#/$defs/Timestamp" },
+        "subject": { "type": "string" },
+        "tenant_id": { "$ref": "#/$defs/Uuid" },
+        "aggregate_version": { "type": ["integer", "null"] },
+        "actor": {
+          "type": ["object", "null"],
+          "properties": { "type": { "type": "string" }, "id": { "type": "string" } },
+          "additionalProperties": false
+        },
+        "data": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "TrafficSummary": {
+      "type": "object",
+      "required": ["down_bps", "up_bps", "flows_per_second", "active_customers", "window_seconds"],
+      "properties": {
+        "site_id": { "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }] },
+        "down_bps": { "type": ["number", "null"] },
+        "up_bps": { "type": ["number", "null"] },
+        "flows_per_second": { "type": ["number", "null"] },
+        "active_customers": { "type": ["integer", "null"] },
+        "window_seconds": { "type": "integer" },
+        "partial": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "ServerMessage": {
+      "oneOf": [
+        { "type": "object", "title": "Ack", "required": ["type", "id", "topic"], "properties": { "type": { "const": "ack" }, "id": { "type": "string" }, "topic": { "type": "string" } }, "additionalProperties": false },
+        { "type": "object", "title": "Error", "required": ["type", "code", "message"], "properties": { "type": { "const": "error" }, "id": { "type": ["string", "null"] }, "code": { "type": "string" }, "message": { "type": "string" } }, "additionalProperties": false },
+        { "type": "object", "title": "Event", "required": ["type", "topic", "event"], "properties": { "type": { "const": "event" }, "topic": { "type": "string" }, "event": { "$ref": "#/$defs/EventProjection" } }, "additionalProperties": false },
+        {
+          "type": "object", "title": "State", "required": ["type", "topic", "key", "time", "data"],
+          "properties": {
+            "type": { "const": "state" }, "topic": { "type": "string" }, "key": { "type": "string" }, "time": { "$ref": "#/$defs/Timestamp" },
+            "data": { "type": "object" }
+          },
+          "additionalProperties": false
+        },
+        { "type": "object", "title": "Unsubscribed", "required": ["type", "topic", "reason"], "properties": { "type": { "const": "unsubscribed" }, "topic": { "type": "string" }, "reason": { "type": "string", "enum": ["forbidden", "tenant_suspended", "server_shutdown"] } }, "additionalProperties": false },
+        { "type": "object", "title": "ResyncRequired", "required": ["type", "topic"], "properties": { "type": { "const": "resync_required" }, "topic": { "type": "string" } }, "additionalProperties": false },
+        { "type": "object", "title": "RealtimeStatus", "required": ["type", "status"], "properties": { "type": { "const": "realtime_status" }, "status": { "type": "string", "enum": ["ok", "degraded"] }, "reason": { "type": ["string", "null"] } }, "additionalProperties": false },
+        { "type": "object", "title": "Heartbeat", "required": ["type", "time"], "properties": { "type": { "const": "heartbeat" }, "time": { "$ref": "#/$defs/Timestamp" } }, "additionalProperties": false },
+        { "type": "object", "title": "Pong", "required": ["type", "id"], "properties": { "type": { "const": "pong" }, "id": { "type": "string" } }, "additionalProperties": false },
+        { "type": "object", "title": "AuthExpiring", "required": ["type", "expires_at"], "properties": { "type": { "const": "auth_expiring" }, "expires_at": { "$ref": "#/$defs/Timestamp" } }, "additionalProperties": false }
+      ]
+    }
+  }
+}

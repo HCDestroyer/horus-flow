@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+// Control ↔ agente del hub WireGuard (rol wg-agent, contenedor con CAP_NET_ADMIN; docs/api.md §5.3).
+// ApplyDesiredState es idempotente (estado completo + versión); el agente es fail-static.
+package horus.wireguard.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// AgentService lo implementa wg-agent; solo lo llama svc:wireguard (mTLS obligatorio).
+service AgentService {
+  rpc ApplyDesiredState(ApplyDesiredStateRequest) returns (ApplyDesiredStateResponse);
+}
+
+// ControlService lo implementa wireguard; wg-agent reporta el estado observado cada 15 s.
+service ControlService {
+  rpc ReportStatus(ReportStatusRequest) returns (ReportStatusResponse);
+}
+
+// DesiredPeer peer que debe existir en el hub (sin claves privadas: la del router nunca sale del router).
+message DesiredPeer {
+  string peer_id = 1;
+  string tenant_id = 2;
+  string public_key = 3;
+  repeated string allowed_ips = 4;
+  int32 persistent_keepalive_seconds = 5;
+}
+
+// ApplyDesiredStateRequest estado completo del hub.
+message ApplyDesiredStateRequest {
+  string hub_id = 1;
+  int64 desired_version = 2;
+  repeated DesiredPeer peers = 3;
+}
+
+// ApplyDesiredStateResponse versión aplicada.
+message ApplyDesiredStateResponse {
+  int64 applied_version = 1;
+  int32 peers_added = 2;
+  int32 peers_removed = 3;
+}
+
+// ObservedPeer estado observado de un peer.
+message ObservedPeer {
+  string public_key = 1;
+  optional string endpoint = 2;
+  optional google.protobuf.Timestamp last_handshake_at = 3;
+  uint64 rx_bytes = 4;
+  uint64 tx_bytes = 5;
+}
+
+// ReportStatusRequest reporte periódico del agente.
+message ReportStatusRequest {
+  string hub_id = 1;
+  int64 applied_version = 2;
+  google.protobuf.Timestamp observed_at = 3;
+  bool interface_up = 4;
+  repeated ObservedPeer peers = 5;
+}
+
+// ReportStatusResponse indica si el agente debe pedir el estado deseado de nuevo.
+message ReportStatusResponse {
+  int64 desired_version = 1;
+}

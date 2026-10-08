@@ -1,0 +1,35 @@
+{
+  "id": "0192f0d2-0000-7000-8000-000000000401",
+  "type": "horus.traffic.catalog.published",
+  "source": "horus/traffic",
+  "subject": "0192f0f0-0000-7000-8000-000000000050",
+  "time": "2026-10-07T14:03:11.123Z",
+  "schema_version": 1,
+  "tenant_id": null,
+  "aggregate_type": "catalog_version",
+  "aggregate_version": 1,
+  "actor": {
+    "type": "service",
+    "id": "svc:traffic",
+    "via_platform": false
+  },
+  "trace_parent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+  "correlation_id": null,
+  "causation_id": null,
+  "data": {
+    "catalog_version_id": "0192f0f0-0000-7000-8000-000000000050",
+    "catalog_version": 17,
+    "object_store": "catalog-snapshots",
+    "object_name": "v17/catalog.bin",
+    "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+    "size_bytes": "48211234",
+    "format_version": 1,
+    "published_at": "2026-10-07T14:03:11.123Z",
+    "stats": {
+      "prefixes": "982113",
+      "asns": "74210",
+      "services": "30",
+      "categories": "10"
+    }
+  }
+}

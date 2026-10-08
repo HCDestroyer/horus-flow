@@ -1,0 +1,51 @@
+{
+  "$comment": "Telemetría: el sobre viaja en cabeceras NATS; aquí se muestra en forma de sobre para validar. Cuerpo real = Protobuf binario.",
+  "headers": {
+    "Nats-Msg-Id": "0192f0f0-0000-7000-8000-000000000010",
+    "Horus-Type": "horus.flows.batch.received",
+    "Horus-Schema-Version": "1",
+    "Horus-Source": "horus/flows",
+    "Horus-Time": "2026-10-07T14:03:11.123Z",
+    "Horus-Tenant": "0192e000-0000-7000-8000-000000000001",
+    "Content-Type": "application/x-protobuf; proto=horus.events.flows.v1.FlowBatch"
+  },
+  "data": {
+    "batch_id": "0192f0f0-0000-7000-8000-000000000010",
+    "collector_id": "flows-collector-1",
+    "tenant_id": "0192e000-0000-7000-8000-000000000001",
+    "router_id": "0192e333-0000-7000-8000-000000000033",
+    "exporter_ip": "10.255.3.17",
+    "sampling_rate": 1,
+    "received_from": "2026-10-07T14:03:00.000Z",
+    "received_to": "2026-10-07T14:03:00.998Z",
+    "records": [
+      {
+        "exporter_ip": "10.255.3.17",
+        "observation_domain_id": 0,
+        "flow_start": "2026-10-07T14:02:31.120Z",
+        "ts": "2026-10-07T14:02:59.870Z",
+        "src_ip": "10.20.0.41",
+        "dst_ip": "157.240.25.35",
+        "src_port": 51544,
+        "dst_port": 443,
+        "protocol": 6,
+        "tcp_flags": 27,
+        "icmp_type_code": 0,
+        "bytes": "1840",
+        "packets": "13",
+        "input_if_index": 12,
+        "output_if_index": 7,
+        "flow_direction": "ingress",
+        "src_as": 0,
+        "dst_as": 0,
+        "next_hop": "10.0.0.254",
+        "vlan_id": 0,
+        "post_nat_src_ip": null,
+        "post_nat_src_port": null,
+        "sampling_rate": 1,
+        "flow_source": "ipfix",
+        "batch_id": "0192f0f0-0000-7000-8000-000000000010"
+      }
+    ]
+  }
+}

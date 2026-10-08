@@ -1,0 +1,128 @@
+openapi: 3.1.0
+info:
+  title: Horus Flow API — rol gateway (contrato v0)
+  version: 0.1.0
+  description: |
+    Rutas que sirve el propio gateway sin proxy: tickets de WebSocket y estado del sistema
+    (docs/api.md §2.7, §4.2). El protocolo WebSocket (C6) está en packages/schemas/websocket/v0/.
+  license:
+    name: Propietaria
+    identifier: LicenseRef-Horus-Proprietary
+servers:
+  - url: https://{domain}/api/v1
+    variables:
+      domain:
+        default: horus.example.net
+tags:
+  - name: realtime
+    description: Tiempo real (WebSocket `wss://<dominio>/api/v1/ws`, subprotocolo `horus.ws.v1`).
+  - name: system
+    description: Estado del sistema y modos degradados.
+paths:
+  /ws/tickets:
+    post:
+      tags: [realtime]
+      operationId: createWsTicket
+      summary: Ticket de un uso (30 s) para abrir el WebSocket ligado al `tid` del token
+      description: |
+        La conexión `wss://<dominio>/api/v1/ws?ticket=<ticket>` queda ligada al principal y al `tid` del token
+        con el que se pidió el ticket. `Origin` se valida contra HORUS_ALLOWED_ORIGINS (D14). Sin Valkey → 503
+        (el frontend pasa a polling).
+      x-module: gateway
+      x-scope: session
+      x-permission: authenticated
+      x-principals: [user, api_token, kiosk]
+      x-increment: I1
+      security:
+        - tenantBearer: []
+        - kioskBearer: []
+        - sessionBearer: []
+      responses:
+        '201':
+          description: Ticket emitido.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ticket, expires_at, url]
+                properties:
+                  ticket: { type: string, description: '256 bits base64url, un uso.' }
+                  expires_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+                  url:
+                    type: string
+                    description: URL absoluta del WebSocket construida con HORUS_PUBLIC_BASE_URL (D14).
+                    examples: ['wss://horus.example.net/api/v1/ws']
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
+  /system/status:
+    get:
+      tags: [system]
+      operationId: getSystemStatus
+      summary: Capacidades del sistema (resumen para todos; detalle solo con platform.status.read)
+      x-module: gateway
+      x-scope: session
+      x-permission: authenticated
+      x-principals: [user, api_token, kiosk]
+      x-increment: I0
+      security:
+        - tenantBearer: []
+        - kioskBearer: []
+        - sessionBearer: []
+        - platformBearer: []
+      responses:
+        '200':
+          description: Estado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SystemStatus' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+components:
+  securitySchemes:
+    tenantBearer: { $ref: './common.yaml#/components/securitySchemes/tenantBearer' }
+    sessionBearer: { $ref: './common.yaml#/components/securitySchemes/sessionBearer' }
+    platformBearer: { $ref: './common.yaml#/components/securitySchemes/platformBearer' }
+    kioskBearer: { $ref: './common.yaml#/components/securitySchemes/kioskBearer' }
+  schemas:
+    CapabilityState:
+      type: string
+      enum: [ok, degraded, stale, unavailable]
+    SystemStatus:
+      type: object
+      required: [status, checked_at, capabilities, components]
+      properties:
+        status: { type: string, enum: [ok, degraded, down] }
+        checked_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        capabilities:
+          type: object
+          required: [auth, inventory, wireguard, ingest, realtime, analytics, detection, notifications]
+          properties:
+            auth: { $ref: '#/components/schemas/CapabilityState' }
+            inventory: { $ref: '#/components/schemas/CapabilityState' }
+            wireguard: { $ref: '#/components/schemas/CapabilityState' }
+            ingest: { $ref: '#/components/schemas/CapabilityState' }
+            monitoring: { $ref: '#/components/schemas/CapabilityState' }
+            realtime: { $ref: '#/components/schemas/CapabilityState' }
+            analytics: { $ref: '#/components/schemas/CapabilityState' }
+            detection: { $ref: '#/components/schemas/CapabilityState' }
+            notifications: { $ref: '#/components/schemas/CapabilityState' }
+            reports: { $ref: '#/components/schemas/CapabilityState' }
+          additionalProperties: { $ref: '#/components/schemas/CapabilityState' }
+        components:
+          type: array
+          description: Vacío para usuarios de tenant y kioscos; detalle solo con `platform.status.read`.
+          items:
+            type: object
+            required: [name, status]
+            properties:
+              name:
+                type: string
+                examples: [postgres, valkey, nats, clickhouse, local_storage, remote_storage, collector, wg_agent]
+              status: { type: string, enum: [up, degraded, down, not_configured] }
+              since:
+                oneOf:
+                  - $ref: './common.yaml#/components/schemas/Timestamp'
+                  - type: 'null'
+              detail: { type: [string, 'null'] }
+        disk_usage_ratio:
+          type: [number, 'null']
+          description: Solo plataforma; aviso si > 0.85 (I1-23).
