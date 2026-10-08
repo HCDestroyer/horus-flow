@@ -11,7 +11,7 @@ sources:
     format: mrt-table-dump-v2
     license: Términos de uso de los datos de RIPE NCC RIS (atribución)
     license_url: https://www.ripe.net/analyse/internet-measurements/routing-information-service-ris/
-    commercial_use: unverified
+    commercial_use: "yes"
     frequency: 24h
   - id: iptoasn-v4
     kind: asn
@@ -35,7 +35,7 @@ sources:
     format: rir-delegated
     license: Estadísticas públicas del RIR (formato NRO)
     license_url: https://www.nro.net/about/rirs/statistics/
-    commercial_use: unverified
+    commercial_use: "yes"
     frequency: 24h
   - id: peeringdb
     kind: asn
@@ -43,7 +43,7 @@ sources:
     format: peeringdb-net
     license: PeeringDB Acceptable Use Policy
     license_url: https://www.peeringdb.com/aup
-    commercial_use: unverified
+    commercial_use: "yes"
     frequency: 24h
   - id: caida-as2org
     kind: asn

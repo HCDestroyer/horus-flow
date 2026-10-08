@@ -70,18 +70,19 @@ func TestEndToEndWithFixtures(t *testing.T) {
 	c := &clock{t: time.Date(2026, 10, 8, 4, 0, 0, 0, time.UTC)}
 	base := []string{"-config", cfg, "-data-dir", data, "-fixtures", fx}
 
-	// Sin --allow-unverified solo se procesarían fuentes "yes": ninguna.
-	code, out, _ := runCLI(t, c, append([]string{"fetch"}, base...)...)
-	if code != 0 || strings.Contains(out, "updated") || !strings.Contains(out, "sin verificar") {
-		t.Fatalf("fetch sin autorización: code=%d\n%s", code, out)
-	}
-	// La fuente "no" nunca se descarga, ni con --allow-unverified.
-	code, out, errOut := runCLI(t, c, append([]string{"sync", "-allow-unverified"}, base...)...)
+	// Las fuentes aprobadas en D20 ("yes") se procesan sin --allow-unverified;
+	// la fuente "no" (FireHOL) nunca se descarga, ni con --allow-unverified.
+	code, out, errOut := runCLI(t, c, append([]string{"sync"}, base...)...)
 	if code != 0 {
 		t.Fatalf("sync: code=%d\n%s\n%s", code, out, errOut)
 	}
-	if !strings.Contains(out, "firehol-level1     skipped") || !strings.Contains(out, "snapshot de reputación v1") {
+	if !strings.Contains(out, "firehol-level1     skipped") || !strings.Contains(out, "snapshot de reputación v1") ||
+		strings.Contains(out, "sin verificar") {
 		t.Fatalf("sync:\n%s", out)
+	}
+	if code, out, _ := runCLI(t, c, append([]string{"fetch", "-allow-unverified", "-only", "firehol-level1"}, base...)...); code != 0 ||
+		!strings.Contains(out, "licencia sin uso comercial permitido") {
+		t.Fatalf("firehol con -allow-unverified: %d\n%s", code, out)
 	}
 	if _, err := os.Stat(filepath.Join(data, "datasets", "firehol-level1")); !os.IsNotExist(err) {
 		t.Fatal("se escribió la fuente sin uso comercial")
@@ -101,7 +102,7 @@ func TestEndToEndWithFixtures(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(fx, "abusech-threatfox.csv"), []byte("<html>502 Bad Gateway</html>\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	code, out, _ = runCLI(t, c, append([]string{"sync", "-allow-unverified"}, base...)...)
+	code, out, _ = runCLI(t, c, append([]string{"sync"}, base...)...)
 	if code != 1 || !strings.Contains(out, "abusech-feodo      failed") || !strings.Contains(out, "abusech-threatfox  failed") ||
 		!strings.Contains(out, "snapshot de reputación v2") {
 		t.Fatalf("sync con fallos: code=%d\n%s", code, out)
@@ -141,5 +142,87 @@ func TestDefaultConfigAndUsage(t *testing.T) {
 	}
 	if code, _, _ := runCLI(t, c, "fetch", "-only", "nope", "-data-dir", t.TempDir()); code != 1 {
 		t.Fatal("-only con fuente desconocida debería fallar")
+	}
+}
+
+// TestCustomSources carga listas personalizadas (D20) junto a las del
+// catálogo: una válida en ip-list, otra en csv, una peligrosa (rechazada al
+// descargarla) y una con una definición inválida (rechazada al cargarla).
+func TestCustomSources(t *testing.T) {
+	root := repoRoot(t)
+	cfg := filepath.Join(root, "tests", "fixtures", "feeds", "feeds.yaml")
+	fx := t.TempDir()
+	copyDir(t, filepath.Join(root, "tests", "fixtures", "feeds"), fx)
+	danger, err := os.ReadFile(filepath.Join(root, "tests", "fixtures", "feeds", "dangerous", "default-route.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fx, "custom-danger.txt"), danger, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	custom := t.TempDir()
+	copyDir(t, filepath.Join(root, "tests", "fixtures", "feeds", "custom"), custom)
+	extra := `version: 1
+sources:
+  - {id: custom-danger, name: Lista con 0.0.0.0/0, url: "https://lists.example.net/all.txt", format: ip-list,
+     category: blocklist, confidence: 50, frequency: 1h, on_dangerous: warn}
+  - {id: custom-insecure, name: Lista por HTTP, url: "http://lists.example.net/x.txt", format: ip-list,
+     category: blocklist, confidence: 50, frequency: 1h}
+`
+	if err := os.WriteFile(filepath.Join(custom, "extra.yaml"), []byte(extra), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	data := t.TempDir()
+	c := &clock{t: time.Date(2026, 10, 8, 4, 0, 0, 0, time.UTC)}
+	base := []string{"-config", cfg, "-custom", custom, "-data-dir", data, "-fixtures", fx}
+
+	code, out, errOut := runCLI(t, c, append([]string{"sources"}, base...)...)
+	if code != 1 || !strings.Contains(out, "custom-honeypot") || !strings.Contains(out, "custom") ||
+		strings.Contains(out, "custom-insecure") || !strings.Contains(errOut, `"custom-insecure" rechazada`) ||
+		!strings.Contains(errOut, "solo se admite https") {
+		t.Fatalf("sources: %d\n%s\n%s", code, out, errOut)
+	}
+
+	code, out, errOut = runCLI(t, c, append([]string{"sync"}, base...)...)
+	if code != 1 {
+		t.Fatalf("sync: code=%d\n%s\n%s", code, out, errOut)
+	}
+	for _, want := range []string{
+		"custom-honeypot    updated  10", "custom-scanners    updated  3", "custom-danger      failed",
+		"lista peligrosa: incluye una ruta por defecto", "abusech-feodo      updated", "snapshot de reputación v1",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("sync sin %q:\n%s", want, out)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(data, "datasets", "custom-insecure")); !os.IsNotExist(err) {
+		t.Fatal("se descargó una lista personalizada inválida")
+	}
+
+	code, out, _ = runCLI(t, c, "lookup", "-data-dir", data, "203.0.113.77", "198.51.100.200", "192.0.2.10", "198.51.100.7")
+	for _, want := range []string{
+		"203.0.113.77\t203.0.113.77/32\tfuente=custom-honeypot categoría=scanner confianza=70 fecha=2026-10-08 puerto=2222",
+		"198.51.100.200\t198.51.100.200/32\tfuente=custom-scanners categoría=scanner confianza=60",
+		"192.0.2.10\t192.0.2.10/32\tfuente=abusech-feodo",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("lookup sin %q:\n%s", want, out)
+		}
+	}
+	if code != 0 || strings.Contains(out, "custom-danger") {
+		t.Fatalf("lookup: %d", code)
+	}
+
+	// La lista personalizada desaparece de la configuración: deja de entrar en
+	// el snapshot aunque su dataset siga en el almacén.
+	if err := os.Remove(filepath.Join(custom, "honeypot.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	code, out, _ = runCLI(t, c, append([]string{"build"}, base...)...)
+	if code != 0 || strings.Contains(out, "custom-honeypot") || !strings.Contains(out, "snapshot de reputación v2") {
+		t.Fatalf("build sin honeypot: %d\n%s", code, out)
+	}
+	if code, out, _ = runCLI(t, c, "lookup", "-data-dir", data, "203.0.113.77"); code != 0 || strings.Contains(out, "custom-honeypot") {
+		t.Fatalf("lookup v2:\n%s", out)
 	}
 }

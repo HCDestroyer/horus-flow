@@ -8,14 +8,15 @@
 #                                hasta que el PO lo confirme (P-14); solo en laboratorio con
 #                                --allow-unverified
 #
-# Estado de la revisión de licencias (2026-10-08, sin acceso de red desde el entorno de
-# desarrollo, revisar contra las URL de license_url antes de pasar a "yes"):
-# - abuse.ch publicaba Feodo Tracker y ThreatFox bajo CC0 con uso comercial permitido, pero ha
-#   revisado sus condiciones (claves de acceso, "fair use"); hay que confirmar el uso comercial.
-# - Spamhaus DROP es gratuito, pero sus términos limitan la redistribución y el uso dentro de
-#   productos o servicios comerciales; hay que confirmar que Horus (uso interno de cada ISP,
-#   multi-tenant) entra en el uso gratuito.
-# - FireHOL agrega listas con licencias heterogéneas (algunas solo no comerciales): "no".
+# Decisión del PO (D20, docs/po-decisions.md, 2026-10-08): las fuentes propuestas —abuse.ch
+# Feodo Tracker y ThreatFox, Spamhaus DROP y la lista de salida de Tor— quedan aprobadas para
+# uso comercial ("yes"). FireHOL sigue fuera ("no": agrega listas con licencias heterogéneas,
+# algunas solo no comerciales). Revisión previa (I0-17): abuse.ch publica bajo CC0 pero ha
+# revisado sus condiciones (claves de acceso, "fair use"); Spamhaus DROP es gratuito con
+# redistribución restringida (los snapshots no redistribuyen el archivo original).
+#
+# Además del catálogo embebido, el superadmin puede dar de alta listas personalizadas (D20) que se
+# cargan en tiempo de ejecución (api/customfeeds.SourceSpec): ver services/detection/README.md.
 #
 # Los snapshots nunca redistribuyen el archivo original; los datasets crudos no salen a la
 # copia remota (docs/storage.md §3).
@@ -26,9 +27,9 @@ sources:
     kind: reputation
     url: https://feodotracker.abuse.ch/downloads/ipblocklist.csv
     format: abusech-feodo-csv
-    license: CC0-1.0 (según abuse.ch; condiciones de uso comercial a confirmar)
+    license: CC0-1.0 (abuse.ch; uso comercial aprobado por el PO, D20)
     license_url: https://feodotracker.abuse.ch/faq/
-    commercial_use: unverified
+    commercial_use: "yes"
     attribution: abuse.ch Feodo Tracker
     frequency: 1h
     category: botnet_cc
@@ -45,9 +46,9 @@ sources:
     kind: reputation
     url: https://threatfox.abuse.ch/export/csv/ip-port/recent/
     format: abusech-threatfox-csv
-    license: CC0-1.0 (según abuse.ch; condiciones de uso comercial a confirmar)
+    license: CC0-1.0 (abuse.ch; uso comercial aprobado por el PO, D20)
     license_url: https://threatfox.abuse.ch/faq/#tos
-    commercial_use: unverified
+    commercial_use: "yes"
     attribution: abuse.ch ThreatFox
     frequency: 1h
     category: botnet_cc
@@ -64,9 +65,9 @@ sources:
     kind: reputation
     url: https://www.spamhaus.org/drop/drop_v4.json
     format: spamhaus-drop-json
-    license: Spamhaus DROP — términos de uso propios (gratuito; redistribución restringida)
+    license: Spamhaus DROP — términos de uso propios (gratuito; redistribución restringida; aprobado, D20)
     license_url: https://www.spamhaus.org/drop/terms/
-    commercial_use: unverified
+    commercial_use: "yes"
     attribution: The Spamhaus Project
     frequency: 12h
     category: blocklist
@@ -82,9 +83,9 @@ sources:
     kind: reputation
     url: https://www.spamhaus.org/drop/drop_v6.json
     format: spamhaus-drop-json
-    license: Spamhaus DROP — términos de uso propios (gratuito; redistribución restringida)
+    license: Spamhaus DROP — términos de uso propios (gratuito; redistribución restringida; aprobado, D20)
     license_url: https://www.spamhaus.org/drop/terms/
-    commercial_use: unverified
+    commercial_use: "yes"
     attribution: The Spamhaus Project
     frequency: 12h
     category: blocklist
@@ -97,9 +98,9 @@ sources:
     kind: reputation
     url: https://check.torproject.org/torbulkexitlist
     format: netset
-    license: Datos públicos del Tor Project (licencia exacta a confirmar)
+    license: Datos públicos del Tor Project (aprobado por el PO, D20)
     license_url: https://metrics.torproject.org/
-    commercial_use: unverified
+    commercial_use: "yes"
     attribution: The Tor Project
     frequency: 6h
     category: tor
