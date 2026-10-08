@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/hcdestroyer/horus-flow/packages/go/archtest"
 )
 
@@ -152,7 +154,7 @@ func TestCatalogMatchesContract(t *testing.T) {
 	if !mfa || !slices.Contains(perms, "platform.tenants.manage") || slices.Contains(perms, "platform.support_access") {
 		t.Fatalf("platform_admin = %v %v", perms, mfa)
 	}
-	if SystemRoleID("noc") != SystemRoleID("noc") || SystemRoleID("noc") == SystemRoleID("viewer") {
+	if SystemRoleID("noc") != uuid.NewSHA1(roleNamespace, []byte("role:noc")) || SystemRoleID("noc") == SystemRoleID("viewer") {
 		t.Fatal("IDs de rol no deterministas")
 	}
 }

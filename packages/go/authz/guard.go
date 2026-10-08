@@ -73,7 +73,7 @@ func Check(w http.ResponseWriter, r *http.Request, p *Principal, req Requirement
 	}
 	switch req.Scope {
 	case ScopeTenant:
-		if p.Scope != ScopeTenant && !(req.AllowKiosk && p.Scope == ScopeKiosk) {
+		if p.Scope != ScopeTenant && (!req.AllowKiosk || p.Scope != ScopeKiosk) {
 			problem.Std(w, r, http.StatusForbidden, problem.CodeTokenScopeInvalid,
 				problem.WithDetail("Esta ruta exige un token de ISP (POST /auth/token con tenant_id)."))
 			return false
