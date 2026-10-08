@@ -21,4 +21,5 @@ métricas y eventos publicados/consumidos cuando el módulo tenga implementació
 - `api/asn`: snapshot versionado y `Lookup(ip)` → prefijo, ASN, país, organización, tipo de red.
 - CLI `go run ./services/traffic/cmd/horus-asn <sources|fetch|build|sync|lookup|status>`;
   snapshots en `$HORUS_DATA_DIR/catalog/asn/v<N>/`. Sin Internet:
-  `-config tests/fixtures/datasets/datasets.yaml -fixtures tests/fixtures/datasets -allow-unverified`.
+  `-config tests/fixtures/datasets/datasets.yaml -fixtures tests/fixtures/datasets` (RIS, RIR y
+  PeeringDB aprobadas para uso comercial por D20; CAIDA AS2Org sigue fuera).

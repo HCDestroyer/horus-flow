@@ -70,18 +70,19 @@ func TestEndToEndWithFixtures(t *testing.T) {
 	c := &clock{t: time.Date(2026, 10, 8, 4, 0, 0, 0, time.UTC)}
 	base := []string{"-config", cfg, "-data-dir", data, "-fixtures", fx}
 
-	// Sin --allow-unverified solo se procesarían fuentes "yes": ninguna.
-	code, out, _ := runCLI(t, c, append([]string{"fetch"}, base...)...)
-	if code != 0 || strings.Contains(out, "updated") || !strings.Contains(out, "sin verificar") {
-		t.Fatalf("fetch sin autorización: code=%d\n%s", code, out)
-	}
-	// La fuente "no" nunca se descarga, ni con --allow-unverified.
-	code, out, errOut := runCLI(t, c, append([]string{"sync", "-allow-unverified"}, base...)...)
+	// Las fuentes aprobadas en D20 ("yes") se procesan sin --allow-unverified;
+	// la fuente "no" (FireHOL) nunca se descarga, ni con --allow-unverified.
+	code, out, errOut := runCLI(t, c, append([]string{"sync"}, base...)...)
 	if code != 0 {
 		t.Fatalf("sync: code=%d\n%s\n%s", code, out, errOut)
 	}
-	if !strings.Contains(out, "firehol-level1     skipped") || !strings.Contains(out, "snapshot de reputación v1") {
+	if !strings.Contains(out, "firehol-level1     skipped") || !strings.Contains(out, "snapshot de reputación v1") ||
+		strings.Contains(out, "sin verificar") {
 		t.Fatalf("sync:\n%s", out)
+	}
+	if code, out, _ := runCLI(t, c, append([]string{"fetch", "-allow-unverified", "-only", "firehol-level1"}, base...)...); code != 0 ||
+		!strings.Contains(out, "licencia sin uso comercial permitido") {
+		t.Fatalf("firehol con -allow-unverified: %d\n%s", code, out)
 	}
 	if _, err := os.Stat(filepath.Join(data, "datasets", "firehol-level1")); !os.IsNotExist(err) {
 		t.Fatal("se escribió la fuente sin uso comercial")
@@ -101,7 +102,7 @@ func TestEndToEndWithFixtures(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(fx, "abusech-threatfox.csv"), []byte("<html>502 Bad Gateway</html>\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	code, out, _ = runCLI(t, c, append([]string{"sync", "-allow-unverified"}, base...)...)
+	code, out, _ = runCLI(t, c, append([]string{"sync"}, base...)...)
 	if code != 1 || !strings.Contains(out, "abusech-feodo      failed") || !strings.Contains(out, "abusech-threatfox  failed") ||
 		!strings.Contains(out, "snapshot de reputación v2") {
 		t.Fatalf("sync con fallos: code=%d\n%s", code, out)

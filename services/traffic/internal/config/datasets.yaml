@@ -5,6 +5,10 @@
 # commercial_use: "yes" se descarga · "no" nunca · unverified solo con --allow-unverified
 # (laboratorio) hasta que el PO confirme los términos (P-14).
 #
+# Decisión del PO (D20, docs/po-decisions.md, 2026-10-08): RIPE RIS, las estadísticas delegadas de
+# los RIR y PeeringDB quedan aprobadas para uso comercial ("yes"); iptoasn ya lo era (PDDL).
+# CAIDA AS2Org sigue fuera ("no": su AUA exige acuerdo para uso comercial).
+#
 # Consolidación: BGP (MRT) > iptoasn > RIR (docs/traffic-model.md §5); un cambio de más del
 # 5 % de los prefijos respecto al snapshot anterior exige revisión (--accept-large-diff).
 # Los datasets crudos se guardan 90 días y no van a la copia remota (docs/storage.md §3).
@@ -17,14 +21,14 @@ sources:
     format: mrt-table-dump-v2
     license: Términos de uso de los datos de RIPE NCC RIS (atribución)
     license_url: https://www.ripe.net/analyse/internet-measurements/routing-information-service-ris/
-    commercial_use: unverified
+    commercial_use: "yes"
     attribution: RIPE NCC Routing Information Service (RIS)
     frequency: 24h
     min_entries: 500000
     max_bytes: 2147483648
     notes: >-
       Fuente primaria (BGP). RIPE NCC publica los datos de RIS como datos abiertos con
-      atribución; confirmar que el uso comercial multi-ISP está cubierto. RouteViews es
+      atribución; uso comercial multi-ISP aprobado por el PO (D20). RouteViews es
       equivalente pero su URL lleva fecha (pendiente de plantillas de URL).
 
   - id: iptoasn-v4
@@ -61,7 +65,7 @@ sources:
     format: rir-delegated
     license: Estadísticas públicas del RIR (formato NRO); términos del RIR
     license_url: https://www.nro.net/about/rirs/statistics/
-    commercial_use: unverified
+    commercial_use: "yes"
     frequency: 24h
     min_entries: 1000
     max_bytes: 67108864
@@ -72,7 +76,7 @@ sources:
     format: rir-delegated
     license: Estadísticas públicas del RIR (formato NRO); términos del RIR
     license_url: https://www.nro.net/about/rirs/statistics/
-    commercial_use: unverified
+    commercial_use: "yes"
     frequency: 24h
     min_entries: 1000
     max_bytes: 67108864
@@ -83,7 +87,7 @@ sources:
     format: rir-delegated
     license: Estadísticas públicas del RIR (formato NRO); términos del RIR
     license_url: https://www.nro.net/about/rirs/statistics/
-    commercial_use: unverified
+    commercial_use: "yes"
     frequency: 24h
     min_entries: 1000
     max_bytes: 67108864
@@ -94,7 +98,7 @@ sources:
     format: rir-delegated
     license: Estadísticas públicas del RIR (formato NRO); términos del RIR
     license_url: https://www.nro.net/about/rirs/statistics/
-    commercial_use: unverified
+    commercial_use: "yes"
     frequency: 24h
     min_entries: 1000
     max_bytes: 67108864
@@ -105,7 +109,7 @@ sources:
     format: rir-delegated
     license: Estadísticas públicas del RIR (formato NRO); términos del RIR
     license_url: https://www.nro.net/about/rirs/statistics/
-    commercial_use: unverified
+    commercial_use: "yes"
     frequency: 24h
     min_entries: 1000
     max_bytes: 67108864
@@ -117,13 +121,13 @@ sources:
     format: peeringdb-net
     license: PeeringDB Acceptable Use Policy
     license_url: https://www.peeringdb.com/aup
-    commercial_use: unverified
+    commercial_use: "yes"
     frequency: 24h
     min_entries: 10000
     max_bytes: 268435456
     notes: >-
-      Aporta asn.network_type. La AUP limita usos (p. ej. marketing); confirmar que la
-      clasificación de tráfico y seguridad del ISP entra en el uso permitido. Sin API key la
+      Aporta asn.network_type. La AUP limita usos (p. ej. marketing); el PO aprobó la
+      clasificación de tráfico y seguridad del ISP como uso permitido (D20). Sin API key la
       API aplica límites de tasa.
 
   - id: caida-as2org
