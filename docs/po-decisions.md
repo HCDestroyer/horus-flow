@@ -36,3 +36,23 @@
 | D14 | **La plataforma se accede por Internet, con dominios configurables.** | UI y API públicas detrás de Traefik con TLS automático (Let's Encrypt) y dominio configurable por instalación (posible dominio por ISP más adelante). Exige 2FA para administradores, rate limit y endurecimiento del borde desde el I1. |
 | D15 | **Solo RouterOS 7.x.x.** | Se descarta RouterOS v6 por completo. Mínimo 7.12, recomendada la última long-term. |
 | D16 | **WireGuard es el túnel que conecta el router con Horus, para que el tráfico se vea de forma transparente.** | Confirma el supuesto: el router principal inicia un túnel WireGuard hacia el hub de Horus; por él viajan gestión (API, SNMP) y exportación de flujos. |
+
+# Decisiones del product owner (ronda 3 — gate G0)
+
+> Respuestas a las preguntas del gate G0 ([`contracts/G0.md`](contracts/G0.md)). Con ellas, los
+> contratos v0 quedan **aprobados**; donde el PO no respondió se adopta la recomendación por
+> defecto de G0.md. Los contratos se enmiendan para reflejar D17–D21 antes de la Ola 1.
+
+| # | Decisión del PO | Interpretación para el diseño |
+| --- | --- | --- |
+| D17 | **LibreNMS por su API**, con una instancia dedicada a Horus. La configuración es **manual**: URL de la instancia, usuario, contraseña y token si hace falta. **Por ISP**, para que todo quede aislado aunque varios ISP usen el mismo servidor LibreNMS. | Canal de integración `librenms` configurado por tenant (URL, usuario, contraseña, token opcional; credenciales write-only y cifradas). Horus empuja alertas/hallazgos por la API de LibreNMS. Nada se comparte entre ISPs aunque la URL coincida. Sustituye las variantes syslog/SNMP trap. |
+| D18 | **El estado "infectado" se muestra con esa palabra** como indicador. | El estado de seguridad del cliente `infected` se muestra como "Infectado" en UI, kiosco y alertas, siempre con sus razones y nivel de confianza. |
+| D19 | **Dominio opcional**: solo si el cliente lo desea; si no, un subdominio, o únicamente la IP del servidor. | Tres modos de acceso por instalación: dominio propio, subdominio, o solo IP. Con dominio o subdominio, TLS automático; con solo IP, certificado autogenerado (o certificado para IP si el emisor lo soporta) y aviso en la consola de plataforma. Nada depende de tener dominio. |
+| D20 | **Las listas de reputación propuestas se aprueban** (abuse.ch Feodo/ThreatFox, Spamhaus DROP, Tor, RIPE RIS, RIR, PeeringDB). Además, el **superadmin puede agregar las listas que desee** con los permisos adecuados, y se cargan automáticamente a la base de datos. | Las fuentes pasan a `commercial_use: yes`. Nueva capacidad de plataforma: alta de fuentes de reputación personalizadas (URL, formato, frecuencia, categoría, confianza) con permiso de plataforma, auditada; la carga es automática y aparece en el snapshot. CAIDA AS2Org y FireHOL siguen fuera. |
+| D21 | **Dueños de los módulos sin asignar: según lo ideal para cada caso.** | `snmp` → FLOW (recolección de telemetría, junto al colector de flujos); `alerts` → CORE (canales de notificación e integraciones, incluido LibreNMS); `jobs` → PLAT (backups, archivado, copia remota). |
+
+Respuestas por defecto de G0 adoptadas: nombres de rol de `security.md`; petición sin ISP → 403
+`TOKEN_SCOPE_INVALID`; sin replay de WebSocket en v1 (resincronización por REST); un usuario
+puede tener varios roles en un ISP; token de enrolamiento en el cuerpo JSON (a verificar en CHR);
+email y Telegram sin IPs de clientes por defecto; bot de Telegram configurable por ISP (mismo
+criterio de aislamiento que D17).
