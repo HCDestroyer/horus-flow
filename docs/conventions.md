@@ -433,22 +433,22 @@ para un PR típico. Jobs agregadores `ci-ok` como único check requerido en la p
 
 - **Multi-stage** para Go:
   ```dockerfile
-  # (referencia de estilo; el Dockerfile real se escribe en Sprint 1)
+  # (referencia de estilo; el Dockerfile real se escribe en el primer incremento)
   FROM golang:<versión>-bookworm AS build      # fijado por digest
   # go mod download con caché; CGO_ENABLED=0; go build -trimpath -ldflags "-s -w -X …/version.Version=$VERSION"
   FROM gcr.io/distroless/static-debian12:nonroot
-  COPY --from=build /out/<servicio> /<servicio>
+  COPY --from=build /out/horus /horus
   USER 65532:65532
-  ENTRYPOINT ["/<servicio>"]
+  ENTRYPOINT ["/horus"]            # los roles llegan por HORUS_ROLES
   ```
-  Un Dockerfile genérico parametrizado por `SERVICE` en `infrastructure/docker/go.Dockerfile`
-  es preferible a 12 copias.
+  Una sola imagen para `horus-app`, `horus-collector` y `horus-wg-agent`; cambian `HORUS_ROLES`, capacidades
+  (`NET_ADMIN` sólo en `wg-agent`) y redes en el compose ([ADR-0025](adr/0025-binario-modular-con-roles.md)).
 - Frontend: build con `node:<lts>-alpine` + pnpm → imagen final mínima no-root que sirve
   `/.output/public` (p. ej. `nginxinc/nginx-unprivileged` o un servidor estático en Go) detrás de
   Traefik, que añade cabeceras de seguridad (CSP, HSTS) ([ADR-0012](adr/0012-nuxt4-nuxt-ui.md),
   [ADR-0013](adr/0013-api-gateway-propio.md)).
 - Sin shell ni gestor de paquetes en la imagen final; healthcheck de compose mediante el propio
-  binario (`/<servicio> healthcheck` que llama a `/healthz`), ya que distroless no tiene `curl`.
+  binario (`/horus healthcheck` que llama a `/healthz`), ya que distroless no tiene `curl`.
 - Etiquetas OCI (`org.opencontainers.image.source`, `.revision`, `.version`, `.created`).
 - **Tags:** `ghcr.io/hcdestroyer/horus-flow/<servicio>:vX.Y.Z`, `:sha-<7>`, y `:main` solo
   para entornos de desarrollo. **Nunca** `latest` en despliegues; producción referencia por
@@ -467,30 +467,34 @@ para un PR típico. Jobs agregadores `ci-ok` como único check requerido en la p
   (y más adelante OpenBao, ver [`security.md`](security.md) §8.3).
 - Nunca secretos en `environment:` del compose versionado, en `ARG`/`ENV` de Dockerfiles, ni en
   variables de GitHub Actions no marcadas como secretas.
-- Perfiles de compose (`profiles:`) para arrancar solo lo necesario:
-  `core` (gateway, auth, devices, datastores), `observability`, `collectors`, `analytics`.
+- Perfiles de compose: por defecto el **perfil mínimo** (`horus-app`, `horus-collector`, `horus-wg-agent` +
+  datastores); `observability` y `mock` (Prism) opcionales. En desarrollo se puede arrancar un solo módulo con
+  `HORUS_ROLES=devices,gateway`.
 
-## 11. Definición de Terminado (checklist verificable)
+## 11. Definición de Terminado — verificada por máquina (D7)
 
-Una historia está terminada cuando **todas** las casillas aplicables están marcadas en el PR
-(o justificadas como N/A). Mapeo a vision §13.
+Sin equipo humano, una casilla marcada a mano no prueba nada. Cada criterio de [`vision.md`](vision.md) §13 se
+traduce en un **check automático** que el job `dod` agrega en un solo estado requerido. Lo que no es automatizable
+lo verifica el agente revisor (§6.4) y, en áreas sensibles, la persona.
 
-| # | Criterio (vision §13) | Verificación |
-|---|-----------------------|--------------|
-| 1 | **Código** | PR fusionado a `main` por squash con título Conventional Commit; sin `TODO` sin issue enlazado |
-| 2 | **Tests** | Unitarios de la lógica nueva; integración si toca BD/NATS/externos; contrato si cambia API/proto/eventos; e2e si cambia un recorrido crítico; CI verde |
-| 3 | **Manejo de errores** | Errores envueltos y mapeados (§2.4); casos de error con test; sin pánicos; timeouts en toda E/S |
-| 4 | **Logs** | Logs JSON con campos obligatorios; nada de lo prohibido ([`observability.md`](observability.md) §3.3) |
-| 5 | **Métricas** | RED automáticas + métricas de negocio necesarias con labels permitidos; panel/alerta actualizados si hay nuevo modo de fallo |
-| 6 | **Seguridad** | Checklist de [`security.md`](security.md) §15 completo; escaneos en verde |
-| 7 | **Documentación** | README del servicio actualizado (env vars, métricas, eventos); ADR si hubo decisión de arquitectura; runbook si hay nuevo modo de fallo |
-| 8 | **API documentada** | OpenAPI actualizado (ejemplos y errores), cliente regenerado sin diff; eventos con esquema en `packages/events` |
-| 9 | **Migración DB si aplica** | Migración versionada, reversible o *expand/contract*, pasa `squawk`, probada en integración |
-| 10 | **Docker** | Imagen construye con el Dockerfile común, no root, pasa `trivy image`; compose actualizado |
-| 11 | **CI/CD** | El servicio está en la detección de afectados y en el pipeline; `ci-ok` verde |
-| 12 | **Health check** | `/healthz` y `/readyz` según [`observability.md`](observability.md) §7; `healthcheck` en compose |
-| 13 | **Backup si aplica** | Datos nuevos cubiertos por la política de [`disaster-recovery.md`](disaster-recovery.md) (o justificado como reconstruible) |
-| 14 | **Revisión** | ≥ 1 aprobación (2 en áreas sensibles por CODEOWNERS); demo en la review del sprint con funcionalidad real |
+| # | Criterio | Verificación automática (bloquea) | Revisor |
+|---|----------|------------------------------------|---------|
+| 1 | **Código** | Título Conventional Commit (commitlint); `scope-guard` (sólo rutas de la tarea); sin `TODO` sin `HF-NNN` (grep) | Que el diff resuelve la tarea |
+| 2 | **Tests** | Unit + integración de módulos afectados verdes; cobertura de `domain`/`app` del diff ≥ 70 % (diff coverage); si cambia un parser de red → objetivo de fuzzing existe | Que los tests prueban comportamiento |
+| 3 | **Aislamiento de tenant** | Tests de arquitectura (RLS en toda tabla con `tenant_id`, `TenantScope` en repositorios, `tenant_id` en consultas ClickHouse) + batería "A no ve B" generada (100 % de operaciones `scope: tenant`, topics WS, consumidores) | Caminos no cubiertos (exportaciones, jobs) |
+| 4 | **Errores** | Lint `errorlint`, `wrapcheck`; toda operación OpenAPI declara sus `problem+json` | Mapeo adecuado |
+| 5 | **Logs y privacidad** | `sloglint` + `forbidigo` (nombres de campos prohibidos: `ip`, `password`, `token`, `alias`…); test de la librería de métricas que rechaza labels prohibidos | — |
+| 6 | **Métricas y alertas** | `promlinter`; si el PR añade un modo de fallo etiquetado `new-failure-mode`, exige cambios en reglas de alerta y en `disaster-recovery.md` | Utilidad de la alerta |
+| 7 | **Seguridad** | `govulncheck`, `osv-scanner`, `gitleaks`, `trivy`, `gosec`/semgrep en verde ([`security.md`](security.md) §12) | Checklist §15 de `security.md` |
+| 8 | **API y eventos documentados** | OpenAPI lint (incluye `scope`, `x-permission`), `oasdiff breaking`, `buf breaking`, catálogo de eventos válido (`tenant_scope`, `pii`, golden files), código generado sin diff | — |
+| 9 | **Migraciones** | `squawk`; up → down → up en contenedor; nombre con marca de tiempo | Riesgo de bloqueo en tablas grandes |
+| 10 | **Imagen y despliegue** | Build de la imagen única, `trivy image`, smoke del perfil mínimo en `merge_group` (`/readyz` de cada rol en 200) | — |
+| 11 | **Health checks** | Test que arranca el binario con los roles del módulo y comprueba `/healthz` y `/readyz?role=` | — |
+| 12 | **Backup/retención** | Si la migración crea una tabla con datos personales (etiqueta `pii` en el comentario SQL), exige retención declarada en `storage.md` (script) | Que la retención es razonable |
+| 13 | **Documentación** | README del módulo actualizado si cambian env vars/métricas/eventos (script compara con el código); enlaces de `docs/` válidos (lychee); ADR presente si el PR lleva la etiqueta `architecture` o añade una dependencia directa en `go.mod`/`package.json` | Calidad del texto |
+| 14 | **Revisión** | `agent-review` aprobado por una identidad distinta del autor; CODEOWNERS (persona) en rutas sensibles | — |
+| 15 | **Demo** | UI: capturas/vídeo Playwright adjuntos al PR como artefacto | La persona acepta el **incremento** (no cada PR) |
 
-Plantilla de PR (`.github/pull_request_template.md`, la crea quien implemente el Sprint 1)
-con estas 14 casillas.
+Plantilla de PR (`.github/pull_request_template.md`): qué, por qué, cómo se probó, alcance declarado (rutas), riesgos
+y notas para el revisor; **sin** casillas de DoD (las sustituye el job `dod`, que publica su tabla de resultados como
+comentario del PR).
