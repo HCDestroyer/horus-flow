@@ -115,7 +115,10 @@
       "monitoring": "Monitoreo de routers",
       "realtime": "Actualizaciones en vivo",
       "analytics": "Analítica de tráfico",
-      "reports": "Reportes"
+      "reports": "Reportes",
+      "ingest": "Recepción de flujos",
+      "detection": "Detección de botnets",
+      "notifications": "Notificaciones"
     },
     "capabilityState": {
       "ok": "Funciona",
@@ -136,23 +139,57 @@
   },
   "sections": {
     "notYet": "Esta sección aún no está disponible en esta versión de Horus Flow.",
-    "dashboards": { "question": "Dashboards en vivo para el NOC y las pantallas murales." },
-    "nodes": { "question": "¿Llegan flujos de todos mis nodos y routers?" },
-    "clients": { "question": "¿Qué hace cada IP de cliente y de qué tipo es?" },
-    "traffic": { "question": "¿Cuánto tráfico pasa y hacia qué servicios?" },
-    "findings": { "question": "¿Qué clientes muestran señales compatibles con botnet?" },
-    "investigate": { "question": "¿Qué sabemos de esta IP?" },
-    "alerts": { "question": "¿Qué alertas están activas?" },
-    "reports": { "question": "Reportes periódicos del ISP." },
-    "users": { "question": "¿Quién tiene acceso a este ISP y con qué rol?" },
-    "kiosks": { "question": "¿Qué pantallas NOC están en línea y qué muestran?" },
-    "detection": { "question": "¿Con qué umbrales se detectan las señales?" },
-    "audit": { "question": "¿Quién hizo qué y cuándo?" },
-    "platform-isps": { "question": "¿Cómo están todos los ISP de la instalación?" },
-    "platform-users": { "question": "¿Quién opera la plataforma?" },
-    "platform-wireguard": { "question": "¿Qué hubs y rangos de túneles hay y cuánto ocupan?" },
-    "platform-storage": { "question": "¿Cuánto disco usa cada tipo de dato?" },
-    "platform-system": { "question": "¿Está sano cada rol del binario horus?" }
+    "dashboards": {
+      "question": "Dashboards en vivo para el NOC y las pantallas murales."
+    },
+    "nodes": {
+      "question": "¿Llegan flujos de todos mis nodos y routers?"
+    },
+    "clients": {
+      "question": "¿Qué hace cada IP de cliente y de qué tipo es?"
+    },
+    "traffic": {
+      "question": "¿Cuánto tráfico pasa y hacia qué servicios?"
+    },
+    "findings": {
+      "question": "¿Qué clientes muestran señales compatibles con botnet?"
+    },
+    "investigate": {
+      "question": "¿Qué sabemos de esta IP?"
+    },
+    "alerts": {
+      "question": "¿Qué alertas están activas?"
+    },
+    "reports": {
+      "question": "Reportes periódicos del ISP."
+    },
+    "users": {
+      "question": "¿Quién tiene acceso a este ISP y con qué rol?"
+    },
+    "kiosks": {
+      "question": "¿Qué pantallas NOC están en línea y qué muestran?"
+    },
+    "detection": {
+      "question": "¿Con qué umbrales se detectan las señales?"
+    },
+    "audit": {
+      "question": "¿Quién hizo qué y cuándo?"
+    },
+    "platform-isps": {
+      "question": "¿Cómo están todos los ISP de la instalación?"
+    },
+    "platform-users": {
+      "question": "¿Quién opera la plataforma?"
+    },
+    "platform-wireguard": {
+      "question": "¿Qué hubs y rangos de túneles hay y cuánto ocupan?"
+    },
+    "platform-storage": {
+      "question": "¿Cuánto disco usa cada tipo de dato?"
+    },
+    "platform-system": {
+      "question": "¿Está sano cada rol del binario horus?"
+    }
   },
   "account": {
     "title": "Mi cuenta",

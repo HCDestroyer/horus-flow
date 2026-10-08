@@ -1,4 +1,4 @@
-import type { Me } from '~~/shared/api/types'
+import type { Me } from '~~/types/api'
 import { findMembership, hasPlatformPermission, hasTenantPermission } from './permissions'
 
 /**
@@ -106,4 +106,32 @@ export function buildNavigation(
 /** Sección a partir del path relativo dentro del ISP o del path absoluto de plataforma. */
 export function findSection(scope: NavSection['scope'], path: string) {
   return NAV_SECTIONS.find((s) => s.scope === scope && s.path === path)
+}
+
+/**
+ * Destino al cambiar de ISP (frontend.md §3.2): se conserva la sección si existe y es visible
+ * en el ISP nuevo ("Hallazgos" de A → "Hallazgos" de B); los detalles (IDs de A) y los
+ * filtros (query) se descartan; si la sección no existe allí, se va al inicio del ISP.
+ */
+export function tenantSwitchPath(
+  currentPath: string,
+  toSlug: string,
+  me: Me | null | undefined,
+  maxIncrement: Increment,
+) {
+  const match = currentPath.match(/^\/t\/[^/]+\/?([^?#]*)/)
+  const rest = (match?.[1] ?? '').replace(/\/$/, '')
+  if (!rest) return `/t/${toSlug}`
+  // La sección más específica cuyo path es prefijo de la ruta actual.
+  const section = NAV_SECTIONS.filter(
+    (s) => s.scope === 'tenant' && s.path && (rest === s.path || rest.startsWith(`${s.path}/`)),
+  ).sort((a, b) => b.path.length - a.path.length)[0]
+  if (
+    section &&
+    isIncrementVisible(section.increment, maxIncrement) &&
+    canSeeSection(section, me, toSlug)
+  ) {
+    return sectionHref(section, toSlug)
+  }
+  return `/t/${toSlug}`
 }

@@ -28,7 +28,7 @@ const { me } = useAuth()
         </div>
         <div class="flex justify-between gap-4 py-2.5">
           <dt class="text-muted">{{ t('account.timeZone') }}</dt>
-          <dd class="font-mono">{{ me.time_zone }}</dd>
+          <dd class="font-mono">{{ me.timezone ?? '—' }}</dd>
         </div>
       </dl>
     </UCard>

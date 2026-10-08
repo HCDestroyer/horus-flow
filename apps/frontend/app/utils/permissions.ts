@@ -1,4 +1,4 @@
-import type { Me, Membership } from '~~/shared/api/types'
+import type { Me, Membership } from '~~/types/api'
 
 /**
  * Permisos en la UI (frontend.md §12): la UI solo refleja la autorización; la aplica el

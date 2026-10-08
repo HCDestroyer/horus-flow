@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { buildNavigation, canSeeSection, findSection, NAV_SECTIONS } from '~/utils/navigation'
+import {
+  buildNavigation,
+  canSeeSection,
+  findSection,
+  NAV_SECTIONS,
+  tenantSwitchPath,
+} from '~/utils/navigation'
 import { USERS } from '~~/mocks/data'
 
 const [admin, noc] = USERS.map((u) => u.me) as [(typeof USERS)[0]['me'], (typeof USERS)[1]['me']]
@@ -71,5 +77,32 @@ describe('mapa de secciones', () => {
     const system = findSection('platform', '/platform/system')!
     expect(canSeeSection(system, noc)).toBe(false)
     expect(canSeeSection(system, admin)).toBe(true)
+  })
+})
+
+describe('cambio de ISP (frontend.md §3.2)', () => {
+  it('conserva la sección si existe y es visible en el ISP nuevo', () => {
+    expect(tenantSwitchPath('/t/fibra-norte/security/findings', 'valle-conecta', admin, 'I1')).toBe(
+      '/t/valle-conecta/security/findings',
+    )
+  })
+
+  it('descarta los detalles (IDs del ISP anterior) y los filtros', () => {
+    expect(
+      tenantSwitchPath(
+        '/t/fibra-norte/dashboards/0192f000-x?range=6h',
+        'valle-conecta',
+        admin,
+        'I1',
+      ),
+    ).toBe('/t/valle-conecta/dashboards')
+  })
+
+  it('si la sección no es visible en el ISP nuevo, va a su inicio', () => {
+    // En Red Andina Ana es security_analyst: sin users.read.
+    expect(tenantSwitchPath('/t/fibra-norte/admin/users', 'red-andina', admin, 'I1')).toBe(
+      '/t/red-andina',
+    )
+    expect(tenantSwitchPath('/t/fibra-norte', 'red-andina', admin, 'I1')).toBe('/t/red-andina')
   })
 })
