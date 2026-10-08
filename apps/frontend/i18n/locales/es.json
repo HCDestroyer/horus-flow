@@ -1,0 +1,190 @@
+{
+  "app": {
+    "name": "Horus Flow",
+    "skipToContent": "Saltar al contenido",
+    "tagline": "Consola de verdad de la red del ISP"
+  },
+  "login": {
+    "title": "Iniciar sesión",
+    "description": "Entra con tu cuenta de Horus Flow.",
+    "email": "Correo electrónico",
+    "emailPlaceholder": "nombre{'@'}tu-isp.com",
+    "password": "Contraseña",
+    "showPassword": "Mostrar contraseña",
+    "hidePassword": "Ocultar contraseña",
+    "submit": "Iniciar sesión",
+    "forgot": "¿Olvidaste tu contraseña?",
+    "forgotHint": "Pide a la administración de tu ISP que restablezca tu acceso.",
+    "errors": {
+      "emailRequired": "Escribe tu correo electrónico",
+      "emailInvalid": "Escribe un correo válido, por ejemplo nombre{'@'}tu-isp.com",
+      "passwordRequired": "Escribe tu contraseña",
+      "invalidCredentials": "Correo o contraseña incorrectos. Revísalos e inténtalo de nuevo.",
+      "rateLimited": "Demasiados intentos. Espera {seconds} s y vuelve a intentarlo.",
+      "network": "No se puede conectar con Horus Flow. Comprueba tu conexión e inténtalo de nuevo.",
+      "unexpected": "No pudimos iniciar sesión. Inténtalo de nuevo en unos minutos.",
+      "sessionExpired": "Tu sesión terminó. Vuelve a iniciar sesión para continuar."
+    },
+    "mfa": {
+      "title": "Verificación en dos pasos",
+      "description": "Escribe el código de 6 dígitos de tu aplicación de autenticación.",
+      "code": "Código de verificación",
+      "codeHint": "También puedes usar un código de recuperación.",
+      "submit": "Verificar",
+      "back": "Usar otra cuenta",
+      "errors": {
+        "required": "Escribe el código de verificación",
+        "invalid": "El código no es correcto. Comprueba que la hora de tu teléfono esté bien y vuelve a intentarlo.",
+        "expired": "La verificación caducó. Vuelve a escribir tu correo y contraseña."
+      }
+    },
+    "demo": {
+      "title": "API simulada",
+      "description": "Sin backend todavía. Usa {email} con la contraseña {password}; código de verificación {code}."
+    }
+  },
+  "nav": {
+    "groups": {
+      "operation": "Operación",
+      "security": "Seguridad",
+      "management": "Gestión",
+      "admin": "Administración del ISP",
+      "platform": "Plataforma"
+    },
+    "items": {
+      "overview": "Resumen",
+      "dashboards": "Dashboards",
+      "nodes": "Nodos y routers",
+      "clients": "Clientes",
+      "traffic": "Tráfico",
+      "findings": "Hallazgos",
+      "investigate": "Investigar IP",
+      "alerts": "Alertas",
+      "reports": "Reportes",
+      "users": "Usuarios y roles",
+      "kiosks": "Pantallas NOC",
+      "detection": "Detección",
+      "audit": "Auditoría",
+      "platformIsps": "ISP",
+      "platformUsers": "Usuarios de plataforma",
+      "platformWireguard": "WireGuard",
+      "platformStorage": "Almacenamiento",
+      "platformSystem": "Estado del sistema"
+    },
+    "search": "Buscar",
+    "searchPlaceholder": "Buscar secciones…",
+    "sections": "Secciones",
+    "mainNavigation": "Navegación principal"
+  },
+  "tenant": {
+    "current": "ISP actual",
+    "superadmin": "Superadmin"
+  },
+  "user": {
+    "menu": "Menú de usuario",
+    "account": "Mi cuenta",
+    "theme": "Apariencia",
+    "themeSystem": "Sistema",
+    "themeLight": "Claro",
+    "themeDark": "Oscuro",
+    "logout": "Cerrar sesión"
+  },
+  "toolbar": {
+    "help": "Ayuda",
+    "openMenu": "Abrir menú",
+    "collapse": "Contraer barra lateral"
+  },
+  "overview": {
+    "title": "Resumen",
+    "greeting": "Hola, {name}",
+    "intro": "Esto es lo que necesitas saber de {tenant} ahora mismo.",
+    "status": {
+      "title": "Estado de Horus",
+      "description": "Qué partes de la plataforma están funcionando.",
+      "checkedAt": "Comprobado {time}",
+      "all_ok": "Todo funciona con normalidad",
+      "degraded": "Algunas funciones no están disponibles",
+      "down": "Horus no está disponible",
+      "error": "No pudimos consultar el estado de Horus",
+      "errorHint": "El resto de la consola sigue funcionando. Vuelve a intentarlo en unos segundos."
+    },
+    "capabilities": {
+      "auth": "Inicio de sesión",
+      "inventory": "Inventario de nodos y routers",
+      "wireguard": "Túneles WireGuard",
+      "monitoring": "Monitoreo de routers",
+      "realtime": "Actualizaciones en vivo",
+      "analytics": "Analítica de tráfico",
+      "reports": "Reportes"
+    },
+    "capabilityState": {
+      "ok": "Funciona",
+      "degraded": "Degradado",
+      "stale": "Datos atrasados",
+      "unavailable": "No disponible"
+    },
+    "next": {
+      "title": "Primeros pasos",
+      "description": "Para que Horus vea el tráfico de tus clientes, registra un nodo y conecta su router MikroTik.",
+      "action": "Ir a Nodos y routers"
+    },
+    "access": {
+      "title": "Tu acceso en {tenant}",
+      "roles": "Roles",
+      "sections": "Secciones disponibles"
+    }
+  },
+  "sections": {
+    "notYet": "Esta sección aún no está disponible en esta versión de Horus Flow.",
+    "dashboards": { "question": "Dashboards en vivo para el NOC y las pantallas murales." },
+    "nodes": { "question": "¿Llegan flujos de todos mis nodos y routers?" },
+    "clients": { "question": "¿Qué hace cada IP de cliente y de qué tipo es?" },
+    "traffic": { "question": "¿Cuánto tráfico pasa y hacia qué servicios?" },
+    "findings": { "question": "¿Qué clientes muestran señales compatibles con botnet?" },
+    "investigate": { "question": "¿Qué sabemos de esta IP?" },
+    "alerts": { "question": "¿Qué alertas están activas?" },
+    "reports": { "question": "Reportes periódicos del ISP." },
+    "users": { "question": "¿Quién tiene acceso a este ISP y con qué rol?" },
+    "kiosks": { "question": "¿Qué pantallas NOC están en línea y qué muestran?" },
+    "detection": { "question": "¿Con qué umbrales se detectan las señales?" },
+    "audit": { "question": "¿Quién hizo qué y cuándo?" },
+    "platform-isps": { "question": "¿Cómo están todos los ISP de la instalación?" },
+    "platform-users": { "question": "¿Quién opera la plataforma?" },
+    "platform-wireguard": { "question": "¿Qué hubs y rangos de túneles hay y cuánto ocupan?" },
+    "platform-storage": { "question": "¿Cuánto disco usa cada tipo de dato?" },
+    "platform-system": { "question": "¿Está sano cada rol del binario horus?" }
+  },
+  "account": {
+    "title": "Mi cuenta",
+    "email": "Correo",
+    "mfa": "Verificación en dos pasos",
+    "mfaOn": "Activada",
+    "mfaOff": "Desactivada",
+    "timeZone": "Zona horaria"
+  },
+  "states": {
+    "loading": "Cargando…",
+    "retry": "Reintentar",
+    "technicalDetail": "Detalle técnico",
+    "code": "Código",
+    "traceId": "Traza"
+  },
+  "errors": {
+    "notFound": {
+      "title": "No encontrado",
+      "description": "La página no existe o no tienes acceso a ella."
+    },
+    "forbidden": {
+      "title": "No tienes acceso a esta sección",
+      "description": "Pide a la administración de tu ISP el permiso que necesitas."
+    },
+    "generic": {
+      "title": "Algo salió mal",
+      "description": "Recarga la página. Si sigue pasando, avisa a la administración de Horus."
+    },
+    "goHome": "Volver al inicio",
+    "network": "No se puede conectar con Horus Flow. Reintentaremos en unos segundos.",
+    "service": "El servicio no está disponible en este momento.",
+    "rateLimited": "Demasiadas solicitudes. Espera {seconds} s."
+  }
+}
