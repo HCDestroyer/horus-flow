@@ -686,10 +686,14 @@ valores sustituidos **solo** para quien tiene `customers.read`; en kioscos y eve
 ### 2.10 ter Canal mínimo de notificaciones (D13, módulo `alerts`)
 
 Adelantado al I1: `GET/POST /notification-channels`, `GET/PATCH/DELETE /notification-channels/{id}`,
-`PUT /notification-channels/{id}/credentials` 🔒 (token propio de bot de Telegram, write-only),
-`POST /notification-channels/{id}/test` (`Idempotency-Key` obligatorio, `202`) y `GET /notification-deliveries`.
-`kind`: `email` (SMTP de la instalación, `HORUS_SMTP_*`) y `telegram` (bot de la instalación o propio del ISP) en I1;
-`librenms` (syslog, SNMP trap o API) **previsto**: crearlo en v0 → `422 NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE`.
+`PUT /notification-channels/{id}/credentials` 🔒 (secretos write-only, auditado),
+`POST /notification-channels/{id}/connection-test` (síncrona, sin enviar nada),
+`POST /notification-channels/{id}/test` (`Idempotency-Key` obligatorio, `202`) y `GET /notification-deliveries`
+(filtros `channel_id`, `channel_kind`, `status`).
+`kind`: `email` (SMTP de la instalación, `HORUS_SMTP_*`), `telegram` (bot de la instalación o propio del ISP) y
+**`librenms` por su API (D17)**: configuración manual por ISP con `base_url`, `username`, `tls_verify` y, por
+`…/credentials`, `password` y `api_token` opcional (nunca se devuelven; solo `has_credentials`). Cada ISP tiene sus
+propios canales y credenciales aunque compartan instancia de LibreNMS. Sin syslog ni SNMP trap.
 Suscripción por `event_types` (`finding_opened`, `finding_reopened`, `exporter_silent`, `exporter_recovered`,
 `tunnel_down`, `tunnel_recovered`), `min_severity`, `site_ids` y `throttle_minutes`. Los mensajes no llevan la IP del
 cliente salvo `include_personal_data=true` (auditado). Permisos `alerts.read` / `alerts.manage`. Reglas, silencios y

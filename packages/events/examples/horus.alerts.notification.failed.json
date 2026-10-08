@@ -20,13 +20,13 @@
     "id": "0192f8f8-0000-7000-8000-0000000000f2",
     "alert_id": null,
     "channel_id": "0192f8f8-0000-7000-8000-0000000000e2",
-    "channel": "email",
+    "channel": "librenms",
     "recipient_user_id": null,
     "event_type": "exporter_silent",
     "source_event_type": "horus.flows.exporter.silent",
     "source_event_id": "0192f0d2-0000-7000-8000-000000000002",
     "is_test": false,
-    "error": "smtp: 550 mailbox unavailable",
+    "error": "librenms: auth_failed (HTTP 401)",
     "occurred_at": "2026-10-07T14:03:11.123Z"
   }
 }

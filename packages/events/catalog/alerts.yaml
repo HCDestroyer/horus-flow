@@ -43,7 +43,7 @@ events:
   status: draft
   since: I1
   example: examples/horus.alerts.notification.sent.json
-  notes: 'D13: canal mínimo; alert_id ausente en I1 (sin motor de reglas).'
+  notes: 'D13/D17: canal mínimo; `channel` = tipo de canal (email | telegram | librenms); alert_id ausente en I1 (sin motor de reglas).'
 - type: horus.alerts.notification.failed
   subject: horus.alerts.notification.failed.{notification_id}
   tenant_scope: tenant
@@ -62,3 +62,4 @@ events:
   status: draft
   since: I1
   example: examples/horus.alerts.notification.failed.json
+  notes: '`channel` = tipo de canal (email | telegram | librenms, D17); `error` sin secretos ni cuerpo remoto.'

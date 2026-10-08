@@ -165,6 +165,8 @@ paths:
     $ref: ./alerts.yaml#/paths/~1notification-channels
   /notification-channels/{channel_id}:
     $ref: ./alerts.yaml#/paths/~1notification-channels~1{channel_id}
+  /notification-channels/{channel_id}/connection-test:
+    $ref: ./alerts.yaml#/paths/~1notification-channels~1{channel_id}~1connection-test
   /notification-channels/{channel_id}/credentials:
     $ref: ./alerts.yaml#/paths/~1notification-channels~1{channel_id}~1credentials
   /notification-channels/{channel_id}/test:

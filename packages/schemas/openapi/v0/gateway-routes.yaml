@@ -34,11 +34,18 @@ modules:
         GET: alerts.read
         PATCH: alerts.manage
         DELETE: alerts.manage
+    - prefix: /api/v1/notification-channels/{channel_id}/connection-test
+      scope: tenant
+      methods:
+        POST: alerts.manage
+      rate_limit: connection_test
     - prefix: /api/v1/notification-channels/{channel_id}/credentials
       scope: tenant
       methods:
         PUT: alerts.manage
       reauth:
+        - PUT
+      audited:
         - PUT
     - prefix: /api/v1/notification-channels/{channel_id}/test
       scope: tenant

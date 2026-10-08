@@ -51,7 +51,7 @@ permissions:
     - { key: security.evidence.read, description: 'Flujos de evidencia de un cliente', pii: true, audited: true }
     - { key: alerts.read, description: 'Ver canales de notificación y entregas (I1) y alertas (I3)' }
     - { key: alerts.ack, description: 'Reconocer alertas (I3)' }
-    - { key: alerts.manage, description: 'Gestionar canales de notificación (I1, D13) y reglas (I3)' }
+    - { key: alerts.manage, description: 'Gestionar canales de notificación email, Telegram y LibreNMS por API (I1, D13, D17), sus credenciales write-only y reglas (I3)', audited: true }
     - { key: reports.read, description: 'Ver y descargar reportes' }
     - { key: reports.export, description: 'Generar exportaciones' }
     - { key: dashboards.read, description: 'Ver dashboards compartidos y plantillas, crear privados' }
