@@ -557,7 +557,7 @@ roles propios):
 | `security_analyst` | Botnets y seguridad de clientes (D5) | `security.findings.*`, `security.evidence.read`, `customers.read`, `traffic.read`, `traffic.customer.read`, `alerts.*`, `audit.read`, `dashboards.read` | Obligatorio |
 | `network_engineer` | Nodos, routers, WireGuard, SNMP/API, flujos | `sites.*`, `devices.*`, `devices.credentials.write`, `wireguard.*`, `snmp.*`, `flows.*`, `alerts.read/ack`, `traffic.read`, `dashboards.*` | Obligatorio |
 | `noc` | Monitoreo 24/7 | `sites.read`, `devices.read`, `wireguard.read`, `snmp.read`, `flows.read`, `traffic.read`, `security.findings.read`, `alerts.read/ack`, `reports.read`, `dashboards.read` | Recomendado |
-| `analyst` | Analítica y clasificación de clientes | `traffic.read`, `traffic.customer.read`, `customers.read`, `customers.type.write`, `reports.read/export`, `devices.read`, `sites.read`, `dashboards.*` | Recomendado |
+| `analyst` | Analítica y clasificación de clientes | `traffic.read`, `traffic.customer.read`, `customers.read`, `customers.kind.write`, `reports.read/export`, `devices.read`, `sites.read`, `dashboards.*` | Recomendado |
 | `auditor` | Revisión de cumplimiento del ISP | `audit.read/export`, `users.read`, `roles.read` | Recomendado |
 | `viewer` | Solo lectura sin datos personales | `*.read` excepto `customers.read`, `traffic.customer.read`, `security.evidence.read`, `audit.read`, `devices.credentials.*` | Opcional |
 

@@ -1,56 +1,67 @@
 # Preguntas abiertas — Seguridad, observabilidad y plataforma
 
-> Responsable: Agente 4 · Sprint 0. Destinatario: product owner.
-> Cada pregunta incluye la recomendación por defecto: si no hay respuesta antes del Sprint
-> indicado, se aplica la recomendación y se registra como ADR.
-> Documentos: [`security.md`](../security.md), [`observability.md`](../observability.md),
-> [`disaster-recovery.md`](../disaster-recovery.md), [`conventions.md`](../conventions.md).
+> Ronda 2 · Responsable: Agente C. Documentos: [`security.md`](../security.md), [`observability.md`](../observability.md),
+> [`disaster-recovery.md`](../disaster-recovery.md), [`conventions.md`](../conventions.md). Decisiones del PO en
+> [`po-decisions.md`](../po-decisions.md). Si no hay respuesta antes del incremento indicado, se aplica la
+> recomendación y se registra como ADR.
 
-## Legal y privacidad
+## Resueltas por el product owner
 
-| # | Pregunta | Por qué importa | Recomendación por defecto | Necesaria antes de |
-|---|----------|-----------------|---------------------------|--------------------|
-| Q1 | ¿En qué país opera el ISP y qué ley de protección de datos aplica? ¿Hay DPO/responsable de privacidad? | Los flujos de abonados son datos personales y metadatos de comunicaciones; condiciona retención, acceso, perfilado (Sprint 10) y notificación de brechas | Diseñar con el estándar más estricto razonable (principios tipo RGPD): minimización, retención limitada, acceso auditado, EIPD/DPIA antes de producción | Sprint 6 (ingesta de flujos) |
-| Q2 | ¿Hay obligación legal de **conservar** metadatos de tráfico (mínimo) o de **no** conservarlos más allá de X (máximo)? ¿Quién puede requerirlos (autoridades) y con qué procedimiento? | Puede contradecir la retención de vision Sprint 13 (crudo 7–30 días) | Mantener la retención de vision §13 hasta validar; no usar Horus como sistema de retención legal sin revisión | Sprint 13 |
-| Q3 | ¿El scoring residencial/comercial (Sprint 10) puede tener consecuencias contractuales para el cliente? ¿Hay que informar en el contrato/aviso de privacidad? | Perfilado automatizado con efectos sobre personas | Resultado solo como sugerencia explicable; decisión humana; validar texto del aviso de privacidad | Sprint 10 |
-| Q4 | ¿Retención legal de la **auditoría** y de las **asignaciones IP→cliente** (`subscriber_ip_assignment`)? ¿Puede activarse Object Lock *compliance* (irreversible)? | Coste y cumplimiento; las asignaciones permiten re-identificar flujos ([`database.md`](../database.md)) | Auditoría: 2 años en PostgreSQL + 5 años en `horus-audit`; asignaciones IP: 13 meses y borrado salvo obligación legal; governance hasta validar plazos, luego compliance | Sprint 2 (auditoría) / Sprint 6 (asignaciones) |
-| Q4b | ¿Plazo para anonimizar la PII de suscriptores dados de baja? | Política de [`security.md`](../security.md) §13.3 | 90 días tras `terminated` | Sprint 6 |
+| # | Pregunta | Resolución |
+|---|----------|------------|
+| Q3 | ¿El scoring residencial/comercial puede tener consecuencias contractuales? | **Reencuadrada por D1 + D5**: el cliente es la IP y el propósito es la seguridad de la red y el uso comercial. El tipo es explicable, con historial y bloqueo manual; cualquier acción sobre el cliente la decide una persona del ISP ([`security.md`](../security.md) §13.3). Queda abierta sólo la parte legal por país (Q1). |
+| Q4b | Plazo para anonimizar PII de suscriptores dados de baja | **Obsoleta por D1**: Horus no guarda nombres, direcciones ni contratos; sólo IPs (y alias opcionales). La purga de clientes-IP sigue la retención por cliente (25 meses sin actividad). |
+| Q9 | Modelo de NAS, ¿S3 o contenedores? | **Resuelta por D2/D3** ([ADR-0019](../adr/0019-almacenamiento-local-y-destino-remoto.md)): NAS opcional, sólo como destino remoto por SFTP; sin MinIO. |
+| Q10 | Licencias de MinIO y Redis | **Resuelta por D3**: Valkey; sin MinIO ([ADR-0020](../adr/0020-valkey-en-lugar-de-redis.md)). |
+| Q11 | Destino offsite de backups | **Resuelta por D2**: destino remoto **opcional y configurable** (SFTP primero; Google Drive, Dropbox, MEGA después; MediaFire no), cifrado en cliente; sin destino el sistema avisa y no falla ([`disaster-recovery.md`](../disaster-recovery.md) §3.0). Qué proveedor usar lo elige quien opere cada instalación. |
+| Q19 | Pantallas NOC 24/7 frente a la expiración de sesión | **Resuelta por D8**: modo kiosco con dispositivo registrado (código de un uso → credencial HttpOnly rotativa → token de solo lectura del tenant, CIDR, sin datos personales por defecto) ([`security.md`](../security.md) §5.5, [`api.md`](../api.md) §2.12). |
+| Q5 (parcial) | ¿GitHub Actions? | D7 exige CI automatizado como única garantía de calidad; se asume **GitHub Actions** (el repo ya está en GitHub). Queda abierto el plan (Q6). |
 
-## Plataforma, CI y repositorio
+## Abiertas
 
-| # | Pregunta | Por qué importa | Recomendación por defecto | Necesaria antes de |
-|---|----------|-----------------|---------------------------|--------------------|
-| Q5 | ¿GitHub Actions o GitLab CI? | Vision §10 permite ambos | **GitHub Actions**: el repo ya está en GitHub (`hcdestroyer/horus-flow`), OIDC nativo para firmar con cosign, GHCR, attestations, Renovate | Sprint 1 |
-| Q6 | ¿El repo será privado? ¿Qué plan de GitHub (Free/Team/Enterprise, GHAS)? | CodeQL, secret scanning con push protection y rulesets avanzados en repos privados requieren GHAS/plan de pago; minutos de Actions limitados | Si no hay GHAS: semgrep + gitleaks en CI (gratuitos); si los minutos no alcanzan: runner autoalojado efímero | Sprint 1 |
-| Q7 | ¿Registro de imágenes: GHCR o uno interno (Harbor)? ¿Los servidores de producción tienen salida a Internet? | Despliegue, firmas, actualizaciones | GHCR; si producción está aislada, espejo Harbor interno con verificación de firmas | Sprint 1 |
+### Legal y privacidad
 
-## Hardware e infraestructura
+| # | Pregunta | Por qué importa | Recomendación | Antes de |
+|---|----------|-----------------|---------------|----------|
+| Q1 | ¿En qué **países** operan los ISP y qué ley aplica a cada uno? ¿Quién es responsable y quién encargado (contrato de encargo por ISP)? | D5 da un propósito de seguridad, pero la base legal, la DPIA y los avisos dependen del país de cada tenant | Campo `country` por tenant; DPIA por país antes de ingerir flujos reales; Horus como encargado por cuenta de cada ISP | Incremento 3 (flujos) |
+| Q2 | ¿Retención **mínima o máxima** legal de metadatos de tráfico por país? | Puede contradecir la propuesta (crudo 7 días, por cliente 25 meses) | Mantener la propuesta, configurable por tenant dentro de límites de plataforma | Incremento 3 |
+| Q4 | Retención legal de la **auditoría** | Coste y cumplimiento | 2 años en PostgreSQL + 5 años archivada | Incremento 1 |
+| Q24 | ¿Puede la plataforma (la persona que opera Horus) **acceder a datos de un ISP** para soporte? ¿Con aviso o con aprobación del ISP? | Aislamiento y confianza entre ISPs | Acceso de soporte temporal (≤ 4 h), con motivo, notificado al `tenant_admin` y auditado; cada ISP puede exigir aprobación o denegarlo ([`security.md`](../security.md) §6.6) | Incremento 1 |
+| Q25 | ¿Quién opera la plataforma respecto a los ISP: el propio ISP principal, un tercero, un SaaS? | Define responsable/encargado, DPA y quién ve qué | Tratar al operador como encargado de cada ISP en todos los casos | Incremento 1 |
+| Q26 | Baja de un ISP: ¿plazo de conservación antes de purgar y qué se le entrega? | Contrato y privacidad | Exportación cifrada + purga a 30 días; las copias caducan en 35 días ([`security.md`](../security.md) §13.5) | Antes del 2º ISP |
 
-| # | Pregunta | Por qué importa | Recomendación por defecto | Necesaria antes de |
-|---|----------|-----------------|---------------------------|--------------------|
-| Q8 | ¿Qué servidores hay disponibles (CPU, RAM, discos SSD/NVMe, nº de máquinas, virtualización)? ¿Hay hardware de reemplazo? | Dimensionamiento de ClickHouse/PostgreSQL, RTO real, HA del Sprint 14 | Mínimo v1: 1 servidor 16 vCPU / 64 GB RAM / 2 TB NVMe (RAID1) para la app + NAS; segundo nodo para HA y staging en Sprint 14 | Sprint 1 |
-| Q9 | ¿Modelo de NAS? ¿Soporta S3 nativo o contenedores (para correr MinIO sobre discos locales)? ¿Capacidad y RAID? | MinIO **no** debe usar NFS/SMB como backend; el NAS es destino de archivo y backups | Si el NAS ejecuta contenedores → MinIO en el NAS sobre volúmenes locales; si no → MinIO en el servidor con LUN iSCSI del NAS. Validar con el Agente 2 ([`storage.md`](../storage.md)) | Sprint 1 |
-| Q10 | Licencias: **MinIO** comunitario (AGPL; imágenes y consola restringidas desde 2025) y **Redis** ≥ 7.4 (RSAL/SSPL/AGPL). ¿Se acepta, o se usan alternativas? | Riesgo de mantenimiento y licencia | Valkey en lugar de Redis (coincide con el Agente 1); para S3 mantener la API como contrato y evaluar Garage/SeaweedFS/Ceph RGW en Sprint 1 con el Agente 2 (ver también [`open-questions/architecture.md`](architecture.md)) | Sprint 1 |
-| Q11 | ¿Destino **offsite** para backups (nube S3, segundo sitio del ISP)? ¿Presupuesto mensual? | Regla 3-2-1; sin offsite, un incendio/ransomware en el sitio pierde todo | S3 en la nube con Object Lock (p. ej. Backblaze B2 / Wasabi / AWS S3 Glacier IR) cifrado del lado cliente | Sprint 13 (PostgreSQL desde Sprint 2) |
-| Q12 | ¿Valores de RPO/RTO aceptables para el negocio? | Los de [`disaster-recovery.md`](../disaster-recovery.md) §2 son propuesta | PG RPO 5 min / RTO 1 h; plataforma completa RTO 4 h | Sprint 2 |
+### Plataforma, CI y repositorio
 
-## Red y acceso
+| # | Pregunta | Por qué importa | Recomendación | Antes de |
+|---|----------|-----------------|---------------|----------|
+| Q6 | ¿Repo privado? ¿Plan de GitHub (merge queue, rulesets, GHAS)? | La merge queue y los checks requeridos son la base del flujo con agentes (D7); CodeQL/secret scanning privados requieren plan de pago | Plan que incluya merge queue en repos privados; si no hay GHAS, semgrep + gitleaks | Incremento 1 |
+| Q7 | Registro de imágenes; ¿el servidor tiene salida a Internet? | Despliegue y actualizaciones; el enrolamiento de routers necesita que el servidor sea alcanzable por HTTPS | GHCR; servidor con salida a Internet y nombre DNS público para el hub y el enrolamiento | Incremento 1 |
+| Q27 | ¿Identidad de bot (GitHub App) para los agentes y cuenta personal para la persona? | Distinguir la aprobación humana de la de agentes en las reglas de protección ([`conventions.md`](../conventions.md) §6.2) | Sí | Incremento 1 |
 
-| # | Pregunta | Por qué importa | Recomendación por defecto | Necesaria antes de |
-|---|----------|-----------------|---------------------------|--------------------|
-| Q13 | ¿La UI se expondrá a Internet o solo a la red corporativa/VPN del ISP? | Superficie de ataque | **Solo red interna/VPN** en v1; si se expone, WAF + 2FA obligatorio para todos | Sprint 1 |
-| Q14 | ¿Dominio y certificados: dominio público con ACME o CA interna del ISP? | TLS del Sprint 1 | Subdominio público con ACME DNS-01 aunque el servicio sea interno | Sprint 1 |
-| Q15 | ¿Existe VLAN/VRF de gestión para los routers? ¿Los routers remotos llegan por WireGuard? ¿Por dónde exportarán flujos? | Segmentación y validación de origen de colectores | Flujos y SNMP por VLAN de gestión o por el túnel WG del router; nunca por Internet en claro | Sprint 4–6 |
-| Q16 | ¿Cuántos routers y de qué fabricantes/modelos? ¿Soportan SNMPv3 authPriv (SHA-256/AES)? | Credenciales, capacidad, adaptadores | Objetivo SNMPv3 authPriv; v2c solo dentro de túnel | Sprint 5 |
-| Q17 | ¿Existe un IdP corporativo (Entra ID, Google Workspace, Keycloak) con el que se quiera SSO? | Decisión S1 de [`security.md`](../security.md) | Auth propio en v1; federación OIDC como RP cuando se pida | Sprint 2 |
+### Hardware e infraestructura
 
-## Políticas de seguridad del producto
+| # | Pregunta | Por qué importa | Recomendación | Antes de |
+|---|----------|-----------------|---------------|----------|
+| Q8 | ¿Qué servidor hay (CPU, RAM, **número de discos**)? ¿Hay repuesto? | RTO real y si la copia local protege frente a la pérdida de un disco | 1 servidor con **dos discos o volúmenes físicos** (datos / almacén y copias); RAID1 si es posible | Incremento 1 |
+| Q12 | ¿Se aceptan los RPO/RTO realistas para un servidor operado por IA + 1 persona? | Sustituyen a los del Sprint 0 | PG RPO ≤ 5 min local / ≤ 1 h remoto (SFTP); RTO ≤ 4 h laborables con disco de repuesto, 1–2 días laborables si se pierde el servidor; sin destino remoto, pérdida total posible ([`disaster-recovery.md`](../disaster-recovery.md) §2) | Incremento 1 |
+| Q28 | ¿Quién custodia el **paquete de secretos offline** (clave `crypt`, KEK, llave age)? | Sin él no hay recuperación aunque haya copias | La persona, en gestor de contraseñas + USB cifrado fuera del servidor | Incremento 1 |
 
-| # | Pregunta | Por qué importa | Recomendación por defecto | Necesaria antes de |
-|---|----------|-----------------|---------------------------|--------------------|
-| Q18 | ¿2FA obligatorio para **todos** los usuarios o solo roles privilegiados? | UX vs seguridad | Obligatorio para todos los que tengan cualquier permiso de escritura o `traffic.client.read`; recomendado para el resto | Sprint 2 |
-| Q19 | ¿Pantallas NOC de pared que deben quedar logueadas 24/7? | Choca con la expiración de sesión de 12 h | Rol `viewer` + "dispositivo kiosco" con token de solo lectura revocable, limitado a IP y a dashboards concretos | Sprint 9 |
-| Q20 | ¿Se deben poder **re-descargar** configuraciones WireGuard de peers (implica guardar la clave privada del peer cifrada)? | Riesgo de custodia de claves | No guardar privadas de peers; regenerar par si se pierde la config (ya es la decisión por defecto de [`database.md`](../database.md)) | Sprint 4 |
-| Q21 | ¿Canal y responsables de guardia para las alertas de la plataforma (email, Telegram, teléfono)? ¿Horario? | Alertmanager independiente del servicio `alerts` | Email + Telegram para `page`; email para `ticket`; heartbeat externo | Sprint 1 |
-| Q22 | ¿Se contratará pentest externo antes de la Release 1.0? | Validación independiente | Sí, en Sprint 15–16 sobre staging | Sprint 14 |
-| Q23 | ¿Idiomas de la UI (solo español o también inglés)? | i18n desde el inicio es más barato | `@nuxtjs/i18n` con español por defecto, claves desde Sprint 1 | Sprint 1 |
+### Red y acceso
+
+| # | Pregunta | Por qué importa | Recomendación | Antes de |
+|---|----------|-----------------|---------------|----------|
+| Q13 | ¿UI expuesta a Internet o sólo VPN? Con varios ISP, cada uno accede desde su red | Superficie de ataque | Expuesta con TLS, 2FA obligatorio para todos los roles con datos personales, rate limit; el endpoint de enrolamiento sí debe ser público | Incremento 1 |
+| Q14 | Dominio y certificados | El hub WG y el enrolamiento usan un nombre DNS (cambiarlo es el plan de DR del hub) | Dominio público con ACME; registro DNS del hub con TTL bajo | Incremento 1 |
+| Q15 | Confirmar que **todo** router llega por WireGuard (gestión y flujos) | Seguridad de SNMP/API y unicidad del exportador por tenant | Sí; ningún router exporta por Internet en claro (ver Q22 de [`architecture.md`](architecture.md)) | Incremento 2 |
+| Q16 | ¿Versiones de RouterOS en campo? ¿SNMPv3 con SHA-256? | Credenciales y adaptador | RouterOS ≥ 7.12; SNMPv3 authPriv | Incremento 2 |
+| Q17 | ¿Algún ISP exige SSO con su IdP? | S1 | Auth propio; federación por tenant si se pide | Incremento 1 |
+
+### Políticas de seguridad del producto
+
+| # | Pregunta | Por qué importa | Recomendación | Antes de |
+|---|----------|-----------------|---------------|----------|
+| Q18 | ¿2FA obligatorio para todos? | Varios ISP y UI en Internet | Obligatorio para todo rol con escritura o con `customers.read`/`traffic.customer.read`/`security.evidence.read` y para todo rol de plataforma | Incremento 1 |
+| Q20 | ¿Re-descargar configuración WireGuard de un router? | Custodia de claves | Resuelto en la práctica por D10 (la clave la genera el router); se re-genera el script `.rsc` sin clave privada | Incremento 2 |
+| Q21 | Canal de alertas de la plataforma para la **única** persona | Una sola persona de guardia en horario laboral | Telegram + email; `page` sólo para fallos multi-tenant, de plataforma o de seguridad; heartbeat externo ([`observability.md`](../observability.md) §6.2) | Incremento 1 |
+| Q22 | ¿Pentest externo antes de 1.0? | Validación independiente, más necesaria sin equipo humano de revisión | Sí, centrado en aislamiento entre tenants, kiosco y enrolamiento | Antes de 1.0 |
+| Q23 | Idiomas de la UI | i18n desde el inicio | Español por defecto, claves desde el primer incremento | Incremento 1 |

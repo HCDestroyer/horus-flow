@@ -303,12 +303,12 @@ mensaje DLQ a su subject original (seguro por idempotencia).
 | `devices-snmp-state` | `SNMP_EVENTS` | `horus.snmp.router.>` | devices | Proyección `router_status_cache`; interfaces sugeridas | 5 |
 | `wireguard-devices` | `DEVICES_EVENTS` | `horus.devices.router.created.>`, `…deleted.>` | wireguard | Sugerir/limpiar peer asociado (nunca borra solo) | 4 |
 | `flows-ingester` | `TLM_FLOWS` | `horus.telemetry.flows.>` | flows (ingester) | Clasificar en ingesta con el snapshot y escribir `flows_raw` (escritor único) | 6 |
-| `flows-inventory` | `DEVICES_EVENTS` | `router.>`, `interface.>`, `customer.>` | flows | Mapas exportador→(tenant, router), ifIndex→interfaz/`flow_role`, (tenant, realm, IP)→`customer_id` (`customer.discovered/reactivated/purged`) | 6 |
+| `flows-inventory` | `DEVICES_EVENTS` | `router.>`, `interface.>` | flows (collector e ingester) | Mapas exportador→(tenant, router) e ifIndex→interfaz/`flow_role` (ClickHouse no guarda `customer_id`: [ADR-0018](./adr/0018-la-ip-es-el-cliente.md) §1) | 6 |
 | `devices-client-first-seen` | `FLOWS_EVENTS` | `horus.flows.client.first_seen.>` | devices | Alta idempotente por `(tenant, realm, address)` → `customer.discovered` (queue group) | 6 |
 | `devices-client-activity` | `TLM_FLOWS` | `horus.telemetry.flows.client_activity.>` | devices | `last_seen` (resolución 1 h) y `inactive → active` (`customer.reactivated`) | 6 |
 | `devices-customer-detection` | `DETECTION_EVENTS` | `horus.detection.customer.kind_suggested.>`, `horus.detection.customer.security_state_changed.>` | devices | Aplica el tipo sugerido si `kind_locked = false` y la confianza ≥ umbral del tenant → `customer.kind_changed` (`source=scoring`); proyecta `security_state` | 10 |
 | `ingester-known-clients` | `DEVICES_EVENTS` | `horus.devices.customer.>`, `horus.devices.client_prefix.>`, `horus.devices.realm.>` | flows (ingester) | Conjunto de IPs conocidas por realm y prefijos de clientes | 6 |
-| `detection-customers` | `DEVICES_EVENTS` | `horus.devices.customer.>` | detection | Universo de clientes a puntuar; respeta `type_locked` para no proponer cambios ya decididos a mano | 8–10 |
+| `detection-customers` | `DEVICES_EVENTS` | `horus.devices.customer.>` | detection | Universo de clientes a puntuar; respeta `kind_locked` para no proponer cambios ya decididos a mano | 8–10 |
 | `alerts-jobs` | `JOBS_EVENTS` | `horus.jobs.coverage.low.>`, `horus.jobs.remote_sync.lagging.>`, `horus.jobs.remote_sync.failed.>` | alerts | Alertas de cobertura de flujos y de copia remota | backups |
 | `flows-snapshots` | `TRAFFIC_EVENTS`, `DETECTION_EVENTS` | `horus.traffic.catalog.published.>`, `horus.detection.reputation.snapshot_published.>` | flows (ingester) | Recargar snapshots desde NATS Object Store (doble buffer) | 7–8 |
 | `detection-signals` | `SNMP_EVENTS`, `FLOWS_EVENTS` | `router.state_changed`, `exporter.*` | detection | Contexto de correlación | 8 |
@@ -586,7 +586,7 @@ tenant; se listan como "platform" porque sólo los emite un rol de plataforma.
 { "user_id": "0192...", "version": 6, "reason": "removed_by_tenant_admin" }
 
 // horus.auth.role.updated
-{ "id": "0192...", "version": 3, "name": "noc_operator", "is_system": true,
+{ "id": "0192...", "version": 3, "name": "noc", "is_system": true,
   "permissions": ["devices.read", "snmp.read", "alerts.read", "alerts.ack"], "changed_fields": ["permissions"],
   "added_permissions": ["alerts.ack"], "removed_permissions": [] }
 
