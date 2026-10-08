@@ -132,13 +132,34 @@ else
 	$(GO) run ./tools/flowsim/cmd/sim-verify -selftest -fixtures $(SIM_FIXTURES) $(SIM_ARGS)
 endif
 
+# Laboratorio MikroTik CHR (I0-11, infrastructure/lab/chr/README.md). Necesita Linux, sudo y
+# /dev/kvm. Variables: ROS (7.12), LAB_ACCEL (kvm|tcg), PROFILE/CLIENT/DURATION en lab-traffic;
+# el resto en infrastructure/lab/chr/lab.env.
+LAB_SH := bash scripts/lab/lab.sh
+
 .PHONY: lab-up
-lab-up: ## Levanta el laboratorio MikroTik CHR
-	$(call pending,I0-11)
+lab-up: ## Levanta el laboratorio MikroTik CHR (make lab-up ROS=7.12)
+	$(LAB_SH) up
 
 .PHONY: lab-down
-lab-down: ## Detiene el laboratorio MikroTik CHR
-	$(call pending,I0-11)
+lab-down: ## Detiene el laboratorio MikroTik CHR y borra su red
+	$(LAB_SH) down
+
+.PHONY: lab-status
+lab-status: ## Estado del laboratorio (VM, túnel WireGuard, netns)
+	$(LAB_SH) status
+
+.PHONY: lab-traffic
+lab-traffic: ## Genera tráfico desde un cliente del laboratorio (PROFILE=beacon|scan|smtp|volume|dns)
+	$(LAB_SH) traffic
+
+.PHONY: lab-console
+lab-console: ## Consola serie del CHR (salir con Ctrl-])
+	$(LAB_SH) console
+
+.PHONY: lab-selftest
+lab-selftest: ## Validación §8.3 en un CHR limpio; deja la salida en .lab/selftest-<ROS>.log
+	bash scripts/lab/selftest.sh
 
 ##@ Aceptación
 

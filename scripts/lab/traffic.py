@@ -106,7 +106,11 @@ def main():
     p.add_argument("--mb", type=int, default=2)
     a = p.parse_args()
     t0 = time.time()
-    res = PROFILES[a.profile](a)
+    try:
+        res = PROFILES[a.profile](a)
+    except OSError as e:
+        print(json.dumps({"profile": a.profile, "target": a.target, "error": str(e)}))
+        raise SystemExit(1)
     res.update(profile=a.profile, target=a.target, seconds=round(time.time() - t0, 1))
     print(json.dumps(res))
 

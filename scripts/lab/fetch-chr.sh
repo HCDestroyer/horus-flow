@@ -13,7 +13,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
-# shellcheck source=../../infrastructure/lab/chr/lab.env
+# shellcheck source-path=SCRIPTDIR source=../../infrastructure/lab/chr/lab.env
 source "$repo_root/infrastructure/lab/chr/lab.env"
 ROS="${1:-$ROS}"
 pinned_file="$repo_root/infrastructure/lab/chr/checksums.sha256"
