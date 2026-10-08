@@ -11,10 +11,11 @@ info:
     identifier: LicenseRef-Horus-Proprietary
 servers:
   - url: https://{domain}/api/v1
-    description: Dominio público configurable por instalación (D14, HORUS_PUBLIC_BASE_URL).
+    description: Host público por instalación (D14, D19, HORUS_PUBLIC_BASE_URL) — dominio propio, subdominio o solo la IP del servidor; siempre HTTPS.
     variables:
       domain:
         default: horus.example.net
+        description: Dominio, subdominio o IP literal (modo `ip_only`, p. ej. 203.0.113.10).
 tags:
   - name: auth
     description: Sesión y tokens.
@@ -177,6 +178,8 @@ paths:
     $ref: ./auth.yaml#/paths/~1permissions
   /platform/exporters/unregistered:
     $ref: ./platform.yaml#/paths/~1platform~1exporters~1unregistered
+  /platform/installation:
+    $ref: ./platform.yaml#/paths/~1platform~1installation
   /platform/overview:
     $ref: ./platform.yaml#/paths/~1platform~1overview
   /platform/remote-destinations:

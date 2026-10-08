@@ -364,6 +364,13 @@ Modelo de tokens decidido en [`security.md`](./security.md) §5.1 (S4/S5); aquí
   2FA obligatorio para `tenant_admin`, `security_analyst`, `network_engineer` y roles de plataforma desde el I1
   (`POST /auth/token` → `403 MFA_ENROLLMENT_REQUIRED` si falta). Contrato: `packages/schemas/openapi/v0/`
   (`servers: https://{domain}/api/v1`).
+- **Modos de acceso (D19)**: el dominio es opcional. `HORUS_ACCESS_MODE` = `domain` (dominio propio) · `subdomain` ·
+  `ip_only` (solo la IP del servidor; `HORUS_PUBLIC_BASE_URL=https://203.0.113.10`, se deduce si es una IP literal).
+  Siempre HTTPS (las cookies `__Secure-` lo exigen). TLS (`HORUS_TLS_MODE`): `domain`/`subdomain` → ACME y HSTS;
+  `ip_only` → certificado autogenerado con SAN = IP (o `acme_ip` si el emisor emite certificados para IP), sin HSTS;
+  `provided` (CA del ISP) en cualquier modo. En `ip_only` la consola de plataforma muestra el aviso `ip_only_access`
+  y la huella del certificado (`GET /platform/installation`), y el script RouterOS importa el certificado público
+  para mantener `check-certificate=yes`. Las reglas (1)–(4) anteriores no cambian: el host puede ser una IP.
 - Correlación: el gateway acepta o genera `X-Request-Id` (UUIDv7) y `traceparent`; los reenvía y devuelve `X-Request-Id`.
 - Respuestas con secretos (configuración WireGuard con clave privada, credenciales reveladas) llevan
   `Cache-Control: no-store`. Por defecto toda la API responde `Cache-Control: no-store` salvo endpoints marcados.

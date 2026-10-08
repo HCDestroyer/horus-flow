@@ -5,7 +5,7 @@ info:
   description: |
     Rutas `/platform/*` con token de ámbito `platform` (docs/api.md §2.8). Un usuario de plataforma no ve
     datos de negocio de los ISP (clientes, tráfico, hallazgos). Módulos dueños: `auth` (tenants, usuarios),
-    `gateway` (overview), `flows` (exportadores no registrados), `wireguard` (hubs e IPAM), `analytics`
+    `gateway` (overview, modo de acceso de la instalación — D19), `flows` (exportadores no registrados), `wireguard` (hubs e IPAM), `analytics`
     (destinos remotos y copias en lectura; rol jobs).
   license:
     name: Propietaria
@@ -275,6 +275,30 @@ paths:
                         datagrams: { $ref: './common.yaml#/components/schemas/Uint64String' }
                   page: { $ref: './common.yaml#/components/schemas/PageInfo' }
         '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+  /platform/installation:
+    get:
+      tags: [platform]
+      operationId: platformGetInstallation
+      summary: Modo de acceso de la instalación (dominio, subdominio o solo IP), TLS y avisos (D19)
+      description: |
+        Solo lectura: la configuración es de despliegue (`HORUS_ACCESS_MODE`, `HORUS_PUBLIC_BASE_URL`,
+        `HORUS_TLS_MODE`), no se edita por API. En `ip_only` la consola de plataforma muestra siempre el aviso
+        `ip_only_access` (y `self_signed_certificate` si aplica) con la huella del certificado para verificarla
+        en el primer acceso.
+      x-module: gateway
+      x-scope: platform
+      x-permission: platform.status.read
+      x-increment: I1
+      security:
+        - platformBearer: []
+      responses:
+        '200':
+          description: Configuración de acceso efectiva.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InstallationAccess' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
   /platform/wireguard/hubs:
     get:
       tags: [platform]
@@ -457,3 +481,61 @@ components:
         addresses_used: { type: integer, examples: [37] }
         peers_active: { type: integer }
         tenants: { type: integer }
+    AccessMode:
+      type: string
+      description: |
+        D19, por instalación (`HORUS_ACCESS_MODE`; si falta se deduce de `HORUS_PUBLIC_BASE_URL`: IP literal → `ip_only`).
+        `domain`: dominio propio del cliente. `subdomain`: subdominio (del cliente o del proveedor de la instalación).
+        `ip_only`: solo la IP pública del servidor; nada en Horus depende de tener dominio.
+      enum: [domain, subdomain, ip_only]
+    TlsMode:
+      type: string
+      description: |
+        `acme`: certificado automático (Let's Encrypt) para el nombre; obligatorio por defecto en `domain`/`subdomain`.
+        `acme_ip`: certificado para IP si el emisor ACME lo soporta (solo `ip_only`, opcional).
+        `self_signed`: certificado autogenerado en la instalación con SAN = IP (por defecto en `ip_only`).
+        `provided`: certificado aportado por el operador (CA interna del ISP), en cualquier modo.
+      enum: [acme, acme_ip, self_signed, provided]
+    InstallationAccess:
+      type: object
+      required: [access_mode, public_base_url, host, allowed_origins, wireguard_endpoint, tls, warnings]
+      additionalProperties: false
+      properties:
+        access_mode: { $ref: '#/components/schemas/AccessMode' }
+        public_base_url:
+          type: string
+          format: uri
+          description: HORUS_PUBLIC_BASE_URL; siempre `https://` (también en `ip_only`).
+          examples: ['https://horus.isp.example', 'https://203.0.113.10']
+        host: { type: string, description: Nombre o IP literal de HORUS_PUBLIC_BASE_URL., examples: [horus.isp.example, 203.0.113.10] }
+        allowed_origins: { type: array, items: { type: string } }
+        wireguard_endpoint: { type: string, description: 'HORUS_WG_ENDPOINT (nombre o IP).' }
+        tls:
+          type: object
+          required: [mode, hsts, not_after, fingerprint_sha256]
+          additionalProperties: false
+          properties:
+            mode: { $ref: '#/components/schemas/TlsMode' }
+            hsts: { type: boolean, description: 'true solo con nombre y certificado de confianza pública (`domain`/`subdomain` + `acme`).' }
+            issuer: { type: [string, 'null'] }
+            not_after:
+              oneOf:
+                - $ref: './common.yaml#/components/schemas/Timestamp'
+                - type: 'null'
+            fingerprint_sha256: { type: [string, 'null'], pattern: '^[0-9A-F]{2}(:[0-9A-F]{2}){31}$', description: 'Huella del certificado servido, para verificarla a mano con self_signed.' }
+        warnings:
+          type: array
+          description: Avisos para la consola de plataforma (enum abierto de `code`).
+          items:
+            type: object
+            required: [code, severity, message]
+            additionalProperties: false
+            properties:
+              code:
+                anyOf:
+                  - type: string
+                    enum: [ip_only_access, self_signed_certificate, certificate_expiring, acme_renewal_failed]
+                  - type: string
+                    pattern: '^[a-z][a-z0-9_]*$'
+              severity: { type: string, enum: [info, warning, critical] }
+              message: { type: string }

@@ -35,6 +35,9 @@ paths:
         túnel, y `/tool fetch` a `<HORUS_PUBLIC_BASE_URL>/api/v1/enroll/wireguard` con cuerpo JSON
         `{"token", "public_key"}`. Contraseñas y token se muestran **una sola vez**: pedirlo de nuevo crea
         otros e invalida los anteriores (auditado). RouterOS < 7.12 → `422 ROUTEROS_VERSION_UNSUPPORTED` (D15).
+        `/tool fetch` siempre con `check-certificate=yes`: con TLS `self_signed` o `provided` (D19, p. ej. modo
+        `ip_only`) el script incluye el certificado público de la instalación y lo importa como confiable antes del
+        fetch; nunca desactiva la verificación.
       x-module: wireguard
       x-scope: tenant
       x-permission: wireguard.write
