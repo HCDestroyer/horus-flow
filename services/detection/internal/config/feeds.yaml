@@ -16,7 +16,7 @@
 # redistribución restringida (los snapshots no redistribuyen el archivo original).
 #
 # Además del catálogo embebido, el superadmin puede dar de alta listas personalizadas (D20) que se
-# cargan en tiempo de ejecución (feedsource.SourceSpec): ver services/detection/README.md.
+# cargan en tiempo de ejecución (api/customfeeds.SourceSpec): ver services/detection/README.md.
 #
 # Los snapshots nunca redistribuyen el archivo original; los datasets crudos no salen a la
 # copia remota (docs/storage.md §3).
