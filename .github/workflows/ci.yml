@@ -1,0 +1,351 @@
+# CI de Horus Flow (historia I0-03; docs/conventions.md §8).
+#
+# lint → unit → integración → contratos → seguridad → build, solo sobre lo afectado
+# (scripts/ci/affected.py: filtro por rutas + grafo Go). `dod` agrega la Definición de
+# Terminado y `ci-ok` es el agregador que exige la protección de `main` (junto con `dod` y los
+# checks de pr-gates.yml). Los jobs que dependen de algo que aún no existe (frontend, contratos,
+# tests de integración) se saltan solos hasta que exista su ruta.
+#
+# Actions fijadas por SHA (comentario = versión); imágenes de herramientas fijadas por digest.
+
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  merge_group:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Toolchain con soporte de seguridad (go.mod declara la versión MÍNIMA del lenguaje); la misma
+  # que el Dockerfile. Subirla aquí y en el Dockerfile a la vez.
+  GO_VERSION: "1.26.8"
+  GOLANGCI_LINT_VERSION: v2.14.0
+  GOVULNCHECK_VERSION: v1.8.0
+  ACTIONLINT_IMAGE: rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+  HADOLINT_IMAGE: hadolint/hadolint:v2.15.1@sha256:32dac94127fd60b7b7e3fbfc65e1383b9b5e25c9bfd7b8536de7a539fe68a12d
+  SHELLCHECK_IMAGE: koalaman/shellcheck:v0.11.0@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d
+  GITLEAKS_IMAGE: zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+  TRIVY_IMAGE: aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa
+  ZIZMOR_VERSION: 1.30.1
+
+jobs:
+  # -------------------------------------------------------------------------------------------
+  changes:
+    name: changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      all: ${{ steps.affected.outputs.all }}
+      go: ${{ steps.affected.outputs.go }}
+      go_units: ${{ steps.affected.outputs.go_units }}
+      frontend: ${{ steps.affected.outputs.frontend }}
+      compose: ${{ steps.affected.outputs.compose }}
+      docker: ${{ steps.affected.outputs.docker }}
+      contracts: ${{ steps.affected.outputs.contracts }}
+      base_sha: ${{ steps.base.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - id: base
+        name: Base del diff
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          MQ_BASE: ${{ github.event.merge_group.base_sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: echo "sha=${PR_BASE:-${MQ_BASE:-$PUSH_BEFORE}}" >> "$GITHUB_OUTPUT"
+      - id: affected
+        name: Módulos afectados
+        env:
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: python3 scripts/ci/affected.py
+
+  # -------------------------------------------------------------------------------------------
+  lint:
+    name: lint
+    needs: changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: check-codeowners
+        run: bash scripts/check-codeowners.sh -v
+      - name: go mod tidy sin diff
+        run: go mod tidy -diff
+      - name: golangci-lint
+        if: needs.changes.outputs.go == 'true'
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+      - name: actionlint
+        run: docker run --rm -v "$PWD:/repo" -w /repo "$ACTIONLINT_IMAGE" -color
+      - name: zizmor (seguridad de Actions)
+        run: pipx run "zizmor==${ZIZMOR_VERSION}" --offline --min-severity medium .github/workflows
+      - name: hadolint
+        if: hashFiles('Dockerfile') != ''
+        run: docker run --rm -i "$HADOLINT_IMAGE" hadolint - < Dockerfile
+      - name: shellcheck
+        run: |
+          mapfile -t scripts < <(git ls-files '*.sh')
+          if [ "${#scripts[@]}" -gt 0 ]; then
+            docker run --rm -v "$PWD:/mnt" -w /mnt "$SHELLCHECK_IMAGE" "${scripts[@]}"
+          fi
+      - name: docker compose config
+        if: hashFiles('deployments/compose/compose.dev.yaml') != ''
+        run: |
+          docker compose --project-directory deployments/compose -f deployments/compose/compose.dev.yaml \
+            --env-file deployments/compose/.env.example --profile '*' config --quiet
+
+  # -------------------------------------------------------------------------------------------
+  unit:
+    name: unit (${{ matrix.unit }})
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        unit: ${{ fromJSON(needs.changes.outputs.go_units) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: go test -race
+        env:
+          UNIT: ${{ matrix.unit }}
+        run: |
+          pkg="./${UNIT}/..."
+          [ "$UNIT" = "." ] && pkg="./..."
+          go test -race -shuffle=on -covermode=atomic -coverprofile=coverage.out "$pkg"
+          go tool cover -func=coverage.out | tail -1
+
+  # -------------------------------------------------------------------------------------------
+  integration:
+    name: integration
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: go test -tags=integration (testcontainers)
+        env:
+          UNITS: ${{ needs.changes.outputs.go_units }}
+        run: |
+          if ! grep -rqE --include='*.go' '^//go:build .*integration' .; then
+            echo "integration: aún no hay tests con la etiqueta 'integration'; se omite"
+            exit 0
+          fi
+          mapfile -t pkgs < <(jq -r '.[] | if . == "." then "./..." else "./\(.)/..." end' <<<"$UNITS")
+          go test -tags=integration -race -shuffle=on "${pkgs[@]}"
+
+  # -------------------------------------------------------------------------------------------
+  contracts:
+    name: contracts
+    needs: changes
+    if: needs.changes.outputs.contracts == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: make contracts-check
+        run: |
+          # Lo aporta INT con I0-05 (lint OpenAPI, esquemas, ejemplos, DDL ClickHouse).
+          if ! grep -qE '^contracts-check:' Makefile; then
+            echo "contracts: 'make contracts-check' aún no existe (I0-05); se omite"
+            exit 0
+          fi
+          make contracts-check
+
+  # -------------------------------------------------------------------------------------------
+  security:
+    name: security
+    needs: changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: gitleaks (secretos en los commits del cambio)
+        env:
+          BASE_SHA: ${{ needs.changes.outputs.base_sha }}
+        run: |
+          range=""
+          if [ -n "$BASE_SHA" ] && [ "$BASE_SHA" != "0000000000000000000000000000000000000000" ]; then
+            range="--log-opts=${BASE_SHA}..HEAD"
+          fi
+          # safe.directory: el checkout pertenece al usuario del runner, no al del contenedor.
+          docker run --rm -v "$PWD:/repo" -w /repo \
+            -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' \
+            "$GITLEAKS_IMAGE" git --redact --verbose --exit-code 1 ${range:+"$range"} /repo
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: needs.changes.outputs.go == 'true'
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: govulncheck
+        if: needs.changes.outputs.go == 'true'
+        run: go run "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}" ./...
+      - name: trivy fs + config (HIGH/CRITICAL)
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo "$TRIVY_IMAGE" fs --no-progress \
+            --scanners vuln,secret,misconfig --severity HIGH,CRITICAL \
+            --ignore-unfixed --exit-code 1 --skip-dirs .git .
+
+  # -------------------------------------------------------------------------------------------
+  build:
+    name: build
+    needs: changes
+    if: needs.changes.outputs.docker == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: make build
+        run: make build && ./bin/horus
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: imagen única horus (sin push)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          push: false
+          load: true
+          tags: horus:ci
+          build-args: |
+            VERSION=sha-${{ github.sha }}
+            REVISION=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: smoke de la imagen (no-root, arranca)
+        run: |
+          test "$(docker image inspect horus:ci --format '{{.Config.User}}')" = "65532:65532"
+          docker run --rm -e HORUS_ROLES=collector horus:ci
+      - name: trivy image (HIGH/CRITICAL)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "$TRIVY_IMAGE" image --no-progress \
+            --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 horus:ci
+
+  # -------------------------------------------------------------------------------------------
+  frontend:
+    name: frontend
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          package_json_file: apps/frontend/package.json
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: lts/*
+          cache: pnpm
+          cache-dependency-path: apps/frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run --if-present lint
+      - run: pnpm run --if-present typecheck
+      - run: pnpm run --if-present test
+      - run: pnpm run --if-present build
+
+  # -------------------------------------------------------------------------------------------
+  compose-smoke:
+    name: compose-smoke
+    needs: changes
+    if: needs.changes.outputs.compose == 'true' || github.event_name == 'merge_group'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: make up && wait-healthy && make down
+        run: make up && scripts/wait-healthy.sh && make down
+      - name: logs del compose si falla
+        if: failure()
+        run: |
+          docker compose --project-directory deployments/compose -f deployments/compose/compose.dev.yaml ps -a
+          docker compose --project-directory deployments/compose -f deployments/compose/compose.dev.yaml logs --tail 50
+          make reset
+
+  # -------------------------------------------------------------------------------------------
+  dod:
+    name: dod
+    needs: [changes, lint, unit, integration, contracts, security, build, frontend, compose-smoke]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Definición de Terminado
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          BASE_SHA: ${{ needs.changes.outputs.base_sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: python3 scripts/ci/dod.py
+
+  # -------------------------------------------------------------------------------------------
+  ci-ok:
+    name: ci-ok
+    needs: [changes, lint, unit, integration, contracts, security, build, frontend, compose-smoke, dod]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Todos los jobs en success o skipped
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS_JSON" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          bad="$(echo "$NEEDS_JSON" | jq -r '[to_entries[] | select(.value.result != "success" and .value.result != "skipped") | .key] | join(", ")')"
+          if [ -n "$bad" ]; then
+            echo "ci-ok: KO — $bad"
+            exit 1
+          fi
+          echo "ci-ok: OK"

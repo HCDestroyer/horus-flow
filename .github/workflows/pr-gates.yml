@@ -1,0 +1,142 @@
+# Puertas de revisión de los PRs (historia I0-03; docs/conventions.md §6, team.md §5.2).
+#
+#   label         etiqueta el PR por rutas (.github/labeler.yml): area:security, contract:*, ...
+#   scope-guard   el agente de la rama solo toca rutas que posee (CODEOWNERS "# Agente:")
+#   agent-review  aprobación de un agente revisor distinto del autor
+#   persona-gate  contract:* / area:security / area:sensitive esperan a la persona (needs:persona)
+#
+# Los tres últimos son checks REQUERIDOS en la protección de `main` (.github/README.md).
+# Los scripts se ejecutan desde la rama BASE (no desde el PR): un PR no puede relajar sus propias
+# puertas. En merge_group pasan sin más (ya se evaluaron en el PR), para no bloquear la cola.
+
+name: pr-gates
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled, edited]
+  pull_request_review:
+    types: [submitted, dismissed, edited]
+  merge_group:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-gates-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  # -------------------------------------------------------------------------------------------
+  label:
+    name: label
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/labeler@bf12e9b00b37c5c0ca2b87b79b2daf7891dbda13 # v7.0.0
+        with:
+          configuration-path: .github/labeler.yml
+          sync-labels: false
+
+  # -------------------------------------------------------------------------------------------
+  scope-guard:
+    name: scope-guard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout del PR (para el diff)
+        if: github.event.pull_request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: pr
+      - name: Checkout de la base (scripts y CODEOWNERS de confianza)
+        if: github.event.pull_request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+          path: base
+      - name: scope-guard
+        env:
+          HAS_PR: ${{ github.event.pull_request != null }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$HAS_PR" != "true" ]; then
+            echo "scope-guard: OK — ${GITHUB_EVENT_NAME} sin PR; se evaluó en el PR"
+            exit 0
+          fi
+          script=base/scripts/ci/scope_guard.py
+          codeowners=base/.github/CODEOWNERS
+          if [ ! -f "$script" ]; then
+            # Arranque: el PR que introduce scope-guard todavía no lo tiene en la base.
+            echo "::warning::scope-guard aún no existe en la base; se usa la copia del PR"
+            script=pr/scripts/ci/scope_guard.py
+            codeowners=pr/.github/CODEOWNERS
+          fi
+          python3 "$script" --repo pr --codeowners "$codeowners" \
+            --branch "$BRANCH" --labels "$PR_LABELS" --base "$BASE_SHA" --head "$HEAD_SHA"
+
+  # -------------------------------------------------------------------------------------------
+  agent-review:
+    name: agent-review
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout de la base (script de confianza)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+      - name: agent-review
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          AGENT_REVIEWER_LOGINS: ${{ vars.AGENT_REVIEWER_LOGINS }}
+        run: |
+          if [ ! -f scripts/ci/review_gates.py ]; then
+            echo "::warning::review_gates.py aún no existe en la base (PR de arranque); la persona revisa este PR por CODEOWNERS"
+            exit 0
+          fi
+          python3 scripts/ci/review_gates.py agent-review
+
+  # -------------------------------------------------------------------------------------------
+  persona-gate:
+    name: persona-gate
+    needs: label
+    # Corre aunque `label` se haya saltado (pull_request_review, merge_group).
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Checkout de la base (script de confianza)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+      - name: persona-gate
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PERSONA_LOGINS: ${{ vars.PERSONA_LOGINS }}
+        run: |
+          if [ ! -f scripts/ci/review_gates.py ]; then
+            echo "::warning::review_gates.py aún no existe en la base (PR de arranque); la persona revisa este PR por CODEOWNERS"
+            exit 0
+          fi
+          python3 scripts/ci/review_gates.py persona-gate

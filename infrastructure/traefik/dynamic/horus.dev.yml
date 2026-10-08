@@ -1,0 +1,17 @@
+# Rutas de DESARROLLO hacia el binario horus (ADR-0013, ADR-0025).
+# horus-app (rol gateway) escucha HTTP en :8080 (HORUS_HTTP_ADDR). Mientras el perfil
+# `app` del compose no esté levantado, estas rutas responden 502: es lo esperado.
+# El frontend (apps/frontend, I0-14) se añadirá como servicio estático cuando exista su imagen.
+
+http:
+  routers:
+    horus-api:
+      entryPoints: [web]
+      rule: "PathPrefix(`/api`) || PathPrefix(`/ws`)"
+      service: horus-gateway
+
+  services:
+    horus-gateway:
+      loadBalancer:
+        servers:
+          - url: "http://horus-app:8080"

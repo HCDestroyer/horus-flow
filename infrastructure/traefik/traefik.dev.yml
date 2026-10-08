@@ -1,0 +1,33 @@
+# Traefik — configuración estática de DESARROLLO (compose.dev.yaml, historia I0-02).
+# Sin TLS ni Let's Encrypt (llegan con el instalador, I1-22, D14). Sin proveedor Docker:
+# no se monta el socket de Docker; las rutas se declaran en dynamic/*.yml.
+
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+
+entryPoints:
+  web:
+    address: ":8000"
+  # Ping y dashboard solo en un entrypoint interno publicado en el loopback del host.
+  traefik:
+    address: ":8082"
+
+ping:
+  entryPoint: traefik
+
+api:
+  dashboard: true
+  insecure: true
+
+providers:
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+
+log:
+  level: INFO
+  format: json
+
+accessLog:
+  format: json
