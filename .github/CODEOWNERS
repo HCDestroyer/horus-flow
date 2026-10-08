@@ -1,0 +1,152 @@
+# CODEOWNERS de Horus Flow — propiedad por agente (docs/backlog/team.md §2) y rutas que
+# exigen la aprobación de la persona (docs/conventions.md §6.2).
+#
+# Formato de cada bloque:
+#   # Agente: <PLAT|CORE|FLOW|SEC|UI|INT>   <- rol de agente dueño de las rutas del bloque
+#   # [SENSIBLE] ...                         <- (opcional) la persona debe aprobar
+#   /ruta/ @dueño
+#
+# Mientras no existan equipos de GitHub por agente (p. ej. @hcdestroyer/agent-flow), el dueño
+# de todas las rutas es @hcdestroyer. Al crearlos, se sustituye el dueño en cada bloque según
+# su comentario "Agente:"; las rutas [SENSIBLE] conservan además a la persona.
+#
+# GitHub aplica la ÚLTIMA regla que coincide: lo general va arriba y lo específico abajo.
+# scripts/check-codeowners.sh verifica que toda carpeta de primer nivel y cada módulo de
+# services/ tiene regla y agente declarado.
+
+# ---------------------------------------------------------------------------------------------
+# Por defecto: archivos de la raíz (go.mod, Makefile, README.md, .editorconfig, ...)
+# ---------------------------------------------------------------------------------------------
+
+# Agente: PLAT
+*                                   @hcdestroyer
+
+# ---------------------------------------------------------------------------------------------
+# Plataforma
+# ---------------------------------------------------------------------------------------------
+
+# Agente: PLAT
+/scripts/                           @hcdestroyer
+/tools/                             @hcdestroyer
+/.claude/                           @hcdestroyer
+/Makefile                           @hcdestroyer
+/go.mod                             @hcdestroyer
+/go.sum                             @hcdestroyer
+
+# Agente: PLAT
+# [SENSIBLE] CI, CODEOWNERS y reglas del repositorio: aprobación de la persona obligatoria.
+/.github/                           @hcdestroyer
+
+# Agente: PLAT
+# [SENSIBLE] Despliegue e infraestructura de producción: aprobación de la persona obligatoria.
+/deployments/                       @hcdestroyer
+/infrastructure/                    @hcdestroyer
+
+# ---------------------------------------------------------------------------------------------
+# Backend: binario horus y módulos (services/<módulo>/ = mod:<módulo>)
+# ---------------------------------------------------------------------------------------------
+
+# Agente: PLAT
+/services/                          @hcdestroyer
+/services/cmd/                      @hcdestroyer
+
+# Agente: CORE
+/services/gateway/                  @hcdestroyer
+/services/devices/                  @hcdestroyer
+
+# Agente: CORE
+# [SENSIBLE] Identidad, tenants, permisos y auditoría: aprobación de la persona obligatoria.
+/services/auth/                     @hcdestroyer
+
+# Agente: CORE
+# [SENSIBLE] WireGuard: enrolamiento, plantillas .rsc y privilegios de red del host
+# (area:security): aprobación de la persona obligatoria.
+/services/wireguard/                @hcdestroyer
+/services/wgagent/                  @hcdestroyer
+
+# Agente: FLOW
+/services/collector/                @hcdestroyer
+/services/ingester/                 @hcdestroyer
+/services/traffic/                  @hcdestroyer
+/services/analytics/                @hcdestroyer
+/infrastructure/clickhouse/         @hcdestroyer
+/tools/flowsim/                     @hcdestroyer
+
+# Agente: FLOW
+# Supuesto: snmp no tiene dueño en team.md §2; se confirma al congelar C1.
+/services/snmp/                     @hcdestroyer
+
+# Agente: SEC
+/services/detection/                @hcdestroyer
+
+# Agente: SEC
+# Supuesto: alerts no tiene dueño en team.md §2; se confirma al congelar C1.
+/services/alerts/                   @hcdestroyer
+
+# Agente: PLAT
+# Supuesto: jobs no tiene dueño en team.md §2; se confirma al congelar C1.
+/services/jobs/                     @hcdestroyer
+
+# ---------------------------------------------------------------------------------------------
+# Submódulo dashboards de analytics (va después de /services/analytics/ de FLOW para prevalecer)
+# ---------------------------------------------------------------------------------------------
+
+# Agente: CORE
+/services/analytics/**/dashboards/  @hcdestroyer
+
+# ---------------------------------------------------------------------------------------------
+# Migraciones (cualquier módulo): RLS, borrado de datos, retención de datos personales
+# ---------------------------------------------------------------------------------------------
+
+# Agente: dueño del módulo (CORE, FLOW, SEC o PLAT según la carpeta)
+# [SENSIBLE] Migraciones: aprobación de la persona obligatoria.
+/services/*/migrations/             @hcdestroyer
+/infrastructure/clickhouse/migrations/ @hcdestroyer
+
+# ---------------------------------------------------------------------------------------------
+# Frontend
+# ---------------------------------------------------------------------------------------------
+
+# Agente: UI
+/apps/                              @hcdestroyer
+
+# ---------------------------------------------------------------------------------------------
+# Contratos y librerías compartidas
+# ---------------------------------------------------------------------------------------------
+
+# Agente: INT
+# [SENSIBLE] Contratos (PR contract:*): aprobación de productor, consumidores y la persona.
+/packages/                          @hcdestroyer
+/packages/protobuf/                 @hcdestroyer
+/packages/events/                   @hcdestroyer
+/packages/schemas/                  @hcdestroyer
+
+# Agente: CORE
+/packages/go/                       @hcdestroyer
+
+# Agente: CORE
+# [SENSIBLE] Autorización, cifrado, sobre NATS y reglas de arquitectura/aislamiento:
+# aprobación de la persona obligatoria (quien cambia las reglas no puede ser quien las incumple).
+/packages/go/authz/                 @hcdestroyer
+/packages/go/crypto/                @hcdestroyer
+/packages/go/natsx/                 @hcdestroyer
+/packages/go/tenanttest/            @hcdestroyer
+/packages/go/archtest/              @hcdestroyer
+
+# Agente: INT
+# [SENSIBLE] Permisos y scope de rutas; pii/tenant_scope de eventos.
+/packages/schemas/openapi/gateway-routes.yaml @hcdestroyer
+/packages/events/catalog/           @hcdestroyer
+
+# ---------------------------------------------------------------------------------------------
+# Aceptación y documentación
+# ---------------------------------------------------------------------------------------------
+
+# Agente: INT
+/tests/                             @hcdestroyer
+/docs/                              @hcdestroyer
+
+# Agente: INT
+# [SENSIBLE] Decisiones de arquitectura y del PO: aprobación de la persona obligatoria.
+/docs/adr/                          @hcdestroyer
+/docs/po-decisions.md               @hcdestroyer

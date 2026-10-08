@@ -1,0 +1,19 @@
+# Normaliza finales de línea a LF en el repo.
+* text=auto eol=lf
+
+# Scripts siempre con LF (se ejecutan en Linux/contenedores).
+*.sh text eol=lf
+Makefile text eol=lf
+
+# Código generado: colapsado en los diffs de GitHub.
+**/gen/** linguist-generated=true
+*.pb.go linguist-generated=true
+
+# Binarios.
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.pcap binary
+*.pcapng binary
+*.parquet binary

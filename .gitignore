@@ -1,0 +1,52 @@
+# --- Secretos y configuración local (nunca al repo; conventions.md §10) ---
+.env
+.env.*
+!.env.example
+!**/.env.example
+secrets/
+*.pem
+*.key
+!**/testdata/**/*.pem
+!**/testdata/**/*.key
+
+# --- Capturas y datos reales de red (team.md §6.5) ---
+*.pcap
+*.pcapng
+*.cap
+captures/
+
+# --- Datos locales de desarrollo ---
+/data/
+/.data/
+/var/
+/tmp/
+*.log
+
+# --- Binarios y artefactos de build Go ---
+/bin/
+/dist/
+/horus
+*.exe
+*.test
+*.out
+coverage.*
+*.prof
+
+# --- Frontend (Nuxt / Node) ---
+node_modules/
+.nuxt/
+.output/
+.nitro/
+.cache/
+dist-frontend/
+*.tsbuildinfo
+playwright-report/
+test-results/
+
+# --- Editores y SO ---
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+.DS_Store
+Thumbs.db
