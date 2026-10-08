@@ -1,0 +1,55 @@
+# Declaración para pruebas sin Internet (I0-17): mismas fuentes, formatos y licencias que
+# services/traffic/internal/config/datasets.yaml, con min_entries reducido al tamaño de los
+# fixtures. Cada fuente se lee de tests/fixtures/datasets/<id>.* (recursos de documentación:
+# RFC 5737, RFC 3849, RFC 5398). ris-rrc00.mrt.gz lo genera
+# `go test ./services/traffic/internal/adapters/asnsources -run TestMRTFixture -update`.
+version: 1
+sources:
+  - id: ris-rrc00
+    kind: asn
+    url: https://data.ris.ripe.net/rrc00/latest-bview.gz
+    format: mrt-table-dump-v2
+    license: Términos de uso de los datos de RIPE NCC RIS (atribución)
+    license_url: https://www.ripe.net/analyse/internet-measurements/routing-information-service-ris/
+    commercial_use: unverified
+    frequency: 24h
+  - id: iptoasn-v4
+    kind: asn
+    url: https://iptoasn.com/data/ip2asn-v4.tsv.gz
+    format: iptoasn-tsv
+    license: PDDL-1.0
+    license_url: https://iptoasn.com/
+    commercial_use: "yes"
+    frequency: 24h
+  - id: iptoasn-v6
+    kind: asn
+    url: https://iptoasn.com/data/ip2asn-v6.tsv.gz
+    format: iptoasn-tsv
+    license: PDDL-1.0
+    license_url: https://iptoasn.com/
+    commercial_use: "yes"
+    frequency: 24h
+  - id: rir-ripencc
+    kind: asn
+    url: https://ftp.ripe.net/pub/stats/ripencc/delegated-ripencc-extended-latest
+    format: rir-delegated
+    license: Estadísticas públicas del RIR (formato NRO)
+    license_url: https://www.nro.net/about/rirs/statistics/
+    commercial_use: unverified
+    frequency: 24h
+  - id: peeringdb
+    kind: asn
+    url: https://www.peeringdb.com/api/net?depth=0
+    format: peeringdb-net
+    license: PeeringDB Acceptable Use Policy
+    license_url: https://www.peeringdb.com/aup
+    commercial_use: unverified
+    frequency: 24h
+  - id: caida-as2org
+    kind: asn
+    url: https://publicdata.caida.org/datasets/as-organizations/
+    format: caida-as2org
+    license: CAIDA Acceptable Use Agreement
+    license_url: https://www.caida.org/about/legal/aua/
+    commercial_use: "no"
+    frequency: 720h
