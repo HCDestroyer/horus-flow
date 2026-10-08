@@ -109,18 +109,21 @@ func build(ctx context.Context, cfg config.Common, roles []roleSpec, environ []s
 	}), logger, httpx.ServerOptions{})
 	mgr.Append(admin.Hook())
 
+	// Contratos entre módulos con implementación en proceso (ADR-0025 §1).
+	services := module.NewServices()
 	for _, spec := range roles {
 		rlog := observability.ForRole(logger, spec.name)
 		hrole := hreg.Role(spec.name)
 		rctx := observability.WithRole(ctx, spec.name)
 		mod, err := spec.factory(rctx, module.Deps{
-			Role:    spec.name,
-			Logger:  rlog,
-			Health:  hrole,
-			Metrics: metrics,
-			Routes:  api.ForService(spec.name),
-			Common:  cfg,
-			Environ: environ,
+			Role:     spec.name,
+			Logger:   rlog,
+			Health:   hrole,
+			Metrics:  metrics,
+			Routes:   api.ForService(spec.name),
+			Common:   cfg,
+			Environ:  environ,
+			Services: services,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("register role %s: %w", spec.name, err)

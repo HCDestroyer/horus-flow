@@ -1,9 +1,11 @@
 package httpx
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/pprof"
+	"sync"
 	"sync/atomic"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -16,10 +18,13 @@ import (
 // proceso (puerto HTTPAddr). Cada rol monta sus rutas a través de su
 // [ServiceMux], que añade el rol al contexto y las métricas con su service.
 type Mux struct {
-	mux     *http.ServeMux
-	metrics *Metrics
-	logger  *slog.Logger
-	routes  atomic.Int32
+	mux      *http.ServeMux
+	metrics  *Metrics
+	logger   *slog.Logger
+	routes   atomic.Int32
+	mu       sync.Mutex
+	edge     func(http.Handler) http.Handler
+	patterns []string
 }
 
 // NewMux crea el router de la API.
@@ -39,9 +44,31 @@ func (m *Mux) ForService(service string) *ServiceMux {
 // levantar el servidor de API).
 func (m *Mux) Routes() int { return int(m.routes.Load()) }
 
-// Handler devuelve el handler raíz con request_id y recuperación de pánicos.
+// Handler devuelve el handler raíz con request_id, recuperación de pánicos y,
+// si el rol gateway lo instaló, su middleware de borde (autenticación,
+// permiso grueso por ruta, rate limit) delante de todas las rutas.
 func (m *Mux) Handler() http.Handler {
-	return RequestID(Recover(m.logger)(m.mux))
+	m.mu.Lock()
+	edge := m.edge
+	m.mu.Unlock()
+	var h http.Handler = m.mux
+	if edge != nil {
+		h = edge(h)
+	}
+	return RequestID(Recover(m.logger)(h))
+}
+
+// Matches indica si alguna ruta registrada atiende r (método y ruta).
+func (m *Mux) Matches(r *http.Request) bool {
+	_, pattern := m.mux.Handler(r)
+	return pattern != ""
+}
+
+// Patterns devuelve los patrones registrados ("GET /api/v1/sites/{site_id}").
+func (m *Mux) Patterns() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string(nil), m.patterns...)
 }
 
 // ServiceMux registra rutas de un rol.
@@ -62,7 +89,29 @@ func (s *ServiceMux) Handle(pattern string, h http.Handler) {
 	}
 	s.parent.mux.Handle(pattern, final)
 	s.parent.routes.Add(1)
+	s.parent.mu.Lock()
+	s.parent.patterns = append(s.parent.patterns, pattern)
+	s.parent.mu.Unlock()
 }
+
+// SetEdge instala el middleware de borde de la API del proceso (lo usa el
+// rol gateway, ADR-0025: monta en proceso los handlers de los módulos
+// locales). Solo puede haber uno.
+func (s *ServiceMux) SetEdge(mw func(http.Handler) http.Handler) error {
+	s.parent.mu.Lock()
+	defer s.parent.mu.Unlock()
+	if s.parent.edge != nil {
+		return errors.New("httpx: edge middleware already set")
+	}
+	s.parent.edge = mw
+	return nil
+}
+
+// Matches indica si alguna ruta del proceso atiende r.
+func (s *ServiceMux) Matches(r *http.Request) bool { return s.parent.Matches(r) }
+
+// Patterns devuelve los patrones registrados en la API del proceso.
+func (s *ServiceMux) Patterns() []string { return s.parent.Patterns() }
 
 // HandleFunc es Handle para funciones.
 func (s *ServiceMux) HandleFunc(pattern string, f func(http.ResponseWriter, *http.Request)) {
