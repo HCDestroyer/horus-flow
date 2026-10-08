@@ -117,6 +117,16 @@ export function readScenario(): MockScenario {
   return 'normal'
 }
 
+/** Vida del access token para pruebas: `localStorage['horus.mock.tokenTtlMs']`. */
+function readTokenTtl(): number | undefined {
+  try {
+    const value = Number(window.localStorage.getItem('horus.mock.tokenTtlMs'))
+    return Number.isFinite(value) && value > 0 ? value : undefined
+  } catch {
+    return undefined
+  }
+}
+
 function hasPermission(user: MockUser, tenantId: string | undefined, permission: string) {
   const m = user.me.memberships.find((x) => x.tenant_id === tenantId)
   return !!m?.permissions_with_scope[permission]?.length
@@ -141,7 +151,7 @@ export function createMockFetch(options: MockOptions = {}) {
   const scenario = options.scenario ?? readScenario
   const storage = options.storage === undefined ? safeStorage() : options.storage
   const now = options.now ?? (() => new Date())
-  const ttl = options.tokenTtlMs ?? 10 * 60_000
+  const ttl = options.tokenTtlMs ?? readTokenTtl() ?? 10 * 60_000
 
   const tokens = new Map<string, TokenRecord>()
   const mfaTokens = new Map<string, { userId: string; expires: number }>()

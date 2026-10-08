@@ -7,7 +7,7 @@ import type { CommandPaletteGroup, CommandPaletteItem, NavigationMenuItem } from
  */
 const { t } = useI18n()
 const auth = useAuth()
-const { membership } = useTenant()
+const { membership, memberships, switchTo } = useTenant()
 const navigation = useNavigation()
 
 const open = ref(false)
@@ -42,6 +42,23 @@ const searchGroups = computed<CommandPaletteGroup<CommandPaletteItem>[]>(() => [
       })),
     ),
   },
+  // "Cambiar a ISP…" desde la búsqueda global (frontend.md §3.2).
+  ...(memberships.value.length > 1
+    ? [
+        {
+          id: 'tenants',
+          label: t('tenant.switchTo'),
+          items: memberships.value
+            .filter((m) => m.tenant_slug !== membership.value?.tenant_slug)
+            .map((m) => ({
+              id: `tenant-${m.tenant_slug}`,
+              label: m.tenant_name,
+              icon: 'i-lucide-building-2',
+              onSelect: () => switchTo(m.tenant_slug),
+            })),
+        },
+      ]
+    : []),
 ])
 
 const tenantName = computed(() => membership.value?.tenant_name ?? t('app.name'))
@@ -70,7 +87,8 @@ const tenantName = computed(() => membership.value?.tenant_name ?? t('app.name')
         :ui="{ footer: 'border-t border-default', header: 'h-(--ui-header-height)' }"
       >
         <template #header="{ collapsed }">
-          <TenantHeader :name="tenantName" :collapsed="collapsed" />
+          <TenantSwitcher v-if="memberships.length > 1" :collapsed="collapsed" />
+          <TenantHeader v-else :name="tenantName" :collapsed="collapsed" />
         </template>
 
         <template #default="{ collapsed }">
