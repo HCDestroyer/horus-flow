@@ -413,6 +413,7 @@ for (const f of walk(join(EVENTS, 'catalog'), (p) => p.endsWith('.yaml'))) {
     else if (!st.subjects.some((p) => subjectMatches(p, concrete))) fail(`${label}: el stream ${e.stream} no cubre ${e.subject}`)
     if (e.pii && !(e.pii_fields ?? []).length) fail(`${label}: pii=true sin pii_fields`)
     if (!['tenant', 'platform'].includes(e.tenant_scope)) fail(`${label}: tenant_scope inválido`)
+    if (!['draft', 'stable', 'deprecated'].includes(e.status)) fail(`${label}: status inválido (draft | stable | deprecated)`)
     const exPath = join(EVENTS, e.example)
     if (!existsSync(exPath)) { fail(`${label}: falta golden file ${e.example}`); continue }
     const ex = readJson(exPath)

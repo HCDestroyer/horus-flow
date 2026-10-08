@@ -123,11 +123,11 @@ func parseFeodo(r io.Reader, src datasets.Source, fetchedAt time.Time) (*Result,
 			continue
 		}
 		a, err := netip.ParseAddr(c.get(rec, "dst_ip"))
-		if err != nil || !saneAddr(a.Unmap()) {
+		hp, ok := hostPrefix(a)
+		if err != nil || !ok {
 			res.Invalid++
 			continue
 		}
-		a = a.Unmap()
 		port, err := strconv.ParseUint(c.get(rec, "dst_port"), 10, 16)
 		if err != nil {
 			res.Invalid++
@@ -144,7 +144,7 @@ func parseFeodo(r io.Reader, src datasets.Source, fetchedAt time.Time) (*Result,
 			ind.Confidence = uint8(max(int(ind.Confidence)-20, 0)) //nolint:gosec // 0–100
 		}
 		finish(&ind, src, fetchedAt)
-		res.Entries = append(res.Entries, reputation.Entry{Prefix: netip.PrefixFrom(a, a.BitLen()), Indicator: ind})
+		res.Entries = append(res.Entries, reputation.Entry{Prefix: hp, Indicator: ind})
 	}
 	return res, nil
 }
@@ -168,11 +168,11 @@ func parseThreatFox(r io.Reader, src datasets.Source, fetchedAt time.Time) (*Res
 			continue
 		}
 		ap, err := netip.ParseAddrPort(c.get(rec, "ioc_value"))
-		if err != nil || !saneAddr(ap.Addr().Unmap()) {
+		hp, ok := hostPrefix(ap.Addr())
+		if err != nil || !ok {
 			res.Invalid++
 			continue
 		}
-		a := ap.Addr().Unmap()
 		cat := reputation.CategoryMalware
 		if c.get(rec, "threat_type") == "botnet_cc" {
 			cat = reputation.CategoryBotnetCC
@@ -190,7 +190,7 @@ func parseThreatFox(r io.Reader, src datasets.Source, fetchedAt time.Time) (*Res
 		ind.Threat = c.get(rec, "malware_printable")
 		ind.Reference = c.get(rec, "ioc_id")
 		finish(&ind, src, fetchedAt)
-		res.Entries = append(res.Entries, reputation.Entry{Prefix: netip.PrefixFrom(a, a.BitLen()), Indicator: ind})
+		res.Entries = append(res.Entries, reputation.Entry{Prefix: hp, Indicator: ind})
 	}
 	return res, nil
 }

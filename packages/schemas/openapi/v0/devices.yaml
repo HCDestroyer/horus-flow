@@ -1080,7 +1080,10 @@ components:
       enum: [residential, commercial, unknown]
     SecurityState:
       type: string
-      description: Proyectado desde detection. La UI habla de "señales", nunca de "infectado".
+      description: |
+        Proyectado desde detection. Etiquetas de presentación (D18; `dashboard/v0/widget-data.schema.json#/$defs/SecurityState`):
+        `clean` "Limpio", `suspected` "Sospechoso", `infected` **"Infectado"**, `mitigated` "Mitigado". "Infectado" se
+        muestra siempre con las razones y el nivel de confianza de los hallazgos que lo sostienen.
       enum: [clean, suspected, infected, mitigated]
     Customer:
       type: object

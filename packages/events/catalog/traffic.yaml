@@ -21,6 +21,6 @@ events:
   websocket_topics: []
   pii: false
   pii_fields: []
-  status: draft
+  status: stable
   since: I1
   example: examples/horus.traffic.catalog.published.json

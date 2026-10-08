@@ -34,11 +34,18 @@ modules:
         GET: alerts.read
         PATCH: alerts.manage
         DELETE: alerts.manage
+    - prefix: /api/v1/notification-channels/{channel_id}/connection-test
+      scope: tenant
+      methods:
+        POST: alerts.manage
+      rate_limit: connection_test
     - prefix: /api/v1/notification-channels/{channel_id}/credentials
       scope: tenant
       methods:
         PUT: alerts.manage
       reauth:
+        - PUT
+      audited:
         - PUT
     - prefix: /api/v1/notification-channels/{channel_id}/test
       scope: tenant
@@ -309,6 +316,35 @@ modules:
       scope: tenant
       methods:
         POST: security.findings.manage
+    - prefix: /api/v1/platform/reputation/sources
+      scope: platform
+      methods:
+        GET: platform.reputation_sources.manage
+        POST: platform.reputation_sources.manage
+      reauth:
+        - POST
+      audited:
+        - POST
+    - prefix: /api/v1/platform/reputation/sources/{source_id}
+      scope: platform
+      methods:
+        GET: platform.reputation_sources.manage
+        PATCH: platform.reputation_sources.manage
+        DELETE: platform.reputation_sources.manage
+      reauth:
+        - PATCH
+        - DELETE
+      audited:
+        - PATCH
+        - DELETE
+    - prefix: /api/v1/platform/reputation/sources/{source_id}/refresh
+      scope: platform
+      methods:
+        POST: platform.reputation_sources.manage
+      idempotency_key_required:
+        - POST
+      audited:
+        - POST
     - prefix: /api/v1/reputation/allowlist
       scope: tenant
       methods:
@@ -442,6 +478,10 @@ modules:
       methods:
         GET: platform.tenants.read
   gateway:
+    - prefix: /api/v1/platform/installation
+      scope: platform
+      methods:
+        GET: platform.status.read
     - prefix: /api/v1/platform/overview
       scope: platform
       methods:

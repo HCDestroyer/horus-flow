@@ -961,6 +961,11 @@ snapshot que usa el ingester).
 | `horus.detection.reputation.snapshot_published` (plataforma) | **flows** (ingester: marca `reputation_hit` en ingesta), detection |
 | `horus.detection.reputation.source_refreshed` (plataforma) | alerts (fallo de feeds), api-gateway |
 
+`source_refreshed` es el evento de **carga completada o fallida** (`result` `ok` | `failed` | `rejected`) de cualquier
+fuente, del catálogo base o personalizada (D20, `origin`), con `source_id`, `category`, `trigger`
+(`schedule` | `manual` | `created` | `updated`) y `consecutive_failures`. El alta, edición y baja de fuentes
+personalizadas (`/platform/reputation/sources`) solo deja auditoría (`horus.detection.audit.recorded`, `tenant_id` nulo).
+
 ```jsonc
 // horus.detection.reputation.snapshot_published   (artefacto en NATS Object Store, bucket reputation-snapshots)
 { "snapshot_id": "0192...", "snapshot_version": 233, "object_store": "reputation-snapshots", "object_name": "v233/rep.bin",
@@ -1060,7 +1065,7 @@ de seguridad del cliente** (resumen que consume el NOC) y el **scoring de tipo**
 { "id": "0192...", "alert_id": "0192...", "channel_id": "0192...", "channel": "telegram", "recipient_user_id": "0192...",
   "event_type": "finding_opened", "source_event_type": "horus.detection.finding.opened", "source_event_id": "0192...",
   "is_test": false, "error": null, "occurred_at": "2026-10-07T14:03:12Z" }
-// channel: email | telegram | librenms (previsto, D13: syslog / SNMP trap / API)
+// channel = tipo de canal: email | telegram | librenms (D17: por la API de LibreNMS, configurado por ISP)
 ```
 
 > **Contrato v0 (I0-05)**: catálogo por dominio en `packages/events/catalog/`, golden files en `packages/events/examples/`,

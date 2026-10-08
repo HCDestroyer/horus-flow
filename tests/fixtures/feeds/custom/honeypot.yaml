@@ -1,0 +1,12 @@
+# Lista personalizada (D20) en formato de una sola fuente. Con -fixtures se lee
+# de tests/fixtures/feeds/custom-honeypot.txt.
+id: custom-honeypot
+name: Honeypot SSH del ISP
+url: https://honeypot.example.net/export/ssh.txt
+format: ip-list
+category: scanner
+confidence: 70
+frequency: 1h
+ttl: 72h
+on_dangerous: reject
+created_by: superadmin@example.net

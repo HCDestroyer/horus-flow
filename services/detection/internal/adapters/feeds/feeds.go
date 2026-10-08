@@ -26,6 +26,12 @@ var (
 	ErrEmpty = errors.New("feed vacío")
 	// ErrCorrupt: estructura inválida, truncada o demasiadas líneas inválidas.
 	ErrCorrupt = errors.New("feed corrupto")
+	// ErrDangerous: la lista incluye entradas peligrosas (0.0.0.0/0, prefijos
+	// demasiado amplios, rangos privados o protegidos) y la política las
+	// rechaza, o cubre demasiado espacio de direcciones.
+	ErrDangerous = errors.New("lista peligrosa")
+	// ErrTooLarge: más entradas que las permitidas por la fuente.
+	ErrTooLarge = errors.New("lista demasiado grande")
 )
 
 // Result es la salida de un parser.
@@ -34,6 +40,13 @@ type Result struct {
 	Lines   int // registros de datos leídos (sin comentarios)
 	Invalid int // registros descartados por inválidos
 	Ignored int // registros válidos pero fuera de alcance (p. ej. IOC de dominio)
+	// Dropped: entradas peligrosas descartadas con aviso (ListPolicy en modo
+	// DangerWarn).
+	Dropped int
+	// Dangerous cuenta las entradas peligrosas por motivo (en cualquier modo).
+	Dangerous map[Danger]int
+	// Warnings resume lo descartado para el informe del operador.
+	Warnings []string
 }
 
 // Parser interpreta el contenido plano de un feed. fetchedAt se usa como fecha
@@ -46,6 +59,8 @@ var parsers = map[string]Parser{
 	"spamhaus-drop-txt":     parseDropTxt,
 	"spamhaus-drop-json":    parseDropJSON,
 	"netset":                parseNetset,
+	FormatIPList:            parseIPList,
+	FormatCSV:               parseCSV,
 }
 
 // Formats devuelve los formatos soportados, ordenados.
@@ -62,8 +77,15 @@ func Formats() []string {
 func Supports(format string) bool { _, ok := parsers[format]; return ok }
 
 // Parse descomprime si hace falta, interpreta r con el parser del formato de
-// src y aplica los controles de calidad comunes.
+// src y aplica la política de listas peligrosas que corresponde a la fuente
+// (PolicyFor) y los controles de calidad comunes.
 func Parse(r io.Reader, src datasets.Source, fetchedAt time.Time) (*Result, error) {
+	return ParseWithPolicy(r, src, fetchedAt, PolicyFor(src))
+}
+
+// ParseWithPolicy es Parse con una política de listas peligrosas explícita
+// (p. ej. con los prefijos propios del ISP como protegidos).
+func ParseWithPolicy(r io.Reader, src datasets.Source, fetchedAt time.Time, pol ListPolicy) (*Result, error) {
 	p, ok := parsers[src.Format]
 	if !ok {
 		return nil, fmt.Errorf("formato de feed %q no soportado (%s)", src.Format, strings.Join(Formats(), ", "))
@@ -76,6 +98,12 @@ func Parse(r io.Reader, src datasets.Source, fetchedAt time.Time) (*Result, erro
 	res, err := p(plain, src, fetchedAt.UTC())
 	if err != nil {
 		return nil, err
+	}
+	if err := pol.apply(res); err != nil {
+		return nil, err
+	}
+	if src.MaxEntries > 0 && len(res.Entries) > src.MaxEntries {
+		return nil, fmt.Errorf("%w: %d entradas, máximo %d (max_entries)", ErrTooLarge, len(res.Entries), src.MaxEntries)
 	}
 	if err := checkQuality(res); err != nil {
 		return nil, err
@@ -101,38 +129,23 @@ func checkQuality(res *Result) error {
 	if res.Invalid > 2 && res.Invalid*100 > res.Lines*maxInvalidPct {
 		return fmt.Errorf("%w: %d de %d registros inválidos", ErrCorrupt, res.Invalid, res.Lines)
 	}
+	// Las entradas peligrosas descartadas con aviso también cuentan: una
+	// lista llena de rangos privados o enormes no es fiable aunque se pida
+	// solo avisar.
+	if bad := res.Invalid + res.Dropped; bad > 2 && bad*100 > res.Lines*maxInvalidPct {
+		return fmt.Errorf("%w: %d de %d registros inválidos o peligrosos", ErrDangerous, bad, res.Lines)
+	}
 	if len(res.Entries) == 0 {
 		return fmt.Errorf("%w (%d registros, %d inválidos)", ErrEmpty, res.Lines, res.Invalid)
 	}
 	return nil
 }
 
-// Prefijos mínimos aceptados: un feed que liste 0.0.0.0/0 o un /4 marcaría
-// todo el tráfico; se descarta como inválido.
-const (
-	minBitsV4 = 8
-	minBitsV6 = 16
-)
-
-// saneAddr comprueba que una IP es enrutable públicamente para listarla.
-// Se aceptan los rangos de documentación (RFC 5737/3849) para los fixtures.
-func saneAddr(a netip.Addr) bool {
-	return a.IsValid() && !a.IsUnspecified() && !a.IsLoopback() && !a.IsMulticast() &&
-		!a.IsLinkLocalUnicast() && !a.IsPrivate() && a.Zone() == ""
-}
-
-func sanePrefix(p netip.Prefix) bool {
-	if !p.IsValid() || !saneAddr(p.Addr()) {
-		return false
-	}
-	if p.Addr().Is4() {
-		return p.Bits() >= minBitsV4
-	}
-	return p.Bits() >= minBitsV6
-}
-
-// parsePrefixOrAddr acepta "1.2.3.4", "1.2.3.0/24" o IPv6 equivalentes.
-func parsePrefixOrAddr(s string) (netip.Prefix, bool) {
+// parsePrefix acepta "1.2.3.4", "1.2.3.0/24" o IPv6 equivalentes (las IPv4
+// mapeadas en IPv6 se normalizan a IPv4). Solo comprueba la sintaxis: si el
+// prefijo es peligroso (demasiado amplio, privado, reservado) lo decide
+// ListPolicy después de interpretar el archivo entero.
+func parsePrefix(s string) (netip.Prefix, bool) {
 	s = strings.TrimSpace(s)
 	var p netip.Prefix
 	if strings.Contains(s, "/") {
@@ -142,7 +155,7 @@ func parsePrefixOrAddr(s string) (netip.Prefix, bool) {
 		}
 	} else {
 		a, err := netip.ParseAddr(s)
-		if err != nil {
+		if err != nil || a.Zone() != "" {
 			return netip.Prefix{}, false
 		}
 		a = a.Unmap()
@@ -155,7 +168,16 @@ func parsePrefixOrAddr(s string) (netip.Prefix, bool) {
 		p = netip.PrefixFrom(p.Addr().Unmap(), p.Bits()-96)
 	}
 	p = p.Masked()
-	return p, sanePrefix(p)
+	return p, p.IsValid()
+}
+
+// hostPrefix devuelve el prefijo /32 o /128 de una IP (sin zona).
+func hostPrefix(a netip.Addr) (netip.Prefix, bool) {
+	if !a.IsValid() || a.Zone() != "" {
+		return netip.Prefix{}, false
+	}
+	a = a.Unmap()
+	return netip.PrefixFrom(a, a.BitLen()), true
 }
 
 // baseIndicator rellena los campos comunes desde la declaración de la fuente.
@@ -184,10 +206,10 @@ func finish(ind *reputation.Indicator, src datasets.Source, fetchedAt time.Time)
 }
 
 // EntriesFromFile implementa feedsync.ParseFunc.
-func EntriesFromFile(path string, src datasets.Source, fetchedAt time.Time) ([]reputation.Entry, error) {
+func EntriesFromFile(path string, src datasets.Source, fetchedAt time.Time) ([]reputation.Entry, []string, error) {
 	res, err := ParseFile(path, src, fetchedAt)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return res.Entries, nil
+	return res.Entries, res.Warnings, nil
 }

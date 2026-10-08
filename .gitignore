@@ -30,6 +30,7 @@ captures/
 *.test
 *.out
 coverage.*
+!tests/fixtures/**/coverage.*
 *.prof
 
 # --- Frontend (Nuxt / Node) ---

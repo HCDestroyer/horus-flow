@@ -1,0 +1,4 @@
+# Lista personalizada peligrosa: incluye la ruta por defecto
+192.0.2.1
+198.51.100.7
+0.0.0.0/0

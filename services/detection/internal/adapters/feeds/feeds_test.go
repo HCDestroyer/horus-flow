@@ -183,7 +183,7 @@ func TestRejectsCorruptAndEmpty(t *testing.T) {
 }
 
 func TestFormats(t *testing.T) {
-	if len(Formats()) != 5 || !Supports("netset") || Supports("nope") {
+	if len(Formats()) != 7 || !Supports("netset") || !Supports(FormatIPList) || !Supports(FormatCSV) || Supports("nope") {
 		t.Fatalf("Formats = %v", Formats())
 	}
 }

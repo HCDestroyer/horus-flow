@@ -8,9 +8,9 @@ sources:
     kind: reputation
     url: https://feodotracker.abuse.ch/downloads/ipblocklist.csv
     format: abusech-feodo-csv
-    license: CC0-1.0 (según abuse.ch; condiciones de uso comercial a confirmar)
+    license: CC0-1.0 (abuse.ch; aprobado, D20)
     license_url: https://feodotracker.abuse.ch/faq/
-    commercial_use: unverified
+    commercial_use: "yes"
     frequency: 1h
     category: botnet_cc
     confidence: 90
@@ -19,9 +19,9 @@ sources:
     kind: reputation
     url: https://threatfox.abuse.ch/export/csv/ip-port/recent/
     format: abusech-threatfox-csv
-    license: CC0-1.0 (según abuse.ch; condiciones de uso comercial a confirmar)
+    license: CC0-1.0 (abuse.ch; aprobado, D20)
     license_url: https://threatfox.abuse.ch/faq/#tos
-    commercial_use: unverified
+    commercial_use: "yes"
     frequency: 1h
     category: botnet_cc
     confidence: 75
@@ -32,7 +32,7 @@ sources:
     format: spamhaus-drop-json
     license: Spamhaus DROP — términos de uso propios
     license_url: https://www.spamhaus.org/drop/terms/
-    commercial_use: unverified
+    commercial_use: "yes"
     frequency: 12h
     category: blocklist
     confidence: 80
@@ -42,7 +42,7 @@ sources:
     format: spamhaus-drop-json
     license: Spamhaus DROP — términos de uso propios
     license_url: https://www.spamhaus.org/drop/terms/
-    commercial_use: unverified
+    commercial_use: "yes"
     frequency: 12h
     category: blocklist
     confidence: 80
@@ -52,7 +52,7 @@ sources:
     format: spamhaus-drop-txt
     license: Spamhaus DROP — términos de uso propios
     license_url: https://www.spamhaus.org/drop/terms/
-    commercial_use: unverified
+    commercial_use: "yes"
     frequency: 12h
     category: blocklist
     confidence: 80
@@ -61,9 +61,9 @@ sources:
     kind: reputation
     url: https://check.torproject.org/torbulkexitlist
     format: netset
-    license: Datos públicos del Tor Project (licencia exacta a confirmar)
+    license: Datos públicos del Tor Project (aprobado, D20)
     license_url: https://metrics.torproject.org/
-    commercial_use: unverified
+    commercial_use: "yes"
     frequency: 6h
     category: tor
     confidence: 100

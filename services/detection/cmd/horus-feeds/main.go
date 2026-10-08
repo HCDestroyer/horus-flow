@@ -1,12 +1,18 @@
 // Command horus-feeds descarga, valida y versiona los feeds de reputación de
 // plataforma y compila el snapshot de reputación (I0-17).
 //
-//	horus-feeds sources [-config f] [-allow-unverified]
+//	horus-feeds sources [-config f] [-custom f|dir] [-allow-unverified]
 //	horus-feeds fetch   [-config f] [-data-dir d] [-fixtures dir] [-allow-unverified] [-only id,…]
 //	horus-feeds build   [-config f] [-data-dir d] [-allow-unverified]
 //	horus-feeds sync    (fetch + build, mismas opciones)
 //	horus-feeds lookup  [-data-dir d | -snapshot f] IP…
 //	horus-feeds status  [-config f] [-data-dir d]
+//
+// Todas las órdenes que leen la declaración aceptan -custom (o
+// HORUS_FEEDS_CUSTOM): un YAML o un directorio de YAML con listas
+// personalizadas del superadmin (D20, api/customfeeds). Una lista
+// personalizada inválida se informa y no se carga, sin detener las demás;
+// `sources` termina con código 1 si hay alguna rechazada.
 //
 // Datasets crudos en <data-dir>/datasets/<fuente>/ y snapshots en
 // <data-dir>/catalog/reputation/v<N>/ (docs/storage.md §2.2). Con -fixtures no
@@ -30,6 +36,7 @@ import (
 	"time"
 
 	"github.com/hcdestroyer/horus-flow/packages/go/datasets"
+	"github.com/hcdestroyer/horus-flow/services/detection/api/customfeeds"
 	"github.com/hcdestroyer/horus-flow/services/detection/api/reputation"
 	"github.com/hcdestroyer/horus-flow/services/detection/internal/adapters/feeds"
 	"github.com/hcdestroyer/horus-flow/services/detection/internal/app/feedsync"
@@ -46,8 +53,9 @@ func main() {
 }
 
 type options struct {
-	config, dataDir, fixtures, snapshot, only string
-	allowUnverified                           bool
+	config, custom, dataDir, fixtures, snapshot, only string
+	allowUnverified                                   bool
+	stderr                                            io.Writer
 }
 
 const usage = "uso: horus-feeds <sources|fetch|build|sync|lookup|status> [opciones]"
@@ -60,8 +68,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, now func(
 	cmd := args[0]
 	fs := flag.NewFlagSet("horus-feeds "+cmd, flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	var o options
+	o := options{stderr: stderr}
 	fs.StringVar(&o.config, "config", os.Getenv("HORUS_FEEDS_CONFIG"), "declaración de feeds (vacío = embebida)")
+	fs.StringVar(&o.custom, "custom", os.Getenv("HORUS_FEEDS_CUSTOM"), "listas personalizadas: YAML o directorio de YAML (D20)")
 	fs.StringVar(&o.dataDir, "data-dir", datasets.DefaultDataDir(), "almacén de archivos de Horus")
 	fs.StringVar(&o.fixtures, "fixtures", "", "leer las fuentes de este directorio en lugar de la red")
 	fs.StringVar(&o.snapshot, "snapshot", "", "archivo de snapshot para lookup (vacío = último publicado)")
@@ -74,20 +83,20 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, now func(
 	var err error
 	switch cmd {
 	case "sources":
-		err = cmdSources(stdout, o)
+		err = cmdSources(ctx, stdout, o)
 	case "fetch":
 		err = cmdFetch(ctx, stdout, log, o, now)
 	case "build":
-		err = cmdBuild(stdout, o, now)
+		err = cmdBuild(ctx, stdout, o, now)
 	case "sync":
 		if err = cmdFetch(ctx, stdout, log, o, now); err == nil || errors.Is(err, errSomeFailed) {
 			ferr := err
-			err = errors.Join(ferr, cmdBuild(stdout, o, now))
+			err = errors.Join(ferr, cmdBuild(ctx, stdout, o, now))
 		}
 	case "lookup":
 		err = cmdLookup(stdout, o, fs.Args())
 	case "status":
-		err = cmdStatus(stdout, o, now)
+		err = cmdStatus(ctx, stdout, o, now)
 	default:
 		_, _ = fmt.Fprintln(stderr, usage)
 		return 2
@@ -101,22 +110,62 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, now func(
 
 var errSomeFailed = errors.New("alguna fuente falló (se conserva su última versión válida)")
 
-func loadSources(o options) ([]datasets.Source, error) {
-	cfg, err := config.LoadFeeds(o.config)
+var errRejected = errors.New("hay listas personalizadas rechazadas")
+
+func loadSources(ctx context.Context, o options) ([]datasets.Source, error) {
+	srcs, rejected, err := resolveSources(ctx, o)
 	if err != nil {
 		return nil, err
 	}
-	srcs := cfg.ByKind(feedsync.SourceKind)
-	for _, s := range srcs {
-		if !feeds.Supports(s.Format) {
-			return nil, fmt.Errorf("fuente %s: formato %q no soportado", s.ID, s.Format)
+	if len(rejected) > 0 {
+		return srcs, errRejected
+	}
+	return srcs, nil
+}
+
+// resolveSources lee el catálogo y las listas personalizadas y aplica -only.
+// Las personalizadas rechazadas se informan en stderr.
+func resolveSources(ctx context.Context, o options) ([]datasets.Source, []customfeeds.Rejected, error) {
+	srcs, rejected, err := catalogAndCustom(ctx, o)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, r := range rejected {
+		_, _ = fmt.Fprintf(o.stderr, "horus-feeds: lista personalizada %q rechazada, no se carga: %v\n", r.ID, r.Err)
+	}
+	srcs, err = filterOnly(srcs, o.only)
+	return srcs, rejected, err
+}
+
+func catalogAndCustom(ctx context.Context, o options) ([]datasets.Source, []customfeeds.Rejected, error) {
+	cfg, err := config.LoadFeeds(o.config)
+	if err != nil {
+		return nil, nil, err
+	}
+	var prov customfeeds.SourceProvider
+	if o.custom != "" {
+		if prov, err = customfeeds.PathProvider(o.custom); err != nil {
+			return nil, nil, fmt.Errorf("listas personalizadas: %w", err)
 		}
 	}
-	if o.only == "" {
+	srcs, rejected, err := customfeeds.Resolve(ctx, cfg.ByKind(feedsync.SourceKind), prov, customfeeds.DefaultPolicy())
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, s := range srcs {
+		if !feeds.Supports(s.Format) {
+			return nil, nil, fmt.Errorf("fuente %s: formato %q no soportado", s.ID, s.Format)
+		}
+	}
+	return srcs, rejected, nil
+}
+
+func filterOnly(srcs []datasets.Source, only string) ([]datasets.Source, error) {
+	if only == "" {
 		return srcs, nil
 	}
 	want := map[string]bool{}
-	for _, id := range strings.Split(o.only, ",") {
+	for _, id := range strings.Split(only, ",") {
 		want[strings.TrimSpace(id)] = true
 	}
 	var out []datasets.Source
@@ -133,7 +182,11 @@ func loadSources(o options) ([]datasets.Source, error) {
 }
 
 func service(o options, now func() time.Time) *feedsync.Service {
-	var f datasets.Fetcher = datasets.NewHTTPFetcher("horus-flow/"+version+" (+reputation feeds)", 5*time.Minute)
+	hf := datasets.NewHTTPFetcher("horus-flow/"+version+" (+reputation feeds)", 5*time.Minute)
+	// Las listas personalizadas solo descargan de https público, tampoco
+	// hacia la propia instalación, también tras DNS y redirecciones (D20).
+	hf.Guard = &datasets.EgressGuard{Deny: datasets.InstallationPrefixes()}
+	var f datasets.Fetcher = hf
 	if o.fixtures != "" {
 		f = datasets.DirFetcher{Dir: o.fixtures}
 	}
@@ -146,16 +199,16 @@ func service(o options, now func() time.Time) *feedsync.Service {
 	}
 }
 
-func cmdSources(w io.Writer, o options) error {
-	srcs, err := loadSources(o)
-	if err != nil {
+func cmdSources(ctx context.Context, w io.Writer, o options) error {
+	srcs, err := loadSources(ctx, o)
+	if err != nil && !errors.Is(err, errRejected) {
 		return err
 	}
-	return datasets.WriteSources(w, srcs, o.allowUnverified)
+	return errors.Join(datasets.WriteSources(w, srcs, o.allowUnverified), err)
 }
 
 func cmdFetch(ctx context.Context, w io.Writer, log *slog.Logger, o options, now func() time.Time) error {
-	srcs, err := loadSources(o)
+	srcs, _, err := resolveSources(ctx, o)
 	if err != nil {
 		return err
 	}
@@ -171,8 +224,8 @@ func cmdFetch(ctx context.Context, w io.Writer, log *slog.Logger, o options, now
 	return nil
 }
 
-func cmdBuild(w io.Writer, o options, now func() time.Time) error {
-	srcs, err := loadSources(o)
+func cmdBuild(ctx context.Context, w io.Writer, o options, now func() time.Time) error {
+	srcs, _, err := resolveSources(ctx, o)
 	if err != nil {
 		return err
 	}
@@ -184,6 +237,9 @@ func cmdBuild(w io.Writer, o options, now func() time.Time) error {
 			state = "omitida: " + r.Reason
 		}
 		p.Printf("  %-20s %6d entradas  %4d caducadas  %s\n", r.SourceID, r.Entries, r.Expired, state)
+		for _, w := range r.Warnings {
+			p.Printf("  %-20s aviso: %s\n", "", w)
+		}
 	}
 	if err != nil {
 		return fmt.Errorf("no se publica snapshot; sigue vigente el anterior: %w", err)
@@ -248,8 +304,8 @@ func cmdLookup(w io.Writer, o options, ips []string) error {
 	return p.Err
 }
 
-func cmdStatus(w io.Writer, o options, now func() time.Time) error {
-	srcs, err := loadSources(o)
+func cmdStatus(ctx context.Context, w io.Writer, o options, now func() time.Time) error {
+	srcs, _, err := resolveSources(ctx, o)
 	if err != nil {
 		return err
 	}

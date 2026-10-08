@@ -25,17 +25,17 @@ func (m memFetcher) Fetch(_ context.Context, s datasets.Source) (io.ReadCloser, 
 }
 
 // parseLines: "ip expira-en-horas" por línea; "x" es inválido.
-func parseLines(path string, src datasets.Source, fetchedAt time.Time) ([]reputation.Entry, error) {
+func parseLines(path string, src datasets.Source, fetchedAt time.Time) ([]reputation.Entry, []string, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var out []reputation.Entry
 	for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
 		f := strings.Fields(l)
 		a, err := netip.ParseAddr(f[0])
 		if err != nil {
-			return nil, errors.New("corrupto")
+			return nil, nil, errors.New("corrupto")
 		}
 		ind := reputation.Indicator{Source: src.ID, Category: reputation.CategoryBotnetCC, Confidence: 90, FirstSeen: fetchedAt}
 		if len(f) > 1 {
@@ -44,7 +44,7 @@ func parseLines(path string, src datasets.Source, fetchedAt time.Time) ([]reputa
 		}
 		out = append(out, reputation.Entry{Prefix: netip.PrefixFrom(a, a.BitLen()), Indicator: ind})
 	}
-	return out, nil
+	return out, nil, nil
 }
 
 func source(id string, cu datasets.CommercialUse) datasets.Source {
