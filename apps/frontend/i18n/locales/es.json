@@ -78,7 +78,10 @@
   },
   "tenant": {
     "current": "ISP actual",
-    "superadmin": "Superadmin"
+    "superadmin": "Superadmin",
+    "switchTo": "Cambiar a ISP…",
+    "switcherLabel": "ISP actual: {tenant}. Cambiar de ISP",
+    "searchPlaceholder": "Buscar ISP…"
   },
   "user": {
     "menu": "Menú de usuario",
@@ -223,5 +226,198 @@
     "network": "No se puede conectar con Horus Flow. Reintentaremos en unos segundos.",
     "service": "El servicio no está disponible en este momento.",
     "rateLimited": "Demasiadas solicitudes. Espera {seconds} s."
+  },
+  "time": {
+    "agoSeconds": "hace {n} s",
+    "agoMinutes": "hace {n} min",
+    "agoHours": "hace {n} h"
+  },
+  "freshness": {
+    "live": "En vivo · {ago}",
+    "stale": "Sin datos recientes · dato de {ago}"
+  },
+  "severity": {
+    "critical": "Crítica",
+    "high": "Alta",
+    "medium": "Media",
+    "low": "Baja",
+    "info": "Info",
+    "other": "Otra"
+  },
+  "securityState": {
+    "clean": "Limpio",
+    "suspected": "Sospechoso",
+    "infected": "Infectado",
+    "mitigated": "Mitigado",
+    "confidence": "confianza {pct}"
+  },
+  "exporterState": {
+    "exporting": "Exportando",
+    "pending_configuration": "Pendiente",
+    "silent": "Silencioso",
+    "lossy": "Con pérdidas",
+    "clock_skew": "Reloj desfasado"
+  },
+  "signals": {
+    "c2_contact": "Contacto con C2",
+    "beaconing": "Beaconing",
+    "fan_out": "Fan-out",
+    "scanning": "Escaneo",
+    "watched_ports": "Puertos vigilados",
+    "sustained_upload": "Salida sostenida",
+    "smtp": "SMTP saliente",
+    "ddos": "DDoS"
+  },
+  "findingKind": {
+    "outbound_scanning": "Escaneo saliente",
+    "botnet_c2_communication": "Contacto con C2",
+    "spam_smtp_outbound": "SMTP saliente",
+    "beaconing": "Beaconing",
+    "ddos_participation": "DDoS",
+    "reputation_hit": "Reputación",
+    "open_proxy_abuse": "Proxy abierto",
+    "cryptomining": "Criptominería"
+  },
+  "charts": {
+    "time": "Hora",
+    "gap": "Sin datos"
+  },
+  "widgetHost": {
+    "empty": "Sin datos en este periodo.",
+    "unavailable": "Widget no disponible en esta versión",
+    "forbidden": "No tienes acceso a este widget",
+    "degradedTitle": "Analítica no disponible",
+    "degradedHint": "Los flujos se siguen recibiendo y se procesarán al recuperarse.",
+    "degradedShort": "Analítica no disponible · último dato",
+    "refreshFailed": "No se pudo actualizar",
+    "partial": "Datos parciales",
+    "error": "No pudimos cargar este widget",
+    "wallError": "Sin datos · reintentando"
+  },
+  "dashboards": {
+    "title": "Dashboards",
+    "intro": "Plantillas de Horus listas para el NOC y las pantallas murales. Crear y editar dashboards propios llega en una próxima versión.",
+    "listError": "No pudimos cargar los dashboards",
+    "loadError": "No pudimos cargar este dashboard",
+    "empty": "Este ISP aún no tiene dashboards",
+    "system": "Plantilla de Horus",
+    "systemReadOnly": "Plantilla · solo lectura",
+    "widgetCount": "{n} widget | {n} widgets",
+    "wall": "Vista mural",
+    "exitWall": "Salir de la vista mural",
+    "templates": {
+      "noc_isp": "Para el operador NOC y la pantalla mural",
+      "security": "Para el analista de seguridad y la pantalla mural",
+      "custom": "Dashboard del ISP"
+    }
+  },
+  "devWidgets": {
+    "title": "Galería de widgets",
+    "intro": "Cada tipo de widget registrado con datos del ISP actual. Sirve para revisar las escalas normal y mural.",
+    "wall": "Escala mural",
+    "normal": "Escala normal"
+  },
+  "widgets": {
+    "common": {
+      "others": "Otros",
+      "downVolume": "Volumen de bajada · {range}",
+      "masked": "IP de clientes enmascaradas"
+    },
+    "noc_header": {
+      "description": "Muestra la hora, el ISP y cuán frescos son los datos.",
+      "live": "En vivo",
+      "updated": "Actualizado",
+      "waiting": "Esperando datos…"
+    },
+    "traffic_now": {
+      "description": "Muestra el tráfico actual de bajada y subida, su variación frente a ayer y la última hora.",
+      "empty": "Sin tráfico registrado ahora mismo.",
+      "down": "Bajada",
+      "up": "Subida",
+      "vsYesterday": "Frente a ayer: ↓ {down} · ↑ {up}",
+      "sparkLabel": "Tráfico de la última hora"
+    },
+    "customers_active": {
+      "description": "Muestra cuántos clientes están activos y cuántos aparecieron hoy.",
+      "empty": "Aún no hemos visto clientes en los flujos.",
+      "newToday": "nuevo hoy | nuevos hoy",
+      "total": "{n} clientes en total"
+    },
+    "findings_summary": {
+      "description": "Muestra cuántos hallazgos hay abiertos y de qué severidad.",
+      "empty": "Ningún cliente muestra señales de botnet en este periodo.",
+      "bySeverity": "Abiertos por severidad",
+      "byState": "Clientes por estado de seguridad",
+      "new24h": "{n} nuevos en 24 h · {customers} clientes afectados"
+    },
+    "botnet_signals": {
+      "description": "Muestra cuántos clientes presentan cada señal compatible con botnet.",
+      "empty": "Ningún cliente muestra señales de botnet en este periodo.",
+      "customers": "{n} cliente | {n} clientes",
+      "affected": "cliente afectado | clientes afectados",
+      "listLabel": "Clientes afectados por señal"
+    },
+    "exporters_status": {
+      "description": "Muestra si llegan flujos de cada router: estado, último flujo, flujos/s y pérdida.",
+      "empty": "Ningún router envía flujos todavía.",
+      "summary": "{ok} de {total} exportando",
+      "listLabel": "Exportadores de flujos",
+      "lastFlow": "último flujo {ago}",
+      "noFlows": "sin flujos",
+      "fps": "{n} flujos/s",
+      "loss": "pérdida {pct}"
+    },
+    "traffic_timeseries": {
+      "description": "Muestra cómo evoluciona el tráfico de bajada y subida.",
+      "empty": "Sin tráfico registrado en este periodo.",
+      "down": "Bajada",
+      "up": "Subida",
+      "chartLabel": "Tráfico de bajada y subida, últimas {range}"
+    },
+    "top_categories": {
+      "description": "Muestra las categorías de tráfico que más se consumen.",
+      "empty": "Sin tráfico clasificado en este periodo.",
+      "listLabel": "Categorías con más tráfico"
+    },
+    "top_services": {
+      "description": "Muestra los servicios que más se consumen.",
+      "empty": "Sin tráfico clasificado en este periodo."
+    },
+    "top_customers": {
+      "description": "Muestra los clientes que más consumen.",
+      "empty": "Sin tráfico de clientes en este periodo.",
+      "caption": "Clientes con más tráfico",
+      "customer": "Cliente",
+      "site": "Nodo",
+      "commercial": "Comercial"
+    },
+    "findings_feed": {
+      "description": "Muestra los hallazgos nuevos o activos con su severidad y cliente.",
+      "empty": "Ningún hallazgo abierto: ningún cliente muestra señales de botnet.",
+      "listLabel": "Hallazgos recientes"
+    },
+    "findings_trend": {
+      "description": "Muestra los hallazgos abiertos por día y tipo.",
+      "empty": "Sin hallazgos en este periodo.",
+      "legend": "Tipos de hallazgo",
+      "total": "{n} en total",
+      "chartLabel": "Hallazgos abiertos por día y tipo"
+    },
+    "security_by_node": {
+      "description": "Muestra qué nodos tienen más clientes con señales.",
+      "empty": "Ningún nodo tiene clientes con señales.",
+      "customers": "{n} cliente | {n} clientes",
+      "findings": "{n} hallazgo | {n} hallazgos",
+      "listLabel": "Clientes con señales por nodo"
+    },
+    "watched_ports": {
+      "description": "Muestra a qué puertos vigilados sale tráfico y desde cuántos clientes.",
+      "empty": "Sin tráfico hacia puertos vigilados.",
+      "caption": "Puertos vigilados",
+      "port": "Puerto",
+      "service": "Servicio",
+      "customers": "Clientes",
+      "flows": "Flujos"
+    }
   }
 }

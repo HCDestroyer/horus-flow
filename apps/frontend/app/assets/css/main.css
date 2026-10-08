@@ -79,6 +79,108 @@
   }
 }
 
+/*
+ * Dashboards y widgets (frontend.md §6, §7.4). Una sola escala tipográfica con dos
+ * valores: escritorio (rem, respeta el tamaño de texto del usuario) y mural, que escala
+ * con la altura del viewport: `--u` = 1 px a 1080 p, así en 4K o en una TV de 75" las
+ * proporciones se mantienen. Mínimos a 1080 p: KPI 72 px, título 28, etiquetas 22,
+ * frescura 20 (nada por debajo de 20).
+ */
+.dash {
+  --w-title: 0.9375rem;
+  --w-label: 0.8125rem;
+  --w-kpi: 2.25rem;
+  --w-kpi-2: 1.375rem;
+  --w-meta: 0.75rem;
+  --w-pad: 1rem;
+  --w-gap: 0.75rem;
+  gap: var(--w-gap);
+}
+
+.dash-wall {
+  --u: calc(100dvh / 1080);
+  --w-title: calc(var(--u) * 28);
+  --w-label: calc(var(--u) * 22);
+  --w-kpi: calc(var(--u) * 72);
+  --w-kpi-2: calc(var(--u) * 44);
+  --w-meta: calc(var(--u) * 20);
+  --w-pad: calc(var(--u) * 16);
+  --w-gap: calc(var(--u) * 12);
+  padding: var(--w-gap);
+  overflow: hidden;
+}
+
+.w-title {
+  font-size: var(--w-title);
+  line-height: 1.2;
+}
+
+.w-label {
+  font-size: var(--w-label);
+  line-height: 1.35;
+}
+
+.w-kpi {
+  font-size: var(--w-kpi);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.w-kpi-2 {
+  font-size: var(--w-kpi-2);
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Unidades a la mitad del tamaño del valor, mismo color (§7.4). */
+.w-unit {
+  font-size: 0.5em;
+  font-weight: 500;
+  letter-spacing: 0;
+  margin-inline-start: 0.2em;
+}
+
+.w-meta {
+  font-size: var(--w-meta);
+  line-height: 1.3;
+}
+
+.widget-card {
+  padding: var(--w-pad);
+  gap: calc(var(--w-gap) * 0.75);
+}
+
+/* Cabecera NOC: banda sin tarjeta y de baja luminancia (protección contra quemado, §7.8). */
+.widget-band {
+  padding: 0 calc(var(--w-pad) * 0.25);
+}
+
+/* Ranura 1 de la paleta categórica (utils/chart-palette.ts): barras de magnitud. */
+:root,
+.light {
+  --viz-1: #2a78d6;
+  --viz-track: var(--ui-color-neutral-100);
+}
+
+.dark {
+  --viz-1: #3987e5;
+  --viz-track: #232327;
+}
+
+.widget-state {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  text-align: center;
+}
+
 /* Material translúcido solo en la capa funcional (§13.1); sólido si se pide menos transparencia. */
 .chrome-material {
   background-color: color-mix(in oklab, var(--ui-bg) 82%, transparent);
