@@ -2,7 +2,7 @@
 
 // Tests de integración del esquema ClickHouse v0 (I0-13) contra el ClickHouse del compose:
 //
-//	make up && go test -tags integration -count=1 ./infrastructure/clickhouse/
+//	make up && go test -tags integration -count=1 ./services/ingester/migrations/clickhouse/
 //
 // Ver harness_integration_test.go para elegir otro servidor. Los tests BORRAN las bases flows y
 // dim y los usuarios/roles horus_* del servidor de destino.
@@ -19,7 +19,7 @@ import (
 
 	"github.com/google/uuid"
 
-	chschema "github.com/hcdestroyer/horus-flow/infrastructure/clickhouse"
+	chschema "github.com/hcdestroyer/horus-flow/services/ingester/migrations/clickhouse"
 	"github.com/hcdestroyer/horus-flow/packages/go/chmigrate"
 )
 

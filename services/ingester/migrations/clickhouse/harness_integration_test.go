@@ -43,7 +43,7 @@ func repoRoot(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return filepath.Clean(filepath.Join(wd, "..", ".."))
+	return filepath.Clean(filepath.Join(wd, "..", "..", "..", ".."))
 }
 
 func discover(t *testing.T) target {

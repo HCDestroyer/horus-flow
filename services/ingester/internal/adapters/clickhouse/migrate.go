@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	chschema "github.com/hcdestroyer/horus-flow/infrastructure/clickhouse"
+	chschema "github.com/hcdestroyer/horus-flow/services/ingester/migrations/clickhouse"
 	"github.com/hcdestroyer/horus-flow/packages/go/chmigrate"
 	"github.com/hcdestroyer/horus-flow/services/ingester/internal/config"
 )
