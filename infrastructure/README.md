@@ -11,3 +11,5 @@
 | --- | --- | --- |
 | `nats/nats.dev.conf` | NATS con JetStream para el compose de desarrollo (sin autenticación; monitorización en `:8222`) | I0-02 |
 | `traefik/traefik.dev.yml`, `traefik/dynamic/` | Traefik de desarrollo: HTTP `:8000`, ping/dashboard `:8082`, proveedor de archivos (sin socket de Docker) | I0-02 |
+| `observability/prometheus/`, `observability/loki/`, `observability/alloy/` | Prometheus (raspa `:8081/metrics` de `horus-*`, Traefik y la propia pila), Loki monolítico y Grafana Alloy (logs de los contenedores del proyecto compose con redacción de respaldo) del perfil `observability` | I0-18 |
+| `observability/grafana/` | Datasources y dashboard "Horus · Platform Overview" (filas Servicios, API, Ingesta y Logs) provisionados como código | I0-18 |

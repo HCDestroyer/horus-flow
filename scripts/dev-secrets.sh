@@ -3,6 +3,7 @@
 #
 # Crea en deployments/compose/secrets/ (ignorado por Git) los archivos que faltan:
 #   postgres_password.txt, clickhouse_password.txt, valkey_password.txt  valores aleatorios
+#   grafana_admin_password.txt (perfil observability, I0-18)              valor aleatorio
 #   valkey_users.acl                                                      ACL de Valkey con el
 #                                                                         hash SHA-256 de la contraseña
 # Nunca sobrescribe un secreto existente ni imprime valores. Para regenerarlos: `make reset`
@@ -34,7 +35,7 @@ sha256_hex() {
 }
 
 created=()
-for name in postgres_password clickhouse_password valkey_password; do
+for name in postgres_password clickhouse_password valkey_password grafana_admin_password; do
   file="$dir/$name.txt"
   if [ ! -s "$file" ]; then
     random_secret >"$file"

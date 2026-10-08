@@ -16,10 +16,16 @@ VERSION       ?= $(shell git describe --tags --always --dirty 2>/dev/null || ech
 LDFLAGS       := -X main.version=$(VERSION)
 
 # Compose de desarrollo (I0-02). Variables en deployments/compose/.env; perfiles opcionales
-# con COMPOSE_PROFILES (p. ej. `make up COMPOSE_PROFILES=app`).
+# con PROFILE o COMPOSE_PROFILES (p. ej. `make up PROFILE=app,observability`).
+# compose.observability.yaml (I0-18) se fusiona siempre, pero sus servicios solo arrancan con el
+# perfil `observability`.
 COMPOSE_DIR          := deployments/compose
 HORUS_COMPOSE_FILE   := $(COMPOSE_DIR)/compose.dev.yaml
-COMPOSE              ?= docker compose --project-directory $(COMPOSE_DIR) -f $(HORUS_COMPOSE_FILE)
+HORUS_OBS_FILE       := $(COMPOSE_DIR)/compose.observability.yaml
+COMPOSE              ?= docker compose --project-directory $(COMPOSE_DIR) -f $(HORUS_COMPOSE_FILE) -f $(HORUS_OBS_FILE)
+ifneq ($(PROFILE),)
+export COMPOSE_PROFILES := $(PROFILE)
+endif
 COMPOSE_WAIT_TIMEOUT ?= 120
 # down/reset funcionan aunque aún no exista .env (toman los valores de .env.example).
 COMPOSE_DOWN         := $(COMPOSE) $(if $(wildcard $(COMPOSE_DIR)/.env),,--env-file $(COMPOSE_DIR)/.env.example)
@@ -41,7 +47,7 @@ help: ## Muestra esta ayuda
 
 .PHONY: up
 up: ## Levanta el compose de desarrollo (perfil mínimo) y espera a que esté healthy
-	@bash scripts/compose-preflight.sh $(HORUS_COMPOSE_FILE)
+	@bash scripts/compose-preflight.sh $(HORUS_COMPOSE_FILE) $(HORUS_OBS_FILE)
 	$(COMPOSE) up -d --wait --wait-timeout $(COMPOSE_WAIT_TIMEOUT)
 	@$(COMPOSE) ps --format 'table {{.Service}}\t{{.Status}}\t{{.Ports}}'
 
@@ -52,6 +58,10 @@ down: ## Detiene el compose de desarrollo (conserva los datos)
 .PHONY: reset
 reset: ## Detiene el compose y borra sus volúmenes (datos de PostgreSQL, ClickHouse...)
 	$(COMPOSE_DOWN) --profile "*" down --volumes --remove-orphans
+
+.PHONY: observability-smoke
+observability-smoke: ## Levanta el perfil observability y comprueba Prometheus, Loki y Grafana (I0-18)
+	@bash scripts/ci/observability-smoke.sh
 
 ##@ Calidad
 

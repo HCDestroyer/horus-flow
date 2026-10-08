@@ -1,0 +1,15 @@
+# Grafana — proveedor de dashboards como código (historia I0-18, docs/observability.md §5).
+# Los JSON viven en infrastructure/observability/grafana/dashboards/ (montado en solo lectura).
+apiVersion: 1
+
+providers:
+  - name: horus-platform
+    folder: Horus Platform
+    folderUid: horus-platform
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards/horus
+      foldersFromFilesStructure: false
