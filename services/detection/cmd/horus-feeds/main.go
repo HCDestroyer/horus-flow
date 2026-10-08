@@ -182,7 +182,11 @@ func filterOnly(srcs []datasets.Source, only string) ([]datasets.Source, error) 
 }
 
 func service(o options, now func() time.Time) *feedsync.Service {
-	var f datasets.Fetcher = datasets.NewHTTPFetcher("horus-flow/"+version+" (+reputation feeds)", 5*time.Minute)
+	hf := datasets.NewHTTPFetcher("horus-flow/"+version+" (+reputation feeds)", 5*time.Minute)
+	// Las listas personalizadas solo descargan de https público, tampoco
+	// hacia la propia instalación, también tras DNS y redirecciones (D20).
+	hf.Guard = &datasets.EgressGuard{Deny: datasets.InstallationPrefixes()}
+	var f datasets.Fetcher = hf
 	if o.fixtures != "" {
 		f = datasets.DirFetcher{Dir: o.fixtures}
 	}

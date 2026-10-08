@@ -108,45 +108,13 @@ func PolicyFor(src datasets.Source) ListPolicy {
 	return pol
 }
 
-// reserved son los rangos que ninguna lista de reputación debe marcar. Los
-// de documentación (RFC 5737, RFC 3849) no están: los usan los fixtures.
-var reserved = func() []netip.Prefix {
-	var out []netip.Prefix
-	for _, s := range []string{
-		"0.0.0.0/8",      // "esta red"
-		"10.0.0.0/8",     // RFC 1918
-		"100.64.0.0/10",  // CGNAT (RFC 6598)
-		"127.0.0.0/8",    // loopback
-		"169.254.0.0/16", // enlace local
-		"172.16.0.0/12",  // RFC 1918
-		"192.0.0.0/24",   // asignaciones de protocolo IETF
-		"192.168.0.0/16", // RFC 1918
-		"198.18.0.0/15",  // pruebas de rendimiento (RFC 2544)
-		"224.0.0.0/4",    // multicast
-		"240.0.0.0/4",    // reservado y difusión limitada
-		"::/128",         // sin especificar
-		"::1/128",        // loopback
-		"64:ff9b::/96",   // NAT64 (RFC 6052)
-		"64:ff9b:1::/48", // NAT64 local (RFC 8215)
-		"100::/64",       // descarte (RFC 6666)
-		"fc00::/7",       // ULA
-		"fe80::/10",      // enlace local
-		"ff00::/8",       // multicast
-	} {
-		out = append(out, netip.MustParsePrefix(s))
-	}
-	return out
-}()
-
 // Classify devuelve por qué p es peligroso para la política, o "" si no lo es.
 func (pol ListPolicy) Classify(p netip.Prefix) Danger {
 	if p.Bits() == 0 {
 		return DangerDefaultRoute
 	}
-	for _, r := range reserved {
-		if r.Overlaps(p) {
-			return DangerReserved
-		}
+	if datasets.OverlapsReserved(p) {
+		return DangerReserved
 	}
 	minBits := pol.MinBitsV6
 	if p.Addr().Is4() {

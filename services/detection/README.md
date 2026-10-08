@@ -61,6 +61,11 @@ las del catálogo. Contrato en `api/customfeeds`:
   del 5 % se rechaza igualmente). Una lista rechazada nunca reemplaza la versión vigente. Las
   fuentes del catálogo mantienen el criterio de I0-17 (mínimo /8 y /16; lo peligroso cuenta como
   inválido).
+- Descarga (`datasets.EgressGuard` en `HTTPFetcher`, solo listas personalizadas): `https` con
+  destino público y distinto de la propia instalación (direcciones de las interfaces locales),
+  comprobado en la URL inicial resolviendo DNS (todas las IP), en cada redirección (máx. 5, nunca a
+  `http`) y, en conexión directa, en la dirección real del socket (DNS rebinding). Detrás de un
+  proxy HTTP(S) el socket lo abre el proxy y queda la comprobación por DNS.
 - CLI: `horus-feeds <orden> -custom <archivo|directorio>` (o `HORUS_FEEDS_CUSTOM`); `sources`
   termina con 1 si alguna lista personalizada se rechaza. Ejemplos en `tests/fixtures/feeds/custom/`.
 
@@ -73,3 +78,8 @@ ASN) necesita piezas que aún no existen: planificador por frecuencia de fuente,
 snapshot en NATS Object Store y el `SourceProvider` sobre la tabla de PostgreSQL de la API de
 plataforma. Cuando estén, el rol `detection` hará `customfeeds.Resolve` + `feedsync.Service`
 en su `Run`, y las CLI pasarán a ser subcomandos (`horus feeds …`, `horus asn …`).
+
+Evento pendiente: `horus.detection.reputation.source_refreshed` (contrato de INT) se publicará desde
+el resultado de cada fuente (`datasets.Result`): `updated`/`unchanged` → `ok`; `failed` con
+`errors.Is(err, feeds.ErrDangerous)` o `feeds.ErrTooLarge` → `rejected`; resto de `failed` → `failed`;
+`origin` de `Source.Origin`, `consecutive_failures` del estado del almacén.
