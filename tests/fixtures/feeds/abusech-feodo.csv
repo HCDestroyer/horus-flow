@@ -1,0 +1,15 @@
+################################################################
+# abuse.ch Feodo Tracker Botnet C2 IP Blocklist (CSV)          #
+# Last updated: 2026-10-08 04:00:00 UTC                        #
+#                                                              #
+# Fixture sintético de Horus Flow (I0-17): mismas columnas que #
+# https://feodotracker.abuse.ch/downloads/ipblocklist.csv pero #
+# solo con direcciones de documentación (RFC 5737 / RFC 3849). #
+################################################################
+# "first_seen_utc","dst_ip","dst_port","c2_status","last_online","malware"
+"2026-09-01 10:11:12","192.0.2.10","443","online","2026-10-07","QakBot"
+"2026-09-02 08:00:00","192.0.2.10","8443","online","2026-10-07","QakBot"
+"2026-09-15 22:30:01","198.51.100.23","4433","offline","2026-09-20","Pikabot"
+"2026-10-01 01:02:03","203.0.113.77","2222","online","2026-10-08","Emotet"
+"2026-10-05 12:00:00","2001:db8:c2::1","443","online","2026-10-08","Dridex"
+# Number of entries: 5

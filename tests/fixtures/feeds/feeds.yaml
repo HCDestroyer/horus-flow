@@ -1,0 +1,80 @@
+# Declaración de feeds para pruebas sin Internet (I0-17, `make test-feeds`): mismas fuentes,
+# formatos y licencias que services/detection/internal/config/feeds.yaml, con min_entries
+# reducido al tamaño de los fixtures. Cada fuente se lee de tests/fixtures/feeds/<id>.*
+# (todas las direcciones son de documentación: RFC 5737 y RFC 3849).
+version: 1
+sources:
+  - id: abusech-feodo
+    kind: reputation
+    url: https://feodotracker.abuse.ch/downloads/ipblocklist.csv
+    format: abusech-feodo-csv
+    license: CC0-1.0 (según abuse.ch; condiciones de uso comercial a confirmar)
+    license_url: https://feodotracker.abuse.ch/faq/
+    commercial_use: unverified
+    frequency: 1h
+    category: botnet_cc
+    confidence: 90
+    ttl: 168h
+  - id: abusech-threatfox
+    kind: reputation
+    url: https://threatfox.abuse.ch/export/csv/ip-port/recent/
+    format: abusech-threatfox-csv
+    license: CC0-1.0 (según abuse.ch; condiciones de uso comercial a confirmar)
+    license_url: https://threatfox.abuse.ch/faq/#tos
+    commercial_use: unverified
+    frequency: 1h
+    category: botnet_cc
+    confidence: 75
+    ttl: 168h
+  - id: spamhaus-drop-v4
+    kind: reputation
+    url: https://www.spamhaus.org/drop/drop_v4.json
+    format: spamhaus-drop-json
+    license: Spamhaus DROP — términos de uso propios
+    license_url: https://www.spamhaus.org/drop/terms/
+    commercial_use: unverified
+    frequency: 12h
+    category: blocklist
+    confidence: 80
+  - id: spamhaus-drop-v6
+    kind: reputation
+    url: https://www.spamhaus.org/drop/drop_v6.json
+    format: spamhaus-drop-json
+    license: Spamhaus DROP — términos de uso propios
+    license_url: https://www.spamhaus.org/drop/terms/
+    commercial_use: unverified
+    frequency: 12h
+    category: blocklist
+    confidence: 80
+  - id: spamhaus-drop-txt
+    kind: reputation
+    url: https://www.spamhaus.org/drop/drop.txt
+    format: spamhaus-drop-txt
+    license: Spamhaus DROP — términos de uso propios
+    license_url: https://www.spamhaus.org/drop/terms/
+    commercial_use: unverified
+    frequency: 12h
+    category: blocklist
+    confidence: 80
+    enabled: false
+  - id: tor-exit
+    kind: reputation
+    url: https://check.torproject.org/torbulkexitlist
+    format: netset
+    license: Datos públicos del Tor Project (licencia exacta a confirmar)
+    license_url: https://metrics.torproject.org/
+    commercial_use: unverified
+    frequency: 6h
+    category: tor
+    confidence: 100
+    ttl: 48h
+  - id: firehol-level1
+    kind: reputation
+    url: https://iplists.firehol.org/files/firehol_level1.netset
+    format: netset
+    license: Agregado de listas con licencias heterogéneas
+    license_url: https://iplists.firehol.org/
+    commercial_use: "no"
+    frequency: 24h
+    category: blocklist
+    confidence: 60

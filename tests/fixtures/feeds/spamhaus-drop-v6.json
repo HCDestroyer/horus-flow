@@ -1,0 +1,3 @@
+{"cidr":"2001:db8:dead::/48","sblid":"SBL000010","rir":"ripencc"}
+{"cidr":"2001:db8:beef::/48","sblid":"SBL000011","rir":"arin"}
+{"type":"metadata","timestamp":1791428400,"size":180,"records":2,"copyright":"(c) 2026 The Spamhaus Project SLU (fixture sintético Horus Flow)","terms":"https://www.spamhaus.org/drop/terms/"}

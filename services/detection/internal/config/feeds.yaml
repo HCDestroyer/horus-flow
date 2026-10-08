@@ -1,0 +1,127 @@
+# Feeds de reputación de plataforma de `mod:detection` (I0-17; docs/traffic-model.md §11,
+# ADR-0024, P-14). Va embebido en el binario; se sustituye con -config / HORUS_FEEDS_CONFIG.
+#
+# Cada fuente declara URL, licencia, uso comercial, frecuencia y formato:
+#   commercial_use: "yes"        la licencia permite el uso comercial multi-ISP → se descarga
+#   commercial_use: "no"         no lo permite → NUNCA se descarga
+#   commercial_use: unverified   términos ambiguos o cambiados recientemente → no se descarga
+#                                hasta que el PO lo confirme (P-14); solo en laboratorio con
+#                                --allow-unverified
+#
+# Estado de la revisión de licencias (2026-10-08, sin acceso de red desde el entorno de
+# desarrollo, revisar contra las URL de license_url antes de pasar a "yes"):
+# - abuse.ch publicaba Feodo Tracker y ThreatFox bajo CC0 con uso comercial permitido, pero ha
+#   revisado sus condiciones (claves de acceso, "fair use"); hay que confirmar el uso comercial.
+# - Spamhaus DROP es gratuito, pero sus términos limitan la redistribución y el uso dentro de
+#   productos o servicios comerciales; hay que confirmar que Horus (uso interno de cada ISP,
+#   multi-tenant) entra en el uso gratuito.
+# - FireHOL agrega listas con licencias heterogéneas (algunas solo no comerciales): "no".
+#
+# Los snapshots nunca redistribuyen el archivo original; los datasets crudos no salen a la
+# copia remota (docs/storage.md §3).
+version: 1
+sources:
+  - id: abusech-feodo
+    name: abuse.ch Feodo Tracker — C2 de botnets (IP)
+    kind: reputation
+    url: https://feodotracker.abuse.ch/downloads/ipblocklist.csv
+    format: abusech-feodo-csv
+    license: CC0-1.0 (según abuse.ch; condiciones de uso comercial a confirmar)
+    license_url: https://feodotracker.abuse.ch/faq/
+    commercial_use: unverified
+    attribution: abuse.ch Feodo Tracker
+    frequency: 1h
+    category: botnet_cc
+    confidence: 90
+    ttl: 168h
+    min_entries: 1
+    max_bytes: 16777216
+    notes: >-
+      C2 de Dridex, Emotet, QakBot, Pikabot… con puerto. Señal "Contacto con C2 conocido"
+      (traffic-model.md §8). Un C2 offline baja 20 puntos de confianza.
+
+  - id: abusech-threatfox
+    name: abuse.ch ThreatFox — IOC ip:port recientes
+    kind: reputation
+    url: https://threatfox.abuse.ch/export/csv/ip-port/recent/
+    format: abusech-threatfox-csv
+    license: CC0-1.0 (según abuse.ch; condiciones de uso comercial a confirmar)
+    license_url: https://threatfox.abuse.ch/faq/#tos
+    commercial_use: unverified
+    attribution: abuse.ch ThreatFox
+    frequency: 1h
+    category: botnet_cc
+    confidence: 75
+    ttl: 168h
+    min_entries: 1
+    max_bytes: 67108864
+    notes: >-
+      Solo IOC ip:port (los de dominio/URL no aplican a flujos). threat_type botnet_cc →
+      botnet_cc; el resto → malware. Confianza = mínimo(fuente, IOC).
+
+  - id: spamhaus-drop-v4
+    name: Spamhaus DROP (IPv4, NDJSON)
+    kind: reputation
+    url: https://www.spamhaus.org/drop/drop_v4.json
+    format: spamhaus-drop-json
+    license: Spamhaus DROP — términos de uso propios (gratuito; redistribución restringida)
+    license_url: https://www.spamhaus.org/drop/terms/
+    commercial_use: unverified
+    attribution: The Spamhaus Project
+    frequency: 12h
+    category: blocklist
+    confidence: 80
+    min_entries: 100
+    max_bytes: 8388608
+    notes: >-
+      Redes secuestradas o de operadores criminales ("Don't Route Or Peer"). EDROP se integró en
+      DROP en 2024. Spamhaus pide no descargar más de una vez por hora.
+
+  - id: spamhaus-drop-v6
+    name: Spamhaus DROP (IPv6, NDJSON)
+    kind: reputation
+    url: https://www.spamhaus.org/drop/drop_v6.json
+    format: spamhaus-drop-json
+    license: Spamhaus DROP — términos de uso propios (gratuito; redistribución restringida)
+    license_url: https://www.spamhaus.org/drop/terms/
+    commercial_use: unverified
+    attribution: The Spamhaus Project
+    frequency: 12h
+    category: blocklist
+    confidence: 80
+    min_entries: 1
+    max_bytes: 8388608
+
+  - id: tor-exit
+    name: Tor Project — nodos de salida
+    kind: reputation
+    url: https://check.torproject.org/torbulkexitlist
+    format: netset
+    license: Datos públicos del Tor Project (licencia exacta a confirmar)
+    license_url: https://metrics.torproject.org/
+    commercial_use: unverified
+    attribution: The Tor Project
+    frequency: 6h
+    category: tor
+    confidence: 100
+    ttl: 48h
+    min_entries: 100
+    max_bytes: 8388608
+    notes: >-
+      Hecho verificable (no maldad): sirve de contexto y para descartar falsos positivos, no como
+      señal de botnet por sí sola.
+
+  - id: firehol-level1
+    name: FireHOL level1 (agregado)
+    kind: reputation
+    url: https://iplists.firehol.org/files/firehol_level1.netset
+    format: netset
+    license: Agregado de listas con licencias heterogéneas (algunas solo no comerciales)
+    license_url: https://iplists.firehol.org/
+    commercial_use: "no"
+    frequency: 24h
+    category: blocklist
+    confidence: 60
+    notes: >-
+      Declarado para dejar constancia de la revisión: no se descarga. Si se necesita alguna de sus
+      listas, se declara la lista original con su propia licencia.

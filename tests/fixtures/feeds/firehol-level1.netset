@@ -1,0 +1,6 @@
+#
+# firehol_level1 (fixture sintético Horus Flow, I0-17)
+# Agregado de listas con licencias heterogéneas: declarado commercial_use=no.
+#
+192.0.2.0/24
+203.0.113.0/24
