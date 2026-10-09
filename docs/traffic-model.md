@@ -185,15 +185,40 @@ Con D1 la IP del cliente debe ser la **anterior al NAT** (supuesto abierto de
 |------|-------------------------------------------------------------------------|------------|
 | Clientes con IP pública (sin NAT) | IP pública del cliente en ambos sentidos | directa |
 | CPE con NAT (residencial típico) | WAN del CPE = IP del cliente | directa; los dispositivos detrás no se ven |
-| **NAT/CGNAT en el propio router principal** | RouterOS aplica `srcnat` en *postrouting* (después de `forward`) y deshace el NAT de las respuestas en *prerouting* (antes de `forward`): se espera la **IP privada del cliente en subida y bajada** (**a verificar en laboratorio**, criterio 4 de la checklist del Agente E) | directa, en el realm `node_private` del nodo. Los campos `nat-*` de IPFIX quedan **desactivados** por defecto (dato sensible); no hacen falta para atribuir. |
+| **NAT/CGNAT en el propio router principal** | **Verificado con un router real (2026-10-09, §4.4.2):** en la **subida** `sourceIPv4Address` es la IP privada del cliente y `postNATSourceIPv4Address` la pública; en la **bajada** `destinationIPv4Address` es la **IP pública del NAT** y la privada del cliente llega en `postNATDestinationIPv4Address` | subida: `src`; bajada: `post_nat_dst` (IE 226). Los campos NAT de IPFIX son **obligatorios** para atribuir la bajada en este caso. |
 | CGNAT en otro equipo **detrás** del router principal (hacia Internet) | IP privada/CGNAT del cliente | directa |
 | CGNAT en otro equipo **entre** los clientes y el router principal | IP pública compartida: no identifica al cliente | **no atribuible**; el ISP debe exportar desde el equipo de CGNAT/BNG. Mientras tanto el tráfico cuenta en el nodo (`unknown`). |
 
-**Plan B** si el laboratorio demuestra que la bajada llega con la IP pública post-NAT: activar los
-campos `nat-*` en ese router, o emparejar en el ingester el flujo de bajada con el de subida inverso
-por `(IP pública, puerto público, IP/puerto remoto, protocolo)` en una ventana de
-2 × `active-flow-timeout`. Sin emparejar ⇒ `attribution_status = unknown`. Solo se implementa si
-la verificación falla.
+**Regla de atribución con NAT en el router principal** (sustituye al antiguo "plan B"):
+
+1. Si `src` está en un `client_prefix` del nodo → cliente = `src`, dirección `upload`.
+2. Si no, si `post_nat_dst` (IE 226) está presente, difiere de `dst` y está en un `client_prefix`
+   del nodo → cliente = `post_nat_dst`, dirección `download`.
+3. Si no, si `dst` está en un `client_prefix` → cliente = `dst`, dirección `download` (clientes
+   con IP pública o NAT en el CPE).
+4. Si nada aplica → `attribution_status = unknown`.
+
+El script de onboarding debe **activar** los campos NAT de IPFIX en routers con NAT (sin ellos la
+bajada no es atribuible). Siguen siendo dato sensible: el ingester los usa para atribuir y **no**
+guarda la IP pública post-NAT en `flows_raw` salvo que el ISP active el modo de correlación de
+quejas de abuso.
+
+### 4.4.2 Verificación con un router real (2026-10-09)
+
+Captura de 74 s (1 069 datagramas IPFIX, 11 253 registros IPv4) exportada por el router principal
+de un nodo del PO, RouterOS 7, con NAT en el mismo router:
+
+| Comprobación | Resultado |
+|---|---|
+| Versión y plantillas | IPFIX (v10); plantilla 258 IPv4 (37 campos) y 259 IPv6 (34 campos), reenviadas con frecuencia |
+| Campos útiles presentes | bytes/paquetes delta, puertos, protocolo, `tcpControlBits`, TTL, ICMP type/code, `ingress/egressInterface`, MAC origen/destino y post-MAC, `systemInitTimeMilliseconds`, `flowStart/EndSysUpTime`, campos NAT 225–228 |
+| Subida con NAT | 3 277 registros con `src` privada y `postNATSrc` pública (3 IPs públicas de NAT) |
+| Bajada con NAT | 3 211 registros con `dst` = IP pública del NAT y `postNATDst` = IP privada del cliente |
+| Redes de clientes vistas | 172.31/16, 10.22/16, 10.25/16, 10.21/16, 10.18/16, 10.17/16, 10.20/16, 172.28/16, 172.29/16, 10.30/16 |
+| `active-flow-timeout=1m` | duración máxima de flujo 59,99 s; 78 % de los registros son de un solo paquete (duración 0) |
+| Volumen | ≈ 152 flujos/s y 14 datagramas/s en ese router |
+| `interfaces=` | el filtro **no** limitó la exportación a la interfaz indicada (aparecen flujos de varias interfaces): no confiar en él para reducir volumen |
+| IPv6 | 0 registros en la ventana capturada |
 
 ### 4.4.1 Interfaces dinámicas PPPoE/L2TP
 

@@ -22,7 +22,7 @@
 | --- | --- | --- |
 | Versión | **RouterOS v7** obligatorio para el camino completo (WireGuard + REST). Mínima propuesta **7.12**; recomendada la **última long-term v7**. v6 solo en "modo degradado" (§1.2). | A, D |
 | Exportación de flujos | **IPFIX** (alternativa NetFlow v9), **sin muestreo**, `active-flow-timeout=1m`, `inactive-flow-timeout=15s`, `cache-entries` ≥ 256k en nodos grandes, destino = colector de Horus **por el túnel WG** con `src-address` = IP de túnel. | B, D |
-| IP del cliente | Traffic Flow contabiliza en las cadenas input/forward/output: si el **NAT/CGNAT lo hace el mismo router**, las direcciones exportadas son las **privadas del cliente (pre-NAT)** en ambos sentidos. Comportamiento esperado, **a verificar en laboratorio**. | B |
+| IP del cliente | Traffic Flow contabiliza en las cadenas input/forward/output: si el **NAT/CGNAT lo hace el mismo router**, la **subida** lleva la IP privada del cliente en `src`, pero la **bajada** lleva la IP pública del NAT en `dst` y la privada del cliente solo en el campo IPFIX `postNATDestinationIPv4Address`. **Verificado con un router real** ([`traffic-model.md` §4.4.2](../traffic-model.md)): hay que exportar los campos NAT. | B |
 | Identidad del exportador | La **IP de túnel WG** del router (única en todo Horus), no su IP pública. | B, A |
 | Ceguera por hardware | Tráfico con **offload por hardware** (bridge HW, L3HW en CCR2116/2216, FastTrack HW) **no** aparece en los flujos. Hay que detectarlo y avisar (§2.7). | B, D |
 | SNMP | **SNMPv3 authPriv (SHA1 + AES)** sobre el túnel; v2c solo en laboratorio. Sondeo 60 s (sistema/interfaces), 300 s (salud). No recorrer interfaces PPPoE dinámicas. | A, D |
@@ -137,12 +137,13 @@ origen, SNMPv3 por Internet o por un túnel alternativo, sin API REST. La vía p
 | Next-hop, máscaras, src/dst AS | Sí | Sí | Sí | Solo pista; el ASN canónico sale del catálogo. |
 | Inicio/fin de flujo | `first`/`last` relativos a sysUptime | relativos a sysUptime | `first-forwarded`/`last-forwarded` + **`sys-init-time`** | Activar `sys-init-time` para que el colector calcule tiempos absolutos (IE 160). **NTP obligatorio** en el router. |
 | **MAC origen/destino** | No | **a verificar** | Sí (`src-mac-address`, `dst-mac-address`) | MAC del **siguiente/anterior salto L2** (el CPE o el equipo intermedio), **no** de los dispositivos detrás del CPE. |
-| **NAT** (`nat-src-address`, `nat-dst-address`, `nat-src-port`, `nat-dst-port`, `nat-events`) | No | No | Sí | Dirección traducida (post-NAT). Útil para correlacionar quejas de abuso que llegan con la IP pública; **sensible** (ver §9). Desactivado por defecto en Horus. |
+| **NAT** (`nat-src-address`, `nat-dst-address`, `nat-src-port`, `nat-dst-port`, `nat-events`) | No | No | Sí | Dirección traducida (post-NAT). **Necesario** cuando el NAT está en el router principal: sin `nat-dst-address` la bajada no se puede atribuir al cliente (verificado). Sensible (ver §9): Horus lo usa para atribuir y no guarda la IP pública post-NAT salvo en modo de correlación de quejas. |
 | TTL (mín/máx) | No | **a verificar** | Sí (nombres exactos **a verificar** con `/ip traffic-flow ipfix print`) | Señal para estimar NAT/dispositivos detrás del CPE (§6). |
 | Muestreo | campo de cabecera | Options template (**a verificar**) | **a verificar** | Si no viene, Horus usa `declared_sampling_rate` = 1. |
 
-**Recomendación**: IPFIX con todos los campos de la tabla activados **excepto** los NAT (activables
-por ISP si el PO lo aprueba). El colector debe leer plantillas, no asumir un orden de campos, y
+**Recomendación**: IPFIX con todos los campos de la tabla activados, **incluidos los NAT** cuando el
+router principal hace NAT (la bajada solo se atribuye por `postNATDestinationIPv4Address`;
+verificado con un router real, [`traffic-model.md` §4.4.2](../traffic-model.md)). El colector debe leer plantillas, no asumir un orden de campos, y
 tolerar campos ausentes. El nombre exacto de cada interruptor de `/ip traffic-flow ipfix` varía
 entre versiones: el script de onboarding (§7) solo toca los que existen en la versión mínima
 (**a verificar** en CHR).
@@ -156,7 +157,7 @@ en `forward`:
 | Topología del nodo | IP de cliente observada | Atribución (D1) |
 | --- | --- | --- |
 | **IP pública por cliente** (sin NAT) | Pública del cliente | Directa. |
-| **NAT/CGNAT en el mismo router principal** | **Privada del cliente (pre-NAT) en subida y bajada** — esperado, **a verificar en laboratorio** | Directa en el *realm* del router ([`traffic-model.md` §4.2](../traffic-model.md)). La IP pública compartida solo aparece si se activan los campos `nat-*`. |
+| **NAT/CGNAT en el mismo router principal** | Subida: privada del cliente en `src`. Bajada: pública del NAT en `dst`, privada del cliente en `postNATDestinationIPv4Address` (**verificado**, [`traffic-model.md` §4.4.2](../traffic-model.md)) | Subida por `src`; bajada por `post_nat_dst`. **Los campos NAT de IPFIX son necesarios.** |
 | **CGNAT en otro equipo, detrás del router principal** (hacia Internet) | Privada/CGNAT del cliente (el router está antes del NAT) | Directa. |
 | **CGNAT en otro equipo, entre clientes y router principal** | IP pública compartida: **no identifica al cliente** | No atribuible sin logs de NAT del otro equipo. Hay que exportar desde el equipo de CGNAT o el BNG. Pregunta al PO (§9). |
 | **NAT en el CPE del cliente** (residencial típico) | WAN del CPE | Una IP = un cliente (D1). Los dispositivos detrás no son visibles. |
