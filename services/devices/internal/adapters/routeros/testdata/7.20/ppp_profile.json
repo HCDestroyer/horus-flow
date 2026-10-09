@@ -1,0 +1,9 @@
+[
+  {
+    ".id": "*1",
+    "name": "empresas",
+    "dhcpv6-pd-pool": "pd-empresas",
+    "remote-ipv6-prefix-pool": "enlace-compartido",
+    "remote-ipv6-prefix-reuse": "true"
+  }
+]

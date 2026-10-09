@@ -1,0 +1,32 @@
+[
+  {
+    ".id": "*1",
+    "name": "pd-empresas",
+    "prefix": "2001:db8:2000::/40",
+    "prefix-length": "48"
+  },
+  {
+    ".id": "*2",
+    "name": "enlace-compartido",
+    "prefix": "2001:db8:fe00::/64",
+    "prefix-length": "64"
+  },
+  {
+    ".id": "*3",
+    "name": "ipoe-pd",
+    "prefix": "2001:db8:3000::/44",
+    "prefix-length": "60"
+  },
+  {
+    ".id": "*4",
+    "name": "ipoe-na",
+    "prefix": "2001:db8:4000::/64",
+    "prefix-length": "128"
+  },
+  {
+    ".id": "*5",
+    "name": "raro",
+    "prefix": "2001:db8:5000::/48",
+    "prefix-length": "62"
+  }
+]

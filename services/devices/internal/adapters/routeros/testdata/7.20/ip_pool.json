@@ -1,0 +1,13 @@
+[
+  {
+    ".id": "*1",
+    "name": "cgnat-pppoe",
+    "ranges": "100.64.0.2-100.64.63.254",
+    "comment": "clientes"
+  },
+  {
+    ".id": "*2",
+    "name": "tunel-horus-mal",
+    "ranges": "10.255.9.0/24"
+  }
+]
