@@ -100,6 +100,14 @@ function readNumber(key: string): number | undefined {
   }
 }
 
+function readOffline() {
+  try {
+    return window.localStorage.getItem('horus.mock.offline') === '1'
+  } catch {
+    return false
+  }
+}
+
 /** Vida del access token para pruebas: `localStorage['horus.mock.tokenTtlMs']`. */
 const readTokenTtl = () => readNumber('horus.mock.tokenTtlMs')
 
@@ -499,6 +507,8 @@ export function createMockFetch(options: MockOptions = {}) {
       await new Promise((resolve) => setTimeout(resolve, latency + extra))
     }
     if (req.signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+    // Corte de red simulado (pruebas del kiosco): `localStorage['horus.mock.offline'] = '1'`.
+    if (readOffline()) throw new TypeError('Failed to fetch')
     return handle(req)
   }
 }

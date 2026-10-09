@@ -47,6 +47,21 @@ const date = computed(() =>
       class="flex min-w-0 flex-wrap items-center gap-x-[calc(var(--w-gap)*2)] gap-y-1 @lg:ms-auto @lg:justify-end"
     >
       <span
+        v-if="config.show_rotation !== false && ctx.rotation?.value && ctx.rotation.value.total > 1"
+        class="w-meta text-muted inline-flex items-center gap-[0.35em] whitespace-nowrap tabular"
+        data-testid="noc-header-rotation"
+      >
+        <UIcon
+          :name="ctx.rotation.value.paused ? 'i-lucide-pause' : 'i-lucide-repeat'"
+          class="size-[1.1em]"
+          aria-hidden="true"
+        />
+        {{ ctx.rotation.value.index + 1 }}/{{ ctx.rotation.value.total }}
+        <template v-if="ctx.rotation.value.paused">
+          · {{ t('widgets.noc_header.paused') }}</template
+        >
+      </span>
+      <span
         v-if="ctx.live.value"
         class="w-meta text-muted inline-flex items-center gap-[0.35em] whitespace-nowrap"
         data-fit-optional="3"

@@ -124,6 +124,14 @@ export interface DashboardContext {
    * `POST /widget-data/preview` a partir de su tipo y su configuración.
    */
   preview?: boolean
+  /** Kiosco: posición en la lista de reproducción ("2/3") y si la rotación está en pausa. */
+  rotation?: Ref<DashboardRotation | null>
+}
+
+export interface DashboardRotation {
+  index: number
+  total: number
+  paused: boolean
 }
 
 export const DASHBOARD_CONTEXT: InjectionKey<DashboardContext> = Symbol('horus.dashboard')
