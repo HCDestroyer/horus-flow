@@ -90,6 +90,9 @@ type Attribution struct {
 	Client string
 	// Upload indica que el cliente es el origen del flujo.
 	Upload bool
+	// Rule es la regla de docs/traffic-model.md §4.4 que decidió al cliente
+	// (expect.Rule*); vacío si no hay cliente.
+	Rule string
 	// Unattributed es la IP del lado customer_edge cuando Status es unknown.
 	Unattributed netip.Addr
 }

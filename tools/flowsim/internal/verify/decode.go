@@ -14,6 +14,7 @@ import (
 
 	"github.com/netsampler/goflow2/v2/decoders/netflow"
 
+	"github.com/hcdestroyer/horus-flow/tools/flowsim/internal/expect"
 	"github.com/hcdestroyer/horus-flow/tools/flowsim/internal/flow"
 )
 
@@ -28,6 +29,8 @@ type PacketInfo struct {
 	DataRecords     int
 	// MissingTemplate cuenta sets de datos sin plantilla conocida.
 	MissingTemplate int
+	// Templates son las plantillas de datos anunciadas en el datagrama.
+	Templates []expect.Template
 }
 
 // Decoder decodifica datagramas manteniendo las plantillas por exportador.
@@ -73,6 +76,13 @@ func (d *Decoder) Decode(source string, payload []byte) (PacketInfo, []flow.Reco
 		switch fs := s.(type) {
 		case netflow.TemplateFlowSet:
 			info.TemplateRecords += len(fs.Records)
+			for _, tr := range fs.Records {
+				t := expect.Template{ID: tr.TemplateId, Fields: make([][2]uint16, len(tr.Fields))}
+				for i, f := range tr.Fields {
+					t.Fields[i] = [2]uint16{f.Type, f.Length}
+				}
+				info.Templates = append(info.Templates, t)
+			}
 		case netflow.DataFlowSet:
 			for _, dr := range fs.Records {
 				recs = append(recs, toRecord(dr.Values, boot))

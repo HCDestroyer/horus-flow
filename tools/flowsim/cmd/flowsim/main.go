@@ -1,6 +1,9 @@
 // Command flowsim genera flujos IPFIX/NetFlow v9 como los exportaría un
 // MikroTik RouterOS 7 a partir de un escenario (tools/flowsim/scenarios) y los
-// envía por UDP a un colector o los escribe en un fichero (hfsim o pcap).
+// envía por UDP a un colector o los escribe en un fichero (hfsim, pcap o
+// pcapng). En IPFIX usa por defecto las plantillas reales de RouterOS 7
+// (258/259) y el NAT tal como lo exporta un router real
+// (docs/traffic-model.md §4.4).
 // Al terminar escribe el expected.json del escenario.
 //
 // Ejemplos:
@@ -48,7 +51,9 @@ type config struct {
 	ipv6        string
 	start       string
 	fixture     bool
+	profile     string
 	natFields   bool
+	natIPs      string
 	target      string
 	src         string
 	speed       float64
@@ -82,12 +87,14 @@ func parseFlags(args []string, stderr io.Writer) (*config, error) {
 	fs.StringVar(&c.ipv6, "ipv6", "", "true/false: clientes IPv6 (vacío = escenario)")
 	fs.StringVar(&c.start, "start", "", "instante simulado de inicio RFC 3339 (por defecto: ahora en UDP, el del escenario en fichero)")
 	fs.BoolVar(&c.fixture, "fixture", false, "usa la duración y tasa reducidas del bloque fixture del escenario")
-	fs.BoolVar(&c.natFields, "nat-fields", false, "IPFIX: añade los campos post-NAT (IE 225-228)")
+	fs.StringVar(&c.profile, "profile", "routeros7", "plantillas IPFIX: routeros7 (las reales 258/259, con campos NAT y NAT real) o legacy (las de I0-10, 256/257)")
+	fs.BoolVar(&c.natFields, "nat-fields", false, "IPFIX con -profile legacy: añade los campos post-NAT (IE 225-228) y emula el NAT real")
+	fs.StringVar(&c.natIPs, "nat-ips", "", "IPs públicas del NAT separadas por comas (sustituye nat_ips del escenario en todos los exportadores)")
 	fs.StringVar(&c.target, "target", "", "colector UDP host:puerto (por defecto 127.0.0.1:4739 o :2055 en v9)")
 	fs.StringVar(&c.src, "src", "auto", "origen UDP: auto (127.0.0.10+i si el destino es loopback; si no, exporter_ip), scenario, any o lista de IPs separadas por comas")
 	fs.Float64Var(&c.speed, "speed", 1, "UDP: velocidad respecto al tiempo real (0 = sin pausas)")
-	fs.StringVar(&c.out, "out", "", "escribe a fichero en vez de enviar (.hfsim, .pcap; .gz comprime)")
-	fs.StringVar(&c.format, "format", "", "formato del fichero: hfsim o pcap (por defecto, por extensión)")
+	fs.StringVar(&c.out, "out", "", "escribe a fichero en vez de enviar (.hfsim, .pcap, .pcapng; .gz comprime)")
+	fs.StringVar(&c.format, "format", "", "formato del fichero: hfsim, pcap o pcapng (por defecto, por extensión)")
 	fs.StringVar(&c.expected, "expected", "", "ruta del expected.json (por defecto <out>.expected.json o expected.json)")
 	fs.BoolVar(&c.allowUnmet, "allow-unmet", false, "no falla si las señales no cumplen lo declarado en el escenario")
 	fs.StringVar(&c.fixturesDir, "fixtures-dir", "", "regenera los fixtures de todos los escenarios en este directorio y sale")
@@ -142,13 +149,30 @@ func run(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	profile, err := flow.ParseProfile(c.profile)
+	if err != nil {
+		return err
+	}
 	sc, err := sim.Load(c.scenario)
 	if err != nil {
 		return err
 	}
+	if c.natIPs != "" {
+		var ips []netip.Addr
+		for _, s := range strings.Split(c.natIPs, ",") {
+			a, err := netip.ParseAddr(strings.TrimSpace(s))
+			if err != nil || !a.Is4() || flow.IsClientPrivate(a) {
+				return fmt.Errorf("-nat-ips: %q no es una IPv4 pública", s)
+			}
+			ips = append(ips, a)
+		}
+		for i := range sc.Exporters {
+			sc.Exporters[i].NATIPs = ips
+		}
+	}
 	opt := sim.Options{
 		Seed: c.seed, Protocol: proto, Rate: c.rate, Duration: c.duration, Fixture: c.fixture,
-		NATFields: c.natFields, AllowUnmet: c.allowUnmet, MaxDatagram: c.maxDatagram,
+		Profile: profile, NATFields: c.natFields, AllowUnmet: c.allowUnmet, MaxDatagram: c.maxDatagram,
 	}
 	if opt.NAT, err = optBool(c.nat, "nat"); err != nil {
 		return err
@@ -177,7 +201,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 		path = "expected.json"
 		if c.out != "" {
 			path = strings.TrimSuffix(strings.TrimSuffix(c.out, ".gz"), ".hfsim")
-			path = strings.TrimSuffix(path, ".pcap") + ".expected.json"
+			path = strings.TrimSuffix(strings.TrimSuffix(path, ".pcapng"), ".pcap") + ".expected.json"
 		}
 	}
 	if err := exp.Save(path); err != nil {

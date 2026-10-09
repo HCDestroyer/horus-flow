@@ -16,6 +16,7 @@ type Tally struct {
 	recordsV4, recordsV6 uint64
 	bytes, packets       uint64
 	byStatus             map[string]uint64
+	byRule               map[string]uint64
 	clients              map[string]*Client
 	unattributed         map[netip.Addr]uint64
 }
@@ -24,6 +25,7 @@ type Tally struct {
 func NewTally() *Tally {
 	return &Tally{
 		byStatus:     map[string]uint64{},
+		byRule:       map[string]uint64{},
 		clients:      map[string]*Client{},
 		unattributed: map[netip.Addr]uint64{},
 	}
@@ -39,6 +41,9 @@ func (t *Tally) Add(r *flow.Record, at signals.Attribution) {
 	t.bytes += r.Bytes
 	t.packets += r.Packets
 	t.byStatus[at.Status]++
+	if at.Rule != "" {
+		t.byRule[at.Rule]++
+	}
 	switch at.Status {
 	case signals.StatusAttributed, signals.StatusInternal:
 		c := t.clients[at.Client]
@@ -73,6 +78,10 @@ func (t *Tally) Fill(e *Exporter) {
 	e.ByStatus = map[string]uint64{}
 	for k, v := range t.byStatus {
 		e.ByStatus[k] = v
+	}
+	e.ByRule = map[string]uint64{}
+	for k, v := range t.byRule {
+		e.ByRule[k] = v
 	}
 	e.Clients = make([]Client, 0, len(t.clients))
 	for _, k := range sortedClientKeys(t.clients) {

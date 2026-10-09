@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"time"
 
+	"github.com/hcdestroyer/horus-flow/tools/flowsim/internal/expect"
 	"github.com/hcdestroyer/horus-flow/tools/flowsim/internal/flow"
 	"github.com/hcdestroyer/horus-flow/tools/flowsim/internal/signals"
 )
@@ -201,8 +202,8 @@ func (g *gen) addConn(c *client, k conn) {
 	downAt := signals.Attribution{Status: status}
 	switch status {
 	case signals.StatusAttributed:
-		upAt = signals.Attribution{Status: status, Client: key, Upload: true}
-		downAt = signals.Attribution{Status: status, Client: key}
+		upAt = signals.Attribution{Status: status, Client: key, Upload: true, Rule: expect.RuleUploadSrc}
+		downAt = signals.Attribution{Status: status, Client: key, Rule: expect.RuleDownloadDst}
 	case signals.StatusUnknown:
 		infra := es.v4.Infrastructure
 		if local.Is6() {
@@ -230,8 +231,8 @@ func (g *gen) addConn(c *client, k conn) {
 		remoteIf = t.accessIf
 		remoteMAC, routerRemoteMAC = t.mac, es.routerMAC
 		nextHopUp = netip.Addr{}
-		upAt = signals.Attribution{Status: signals.StatusInternal, Client: key, Upload: true}
-		downAt = signals.Attribution{Status: signals.StatusInternal, Client: t.keyV4, Upload: true}
+		upAt = signals.Attribution{Status: signals.StatusInternal, Client: key, Upload: true, Rule: expect.RuleInternal}
+		downAt = signals.Attribution{Status: signals.StatusInternal, Client: t.keyV4, Upload: true, Rule: expect.RuleInternal}
 	}
 	localMask := uint8(24)
 	if local.Is6() {
@@ -266,16 +267,29 @@ func (g *gen) addConn(c *client, k conn) {
 		SrcIP: local, DstIP: remote, SrcPort: k.lport, DstPort: k.rport, Proto: k.proto, ToS: k.tos,
 		InIf: c.accessIf, OutIf: remoteIf, NextHop: nextHopUp, SrcMask: localMask, DstMask: remoteMask,
 		ICMPTypeCode: k.icmpUp, MinTTL: ttlUp, MaxTTL: ttlUp, SrcMAC: clientMAC, DstMAC: routerLocalMAC, FlowLabel: flUp,
+		PostSrcMAC: routerRemoteMAC, PostDstMAC: routerLocalMAC,
 	}
 	down := flow.Record{
 		SrcIP: remote, DstIP: local, SrcPort: k.rport, DstPort: k.lport, Proto: k.proto, ToS: k.tos,
 		InIf: remoteIf, OutIf: c.accessIf, SrcMask: remoteMask, DstMask: localMask,
 		ICMPTypeCode: k.icmpDown, MinTTL: ttlDown, MaxTTL: ttlDown, SrcMAC: remoteMAC, DstMAC: routerRemoteMAC, FlowLabel: flDown,
+		PostSrcMAC: routerLocalMAC, PostDstMAC: routerRemoteMAC,
 	}
-	if g.opt.NATFields && g.nat && local.Is4() && k.internalTo == nil && status == signals.StatusAttributed {
-		natPort := ephemeral(c.rng)
-		up.PostNATSrc, up.PostNATSrcPort, up.PostNATDst, up.PostNATDstPort = spec.WANIP, natPort, remote, k.rport
-		down.PostNATSrc, down.PostNATSrcPort, down.PostNATDst, down.PostNATDstPort = remote, k.rport, spec.WANIP, natPort
+	if g.natFields && g.nat && local.Is4() && k.internalTo == nil && status == signals.StatusAttributed {
+		// NAT en el router principal tal como lo exporta RouterOS 7
+		// (docs/traffic-model.md §4.4.2): subida con src privada y
+		// postNATSrc pública; bajada con dst = IP pública del NAT y la
+		// privada del cliente solo en postNATDst (IE 226). El puerto se
+		// conserva casi siempre (masquerade) y siempre en servicios entrantes.
+		natIP := spec.NATIPs[c.idx%len(spec.NATIPs)]
+		natPort := k.lport
+		if signals.Initiated(k.lport, k.rport) && c.rng.IntN(50) == 0 {
+			natPort = ephemeral(c.rng)
+		}
+		up.PostNATSrc, up.PostNATSrcPort, up.PostNATDst, up.PostNATDstPort = natIP, natPort, remote, k.rport
+		down.DstIP, down.DstPort = natIP, natPort
+		down.PostNATSrc, down.PostNATSrcPort, down.PostNATDst, down.PostNATDstPort = remote, k.rport, local, k.lport
+		downAt.Rule = expect.RuleDownloadPostNATDst
 	}
 	g.addFlow(es, up, k.start, k.start+k.dur, k.upPkts, k.upBytes, k.upFlags, upAt)
 	if k.downPkts > 0 {

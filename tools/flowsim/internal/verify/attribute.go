@@ -73,6 +73,9 @@ func NewAttributor(e *expect.Expected, idx int) (*Attributor, error) {
 		}
 	}
 	for _, s := range []string{ex.ExporterIP, ex.CollectorIP} {
+		if s == "" {
+			continue // p. ej. captura real con el colector dentro de la red de clientes
+		}
 		ip, err := netip.ParseAddr(s)
 		if err != nil {
 			return nil, fmt.Errorf("IP de túnel %q: %w", s, err)
@@ -106,20 +109,45 @@ func (a *Attributor) customerEdge(ifIndex uint32) bool {
 	return ifIndex != 0 && ifIndex != a.upstream && ifIndex != a.tunnelIf && ifIndex != a.transitIf
 }
 
-// Attribute atribuye un flujo decodificado.
+// postNATClient devuelve la IP privada del cliente de una bajada con NAT en
+// el router principal: postNATDestinationIPv4Address (IE 226) presente,
+// distinta de dst y dentro de un prefijo de cliente del nodo.
+func (a *Attributor) postNATClient(r *flow.Record) (netip.Addr, bool) {
+	p := r.PostNATDst
+	if !p.IsValid() || p.IsUnspecified() || p == r.DstIP {
+		return netip.Addr{}, false
+	}
+	return p, a.lookup(p) == roleCustomer
+}
+
+// Attribute atribuye un flujo decodificado con la regla de
+// docs/traffic-model.md §4.4 (NAT en el router principal) sobre la tabla de
+// §4.6:
+//
+//  1. src en un prefijo de cliente → cliente = src, subida;
+//  2. si no, IE 226 presente, distinta de dst y en un prefijo de cliente →
+//     cliente = IE 226, bajada;
+//  3. si no, dst en un prefijo de cliente → cliente = dst, bajada;
+//  4. si no, unknown (o transit/infrastructure según §4.6).
+//
+// Antes se descartan los rangos excluidos y el tráfico del túnel; si ambos
+// extremos son clientes del nodo el flujo es internal.
 func (a *Attributor) Attribute(r *flow.Record) signals.Attribution {
 	src, dst := a.lookup(r.SrcIP), a.lookup(r.DstIP)
+	natClient, natOK := a.postNATClient(r)
 	switch {
 	case src == roleExcluded || dst == roleExcluded:
 		return signals.Attribution{Status: signals.StatusExcluded}
 	case a.tunnel[r.SrcIP] || a.tunnel[r.DstIP]:
 		return signals.Attribution{Status: signals.StatusTunnel}
-	case src == roleCustomer && dst == roleCustomer:
-		return signals.Attribution{Status: signals.StatusInternal, Client: a.key(r.SrcIP), Upload: true}
+	case src == roleCustomer && (dst == roleCustomer || natOK):
+		return signals.Attribution{Status: signals.StatusInternal, Client: a.key(r.SrcIP), Upload: true, Rule: expect.RuleInternal}
 	case src == roleCustomer:
-		return signals.Attribution{Status: signals.StatusAttributed, Client: a.key(r.SrcIP), Upload: true}
+		return signals.Attribution{Status: signals.StatusAttributed, Client: a.key(r.SrcIP), Upload: true, Rule: expect.RuleUploadSrc}
+	case natOK:
+		return signals.Attribution{Status: signals.StatusAttributed, Client: a.key(natClient), Rule: expect.RuleDownloadPostNATDst}
 	case dst == roleCustomer:
-		return signals.Attribution{Status: signals.StatusAttributed, Client: a.key(r.DstIP)}
+		return signals.Attribution{Status: signals.StatusAttributed, Client: a.key(r.DstIP), Rule: expect.RuleDownloadDst}
 	case src == roleOther || dst == roleOther:
 		return signals.Attribution{Status: signals.StatusTransit}
 	case src == roleInfra || dst == roleInfra:

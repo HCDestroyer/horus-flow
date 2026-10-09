@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/hcdestroyer/horus-flow/tools/flowsim/internal/expect"
+	"github.com/hcdestroyer/horus-flow/tools/flowsim/internal/flow"
 	"github.com/hcdestroyer/horus-flow/tools/flowsim/internal/signals"
 )
 
@@ -33,7 +34,8 @@ func (g *gen) expected() (*Expected, error) {
 		Protocol:        g.opt.Protocol.String(),
 		NAT:             g.nat,
 		IPv6:            g.ipv6,
-		NATFields:       g.opt.NATFields,
+		NATFields:       g.natFields,
+		TemplateProfile: string(g.tmplOpt.EffectiveProfile(g.opt.Protocol)),
 		Fixture:         g.opt.Fixture,
 		Rate:            g.rate,
 		Start:           g.start,
@@ -73,6 +75,19 @@ func (g *gen) expected() (*Expected, error) {
 				Excluded:       prefixStrings(es.v4.Excluded, es.v6.Excluded),
 			},
 			IPv6ClientLen: spec.IPv6ClientLen,
+		}
+		if g.natFields && g.nat {
+			for _, a := range spec.NATIPs {
+				ex.NATIPs = append(ex.NATIPs, a.String())
+			}
+		}
+		v4t, v6t := es.exp.TemplatesInUse()
+		for _, t := range []flow.Template{v4t, v6t} {
+			ti := expect.Template{ID: t.ID, Fields: make([][2]uint16, len(t.Fields))}
+			for i, f := range t.Fields {
+				ti.Fields[i] = [2]uint16{f.ID, f.Len}
+			}
+			ex.Templates = append(ex.Templates, ti)
 		}
 		es.tally.Fill(&ex)
 		st := es.exp.Stats()

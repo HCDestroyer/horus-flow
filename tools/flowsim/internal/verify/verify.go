@@ -47,6 +47,12 @@ type exporterState struct {
 	decodeN    int
 	exportBack int
 	lastExport time.Time
+	templates  map[uint16][][2]uint16
+	tmplChange int
+	natPool    map[netip.Addr]bool
+	natUp      uint64 // subidas traducidas (postNATSrc != src)
+	natDown    uint64 // bajadas atribuidas por IE 226
+	natOutside uint64 // registros NAT cuya IP pública no es del pool declarado
 }
 
 // Verifier consume datagramas y produce un informe.
@@ -78,7 +84,18 @@ func New(e *expect.Expected, opt Options) (*Verifier, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", ex.Name, err)
 		}
-		v.exporters = append(v.exporters, &exporterState{name: ex.Name, att: att, tally: expect.NewTally(), lastTmpl: -1})
+		es := &exporterState{
+			name: ex.Name, att: att, tally: expect.NewTally(), lastTmpl: -1,
+			templates: map[uint16][][2]uint16{}, natPool: map[netip.Addr]bool{},
+		}
+		for _, s := range ex.NATIPs {
+			ip, err := netip.ParseAddr(s)
+			if err != nil {
+				return nil, fmt.Errorf("%s: nat_ips %q: %w", ex.Name, s, err)
+			}
+			es.natPool[ip] = true
+		}
+		v.exporters = append(v.exporters, es)
 		if ex.SentFrom != "" {
 			ap, err := netip.ParseAddrPort(ex.SentFrom)
 			if err != nil {
@@ -167,6 +184,12 @@ func (v *Verifier) Feed(d capture.Datagram) {
 		}
 		es.lastTmpl, es.lastTmplAt = es.pkt, info.ExportTime
 	}
+	for _, t := range info.Templates {
+		if old, ok := es.templates[t.ID]; ok && !fieldsEqual(old, t.Fields) {
+			es.tmplChange++
+		}
+		es.templates[t.ID] = t.Fields
+	}
 	es.missing += info.MissingTemplate
 	if info.ExportTime.Before(es.lastExport) {
 		es.exportBack++
@@ -178,8 +201,40 @@ func (v *Verifier) Feed(d capture.Datagram) {
 		r := &recs[i]
 		v.sanity(es, r, info)
 		at := es.att.Attribute(r)
+		v.natCount(es, r, at)
 		es.tally.Add(r, at)
 		v.acc.Add(es.name, r, at)
+	}
+}
+
+func fieldsEqual(a, b [][2]uint16) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// natCount sigue la traducción NAT de docs/traffic-model.md §4.4: subidas
+// con postNATSrc pública y bajadas con dst = IP pública del NAT.
+func (v *Verifier) natCount(es *exporterState, r *flow.Record, at signals.Attribution) {
+	switch at.Rule {
+	case expect.RuleUploadSrc:
+		if p := r.PostNATSrc; p.IsValid() && !p.IsUnspecified() && p != r.SrcIP {
+			es.natUp++
+			if len(es.natPool) > 0 && !es.natPool[p] {
+				es.natOutside++
+			}
+		}
+	case expect.RuleDownloadPostNATDst:
+		es.natDown++
+		if len(es.natPool) > 0 && !es.natPool[r.DstIP] {
+			es.natOutside++
+		}
 	}
 }
 
@@ -317,12 +372,15 @@ func (v *Verifier) Report() *Report {
 			}
 		} else {
 			rep.add(p+"atribución por estado", mapsEqual(got.ByStatus, ex.ByStatus), "%s (esperado %s)", fmtStatus(got.ByStatus), fmtStatus(ex.ByStatus))
+			rep.add(p+"atribución por regla (§4.4)", mapsEqual(got.ByRule, ex.ByRule), "%s (esperado %s)", fmtStatus(got.ByRule), fmtStatus(ex.ByRule))
 			ok, detail := clientsEqual(got.Clients, ex.Clients)
 			rep.add(p+"clientes", ok, "%s", detail)
 			ok, detail = unattributedEqual(got.Unattributed, ex.Unattributed)
 			rep.add(p+"fuera de prefijos", ok, "%s", detail)
 		}
+		v.templateCheck(rep, p, es, ex.Templates)
 		v.natCheck(rep, p, got.Clients)
+		v.natRuleCheck(rep, p, es)
 		v.ipv6Check(rep, p, got.Clients, ex.Clients)
 	}
 	v.signalChecks(rep, lossy)
@@ -424,6 +482,53 @@ func (v *Verifier) natCheck(rep *Report, p string, clients []expect.Client) {
 		}
 	}
 	rep.add(p+"NAT: IPs de cliente privadas", len(public) == 0, "%d clientes IPv4, %d públicos %v", n, len(public), public)
+}
+
+// templateCheck compara las plantillas decodificadas con las declaradas
+// (ID, orden de IEs y longitudes).
+func (v *Verifier) templateCheck(rep *Report, p string, es *exporterState, want []expect.Template) {
+	if len(want) == 0 {
+		rep.skip(p+"plantillas", "expected.json no declara plantillas")
+		return
+	}
+	var diffs []string
+	for _, w := range want {
+		g, ok := es.templates[w.ID]
+		switch {
+		case !ok:
+			diffs = append(diffs, fmt.Sprintf("falta la plantilla %d", w.ID))
+		case !fieldsEqual(g, w.Fields):
+			diffs = append(diffs, fmt.Sprintf("plantilla %d con %d campos distintos de los %d esperados", w.ID, len(g), len(w.Fields)))
+		}
+	}
+	if len(es.templates) != len(want) {
+		diffs = append(diffs, fmt.Sprintf("%d plantillas recibidas, %d esperadas", len(es.templates), len(want)))
+	}
+	if es.tmplChange > 0 {
+		diffs = append(diffs, fmt.Sprintf("%d redefiniciones con campos distintos", es.tmplChange))
+	}
+	ids := make([]string, 0, len(want))
+	for _, w := range want {
+		ids = append(ids, fmt.Sprintf("%d (%d campos)", w.ID, len(w.Fields)))
+	}
+	detail := "idénticas: " + strings.Join(ids, ", ")
+	if len(diffs) > 0 {
+		detail = strings.Join(diffs, "; ")
+	}
+	rep.add(p+"plantillas", len(diffs) == 0, "%s", detail)
+}
+
+// natRuleCheck: con NAT en el router y campos NAT (docs/traffic-model.md
+// §4.4) la bajada se atribuye por IE 226 y la IP pública es del pool.
+func (v *Verifier) natRuleCheck(rep *Report, p string, es *exporterState) {
+	name := p + "NAT: bajada por postNATDst (IE 226)"
+	if !v.exp.NAT || !v.exp.NATFields {
+		rep.skip(name, "escenario sin NAT o sin campos NAT")
+		return
+	}
+	rep.add(name, es.natDown > 0 && es.natUp > 0 && es.natOutside == 0,
+		"%d subidas con postNATSrc pública, %d bajadas atribuidas por IE 226, %d con IP pública fuera de nat_ips",
+		es.natUp, es.natDown, es.natOutside)
 }
 
 func (v *Verifier) ipv6Check(rep *Report, p string, got, want []expect.Client) {

@@ -6,7 +6,8 @@
   "protocol": "ipfix",
   "nat": true,
   "ipv6": true,
-  "nat_fields": false,
+  "nat_fields": true,
+  "template_profile": "routeros7",
   "fixture": true,
   "rate": 0.3,
   "start": "2026-01-05T18:00:00Z",
@@ -45,19 +46,325 @@
         "excluded": []
       },
       "ipv6_client_len": 64,
+      "nat_ips": [
+        "203.0.113.10",
+        "203.0.113.11",
+        "203.0.113.12"
+      ],
+      "templates": [
+        {
+          "id": 258,
+          "fields": [
+            [
+              60,
+              1
+            ],
+            [
+              22,
+              4
+            ],
+            [
+              21,
+              4
+            ],
+            [
+              160,
+              8
+            ],
+            [
+              2,
+              8
+            ],
+            [
+              1,
+              8
+            ],
+            [
+              7,
+              2
+            ],
+            [
+              11,
+              2
+            ],
+            [
+              10,
+              4
+            ],
+            [
+              14,
+              4
+            ],
+            [
+              4,
+              1
+            ],
+            [
+              5,
+              1
+            ],
+            [
+              6,
+              1
+            ],
+            [
+              57,
+              6
+            ],
+            [
+              80,
+              6
+            ],
+            [
+              81,
+              6
+            ],
+            [
+              56,
+              6
+            ],
+            [
+              8,
+              4
+            ],
+            [
+              12,
+              4
+            ],
+            [
+              15,
+              4
+            ],
+            [
+              9,
+              1
+            ],
+            [
+              13,
+              1
+            ],
+            [
+              192,
+              1
+            ],
+            [
+              206,
+              1
+            ],
+            [
+              189,
+              1
+            ],
+            [
+              224,
+              8
+            ],
+            [
+              205,
+              2
+            ],
+            [
+              184,
+              4
+            ],
+            [
+              185,
+              4
+            ],
+            [
+              186,
+              2
+            ],
+            [
+              33,
+              1
+            ],
+            [
+              176,
+              1
+            ],
+            [
+              177,
+              1
+            ],
+            [
+              225,
+              4
+            ],
+            [
+              226,
+              4
+            ],
+            [
+              227,
+              2
+            ],
+            [
+              228,
+              2
+            ]
+          ]
+        },
+        {
+          "id": 259,
+          "fields": [
+            [
+              60,
+              1
+            ],
+            [
+              22,
+              4
+            ],
+            [
+              21,
+              4
+            ],
+            [
+              160,
+              8
+            ],
+            [
+              2,
+              8
+            ],
+            [
+              1,
+              8
+            ],
+            [
+              7,
+              2
+            ],
+            [
+              11,
+              2
+            ],
+            [
+              10,
+              4
+            ],
+            [
+              14,
+              4
+            ],
+            [
+              4,
+              1
+            ],
+            [
+              5,
+              1
+            ],
+            [
+              6,
+              1
+            ],
+            [
+              57,
+              6
+            ],
+            [
+              80,
+              6
+            ],
+            [
+              81,
+              6
+            ],
+            [
+              56,
+              6
+            ],
+            [
+              27,
+              16
+            ],
+            [
+              28,
+              16
+            ],
+            [
+              62,
+              16
+            ],
+            [
+              29,
+              1
+            ],
+            [
+              30,
+              1
+            ],
+            [
+              192,
+              1
+            ],
+            [
+              206,
+              1
+            ],
+            [
+              189,
+              1
+            ],
+            [
+              224,
+              8
+            ],
+            [
+              205,
+              2
+            ],
+            [
+              184,
+              4
+            ],
+            [
+              185,
+              4
+            ],
+            [
+              186,
+              2
+            ],
+            [
+              33,
+              1
+            ],
+            [
+              178,
+              1
+            ],
+            [
+              179,
+              1
+            ],
+            [
+              31,
+              4
+            ]
+          ]
+        }
+      ],
       "totals": {
-        "datagrams": 5431,
+        "datagrams": 5408,
         "template_sends": 392,
-        "data_records": 10362,
-        "records_v4": 9942,
-        "records_v6": 420,
-        "bytes": 4319035130,
-        "packets": 4081942
+        "data_records": 10344,
+        "records_v4": 9922,
+        "records_v6": 422,
+        "bytes": 4320020230,
+        "packets": 4082944
       },
       "by_status": {
-        "attributed": 7210,
+        "attributed": 7192,
         "infrastructure": 1982,
         "tunnel": 1170
+      },
+      "by_rule": {
+        "download_dst": 211,
+        "download_post_nat_dst": 3385,
+        "upload_src": 3596
       },
       "clients": [
         {
@@ -65,20 +372,20 @@
           "family": 4,
           "population": "households",
           "kind": "residential",
-          "records": 630,
-          "bytes_up": 11228899,
-          "bytes_down": 880515695,
-          "packets_up": 211640,
-          "packets_down": 630181
+          "records": 616,
+          "bytes_up": 11229982,
+          "bytes_down": 880577428,
+          "packets_up": 211624,
+          "packets_down": 630189
         },
         {
           "key": "10.20.0.11",
           "family": 4,
           "population": "households",
           "kind": "residential",
-          "records": 430,
-          "bytes_up": 1883533,
-          "bytes_down": 133696179,
+          "records": 428,
+          "bytes_up": 1885016,
+          "bytes_down": 133698359,
           "packets_up": 33397,
           "packets_down": 96500
         },
@@ -87,66 +394,66 @@
           "family": 4,
           "population": "beaconing-bot",
           "kind": "residential",
-          "records": 788,
-          "bytes_up": 10993962,
-          "bytes_down": 850343871,
-          "packets_up": 205681,
-          "packets_down": 609297
+          "records": 794,
+          "bytes_up": 10985173,
+          "bytes_down": 850156980,
+          "packets_up": 205632,
+          "packets_down": 609177
         },
         {
           "key": "10.20.0.2",
           "family": 4,
           "population": "households",
           "kind": "residential",
-          "records": 762,
-          "bytes_up": 4686062,
-          "bytes_down": 338843518,
-          "packets_up": 83636,
-          "packets_down": 243829
+          "records": 768,
+          "bytes_up": 4699502,
+          "bytes_down": 339307079,
+          "packets_up": 83824,
+          "packets_down": 244194
         },
         {
           "key": "10.20.0.3",
           "family": 4,
           "population": "households",
           "kind": "residential",
-          "records": 592,
-          "bytes_up": 3383021,
-          "bytes_down": 242961126,
-          "packets_up": 60021,
-          "packets_down": 174825
+          "records": 598,
+          "bytes_up": 3386508,
+          "bytes_down": 243014405,
+          "packets_up": 60048,
+          "packets_down": 174871
         },
         {
           "key": "10.20.0.4",
           "family": 4,
           "population": "households",
           "kind": "residential",
-          "records": 640,
-          "bytes_up": 3688024,
-          "bytes_down": 272590808,
-          "packets_up": 66988,
-          "packets_down": 196070
+          "records": 624,
+          "bytes_up": 3688266,
+          "bytes_down": 272628831,
+          "packets_up": 66959,
+          "packets_down": 196057
         },
         {
           "key": "10.20.0.5",
           "family": 4,
           "population": "households",
           "kind": "residential",
-          "records": 634,
-          "bytes_up": 8719452,
-          "bytes_down": 676287233,
-          "packets_up": 163178,
-          "packets_down": 484407
+          "records": 626,
+          "bytes_up": 8720913,
+          "bytes_down": 676344395,
+          "packets_up": 163182,
+          "packets_down": 484433
         },
         {
           "key": "10.20.0.6",
           "family": 4,
           "population": "households",
           "kind": "residential",
-          "records": 392,
-          "bytes_up": 255904,
-          "bytes_down": 4235210,
-          "packets_up": 2289,
-          "packets_down": 3836
+          "records": 394,
+          "bytes_up": 256764,
+          "bytes_down": 4236180,
+          "packets_up": 2298,
+          "packets_down": 3845
         },
         {
           "key": "10.20.0.7",
@@ -154,54 +461,54 @@
           "population": "households",
           "kind": "residential",
           "records": 650,
-          "bytes_up": 7808137,
-          "bytes_down": 600297736,
-          "packets_up": 145350,
-          "packets_down": 430207
+          "bytes_up": 7815014,
+          "bytes_down": 600601363,
+          "packets_up": 145467,
+          "packets_down": 430441
         },
         {
           "key": "10.20.0.8",
           "family": 4,
           "population": "households",
           "kind": "residential",
-          "records": 642,
-          "bytes_up": 640536,
-          "bytes_down": 14818763,
-          "packets_up": 6915,
-          "packets_down": 12469
+          "records": 644,
+          "bytes_up": 654529,
+          "bytes_down": 15116225,
+          "packets_up": 7038,
+          "packets_down": 12705
         },
         {
           "key": "10.20.0.9",
           "family": 4,
           "population": "households",
           "kind": "residential",
-          "records": 630,
-          "bytes_up": 536718,
-          "bytes_down": 10765319,
-          "packets_up": 5239,
-          "packets_down": 9238
+          "records": 628,
+          "bytes_up": 532876,
+          "bytes_down": 10653135,
+          "packets_up": 5191,
+          "packets_down": 9148
         },
         {
           "key": "2001:db8:1000:1::/64",
           "family": 6,
           "population": "households",
           "kind": "residential",
-          "records": 158,
-          "bytes_up": 174417,
-          "bytes_down": 3861813,
-          "packets_up": 1751,
-          "packets_down": 3192
+          "records": 156,
+          "bytes_up": 174325,
+          "bytes_down": 3861719,
+          "packets_up": 1750,
+          "packets_down": 3191
         },
         {
           "key": "2001:db8:1000::/64",
           "family": 6,
           "population": "households",
           "kind": "residential",
-          "records": 262,
-          "bytes_up": 188606,
-          "bytes_down": 3276042,
-          "packets_up": 1738,
-          "packets_down": 2938
+          "records": 266,
+          "bytes_up": 188507,
+          "bytes_down": 3252210,
+          "packets_up": 1731,
+          "packets_down": 2922
         }
       ],
       "unattributed": []
@@ -214,13 +521,13 @@
       "client": "10.20.0.12",
       "signal": "beaconing",
       "detail": {
-        "connections": 78,
+        "connections": 79,
         "cv": 0.03,
-        "interval_s": 301,
+        "interval_s": 299,
         "mean_bytes_out": 418,
         "remote_ip": "3.121.45.10",
         "remote_port": 8443,
-        "span_h": 6.44
+        "span_h": 6.47
       }
     }
   ],
@@ -235,13 +542,13 @@
       ],
       "reasons": {
         "beaconing": {
-          "connections": 78,
+          "connections": 79,
           "cv": 0.03,
-          "interval_s": 301,
+          "interval_s": 299,
           "mean_bytes_out": 418,
           "remote_ip": "3.121.45.10",
           "remote_port": 8443,
-          "span_h": 6.44
+          "span_h": 6.47
         }
       }
     }
