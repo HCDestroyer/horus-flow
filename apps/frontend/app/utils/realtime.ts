@@ -15,7 +15,22 @@ export interface RealtimeStateMessage {
   data: Record<string, unknown>
 }
 
-export type RealtimeHandler = (message: RealtimeStateMessage) => void
+/** Mensaje `event` (clase event de C6, p. ej. tema `security`): proyección del evento. */
+export interface RealtimeEventMessage {
+  type: 'event'
+  topic: string
+  event: {
+    id: string
+    /** Tipo del evento (`horus.detection.finding.opened`…). */
+    type: string
+    time: string
+    data: Record<string, unknown>
+  }
+}
+
+export type RealtimeMessage = RealtimeStateMessage | RealtimeEventMessage
+
+export type RealtimeHandler = (message: RealtimeMessage) => void
 
 export interface RealtimeSource {
   /** Suscribe a un tema con ámbito de ISP; devuelve la función para cancelar. */

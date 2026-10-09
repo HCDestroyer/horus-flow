@@ -591,6 +591,137 @@
       "low": "Baja",
       "medium": "Media",
       "high": "Alta"
+    },
+    "detailTitle": "Hallazgo",
+    "kpis": "Resumen de hallazgos",
+    "emptyFiltered": "Ningún hallazgo coincide con estos filtros",
+    "firstLast": "Primera vez {first} · última {last}",
+    "occurrences": "{n} ocurrencias",
+    "why": "Por qué lo marcamos",
+    "kpi": {
+      "open": "abiertos",
+      "new24h": "Nuevos en 24 h",
+      "affected": "IP afectadas",
+      "infected": "Infectados: {n}"
+    },
+    "filters": {
+      "label": "Filtros de hallazgos",
+      "kind": "Tipo de hallazgo",
+      "allSeverities": "Todas",
+      "allKinds": "Todos los tipos",
+      "state": {
+        "active": "Abiertos y reconocidos",
+        "open": "Abiertos",
+        "acknowledged": "Reconocidos",
+        "resolved": "Resueltos",
+        "false_positive": "Falsos positivos",
+        "all": "Todos"
+      }
+    },
+    "live": {
+      "announce": "Hallazgos nuevos: {n}"
+    },
+    "narrative": {
+      "outbound_scanning": "Esta IP intentó conectar a muchas direcciones distintas en poco tiempo y casi ninguna respondió. Es el patrón típico de equipos IoT (cámaras, DVR, routers con contraseñas por defecto) reclutados por botnets tipo Mirai que buscan nuevas víctimas. Son señales compatibles con un equipo comprometido; ninguna señal sola lo confirma.",
+      "botnet_c2_communication": "Esta IP se comunicó con un servidor que listas de reputación reconocidas identifican como servidor de control (C2) de una botnet, y el servidor respondió. Es la señal más fuerte de que un equipo del cliente está comprometido.",
+      "reputation_hit": "Esta IP contactó con una dirección que figura en una lista de reputación. Por sí solo puede ser casual (publicidad, enlaces); se vigila por si aparecen otras señales.",
+      "spam_smtp_outbound": "Esta IP envió correo directamente a muchos servidores de correo distintos, algo que un cliente residencial no suele hacer. Es compatible con un equipo infectado con un bot de spam y puede llevar a que las IP del ISP acaben en listas negras.",
+      "beaconing": "Esta IP se conecta al mismo destino a intervalos casi exactos y con muy pocos datos por conexión. La periodicidad es compatible con un equipo que consulta a su servidor de control, aunque también la producen algunas aplicaciones legítimas.",
+      "ddos_participation": "Esta IP envió una ráfaga de tráfico muy por encima de lo habitual hacia muy pocos destinos. Es compatible con la participación en un ataque de denegación de servicio desde un equipo comprometido.",
+      "other": "Horus encontró señales compatibles con actividad de botnet en el tráfico de esta IP. Revisa las razones y la evidencia antes de decidir."
+    },
+    "evidence": {
+      "title": "Evidencia",
+      "destinations": "Destinos distintos",
+      "nets24": "Redes /24 distintas",
+      "synRatio": "SYN sin respuesta",
+      "flows": "Flujos",
+      "bytes": "Volumen estimado",
+      "smtpPerHour": "Servidores SMTP por hora",
+      "interval": "Intervalo medio",
+      "intervalCv": "Coef. de variación",
+      "duration": "Duración",
+      "ppsPeak": "Pico de paquetes",
+      "bpsPeak": "Pico de tráfico",
+      "protocol": "Protocolo",
+      "target": "Objetivo",
+      "asns": "ASN de destino",
+      "ports": "Puertos",
+      "perMinute": "Destinos por minuto",
+      "sample": "Muestra de destinos (IP remotas)",
+      "listedIn": "Listada en {source} desde el {date}",
+      "responded": "con respuesta",
+      "synOnly": "solo SYN, sin respuesta"
+    },
+    "flows": {
+      "action": "Ver flujos de evidencia",
+      "audited": "El acceso a los flujos de un cliente queda registrado. Solo metadatos, nunca contenido.",
+      "caption": "Flujos de evidencia (metadatos)",
+      "time": "Hora",
+      "remote": "Destino",
+      "bytes": "Bytes"
+    },
+    "timeline": {
+      "title": "Línea de tiempo",
+      "firstSeen": "Primera señal observada",
+      "opened": "Hallazgo abierto (regla {rule})",
+      "acknowledged": "Reconocido por el equipo",
+      "lastSeen": "Última ocurrencia · {n} en total",
+      "resolved": "Resuelto",
+      "false_positive": "Marcado como falso positivo",
+      "auto_expired": "Cerrado automáticamente por inactividad"
+    },
+    "actions": {
+      "title": "Qué hacer",
+      "manualNote": "Horus no ejecuta nada en tus routers: copia los comandos y aplícalos a mano si decides hacerlo. Cada uno trae su comando para deshacerlo.",
+      "customerMessage": "Mensaje sugerido para el cliente",
+      "copyMessage": "Copiar mensaje",
+      "commands": "Comandos RouterOS (v{version} o superior)",
+      "copyCommands": "Copiar comandos",
+      "undo": "Para deshacerlo",
+      "copyUndo": "Copiar deshacer",
+      "placeholders": "Sin permiso para ver la IP del cliente: los comandos muestran marcadores (customer_address, finding_id) para que los sustituyas.",
+      "applied": "La apliqué a mano",
+      "risk": {
+        "low": "Impacto bajo",
+        "medium": "Impacto medio",
+        "high": "Impacto alto"
+      },
+      "audience": {
+        "noc": "NOC",
+        "network_engineer": "Ingeniería de red",
+        "customer_support": "Atención al cliente"
+      }
+    },
+    "ack": {
+      "action": "Reconocer",
+      "done": "Reconocido: el hallazgo queda asignado a ti"
+    },
+    "resolve": {
+      "action": "Resolver",
+      "title": "Resolver hallazgo",
+      "description": "Úsalo cuando el problema se corrigió (por ejemplo, el cliente cambió sus contraseñas).",
+      "comment": "Comentario (opcional)",
+      "placeholder": "Qué se hizo",
+      "applied": "Acciones que anotaste como aplicadas: {n}",
+      "submit": "Resolver",
+      "done": "Hallazgo resuelto"
+    },
+    "fp": {
+      "action": "Falso positivo",
+      "title": "Marcar como falso positivo",
+      "description": "Cuéntanos por qué no es una señal real: así Horus aprende qué es ruido en tu red.",
+      "whatHappens": "Qué hará Horus con esto",
+      "effectClose": "Cierra este hallazgo como falso positivo.",
+      "effectSilence": "No volverá a abrir este mismo patrón para este cliente durante {days} días.",
+      "effectLearn": "Tu comentario llega al equipo de detección para ajustar las reglas; no cambia los umbrales por sí solo.",
+      "comment": "Por qué es un falso positivo",
+      "placeholder": "Por ejemplo: es el servidor de copias del cliente",
+      "commentRequired": "Explica por qué es un falso positivo",
+      "silence": "Silenciar este patrón",
+      "days": "{n} días",
+      "submit": "Marcar como falso positivo",
+      "done": "Marcado como falso positivo"
     }
   },
   "traffic": {

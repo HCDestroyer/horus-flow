@@ -93,6 +93,7 @@ const kindLabel = (k: string) =>
     <ul class="flex flex-col gap-2 lg:hidden" data-testid="findings-cards">
       <li
         v-for="f in findings"
+        :data-finding-id="f.id"
         :key="f.id"
         :class="{ 'finding-fresh': fresh.has(f.id) }"
         class="rounded-md"
