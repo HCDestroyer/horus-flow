@@ -25,8 +25,7 @@ dependencia falló queda en SKIP con el motivo.
 | --- | --- | --- |
 | `go-build` | I0-04 | `make build` y `bin/horus --version` |
 | `go-test` | I0-04…I0-17 | `make test` (`go test -race -shuffle=on ./...`) |
-| `go-integration` | I0-06…I0-09, I0-13 | `go test -tags=integration -race ./...` (testcontainers: migraciones up/down/up, RLS, matriz "A no ve B" de toda operación `scope: tenant`) |
-| `lint` | I0-01, I0-03 | `make lint` (golangci-lint + CODEOWNERS) |
+| `lint` | I0-01, I0-03 | `make lint` (golangci-lint + CODEOWNERS) y golangci-lint con `--build-tags acceptance` sobre este directorio; caché propia en `bin/accept-i0/golangci-cache` |
 | `contracts` | I0-05 | `make contracts-check` (OpenAPI, eventos, buf, esquemas, DDL) |
 | `sim-verify` | I0-10, I0-12 | `make sim-verify`: los seis escenarios sin router y los fixtures grabados |
 | `image` | I0-04 | imagen única `horus:accept` (ver abajo), usuario 65532, `--version` |
@@ -34,6 +33,7 @@ dependencia falló queda en SKIP con el motivo.
 | `healthy` | I0-02, I0-04 | todos los contenedores `healthy`, `/readyz` de horus-app en 200 con todos sus roles, y `/api/v1/system/status` vía Traefik responde 401 problem+json sin token |
 | `migrations` | I0-06, I0-09, I0-13 | versión goose de `auth` y `devices`, RLS en toda tabla con `tenant_id` (salvo outbox), `make migrate-ch` idempotente y tablas `flows.*`/`dim.*` presentes |
 | `e2e-api` | I0-06…I0-09 | [`i0/smoke_test.go`](i0/smoke_test.go) contra el backend real (abajo) |
+| `go-integration` | I0-06…I0-09, I0-13 | `go test -tags=integration -race ./...`: testcontainers (migraciones up/down/up, RLS, matriz "A no ve B" de toda operación `scope: tenant`) y esquema ClickHouse contra el ClickHouse del compose de aceptación (`HORUS_CH_TEST_DSN`; va después de `e2e-api` porque borra `flows`/`dim`) |
 | `frontend-build` | I0-14…I0-16 | `pnpm install --frozen-lockfile && pnpm build:mocks` |
 | `frontend-e2e` | I0-14…I0-16 | Playwright `--grep @i0` contra la SPA generada con mocks (login → selector de ISP → dashboard vacío, layout, tema, accesibilidad) |
 | `lab-chr` | I0-11 | `make lab-selftest` si existe `/dev/kvm`; si no, **SKIP** con el motivo |

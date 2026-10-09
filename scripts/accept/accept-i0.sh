@@ -4,8 +4,8 @@
 # Ejecuta, en orden, cada paso con su propio log y termina con un resumen OK/FAIL/SKIP por paso
 # (qué historia lo cubre y dónde está la salida). Sale con 1 si algún paso falla.
 #
-#   go-build → go-test (-race) → go-integration → lint → contracts → sim-verify → image →
-#   compose-up (perfil app) → healthy → migrations → e2e-api → frontend-build → frontend-e2e →
+#   go-build → go-test (-race) → lint → contracts → sim-verify → image → compose-up (perfil
+#   app) → healthy → migrations → e2e-api → go-integration → frontend-build → frontend-e2e →
 #   lab-chr
 #
 # El compose de aceptación es un proyecto APARTE (ACCEPT_PROJECT=horus-accept) con volúmenes
@@ -139,11 +139,22 @@ s_go_integration() {
   if ! grep -rqE --include='*.go' '^//go:build .*integration' services packages tests; then
     skip "no hay tests con la etiqueta integration"
   fi
-  $GO test -tags=integration -race -shuffle=on -count=1 ./...
+  # Los tests del esquema ClickHouse (I0-13) usan un servidor real: el del compose de
+  # aceptación (BORRAN las bases flows/dim y los usuarios horus_*; por eso va tras e2e-api).
+  local ch_user ch_db
+  ch_user="$(env_value HORUS_CH_USER)"; ch_db="$(env_value HORUS_CH_DB)"
+  HORUS_CH_TEST_DSN="clickhouse://${ch_user}@127.0.0.1:${HORUS_CH_NATIVE_PORT}/${ch_db}" \
+    HORUS_CH_TEST_PASSWORD_FILE="$compose_dir/secrets/clickhouse_password.txt" \
+    $GO test -tags=integration -race -shuffle=on -count=1 ./...
 }
 
 s_lint() {
-  $MAKE --no-print-directory lint
+  # Caché propia del repositorio: la caché global de golangci-lint guarda rutas absolutas y, con
+  # varios clones o worktrees del mismo código, puede devolver avisos de OTRO árbol.
+  export GOLANGCI_LINT_CACHE="${GOLANGCI_LINT_CACHE:-$out_dir/golangci-cache}"
+  $MAKE --no-print-directory lint || return 1
+  # El e2e de humo lleva la etiqueta `acceptance` y `make lint` no lo ve.
+  "${GOLANGCI_LINT:-golangci-lint}" run --build-tags acceptance ./tests/acceptance/...
 }
 
 s_contracts() {
@@ -265,7 +276,6 @@ trap 'exit 130' INT TERM
 # --- Batería -----------------------------------------------------------------------------------
 step go-build       "I0-04"             "compilar el binario horus"                    ""                 s_go_build
 step go-test        "I0-04..I0-17"      "tests Go con -race"                            ""                 s_go_test
-step go-integration "I0-06..I0-09,I0-13" "tests de integración (testcontainers)"         ""                 s_go_integration
 step lint           "I0-01,I0-03"       "golangci-lint y CODEOWNERS"                     ""                 s_lint
 step contracts      "I0-05"             "contracts-check (OpenAPI, eventos, proto, DDL)" ""                 s_contracts
 step sim-verify     "I0-10,I0-12"       "simulador: seis escenarios y fixtures"          ""                 s_sim_verify
@@ -275,6 +285,7 @@ case "$(result_of compose-up)" in OK | FAIL) compose_started=1 ;; esac
 step healthy        "I0-02,I0-04,I0-18" "contenedores healthy, /readyz y system/status" "compose-up"       s_healthy
 step migrations     "I0-06,I0-09,I0-13" "migraciones PostgreSQL y ClickHouse"           "compose-up"       s_migrations
 step e2e-api        "I0-06..I0-09"      "e2e de humo contra el backend real"            "compose-up"       s_e2e_api
+step go-integration "I0-06..I0-09,I0-13" "tests de integración (testcontainers y CH)"  "compose-up"       s_go_integration
 step frontend-build "I0-14..I0-16"      "build del frontend con mocks"                  ""                 s_frontend_build
 step frontend-e2e   "I0-14..I0-16"      "Playwright @i0 contra mocks"                   "frontend-build"   s_frontend_e2e
 step lab-chr        "I0-11"             "laboratorio MikroTik CHR"                      ""                 s_lab_chr
