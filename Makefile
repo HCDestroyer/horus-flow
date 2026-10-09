@@ -144,6 +144,32 @@ else
 	$(GO) run ./tools/flowsim/cmd/sim-verify -selftest -fixtures $(SIM_FIXTURES) -real-fixtures $(SIM_REAL_FIXTURES) $(SIM_ARGS)
 endif
 
+# Flujos (FLOW, I1-03…I1-09, I1-29). SUITE filtra tests por nombre (go test -run); FUZZTIME
+# acota el fuzzing del decodificador. Los tests de integración usan NATS en proceso y un
+# ClickHouse efímero (testcontainers; HORUS_CH_TEST_DSN para usar uno existente;
+# HORUS_CH_NOFILE=16384 en sandboxes).
+FUZZTIME ?= 60s
+FLOW_PKGS := ./services/collector/... ./services/ingester/... ./packages/go/flowpb/... \
+	./packages/go/flowbus/... ./packages/go/flowinv/... ./packages/go/pcapread/...
+
+.PHONY: test-collector
+test-collector: ## Collector: replay de fixtures, estado del exportador y fuzzing (SUITE=exporter-state, FUZZTIME=60s)
+ifeq ($(SUITE),exporter-state)
+	$(GO) test -race -count=1 -run 'TestExporterStates|TestModuleUDPToJetStream' ./services/collector/...
+else
+	$(GO) test -race -count=1 $(if $(SUITE),-run '$(SUITE)') ./services/collector/... ./packages/go/flowpb/... ./packages/go/pcapread/...
+	$(GO) test -run '^$$' -fuzz FuzzDecode -fuzztime $(FUZZTIME) ./services/collector/internal/decode/
+endif
+
+.PHONY: test-ingester
+test-ingester: ## Ingester con NATS y ClickHouse efímeros + test dorado de la captura real (SUITE=discovery|discovery-mode|enrichment)
+	HORUS_CH_NOFILE=$${HORUS_CH_NOFILE:-16384} $(GO) test -race -count=1 -tags integration \
+		$(if $(SUITE),-run '$(shell echo '$(SUITE)' | sed -e 's/^discovery-mode$$/DiscoveryMode|Proposal/' -e 's/^discovery$$/Discovery|FirstSeen|Activity/' -e 's/^enrichment$$/Enrich|Catalog|Snapshot/')') $(FLOW_PKGS)
+
+.PHONY: test-flows-golden
+test-flows-golden: ## Test dorado: captura real MikroTik por collector + ingester contra ClickHouse
+	HORUS_CH_NOFILE=$${HORUS_CH_NOFILE:-16384} $(GO) test -count=1 -tags integration -run TestGoldenRealMikroTik -v ./services/collector/
+
 # Laboratorio MikroTik CHR (I0-11, infrastructure/lab/chr/README.md). Necesita Linux, sudo y
 # /dev/kvm. Variables: ROS (7.12), LAB_ACCEL (kvm|tcg), PROFILE/CLIENT/DURATION en lab-traffic;
 # el resto en infrastructure/lab/chr/lab.env.
