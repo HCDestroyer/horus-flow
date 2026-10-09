@@ -1,11 +1,13 @@
 //go:build integration
 
-package itest
+package detection_test
 
 import (
 	"context"
+	"crypto/ed25519"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/netip"
 	"os"
@@ -15,9 +17,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nats-io/nats.go"
 
+	"github.com/hcdestroyer/horus-flow/packages/go/authz"
 	"github.com/hcdestroyer/horus-flow/packages/go/chmigrate"
 	"github.com/hcdestroyer/horus-flow/packages/go/chtest"
 	"github.com/hcdestroyer/horus-flow/packages/go/config"
@@ -28,17 +31,10 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/flowpb"
 	"github.com/hcdestroyer/horus-flow/packages/go/module"
 	"github.com/hcdestroyer/horus-flow/packages/go/pcapread"
-	"github.com/hcdestroyer/horus-flow/packages/go/pgdb"
 	"github.com/hcdestroyer/horus-flow/packages/go/pgdb/pgtest"
 	"github.com/hcdestroyer/horus-flow/services/collector"
+	"github.com/hcdestroyer/horus-flow/services/detection"
 	"github.com/hcdestroyer/horus-flow/services/detection/api/reputation"
-	chreader "github.com/hcdestroyer/horus-flow/services/detection/internal/adapters/clickhouse"
-	"github.com/hcdestroyer/horus-flow/services/detection/internal/adapters/postgres"
-	"github.com/hcdestroyer/horus-flow/services/detection/internal/adapters/repsnap"
-	"github.com/hcdestroyer/horus-flow/services/detection/internal/app"
-	"github.com/hcdestroyer/horus-flow/services/detection/internal/domain"
-	"github.com/hcdestroyer/horus-flow/services/detection/internal/engine"
-	"github.com/hcdestroyer/horus-flow/services/detection/migrations"
 	"github.com/hcdestroyer/horus-flow/services/ingester"
 	"github.com/hcdestroyer/horus-flow/services/ingester/api/chschema"
 )
@@ -47,9 +43,7 @@ import (
 // ClickHouse de test (lector por tenant con row policies).
 const detectionCHPassword = "detection-test-password-0123"
 
-func repo(parts ...string) string {
-	return filepath.Join(append([]string{"..", "..", ".."}, parts...)...)
-}
+func repo(parts ...string) string { return filepath.Join(append([]string{"..", ".."}, parts...)...) }
 
 // simExpected es lo que usa la prueba del expected.json del simulador.
 type simExpected struct {
@@ -82,23 +76,31 @@ type simExpected struct {
 }
 
 // world es un ISP con su pipeline de flujos (collector + ingester reales),
-// ClickHouse, PostgreSQL y el motor de detección.
+// ClickHouse, PostgreSQL y el módulo detection.
 type world struct {
 	t      *testing.T
 	tenant uuid.UUID
 	site   uuid.UUID
 	router uuid.UUID
-	ch     *sql.DB
-	pg     *pgdb.DB
-	reader *chreader.Reader
-	svc    *app.Service
-	engine *engine.Engine
+	ch     *sql.DB       // administrador de ClickHouse (preparar y comprobar)
+	chDet  *sql.DB       // usuario horus_detection
+	pg     *pgxpool.Pool // administrador de PostgreSQL
+	det    module.Module
 	env    []string
 }
 
 func migrateCH(ctx context.Context, dsn, pw string) error {
 	return chschema.MigrateClickHouse(ctx, []string{"HORUS_CLICKHOUSE_DSN=" + dsn, "HORUS_CLICKHOUSE_PASSWORD=" + pw,
 		"HORUS_CLICKHOUSE_DETECTION_PASSWORD=" + detectionCHPassword}, slog.New(slog.DiscardHandler))
+}
+
+func publish(t *testing.T, s *reputation.Snapshot) string {
+	t.Helper()
+	dir := t.TempDir()
+	if _, _, err := s.Publish(datasets.SnapshotDir{Root: dir}); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }
 
 // newWorld prepara inventario, reputación y servicios: ingestSnap es el
@@ -117,20 +119,8 @@ func newWorld(t *testing.T, d flowinv.Data, tenant, site, router uuid.UUID, inge
 	env := []string{"HORUS_NATS_URL=" + natsURL, "HORUS_NATS_ENSURE_STREAMS=true", "HORUS_TLM_FLOWS_MAX_BYTES=268435456",
 		"HORUS_FLOWS_INVENTORY_FILE=" + inv}
 	ingEnv := append([]string{"HORUS_CLICKHOUSE_DSN=" + ch.DSN, "HORUS_CLICKHOUSE_PASSWORD=" + ch.Password, "HORUS_INGESTER_CH_MIGRATE=false"}, env...)
-	var rep engine.Reputation
 	if ingestSnap != nil {
-		dir := t.TempDir()
-		if _, _, err := ingestSnap.Publish(datasets.SnapshotDir{Root: dir}); err != nil {
-			t.Fatal(err)
-		}
-		ingEnv = append(ingEnv, "HORUS_REPUTATION_SNAPSHOT_DIR="+dir)
-	}
-	if engineSnap != nil {
-		dir := t.TempDir()
-		if _, _, err := engineSnap.Publish(datasets.SnapshotDir{Root: dir}); err != nil {
-			t.Fatal(err)
-		}
-		rep = repsnap.New(dir, time.Minute, log)
+		ingEnv = append(ingEnv, "HORUS_REPUTATION_SNAPSHOT_DIR="+publish(t, ingestSnap))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	t.Cleanup(cancel)
@@ -154,31 +144,42 @@ func newWorld(t *testing.T, d flowinv.Data, tenant, site, router uuid.UUID, inge
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = admin.Close() })
-	reader, err := chreader.Open(ch.DSN, chreader.UserDetection, detectionCHPassword, time.Minute)
+	host := strings.SplitN(strings.TrimPrefix(ch.DSN, "clickhouse://"), "@", 2)[1]
+	chDet, err := chmigrate.Open("clickhouse://horus_detection@"+host, detectionCHPassword)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = reader.Close() })
-	pg := openPG(t)
-	svc := app.NewService(pg, app.Options{Flows: reader})
-	return &world{t: t, tenant: tenant, site: site, router: router, ch: admin, pg: pg, reader: reader, svc: svc,
-		engine: engine.New(reader, svc, rep, engine.Options{Lag: 2 * time.Minute, Logger: log}), env: env}
-}
+	t.Cleanup(func() { _ = chDet.Close() })
 
-// openPG crea una base vacía con el esquema detection migrado.
-func openPG(t *testing.T) *pgdb.DB {
-	t.Helper()
-	dsn := pgtest.New(t)
-	ctx := context.Background()
-	db, err := pgdb.Open(ctx, pgdb.Config{DSN: dsn, AppRole: "detection_app", PlatformRole: "detection_platform"})
+	// Módulo detection real (Register + Start = migraciones), sin planificador.
+	pgDSN := pgtest.New(t)
+	key, err := authz.GenerateKey()
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(db.Close)
-	if _, err := pgdb.Migrate(ctx, db, migrations.Schema, migrations.Postgres(), nil); err != nil {
+	pub, err := authz.MarshalPublicKeyPEM(key.Public().(ed25519.PublicKey))
+	if err != nil {
 		t.Fatal(err)
 	}
-	return db
+	detEnv := []string{"HORUS_POSTGRES_DSN=" + pgDSN, "HORUS_CLICKHOUSE_DSN=" + ch.DSN, "HORUS_CLICKHOUSE_DETECTION_PASSWORD=" + detectionCHPassword,
+		"HORUS_JWT_PUBLIC_KEYS=" + string(pub), "HORUS_DETECTION_INTERVAL=1h"}
+	if engineSnap != nil {
+		detEnv = append(detEnv, "HORUS_REPUTATION_SNAPSHOT_DIR="+publish(t, engineSnap))
+	}
+	det, err := detection.Register(ctx, module.Deps{Logger: log, Common: config.Common{Env: "dev"}, Environ: detEnv})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := det.(module.Starter).Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = det.(module.Stopper).Stop(context.Background()) })
+	pg, err := pgxpool.New(context.Background(), pgDSN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pg.Close)
+	return &world{t: t, tenant: tenant, site: site, router: router, ch: admin, chDet: chDet, pg: pg, det: det, env: env}
 }
 
 // simInventory construye el inventario de un escenario del simulador.
@@ -289,44 +290,63 @@ func (w *world) replay(path string, d time.Duration, want int) {
 }
 
 // evaluate corre el motor (todos los detectores) en now.
-func (w *world) evaluate(now time.Time) *engine.Report {
+func (w *world) evaluate(now time.Time) detection.EvaluateReport {
 	w.t.Helper()
-	rep, err := w.engine.Evaluate(context.Background(), w.tenant, now, true)
+	rep, err := detection.Evaluate(context.Background(), w.det, w.tenant, now)
 	if err != nil {
 		w.t.Fatalf("evaluate: %v", err)
 	}
 	return rep
 }
 
-// findings devuelve los hallazgos del tenant (directamente de PostgreSQL).
-func (w *world) findings() []domain.Finding {
-	w.t.Helper()
-	return findingsOf(w.t, w.pg, w.tenant)
+// reason es una razón del hallazgo.
+type reason struct {
+	Code   string         `json:"code"`
+	Detail string         `json:"detail"`
+	Data   map[string]any `json:"data"`
 }
 
-func findingsOf(t *testing.T, db *pgdb.DB, tenant uuid.UUID) []domain.Finding {
-	t.Helper()
-	var out []domain.Finding
-	err := db.TenantTx(context.Background(), pgdb.TenantID(tenant), func(tx pgx.Tx) error {
-		rows, err := tx.Query(context.Background(), `SELECT id FROM detection.finding ORDER BY opened_at, id`)
-		if err != nil {
-			return err
-		}
-		ids, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
-		if err != nil {
-			return err
-		}
-		for _, id := range ids {
-			f, err := postgres.Get(context.Background(), tx, id, false)
-			if err != nil {
-				return err
-			}
-			out = append(out, *f)
-		}
-		return nil
-	})
+// finding es la vista de prueba de detection.finding.
+type finding struct {
+	Client, Kind, Severity  string
+	Confidence              float64
+	TargetType, TargetValue string
+	Signals                 []string
+	Reasons                 []reason
+	Evidence                map[string]any
+	Summary                 string
+	Site, Router, Customer  uuid.UUID
+	WindowFrom, LastSeen    time.Time
+}
+
+func (f finding) key() string { return fmt.Sprintf("%s|%s|%s", f.Client, f.Kind, f.Severity) }
+
+// findings devuelve los hallazgos del tenant (administrador de PostgreSQL).
+func (w *world) findings() []finding {
+	w.t.Helper()
+	rows, err := w.pg.Query(context.Background(), `SELECT CASE WHEN family(address) = 4 THEN host(address) ELSE text(address) END,
+			kind, severity, confidence, target_type, target_value, signals, reasons::text, evidence::text, summary->>'text',
+			site_id, router_id, customer_id, window_from, last_seen_at
+		FROM detection.finding WHERE tenant_id = $1 ORDER BY opened_at, id`, w.tenant)
 	if err != nil {
-		t.Fatal(err)
+		w.t.Fatal(err)
+	}
+	defer rows.Close()
+	var out []finding
+	for rows.Next() {
+		var f finding
+		var reasons, evidence string
+		if err := rows.Scan(&f.Client, &f.Kind, &f.Severity, &f.Confidence, &f.TargetType, &f.TargetValue, &f.Signals, &reasons, &evidence,
+			&f.Summary, &f.Site, &f.Router, &f.Customer, &f.WindowFrom, &f.LastSeen); err != nil {
+			w.t.Fatal(err)
+		}
+		_ = json.Unmarshal([]byte(reasons), &f.Reasons)
+		_ = json.Unmarshal([]byte(evidence), &f.Evidence)
+		out = append(out, f)
 	}
 	return out
+}
+
+func detectionEvaluate(w *world, tenant uuid.UUID, now time.Time) (detection.EvaluateReport, error) {
+	return detection.Evaluate(context.Background(), w.det, tenant, now)
 }

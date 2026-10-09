@@ -185,3 +185,32 @@ func (m *mod) Stop(context.Context) error {
 	m.db.Close()
 	return nil
 }
+
+// EvaluateReport resume una evaluación del motor.
+type EvaluateReport struct {
+	Candidates                           int
+	Opened, Updated, Unchanged, Silenced int
+	Expired                              int
+	Skipped                              map[string]int
+}
+
+// ErrNoEngine indica un módulo sin motor (sin ClickHouse o con
+// HORUS_DETECTION_ENGINE=false).
+var ErrNoEngine = errors.New("detection: engine not configured")
+
+// Evaluate ejecuta el motor del módulo m (de Register) para tenant en now con
+// todos los detectores, sin mirar su cadencia. Lo usan las pruebas de
+// integración y de aceptación (escenarios del simulador) para evaluar en un
+// instante controlado.
+func Evaluate(ctx context.Context, m module.Module, tenant uuid.UUID, now time.Time) (EvaluateReport, error) {
+	md, ok := m.(*mod)
+	if !ok || md.engine == nil {
+		return EvaluateReport{}, ErrNoEngine
+	}
+	rep, err := md.engine.Evaluate(ctx, tenant, now, true)
+	if rep == nil {
+		return EvaluateReport{}, err
+	}
+	return EvaluateReport{Candidates: len(rep.Candidates), Opened: rep.Applied.Opened, Updated: rep.Applied.Updated,
+		Unchanged: rep.Applied.Unchanged, Silenced: rep.Applied.Silenced, Expired: rep.Expired, Skipped: rep.Skipped}, err
+}

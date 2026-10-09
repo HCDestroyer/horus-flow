@@ -1,9 +1,8 @@
-// Package itest son las pruebas de integración del motor de detección con
-// datos reales del pipeline de flujos: cada escenario del simulador
-// (tools/flowsim/fixtures/sim) y la captura real anonimizada pasan por el
-// collector y el ingester reales a ClickHouse (testcontainers o
-// HORUS_CH_TEST_DSN), el motor los evalúa como el usuario horus_detection
-// (row policies con SQL_horus_tenant) y los hallazgos quedan en PostgreSQL:
+// Package itest son las pruebas de integración de la capa de hallazgos de
+// detection con PostgreSQL real (ciclo de vida, eventos por outbox, estado de
+// seguridad y RLS). Las de los escenarios del simulador por el pipeline real
+// están en tests/detection (importan collector e ingester, prohibido dentro
+// de un módulo por la regla module-api-only):
 //
-//	HORUS_CH_NOFILE=16384 go test -tags=integration ./services/detection/itest/...
+//	go test -tags=integration ./services/detection/itest/...
 package itest

@@ -20,7 +20,7 @@ RouterOS como plantilla y su comando para deshacer, con `execution: manual`. Nun
 | `internal/app` | Capa de hallazgos (deduplicación, silencio, reincidencia, auto-expiración, estado de seguridad, outbox) y API del contrato |
 | `internal/actions` | Acciones recomendadas por kind (C8 `RecommendedAction`); `/ipv6 firewall` para clientes IPv6 (D22) |
 | `internal/adapters/postgres`, `migrations/` | Esquema `detection` con RLS fail-closed |
-| `itest/` | Integración: escenarios del simulador por collector + ingester reales a ClickHouse, hallazgos en PostgreSQL |
+| `itest/`, `tests/detection` | Integración: ciclo de vida en PostgreSQL; escenarios del simulador por collector + ingester reales a ClickHouse con el módulo real (`detection.Evaluate`) |
 
 ### Detectores y umbrales por defecto (`domain.DefaultParams`, ajustables por ISP en `detection.detector_config`)
 
@@ -76,7 +76,8 @@ resto se registra en `detection.tenant_registry` al usar la API).
 
 ```sh
 go test ./services/detection/...                                              # unitarias
-HORUS_CH_NOFILE=16384 go test -tags=integration ./services/detection/itest/... # escenarios + ciclo de vida
+go test -tags=integration ./services/detection/itest/...                       # ciclo de vida (PostgreSQL)
+HORUS_CH_NOFILE=16384 go test -tags=integration ./tests/detection/...          # escenarios del simulador + captura real
 go test -tags=integration ./tests/tenancy/...                                  # aislamiento entre ISP
 ```
 

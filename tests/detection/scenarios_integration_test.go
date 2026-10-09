@@ -1,10 +1,9 @@
 //go:build integration
 
-package itest
+package detection_test
 
 import (
 	"context"
-	"fmt"
 	"net/netip"
 	"slices"
 	"strings"
@@ -12,25 +11,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/hcdestroyer/horus-flow/packages/go/flowinv"
-	"github.com/hcdestroyer/horus-flow/packages/go/pgdb"
-	"github.com/hcdestroyer/horus-flow/services/detection/internal/actions"
-	"github.com/hcdestroyer/horus-flow/services/detection/internal/adapters/postgres"
-	"github.com/hcdestroyer/horus-flow/services/detection/internal/domain"
-	"github.com/hcdestroyer/horus-flow/services/detection/internal/engine"
 )
-
-// clientKey formatea la dirección del hallazgo como la clave de cliente del
-// simulador (IPv4 o prefijo IPv6).
-func clientKey(f domain.Finding) string {
-	a := f.Address.Addr().Unmap()
-	if a.Is4() {
-		return a.String()
-	}
-	return f.Address.String()
-}
 
 type scenarioRun struct {
 	w   *world
@@ -65,22 +48,22 @@ func runScenario(t *testing.T, name string, back time.Duration, withIngestRep, w
 }
 
 // checkExpected compara los hallazgos con los de expected.json (exactamente
-// los mismos: cliente, kind y severidad) y las invariantes de C8/D11.
-func checkExpected(t *testing.T, r *scenarioRun) []domain.Finding {
+// los mismos: cliente, kind y severidad) y las invariantes de C8.
+func checkExpected(t *testing.T, r *scenarioRun) []finding {
 	t.Helper()
 	got := r.w.findings()
 	var gotKeys, wantKeys []string
 	for _, f := range got {
-		gotKeys = append(gotKeys, fmt.Sprintf("%s|%s|%s", clientKey(f), f.Kind, f.Severity))
+		gotKeys = append(gotKeys, f.key())
 	}
 	for _, f := range r.exp.Findings {
-		wantKeys = append(wantKeys, fmt.Sprintf("%s|%s|%s", f.Client, f.Kind, f.Severity))
+		wantKeys = append(wantKeys, f.Client+"|"+f.Kind+"|"+f.Severity)
 	}
 	slices.Sort(gotKeys)
 	slices.Sort(wantKeys)
 	if !slices.Equal(gotKeys, wantKeys) {
 		for _, f := range got {
-			t.Logf("hallazgo: %s %s %s %v", clientKey(f), f.Kind, f.Summary.Text, f.Reasons)
+			t.Logf("hallazgo: %s %s %v", f.key(), f.Summary, f.Reasons)
 		}
 		t.Fatalf("%s: hallazgos\n got  %v\n want %v", r.exp.Scenario, gotKeys, wantKeys)
 	}
@@ -94,16 +77,13 @@ func checkExpected(t *testing.T, r *scenarioRun) []domain.Finding {
 		if withData < 2 {
 			t.Errorf("%s: %s con %d razones con dato (≥ 2): %+v", r.exp.Scenario, f.Kind, withData, f.Reasons)
 		}
-		if f.Summary.Text == "" || strings.Contains(f.Summary.Text, clientKey(f)) {
-			t.Errorf("%s: resumen vacío o con la IP del cliente: %q", r.exp.Scenario, f.Summary.Text)
+		if f.Summary == "" || strings.Contains(f.Summary, f.Client) {
+			t.Errorf("%s: resumen vacío o con la IP del cliente: %q", r.exp.Scenario, f.Summary)
 		}
-		if f.SiteID != r.w.site || f.RouterID != r.w.router || f.CustomerID == uuid.Nil {
-			t.Errorf("%s: nodo/router/cliente: %v %v %v", r.exp.Scenario, f.SiteID, f.RouterID, f.CustomerID)
+		if f.Site != r.w.site || f.Router != r.w.router || f.Customer == uuid.Nil {
+			t.Errorf("%s: nodo/router/cliente: %v %v %v", r.exp.Scenario, f.Site, f.Router, f.Customer)
 		}
-		if err := actions.Check(actions.Build(&f)); err != nil {
-			t.Errorf("%s: acciones: %v", r.exp.Scenario, err)
-		}
-		t.Logf("%s: %s %s %s conf=%.2f (%s) — %s", r.exp.Scenario, clientKey(f), f.Kind, f.Severity, f.Confidence, f.ConfidenceLevel(), f.Summary.Text)
+		t.Logf("%s: %s conf=%.2f — %s", r.exp.Scenario, f.key(), f.Confidence, f.Summary)
 	}
 	return got
 }
@@ -114,19 +94,19 @@ func TestScenarioScan(t *testing.T) {
 	r.w.evaluate(r.s.Add(7 * time.Minute))
 	got := checkExpected(t, r)
 	for _, f := range got {
-		if f.Severity == domain.SeverityHigh {
-			if f.Target.Type != domain.TargetRemotePort || (f.Target.Value != "23" && f.Target.Value != "2323") ||
-				!slices.Contains(f.Signals, domain.SignalWatchPorts) || !slices.Contains(f.Signals, domain.SignalFanout) {
-				t.Errorf("horizontal: %+v %v", f.Target, f.Signals)
+		if f.Severity == "high" {
+			if f.TargetType != "remote_port" || (f.TargetValue != "23" && f.TargetValue != "2323") ||
+				!slices.Contains(f.Signals, "watched_ports") || !slices.Contains(f.Signals, "fan_out") {
+				t.Errorf("horizontal: %s %s %v", f.TargetType, f.TargetValue, f.Signals)
 			}
-		} else if f.Target.Type != domain.TargetRemoteIP || f.Target.Value != "198.51.100.200" {
-			t.Errorf("vertical: %+v", f.Target)
+		} else if f.TargetType != "remote_ip" || f.TargetValue != "198.51.100.200" {
+			t.Errorf("vertical: %s %s", f.TargetType, f.TargetValue)
 		}
 	}
 	// I1-12 criterio 1: el mismo patrón otra vez (misma ventana) no duplica ni actualiza.
 	rep := r.w.evaluate(r.s.Add(7 * time.Minute))
-	if rep.Applied.Opened != 0 || rep.Applied.Updated != 0 || len(r.w.findings()) != len(got) {
-		t.Fatalf("reevaluación: %+v", rep.Applied)
+	if rep.Opened != 0 || rep.Updated != 0 || len(r.w.findings()) != len(got) {
+		t.Fatalf("reevaluación: %+v", rep)
 	}
 }
 
@@ -141,10 +121,10 @@ func TestScenarioC2(t *testing.T) {
 			codes[rs.Code] = rs.Data
 		}
 		lst := codes["reputation_listed"]
-		if lst == nil || lst["feed"] != "flowsim-test-feed" || lst["listed_at"] == nil || lst["remote_ip"] != f.Target.Value || codes["c2_connections"]["connections"] == nil {
+		if lst == nil || lst["feed"] != "flowsim-test-feed" || lst["listed_at"] == nil || lst["remote_ip"] != f.TargetValue || codes["c2_connections"]["connections"] == nil {
 			t.Errorf("razones C2 (IP remota, feed, fecha de inclusión, nº de conexiones): %+v", f.Reasons)
 		}
-		if (f.Severity == domain.SeverityHigh) != (codes["c2_responded"] != nil) {
+		if (f.Severity == "high") != (codes["c2_responded"] != nil) {
 			t.Errorf("severidad %s sin la razón de respuesta coherente: %+v", f.Severity, f.Reasons)
 		}
 	}
@@ -158,8 +138,8 @@ func TestC2RetroactiveSweep(t *testing.T) {
 	r.w.evaluate(time.Now())
 	got := checkExpected(t, r)
 	for _, f := range got {
-		if f.WindowFrom.Before(r.s.Add(-time.Minute)) || f.WindowFrom.After(r.s.Add(3*time.Minute)) || f.LastSeenAt.After(r.s.Add(10*time.Minute)) {
-			t.Errorf("ventana real: %s–%s, datos desde %s", f.WindowFrom, f.WindowTo, r.s)
+		if f.WindowFrom.Before(r.s.Add(-time.Minute)) || f.WindowFrom.After(r.s.Add(3*time.Minute)) || f.LastSeen.After(r.s.Add(10*time.Minute)) {
+			t.Errorf("ventana real: %s–%s, datos desde %s", f.WindowFrom, f.LastSeen, r.s)
 		}
 		retro := false
 		for _, rs := range f.Reasons {
@@ -175,11 +155,8 @@ func TestC2RetroactiveSweep(t *testing.T) {
 func TestC2Allowlist(t *testing.T) {
 	r := runScenario(t, "c2", 0, true, true)
 	pf := netip.MustParsePrefix("203.0.113.64/28") // cubre los dos C2 del escenario
-	err := r.w.pg.TenantTx(context.Background(), pgdb.TenantID(r.w.tenant), func(tx pgx.Tx) error {
-		return postgres.InsertAllow(context.Background(), tx, postgres.AllowEntry{ID: uuid.New(), TenantID: r.w.tenant, Prefix: &pf,
-			Kinds: []string{}, Reason: "servidores propios", CreatedAt: time.Now(), CreatedBy: uuid.New()})
-	})
-	if err != nil {
+	if _, err := r.w.pg.Exec(context.Background(), `INSERT INTO detection.reputation_allowlist (id, tenant_id, prefix, reason, created_by)
+		VALUES ($1, $2, $3, 'servidores propios', $4)`, uuid.New(), r.w.tenant, pf, uuid.New()); err != nil {
 		t.Fatal(err)
 	}
 	rep := r.w.evaluate(r.s.Add(7 * time.Minute))
@@ -198,8 +175,8 @@ func TestScenarioSpam(t *testing.T) {
 	r := runScenario(t, "spam", 0, false, false)
 	r.w.evaluate(r.s.Add(7 * time.Minute))
 	got := checkExpected(t, r)
-	if len(got) == 1 && got[0].Target.Value != "25" {
-		t.Errorf("spam target: %+v", got[0].Target)
+	if len(got) == 1 && got[0].TargetValue != "25" {
+		t.Errorf("spam target: %s", got[0].TargetValue)
 	}
 }
 
@@ -207,8 +184,8 @@ func TestScenarioDDoS(t *testing.T) {
 	r := runScenario(t, "dos_out", 0, false, false)
 	r.w.evaluate(r.s.Add(7 * time.Minute))
 	got := checkExpected(t, r)
-	if len(got) == 1 && got[0].Target.Value != "198.51.100.50" {
-		t.Errorf("ddos target: %+v", got[0].Target)
+	if len(got) == 1 && got[0].TargetValue != "198.51.100.50" {
+		t.Errorf("ddos target: %s", got[0].TargetValue)
 	}
 }
 
@@ -277,26 +254,36 @@ func TestRealCaptureInternalScanIsIgnored(t *testing.T) {
 	w.evaluate(exp.Start.Add(time.Duration(exp.Duration)*time.Second + 4*time.Minute))
 	if got := w.findings(); len(got) != 0 {
 		for _, f := range got {
-			t.Logf("%s %s %s", clientKey(f), f.Kind, f.Summary.Text)
+			t.Logf("%s %s", f.key(), f.Summary)
 		}
 		t.Fatalf("la captura real produjo %d hallazgos", len(got))
 	}
 }
 
 // Aislamiento entre ISP en ClickHouse: el motor de otro tenant no ve los
-// datos del escenario (row policy por SQL_horus_tenant + filtro tenant_id).
+// datos del escenario (row policy por SQL_horus_tenant + filtro tenant_id) y
+// el usuario horus_detection sin el ajuste no lee nada (fail-closed).
 func TestTenantIsolationInClickHouse(t *testing.T) {
 	r := runScenario(t, "scan", 0, false, false)
 	other := uuid.New()
-	rep, err := r.w.engine.Evaluate(context.Background(), other, r.s.Add(7*time.Minute), true)
+	rep, err := detectionEvaluate(r.w, other, r.s.Add(7*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rep.Candidates) != 0 || len(findingsOf(t, r.w.pg, other)) != 0 {
-		t.Fatalf("el tenant %s ve candidatos de otro ISP: %d", other, len(rep.Candidates))
+	if rep.Candidates != 0 || rep.Opened != 0 {
+		t.Fatalf("el tenant %s ve candidatos de otro ISP: %+v", other, rep)
 	}
-	rows, err := r.w.reader.Security(context.Background(), other, r.s.Add(-time.Hour), r.s.Add(time.Hour), engine.Having{})
-	if err != nil || len(rows) != 0 {
-		t.Fatalf("lectura cruzada: %d filas, %v", len(rows), err)
+	var mine, theirs uint64
+	if err := r.w.chDet.QueryRow("SELECT count() FROM flows.client_security_1m SETTINGS SQL_horus_tenant = '" + r.w.tenant.String() + "'").Scan(&mine); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.w.chDet.QueryRow("SELECT count() FROM flows.client_security_1m SETTINGS SQL_horus_tenant = '" + other.String() + "'").Scan(&theirs); err != nil {
+		t.Fatal(err)
+	}
+	if mine == 0 || theirs != 0 {
+		t.Fatalf("row policy: propio %d, ajeno %d", mine, theirs)
+	}
+	if err := r.w.chDet.QueryRow("SELECT count() FROM flows.flows_raw").Scan(&theirs); err == nil {
+		t.Fatal("consulta sin SQL_horus_tenant aceptada")
 	}
 }
