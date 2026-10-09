@@ -1,0 +1,13 @@
+# Buckets NATS KV que provisiona la infraestructura (`horus nats-provision --kv`, servicio
+# one-shot `nats-init` del compose de producción, I1-22). Los streams salen del contrato
+# packages/events/streams/streams.yaml (C4).
+#
+# Campos: bucket, description, history (1), ttl (vacío = sin caducidad), max_bytes, storage
+# (file|memory).
+kv:
+  # Estado de cada exportador de flujos (collector escribe, ingester lee; I1-09, FLOW).
+  # Mismos parámetros que crea el collector en desarrollo (services/collector/module.go).
+  - bucket: flow_exporter_state
+    description: Estado de los exportadores de flujos (I1-09)
+    history: 1
+    storage: file
