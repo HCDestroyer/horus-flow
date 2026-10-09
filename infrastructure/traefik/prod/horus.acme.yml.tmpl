@@ -1,0 +1,54 @@
+# Rutas de PRODUCCIÓN — modos domain / subdomain (D19): TLS automático con Let's Encrypt
+# (resolver `le`, reto HTTP-01 en :80). Plantilla de scripts/install.sh (@HORUS_HOST@ se
+# sustituye por el nombre configurado); se instala en <config>/traefik/dynamic/horus.yml.
+
+http:
+  routers:
+    # :80 solo redirige a HTTPS (el reto ACME lo atiende Traefik antes que este router).
+    horus-http:
+      entryPoints: [web]
+      rule: "Host(`@HORUS_HOST@`)"
+      middlewares: [https-redirect]
+      service: noop@internal
+    horus-api:
+      entryPoints: [websecure]
+      rule: "Host(`@HORUS_HOST@`) && (PathPrefix(`/api`) || PathPrefix(`/ws`))"
+      middlewares: [security-headers, hsts, api-ratelimit]
+      service: horus-gateway
+      tls:
+        certResolver: le
+        domains:
+          - main: "@HORUS_HOST@"
+
+  middlewares:
+    https-redirect:
+      redirectScheme:
+        scheme: https
+        permanent: true
+    hsts:
+      headers:
+        stsSeconds: 31536000
+        stsIncludeSubdomains: false
+    security-headers:
+      headers:
+        frameDeny: true
+        contentTypeNosniff: true
+        referrerPolicy: no-referrer
+        customResponseHeaders:
+          Server: ""
+    api-ratelimit:
+      rateLimit:
+        average: 50
+        burst: 100
+
+  services:
+    horus-gateway:
+      loadBalancer:
+        servers:
+          - url: "http://horus-app:8080"
+
+tls:
+  options:
+    default:
+      minVersion: VersionTLS12
+      sniStrict: false
