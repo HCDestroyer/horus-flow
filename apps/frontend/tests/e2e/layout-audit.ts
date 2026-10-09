@@ -20,6 +20,15 @@ export interface LayoutProblem {
  * ocultar lo secundario es la degradación correcta. El texto dentro de `<canvas>` (ECharts)
  * no es DOM: los widgets murales no dibujan etiquetas de texto propias en el canvas.
  */
+/** Problemas como líneas legibles ("w-traffic-now cut: 232"), para el mensaje del test. */
+export async function layoutReport(
+  page: Page,
+  options: { extra?: string[]; noScroll?: boolean } = {},
+): Promise<string[]> {
+  const problems = await layoutProblems(page, options)
+  return problems.map((p) => `${p.where} ${p.kind}: ${p.text}`)
+}
+
 export async function layoutProblems(
   page: Page,
   options: { extra?: string[]; noScroll?: boolean } = {},

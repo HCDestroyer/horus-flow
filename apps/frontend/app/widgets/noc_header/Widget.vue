@@ -28,7 +28,7 @@ const date = computed(() =>
 
 <template>
   <div
-    class="flex h-full min-w-0 flex-wrap content-center items-center gap-x-[calc(var(--w-gap)*2)] gap-y-1"
+    class="@container flex h-full min-w-0 flex-wrap content-center items-center gap-x-[calc(var(--w-gap)*2)] gap-y-1"
     data-testid="noc-header"
   >
     <div class="flex min-w-0 flex-[1_1_auto] items-baseline gap-x-[0.6em]">
@@ -44,7 +44,7 @@ const date = computed(() =>
     </div>
 
     <div
-      class="ms-auto flex min-w-0 flex-wrap items-center justify-end gap-x-[calc(var(--w-gap)*2)] gap-y-1"
+      class="flex min-w-0 flex-wrap items-center gap-x-[calc(var(--w-gap)*2)] gap-y-1 @lg:ms-auto @lg:justify-end"
     >
       <span
         v-if="ctx.live.value"

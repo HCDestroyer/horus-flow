@@ -19,7 +19,7 @@ const rows = computed(() =>
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+  <div class="@container flex min-h-0 flex-1 flex-col overflow-hidden">
     <div v-fit-rows class="min-h-0 flex-1 overflow-hidden">
       <table class="w-label w-full border-collapse">
         <caption class="sr-only">
@@ -38,7 +38,11 @@ const rows = computed(() =>
             <th scope="col" class="pb-1 text-end font-medium">
               {{ t('widgets.watched_ports.customers') }}
             </th>
-            <th v-if="scale === 'normal'" scope="col" class="pb-1 text-end font-medium">
+            <th
+              v-if="scale === 'normal'"
+              scope="col"
+              class="hidden pb-1 text-end font-medium @xs:table-cell"
+            >
               {{ t('widgets.watched_ports.flows') }}
             </th>
           </tr>
@@ -58,7 +62,10 @@ const rows = computed(() =>
             <td class="text-highlighted py-[0.3em] text-end font-semibold tabular">
               {{ row.customers }}
             </td>
-            <td v-if="scale === 'normal'" class="text-muted py-[0.3em] text-end tabular">
+            <td
+              v-if="scale === 'normal'"
+              class="text-muted hidden py-[0.3em] text-end tabular @xs:table-cell"
+            >
               {{ formatNumber(row.flows) }}
             </td>
           </tr>

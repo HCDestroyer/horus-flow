@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { loginAsAdmin } from './helpers'
-import { layoutProblems } from './layout-audit'
+import { layoutReport } from './layout-audit'
 
 /**
  * Sin desbordamiento (I0-16): en vista mural a varias resoluciones, en escritorio y en
@@ -41,7 +41,7 @@ test.describe('sin desbordamiento @layout', () => {
       for (const [name, d] of Object.entries(DASHBOARDS)) {
         await page.goto(`${d.path}?scale=wall`)
         await ready(page, d.widgets)
-        const problems = await layoutProblems(page, { noScroll: true })
+        const problems = await layoutReport(page, { noScroll: true })
         expect(problems, `${name} mural ${width}×${height}`).toEqual([])
       }
     })
@@ -55,7 +55,7 @@ test.describe('sin desbordamiento @layout', () => {
       for (const [name, d] of Object.entries(DASHBOARDS)) {
         await page.goto(d.path)
         await ready(page, d.widgets)
-        const problems = await layoutProblems(page, { extra: ['[data-testid="app-navbar"]'] })
+        const problems = await layoutReport(page, { extra: ['[data-testid="app-navbar"]'] })
         expect(problems, `${name} móvil ${width}px`).toEqual([])
       }
     })
@@ -68,7 +68,7 @@ test.describe('sin desbordamiento @layout', () => {
       for (const [name, d] of Object.entries(DASHBOARDS)) {
         await page.goto(d.path)
         await ready(page, d.widgets)
-        const problems = await layoutProblems(page, { extra: ['[data-testid="app-navbar"]'] })
+        const problems = await layoutReport(page, { extra: ['[data-testid="app-navbar"]'] })
         expect(problems, `${name} escritorio ${width}px`).toEqual([])
       }
     })
