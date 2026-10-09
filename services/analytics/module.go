@@ -66,7 +66,7 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 			log.WarnContext(ctx, "analytics: no token verifier (auth not local, HORUS_JWT_PUBLIC_KEYS unset): traffic API not served")
 		}
 	}
-	if deps.Health != nil {
+	if deps.Health != nil && cfg.ClickHouseDSN != "" {
 		deps.Health.AddCheck(health.Check{Name: "clickhouse", Critical: false, Probe: m.q.Ping})
 	}
 	return m, nil

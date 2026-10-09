@@ -149,7 +149,7 @@ endif
 # ClickHouse efímero (testcontainers; HORUS_CH_TEST_DSN para usar uno existente;
 # HORUS_CH_NOFILE=16384 en sandboxes).
 FUZZTIME ?= 60s
-FLOW_PKGS := ./services/collector/... ./services/ingester/... ./packages/go/flowpb/... \
+FLOW_PKGS := ./services/collector/... ./services/ingester/... ./tests/flows/... ./packages/go/flowpb/... \
 	./packages/go/flowbus/... ./packages/go/flowinv/... ./packages/go/pcapread/...
 
 .PHONY: test-collector
@@ -166,9 +166,14 @@ test-ingester: ## Ingester con NATS y ClickHouse efímeros + test dorado de la c
 	HORUS_CH_NOFILE=$${HORUS_CH_NOFILE:-16384} $(GO) test -race -count=1 -tags integration \
 		$(if $(SUITE),-run '$(shell echo '$(SUITE)' | sed -e 's/^discovery-mode$$/DiscoveryMode|Proposal/' -e 's/^discovery$$/Discovery|FirstSeen|Activity/' -e 's/^enrichment$$/Enrich|Catalog|Snapshot/')') $(FLOW_PKGS)
 
+.PHONY: test-analytics
+test-analytics: ## Analytics: API de tráfico, propuestas y datos de widgets contra ClickHouse efímero (I1-08, I1-29)
+	HORUS_CH_NOFILE=$${HORUS_CH_NOFILE:-16384} $(GO) test -race -count=1 -tags integration $(if $(SUITE),-run '$(SUITE)') \
+		./services/analytics/... ./services/traffic/...
+
 .PHONY: test-flows-golden
 test-flows-golden: ## Test dorado: captura real MikroTik por collector + ingester contra ClickHouse
-	HORUS_CH_NOFILE=$${HORUS_CH_NOFILE:-16384} $(GO) test -count=1 -tags integration -run TestGoldenRealMikroTik -v ./services/collector/
+	HORUS_CH_NOFILE=$${HORUS_CH_NOFILE:-16384} $(GO) test -count=1 -tags integration -run TestGoldenRealMikroTik -v ./tests/flows/
 
 # Laboratorio MikroTik CHR (I0-11, infrastructure/lab/chr/README.md). Necesita Linux, sudo y
 # /dev/kvm. Variables: ROS (7.12), LAB_ACCEL (kvm|tcg), PROFILE/CLIENT/DURATION en lab-traffic;

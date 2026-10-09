@@ -26,7 +26,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/httpx"
 	"github.com/hcdestroyer/horus-flow/packages/go/module"
 	"github.com/hcdestroyer/horus-flow/services/analytics"
-	"github.com/hcdestroyer/horus-flow/services/ingester"
+	ingesterschema "github.com/hcdestroyer/horus-flow/services/ingester/api/chschema"
 )
 
 const analyticsPassword = "analytics-test-password-0123"
@@ -60,7 +60,7 @@ type env struct {
 func setup(t *testing.T, extra flowinv.Data, environ ...string) *env {
 	t.Helper()
 	srv := chtest.Start(t, func(ctx context.Context, dsn, pw string) error {
-		return ingester.MigrateClickHouse(ctx, []string{"HORUS_CLICKHOUSE_DSN=" + dsn, "HORUS_CLICKHOUSE_PASSWORD=" + pw,
+		return ingesterschema.MigrateClickHouse(ctx, []string{"HORUS_CLICKHOUSE_DSN=" + dsn, "HORUS_CLICKHOUSE_PASSWORD=" + pw,
 			"HORUS_CLICKHOUSE_ANALYTICS_PASSWORD=" + analyticsPassword}, slog.New(slog.DiscardHandler))
 	})
 	e := &env{t: t, srv: srv, tenant: uuid.New(), site: uuid.New(), router: uuid.New(), realm: uuid.New()}
