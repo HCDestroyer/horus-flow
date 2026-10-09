@@ -79,11 +79,28 @@ func cases() map[string]tenanttest.Case {
 		"deleteNotificationChannel", "listNotificationChannels", "getNotificationChannel", "listNotificationDeliveries",
 		"updateNotificationChannel", "createNotificationChannel", "testNotificationChannelConnection", "testNotificationChannel",
 		"putNotificationChannelCredentials")
-	pending("analytics (dashboards, widgets, playlists, tráfico)",
-		"listDashboards", "getDashboard", "deleteDashboard", "deleteDashboardWidget", "deletePlaylist", "getCustomerTraffic",
-		"getTrafficAttribution", "getTrafficTimeseries", "getTrafficTop", "getWidgetData", "getKioskConfig", "listPlaylists",
-		"listPrefixProposals", "updateDashboard", "updateDashboardWidget", "updatePlaylist", "createDashboard",
-		"duplicateDashboard", "addDashboardWidget", "createPlaylist", "previewWidgetData", "replaceDashboardLayout")
+	// analytics: dashboards, playlists y kiosco (I1-15, CORE)
+	widget := map[string]any{"id": "w-pirata", "type": "traffic_now", "title": "x", "position": map[string]any{"x": 0, "y": 0, "w": 2, "h": 2}, "config": map[string]any{}}
+	layout := map[string]any{"grid": "12-col", "columns": 12, "row_height_px": 80}
+	c["listDashboards"] = tenanttest.Case{Kind: tenanttest.List}
+	c["getDashboard"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["createDashboard"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"name": "pirata", "layout": layout, "widgets": []any{}}}
+	c["updateDashboard"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"name": "pirata"}}
+	c["deleteDashboard"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["duplicateDashboard"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"name": "pirata"}}
+	c["replaceDashboardLayout"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"layout": layout, "positions": map[string]any{}}}
+	c["addDashboardWidget"] = tenanttest.Case{Kind: tenanttest.ByID, Body: widget}
+	c["updateDashboardWidget"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"title": "pirata"}}
+	c["deleteDashboardWidget"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["getWidgetData"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["previewWidgetData"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"type": "noc_header", "config": map[string]any{}}}
+	c["listPlaylists"] = tenanttest.Case{Kind: tenanttest.List}
+	c["createPlaylist"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"name": "pirata", "items": []any{map[string]any{"dashboard_id": "0192f000-0000-7000-8000-00000000d001", "duration_seconds": 30}}}}
+	c["updatePlaylist"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"name": "pirata"}}
+	c["deletePlaylist"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["getKioskConfig"] = tenanttest.Case{Kind: tenanttest.KioskOnly}
+	pending("FLOW I1 (analytics: tráfico y propuestas; su suite usa ClickHouse)",
+		"getCustomerTraffic", "getTrafficAttribution", "getTrafficTimeseries", "getTrafficTop", "listPrefixProposals")
 	// detection (I1-12, SEC)
 	c["listFindings"] = tenanttest.Case{Kind: tenanttest.List}
 	c["listCustomerFindings"] = tenanttest.Case{Kind: tenanttest.List}
@@ -124,6 +141,13 @@ func (a *app) fixtureISP(x isp, cidr string) map[string]string {
 	realm := a.realmOf(x.token, site)
 	out["customer_id"] = a.insertCustomer(x.id, site, realm, cp, "10.10.0.41")
 	out["kiosk_id"] = a.must(a.post(x.token, "/api/v1/kiosks", map[string]any{"name": "TV NOC"}), 201).str("id")
+	dash := a.must(a.post(x.token, "/api/v1/dashboards", map[string]any{"name": "NOC propio", "visibility": "tenant",
+		"layout":  map[string]any{"grid": "12-col", "columns": 12, "row_height_px": 80},
+		"widgets": []any{map[string]any{"id": "w-1", "type": "noc_header", "title": nil, "position": map[string]any{"x": 0, "y": 0, "w": 12, "h": 1}, "config": map[string]any{}}},
+	}), 201).str("id")
+	out["dashboard_id"], out["widget_id"] = dash, "w-1"
+	out["playlist_id"] = a.must(a.post(x.token, "/api/v1/playlists", map[string]any{"name": "Rotación",
+		"items": []any{map[string]any{"dashboard_id": dash, "duration_seconds": 30}}}), 201).str("id")
 	if _, err := a.admin.Exec(context.Background(), `UPDATE detection.finding SET customer_id = $1 WHERE id = $2`,
 		out["customer_id"], out["finding_id"]); err != nil {
 		a.t.Fatal(err)
@@ -174,7 +198,8 @@ func TestTenantIsolationMatrix(t *testing.T) {
 				"{site_id}", paramsA["site_id"], "{router_id}", paramsA["router_id"], "{client_prefix_id}", paramsA["client_prefix_id"],
 				"{peer_id}", paramsA["peer_id"], "{token_id}", paramsA["token_id"],
 				"{finding_id}", paramsA["finding_id"], "{customer_id}", paramsA["customer_id"], "{entry_id}", paramsA["entry_id"],
-				"{kiosk_id}", paramsA["kiosk_id"],
+				"{kiosk_id}", paramsA["kiosk_id"], "{dashboard_id}", paramsA["dashboard_id"], "{widget_id}", paramsA["widget_id"],
+				"{playlist_id}", paramsA["playlist_id"],
 			).Replace(tmpl), nil)
 			return a.mux.Matches(r)
 		},

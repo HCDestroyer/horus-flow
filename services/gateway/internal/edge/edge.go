@@ -162,17 +162,17 @@ func (e *Edge) serve(w http.ResponseWriter, r *http.Request, rt routes.Route, ne
 	case routes.PermAuthenticated, routes.PermWidgetType, routes.PermDashboardAccess:
 		// Solo autenticación: el permiso fino lo evalúa el módulo dueño.
 	case routes.PermKioskSelf:
-		if p.Type != authz.TypeKiosk {
-			problem.Std(w, r, http.StatusForbidden, problem.CodePermissionDenied,
-				problem.WithDetail("Ruta exclusiva de kioscos."))
-			return
-		}
+		// Exclusiva de kioscos (se comprueba tras el ámbito).
 	default:
 		if p.Type != authz.TypeKiosk { // un kiosco no lleva permisos: lo limita la lista blanca
 			req.Permission = rt.Permission
 		}
 	}
 	if !authz.Check(w, r, p, req) {
+		return
+	}
+	if rt.Permission == routes.PermKioskSelf && p.Type != authz.TypeKiosk {
+		problem.Std(w, r, http.StatusForbidden, problem.CodePermissionDenied, problem.WithDetail("Ruta exclusiva de kioscos."))
 		return
 	}
 	if rt.Reauth && p.AuthAge(e.o.Now()) > ReauthMaxAge {

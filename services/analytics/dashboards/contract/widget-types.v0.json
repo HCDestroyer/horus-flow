@@ -1,0 +1,921 @@
+{
+  "$comment": "Catálogo autoritativo de tipos de widget del I1 (C9). Fuente de GET /widget-types. Cada entrada valida contra widget-type.schema.json.",
+  "version": "v0",
+  "data": [
+    {
+      "type": "noc_header",
+      "title": "Cabecera NOC",
+      "description": "Muestra la hora, el ISP, la posición en la rotación y cuán frescos son los datos.",
+      "category": "layout",
+      "config_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "show_clock": {
+            "type": "boolean",
+            "default": true
+          },
+          "show_tenant": {
+            "type": "boolean",
+            "default": true
+          },
+          "show_rotation": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "required_permission": "dashboards.read",
+      "data_endpoint_kind": "none",
+      "realtime_topic": "system",
+      "contains_personal_data": false,
+      "kiosk_allowed": true,
+      "sizes": {
+        "allowed": [
+          {
+            "w": 12,
+            "h": 1
+          }
+        ],
+        "default": {
+          "w": 12,
+          "h": 1
+        }
+      },
+      "increment": "I1",
+      "version": 1
+    },
+    {
+      "type": "traffic_now",
+      "title": "Tráfico ahora",
+      "description": "Muestra el tráfico actual de bajada y subida, su variación frente a ayer y la última hora.",
+      "category": "traffic",
+      "config_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "site_ids": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "default": [],
+            "description": "Vacío = todo el ISP o la variable del dashboard."
+          },
+          "compare": {
+            "type": "string",
+            "enum": [
+              "yesterday",
+              "none"
+            ],
+            "default": "yesterday"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "required_permission": "traffic.read",
+      "data_endpoint_kind": "state",
+      "realtime_topic": "traffic.summary",
+      "contains_personal_data": false,
+      "kiosk_allowed": true,
+      "sizes": {
+        "allowed": [
+          {
+            "w": 3,
+            "h": 2
+          },
+          {
+            "w": 4,
+            "h": 2
+          }
+        ],
+        "default": {
+          "w": 3,
+          "h": 2
+        }
+      },
+      "increment": "I1",
+      "version": 1
+    },
+    {
+      "type": "customers_active",
+      "title": "Clientes activos",
+      "description": "Muestra cuántos clientes (IPs) están activos y cuántos aparecieron hoy.",
+      "category": "customers",
+      "config_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "site_ids": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "default": [],
+            "description": "Vacío = todo el ISP o la variable del dashboard."
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "required_permission": "traffic.read",
+      "data_endpoint_kind": "state",
+      "realtime_topic": "customers",
+      "contains_personal_data": false,
+      "kiosk_allowed": true,
+      "sizes": {
+        "allowed": [
+          {
+            "w": 3,
+            "h": 2
+          }
+        ],
+        "default": {
+          "w": 3,
+          "h": 2
+        }
+      },
+      "increment": "I1",
+      "version": 1
+    },
+    {
+      "type": "exporters_status",
+      "title": "Exportadores",
+      "description": "Muestra si llegan flujos de cada router: estado, último flujo, flujos/s, pérdida y cobertura.",
+      "category": "infrastructure",
+      "config_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "site_ids": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "default": [],
+            "description": "Vacío = todo el ISP o la variable del dashboard."
+          },
+          "show": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "pending_configuration",
+                "exporting",
+                "silent",
+                "lossy",
+                "clock_skew"
+              ]
+            },
+            "default": []
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "required_permission": "flows.read",
+      "data_endpoint_kind": "table",
+      "realtime_topic": "exporters",
+      "contains_personal_data": false,
+      "kiosk_allowed": true,
+      "sizes": {
+        "allowed": [
+          {
+            "w": 4,
+            "h": 3
+          },
+          {
+            "w": 6,
+            "h": 3
+          },
+          {
+            "w": 12,
+            "h": 2
+          }
+        ],
+        "default": {
+          "w": 4,
+          "h": 3
+        }
+      },
+      "increment": "I1",
+      "version": 1
+    },
+    {
+      "type": "traffic_timeseries",
+      "title": "Evolución del tráfico",
+      "description": "Muestra la evolución del tráfico de bajada y subida en el rango elegido.",
+      "category": "traffic",
+      "config_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "site_ids": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "default": [],
+            "description": "Vacío = todo el ISP o la variable del dashboard."
+          },
+          "range": {
+            "type": "string",
+            "enum": [
+              "15m",
+              "1h",
+              "6h",
+              "24h",
+              "7d",
+              "30d"
+            ],
+            "default": "24h"
+          },
+          "metrics": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "down_bps",
+                "up_bps"
+              ]
+            },
+            "default": [
+              "down_bps",
+              "up_bps"
+            ]
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "required_permission": "traffic.read",
+      "data_endpoint_kind": "series",
+      "realtime_topic": null,
+      "contains_personal_data": false,
+      "kiosk_allowed": true,
+      "sizes": {
+        "allowed": [
+          {
+            "w": 6,
+            "h": 3
+          },
+          {
+            "w": 8,
+            "h": 3
+          },
+          {
+            "w": 12,
+            "h": 3
+          }
+        ],
+        "default": {
+          "w": 6,
+          "h": 3
+        }
+      },
+      "increment": "I1",
+      "version": 1
+    },
+    {
+      "type": "top_customers",
+      "title": "Top clientes",
+      "description": "Muestra los clientes que más consumen (IP o alias, tipo, bajada y subida).",
+      "category": "customers",
+      "config_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "site_ids": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "default": [],
+            "description": "Vacío = todo el ISP o la variable del dashboard."
+          },
+          "range": {
+            "type": "string",
+            "enum": [
+              "15m",
+              "1h",
+              "6h",
+              "24h",
+              "7d",
+              "30d"
+            ],
+            "default": "24h"
+          },
+          "n": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10,
+            "default": 10
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "both",
+              "download",
+              "upload"
+            ],
+            "default": "both"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "required_permission": "customers.read",
+      "data_endpoint_kind": "table",
+      "realtime_topic": null,
+      "contains_personal_data": true,
+      "kiosk_allowed": true,
+      "sizes": {
+        "allowed": [
+          {
+            "w": 4,
+            "h": 4
+          },
+          {
+            "w": 6,
+            "h": 4
+          }
+        ],
+        "default": {
+          "w": 4,
+          "h": 4
+        }
+      },
+      "increment": "I1",
+      "version": 1,
+      "additional_permissions": [
+        "traffic.read"
+      ]
+    },
+    {
+      "type": "top_services",
+      "title": "Top servicios",
+      "description": "Muestra los servicios más consumidos.",
+      "category": "traffic",
+      "config_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "site_ids": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "default": [],
+            "description": "Vacío = todo el ISP o la variable del dashboard."
+          },
+          "range": {
+            "type": "string",
+            "enum": [
+              "15m",
+              "1h",
+              "6h",
+              "24h",
+              "7d",
+              "30d"
+            ],
+            "default": "24h"
+          },
+          "n": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10,
+            "default": 10
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "both",
+              "download",
+              "upload"
+            ],
+            "default": "both"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "required_permission": "traffic.read",
+      "data_endpoint_kind": "table",
+      "realtime_topic": null,
+      "contains_personal_data": false,
+      "kiosk_allowed": true,
+      "sizes": {
+        "allowed": [
+          {
+            "w": 4,
+            "h": 4
+          },
+          {
+            "w": 6,
+            "h": 4
+          }
+        ],
+        "default": {
+          "w": 4,
+          "h": 4
+        }
+      },
+      "increment": "I1",
+      "version": 1
+    },
+    {
+      "type": "top_categories",
+      "title": "Top categorías",
+      "description": "Muestra las categorías de tráfico más consumidas.",
+      "category": "traffic",
+      "config_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "site_ids": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "default": [],
+            "description": "Vacío = todo el ISP o la variable del dashboard."
+          },
+          "range": {
+            "type": "string",
+            "enum": [
+              "15m",
+              "1h",
+              "6h",
+              "24h",
+              "7d",
+              "30d"
+            ],
+            "default": "24h"
+          },
+          "n": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10,
+            "default": 10
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "both",
+              "download",
+              "upload"
+            ],
+            "default": "both"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "required_permission": "traffic.read",
+      "data_endpoint_kind": "table",
+      "realtime_topic": null,
+      "contains_personal_data": false,
+      "kiosk_allowed": true,
+      "sizes": {
+        "allowed": [
+          {
+            "w": 4,
+            "h": 4
+          },
+          {
+            "w": 6,
+            "h": 4
+          }
+        ],
+        "default": {
+          "w": 4,
+          "h": 4
+        }
+      },
+      "increment": "I1",
+      "version": 1
+    },
+    {
+      "type": "top_organizations",
+      "title": "Top organizaciones",
+      "description": "Muestra las organizaciones y ASN remotos con más tráfico.",
+      "category": "traffic",
+      "config_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "site_ids": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "default": [],
+            "description": "Vacío = todo el ISP o la variable del dashboard."
+          },
+          "range": {
+            "type": "string",
+            "enum": [
+              "15m",
+              "1h",
+              "6h",
+              "24h",
+              "7d",
+              "30d"
+            ],
+            "default": "24h"
+          },
+          "n": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10,
+            "default": 10
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "both",
+              "download",
+              "upload"
+            ],
+            "default": "both"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "required_permission": "traffic.read",
+      "data_endpoint_kind": "table",
+      "realtime_topic": null,
+      "contains_personal_data": false,
+      "kiosk_allowed": true,
+      "sizes": {
+        "allowed": [
+          {
+            "w": 4,
+            "h": 4
+          },
+          {
+            "w": 6,
+            "h": 4
+          }
+        ],
+        "default": {
+          "w": 4,
+          "h": 4
+        }
+      },
+      "increment": "I1",
+      "version": 1
+    },
+    {
+      "type": "findings_summary",
+      "title": "Hallazgos abiertos",
+      "description": "Muestra cuántos hallazgos abiertos hay por severidad.",
+      "category": "security",
+      "config_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "site_ids": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "default": [],
+            "description": "Vacío = todo el ISP o la variable del dashboard."
+          },
+          "min_severity": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "critical"
+            ],
+            "default": "medium"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "required_permission": "security.findings.read",
+      "data_endpoint_kind": "state",
+      "realtime_topic": "security",
+      "contains_personal_data": false,
+      "kiosk_allowed": true,
+      "sizes": {
+        "allowed": [
+          {
+            "w": 3,
+            "h": 2
+          },
+          {
+            "w": 4,
+            "h": 2
+          }
+        ],
+        "default": {
+          "w": 3,
+          "h": 2
+        }
+      },
+      "increment": "I1",
+      "version": 1
+    },
+    {
+      "type": "botnet_signals",
+      "title": "Señales de botnet",
+      "description": "Muestra cuántos clientes presentan cada señal compatible con botnet ahora.",
+      "category": "security",
+      "config_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "site_ids": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "default": [],
+            "description": "Vacío = todo el ISP o la variable del dashboard."
+          },
+          "range": {
+            "type": "string",
+            "enum": [
+              "15m",
+              "1h",
+              "6h",
+              "24h"
+            ],
+            "default": "1h"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "required_permission": "security.findings.read",
+      "data_endpoint_kind": "state",
+      "realtime_topic": "security",
+      "contains_personal_data": false,
+      "kiosk_allowed": true,
+      "sizes": {
+        "allowed": [
+          {
+            "w": 4,
+            "h": 3
+          },
+          {
+            "w": 6,
+            "h": 3
+          }
+        ],
+        "default": {
+          "w": 4,
+          "h": 3
+        }
+      },
+      "increment": "I1",
+      "version": 1
+    },
+    {
+      "type": "findings_feed",
+      "title": "Hallazgos recientes",
+      "description": "Muestra los hallazgos nuevos o activos con severidad, resumen, cliente y antigüedad.",
+      "category": "security",
+      "config_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "site_ids": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "default": [],
+            "description": "Vacío = todo el ISP o la variable del dashboard."
+          },
+          "min_severity": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "critical"
+            ],
+            "default": "medium"
+          },
+          "states": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "open",
+                "acknowledged"
+              ]
+            },
+            "default": [
+              "open",
+              "acknowledged"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20,
+            "default": 10
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "required_permission": "security.findings.read",
+      "data_endpoint_kind": "table",
+      "realtime_topic": "security",
+      "contains_personal_data": true,
+      "kiosk_allowed": true,
+      "sizes": {
+        "allowed": [
+          {
+            "w": 6,
+            "h": 4
+          },
+          {
+            "w": 12,
+            "h": 4
+          }
+        ],
+        "default": {
+          "w": 6,
+          "h": 4
+        }
+      },
+      "increment": "I1",
+      "version": 1
+    },
+    {
+      "type": "findings_trend",
+      "title": "Tendencia de hallazgos",
+      "description": "Muestra los hallazgos por día y tipo en los últimos 7 o 30 días.",
+      "category": "security",
+      "config_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "range": {
+            "type": "string",
+            "enum": [
+              "7d",
+              "30d"
+            ],
+            "default": "7d"
+          },
+          "group_by": {
+            "type": "string",
+            "enum": [
+              "kind",
+              "severity"
+            ],
+            "default": "kind"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "required_permission": "security.findings.read",
+      "data_endpoint_kind": "series",
+      "realtime_topic": null,
+      "contains_personal_data": false,
+      "kiosk_allowed": true,
+      "sizes": {
+        "allowed": [
+          {
+            "w": 6,
+            "h": 3
+          }
+        ],
+        "default": {
+          "w": 6,
+          "h": 3
+        }
+      },
+      "increment": "I1",
+      "version": 1
+    },
+    {
+      "type": "security_by_node",
+      "title": "Seguridad por nodo",
+      "description": "Muestra los nodos con más clientes con señales.",
+      "category": "security",
+      "config_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "n": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10,
+            "default": 10
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "required_permission": "security.findings.read",
+      "data_endpoint_kind": "table",
+      "realtime_topic": "security",
+      "contains_personal_data": false,
+      "kiosk_allowed": true,
+      "sizes": {
+        "allowed": [
+          {
+            "w": 4,
+            "h": 4
+          }
+        ],
+        "default": {
+          "w": 4,
+          "h": 4
+        }
+      },
+      "increment": "I1",
+      "version": 1
+    },
+    {
+      "type": "watched_ports",
+      "title": "Puertos vigilados",
+      "description": "Muestra a qué puertos vigilados sale tráfico y desde cuántos clientes.",
+      "category": "security",
+      "config_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "site_ids": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "default": [],
+            "description": "Vacío = todo el ISP o la variable del dashboard."
+          },
+          "range": {
+            "type": "string",
+            "enum": [
+              "1h",
+              "6h",
+              "24h"
+            ],
+            "default": "1h"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "required_permission": "security.findings.read",
+      "data_endpoint_kind": "table",
+      "realtime_topic": null,
+      "contains_personal_data": false,
+      "kiosk_allowed": true,
+      "sizes": {
+        "allowed": [
+          {
+            "w": 4,
+            "h": 3
+          }
+        ],
+        "default": {
+          "w": 4,
+          "h": 3
+        }
+      },
+      "increment": "I1",
+      "version": 1
+    }
+  ]
+}
