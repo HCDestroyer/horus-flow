@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import { validateManifest } from '~/widgets/validate'
-import { gridModeFor, placeWidgets, readingOrder, totalRows } from '~/utils/dashboard-layout'
+import {
+  fillGaps,
+  gridModeFor,
+  placeWidgets,
+  readingOrder,
+  totalRows,
+} from '~/utils/dashboard-layout'
 import { agoParts, dataTime, freshnessLevel } from '~/utils/freshness'
 import { formatBps, formatBytes, formatChange, formatPercent } from '~/utils/format'
 import { createRealtimeRegistry, type RealtimeHandler } from '~/utils/realtime'
@@ -105,6 +111,32 @@ describe('grilla de 12 columnas (frontend.md §5.2)', () => {
     expect(placeWidgets(noc.widgets, 'single').every((p) => p.style.gridColumn === '1 / -1')).toBe(
       true,
     )
+  })
+
+  it('el layout diseñado cierra los huecos de las plantillas sin mover ni solapar widgets', () => {
+    for (const template of TEMPLATES) {
+      const filled = fillGaps(template.widgets)
+      const cells = new Map<string, string>()
+      for (const w of filled) {
+        const original = template.widgets.find((o) => o.id === w.id)!.position
+        // Solo crece: contiene su posición original.
+        expect(w.position.x).toBeLessThanOrEqual(original.x)
+        expect(w.position.y).toBe(original.y)
+        expect(w.position.x + w.position.w).toBeGreaterThanOrEqual(original.x + original.w)
+        expect(w.position.h).toBeGreaterThanOrEqual(original.h)
+        for (let r = w.position.y; r < w.position.y + w.position.h; r++) {
+          for (let c = w.position.x; c < w.position.x + w.position.w; c++) {
+            expect(cells.get(`${r}:${c}`), `${template.name} ${w.id} ${r}:${c}`).toBeUndefined()
+            cells.set(`${r}:${c}`, w.id)
+          }
+        }
+      }
+      // Sin celdas vacías: el mural no deja huecos.
+      expect(cells.size, template.name).toBe(totalRows(template.widgets) * 12)
+    }
+    const noc = fillGaps(TEMPLATES[0]!.widgets)
+    expect(noc.find((w) => w.id === 'w-findings-summary')!.position).toMatchObject({ x: 7, w: 5 })
+    expect(noc.find((w) => w.id === 'w-traffic-24h')!.position).toMatchObject({ y: 5, h: 4 })
   })
 
   it('filas totales del layout (para repartir la altura en mural)', () => {
