@@ -1,0 +1,19 @@
+# ===== Horus Flow · laboratorio CHR · configuración base (I0-11) =====
+# Simula el router principal de un nodo ANTES del onboarding: clientes en la LAN, NAT
+# masquerade hacia "internet" en el mismo router (D12) y un firewall de entrada con drop final
+# (así el `place-before=0` del script de onboarding tiene reglas delante de las que colocarse).
+# Mapa de NICs de QEMU (vendors/mikrotik.md §8.2 habla de ether1=NAT, ether2=LAN; aquí la NIC 1
+# se reserva a la gestión del laboratorio porque recibe DHCP de QEMU en el CHR limpio):
+#   NIC 1 ether1 -> ether1-mgmt  QEMU user-net (DHCP 10.0.2.x), REST/SSH del laboratorio
+#   NIC 2 ether2 -> ether2-wan   bridge <LAB_PREFIX>-wan: internet-sim y endpoint del hub WG
+#   NIC 3 ether3 -> ether3-lan   bridge <LAB_PREFIX>-lan: clientes (netns)
+/interface ethernet set [find default-name=ether1] name=ether1-mgmt comment="horus-lab gestion"
+/interface ethernet set [find default-name=ether2] name=ether2-wan comment="horus-lab wan nat"
+/interface ethernet set [find default-name=ether3] name=ether3-lan comment="horus-lab lan clientes"
+/ip address add address=<LAB_WAN_CHR_IP>/24 interface=ether2-wan comment="horus-lab"
+/ip address add address=<LAB_LAN_GW>/24 interface=ether3-lan comment="horus-lab"
+/ip firewall nat add chain=srcnat out-interface=ether2-wan action=masquerade comment="horus-lab nat"
+/ip firewall filter add chain=input connection-state=established,related action=accept comment="horus-lab"
+/ip firewall filter add chain=input in-interface=ether1-mgmt action=accept comment="horus-lab gestion"
+/ip firewall filter add chain=input in-interface=ether3-lan protocol=icmp action=accept comment="horus-lab"
+/ip firewall filter add chain=input action=drop comment="horus-lab drop final"

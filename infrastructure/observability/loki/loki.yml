@@ -1,0 +1,51 @@
+# Loki — configuración de DESARROLLO, monolítico y en disco local (historia I0-18).
+# docs/observability.md §3.4: labels de baja cardinalidad (service, env, level, host,
+# container), retención 30 días y límite de ingesta para que un bucle de logs no tumbe Loki.
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  log_level: warn
+  log_format: json
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+
+schema_config:
+  configs:
+    - from: "2026-01-01"
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  retention_period: 720h          # 30 días
+  ingestion_rate_mb: 10
+  ingestion_burst_size_mb: 20
+  max_label_names_per_series: 10
+  allow_structured_metadata: true
+  volume_enabled: true
+  # Sin label automático service_name: el label `service` lo pone Alloy (§3.4).
+  discover_service_name: []
+
+compactor:
+  working_directory: /loki/compactor
+  retention_enabled: true
+  delete_request_store: filesystem
+
+analytics:
+  reporting_enabled: false

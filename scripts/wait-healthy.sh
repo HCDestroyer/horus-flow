@@ -14,7 +14,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 timeout="${1:-${HORUS_WAIT_TIMEOUT:-120}}"
 compose_dir="$repo_root/deployments/compose"
-read -r -a compose <<<"${COMPOSE:-docker compose --project-directory $compose_dir -f $compose_dir/compose.dev.yaml}"
+read -r -a compose <<<"${COMPOSE:-docker compose --project-directory $compose_dir -f $compose_dir/compose.dev.yaml -f $compose_dir/compose.observability.yaml}"
 
 start="$(date +%s)"
 while :; do

@@ -102,7 +102,6 @@
 # Agente: dueño del módulo (CORE, FLOW, SEC o PLAT según la carpeta)
 # [SENSIBLE] Migraciones: aprobación de la persona obligatoria.
 /services/*/migrations/             @hcdestroyer
-/infrastructure/clickhouse/migrations/ @hcdestroyer
 
 # ---------------------------------------------------------------------------------------------
 # Frontend

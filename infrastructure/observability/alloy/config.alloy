@@ -1,0 +1,112 @@
+// Grafana Alloy — agente de logs de DESARROLLO (compose.observability.yaml, historia I0-18).
+//
+// Lee la salida estándar de los contenedores del proyecto compose de Horus por el socket de
+// Docker (solo lectura) y la envía a Loki. docs/observability.md §3:
+//   - labels de baja cardinalidad: service, env, level, host, container, compose_service;
+//   - trace_id, request_id, tenant_id y router_id NO son labels: structured metadata;
+//   - redacción de respaldo de secretos (§3.3) antes de salir del agente.
+// Trazas OTLP (otelcol.receiver.otlp → Tempo) quedan fuera de I0-18.
+
+logging {
+  level  = "warn"
+  format = "json"
+}
+
+// Solo los contenedores de ESTE proyecto compose (no los de otros proyectos del host).
+discovery.docker "compose" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "15s"
+
+  filter {
+    name   = "label"
+    values = ["com.docker.compose.project=" + sys.env("HORUS_COMPOSE_PROJECT")]
+  }
+}
+
+discovery.relabel "compose" {
+  targets = discovery.docker.compose.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/?(.*)"
+    target_label  = "container"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "compose_service"
+  }
+
+  // Valor por defecto de `service`; los logs JSON de horus lo sobrescriben con el módulo.
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+}
+
+loki.source.docker "compose" {
+  host             = "unix:///var/run/docker.sock"
+  targets          = discovery.relabel.compose.output
+  relabel_rules    = discovery.relabel.compose.rules
+  refresh_interval = "15s"
+  forward_to       = [loki.process.horus.receiver]
+}
+
+loki.process "horus" {
+  // 1) Redacción de respaldo: la librería ya redacta (tipo Secret); esto cubre lo que se
+  //    escape (Authorization, password=, community, token, secret, private_key).
+  stage.replace {
+    expression = "(?i)authorization[\"']?\\s*[:=]\\s*[\"']?(?:bearer\\s+|basic\\s+)?([^\"'\\s,}]+)"
+    replace    = "[REDACTED]"
+  }
+
+  stage.replace {
+    expression = "(?i)(?:password|passwd|secret|token|community|private_key|preshared_key)[\"']?\\s*[:=]\\s*[\"']?([^\"'\\s,}&]+)"
+    replace    = "[REDACTED]"
+  }
+
+  // 2) Logs JSON de horus (log/slog): level y service como labels; IDs como metadata.
+  stage.json {
+    expressions = {
+      level      = "level",
+      service    = "service",
+      process    = "process",
+      trace_id   = "trace_id",
+      request_id = "request_id",
+      tenant_id  = "tenant_id",
+      router_id  = "router_id",
+    }
+  }
+
+  stage.labels {
+    values = {
+      level   = "",
+      service = "",
+    }
+  }
+
+  stage.structured_metadata {
+    values = {
+      trace_id   = "",
+      request_id = "",
+      tenant_id  = "",
+      router_id  = "",
+      process    = "",
+    }
+  }
+
+  stage.static_labels {
+    values = {
+      env  = sys.env("HORUS_ENV"),
+      host = constants.hostname,
+    }
+  }
+
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
