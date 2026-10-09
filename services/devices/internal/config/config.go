@@ -22,6 +22,9 @@ type Config struct {
 	PublicKeys    string `env:"HORUS_JWT_PUBLIC_KEYS"`
 	Issuer        string `env:"HORUS_AUTH_ISSUER" envDefault:"horus-auth"`
 	PublicBaseURL string `env:"HORUS_PUBLIC_BASE_URL"`
+	// KEK de 32 B (hex o base64; HORUS_DEVICES_KEK_FILE) para cifrar las
+	// credenciales de routers (docs/security.md S9). Vacía en dev = efímera.
+	KEK observability.Secret `env:"HORUS_DEVICES_KEK"`
 }
 
 // LogValue implementa slog.LogValuer (sin secretos).

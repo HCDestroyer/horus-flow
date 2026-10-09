@@ -16,11 +16,13 @@ import (
 
 	"github.com/hcdestroyer/horus-flow/packages/go/authz"
 	"github.com/hcdestroyer/horus-flow/packages/go/config"
+	"github.com/hcdestroyer/horus-flow/packages/go/crypto/envelope"
 	"github.com/hcdestroyer/horus-flow/packages/go/health"
 	"github.com/hcdestroyer/horus-flow/packages/go/module"
 	"github.com/hcdestroyer/horus-flow/packages/go/pagination"
 	"github.com/hcdestroyer/horus-flow/packages/go/pgdb"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
+	devapi "github.com/hcdestroyer/horus-flow/services/devices/api"
 	"github.com/hcdestroyer/horus-flow/services/devices/internal/adapters/httpapi"
 	"github.com/hcdestroyer/horus-flow/services/devices/internal/adapters/postgres"
 	"github.com/hcdestroyer/horus-flow/services/devices/internal/app"
@@ -71,7 +73,20 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 	if err != nil {
 		return nil, err
 	}
-	svc := app.NewService(postgres.New(db), pagination.NewCodec([]byte(cfg.CursorKey.Reveal())), nil)
+	store := postgres.New(db)
+	svc := app.NewService(store, pagination.NewCodec([]byte(cfg.CursorKey.Reveal())), nil)
+	sealer, err := loadSealer(cfg, dev, logger)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	onboarding := app.NewOnboarding(store, sealer, nil)
+	if deps.Services != nil {
+		if err := deps.Services.Provide(devapi.ServiceOnboarding, onboarding); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
 	if deps.Health != nil {
 		deps.Health.AddCheck(health.Check{Name: "postgres", Critical: true, Probe: db.Ping})
 	}
@@ -79,6 +94,22 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		httpapi.New(svc, authz.NewGuard(verifier), cfg.PublicBaseURL, logger).Mount(deps.Routes)
 	}
 	return &mod{db: db, logger: logger, migrate: cfg.Migrate}, nil
+}
+
+// loadSealer carga la KEK de credenciales (efímera solo en dev).
+func loadSealer(cfg modcfg.Config, dev bool, logger *slog.Logger) (*envelope.Sealer, error) {
+	if cfg.KEK.IsZero() {
+		if !dev {
+			return nil, errors.New("devices: HORUS_DEVICES_KEK_FILE is required outside dev")
+		}
+		logger.Warn("devices: ephemeral KEK (dev): router credentials become unreadable on restart; set HORUS_DEVICES_KEK_FILE")
+		return envelope.Ephemeral(), nil
+	}
+	kek, err := envelope.ParseKEK(cfg.KEK.Reveal())
+	if err != nil {
+		return nil, fmt.Errorf("devices: HORUS_DEVICES_KEK_FILE: %w", err)
+	}
+	return envelope.New(kek)
 }
 
 func (m *mod) Start(ctx context.Context) error {
