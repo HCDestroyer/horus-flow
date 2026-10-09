@@ -31,7 +31,9 @@ async function enroll(tv: Page, code: string) {
   await tv.getByTestId('kiosk-code').fill(code)
   await tv.getByTestId('kiosk-submit').click()
   await expect(tv.getByTestId('kiosk-current')).toBeVisible()
-  await expect(tv.getByTestId('kiosk-current').locator('[data-testid="widget"][data-state="ready"]')).toHaveCount(9)
+  await expect(
+    tv.getByTestId('kiosk-current').locator('[data-testid="widget"][data-state="ready"]'),
+  ).toHaveCount(9)
 }
 
 test.describe('modo kiosco @kiosk', () => {
@@ -60,22 +62,31 @@ test.describe('modo kiosco @kiosk', () => {
     await expect(tv.getByRole('button', { name: /cerrar sesión|salir/i })).toHaveCount(0)
     // El admin la ve en línea.
     await page.goto(KIOSKS)
-    await expect(page.locator('[data-kiosk="Pantalla de recepción"]').getByTestId('kiosk-presence')).toHaveText('En línea')
+    await expect(
+      page.locator('[data-kiosk="Pantalla de recepción"]').getByTestId('kiosk-presence'),
+    ).toHaveText('En línea')
   })
 
-  test('rota según la playlist, precarga el siguiente y Espacio pausa', async ({ page, context }) => {
+  test('rota según la playlist, precarga el siguiente y Espacio pausa', async ({
+    page,
+    context,
+  }) => {
     await loginAsAdmin(page)
     const code = await codeFor(page)
     const tv = await openKiosk(context, true)
     await enroll(tv, code)
     const first = await tv.getByTestId('kiosk-current').getAttribute('data-dashboard')
     // El siguiente ya está montado (precargado) antes del cambio.
-    await expect(tv.getByTestId('kiosk-next').locator('[data-testid="widget"][data-state="ready"]')).toHaveCount(7)
+    await expect(
+      tv.getByTestId('kiosk-next').locator('[data-testid="widget"][data-state="ready"]'),
+    ).toHaveCount(7)
     await expect(tv.getByTestId('noc-header-rotation')).toContainText('1/2')
     await tv.clock.fastForward(31_000)
     await expect(tv.getByTestId('kiosk-current')).not.toHaveAttribute('data-dashboard', first!)
     // Sin esqueleto al cambiar: todos sus widgets ya tienen datos.
-    await expect(tv.getByTestId('kiosk-current').locator('[data-testid="widget"][data-state="loading"]')).toHaveCount(0)
+    await expect(
+      tv.getByTestId('kiosk-current').locator('[data-testid="widget"][data-state="loading"]'),
+    ).toHaveCount(0)
     await tv.keyboard.press(' ')
     await expect(tv.getByTestId('noc-header-rotation')).toContainText('En pausa')
     const paused = await tv.getByTestId('kiosk-current').getAttribute('data-dashboard')
@@ -99,7 +110,9 @@ test.describe('modo kiosco @kiosk', () => {
     }
     await expect(tv.getByTestId('kiosk-offline')).toContainText('Sin conexión desde las')
     // Los últimos datos siguen en pantalla.
-    await expect(tv.getByTestId('kiosk-current').locator('[data-testid="widget"][data-state="ready"]')).toHaveCount(9)
+    await expect(
+      tv.getByTestId('kiosk-current').locator('[data-testid="widget"][data-state="ready"]'),
+    ).toHaveCount(9)
     await tv.evaluate(() => window.localStorage.removeItem('horus.mock.offline'))
     for (let i = 0; i < 3; i++) {
       await tv.clock.fastForward(31_000)
@@ -124,11 +137,18 @@ test.describe('modo kiosco @kiosk', () => {
     await tv.clock.fastForward(31_000)
     await tv.waitForTimeout(500)
     await tv.clock.fastForward(31_000)
-    await expect.poll(() => tv.evaluate(() => (window as unknown as { __before?: boolean }).__before ?? false)).toBe(false)
+    await expect
+      .poll(() =>
+        tv.evaluate(() => (window as unknown as { __before?: boolean }).__before ?? false),
+      )
+      .toBe(false)
     await expect(tv.getByTestId('kiosk-current')).toBeVisible()
   })
 
-  test('revocación: vuelve a la pantalla de código en menos de 1 min', async ({ page, context }) => {
+  test('revocación: vuelve a la pantalla de código en menos de 1 min', async ({
+    page,
+    context,
+  }) => {
     await loginAsAdmin(page)
     const code = await codeFor(page)
     const tv = await openKiosk(context, true)

@@ -1192,7 +1192,7 @@
     "add": "Nuevo kiosco",
     "lastSignal": "Última señal",
     "offlineSince": "Desconectado desde {time}",
-    "pendingHint": "Genera un código y escríbelo en la TV (https://<horus>/kiosk).",
+    "pendingHint": "Genera un código y escríbelo en la TV (dirección de Horus terminada en /kiosk).",
     "revokedHint": "Revocado: la TV volvió a la pantalla de código.",
     "lastIp": "Última IP",
     "version": "Versión del frontend",

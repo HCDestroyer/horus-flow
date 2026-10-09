@@ -38,18 +38,23 @@ export function useKiosk() {
       : null,
   )
 
-  async function issueToken(): Promise<boolean> {
+  /**
+   * JWT de kiosco con la credencial de dispositivo. `revoked` solo si el servidor la rechaza
+   * (401/403): cualquier otro fallo es transitorio y no devuelve la TV a la pantalla de código.
+   */
+  async function issueToken(): Promise<'ok' | 'revoked' | 'error'> {
     const res = await $api.POST('/kiosk/token', {
       params: { header: { 'X-Requested-With': 'horus' } },
     })
-    if (!res.response.ok || !res.data) return false
+    if (res.response.status === 401 || res.response.status === 403) return 'revoked'
+    if (!res.response.ok || !res.data) return 'error'
     tokenExpires = new Date(res.data.expires_at).getTime()
     scoped.value = {
       scope: { kind: 'tenant', tenantId: res.data.tenant_id ?? '' },
       token: res.data.access_token,
       expiresAt: res.data.expires_at,
     }
-    return true
+    return 'ok'
   }
 
   function toEnroll() {
@@ -77,23 +82,25 @@ export function useKiosk() {
   async function sync(): Promise<boolean> {
     try {
       if (!scoped.value || tokenExpires - Date.now() < 2 * 60_000) {
-        if (!(await issueToken())) {
+        const issued = await issueToken()
+        if (issued === 'revoked') {
           toEnroll()
           return true
         }
+        if (issued === 'error') return false
       }
       let res = await $api.GET('/kiosk/config')
       if (res.response.status === 401) {
-        if (!(await issueToken())) {
+        // Token caducado o credencial revocada: lo decide /kiosk/token.
+        const issued = await issueToken()
+        if (issued === 'revoked') {
           toEnroll()
           return true
         }
+        if (issued === 'error') return false
         res = await $api.GET('/kiosk/config')
       }
-      if (!res.response.ok || !res.data) {
-        if (res.response.status === 401 || res.response.status === 403) toEnroll()
-        return res.response.status < 500
-      }
+      if (!res.response.ok || !res.data) return res.response.status < 500
       config.value = res.data
       await loadDashboards(res.data)
       phase.value = 'playing'
