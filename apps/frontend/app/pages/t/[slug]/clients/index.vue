@@ -172,7 +172,7 @@ const securityOptions = computed(() => [
     >
       <UFormField
         :label="t('clients.search')"
-        :hint="t('clients.searchHint')"
+        :help="t('clients.searchHint')"
         class="min-w-0 lg:w-80"
       >
         <UInput
@@ -275,7 +275,7 @@ const securityOptions = computed(() => [
           :columns="columns"
           :loading="loading"
           class="w-full"
-          :ui="{ td: 'align-top py-2.5', th: 'text-xs' }"
+          :ui="{ td: 'align-top py-2.5', th: 'text-xs whitespace-nowrap' }"
           data-testid="clients-table"
         >
           <template #client-cell="{ row }">

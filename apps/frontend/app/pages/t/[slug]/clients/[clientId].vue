@@ -91,6 +91,7 @@ const securityReasons = computed(() =>
     .slice()
     .sort((a, b) => b.confidence - a.confidence)
     .flatMap((f) => f.reasons.slice(0, 2).map((r) => ({ ...r, finding: f })))
+    .filter((r, i, all) => all.findIndex((x) => x.code === r.code) === i)
     .slice(0, 4),
 )
 
