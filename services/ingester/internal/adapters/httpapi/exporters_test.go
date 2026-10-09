@@ -21,7 +21,9 @@ import (
 
 type memStates map[uuid.UUID]*collectorapi.FlowExporter
 
-func (m memStates) Get(_ context.Context, id uuid.UUID) (*collectorapi.FlowExporter, error) { return m[id], nil }
+func (m memStates) Get(_ context.Context, id uuid.UUID) (*collectorapi.FlowExporter, error) {
+	return m[id], nil
+}
 
 var (
 	tenantA = uuid.MustParse("0192e000-0000-7000-8000-000000000001")

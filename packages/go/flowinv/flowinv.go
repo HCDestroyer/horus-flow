@@ -60,6 +60,7 @@ type Exporter struct {
 	RouterID   uuid.UUID   `yaml:"router_id" json:"router_id"`
 	SiteID     uuid.UUID   `yaml:"site_id" json:"site_id"`
 	Name       string      `yaml:"name" json:"name"`
+	SiteName   string      `yaml:"site_name" json:"site_name"`
 	TunnelIP   netip.Addr  `yaml:"tunnel_ip" json:"tunnel_ip"`
 	AdminState string      `yaml:"admin_state" json:"admin_state"`
 	Interfaces []Interface `yaml:"interfaces" json:"interfaces"`
