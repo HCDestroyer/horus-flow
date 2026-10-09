@@ -1,0 +1,9 @@
+[
+  {
+    ".id": "*1",
+    "address": "2001:db8:2000::1/48",
+    "interface": "vlan100-clientes",
+    "dynamic": "false",
+    "disabled": "false"
+  }
+]

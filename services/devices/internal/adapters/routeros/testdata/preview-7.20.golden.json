@@ -1,0 +1,90 @@
+[
+  {
+    "prefix": "100.64.0.0/18",
+    "origin": "ip_pool",
+    "origin_name": "cgnat-pppoe",
+    "suggested_role": "customers",
+    "suggested_assignment_mode": "dynamic",
+    "delegated_prefix_length": null,
+    "suggested_ipv6_client_len": null,
+    "ipv6_pool_usage": null,
+    "diff": "overlaps"
+  },
+  {
+    "prefix": "172.16.50.0/24",
+    "origin": "interface_address",
+    "origin_name": "vlan50-mgmt",
+    "suggested_role": "infrastructure",
+    "suggested_assignment_mode": "static",
+    "delegated_prefix_length": null,
+    "suggested_ipv6_client_len": null,
+    "ipv6_pool_usage": null,
+    "diff": "new"
+  },
+  {
+    "prefix": "203.0.113.0/29",
+    "origin": "interface_address",
+    "origin_name": "sfp-sfpplus1",
+    "suggested_role": "infrastructure",
+    "suggested_assignment_mode": "static",
+    "delegated_prefix_length": null,
+    "suggested_ipv6_client_len": null,
+    "ipv6_pool_usage": null,
+    "diff": "new"
+  },
+  {
+    "prefix": "2001:db8:2000::/40",
+    "origin": "ipv6_pool",
+    "origin_name": "pd-empresas",
+    "suggested_role": "customers",
+    "suggested_assignment_mode": "dynamic",
+    "delegated_prefix_length": 48,
+    "suggested_ipv6_client_len": 48,
+    "ipv6_pool_usage": "dhcpv6_pd",
+    "diff": "new"
+  },
+  {
+    "prefix": "2001:db8:3000::/44",
+    "origin": "ipv6_pool",
+    "origin_name": "ipoe-pd",
+    "suggested_role": "customers",
+    "suggested_assignment_mode": "dynamic",
+    "delegated_prefix_length": 60,
+    "suggested_ipv6_client_len": 60,
+    "ipv6_pool_usage": "dhcpv6_pd",
+    "diff": "new"
+  },
+  {
+    "prefix": "2001:db8:4000::/64",
+    "origin": "ipv6_pool",
+    "origin_name": "ipoe-na",
+    "suggested_role": "customers",
+    "suggested_assignment_mode": "dynamic",
+    "delegated_prefix_length": 128,
+    "suggested_ipv6_client_len": null,
+    "ipv6_pool_usage": "dhcpv6_address",
+    "diff": "new"
+  },
+  {
+    "prefix": "2001:db8:5000::/48",
+    "origin": "ipv6_pool",
+    "origin_name": "raro",
+    "suggested_role": "customers",
+    "suggested_assignment_mode": "dynamic",
+    "delegated_prefix_length": 62,
+    "suggested_ipv6_client_len": null,
+    "ipv6_pool_usage": "unused",
+    "diff": "new"
+  },
+  {
+    "prefix": "2001:db8:fe00::/64",
+    "origin": "ipv6_pool",
+    "origin_name": "enlace-compartido",
+    "suggested_role": "infrastructure",
+    "suggested_assignment_mode": "dynamic",
+    "delegated_prefix_length": 64,
+    "suggested_ipv6_client_len": 64,
+    "ipv6_pool_usage": "ppp_link_shared",
+    "diff": "new"
+  }
+]

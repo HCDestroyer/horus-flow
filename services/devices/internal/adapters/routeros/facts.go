@@ -24,7 +24,10 @@ func (c *Client) ReadFacts(ctx context.Context) (domain.RouterFacts, error) {
 		return f, err
 	}
 	if len(res) > 0 {
-		f.Version = res[0]["version"]
+		// "7.12 (stable)" → "7.12"
+		if v := strings.Fields(res[0]["version"]); len(v) > 0 {
+			f.Version = v[0]
+		}
 	}
 	pools, err := c.Print(ctx, "ip/pool", "name", "ranges")
 	if err != nil {
