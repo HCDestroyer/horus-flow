@@ -21,6 +21,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/crypto/envelope"
 	"github.com/hcdestroyer/horus-flow/packages/go/health"
 	"github.com/hcdestroyer/horus-flow/packages/go/module"
+	"github.com/hcdestroyer/horus-flow/packages/go/natsx"
 	"github.com/hcdestroyer/horus-flow/packages/go/pagination"
 	"github.com/hcdestroyer/horus-flow/packages/go/pgdb"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
@@ -111,7 +112,7 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		httpapi.New(svc, guard, cfg.PublicBaseURL, logger).Mount(deps.Routes)
 		httpapi.NewImport(importer, guard, logger).Mount(deps.Routes)
 	}
-	return &mod{db: db, logger: logger, migrate: cfg.Migrate}, nil
+	return natsx.WithRelay(ctx, deps, &mod{db: db, logger: logger, migrate: cfg.Migrate}, db, migrations.Schema)
 }
 
 // loadSealer carga la KEK de credenciales (efímera solo en dev).

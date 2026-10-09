@@ -99,7 +99,7 @@ func New(t testing.TB) (*nats.Conn, jetstream.JetStream) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if err := natsx.EnsureStreams(ctx, js, defs); err != nil {
+	if err := natsx.EnsureStreams(ctx, js, defs, 32<<20); err != nil {
 		t.Fatal(err)
 	}
 	return nc, js

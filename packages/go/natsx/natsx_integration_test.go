@@ -62,6 +62,11 @@ func TestRelayPublishesOutboxWithTenantHeader(t *testing.T) {
 			return nil
 		})
 	}()
+	var total int
+	_ = db.Pool.QueryRow(ctx, `SELECT count(*) FROM rtest.outbox WHERE published_at IS NULL`).Scan(&total)
+	if total != 3 {
+		t.Fatalf("outbox con %d filas", total)
+	}
 	r := &natsx.Relay{DB: db, Schema: "rtest", JS: js}
 	n, err := r.Once(ctx)
 	if err != nil || n != 3 {

@@ -40,8 +40,9 @@ func LoadStreams(path string) ([]StreamDef, error) {
 
 // EnsureStreams crea o actualiza los streams (lo usan los tests y el
 // aprovisionamiento de desarrollo; en despliegue los aplica infrastructure/nats).
-// max_bytes parametrizados (`${…}`) se dejan sin límite.
-func EnsureStreams(ctx context.Context, js jetstream.JetStream, defs []StreamDef) error {
+// max_bytes parametrizados (`${…}`) se dejan sin límite; capBytes > 0 limita
+// el max_bytes de cada stream (tests con poco disco).
+func EnsureStreams(ctx context.Context, js jetstream.JetStream, defs []StreamDef, capBytes int64) error {
 	for _, d := range defs {
 		cfg := jetstream.StreamConfig{
 			Name: d.Name, Subjects: d.Subjects, Storage: jetstream.FileStorage, Discard: jetstream.DiscardOld,
@@ -54,6 +55,9 @@ func EnsureStreams(ctx context.Context, js jetstream.JetStream, defs []StreamDef
 		cfg.Duplicates = parseDur(d.DuplicateWindow)
 		if n := parseBytes(d.MaxBytes); n > 0 {
 			cfg.MaxBytes = n
+		}
+		if capBytes > 0 && (cfg.MaxBytes < 0 || cfg.MaxBytes > capBytes) {
+			cfg.MaxBytes = capBytes
 		}
 		if n := parseBytes(d.MaxMsgSize); n > 0 {
 			cfg.MaxMsgSize = int32(n) //nolint:gosec // ≤ 1 MiB

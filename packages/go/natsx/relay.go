@@ -41,8 +41,7 @@ type outboxRow struct {
 	payload []byte
 }
 
-// Run publica hasta que ctx se cancela.
-func (r *Relay) Run(ctx context.Context) error {
+func (r *Relay) defaults() {
 	if r.Interval <= 0 {
 		r.Interval = time.Second
 	}
@@ -55,6 +54,11 @@ func (r *Relay) Run(ctx context.Context) error {
 	if r.Logger == nil {
 		r.Logger = slog.New(slog.DiscardHandler)
 	}
+}
+
+// Run publica hasta que ctx se cancela.
+func (r *Relay) Run(ctx context.Context) error {
+	r.defaults()
 	backoff := time.Duration(0)
 	lastClean := time.Time{}
 	for {
@@ -97,6 +101,7 @@ func (r *Relay) table() string { return pgx.Identifier{r.Schema, "outbox"}.Sanit
 
 // Once publica un lote y devuelve cuántas filas publicó.
 func (r *Relay) Once(ctx context.Context) (int, error) {
+	r.defaults()
 	published := 0
 	var pubErr error
 	err := r.DB.PlatformTx(ctx, func(tx pgx.Tx) error {

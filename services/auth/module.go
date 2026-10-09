@@ -27,6 +27,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/config"
 	"github.com/hcdestroyer/horus-flow/packages/go/health"
 	"github.com/hcdestroyer/horus-flow/packages/go/module"
+	"github.com/hcdestroyer/horus-flow/packages/go/natsx"
 	"github.com/hcdestroyer/horus-flow/packages/go/pagination"
 	"github.com/hcdestroyer/horus-flow/packages/go/pgdb"
 	"github.com/hcdestroyer/horus-flow/services/auth/api"
@@ -128,7 +129,7 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		}).Mount(deps.Routes)
 	}
 	logger.InfoContext(ctx, "auth configured", slog.Any("auth", cfg), slog.String("postgres", pgdb.RedactDSN(cfg.PostgresDSN)))
-	return &mod{db: db, svc: svc, cfg: cfg, logger: logger, migrate: cfg.Migrate}, nil
+	return natsx.WithRelay(ctx, deps, &mod{db: db, svc: svc, cfg: cfg, logger: logger, migrate: cfg.Migrate}, db, migrations.Schema)
 }
 
 func (m *mod) Start(ctx context.Context) error {
