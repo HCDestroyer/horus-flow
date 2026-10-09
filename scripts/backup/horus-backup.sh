@@ -16,6 +16,7 @@
 #   horus-backup check-ttl              TTL de flows.flows_raw = HORUS_RAW_TTL_DAYS (7 d, storage.md §5)
 #   horus-backup metrics                ocupación de discos y reescritura de metrics.prom
 #   horus-backup status                 resumen legible (últimos backups, restauraciones, disco)
+#   horus-backup ch-sql < consulta.sql  consulta ClickHouse como administrador (diagnóstico)
 #
 # Métricas (texto Prometheus en HORUS_DATA_ROOT/metrics/metrics.prom, servidas en
 # 127.0.0.1:9109/metrics.prom por el servicio backup-metrics):
@@ -400,7 +401,11 @@ ch_verify() {
 # --- Comprobaciones ------------------------------------------------------------------------------
 check_ttl() {
   local ttl
-  ttl="$(printf "SELECT extract(create_table_query, 'TTL [^\\\\n]*?INTERVAL (\\\\d+) DAY') FROM system.tables WHERE database = 'flows' AND name = 'flows_raw'\n" | ch_sql)"
+  # ClickHouse normaliza `INTERVAL 7 DAY` a `toIntervalDay(7)` en engine_full.
+  ttl="$(ch_sql <<'SQL'
+SELECT extract(engine_full, 'TTL .*?toIntervalDay\\((\\d+)\\)') FROM system.tables WHERE database = 'flows' AND name = 'flows_raw'
+SQL
+)"
   if [ "$ttl" = "$RAW_TTL_DAYS" ]; then
     state_set clickhouse raw_ttl_ok 1
     log "ClickHouse: TTL de flows.flows_raw = $ttl días (storage.md §5: $RAW_TTL_DAYS) OK"
@@ -476,6 +481,7 @@ case "$cmd" in
   check-ttl) run_plain check_ttl ;;
   metrics) run_plain disk_metrics ;;
   status) status ;;
+  ch-sql) ch_sql ;;
   *) usage ;;
 esac
 exit "$rc_total"

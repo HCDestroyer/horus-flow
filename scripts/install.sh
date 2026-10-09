@@ -633,7 +633,16 @@ set -e
 case "\${1:-up}" in
   up)
     if ! ip link show $wg_if >/dev/null 2>&1; then
-      ip link add $wg_if type wireguard 2>/dev/null || { mkdir -p /var/run/wireguard; WG_PROCESS_FOREGROUND=0 wireguard-go $wg_if; }
+      if ! ip link add $wg_if type wireguard 2>/dev/null; then
+        # Sin módulo del kernel: wireguard-go en primer plano y desligado (su modo demonio no
+        # sobrevive en algunos entornos); UAPI en /var/run/wireguard/$wg_if.sock.
+        mkdir -p /var/run/wireguard
+        setsid wireguard-go -f $wg_if </dev/null >>/var/log/horus-wireguard-go.log 2>&1 &
+        i=0
+        until [ -S /var/run/wireguard/$wg_if.sock ] && ip link show $wg_if >/dev/null 2>&1; do
+          i=\$((i + 1)); [ \$i -lt 50 ] || { echo "horus-tunnel: wireguard-go no creó $wg_if" >&2; exit 1; }; sleep 0.2
+        done
+      fi
     fi
     ip addr replace $collector_ip/${services_cidr#*/} dev $wg_if
     ip link set $wg_if up
@@ -669,6 +678,7 @@ setup_tunnel() {
   say "Hub WireGuard ($wg_if) y filtro de IPFIX"
   tunnel_script >"$install_dir/bin/horus-tunnel"
   chmod 0755 "$install_dir/bin/horus-tunnel"
+  ip link show "$wg_if" >/dev/null 2>&1 || tunnel_created=1
   "$install_dir/bin/horus-tunnel" up
   ok "$wg_if con $collector_ip/${services_cidr#*/}, ruta $tunnel_cidr"
   [ "$skip_fw" = 1 ] && warn "--skip-firewall: el UDP 4739/2055 no se filtra por interfaz" || ok "UDP 4739/2055 solo por $wg_if (DOCKER-USER e INPUT)"
@@ -766,6 +776,11 @@ compose_up() {
     "${compose[@]}" logs --tail 40 || true
     die "el compose no quedó healthy"
   fi
+  # Si la interfaz del hub se acaba de (re)crear, el colector (publicado en su IP) y wg-agent
+  # (clave, puerto y peers) se recrean para engancharse a ella.
+  if [ "${tunnel_created:-0}" = 1 ] && [ "${HORUS_FRESH_COMPOSE:-0}" = 0 ]; then
+    "${compose[@]}" up -d --wait --force-recreate --no-deps horus-collector horus-wg-agent >/dev/null 2>&1 || die "no se pudo recrear horus-collector/horus-wg-agent"
+  fi
   "${compose[@]}" ps --format 'table {{.Service}}\t{{.Status}}'
 }
 
@@ -849,7 +864,7 @@ do_check() {
   if ip link show "$HORUS_WG_INTERFACE" >/dev/null 2>&1; then
     ok "interfaz $HORUS_WG_INTERFACE presente ($(ip -4 -o addr show "$HORUS_WG_INTERFACE" | awk '{ print $4 }' | head -1))"
     if command -v wg >/dev/null 2>&1; then
-      local lp; lp="$(wg show "$HORUS_WG_INTERFACE" listen-port 2>/dev/null || true)"
+      local lp; lp="$(timeout 5 wg show "$HORUS_WG_INTERFACE" listen-port 2>/dev/null || true)"
       [ "$lp" = "$HORUS_WG_PORT" ] && ok "WireGuard escucha en UDP $lp" || fail "WireGuard: puerto '${lp:-?}' (esperado $HORUS_WG_PORT; lo configura horus-wg-agent)"
     fi
   else
@@ -913,7 +928,10 @@ do_uninstall() {
 }
 
 # --confirm-bundle sin más opciones: solo marca el paquete offline como guardado.
-if [ "$action" = install ] && [ "$confirm_bundle" = 1 ] && [ "${#opt[@]}" -eq 0 ] && [ -f "$etc_dir/bundle.sha256" ]; then
+n_opts="${#opt[@]}"
+[ -z "${opt[root]:-}" ] || n_opts=$((n_opts - 1))
+[ -z "${opt[etc-dir]:-}" ] || n_opts=$((n_opts - 1))
+if [ "$action" = install ] && [ "$confirm_bundle" = 1 ] && [ "$n_opts" -eq 0 ] && [ -f "$etc_dir/bundle.sha256" ]; then
   if [ "$(secrets_digest)" = "$(cat "$etc_dir/bundle.sha256")" ]; then
     date -u +%Y-%m-%dT%H:%M:%SZ >"$etc_dir/bundle.confirmed"
     echo "install.sh: paquete de secretos offline confirmado"
