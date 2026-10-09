@@ -164,6 +164,3 @@ func (l *lazyQuerier) Query(ctx context.Context, tenant uuid.UUID, sql string, a
 	}
 	return r.Query(ctx, tenant, sql, args...)
 }
-
-// startExtras arranca lo que depende de ClickHouse además de las consultas.
-func (m *mod) startExtras(context.Context) error { return nil }

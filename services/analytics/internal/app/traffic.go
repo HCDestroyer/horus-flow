@@ -45,19 +45,19 @@ type CustomerKey struct {
 
 // TopRow es una fila del top.
 type TopRow struct {
-	Key       string
-	Label     string
-	Down, Up  uint64
-	Share     float64
-	Customer  *CustomerKey
+	Key        string
+	Label      string
+	Down, Up   uint64
+	Share      float64
+	Customer   *CustomerKey
 	CustomerIP netip.Addr
-	Site      uuid.UUID
+	Site       uuid.UUID
 }
 
 // TopResult es el resultado del top.
 type TopResult struct {
-	Dimension string
-	Rows      []TopRow
+	Dimension            string
+	Rows                 []TopRow
 	OthersDown, OthersUp uint64
 	TotalDown, TotalUp   uint64
 }

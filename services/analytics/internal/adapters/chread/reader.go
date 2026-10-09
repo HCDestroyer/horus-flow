@@ -86,3 +86,23 @@ func (r *Reader) Query(ctx context.Context, tenant uuid.UUID, sql string, args .
 	}
 	return rows, cancel, nil
 }
+
+// InsertDims escribe las dimensiones de plataforma del catálogo (analytics es
+// el escritor único de dim.*, database.md §4): services, categorías y
+// organizaciones con su catalog_version (ReplacingMergeTree por versión).
+func (r *Reader) InsertDims(ctx context.Context, table string, rows [][]any) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	b, err := r.conn.PrepareBatch(ctx, "INSERT INTO "+table)
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if err := b.Append(row...); err != nil {
+			_ = b.Abort()
+			return err
+		}
+	}
+	return b.Send()
+}
