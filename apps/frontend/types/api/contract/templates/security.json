@@ -1,0 +1,142 @@
+{
+  "id": "0192f000-0000-7000-8000-00000000d002",
+  "tenant_id": null,
+  "version": 1,
+  "name": "Seguridad",
+  "visibility": "system",
+  "owner_id": null,
+  "template_key": "security",
+  "template_version": 1,
+  "layout": {
+    "grid": "12-col",
+    "columns": 12,
+    "row_height_px": 80,
+    "breakpoints": {
+      "lg": 1600,
+      "md": 1200
+    }
+  },
+  "default_range": "24h",
+  "refresh_seconds": 30,
+  "variables": {
+    "site_id": null,
+    "range": "24h"
+  },
+  "widgets": [
+    {
+      "id": "w-header",
+      "type": "noc_header",
+      "title": null,
+      "position": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 1
+      },
+      "config": {
+        "show_clock": true,
+        "show_tenant": true,
+        "show_rotation": true
+      }
+    },
+    {
+      "id": "w-findings-summary",
+      "type": "findings_summary",
+      "title": "Hallazgos abiertos",
+      "position": {
+        "x": 0,
+        "y": 1,
+        "w": 4,
+        "h": 2
+      },
+      "config": {
+        "site_ids": [],
+        "min_severity": "low"
+      },
+      "refresh_seconds": 15
+    },
+    {
+      "id": "w-botnet-signals",
+      "type": "botnet_signals",
+      "title": "Señales de botnet",
+      "position": {
+        "x": 4,
+        "y": 1,
+        "w": 4,
+        "h": 3
+      },
+      "config": {
+        "site_ids": [],
+        "range": "1h"
+      },
+      "refresh_seconds": 15
+    },
+    {
+      "id": "w-security-by-node",
+      "type": "security_by_node",
+      "title": "Seguridad por nodo",
+      "position": {
+        "x": 8,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "config": {
+        "n": 8
+      }
+    },
+    {
+      "id": "w-watched-ports",
+      "type": "watched_ports",
+      "title": "Puertos vigilados",
+      "position": {
+        "x": 0,
+        "y": 3,
+        "w": 4,
+        "h": 3
+      },
+      "config": {
+        "site_ids": [],
+        "range": "1h"
+      }
+    },
+    {
+      "id": "w-findings-trend",
+      "type": "findings_trend",
+      "title": "Tendencia 7 días",
+      "position": {
+        "x": 6,
+        "y": 5,
+        "w": 6,
+        "h": 3
+      },
+      "config": {
+        "range": "7d",
+        "group_by": "kind"
+      }
+    },
+    {
+      "id": "w-findings-feed",
+      "type": "findings_feed",
+      "title": "Hallazgos recientes",
+      "position": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 4
+      },
+      "config": {
+        "site_ids": [],
+        "min_severity": "low",
+        "states": [
+          "open",
+          "acknowledged"
+        ],
+        "limit": 10
+      },
+      "refresh_seconds": 15
+    }
+  ],
+  "created_at": "2026-10-01T00:00:00.000Z",
+  "updated_at": "2026-10-01T00:00:00.000Z"
+}

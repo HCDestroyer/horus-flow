@@ -4,7 +4,16 @@ import withNuxt from './.nuxt/eslint.config.mjs'
 
 export default withNuxt(
   {
-    ignores: ['.output/**', '.nuxt/**', 'dist/**', 'playwright-report/**', 'test-results/**'],
+    ignores: [
+      '.output/**',
+      '.nuxt/**',
+      'dist/**',
+      'playwright-report/**',
+      'test-results/**',
+      // Generados desde los contratos (pnpm api:generate).
+      'types/api/schema.d.ts',
+      'types/api/widget-catalog.ts',
+    ],
   },
   {
     rules: {

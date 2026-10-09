@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { CapabilityState } from '~~/shared/api/types'
+import type { CapabilityState } from '~~/types/api'
 
 /** Estado = icono + texto + color, nunca solo color (frontend.md §13.2, WCAG 1.4.1). */
 const props = defineProps<{ state: CapabilityState }>()

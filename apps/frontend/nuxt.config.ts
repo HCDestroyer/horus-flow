@@ -31,9 +31,10 @@ export default defineNuxtConfig({
     public: {
       // Base de la API del gateway. Relativa: el dominio lo pone cada instalación (D14).
       apiBase: '/api/v1',
-      // Hasta I0-15 no hay API real: la SPA usa la API simulada en memoria (mocks/).
-      // Desactivar con NUXT_PUBLIC_API_MOCK=false cuando el gateway exista.
-      apiMock: true,
+      // API simulada en memoria (mocks/, generada del contrato) con HORUS_UI_MOCKS=1 (I0-15,
+      // criterio 4); sin la variable, la SPA habla con el gateway en `apiBase`. En una SPA
+      // generada el valor queda fijado en la build (`pnpm build:mocks` para demos y e2e).
+      apiMock: ['1', 'true'].includes(process.env.HORUS_UI_MOCKS ?? ''),
       // Incremento máximo cuyas secciones aparecen en la barra lateral (frontend.md §4,
       // aparición progresiva). Valores: I0 | I1 | I2 | I3.
       navIncrement: 'I1',

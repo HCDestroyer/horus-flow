@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { SystemStatus } from '~~/shared/api/types'
+import type { CapabilityState } from '~~/types/api'
 
 /**
  * Resumen del ISP (destino tras el login, I0-14). En I1 lo sustituye el dashboard
@@ -16,11 +16,17 @@ const {
   error,
   status: fetchStatus,
   refresh,
-} = useAsyncData('system-status', () => $api.get<SystemStatus>('/system/status'), {
+} = useAsyncData('system-status', () => unwrap($api.GET('/system/status')), {
   server: false,
 })
 
-const capabilities = computed(() => (status.value ? Object.entries(status.value.capabilities) : []))
+const capabilities = computed(() =>
+  status.value
+    ? Object.entries(status.value.capabilities).filter(
+        (entry): entry is [string, CapabilityState] => !!entry[1],
+      )
+    : [],
+)
 
 const summary = computed(() => {
   if (!status.value) return null
@@ -145,11 +151,11 @@ const firstName = computed(() => me.value?.display_name.split(' ')[0] ?? '')
               <dd class="mt-1 flex flex-wrap gap-1.5">
                 <UBadge
                   v-for="role in membership?.roles ?? []"
-                  :key="role"
+                  :key="role.role_id + role.scope"
                   color="neutral"
                   variant="subtle"
                   class="font-mono"
-                  :label="role"
+                  :label="role.role_key ?? role.role_id"
                 />
               </dd>
             </div>

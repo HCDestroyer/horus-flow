@@ -7,3 +7,7 @@ pnpm-lock.yaml
 playwright-report
 test-results
 docs/screenshots
+# Generados por scripts/generate-api.mjs (pnpm api:generate)
+types/api/schema.d.ts
+types/api/widget-catalog.ts
+types/api/contract

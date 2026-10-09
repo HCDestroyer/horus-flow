@@ -5,7 +5,7 @@ import { defineConfig, devices } from '@playwright/test'
  * `@playwright/test` va fijado a la versión cuyo Chromium está en la imagen de CI
  * (PLAYWRIGHT_BROWSERS_PATH); no se ejecuta `playwright install`.
  *
- * - `E2E_NO_BUILD=1` reutiliza `.output/public` (útil en CI tras `pnpm build`).
+ * - `E2E_NO_BUILD=1` reutiliza `.output/public` (generado con `pnpm build:mocks`).
  * - `E2E_BASE_URL` apunta a un despliegue ya levantado y no arranca servidor.
  */
 const port = Number(process.env.PORT ?? 4173)
@@ -30,7 +30,7 @@ export default defineConfig({
   webServer: process.env.E2E_BASE_URL
     ? undefined
     : {
-        command: process.env.E2E_NO_BUILD ? serve : `pnpm build && ${serve}`,
+        command: process.env.E2E_NO_BUILD ? serve : `pnpm build:mocks && ${serve}`,
         url: baseURL,
         reuseExistingServer: !process.env.CI,
         timeout: 300_000,
