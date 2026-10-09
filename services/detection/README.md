@@ -70,7 +70,21 @@ detector propio con allowlist de hosts de gestión (I2). Lo verifica `TestRealCa
 `HORUS_DETECTION_CH_USER` (`horus_detection`), `HORUS_CLICKHOUSE_DETECTION_PASSWORD`,
 `HORUS_DETECTION_CH_TIMEOUT` (30s), `HORUS_REPUTATION_SNAPSHOT_DIR`, `HORUS_DETECTION_ENGINE` (true),
 `HORUS_DETECTION_INTERVAL` (1m), `HORUS_DETECTION_LAG` (2m), `HORUS_DETECTION_TENANTS` (lista fija; el
-resto se registra en `detection.tenant_registry` al usar la API).
+resto se registra en `detection.tenant_registry` al usar la API). Feeds en el rol: `HORUS_DATA_DIR`
+(`/var/lib/horus/store`), `HORUS_FEEDS_CONFIG`, `HORUS_FEEDS_CUSTOM`, `HORUS_FEEDS_FIXTURES`,
+`HORUS_DETECTION_FEEDS_SYNC` (false: activar en despliegue para descargar de Internet),
+`HORUS_DETECTION_FEEDS_INTERVAL` (15m; cada fuente se descarga según su `frequency`),
+`HORUS_FEEDS_ALLOW_UNVERIFIED`. El snapshot se publica en `$HORUS_DATA_DIR/catalog/reputation/` y el
+motor lo lee de ahí si no se fija `HORUS_REPUTATION_SNAPSHOT_DIR`; `GET /reputation/sources` muestra
+el estado de cada fuente.
+
+### Widgets de seguridad (C9)
+
+`services/detection/api/securitywidgets` (`detection.SecurityWidgetData` en `module.Services`,
+`trafficwidgets.Provider`) resuelve para `analytics/dashboards` `findings_summary`, `botnet_signals`,
+`findings_feed`, `findings_trend`, `security_by_node` y `watched_ports` con las formas de
+`apps/frontend/app/widgets/shapes.ts`; sin `ShowPersonalData` la IP sale enmascarada y sin alias.
+`GET /security/summary` acepta el JWT de kiosco (kiosco activo, comprobado con auth en proceso).
 
 ### Pruebas
 

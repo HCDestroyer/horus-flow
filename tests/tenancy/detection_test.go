@@ -63,6 +63,12 @@ func TestDetectionPermissions(t *testing.T) {
 	if r := a.do(req{Method: "POST", Path: "/api/v1/reputation/allowlist", Token: viewer, Body: map[string]any{"asn": 64500, "reason": "x"}}); r.Status != 403 {
 		t.Errorf("viewer allowlist: %d", r.Status)
 	}
+	// Feeds de plataforma (D20): el catálogo embebido, visible con security.findings.read.
+	src := a.must(a.do(req{Method: "GET", Path: "/api/v1/reputation/sources", Token: viewer}), 200)
+	feeds := src.Body["data"].([]any)
+	if len(feeds) == 0 || feeds[0].(map[string]any)["origin"] != "catalog" || feeds[0].(map[string]any)["key"] == "" {
+		t.Fatalf("reputation/sources: %s", src.Raw)
+	}
 	// Otro ISP → 404, también por la evidencia y las transiciones.
 	for _, p := range []string{"/api/v1/findings/" + fid, "/api/v1/findings/" + fid + "/evidence", "/api/v1/customers/" + ids["customer_id"] + "/findings"} {
 		if r := a.do(req{Method: "GET", Path: p, Token: B.token}); r.Status != 404 {

@@ -23,12 +23,14 @@ import (
 
 	"github.com/hcdestroyer/horus-flow/packages/go/apperr"
 	"github.com/hcdestroyer/horus-flow/packages/go/authz"
+	"github.com/hcdestroyer/horus-flow/packages/go/datasets"
 	"github.com/hcdestroyer/horus-flow/packages/go/outbox"
 	"github.com/hcdestroyer/horus-flow/packages/go/pagination"
 	"github.com/hcdestroyer/horus-flow/packages/go/pgdb"
 	"github.com/hcdestroyer/horus-flow/packages/go/problem"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
 	"github.com/hcdestroyer/horus-flow/services/detection/internal/adapters/postgres"
+	"github.com/hcdestroyer/horus-flow/services/detection/internal/app/feedsync"
 	"github.com/hcdestroyer/horus-flow/services/detection/internal/domain"
 	"github.com/hcdestroyer/horus-flow/services/detection/internal/engine"
 )
@@ -91,6 +93,7 @@ type Service struct {
 	cursor   *pagination.Codec
 	registry Registry
 	kiosks   func() (authapi.KioskChecker, bool)
+	sources  SourceLister
 	now      func() time.Time
 	log      *slog.Logger
 }
@@ -758,4 +761,60 @@ func (s *Service) DeleteAllow(ctx context.Context, id uuid.UUID) error {
 		return apperr.NotFound(problem.CodeNotFound)
 	}
 	return err
+}
+
+// SourceLister da el estado de las fuentes de reputación (feedsync en el rol).
+type SourceLister interface {
+	Status(ctx context.Context) ([]feedsync.SourceStatus, error)
+}
+
+// SetSources conecta el estado de las fuentes de reputación.
+func (s *Service) SetSources(l SourceLister) { s.sources = l }
+
+// Categoría del feed → enum del contrato (reputation_category de flows_raw).
+var sourceCategory = map[string]string{"botnet_cc": "botnet_cc", "scanner": "scanner", "malware": "malware_dist", "mining": "mining_pool",
+	"proxy": "proxy_vpn", "tor": "tor_exit", "blocklist": "blocklist", "spam": "blocklist", "other": "blocklist"}
+
+// ListSources es GET /reputation/sources: estado de los feeds de plataforma
+// (catálogo base y listas personalizadas, D20).
+func (s *Service) ListSources(ctx context.Context) ([]map[string]any, error) {
+	if _, _, _, err := s.scope(ctx, PermRead); err != nil {
+		return nil, err
+	}
+	if s.sources == nil {
+		return []map[string]any{}, nil
+	}
+	list, err := s.sources.Status(ctx)
+	if err != nil {
+		return nil, err
+	}
+	now := s.now().UTC()
+	out := make([]map[string]any, 0, len(list))
+	for _, x := range list {
+		src, st := x.Source, x.State
+		origin := "catalog"
+		if src.Origin == datasets.OriginCustom {
+			origin = "custom"
+		}
+		cat := sourceCategory[src.Category]
+		if cat == "" {
+			cat = "blocklist"
+		}
+		entries := 0
+		if st.Current != nil {
+			entries = st.Current.Entries
+		}
+		var last, age any
+		if !st.LastSuccess.IsZero() {
+			last, age = ts(st.LastSuccess), int(now.Sub(st.LastSuccess).Seconds())
+		}
+		name := src.Name
+		if name == "" {
+			name = src.ID
+		}
+		out = append(out, map[string]any{"key": src.ID, "name": name, "origin": origin, "confidence": src.Confidence, "category": cat,
+			"entries": entries, "last_success_at": last, "age_seconds": age,
+			"commercial_use_allowed": src.CommercialUse == datasets.CommercialYes || origin == "custom"})
+	}
+	return out, nil
 }
