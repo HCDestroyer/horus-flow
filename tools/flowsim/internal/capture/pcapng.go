@@ -242,7 +242,7 @@ func (p *PcapngWriter) WriteFrame(t time.Time, data []byte) error {
 	le := binary.LittleEndian
 	b := le.AppendUint32(make([]byte, 0, 20+len(data)+3), 0)
 	b = le.AppendUint32(b, uint32(ns>>32))
-	b = le.AppendUint32(b, uint32(ns)) //nolint:gosec // parte baja
+	b = le.AppendUint32(b, uint32(ns))        //nolint:gosec // parte baja
 	b = le.AppendUint32(b, uint32(len(data))) //nolint:gosec // tramas < 4 GiB
 	b = le.AppendUint32(b, uint32(len(data))) //nolint:gosec // tramas < 4 GiB
 	b = append(b, data...)

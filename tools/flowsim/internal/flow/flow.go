@@ -149,22 +149,22 @@ const (
 	IEPostNAPTDstPort       uint16 = 228
 
 	// Campos que añade la plantilla real de RouterOS 7.
-	IEIGMPType          uint16 = 33
-	IEPostDstMAC        uint16 = 57
-	IEIPVersion         uint16 = 60
-	IEPostSrcMAC        uint16 = 81
-	IEICMPTypeV4        uint16 = 176
-	IEICMPCodeV4        uint16 = 177
-	IEICMPTypeV6        uint16 = 178
-	IEICMPCodeV6        uint16 = 179
-	IETCPSeq            uint16 = 184
-	IETCPAck            uint16 = 185
-	IETCPWindow         uint16 = 186
-	IEIPHeaderLength    uint16 = 189
-	IEIPTTL             uint16 = 192
-	IEUDPMessageLength  uint16 = 205
-	IEIsMulticast       uint16 = 206
-	IEIPTotalLength     uint16 = 224
+	IEIGMPType         uint16 = 33
+	IEPostDstMAC       uint16 = 57
+	IEIPVersion        uint16 = 60
+	IEPostSrcMAC       uint16 = 81
+	IEICMPTypeV4       uint16 = 176
+	IEICMPCodeV4       uint16 = 177
+	IEICMPTypeV6       uint16 = 178
+	IEICMPCodeV6       uint16 = 179
+	IETCPSeq           uint16 = 184
+	IETCPAck           uint16 = 185
+	IETCPWindow        uint16 = 186
+	IEIPHeaderLength   uint16 = 189
+	IEIPTTL            uint16 = 192
+	IEUDPMessageLength uint16 = 205
+	IEIsMulticast      uint16 = 206
+	IEIPTotalLength    uint16 = 224
 )
 
 // Field es un campo de plantilla.
