@@ -41,8 +41,10 @@ make test        # tests de Go
 make lint        # golangci-lint + verificación de CODEOWNERS
 ```
 
-Algunos objetivos (`up`, `sim`, `lab-up`, `accept-i0`…) llegan en historias posteriores del
-incremento 0 y por ahora indican cuál.
+`make accept-i0` ejecuta la batería de aceptación del incremento 0 (tests Go con `-race`, lint,
+contratos, simulador, compose con el perfil `app`, migraciones, e2e de humo contra el backend real
+y Playwright del frontend) y termina con un resumen OK/FAIL/SKIP por paso; ver
+[`tests/acceptance/README.md`](tests/acceptance/README.md).
 
 ## Documentación
 

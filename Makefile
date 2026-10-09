@@ -171,9 +171,22 @@ lab-selftest: ## Validación §8.3 en un CHR limpio; deja la salida en .lab/self
 
 ##@ Aceptación
 
+# Batería de aceptación del incremento 0 (I0-19, tests/acceptance/README.md). Levanta su propio
+# compose (proyecto horus-accept, puertos +20000, volúmenes nuevos) y lo destruye al terminar.
+# Variables: ACCEPT_STEPS / ACCEPT_SKIP (lista de pasos), ACCEPT_KEEP=1, ACCEPT_IMAGE_MODE
+# (auto|dockerfile|prebuilt), ACCEPT_PORT_OFFSET; herramientas: GOLANGCI_LINT, BUF_BIN,
+# PLAYWRIGHT_BROWSERS_PATH.
 .PHONY: accept-i0
-accept-i0: ## Ejecuta la batería de aceptación del incremento 0
-	$(call pending,I0-19)
+accept-i0: ## Ejecuta la batería de aceptación del incremento 0 (resumen OK/FAIL/SKIP por paso)
+	@GO='$(GO)' GOLANGCI_LINT='$(GOLANGCI_LINT)' bash scripts/accept/accept-i0.sh
+
+.PHONY: accept-image
+accept-image: ## Construye la imagen horus:accept (Dockerfile raíz o, si falla, desde el binario local)
+	@GO='$(GO)' bash scripts/accept/image.sh
+
+.PHONY: accept-e2e
+accept-e2e: ## Solo el e2e de humo contra el backend real (compose de aceptación; ACCEPT_KEEP=1 lo conserva)
+	@ACCEPT_STEPS=$${ACCEPT_STEPS:-image,compose-up,healthy,migrations,e2e-api} GO='$(GO)' bash scripts/accept/accept-i0.sh
 
 .PHONY: clean
 clean: ## Borra artefactos de build locales
