@@ -316,3 +316,23 @@ func (st *Store) Load() *Snapshot { return st.cur.Load() }
 
 // Swap sustituye el snapshot vigente.
 func (st *Store) Swap(s *Snapshot) { st.cur.Store(s) }
+
+// SiteOf indica si site es un nodo conocido del tenant (exportador, realm o prefijo).
+func (s *Snapshot) SiteOf(tenant, site uuid.UUID) bool {
+	for _, e := range s.data.Exporters {
+		if e.TenantID == tenant && e.SiteID == site {
+			return true
+		}
+	}
+	for _, r := range s.data.Realms {
+		if r.TenantID == tenant && r.SiteID == site {
+			return true
+		}
+	}
+	for _, p := range s.data.Prefixes {
+		if p.TenantID == tenant && p.SiteID == site {
+			return true
+		}
+	}
+	return false
+}
