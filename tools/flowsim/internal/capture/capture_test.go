@@ -19,7 +19,7 @@ func sample() []Datagram {
 }
 
 func TestRoundTrip(t *testing.T) {
-	for _, f := range []Format{FormatHFSim, FormatPcap} {
+	for _, f := range []Format{FormatHFSim, FormatPcap, FormatPcapng} {
 		var buf bytes.Buffer
 		w, err := NewWriter(&buf, f)
 		if err != nil {
@@ -85,8 +85,61 @@ func TestEthernetVLANFrame(t *testing.T) {
 	}
 }
 
+// beBlock construye un bloque pcapng big-endian.
+func beBlock(typ uint32, body []byte) []byte {
+	for len(body)%4 != 0 {
+		body = append(body, 0)
+	}
+	b := binary.BigEndian.AppendUint32(nil, typ)
+	b = binary.BigEndian.AppendUint32(b, uint32(len(body)+12))
+	b = append(b, body...)
+	return binary.BigEndian.AppendUint32(b, uint32(len(body)+12))
+}
+
+// TestPcapngBigEndianMicro lee un pcapng big-endian con resolución por
+// defecto (µs), Ethernet y un SPB, como los que generan otras herramientas.
+func TestPcapngBigEndianMicro(t *testing.T) {
+	d := sample()[0]
+	pkt, err := buildIPUDP(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	frame := append(make([]byte, 12), 0x08, 0x00)
+	frame = append(frame, pkt...)
+	be := binary.BigEndian
+	shb := be.AppendUint32(nil, 0x1A2B3C4D)
+	shb = be.AppendUint16(shb, 1)
+	shb = be.AppendUint16(shb, 0)
+	shb = be.AppendUint64(shb, ^uint64(0))
+	idb := be.AppendUint16(nil, linkEthernet)
+	idb = be.AppendUint16(idb, 0)
+	idb = be.AppendUint32(idb, 0)
+	us := uint64(d.Time.UnixMicro())
+	epb := be.AppendUint32(nil, 0)
+	epb = be.AppendUint32(epb, uint32(us>>32))
+	epb = be.AppendUint32(epb, uint32(us))
+	epb = be.AppendUint32(epb, uint32(len(frame)))
+	epb = be.AppendUint32(epb, uint32(len(frame)))
+	epb = append(epb, frame...)
+	spb := be.AppendUint32(nil, uint32(len(frame)))
+	spb = append(spb, frame...)
+	var file []byte
+	file = append(file, beBlock(pcapngSHB, shb)...)
+	file = append(file, beBlock(pcapngIDB, idb)...)
+	file = append(file, beBlock(pcapngEPB, epb)...)
+	file = append(file, beBlock(pcapngSPB, spb)...)
+	got, err := ReadAll(bytes.NewReader(file))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || !got[0].Time.Equal(d.Time.Truncate(time.Microsecond)) || got[0].Src != d.Src ||
+		!bytes.Equal(got[1].Payload, d.Payload) {
+		t.Fatalf("pcapng big-endian mal interpretado: %+v", got)
+	}
+}
+
 func TestCreateGzip(t *testing.T) {
-	for _, name := range []string{"x.hfsim.gz", "x.pcap.gz", "x.hfsim"} {
+	for _, name := range []string{"x.hfsim.gz", "x.pcap.gz", "x.hfsim", "x.pcapng"} {
 		p := filepath.Join(t.TempDir(), name)
 		w, closeFn, err := Create(p, FormatFromPath(p))
 		if err != nil {
@@ -123,6 +176,11 @@ func FuzzRead(f *testing.F) {
 	_ = pw.Write(sample()[0])
 	_ = pw.Flush()
 	f.Add(pb.Bytes())
+	var ng bytes.Buffer
+	nw, _ := NewWriter(&ng, FormatPcapng)
+	_ = nw.Write(sample()[0])
+	_ = nw.Flush()
+	f.Add(ng.Bytes())
 	var gz bytes.Buffer
 	zw := gzip.NewWriter(&gz)
 	_, _ = zw.Write(buf.Bytes())
