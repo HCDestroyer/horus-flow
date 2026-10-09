@@ -21,6 +21,7 @@ type Principal struct {
 	SessionID   uuid.UUID
 	Scope       string    // session | tenant | platform | kiosk
 	TenantID    uuid.UUID // solo Scope tenant/kiosk
+	KioskID     uuid.UUID // solo Type kiosk
 	ViaPlatform bool
 	AMR         []string
 	AuthTime    time.Time

@@ -69,6 +69,8 @@ type Claims struct {
 	AMR         []string            `json:"amr,omitempty"`
 	AuthTime    int64               `json:"auth_time,omitempty"`
 	Perms       map[string][]string `json:"perms,omitempty"`
+	// KioskID es el kiosco de un token `typ = kiosk` (C7: claims kiosk [tid, kiosk_id]).
+	KioskID string `json:"kiosk_id,omitempty"`
 }
 
 // KeyID calcula el `kid` de una clave pública (huella SHA-256 truncada).
@@ -220,6 +222,17 @@ func principalFromClaims(c *Claims, raw string) (*Principal, error) {
 			return nil, fmt.Errorf("%w: sid", ErrInvalidToken)
 		}
 		p.SessionID = id
+	}
+	if p.Type == TypeKiosk || p.Scope == ScopeKiosk {
+		if p.Type != TypeKiosk || p.Scope != ScopeKiosk {
+			return nil, fmt.Errorf("%w: kiosk typ/scope mismatch", ErrInvalidToken)
+		}
+		id, err := uuid.Parse(c.KioskID)
+		if err != nil {
+			return nil, fmt.Errorf("%w: kiosk_id", ErrInvalidToken)
+		}
+		p.KioskID = id
+		p.Perms = nil // un kiosco nunca lleva permisos: lo limita la lista blanca
 	}
 	if c.TID != "" {
 		id, err := uuid.Parse(c.TID)

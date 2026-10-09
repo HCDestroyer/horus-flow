@@ -155,18 +155,26 @@ func TestImportRules(t *testing.T) {
 	}
 	items := domain.BuildImport(f, nil, tunnels)
 	cases := map[string]func(*domain.ImportItem) bool{
-		"100.64.0.0/18":      func(i *domain.ImportItem) bool { return i.Origin == "ip_pool" && i.SuggestedRole == "customers" },
-		"2001:db8:2000::/40": func(i *domain.ImportItem) bool { return *i.IPv6PoolUsage == "dhcpv6_pd" && *i.SuggestedIPv6ClientLen == 48 },
+		"100.64.0.0/18": func(i *domain.ImportItem) bool { return i.Origin == "ip_pool" && i.SuggestedRole == "customers" },
+		"2001:db8:2000::/40": func(i *domain.ImportItem) bool {
+			return *i.IPv6PoolUsage == "dhcpv6_pd" && *i.SuggestedIPv6ClientLen == 48
+		},
 		"2001:db8:fe00::/64": func(i *domain.ImportItem) bool {
 			return *i.IPv6PoolUsage == "ppp_link_shared" && i.SuggestedRole == "infrastructure"
 		},
-		"2001:db8:3000::/44": func(i *domain.ImportItem) bool { return *i.IPv6PoolUsage == "dhcpv6_pd" && *i.DelegatedPrefixLength == 60 },
+		"2001:db8:3000::/44": func(i *domain.ImportItem) bool {
+			return *i.IPv6PoolUsage == "dhcpv6_pd" && *i.DelegatedPrefixLength == 60
+		},
 		"2001:db8:4000::/64": func(i *domain.ImportItem) bool {
 			return *i.IPv6PoolUsage == "dhcpv6_address" && i.SuggestedIPv6ClientLen == nil && *i.DelegatedPrefixLength == 128
 		},
-		"2001:db8:5000::/48": func(i *domain.ImportItem) bool { return i.SuggestedIPv6ClientLen == nil && *i.IPv6PoolUsage == "unused" },
-		"172.16.50.0/24":     func(i *domain.ImportItem) bool { return i.Origin == "interface_address" && i.SuggestedRole == "infrastructure" },
-		"203.0.113.0/29":     func(i *domain.ImportItem) bool { return i.SuggestedRole == "infrastructure" },
+		"2001:db8:5000::/48": func(i *domain.ImportItem) bool {
+			return i.SuggestedIPv6ClientLen == nil && *i.IPv6PoolUsage == "unused"
+		},
+		"172.16.50.0/24": func(i *domain.ImportItem) bool {
+			return i.Origin == "interface_address" && i.SuggestedRole == "infrastructure"
+		},
+		"203.0.113.0/29": func(i *domain.ImportItem) bool { return i.SuggestedRole == "infrastructure" },
 	}
 	for pfx, ok := range cases {
 		it := find(items, pfx)

@@ -85,3 +85,26 @@ func (r *Reader) CustomerKnown(ctx context.Context, tenant, customer uuid.UUID) 
 		func(rows driver.Rows) error { return rows.Scan(&n) }, tenant, customer)
 	return n > 0, err
 }
+
+// SiteNames implementa app.Flows: nombres de los nodos (dim.site).
+func (r *Reader) SiteNames(ctx context.Context, tenant uuid.UUID, ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	out := map[uuid.UUID]string{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	ss := make([]string, len(ids))
+	for i, id := range ids {
+		ss[i] = id.String()
+	}
+	err := r.query(ctx, tenant, `SELECT site_id, name FROM dim.site FINAL WHERE tenant_id = ? AND deleted = 0 AND has(?, toString(site_id))`,
+		func(rows driver.Rows) error {
+			var id uuid.UUID
+			var name string
+			if err := rows.Scan(&id, &name); err != nil {
+				return err
+			}
+			out[id] = name
+			return nil
+		}, tenant, ss)
+	return out, err
+}
