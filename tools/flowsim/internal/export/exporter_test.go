@@ -53,9 +53,15 @@ func decodeAll(t *testing.T, dgrams [][]byte) ([]verify.PacketInfo, []flow.Recor
 }
 
 func TestRoundTrip(t *testing.T) {
-	for _, p := range []flow.Protocol{flow.IPFIX, flow.V9} {
-		t.Run(p.String(), func(t *testing.T) {
-			e := export.New(export.Config{Protocol: p, ObservationDomain: 7, Boot: boot})
+	type tc struct {
+		name    string
+		p       flow.Protocol
+		profile flow.Profile
+	}
+	for _, c := range []tc{{"ipfix", flow.IPFIX, ""}, {"ipfix-legacy", flow.IPFIX, flow.ProfileLegacy}, {"v9", flow.V9, ""}} {
+		p := c.p
+		t.Run(c.name, func(t *testing.T) {
+			e := export.New(export.Config{Protocol: p, ObservationDomain: 7, Boot: boot, Templates: flow.TemplateOptions{Profile: c.profile}})
 			in := []flow.Record{sampleV6(), sampleV4(0), sampleV4(1)}
 			dg := e.Export(t0, in)
 			if len(dg) != 1 {
@@ -71,6 +77,10 @@ func TestRoundTrip(t *testing.T) {
 				w, g := want[i], out[i]
 				if p == flow.V9 { // v9 no lleva MAC ni TTL
 					w.SrcMAC, w.DstMAC, w.MinTTL, w.MaxTTL = [6]byte{}, [6]byte{}, 0, 0
+				}
+				if c.name == "ipfix" && !w.IsV6() {
+					// RouterOS 7 repite los valores previos en los campos post-NAT.
+					w.PostNATSrc, w.PostNATSrcPort, w.PostNATDst, w.PostNATDstPort = w.SrcIP, w.SrcPort, w.DstIP, w.DstPort
 				}
 				if g != w {
 					t.Errorf("registro %d:\n got %+v\nwant %+v", i, g, w)
@@ -88,6 +98,57 @@ func TestNATFields(t *testing.T) {
 	_, out := decodeAll(t, e.Export(t0, []flow.Record{r}))
 	if out[0] != r {
 		t.Fatalf("got %+v want %+v", out[0], r)
+	}
+}
+
+// TestRouterOSTemplates comprueba que las plantillas por defecto de IPFIX
+// son las de la captura real (docs/traffic-model.md §4.4.2): IDs 258/259,
+// 37 y 34 campos, mismo orden y longitudes.
+func TestRouterOSTemplates(t *testing.T) {
+	want4 := [][2]uint16{{60, 1}, {22, 4}, {21, 4}, {160, 8}, {2, 8}, {1, 8}, {7, 2}, {11, 2}, {10, 4}, {14, 4},
+		{4, 1}, {5, 1}, {6, 1}, {57, 6}, {80, 6}, {81, 6}, {56, 6}, {8, 4}, {12, 4}, {15, 4}, {9, 1}, {13, 1},
+		{192, 1}, {206, 1}, {189, 1}, {224, 8}, {205, 2}, {184, 4}, {185, 4}, {186, 2}, {33, 1}, {176, 1},
+		{177, 1}, {225, 4}, {226, 4}, {227, 2}, {228, 2}}
+	want6 := [][2]uint16{{60, 1}, {22, 4}, {21, 4}, {160, 8}, {2, 8}, {1, 8}, {7, 2}, {11, 2}, {10, 4}, {14, 4},
+		{4, 1}, {5, 1}, {6, 1}, {57, 6}, {80, 6}, {81, 6}, {56, 6}, {27, 16}, {28, 16}, {62, 16}, {29, 1},
+		{30, 1}, {192, 1}, {206, 1}, {189, 1}, {224, 8}, {205, 2}, {184, 4}, {185, 4}, {186, 2}, {33, 1},
+		{178, 1}, {179, 1}, {31, 4}}
+	e := export.New(export.Config{Protocol: flow.IPFIX, Boot: boot})
+	v4, v6 := e.TemplatesInUse()
+	for _, c := range []struct {
+		t    flow.Template
+		id   uint16
+		want [][2]uint16
+	}{{v4, 258, want4}, {v6, 259, want6}} {
+		if c.t.ID != c.id || len(c.t.Fields) != len(c.want) {
+			t.Fatalf("plantilla %d con %d campos, esperaba %d con %d", c.t.ID, len(c.t.Fields), c.id, len(c.want))
+		}
+		for i, f := range c.t.Fields {
+			if f.ID != c.want[i][0] || f.Len != c.want[i][1] {
+				t.Errorf("plantilla %d campo %d: IE %d/%d, esperaba %d/%d", c.id, i, f.ID, f.Len, c.want[i][0], c.want[i][1])
+			}
+		}
+	}
+	// Campos derivados del registro: versión IP, longitud total y UDP.
+	r := sampleV4(0)
+	r.Proto, r.TCPFlags, r.Bytes, r.Packets = flow.ProtoUDP, 0, 1348*3, 3
+	dg := e.Export(t0, []flow.Record{r})
+	rec := dg[0][len(dg[0])-v4.RecordLen():]
+	field := func(id uint16) []byte {
+		off := 0
+		for _, f := range v4.Fields {
+			if f.ID == id {
+				return rec[off : off+int(f.Len)]
+			}
+			off += int(f.Len)
+		}
+		t.Fatalf("IE %d no está", id)
+		return nil
+	}
+	if field(60)[0] != 4 || binary.BigEndian.Uint64(field(224)) != 1348 || binary.BigEndian.Uint16(field(205)) != 1328 ||
+		field(189)[0] != 5 || field(192)[0] != 63 {
+		t.Errorf("campos derivados inesperados: ver=%d total=%d udp=%d hdr=%d ttl=%d", field(60)[0],
+			binary.BigEndian.Uint64(field(224)), binary.BigEndian.Uint16(field(205)), field(189)[0], field(192)[0])
 	}
 }
 

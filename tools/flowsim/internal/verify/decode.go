@@ -164,6 +164,20 @@ func toRecord(values []netflow.DataField, boot int64) flow.Record {
 			r.FlowLabel = uint32(u)
 		case flow.IEICMPTypeCodeV4, flow.IEICMPTypeCodeV6:
 			r.ICMPTypeCode = uint16(u)
+		case flow.IEIPTTL: // RouterOS 7: un solo TTL (IE 192)
+			r.MinTTL, r.MaxTTL = uint8(u), uint8(u)
+		case flow.IEICMPTypeV4, flow.IEICMPTypeV6:
+			r.ICMPTypeCode = r.ICMPTypeCode&0x00ff | uint16(u)<<8
+		case flow.IEICMPCodeV4, flow.IEICMPCodeV6:
+			r.ICMPTypeCode = r.ICMPTypeCode&0xff00 | uint16(u&0xff)
+		case flow.IEPostSrcMAC:
+			if len(b) == 6 {
+				r.PostSrcMAC = [6]byte(b)
+			}
+		case flow.IEPostDstMAC:
+			if len(b) == 6 {
+				r.PostDstMAC = [6]byte(b)
+			}
 		case flow.IEMinTTL:
 			r.MinTTL = uint8(u)
 		case flow.IEMaxTTL:

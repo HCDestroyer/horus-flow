@@ -2,9 +2,11 @@
 // elementos de información (IE) de NetFlow v9/IPFIX que usa y las plantillas
 // que imitan lo que exporta MikroTik RouterOS 7 (docs/vendors/mikrotik.md §2.3).
 //
-// Los nombres, longitudes e IDs de plantilla de RouterOS están marcados "a
-// verificar" en la documentación; aquí se fijan valores razonables que I0-12
-// confirmará o corregirá con capturas reales del laboratorio CHR.
+// Las plantillas IPFIX por defecto (perfil routeros7) reproducen campo a
+// campo las de una captura real de RouterOS 7 (docs/traffic-model.md §4.4.2):
+// ID 258 para IPv4 (37 campos) y 259 para IPv6 (34 campos). El perfil legacy
+// conserva las plantillas supuestas de I0-10 (ID 256/257) y NetFlow v9 las
+// sigue usando porque aún no hay captura real de v9.
 package flow
 
 import (
@@ -71,10 +73,16 @@ type Record struct {
 	ICMPTypeCode     uint16
 	MinTTL, MaxTTL   uint8
 	SrcMAC, DstMAC   [6]byte
-	FlowLabel        uint32 // solo IPv6
+	// MAC de origen y destino a la salida del router (IE 81/57). En RouterOS 7
+	// postDestinationMacAddress repite destinationMacAddress (verificado).
+	PostSrcMAC, PostDstMAC [6]byte
+	FlowLabel              uint32 // solo IPv6
 
-	// Campos post-NAT (IE 225-228). RouterOS los exporta solo si el ISP
-	// activa nat-*; Horus los deja desactivados por defecto.
+	// Campos post-NAT (IE 225-228). Con NAT en el router principal RouterOS
+	// los rellena así (docs/traffic-model.md §4.4): subida con PostNATSrc =
+	// IP pública del NAT; bajada con DstIP = IP pública del NAT y PostNATDst =
+	// IP privada del cliente. Sin traducción repiten los valores previos; el
+	// perfil routeros7 los copia si aquí quedan vacíos.
 	PostNATSrc, PostNATDst         netip.Addr
 	PostNATSrcPort, PostNATDstPort uint16
 }
@@ -139,6 +147,24 @@ const (
 	IEPostNATDstIPv4        uint16 = 226
 	IEPostNAPTSrcPort       uint16 = 227
 	IEPostNAPTDstPort       uint16 = 228
+
+	// Campos que añade la plantilla real de RouterOS 7.
+	IEIGMPType          uint16 = 33
+	IEPostDstMAC        uint16 = 57
+	IEIPVersion         uint16 = 60
+	IEPostSrcMAC        uint16 = 81
+	IEICMPTypeV4        uint16 = 176
+	IEICMPCodeV4        uint16 = 177
+	IEICMPTypeV6        uint16 = 178
+	IEICMPCodeV6        uint16 = 179
+	IETCPSeq            uint16 = 184
+	IETCPAck            uint16 = 185
+	IETCPWindow         uint16 = 186
+	IEIPHeaderLength    uint16 = 189
+	IEIPTTL             uint16 = 192
+	IEUDPMessageLength  uint16 = 205
+	IEIsMulticast       uint16 = 206
+	IEIPTotalLength     uint16 = 224
 )
 
 // Field es un campo de plantilla.
@@ -162,29 +188,136 @@ func (t Template) RecordLen() int {
 	return n
 }
 
-// IDs de plantilla del simulador (RouterOS usa IDs >= 256; los exactos se
-// confirman en I0-12).
+// IDs de plantilla del perfil legacy (I0-10).
 const (
 	TemplateIDv4 uint16 = 256
 	TemplateIDv6 uint16 = 257
 )
 
+// IDs de plantilla reales de RouterOS 7 (captura del 2026-10-09).
+const (
+	RouterOSTemplateIDv4 uint16 = 258
+	RouterOSTemplateIDv6 uint16 = 259
+)
+
+// Profile elige el juego de plantillas IPFIX.
+type Profile string
+
+// Perfiles de plantilla.
+const (
+	// ProfileRouterOS7 reproduce las plantillas 258/259 de un RouterOS 7 real
+	// con todos los campos activados, incluidos los NAT (defecto en IPFIX).
+	ProfileRouterOS7 Profile = "routeros7"
+	// ProfileLegacy son las plantillas supuestas de I0-10 (256/257), con los
+	// campos NAT opcionales. NetFlow v9 siempre usa este perfil.
+	ProfileLegacy Profile = "legacy"
+)
+
+// ParseProfile interpreta "routeros7" o "legacy" (vacío = routeros7).
+func ParseProfile(s string) (Profile, error) {
+	switch Profile(strings.ToLower(strings.TrimSpace(s))) {
+	case "", ProfileRouterOS7:
+		return ProfileRouterOS7, nil
+	case ProfileLegacy:
+		return ProfileLegacy, nil
+	}
+	return "", fmt.Errorf("perfil de plantillas desconocido %q (usa routeros7 o legacy)", s)
+}
+
 // TemplateOptions ajusta las plantillas.
 type TemplateOptions struct {
-	// NATFields añade IE 225-228 a la plantilla IPv4 de IPFIX.
+	// Profile elige las plantillas IPFIX (vacío = routeros7).
+	Profile Profile
+	// NATFields añade IE 225-228 a la plantilla IPv4 del perfil legacy (el
+	// perfil routeros7 siempre los lleva).
 	NATFields bool
 }
 
+// EffectiveProfile devuelve el perfil que se usa realmente con el protocolo.
+func (o TemplateOptions) EffectiveProfile(p Protocol) Profile {
+	if p == IPFIX && o.Profile != ProfileLegacy {
+		return ProfileRouterOS7
+	}
+	return ProfileLegacy
+}
+
+// HasNATFields indica si la plantilla IPv4 lleva los campos IE 225-228.
+func (o TemplateOptions) HasNATFields(p Protocol) bool {
+	return p == IPFIX && (o.NATFields || o.EffectiveProfile(p) == ProfileRouterOS7)
+}
+
+// routerOSCommon son los 17 primeros campos de las plantillas 258/259, en el
+// orden y con las longitudes de la captura real.
+var routerOSCommon = []Field{
+	{IEIPVersion, 1},
+	{IEFlowStartSysUpTime, 4},
+	{IEFlowEndSysUpTime, 4},
+	{IESysInitTimeMs, 8},
+	{IEPacketDeltaCount, 8},
+	{IEOctetDeltaCount, 8},
+	{IESrcPort, 2},
+	{IEDstPort, 2},
+	{IEIngressIf, 4},
+	{IEEgressIf, 4},
+	{IEProtocol, 1},
+	{IEToS, 1},
+	{IETCPFlags, 1},
+	{IEPostDstMAC, 6},
+	{IEDstMAC, 6},
+	{IEPostSrcMAC, 6},
+	{IESrcMAC, 6},
+}
+
+// routerOSTail son los campos de IP, TTL y TCP que siguen a las direcciones.
+var routerOSTail = []Field{
+	{IEIPTTL, 1},
+	{IEIsMulticast, 1},
+	{IEIPHeaderLength, 1},
+	{IEIPTotalLength, 8},
+	{IEUDPMessageLength, 2},
+	{IETCPSeq, 4},
+	{IETCPAck, 4},
+	{IETCPWindow, 2},
+	{IEIGMPType, 1},
+}
+
+// RouterOSTemplates devuelve las plantillas reales de RouterOS 7: 258 (IPv4,
+// 37 campos) y 259 (IPv6, 34 campos).
+func RouterOSTemplates() (v4, v6 Template) {
+	f4 := append([]Field{}, routerOSCommon...)
+	f4 = append(f4,
+		Field{IESrcIPv4, 4}, Field{IEDstIPv4, 4}, Field{IENextHopV4, 4},
+		Field{IESrcMaskV4, 1}, Field{IEDstMaskV4, 1},
+	)
+	f4 = append(f4, routerOSTail...)
+	f4 = append(f4,
+		Field{IEICMPTypeV4, 1}, Field{IEICMPCodeV4, 1},
+		Field{IEPostNATSrcIPv4, 4}, Field{IEPostNATDstIPv4, 4},
+		Field{IEPostNAPTSrcPort, 2}, Field{IEPostNAPTDstPort, 2},
+	)
+	f6 := append([]Field{}, routerOSCommon...)
+	f6 = append(f6,
+		Field{IESrcIPv6, 16}, Field{IEDstIPv6, 16}, Field{IENextHopV6, 16},
+		Field{IESrcMaskV6, 1}, Field{IEDstMaskV6, 1},
+	)
+	f6 = append(f6, routerOSTail...)
+	f6 = append(f6, Field{IEICMPTypeV6, 1}, Field{IEICMPCodeV6, 1}, Field{IEFlowLabelV6, 4})
+	return Template{ID: RouterOSTemplateIDv4, Fields: f4}, Template{ID: RouterOSTemplateIDv6, Fields: f6}
+}
+
 // Templates devuelve las plantillas IPv4 e IPv6 que el simulador anuncia
-// para el protocolo dado, imitando /ip traffic-flow ipfix de RouterOS 7 con
-// la recomendación de docs/vendors/mikrotik.md §2.3 (todo activado salvo
-// NAT).
+// para el protocolo dado.
 //
-// IPFIX: contadores de 8 bytes, tiempos first/last-forwarded relativos a
-// sys-init-time (IE 22/21 + IE 160), MAC y TTL mínimo/máximo.
+// IPFIX con el perfil routeros7 (defecto): las plantillas reales 258/259
+// (RouterOSTemplates). Con el perfil legacy: contadores de 8 bytes, tiempos
+// first/last-forwarded relativos a sys-init-time (IE 22/21 + IE 160), MAC y
+// TTL mínimo/máximo, y opcionalmente IE 225-228.
 // NetFlow v9: contadores de 4 bytes, FIRST/LAST_SWITCHED relativos al
 // sysUptime de la cabecera, sin MAC ni TTL (presencia "a verificar").
 func Templates(p Protocol, opt TemplateOptions) (v4, v6 Template) {
+	if opt.EffectiveProfile(p) == ProfileRouterOS7 {
+		return RouterOSTemplates()
+	}
 	counter := uint16(4)
 	if p == IPFIX {
 		counter = 8
