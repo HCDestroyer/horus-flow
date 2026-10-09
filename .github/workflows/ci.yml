@@ -114,6 +114,11 @@ jobs:
         run: |
           docker compose --project-directory deployments/compose -f deployments/compose/compose.dev.yaml \
             --env-file deployments/compose/.env.example --profile '*' config --quiet
+      - name: docker compose config (producción, I1-22)
+        if: hashFiles('deployments/compose/compose.prod.yaml') != ''
+        run: |
+          docker compose --project-directory deployments/compose -f deployments/compose/compose.prod.yaml \
+            --env-file deployments/compose/prod.env.example config --quiet
 
   # -------------------------------------------------------------------------------------------
   unit:

@@ -16,6 +16,7 @@
 #   horus-backup check-ttl              TTL de flows.flows_raw = HORUS_RAW_TTL_DAYS (7 d, storage.md §5)
 #   horus-backup metrics                ocupación de discos y reescritura de metrics.prom
 #   horus-backup status                 resumen legible (últimos backups, restauraciones, disco)
+#   horus-backup ch-sql < consulta.sql  consulta ClickHouse como administrador (diagnóstico)
 #
 # Métricas (texto Prometheus en HORUS_DATA_ROOT/metrics/metrics.prom, servidas en
 # 127.0.0.1:9109/metrics.prom por el servicio backup-metrics):
@@ -252,7 +253,7 @@ pg_verify() {
   done
   [[ ! "$archived" < "$seg" ]] || die "el WAL $seg no llegó al repositorio en 120 s (archive_command)"
   log "PostgreSQL: restauración en un contenedor efímero (base vacía) hasta $name"
-  docker run --rm -i --name "horus-verify-pg-$$" --network none \
+  docker run --rm -i --name "horus-verify-pg-$$" --network none --user 0:0 \
     -v "$PG_REPO_DIR:/var/lib/pgbackrest:ro" \
     -v "$HORUS_SECRETS_DIR/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro" \
     -v /var/lib/pgrestore \
@@ -365,7 +366,7 @@ ch_verify() {
   [ -n "$name" ] || die "no hay backups de ClickHouse que verificar"
   cname="horus-verify-ch-$$"
   tmp="$(mktemp -d)"
-  trap 'docker rm -f "$cname" >/dev/null 2>&1 || true; rm -rf "$tmp"' RETURN
+  trap 'docker rm -f -v "$cname" >/dev/null 2>&1 || true; rm -rf "$tmp"' RETURN
   log "ClickHouse: restauración de $name en un ClickHouse efímero y vacío"
   docker run -d --name "$cname" --network none --memory 2g \
     --ulimit "nofile=${HORUS_CH_NOFILE:-262144}:${HORUS_CH_NOFILE:-262144}" \
@@ -400,7 +401,11 @@ ch_verify() {
 # --- Comprobaciones ------------------------------------------------------------------------------
 check_ttl() {
   local ttl
-  ttl="$(printf "SELECT extract(create_table_query, 'TTL [^\\\\n]*?INTERVAL (\\\\d+) DAY') FROM system.tables WHERE database = 'flows' AND name = 'flows_raw'\n" | ch_sql)"
+  # ClickHouse normaliza `INTERVAL 7 DAY` a `toIntervalDay(7)` en engine_full.
+  ttl="$(ch_sql <<'SQL'
+SELECT extract(engine_full, 'TTL .*?toIntervalDay\\((\\d+)\\)') FROM system.tables WHERE database = 'flows' AND name = 'flows_raw'
+SQL
+)"
   if [ "$ttl" = "$RAW_TTL_DAYS" ]; then
     state_set clickhouse raw_ttl_ok 1
     log "ClickHouse: TTL de flows.flows_raw = $ttl días (storage.md §5: $RAW_TTL_DAYS) OK"
@@ -476,6 +481,7 @@ case "$cmd" in
   check-ttl) run_plain check_ttl ;;
   metrics) run_plain disk_metrics ;;
   status) status ;;
+  ch-sql) ch_sql ;;
   *) usage ;;
 esac
 exit "$rc_total"

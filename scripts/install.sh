@@ -39,10 +39,12 @@
 #   --install-dir DIR (/opt/horus)   --etc-dir DIR (/etc/horus)
 #   --root DIR                   prefijo para todas las rutas por defecto (pruebas; no activa systemd/cron)
 #   --project NOMBRE (horus)     --http-port 80  --https-port 443  --wg-port 51820  --wg-interface wg0
-#   --docker-subnet CIDR (172.31.250.0/24)    --tlm-max-bytes BYTES (telemetría NATS; según disco)
+#   --backup-metrics-port 9109 (127.0.0.1)   --docker-subnet CIDR (172.31.250.0/24)    --tlm-max-bytes BYTES (telemetría NATS; según disco)
 #   --bundle-recipient CLAVE_AGE  cifra el paquete offline para esa clave pública age (si no: frase
 #                                 aleatoria que se muestra UNA vez)
 #   --bundle-out DIR             dónde dejar el paquete offline (/root)
+#   --smtp-host H --smtp-port 587 --smtp-from EMAIL --smtp-user U --smtp-tls starttls|tls|none
+#   --smtp-password-file F       canal mínimo de alertas por correo (D13); opcional
 #   --confirm-bundle             marca el paquete offline como guardado fuera del servidor
 #   --skip-firewall --skip-tunnel --skip-systemd --skip-backup --force (ignora requisitos no críticos)
 #   --yes                        no pregunta (usa opciones, respuestas guardadas o valores por defecto)
@@ -67,7 +69,8 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --mode | --domain | --acme-email | --public-ip | --tunnel-cidr | --admin-email | --admin-password-file | \
       --image | --store-dir | --data-dir | --install-dir | --etc-dir | --root | --project | --http-port | \
-      --https-port | --wg-port | --wg-interface | --docker-subnet | --tlm-max-bytes | --bundle-recipient | --bundle-out)
+      --https-port | --wg-port | --wg-interface | --docker-subnet | --tlm-max-bytes | --bundle-recipient | --bundle-out | \
+      --smtp-host | --smtp-port | --smtp-from | --smtp-user | --smtp-tls | --smtp-password-file | --backup-metrics-port)
       need_arg "$@"; opt[${1#--}]="$2"; shift 2 ;;
     --acme-staging) opt[acme-staging]=1; shift ;;
     --check) action=check; shift ;;
@@ -212,7 +215,8 @@ check_requirements() {
     ok "Horus ya está en marcha (proyecto $project): no se comprueban sus puertos"
   else
     local p
-    for p in "tcp:$(get http-port 80)" "tcp:$(get https-port 443)" "udp:$(get wg-port 51820)"; do
+    # 18081/tcp: admin de horus-wg-agent (red del host, solo 127.0.0.1).
+    for p in "tcp:$(get http-port 80)" "tcp:$(get https-port 443)" "udp:$(get wg-port 51820)" "tcp:18081"; do
       if port_busy "${p%%:*}" "${p#*:}"; then fail "puerto ${p#*:}/${p%%:*} ocupado"; else ok "puerto ${p#*:}/${p%%:*} libre"; fi
     done
   fi
@@ -286,7 +290,9 @@ save_conf() {
       tunnel-cidr "$tunnel_cidr" admin-email "$admin_email" image "$image" store-dir "$store_dir" \
       data-dir "$data_dir" install-dir "$install_dir" project "$project" http-port "$http_port" \
       https-port "$https_port" wg-port "$wg_port" wg-interface "$wg_if" docker-subnet "$docker_subnet" \
-      tlm-max-bytes "$tlm_max_bytes" bundle-out "$(get bundle-out "${root:-}/root")"
+      tlm-max-bytes "$tlm_max_bytes" smtp-host "$(get smtp-host "")" smtp-port "$(get smtp-port 587)" \
+      smtp-from "$(get smtp-from "")" smtp-user "$(get smtp-user "")" smtp-tls "$(get smtp-tls starttls)" \
+      backup-metrics-port "$(get backup-metrics-port 9109)" bundle-out "$(get bundle-out "${root:-}/root")"
     [ -z "${opt[acme-staging]:-${saved[acme-staging]:-}}" ] || echo "acme-staging=1"
   } >"$conf_file"
   chmod 0644 "$conf_file"
@@ -404,6 +410,13 @@ make_secrets() {
   done
   new_secret auth_kek gen_hex32
   new_secret devices_kek gen_hex32
+  new_secret alerts_kek gen_hex32
+  if [ -n "${opt[smtp-password-file]:-}" ]; then
+    [ -r "${opt[smtp-password-file]}" ] || die "no puedo leer ${opt[smtp-password-file]}"
+    head -n1 "${opt[smtp-password-file]}" | tr -d '\r\n' >"$secrets_dir/smtp_password"
+  fi
+  [ -e "$secrets_dir/smtp_password" ] || : >"$secrets_dir/smtp_password"
+  chmod 0644 "$secrets_dir/smtp_password"
   new_secret auth_signing_key.pem gen_ed25519
   new_secret wg_hub_private_key gen_wg_private
   [ -s "$secrets_dir/seed_admin_password" ] || new_secret seed_admin_password gen_admin_password
@@ -555,6 +568,11 @@ HORUS_TLM_FLOWS_MAX_BYTES=$tlm_max_bytes
 HORUS_NATS_MAX_FILE_STORE=$nats_max_store
 HORUS_BACKUP_METRICS_PORT=$(get backup-metrics-port 9109)
 HORUS_RAW_TTL_DAYS=7
+HORUS_SMTP_HOST=$(get smtp-host "")
+HORUS_SMTP_PORT=$(get smtp-port 587)
+HORUS_SMTP_FROM=$(get smtp-from "")
+HORUS_SMTP_USERNAME=$(get smtp-user "")
+HORUS_SMTP_TLS=$(get smtp-tls starttls)
 HORUS_BACKUP_CH_KEEP_FULL=3
 EOF
   chmod 0644 "$env_file"
@@ -617,7 +635,16 @@ set -e
 case "\${1:-up}" in
   up)
     if ! ip link show $wg_if >/dev/null 2>&1; then
-      ip link add $wg_if type wireguard 2>/dev/null || { mkdir -p /var/run/wireguard; WG_PROCESS_FOREGROUND=0 wireguard-go $wg_if; }
+      if ! ip link add $wg_if type wireguard 2>/dev/null; then
+        # Sin módulo del kernel: wireguard-go en primer plano y desligado (su modo demonio no
+        # sobrevive en algunos entornos); UAPI en /var/run/wireguard/$wg_if.sock.
+        mkdir -p /var/run/wireguard
+        setsid wireguard-go -f $wg_if </dev/null >>/var/log/horus-wireguard-go.log 2>&1 &
+        i=0
+        until [ -S /var/run/wireguard/$wg_if.sock ] && ip link show $wg_if >/dev/null 2>&1; do
+          i=\$((i + 1)); [ \$i -lt 50 ] || { echo "horus-tunnel: wireguard-go no creó $wg_if" >&2; exit 1; }; sleep 0.2
+        done
+      fi
     fi
     ip addr replace $collector_ip/${services_cidr#*/} dev $wg_if
     ip link set $wg_if up
@@ -653,6 +680,7 @@ setup_tunnel() {
   say "Hub WireGuard ($wg_if) y filtro de IPFIX"
   tunnel_script >"$install_dir/bin/horus-tunnel"
   chmod 0755 "$install_dir/bin/horus-tunnel"
+  ip link show "$wg_if" >/dev/null 2>&1 || tunnel_created=1
   "$install_dir/bin/horus-tunnel" up
   ok "$wg_if con $collector_ip/${services_cidr#*/}, ruta $tunnel_cidr"
   [ "$skip_fw" = 1 ] && warn "--skip-firewall: el UDP 4739/2055 no se filtra por interfaz" || ok "UDP 4739/2055 solo por $wg_if (DOCKER-USER e INPUT)"
@@ -750,6 +778,11 @@ compose_up() {
     "${compose[@]}" logs --tail 40 || true
     die "el compose no quedó healthy"
   fi
+  # Si la interfaz del hub se acaba de (re)crear, el colector (publicado en su IP) y wg-agent
+  # (clave, puerto y peers) se recrean para engancharse a ella.
+  if [ "${tunnel_created:-0}" = 1 ] && [ "${HORUS_FRESH_COMPOSE:-0}" = 0 ]; then
+    "${compose[@]}" up -d --wait --force-recreate --no-deps horus-collector horus-wg-agent >/dev/null 2>&1 || die "no se pudo recrear horus-collector/horus-wg-agent"
+  fi
   "${compose[@]}" ps --format 'table {{.Service}}\t{{.Status}}'
 }
 
@@ -833,7 +866,7 @@ do_check() {
   if ip link show "$HORUS_WG_INTERFACE" >/dev/null 2>&1; then
     ok "interfaz $HORUS_WG_INTERFACE presente ($(ip -4 -o addr show "$HORUS_WG_INTERFACE" | awk '{ print $4 }' | head -1))"
     if command -v wg >/dev/null 2>&1; then
-      local lp; lp="$(wg show "$HORUS_WG_INTERFACE" listen-port 2>/dev/null || true)"
+      local lp; lp="$(timeout 5 wg show "$HORUS_WG_INTERFACE" listen-port 2>/dev/null || true)"
       [ "$lp" = "$HORUS_WG_PORT" ] && ok "WireGuard escucha en UDP $lp" || fail "WireGuard: puerto '${lp:-?}' (esperado $HORUS_WG_PORT; lo configura horus-wg-agent)"
     fi
   else
@@ -897,7 +930,10 @@ do_uninstall() {
 }
 
 # --confirm-bundle sin más opciones: solo marca el paquete offline como guardado.
-if [ "$action" = install ] && [ "$confirm_bundle" = 1 ] && [ "${#opt[@]}" -eq 0 ] && [ -f "$etc_dir/bundle.sha256" ]; then
+n_opts="${#opt[@]}"
+[ -z "${opt[root]:-}" ] || n_opts=$((n_opts - 1))
+[ -z "${opt[etc-dir]:-}" ] || n_opts=$((n_opts - 1))
+if [ "$action" = install ] && [ "$confirm_bundle" = 1 ] && [ "$n_opts" -eq 0 ] && [ -f "$etc_dir/bundle.sha256" ]; then
   if [ "$(secrets_digest)" = "$(cat "$etc_dir/bundle.sha256")" ]; then
     date -u +%Y-%m-%dT%H:%M:%SZ >"$etc_dir/bundle.confirmed"
     echo "install.sh: paquete de secretos offline confirmado"

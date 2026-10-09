@@ -259,6 +259,19 @@ services:
       HORUS_AUTH_SIGNING_KEY_FILE: /run/secrets/auth_signing_key
       HORUS_AUTH_KEK_FILE: /run/secrets/auth_kek
       HORUS_DEVICES_KEK_FILE: /run/secrets/devices_kek
+      HORUS_ALERTS_KEK_FILE: /run/secrets/alerts_kek
+      HORUS_ALERTS_CURSOR_KEY_FILE: /run/secrets/cursor_key
+      # Reputación (SEC): detection sincroniza las fuentes y publica el snapshot en el almacén;
+      # ingester marca los flujos con ese mismo snapshot.
+      HORUS_DETECTION_FEEDS_SYNC: "true"
+      HORUS_REPUTATION_SNAPSHOT_DIR: /var/lib/horus/store/catalog/reputation
+      # Canal mínimo de alertas por correo (D13). Vacío = sin SMTP. Telegram se configura por ISP.
+      HORUS_SMTP_HOST: ${HORUS_SMTP_HOST:-}
+      HORUS_SMTP_PORT: ${HORUS_SMTP_PORT:-587}
+      HORUS_SMTP_FROM: ${HORUS_SMTP_FROM:-}
+      HORUS_SMTP_USERNAME: ${HORUS_SMTP_USERNAME:-}
+      HORUS_SMTP_TLS: ${HORUS_SMTP_TLS:-starttls}
+      HORUS_SMTP_PASSWORD_FILE: /run/secrets/smtp_password
       HORUS_DEVICES_CURSOR_KEY_FILE: /run/secrets/cursor_key
       HORUS_WIREGUARD_CURSOR_KEY_FILE: /run/secrets/cursor_key
       HORUS_DETECTION_CURSOR_KEY_FILE: /run/secrets/cursor_key
@@ -292,6 +305,8 @@ services:
       - auth_signing_key
       - auth_kek
       - devices_kek
+      - alerts_kek
+      - smtp_password
       - cursor_key
       - ch_ingester_password
       - ch_analytics_password
@@ -446,6 +461,10 @@ secrets:
     file: ${HORUS_SECRETS_DIR}/auth_kek
   devices_kek:
     file: ${HORUS_SECRETS_DIR}/devices_kek
+  alerts_kek:
+    file: ${HORUS_SECRETS_DIR}/alerts_kek
+  smtp_password:
+    file: ${HORUS_SECRETS_DIR}/smtp_password
   cursor_key:
     file: ${HORUS_SECRETS_DIR}/cursor_key
   ch_ingester_password:
