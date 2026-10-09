@@ -106,7 +106,7 @@ export function placeWidgets(widgets: readonly DashboardWidget[], mode: GridMode
 }
 
 /** Filas que ocupa el layout diseñado (para repartir la altura en mural). */
-export function totalRows(widgets: readonly DashboardWidget[]) {
+export function totalRows(widgets: readonly Pick<DashboardWidget, 'position'>[]) {
   return widgets.reduce((max, w) => Math.max(max, w.position.y + w.position.h), 0)
 }
 
