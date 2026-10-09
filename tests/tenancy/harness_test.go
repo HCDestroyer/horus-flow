@@ -33,6 +33,8 @@ import (
 	"github.com/hcdestroyer/horus-flow/services/auth"
 	"github.com/hcdestroyer/horus-flow/services/devices"
 	"github.com/hcdestroyer/horus-flow/services/gateway"
+	"github.com/hcdestroyer/horus-flow/services/wgagent"
+	"github.com/hcdestroyer/horus-flow/services/wireguard"
 )
 
 const (
@@ -57,6 +59,11 @@ func startApp(t *testing.T) *app {
 		"HORUS_POSTGRES_DSN=" + dsn,
 		"HORUS_AUTH_ARGON2_MEMORY_KIB=1024", "HORUS_AUTH_ARGON2_TIME=1",
 		"HORUS_SEED_ADMIN_EMAIL=" + seedEmail, "HORUS_SEED_ADMIN_PASSWORD=" + seedPassword,
+		// wireguard + wg-agent en proceso con la interfaz en memoria (sin NET_ADMIN).
+		"HORUS_WGAGENT_DRIVER=memory", "HORUS_WG_ENDPOINT=horus.test",
+		// Reconciliación periódica desactivada en la práctica: el túnel se asigna
+		// al pedir el script (síncrono) y las versiones de los routers no cambian solas.
+		"HORUS_WIREGUARD_RECONCILE_EVERY=1h", "HORUS_WGAGENT_REPORT_EVERY=200ms",
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	mux := httpx.NewMux(nil, nil)
@@ -66,7 +73,8 @@ func startApp(t *testing.T) *app {
 	for _, r := range []struct {
 		name string
 		f    module.Factory
-	}{{auth.Role, auth.Register}, {devices.Role, devices.Register}, {gateway.Role, gateway.Register}} {
+	}{{auth.Role, auth.Register}, {devices.Role, devices.Register}, {wireguard.Role, wireguard.Register},
+		{wgagent.Role, wgagent.Register}, {gateway.Role, gateway.Register}} {
 		m, err := r.f(ctx, module.Deps{Role: r.name, Health: hreg.Role(r.name), Routes: mux.ForService(r.name),
 			Common: config.Common{Env: "dev"}, Environ: environ, Services: services})
 		if err != nil {

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/hcdestroyer/horus-flow/packages/go/archtest"
 	"github.com/hcdestroyer/horus-flow/packages/go/tenanttest"
 )
@@ -38,6 +40,12 @@ func cases() map[string]tenanttest.Case {
 		"createClientPrefix": {Kind: tenanttest.Create, Body: map[string]any{"prefix": "10.99.0.0/24", "role": "customers"}},
 		"updateClientPrefix": {Kind: tenanttest.ByID, Body: map[string]any{"role": "excluded"}},
 		"deleteClientPrefix": {Kind: tenanttest.ByID},
+		// wireguard (I1-01, I1-02, CORE)
+		"listWireguardPeers":         {Kind: tenanttest.List},
+		"getWireguardPeer":           {Kind: tenanttest.ByID},
+		"createProvisioningScript":   {Kind: tenanttest.ByID, Body: map[string]any{"routeros_version": "7.16"}},
+		"createDeprovisioningScript": {Kind: tenanttest.ByID},
+		"revokeEnrollmentToken":      {Kind: tenanttest.ByID},
 	}
 	pending := func(owner string, ids ...string) {
 		for _, id := range ids {
@@ -65,8 +73,6 @@ func cases() map[string]tenanttest.Case {
 		"listReputationSources", "getSecuritySummary", "acknowledgeFinding", "markFindingFalsePositive", "resolveFinding",
 		"createAllowlistEntry")
 	pending("FLOW I1 (flows: exportadores)", "listFlowExporters", "getFlowExporter")
-	pending("CORE I1 (wireguard: peers y scripts)",
-		"listWireguardPeers", "getWireguardPeer", "createDeprovisioningScript", "createProvisioningScript", "revokeEnrollmentToken")
 	return c
 }
 
@@ -76,7 +82,16 @@ func (a *app) fixtureISP(x isp, cidr string) map[string]string {
 	site := a.must(a.post(x.token, "/api/v1/sites", map[string]any{"name": "Nodo"}), 201).str("id")
 	router := a.must(a.post(x.token, "/api/v1/routers", map[string]any{"site_id": site, "name": "rt-1", "routeros_version": "7.16"}), 201).str("id")
 	cp := a.must(a.post(x.token, "/api/v1/sites/"+site+"/client-prefixes", map[string]any{"prefix": cidr, "role": "customers"}), 201).str("id")
-	return map[string]string{"site_id": site, "router_id": router, "client_prefix_id": cp}
+	script := a.must(a.do(req{Method: "POST", Path: "/api/v1/routers/" + router + "/provisioning-script", Token: x.token,
+		Header: map[string]string{"Idempotency-Key": uuid.NewString()}}), 201)
+	peers := a.must(a.do(req{Method: "GET", Path: "/api/v1/wireguard/peers?router_id=" + router, Token: x.token}), 200)
+	data, _ := peers.Body["data"].([]any)
+	if len(data) != 1 {
+		a.t.Fatalf("peers del router = %s", peers.Raw)
+	}
+	peer, _ := data[0].(map[string]any)["id"].(string)
+	return map[string]string{"site_id": site, "router_id": router, "client_prefix_id": cp, "peer_id": peer,
+		"token_id": script.Header.Get("X-Horus-Enrollment-Token-Id")}
 }
 
 // I0-08: matriz de aislamiento sobre el contrato. Para cada operación de ISP
@@ -92,6 +107,11 @@ func TestTenantIsolationMatrix(t *testing.T) {
 	paramsB := a.fixtureISP(B, "10.10.0.0/24") // mismo rango, otro ISP: válido
 	// Otro router de B para el listado.
 	a.must(a.post(B.token, "/api/v1/routers", map[string]any{"site_id": paramsB["site_id"], "name": "rt-2", "is_primary": false}), 201)
+	// Versiones de B tras el alta (la proyección del túnel ya subió la del router).
+	versionsB := map[string]float64{}
+	for _, path := range []string{"/api/v1/sites/" + paramsB["site_id"], "/api/v1/routers/" + paramsB["router_id"]} {
+		versionsB[path], _ = a.must(a.do(req{Method: "GET", Path: path, Token: B.token}), 200).Body["version"].(float64)
+	}
 	var foreign []string
 	for _, v := range paramsB {
 		foreign = append(foreign, v)
@@ -115,6 +135,7 @@ func TestTenantIsolationMatrix(t *testing.T) {
 		Mounted: func(method, tmpl string) bool {
 			r, _ := http.NewRequestWithContext(context.Background(), method, strings.NewReplacer(
 				"{site_id}", paramsA["site_id"], "{router_id}", paramsA["router_id"], "{client_prefix_id}", paramsA["client_prefix_id"],
+				"{peer_id}", paramsA["peer_id"], "{token_id}", paramsA["token_id"],
 			).Replace(tmpl), nil)
 			return a.mux.Matches(r)
 		},
@@ -124,7 +145,7 @@ func TestTenantIsolationMatrix(t *testing.T) {
 	// B sigue intacto tras todos los intentos de A.
 	for _, path := range []string{"/api/v1/sites/" + paramsB["site_id"], "/api/v1/routers/" + paramsB["router_id"]} {
 		r := a.must(a.do(req{Method: "GET", Path: path, Token: B.token}), 200)
-		if r.Body["version"].(float64) != 1 {
+		if r.Body["version"].(float64) != versionsB[path] {
 			t.Errorf("%s modificado por A: %s", path, r.Raw)
 		}
 	}
