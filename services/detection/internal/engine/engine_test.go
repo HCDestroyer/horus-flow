@@ -151,3 +151,45 @@ func TestHelpers(t *testing.T) {
 		t.Fatal("id derivado estable y por tenant")
 	}
 }
+
+type sustainedSignals struct {
+	fakeSignals
+	flows []FlowRec
+	tz    string
+}
+
+func (s *sustainedSignals) ClientFlows(context.Context, uuid.UUID, time.Time, time.Time, []ClientKey, uint64) ([]FlowRec, error) {
+	return s.flows, nil
+}
+func (s *sustainedSignals) Timezone(context.Context, uuid.UUID) (string, error) { return s.tz, nil }
+
+// I1-30 criterio 2: copias de seguridad nocturnas a una nube conocida no son
+// hallazgo; la misma subida a mediodía sí (open_proxy_abuse).
+func TestSustainedNightlyBackupToCloud(t *testing.T) {
+	k := ClientKey{uuid.New(), netip.MustParseAddr("10.20.0.32")}
+	run := func(start time.Time) int {
+		var flows []FlowRec
+		for m := 0; m < 40; m++ {
+			s := start.Add(time.Duration(m) * time.Minute)
+			flows = append(flows, FlowRec{Key: k, Up: true, Remote: netip.MustParseAddr("52.95.1.1"), RemotePort: 443, Protocol: 6, ASN: 16509,
+				Start: s, End: s.Add(time.Minute - time.Millisecond), Bytes: 90_000_000, Packets: 64_000, Sampling: 1})
+		}
+		sig := &sustainedSignals{fakeSignals: fakeSignals{security: []SecurityRow{{Key: k, Site: uuid.New(), UpBytes: 3_600_000_000, DownBytes: 10_000}},
+			loc: Location{Site: uuid.New(), Router: uuid.New()}}, flows: flows, tz: "America/Mexico_City"}
+		p := smtpOnly()
+		p.SMTP.Enabled, p.Sustained.Enabled = false, true
+		rep, err := New(sig, &fakeSink{params: p}, nil, Options{}).Evaluate(context.Background(), uuid.New(), start.Add(45*time.Minute), true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(rep.Candidates)
+	}
+	// 09:00 UTC = 03:00 en Ciudad de México: copia nocturna.
+	if n := run(time.Date(2026, 10, 9, 9, 0, 0, 0, time.UTC)); n != 0 {
+		t.Fatalf("copia nocturna a AWS generó %d hallazgos", n)
+	}
+	// 18:00 UTC = 12:00 local: subida sostenida sospechosa.
+	if n := run(time.Date(2026, 10, 9, 18, 0, 0, 0, time.UTC)); n != 1 {
+		t.Fatalf("subida de día: %d hallazgos", n)
+	}
+}
