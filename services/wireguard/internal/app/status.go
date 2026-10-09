@@ -251,7 +251,9 @@ func (s *Service) ListHubs(ctx context.Context) ([]Hub, error) {
 }
 
 // HandshakeState es el estado de handshake de p ahora.
-func (s *Service) HandshakeState(p *domain.Peer) string { return domain.HandshakeStateAt(p.LastHandshakeAt, s.now()) }
+func (s *Service) HandshakeState(p *domain.Peer) string {
+	return domain.HandshakeStateAt(p.LastHandshakeAt, s.now())
+}
 
 // Now es el reloj del servicio.
 func (s *Service) Now() time.Time { return s.now() }
