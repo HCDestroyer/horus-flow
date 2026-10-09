@@ -5,7 +5,11 @@
 - **Dueño:** UI — [`docs/backlog/team.md`](../../docs/backlog/team.md) §2.
 - **Estado:** I0-14 (shell, login con TOTP, tema, i18n, estados), **I0-15** (cliente generado del
   OpenAPI, token por ISP, selector de ISP, API simulada del contrato) e **I0-16** (marco de
-  widgets v0 con las plantillas "NOC del ISP" y "Seguridad", vista mural).
+  widgets v0 con las plantillas "NOC del ISP" y "Seguridad", vista mural). **I1:** Clientes por IP
+  (I1-16), Tráfico (I1-17), Hallazgos con evidencia y acciones recomendadas (I1-18), Nodos,
+  routers, onboarding y prefijos (I1-19), widgets `top_services`/`top_organizations` (I1-20),
+  kiosco `/kiosk` y Pantallas NOC (I1-21), consola de plataforma y fuentes de reputación
+  (I1-31, D19, D20), canales de notificación por ISP (D13, D17) e imagen `horus-web`.
 - **Documentación:** [`docs/frontend.md`](../../docs/frontend.md),
   [`docs/conventions.md`](../../docs/conventions.md) §3,
   [ADR-0012](../../docs/adr/0012-nuxt4-nuxt-ui.md), API en [`docs/api.md`](../../docs/api.md).
@@ -28,6 +32,7 @@ pnpm e2e --grep @tenant # Playwright (construye con build:mocks si no hay E2E_NO
 pnpm e2e --grep @widgets
 pnpm e2e --grep @layout # sin desbordamiento: mural 720p–4K, escritorio y móvil 320–430 px
 pnpm e2e --grep @tour   # recorrido con capturas en docs/screenshots/tour/
+pnpm e2e --grep "@clients|@traffic|@security|@onboarding|@platform|@kiosk"   # I1
 pnpm screenshots        # capturas en docs/screenshots/
 ```
 
@@ -48,6 +53,25 @@ versión de ese navegador (1.56.1 ↔ chromium-1194). No se ejecuta `playwright 
 Escenarios: `localStorage['horus.mock.scenario']` = `degraded` (analítica caída, un exportador
 silencioso) · `system-error` · `widget-error` (dos widgets fallan una vez) · `empty`.
 `localStorage['horus.mock.tokenTtlMs']` acorta la vida del token para probar el refresh.
+
+Interruptores de I1 (todos en `localStorage`, solo leídos por `mocks/`):
+`horus.mock.findingEveryMs` (hallazgo nuevo por tiempo real; 45 s por defecto, `0` = nunca) ·
+`horus.mock.onboardingStepMs` (paso del alta simulada del router, 6 s) ·
+`horus.mock.enrollTtlMs` (vida del token de enrolamiento) · `horus.mock.offline` = `1` (corte de
+red para el kiosco) · `horus.mock.frontendVersion` (versión mínima que pide el kiosco) ·
+`horus.mock.accessMode` = `domain` | `subdomain` | `ip_only` (D19) · `horus.mock.diskRatio`
+(uso del disco local, aviso desde 0,85). Datos de demo: Fibra Norte tiene el Nodo Costa en
+modo descubrimiento y el router `rt-lago` pendiente de configurar; Valle Conecta, `rt-ribera`
+silencioso; en el ISP hay clientes IPv6 por prefijo delegado (D22).
+
+### Imagen `horus-web` (producción)
+
+`Dockerfile` (contexto: la raíz del repo; `Dockerfile.dockerignore` limita el contexto) genera
+la SPA con `pnpm build` y la sirve con `scripts/serve-static.mjs` sobre distroless Node, como
+`nonroot`, puerto 8081, sistema de archivos de solo lectura y `/healthz`. Fallback de SPA,
+caché inmutable para `/_nuxt/*`, CSP de `security.md` con los scripts en línea de Nuxt
+permitidos por hash. Traefik debe enrutar a `horus-web:8081` todo lo que no sea `/api` ni
+`/ws` (regla de menor prioridad que la del gateway).
 
 ## Cliente de API (I0-15)
 
@@ -96,9 +120,17 @@ silencioso) · `system-error` · `widget-error` (dos widgets fallan una vez) · 
 
 - **Claves de `data` por tipo de widget:** C9 fija el sobre pero no los `values`/columnas de cada
   tipo; la lectura del frontend está en `app/widgets/shapes.ts` y debe acordarse con `analytics`.
-- Cliente WebSocket real (ticket, reconexión, re-suscripción) e indicador de conexión: I1.
-- Kiosco (`/kiosk`, credencial de dispositivo, rotación, wake lock): I1.
-- CI: el job `frontend` no ejecuta Playwright; `e2e --grep @tenant` y `@widgets` se corren a mano.
+- Cliente WebSocket real (ticket, reconexión, re-suscripción) e indicador de conexión: los temas
+  `security` y `traffic.summary` llegan hoy de la fuente simulada; el onboarding sondea cada 3 s.
+- Kiosco: banda de hallazgo crítico (`critical_finding_banner`) y QR del código (hoy enlace con
+  el código en el fragmento) sin implementar.
+- Diferencias con el contrato (detalle en el resumen de la historia): `Customer` sin la confianza
+  del estado de seguridad (la ficha la toma de sus hallazgos); el rol `viewer` (= `isp_viewer`)
+  no tiene `customers.read`, así que no puede abrir fichas (I1-16 criterio 6 se prueba con un rol
+  con lectura y sin `customers.kind.write`); sin endpoint de uso de disco por tipo de dato ni de
+  versión del binario para la consola de plataforma; `/analytics/traffic/top` sin dimensión de
+  servicios con etiqueta de servicio en la vista (se usa la vista previa de widgets).
+- CI: el job `frontend` no ejecuta Playwright; los e2e se corren a mano.
 
 ## Decisiones
 
@@ -113,6 +145,15 @@ silencioso) · `system-error` · `widget-error` (dos widgets fallan una vez) · 
   permiso.
 - **API simulada coherente:** todos los widgets de seguridad (resumen, feed, tendencia, por nodo,
   señales) salen de una base de hallazgos abiertos (`openFindings`); lo garantiza
-  `tests/unit/mock-findings.test.ts`.
-- **D18:** el estado `infected` se muestra como "Infectado", siempre con su confianza.
+  `tests/unit/mock-findings.test.ts`. En I1 la base se amplía en `mocks/base.ts` (identidad de
+  clientes y hallazgos) y `mocks/inventory.ts` (nodos, routers, túneles, prefijos, clientes):
+  widgets, listas, fichas y resumen de seguridad salen de ahí (`tests/unit/mock-i1.test.ts`).
+- **D11:** los hallazgos muestran acciones recomendadas con comandos RouterOS para copiar y su
+  comando para deshacer; no existe ningún botón que actúe sobre el router.
+- **Kiosco:** el JWT de kiosco ocupa el mismo hueco en memoria que el token de ISP; la
+  credencial de dispositivo es una cookie HttpOnly del gateway (en la API simulada,
+  `localStorage` dentro de `mocks/`). La consola de plataforma da "No encontrado" (no 403) a
+  quien no es superadmin.
+- **D18:** el estado `infected` se muestra como "Infectado", siempre con su confianza; en la
+  ficha del cliente, además, con las razones de los hallazgos que lo sostienen.
 - **Marca provisional** (P-20 abierta): `primary` teal, neutros zinc.
