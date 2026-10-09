@@ -69,6 +69,7 @@ const audience = (a: string) =>
               :code="a.customer_message"
               :label="t('findings.actions.customerMessage')"
               :copy-label="t('findings.actions.copyMessage')"
+              prose
             />
           </div>
 

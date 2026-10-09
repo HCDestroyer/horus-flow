@@ -22,6 +22,8 @@ import type {
 import {
   CATEGORIES,
   maskIp,
+  ORGANIZATIONS,
+  SERVICES,
   openFindings,
   SEVERITY_ORDER,
   SIGNALS_BY_KIND,
@@ -169,6 +171,12 @@ function exportersStatus(ctx: WidgetDataContext, degraded: boolean): WidgetData 
   )
 }
 
+/** Parte del ISP que filtra `config.site_ids` (vacío = todo el ISP). */
+function siteShare(ctx: WidgetDataContext) {
+  const ids = (ctx.widget.config.site_ids as string[] | undefined) ?? []
+  return ids.length ? Math.min(1, ids.length / ctx.tenant.sites.length) : 1
+}
+
 function rangeMs(range: unknown) {
   const map: Record<string, number> = { '1h': 1, '6h': 6, '24h': 24, '7d': 168, '30d': 720 }
   return (map[String(range)] ?? 24) * 3_600_000
@@ -178,7 +186,7 @@ function trafficTimeseries(ctx: WidgetDataContext): WidgetData {
   const span = rangeMs(ctx.widget.config.range)
   const stepS = span <= 6 * 3_600_000 ? 60 : 300
   const t = Math.floor(ctx.now.getTime() / (stepS * 1000)) * stepS * 1000
-  const scale = 4.2e9 * tenantScale(ctx.tenant)
+  const scale = 4.2e9 * tenantScale(ctx.tenant) * siteShare(ctx)
   const down: [string, number | null][] = []
   const up: [string, number | null][] = []
   // Hueco de 25 min hace ~5 h (colector reiniciado): se muestra como hueco, no como cero.
@@ -209,16 +217,28 @@ function trafficTimeseries(ctx: WidgetDataContext): WidgetData {
 }
 
 function topCategories(ctx: WidgetDataContext): WidgetData {
-  const r = rng(hash(ctx.tenant.tenant_id + 'categories'))
+  const r = rng(hash(ctx.tenant.tenant_id + ctx.widget.type))
   const n = Number(ctx.widget.config.n ?? 8)
-  const total = 38e12 * tenantScale(ctx.tenant)
+  const labels =
+    ctx.widget.type === 'top_services'
+      ? SERVICES
+      : ctx.widget.type === 'top_organizations'
+        ? ORGANIZATIONS
+        : CATEGORIES
+  const total =
+    38e12 *
+    tenantScale(ctx.tenant) *
+    siteShare(ctx) *
+    (rangeMs(ctx.widget.config.range) / 86_400_000)
   let rest = total
-  const rows: TopRow[] = CATEGORIES.map((label, i) => {
-    const share = i === 0 ? 0.42 : (rest / total) * (0.28 + r() * 0.12)
-    const down = Math.round(total * share)
-    rest -= down
-    return { label, down_bytes: down, up_bytes: Math.round(down * (0.04 + r() * 0.1)) }
-  }).sort((a, b) => b.down_bytes - a.down_bytes)
+  const rows: TopRow[] = labels
+    .map((label, i) => {
+      const share = i === 0 ? 0.42 : (rest / total) * (0.28 + r() * 0.12)
+      const down = Math.round(total * share)
+      rest -= down
+      return { label, down_bytes: down, up_bytes: Math.round(down * (0.04 + r() * 0.1)) }
+    })
+    .sort((a, b) => b.down_bytes - a.down_bytes)
   const others = rows.slice(n).reduce(
     (acc, row) => ({
       label: 'Otros',
@@ -243,8 +263,9 @@ function topCustomers(ctx: WidgetDataContext): WidgetData {
   // Los clientes que más bajan de la base común (los mismos de la lista de Clientes).
   const n = Number(ctx.widget.config.n ?? 10)
   const sites = new Map(sitesOf(ctx.tenant).map((s) => [s.id, s.name]))
+  const ids = (ctx.widget.config.site_ids as string[] | undefined) ?? []
   const rows: TopCustomerRow[] = customersOf(ctx.tenant, ctx.now)
-    .filter((c) => c.traffic_24h)
+    .filter((c) => c.traffic_24h && (!ids.length || ids.includes(c.site_id)))
     .sort((a, b) => Number(b.traffic_24h!.down_bytes) - Number(a.traffic_24h!.down_bytes))
     .slice(0, n)
     .map((c) => ({

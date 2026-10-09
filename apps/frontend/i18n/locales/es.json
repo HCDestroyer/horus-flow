@@ -381,8 +381,9 @@
       "listLabel": "Categorías con más tráfico"
     },
     "top_services": {
-      "description": "Muestra los servicios que más se consumen.",
-      "empty": "Sin tráfico clasificado en este periodo."
+      "description": "Muestra los servicios más consumidos.",
+      "empty": "Sin tráfico clasificado en este periodo.",
+      "listLabel": "Servicios con más tráfico"
     },
     "top_customers": {
       "description": "Muestra los clientes que más consumen.",
@@ -419,6 +420,11 @@
       "service": "Servicio",
       "customers": "Clientes",
       "flows": "Flujos"
+    },
+    "top_organizations": {
+      "description": "Muestra las organizaciones (ASN) hacia las que va más tráfico.",
+      "empty": "Sin tráfico atribuido a organizaciones en este periodo.",
+      "listLabel": "Organizaciones con más tráfico"
     }
   },
   "common": {
@@ -725,6 +731,17 @@
     }
   },
   "traffic": {
-    "range": "Rango de tiempo"
+    "range": "Rango de tiempo",
+    "series": "Tráfico ↓ / ↑",
+    "topCustomers": "Clientes que más consumen",
+    "topServices": "Servicios",
+    "topCategories": "Categorías",
+    "topOrganizations": "Organizaciones (ASN)",
+    "partial": "Datos incompletos en este rango",
+    "partialHint": "Solo hay datos del {pct} del periodo (retención, routers que empezaron a exportar después o huecos). Los huecos se muestran como huecos, no como cero.",
+    "attributed": "de los bytes atribuidos a clientes",
+    "unattributed": "{pct} fuera de los prefijos declarados",
+    "infrastructure": "{pct} de infraestructura",
+    "reviewPrefixes": "Revisar prefijos de clientes"
   }
 }

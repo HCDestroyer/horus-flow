@@ -83,6 +83,32 @@ export const CATEGORIES = [
   'Comercio electrónico',
 ]
 
+export const SERVICES = [
+  'YouTube',
+  'Netflix',
+  'TikTok',
+  'Instagram',
+  'WhatsApp',
+  'Actualizaciones de Windows',
+  'Steam',
+  'Disney+',
+  'Google Drive',
+  'Zoom',
+]
+
+export const ORGANIZATIONS = [
+  'Google LLC · AS15169',
+  'Netflix · AS2906',
+  'Meta Platforms · AS32934',
+  'Akamai · AS20940',
+  'Amazon · AS16509',
+  'Cloudflare · AS13335',
+  'Microsoft · AS8075',
+  'ByteDance · AS396986',
+  'Valve · AS32590',
+  'Fastly · AS54113',
+]
+
 export function maskIp(ip: string) {
   if (ip.includes(':')) {
     const groups = ip.split(':')

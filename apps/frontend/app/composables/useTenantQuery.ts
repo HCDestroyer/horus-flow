@@ -16,11 +16,23 @@ export function useTenantQuery<T>(
     const owner = !scope ? 'none' : scope.kind === 'tenant' ? scope.tenantId : 'platform'
     return `q:${owner}:${toValue(key)}`
   })
-  return useAsyncData(fullKey, fetcher, {
+  const query = useAsyncData(fullKey, fetcher, {
     server: false,
     watch: options.watch,
     immediate: options.immediate ?? true,
   })
+  return { ...query, error: computed(() => originalError(query.error.value)) }
+}
+
+/**
+ * `useAsyncData` envuelve el error en un `NuxtError`; las páginas necesitan el `ApiError`
+ * original (código del contrato, 404, 412, 503…), que queda en `cause`.
+ */
+export function originalError(error: unknown): unknown {
+  if (!error) return null
+  if (error instanceof ApiError || error instanceof NetworkError) return error
+  const cause = (error as { cause?: unknown }).cause
+  return cause instanceof ApiError || cause instanceof NetworkError ? cause : error
 }
 
 /** ¿Tiene el usuario este permiso en el ISP actual? (ocultar por permiso, §12). */

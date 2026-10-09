@@ -11,8 +11,10 @@ const props = withDefaults(
     filename?: string
     maxHeight?: string
     copyLabel?: string
+    /** Texto en prosa (mensaje para el cliente): fuente normal y cortes por palabra. */
+    prose?: boolean
   }>(),
-  { filename: undefined, maxHeight: undefined, copyLabel: undefined },
+  { filename: undefined, maxHeight: undefined, copyLabel: undefined, prose: false },
 )
 
 const { t } = useI18n()
@@ -48,7 +50,8 @@ function download() {
       </span>
     </figcaption>
     <pre
-      class="text-default m-0 overflow-y-auto px-3 py-2 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap"
+      class="text-default m-0 overflow-y-auto px-3 py-2 leading-relaxed whitespace-pre-wrap"
+      :class="prose ? 'font-sans text-sm break-words' : 'font-mono text-xs break-all'"
       :style="maxHeight ? { maxHeight } : undefined"
       tabindex="0"
       :aria-label="label"

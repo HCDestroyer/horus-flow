@@ -1,4 +1,4 @@
-import type { DashboardWidget, WidgetData } from '~~/types/api'
+import type { DashboardWidget, RelativeRange, WidgetData } from '~~/types/api'
 
 export type WidgetLoadStatus = 'idle' | 'loading' | 'ready' | 'error'
 
@@ -19,6 +19,8 @@ export function useWidgetData(options: {
   refreshSeconds: number
   /** `false` para tipos sin datos (`data_endpoint_kind: none`). */
   enabled: boolean
+  /** Sin dashboard guardado: `POST /widget-data/preview` con tipo y configuración. */
+  preview?: boolean
 }) {
   const { $api } = useNuxtApp()
   const { activeScope } = useAuth()
@@ -45,12 +47,23 @@ export function useWidgetData(options: {
     const requestKey = key.value
     if (!data.value) status.value = 'loading'
     try {
-      const res = await unwrap(
-        $api.GET('/dashboards/{dashboard_id}/widgets/{widget_id}/data', {
-          params: { path: { dashboard_id: options.dashboardId, widget_id: options.widget.id } },
-          signal: controller.signal,
-        }),
-      )
+      const res = options.preview
+        ? await unwrap(
+            $api.POST('/widget-data/preview', {
+              body: {
+                type: options.widget.type,
+                config: options.widget.config,
+                range: options.widget.config.range as RelativeRange | undefined,
+              },
+              signal: controller.signal,
+            }),
+          )
+        : await unwrap(
+            $api.GET('/dashboards/{dashboard_id}/widgets/{widget_id}/data', {
+              params: { path: { dashboard_id: options.dashboardId, widget_id: options.widget.id } },
+              signal: controller.signal,
+            }),
+          )
       // Respuesta de un ISP anterior (cambio en curso): se descarta.
       if (requestKey !== key.value) return
       data.value = res as WidgetData

@@ -119,6 +119,11 @@ export interface DashboardContext {
   report: (at: number) => void
   /** Hay una fuente de tiempo real activa. */
   live: Ref<boolean>
+  /**
+   * Vista sin dashboard guardado (p. ej. Tráfico): cada widget pide sus datos con
+   * `POST /widget-data/preview` a partir de su tipo y su configuración.
+   */
+  preview?: boolean
 }
 
 export const DASHBOARD_CONTEXT: InjectionKey<DashboardContext> = Symbol('horus.dashboard')
