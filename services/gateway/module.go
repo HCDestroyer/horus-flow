@@ -72,11 +72,12 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 	}
 	sessions, _ := module.Lookup[authapi.SessionChecker](deps.Services, authapi.ServiceSessions)
 	audit, _ := module.Lookup[authapi.AuditRecorder](deps.Services, authapi.ServiceAudit)
+	kiosks, _ := module.Lookup[authapi.KioskChecker](deps.Services, authapi.ServiceKiosks)
 	if sessions == nil {
 		logger.WarnContext(ctx, "gateway: auth not local; authenticated routes answer 503 until the remote SessionService client exists")
 	}
 	e := edge.New(edge.Options{
-		Routes: table, Verifier: verifier, Sessions: sessions, Audit: audit, Local: deps.Routes, Logger: logger,
+		Routes: table, Verifier: verifier, Sessions: sessions, Kiosks: kiosks, Audit: audit, Local: deps.Routes, Logger: logger,
 	})
 	if err := deps.Routes.SetEdge(e.Middleware); err != nil {
 		return nil, err

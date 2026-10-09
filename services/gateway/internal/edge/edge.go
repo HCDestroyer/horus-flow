@@ -42,6 +42,9 @@ import (
 // HeaderTenant es la cabecera de observabilidad con el tid.
 const HeaderTenant = "X-Horus-Tenant"
 
+// WSPath es la ruta del WebSocket (autenticada por ticket de un uso).
+const WSPath = "/api/v1/ws"
+
 // ReauthMaxAge es la antigüedad máxima de auth_time en rutas 🔒.
 const ReauthMaxAge = 5 * time.Minute
 
@@ -61,10 +64,13 @@ type Options struct {
 	// (fail-closed) salvo AllowNoSessionCheck.
 	Sessions            authapi.SessionChecker
 	AllowNoSessionCheck bool
-	Audit               authapi.AuditRecorder
-	Local               Matcher
-	Logger              *slog.Logger
-	Now                 func() time.Time
+	// Kiosks comprueba revocación y allowed_cidrs de los kioscos (nil = 503
+	// para tokens de kiosco, fail-closed).
+	Kiosks authapi.KioskChecker
+	Audit  authapi.AuditRecorder
+	Local  Matcher
+	Logger *slog.Logger
+	Now    func() time.Time
 	// RateLimits: nombre (x-rate-limit) → peticiones por minuto y por IP.
 	RateLimits map[string]int
 }
@@ -132,7 +138,8 @@ func (e *Edge) serve(w http.ResponseWriter, r *http.Request, rt routes.Route, ne
 			return
 		}
 	}
-	if rt.SelfAuthenticating() {
+	if rt.SelfAuthenticating() || (rt.Prefix == WSPath && r.URL.Query().Has("ticket")) {
+		// El dueño autentica (cookie, token de un uso o ticket WebSocket).
 		e.forward(w, r, rt, next)
 		return
 	}
@@ -151,8 +158,19 @@ func (e *Edge) serve(w http.ResponseWriter, r *http.Request, rt routes.Route, ne
 		return
 	}
 	req := authz.Requirement{Scope: rt.Scope, AllowKiosk: rt.AllowsKiosk()}
-	if rt.Permission != routes.PermAuthenticated {
-		req.Permission = rt.Permission
+	switch rt.Permission {
+	case routes.PermAuthenticated, routes.PermWidgetType, routes.PermDashboardAccess:
+		// Solo autenticación: el permiso fino lo evalúa el módulo dueño.
+	case routes.PermKioskSelf:
+		if p.Type != authz.TypeKiosk {
+			problem.Std(w, r, http.StatusForbidden, problem.CodePermissionDenied,
+				problem.WithDetail("Ruta exclusiva de kioscos."))
+			return
+		}
+	default:
+		if p.Type != authz.TypeKiosk { // un kiosco no lleva permisos: lo limita la lista blanca
+			req.Permission = rt.Permission
+		}
 	}
 	if !authz.Check(w, r, p, req) {
 		return
@@ -197,8 +215,11 @@ func (e *Edge) forward(w http.ResponseWriter, r *http.Request, rt routes.Route, 
 }
 
 func (e *Edge) checkSession(w http.ResponseWriter, r *http.Request, p *authz.Principal) bool {
+	if p.Type == authz.TypeKiosk {
+		return e.checkKiosk(w, r, p)
+	}
 	if p.Type != authz.TypeUser {
-		return true // kioscos: revocación del dispositivo (I1)
+		return true
 	}
 	if e.o.Sessions == nil {
 		if e.o.AllowNoSessionCheck {
@@ -232,6 +253,33 @@ func (e *Edge) checkSession(w http.ResponseWriter, r *http.Request, p *authz.Pri
 			problem.Std(w, r, http.StatusForbidden, problem.CodeTenantSuspended)
 			return false
 		}
+	}
+	return true
+}
+
+// checkKiosk aplica la revocación inmediata y allowed_cidrs a cada petición
+// de un kiosco (I1-14 criterios 3–5).
+func (e *Edge) checkKiosk(w http.ResponseWriter, r *http.Request, p *authz.Principal) bool {
+	if e.o.Kiosks == nil {
+		problem.Std(w, r, http.StatusServiceUnavailable, problem.CodeServiceUnavailable,
+			problem.WithDetail("No se puede comprobar la revocación del kiosco."))
+		return false
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	st, err := e.o.Kiosks.CheckKiosk(ctx, p.TenantID, p.KioskID)
+	if err != nil {
+		e.o.Logger.ErrorContext(r.Context(), "kiosk check failed", slog.Any("error", err))
+		problem.Std(w, r, http.StatusServiceUnavailable, problem.CodeServiceUnavailable)
+		return false
+	}
+	if !st.Active {
+		problem.Std(w, r, http.StatusUnauthorized, problem.CodeSessionRevoked, problem.WithDetail("Kiosco revocado o caducado."))
+		return false
+	}
+	if !st.AllowsIP(clientIP(r)) {
+		problem.Std(w, r, http.StatusForbidden, problem.CodeKioskForbidden, problem.WithDetail("Red no permitida para este kiosco."))
+		return false
 	}
 	return true
 }

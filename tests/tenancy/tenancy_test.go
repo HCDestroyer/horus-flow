@@ -66,9 +66,15 @@ func cases() map[string]tenanttest.Case {
 	c["setCustomerKind"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"kind": "commercial", "reason": "intento de otro ISP"}}
 	c["unlockCustomerKind"] = tenanttest.Case{Kind: tenanttest.ByID}
 	pending("CORE I1 (devices: credenciales y confirmación de prefijos)", "confirmClientPrefix", "putRouterCredential")
-	pending("CORE I1 (auth: miembros, roles y kioscos)",
-		"removeMember", "listKiosks", "getKiosk", "listMembers", "listRoles", "updateKiosk", "createKiosk",
-		"createKioskEnrollmentCode", "revokeKiosk", "inviteMember", "replaceMemberRoleAssignments")
+	// auth: kioscos (I1-14, CORE)
+	c["listKiosks"] = tenanttest.Case{Kind: tenanttest.List}
+	c["createKiosk"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"name": "TV pirata"}}
+	c["getKiosk"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["updateKiosk"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"name": "pirata"}}
+	c["createKioskEnrollmentCode"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["revokeKiosk"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"reason": "pirata"}}
+	pending("CORE I1 (auth: miembros y roles)",
+		"removeMember", "listMembers", "listRoles", "inviteMember", "replaceMemberRoleAssignments")
 	pending("CORE I1 (alerts: canales de notificación, D13/D17/D21)",
 		"deleteNotificationChannel", "listNotificationChannels", "getNotificationChannel", "listNotificationDeliveries",
 		"updateNotificationChannel", "createNotificationChannel", "testNotificationChannelConnection", "testNotificationChannel",
@@ -117,6 +123,7 @@ func (a *app) fixtureISP(x isp, cidr string) map[string]string {
 	// Cliente real (I1-06) en el prefijo del nodo.
 	realm := a.realmOf(x.token, site)
 	out["customer_id"] = a.insertCustomer(x.id, site, realm, cp, "10.10.0.41")
+	out["kiosk_id"] = a.must(a.post(x.token, "/api/v1/kiosks", map[string]any{"name": "TV NOC"}), 201).str("id")
 	if _, err := a.admin.Exec(context.Background(), `UPDATE detection.finding SET customer_id = $1 WHERE id = $2`,
 		out["customer_id"], out["finding_id"]); err != nil {
 		a.t.Fatal(err)
@@ -167,6 +174,7 @@ func TestTenantIsolationMatrix(t *testing.T) {
 				"{site_id}", paramsA["site_id"], "{router_id}", paramsA["router_id"], "{client_prefix_id}", paramsA["client_prefix_id"],
 				"{peer_id}", paramsA["peer_id"], "{token_id}", paramsA["token_id"],
 				"{finding_id}", paramsA["finding_id"], "{customer_id}", paramsA["customer_id"], "{entry_id}", paramsA["entry_id"],
+				"{kiosk_id}", paramsA["kiosk_id"],
 			).Replace(tmpl), nil)
 			return a.mux.Matches(r)
 		},

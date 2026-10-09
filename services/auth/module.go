@@ -101,8 +101,10 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 	if err != nil {
 		return nil, err
 	}
-	svc, err := app.NewService(postgres.New(db), app.Options{
-		Signer: authz.NewSigner(signKey, cfg.Issuer, cfg.AccessTTL, nil), Sealer: sealer, Catalog: catalog,
+	signer := authz.NewSigner(signKey, cfg.Issuer, cfg.AccessTTL, nil)
+	store := postgres.New(db)
+	svc, err := app.NewService(store, app.Options{
+		Signer: signer, Sealer: sealer, Catalog: catalog,
 		Argon:       domain.Argon2Params{Memory: cfg.Argon2MemoryKiB, Time: cfg.Argon2Time, Threads: 1, SaltLen: 16, KeyLen: 32},
 		RefreshIdle: cfg.RefreshIdle, SessionMax: cfg.SessionMaxAge, Logger: logger,
 	})
@@ -110,7 +112,9 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		db.Close()
 		return nil, err
 	}
-	for name, v := range map[string]any{api.ServiceSessions: svc, api.ServiceVerifier: verifier, api.ServiceAudit: svc} {
+	cursor := pagination.NewCodec(sealer.MAC("cursor", nil))
+	kiosks := app.NewKiosks(store, signer, svc, cursor, cfg.PublicBaseURL, nil, logger)
+	for name, v := range map[string]any{api.ServiceSessions: svc, api.ServiceVerifier: verifier, api.ServiceAudit: svc, api.ServiceKiosks: kiosks} {
 		if deps.Services == nil {
 			break
 		}
@@ -123,10 +127,12 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		deps.Health.AddCheck(health.Check{Name: "postgres", Critical: true, Probe: db.Ping})
 	}
 	if deps.Routes != nil {
-		httpapi.New(svc, authz.NewGuard(verifier), httpapi.Options{
-			Origins: authz.ParseOrigins(cfg.AllowedOrigins, cfg.PublicBaseURL), Cursor: pagination.NewCodec(sealer.MAC("cursor", nil)),
+		h := httpapi.New(svc, authz.NewGuard(verifier), httpapi.Options{
+			Origins: authz.ParseOrigins(cfg.AllowedOrigins, cfg.PublicBaseURL), Cursor: cursor,
 			PublicBaseURL: cfg.PublicBaseURL, Logger: logger,
-		}).Mount(deps.Routes)
+		})
+		h.Mount(deps.Routes)
+		httpapi.NewKiosks(h, kiosks).Mount(deps.Routes)
 	}
 	logger.InfoContext(ctx, "auth configured", slog.Any("auth", cfg), slog.String("postgres", pgdb.RedactDSN(cfg.PostgresDSN)))
 	return natsx.WithRelay(ctx, deps, &mod{db: db, svc: svc, cfg: cfg, logger: logger, migrate: cfg.Migrate}, db, migrations.Schema)
