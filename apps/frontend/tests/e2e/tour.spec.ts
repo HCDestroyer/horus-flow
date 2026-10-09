@@ -136,4 +136,101 @@ test.describe('recorrido completo @tour', () => {
     await page.goto(SECURITY_DASHBOARD)
     await dashboardShot(page, '54-movil-320-dashboard-seguridad', 7)
   })
+
+  test('pantallas de I1 (clientes, hallazgos, router, plataforma)', async ({ page }) => {
+    await page.addInitScript(() => {
+      window.localStorage.setItem('horus.mock.findingEveryMs', '0')
+      window.localStorage.setItem('horus.mock.onboardingStepMs', '60000')
+    })
+    await prepare(page, 'dark')
+    await loginAsAdmin(page)
+    const T = `/t/${SLUG}`
+    const shots: [string, string][] = [
+      ['60-cliente-infectado', `${T}/clients/0193c000-0000-7000-8000-000000100001`],
+      ['61-cliente-ipv6', `${T}/clients/0193c000-0000-7000-8000-000000100040`],
+      [
+        '62-cliente-comercial-historial',
+        `${T}/clients/0193c000-0000-7000-8000-000000100005?tab=history`,
+      ],
+      ['63-cliente-inactivo', `${T}/clients/0193c000-0000-7000-8000-000000100046`],
+      ['64-hallazgo-detalle', `${T}/security/findings/0192f0d1-1b2c-7e44-8a10-6b9c2d1e0f00`],
+      ['65-hallazgo-c2', `${T}/security/findings/0192f0d1-1b2c-7e44-8a10-6b9c2d1e0f01`],
+      ['66-nodo-descubrimiento', `${T}/nodes/0192e111-0000-7000-8000-000000000105`],
+      ['67-router-prefijos', `${T}/routers/0192e333-0000-7000-8000-000000000101/prefixes`],
+      ['68-router-silencioso', '/t/valle-conecta/routers/0192e333-0000-7000-8000-000000000202'],
+      ['69-trafico-30d-parcial', `${T}/traffic?range=30d`],
+    ]
+    for (const [name, url] of shots) {
+      await page.goto(url)
+      await shot(page, name, 2500)
+    }
+    await page.goto(`${T}/routers/0192e333-0000-7000-8000-000000000106/connection`)
+    await page.getByTestId('generate-script').click()
+    await expect(page.getByTestId('provisioning-script')).toBeVisible()
+    await shot(page, '70-router-onboarding-script', 800)
+    await page.goto(`${T}/routers/0192e333-0000-7000-8000-000000000101/prefixes`)
+    await page.getByTestId('import-prefixes').click()
+    await expect(page.getByTestId('import-preview')).toBeVisible()
+    await shot(page, '71-importar-mikrotik-ipv6', 800)
+    await page.goto(`${T}/security/findings/0192f0d1-1b2c-7e44-8a10-6b9c2d1e0f02`)
+    await page.getByTestId('false-positive').click()
+    await shot(page, '72-falso-positivo', 800)
+    await page.goto(`${T}/admin/kiosks`)
+    await page.locator('[data-kiosk="Pantalla de recepción"]').getByTestId('generate-code').click()
+    await expect(page.getByTestId('enrollment-code')).toBeVisible()
+    await shot(page, '73-kiosco-codigo', 800)
+  })
+
+  test('kiosco en una TV 1920×1080', async ({ page, context }) => {
+    await prepare(page, 'dark')
+    await loginAsAdmin(page)
+    await page.goto(`/t/${SLUG}/admin/kiosks`)
+    await page.locator('[data-kiosk="Pantalla de recepción"]').getByTestId('generate-code').click()
+    const code = (await page.getByTestId('enrollment-code').textContent())!.trim()
+    const tv = await context.newPage()
+    await tv.setViewportSize({ width: 1920, height: 1080 })
+    await tv.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' })
+    await tv.goto('/kiosk')
+    await tv.getByTestId('kiosk-code').fill('ZZZZ9999')
+    await tv.getByTestId('kiosk-submit').click()
+    await expect(tv.getByTestId('kiosk-enroll-error')).not.toBeEmpty()
+    await shot(tv, '74-kiosco-codigo-erroneo', 500)
+    await tv.getByTestId('kiosk-code').fill(code)
+    await tv.getByTestId('kiosk-submit').click()
+    await expect(
+      tv.getByTestId('kiosk-current').locator('[data-testid="widget"][data-state="ready"]'),
+    ).toHaveCount(9)
+    await shot(tv, '75-kiosco-noc', 3000)
+    expect(await layoutReport(tv, { noScroll: true }), 'kiosco').toEqual([])
+    await tv.keyboard.press('ArrowRight')
+    await expect(
+      tv.getByTestId('kiosk-current').locator('[data-testid="widget"][data-state="ready"]'),
+    ).toHaveCount(7)
+    await shot(tv, '76-kiosco-seguridad', 3000)
+  })
+
+  test('móvil y tema claro de I1', async ({ page }) => {
+    await page.addInitScript(() => window.localStorage.setItem('horus.mock.findingEveryMs', '0'))
+    await page.setViewportSize({ width: 390, height: 844 })
+    await prepare(page, 'light')
+    await loginAsAdmin(page)
+    const T = `/t/${SLUG}`
+    const shots: [string, string][] = [
+      ['80-movil-clientes-claro', `${T}/clients`],
+      ['81-movil-hallazgos-claro', `${T}/security/findings`],
+      ['82-movil-hallazgo-claro', `${T}/security/findings/0192f0d1-1b2c-7e44-8a10-6b9c2d1e0f00`],
+      ['83-movil-nodos-claro', `${T}/nodes`],
+      ['84-movil-onboarding-claro', `${T}/routers/0192e333-0000-7000-8000-000000000106/connection`],
+      ['85-movil-trafico-claro', `${T}/traffic`],
+    ]
+    for (const [name, url] of shots) {
+      await page.goto(url)
+      await shot(page, name, 2500)
+    }
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/platform/system')
+    await shot(page, '86-estado-del-sistema-claro', 1500)
+    await page.goto(`${T}/clients/0193c000-0000-7000-8000-000000100001`)
+    await shot(page, '87-cliente-claro', 2000)
+  })
 })
