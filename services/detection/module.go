@@ -21,17 +21,21 @@ import (
 
 	"github.com/hcdestroyer/horus-flow/packages/go/authz"
 	"github.com/hcdestroyer/horus-flow/packages/go/config"
+	"github.com/hcdestroyer/horus-flow/packages/go/datasets"
 	"github.com/hcdestroyer/horus-flow/packages/go/health"
 	"github.com/hcdestroyer/horus-flow/packages/go/module"
 	"github.com/hcdestroyer/horus-flow/packages/go/natsx"
 	"github.com/hcdestroyer/horus-flow/packages/go/pagination"
 	"github.com/hcdestroyer/horus-flow/packages/go/pgdb"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
+	"github.com/hcdestroyer/horus-flow/services/detection/api/securitywidgets"
 	chreader "github.com/hcdestroyer/horus-flow/services/detection/internal/adapters/clickhouse"
+	"github.com/hcdestroyer/horus-flow/services/detection/internal/adapters/feeds"
 	"github.com/hcdestroyer/horus-flow/services/detection/internal/adapters/httpapi"
 	"github.com/hcdestroyer/horus-flow/services/detection/internal/adapters/postgres"
 	"github.com/hcdestroyer/horus-flow/services/detection/internal/adapters/repsnap"
 	"github.com/hcdestroyer/horus-flow/services/detection/internal/app"
+	"github.com/hcdestroyer/horus-flow/services/detection/internal/app/feedsync"
 	modcfg "github.com/hcdestroyer/horus-flow/services/detection/internal/config"
 	"github.com/hcdestroyer/horus-flow/services/detection/internal/engine"
 	"github.com/hcdestroyer/horus-flow/services/detection/migrations"
@@ -41,6 +45,7 @@ import (
 const Role = "detection"
 
 type mod struct {
+	feeds   *feedsync.Scheduler
 	cfg     modcfg.Config
 	db      *pgdb.DB
 	ch      *chreader.Reader
@@ -97,6 +102,9 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 	if audit, ok := module.Lookup[authapi.AuditRecorder](deps.Services, authapi.ServiceAudit); ok {
 		opts.Audit = audit
 	}
+	opts.Kiosks = func() (authapi.KioskChecker, bool) {
+		return module.Lookup[authapi.KioskChecker](deps.Services, authapi.ServiceKiosks)
+	}
 	if cfg.ClickHouseDSN != "" {
 		m.ch, err = chreader.Open(cfg.ClickHouseDSN, cfg.ClickHouseUser, cfg.ClickHousePassword.Reveal(), cfg.ClickHouseTimeout)
 		if err != nil {
@@ -106,13 +114,26 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		opts.Flows = m.ch
 	}
 	svc := app.NewService(db, opts)
+	m.feeds = newFeeds(cfg, logger)
+	svc.SetSources(m.feeds)
+	snapDir := cfg.ReputationSnapshotDir
+	if snapDir == "" {
+		snapDir = m.feeds.SnapshotDir()
+	}
 	if m.ch != nil && cfg.Engine {
-		m.engine = engine.New(m.ch, svc, repsnap.New(cfg.ReputationSnapshotDir, time.Minute, logger), engine.Options{Lag: cfg.Lag, Logger: logger})
+		m.engine = engine.New(m.ch, svc, repsnap.New(snapDir, time.Minute, logger), engine.Options{Lag: cfg.Lag, Logger: logger})
 	}
 	if deps.Health != nil {
 		deps.Health.AddCheck(health.Check{Name: "postgres", Critical: true, Probe: db.Ping})
 		if m.ch != nil {
 			deps.Health.AddCheck(health.Check{Name: "clickhouse", Critical: false, Probe: m.ch.Ping})
+		}
+	}
+	if deps.Services != nil {
+		// Datos de los widgets de seguridad para analytics/dashboards (C9).
+		if err := deps.Services.Provide(securitywidgets.ServiceWidgetData, securitywidgets.Provider(svc.Widgets())); err != nil {
+			db.Close()
+			return nil, err
 		}
 	}
 	if deps.Routes != nil {
@@ -136,8 +157,26 @@ func (m *mod) Start(ctx context.Context) error {
 	return nil
 }
 
-// Run evalúa periódicamente a los tenants (planificador del motor).
+// newFeeds construye la sincronización de feeds del rol (catálogo + listas
+// personalizadas → snapshot en $HORUS_DATA_DIR/catalog/reputation).
+func newFeeds(cfg modcfg.Config, log *slog.Logger) *feedsync.Scheduler {
+	hf := datasets.NewHTTPFetcher("horus-flow (+reputation feeds)", 5*time.Minute)
+	hf.Guard = &datasets.EgressGuard{Deny: datasets.InstallationPrefixes()}
+	var f datasets.Fetcher = hf
+	if cfg.FeedsFixtures != "" {
+		f = datasets.DirFetcher{Dir: cfg.FeedsFixtures}
+	}
+	return &feedsync.Scheduler{ConfigPath: cfg.FeedsConfig, CustomPath: cfg.FeedsCustom, DataDir: cfg.DataDir, Log: log,
+		Service: &feedsync.Service{Store: &datasets.Store{Root: datasets.DatasetsDir(cfg.DataDir), Tool: "horus/detection"},
+			Fetcher: f, Parse: feeds.EntriesFromFile, AllowUnverified: cfg.AllowUnverified}}
+}
+
+// Run sincroniza los feeds (si está activado) y evalúa periódicamente a los
+// tenants (planificador del motor).
 func (m *mod) Run(ctx context.Context) error {
+	if m.cfg.FeedsSync {
+		go m.syncFeeds(ctx)
+	}
 	if m.engine == nil {
 		<-ctx.Done()
 		return nil
@@ -149,6 +188,21 @@ func (m *mod) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return nil
+		case <-t.C:
+		}
+	}
+}
+
+func (m *mod) syncFeeds(ctx context.Context) {
+	t := time.NewTicker(m.cfg.FeedsInterval)
+	defer t.Stop()
+	for {
+		if _, err := m.feeds.Sync(ctx, time.Now()); err != nil && ctx.Err() == nil {
+			m.logger.WarnContext(ctx, "detection: reputation feeds sync", "err", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
 		case <-t.C:
 		}
 	}

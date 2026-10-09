@@ -4,6 +4,7 @@ package tenancy
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -61,6 +62,12 @@ func TestDetectionPermissions(t *testing.T) {
 	}
 	if r := a.do(req{Method: "POST", Path: "/api/v1/reputation/allowlist", Token: viewer, Body: map[string]any{"asn": 64500, "reason": "x"}}); r.Status != 403 {
 		t.Errorf("viewer allowlist: %d", r.Status)
+	}
+	// Feeds de plataforma (D20): el catálogo embebido, visible con security.findings.read.
+	src := a.must(a.do(req{Method: "GET", Path: "/api/v1/reputation/sources", Token: viewer}), 200)
+	feeds := src.Body["data"].([]any)
+	if len(feeds) == 0 || feeds[0].(map[string]any)["origin"] != "catalog" || feeds[0].(map[string]any)["key"] == "" {
+		t.Fatalf("reputation/sources: %s", src.Raw)
 	}
 	// Otro ISP → 404, también por la evidencia y las transiciones.
 	for _, p := range []string{"/api/v1/findings/" + fid, "/api/v1/findings/" + fid + "/evidence", "/api/v1/customers/" + ids["customer_id"] + "/findings"} {
@@ -125,5 +132,72 @@ func TestDetectionPermissions(t *testing.T) {
 	a.must(a.do(req{Method: "DELETE", Path: "/api/v1/reputation/allowlist/" + ids["entry_id"], Token: A.token}), 204)
 	if r := a.post(A.token, "/api/v1/reputation/allowlist", map[string]any{"prefix": "192.0.2.0/24", "asn": 64500, "reason": "x"}); r.Status != 422 {
 		t.Errorf("prefijo y ASN a la vez: %d %s", r.Status, r.Raw)
+	}
+}
+
+const securityTemplate = "0192f000-0000-7000-8000-00000000d002"
+
+func (a *app) widget(token, wid string) resp {
+	return a.do(req{Method: "GET", Path: "/api/v1/dashboards/" + securityTemplate + "/widgets/" + wid + "/data", Token: token})
+}
+
+// Widgets de seguridad (C9) servidos por detection a analytics/dashboards y
+// /security/summary con el JWT de kiosco: sin IP ni alias si el kiosco no
+// tiene show_personal_data; otro ISP no ve los hallazgos de A.
+func TestSecurityWidgetsAndKiosk(t *testing.T) {
+	t.Parallel()
+	a := startApp(t)
+	pt := a.superadmin().platformToken()
+	A, B := a.newISP(pt, "isp-a"), a.newISP(pt, "isp-b")
+	ids := a.fixtureISP(A, "10.10.0.0/24")
+
+	sum := a.must(a.widget(A.token, "w-findings-summary"), 200)
+	data := sum.Body["data"].(map[string]any)
+	if data["kind"] != "state" || data["values"].(map[string]any)["open_total"].(float64) != 1 || sum.Body["meta"].(map[string]any)["widget_type"] != "findings_summary" {
+		t.Fatalf("findings_summary: %s", sum.Raw)
+	}
+	sig := a.must(a.widget(A.token, "w-botnet-signals"), 200).Body["data"].(map[string]any)["values"].(map[string]any)
+	if sig["by_signal"].(map[string]any)["scanning"].(float64) != 1 || sig["affected_customers"].(float64) != 1 {
+		t.Fatalf("botnet_signals: %v", sig)
+	}
+	node := a.must(a.widget(A.token, "w-security-by-node"), 200).Body["data"].(map[string]any)["rows"].([]any)
+	if len(node) != 1 || node[0].(map[string]any)["open_findings"].(float64) != 1 {
+		t.Fatalf("security_by_node: %v", node)
+	}
+	trend := a.must(a.widget(A.token, "w-findings-trend"), 200).Body["data"].(map[string]any)["series"].([]any)
+	if len(trend) != 1 || trend[0].(map[string]any)["group"] != "outbound_scanning" || len(trend[0].(map[string]any)["points"].([]any)) < 7 {
+		t.Fatalf("findings_trend: %v", trend)
+	}
+	feed := a.must(a.widget(A.token, "w-findings-feed"), 200)
+	rows := feed.Body["data"].(map[string]any)["rows"].([]any)
+	if len(rows) != 1 || rows[0].(map[string]any)["customer_ip"] != "10.10.0.41" || rows[0].(map[string]any)["id"] != ids["finding_id"] ||
+		feed.Body["meta"].(map[string]any)["masked_personal_data"] != false {
+		t.Fatalf("findings_feed (customers.read): %s", feed.Raw)
+	}
+	// Sin ClickHouse en este binario: watched_ports responde 503, no 500.
+	if r := a.widget(A.token, "w-watched-ports"); r.Status != 503 {
+		t.Fatalf("watched_ports sin ClickHouse: %d %s", r.Status, r.Raw)
+	}
+	// Otro ISP: su dashboard de seguridad no ve nada de A.
+	if r := a.must(a.widget(B.token, "w-findings-feed"), 200); len(r.Body["data"].(map[string]any)["rows"].([]any)) != 0 {
+		t.Fatalf("B ve hallazgos de A: %s", r.Raw)
+	}
+
+	// Kiosco sin show_personal_data con el dashboard de seguridad en su playlist.
+	pl := a.must(a.post(A.token, "/api/v1/playlists", map[string]any{"name": "Seguridad", "items": []any{
+		map[string]any{"dashboard_id": securityTemplate, "duration_seconds": 30}}}), 201)
+	_, _, jwt := a.enrolledKiosk(A, map[string]any{"name": "TV Seguridad", "playlist_id": pl.str("id")})
+	kfeed := a.must(a.widget(jwt, "w-findings-feed"), 200)
+	krow := kfeed.Body["data"].(map[string]any)["rows"].([]any)[0].(map[string]any)
+	if krow["customer_ip"] != "10.10.0.•••" || krow["alias"] != nil || kfeed.Body["meta"].(map[string]any)["masked_personal_data"] != true {
+		t.Fatalf("feed del kiosco sin datos personales: %s", kfeed.Raw)
+	}
+	ks := a.must(a.do(req{Method: "GET", Path: "/api/v1/security/summary", Token: jwt}), 200)
+	if ks.Body["affected_customers"].(float64) != 1 || strings.Contains(string(ks.Raw), "10.10.0.41") {
+		t.Fatalf("summary con JWT de kiosco: %s", ks.Raw)
+	}
+	// El kiosco sigue sin acceso a rutas que no admiten kioscos.
+	if r := a.do(req{Method: "GET", Path: "/api/v1/findings", Token: jwt}); r.Status != 403 {
+		t.Fatalf("kiosco en /findings: %d", r.Status)
 	}
 }

@@ -120,7 +120,7 @@ func cases() map[string]tenanttest.Case {
 	c["listAllowlist"] = tenanttest.Case{Kind: tenanttest.List}
 	c["createAllowlistEntry"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"prefix": "198.51.100.0/24", "reason": "pirata"}}
 	c["deleteAllowlistEntry"] = tenanttest.Case{Kind: tenanttest.ByID}
-	pending("SEC I1 (detection: estado de feeds en el rol; feedsync aún no integrado en horus)", "listReputationSources")
+	c["listReputationSources"] = tenanttest.Case{Kind: tenanttest.List}
 	pending("FLOW I1 (flows: exportadores)", "listFlowExporters", "getFlowExporter")
 	return c
 }
