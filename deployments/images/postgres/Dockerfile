@@ -21,10 +21,15 @@ FROM ${PGBACKREST_IMAGE} AS pgbackrest
 FROM ${POSTGRES_IMAGE}
 COPY --from=pgbackrest /usr/bin/pgbackrest /usr/bin/pgbackrest
 COPY --from=pgbackrest /usr/lib/libbz2.so.1* /usr/lib/libssh2.so.1* /usr/lib/
+SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
 # Falla la build si falta alguna biblioteca. Directorios de log/spool/tmp del usuario postgres.
 RUN pgbackrest version \
     && ! ldd /usr/bin/pgbackrest | grep -q 'not found' \
     && install -d -o postgres -g postgres -m 0750 /var/log/pgbackrest /var/spool/pgbackrest /tmp/pgbackrest
+# Sin root: el instalador crea el directorio de datos con el uid de postgres (70) y el entrypoint
+# oficial funciona igual sin privilegios. La restauración de prueba (horus-backup verify) pasa
+# --user 0:0 explícitamente para preparar su directorio efímero.
+USER 70:70
 LABEL org.opencontainers.image.title="horus-postgres" \
       org.opencontainers.image.description="PostgreSQL 18.6 con pgBackRest 2.59.3 (Horus Flow, I1-23)" \
       org.opencontainers.image.source="https://github.com/hcdestroyer/horus-flow"

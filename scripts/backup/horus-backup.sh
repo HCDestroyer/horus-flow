@@ -253,7 +253,7 @@ pg_verify() {
   done
   [[ ! "$archived" < "$seg" ]] || die "el WAL $seg no llegó al repositorio en 120 s (archive_command)"
   log "PostgreSQL: restauración en un contenedor efímero (base vacía) hasta $name"
-  docker run --rm -i --name "horus-verify-pg-$$" --network none \
+  docker run --rm -i --name "horus-verify-pg-$$" --network none --user 0:0 \
     -v "$PG_REPO_DIR:/var/lib/pgbackrest:ro" \
     -v "$HORUS_SECRETS_DIR/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro" \
     -v /var/lib/pgrestore \
