@@ -100,7 +100,7 @@ documenta el Agente E en [`vendors/mikrotik.md`](vendors/mikrotik.md).
 | `src_port`, `dst_port` | uint16 | IE 7/11 | puertos | puertos de botnet, escaneo, servidor expuesto |
 | `protocol` | uint8 | IE 4 | | todo |
 | `tcp_flags` | uint8 | IE 6 (OR acumulado) | SYN sin ACK, sesiones aceptadas | escaneo, servicios entrantes |
-| `icmp_type_code` | uint16 | IE 32/139 | barridos ICMP | escaneo |
+| `icmp_type_code` | uint16 | IE 32/139 (IPv4); **IE 178/179** (ICMPv6, plantilla IPv6 de RouterOS) | barridos ICMP | escaneo |
 | `bytes`, `packets` | uint64 | IE 1/2 | volumen | todo |
 | `input_if_index`, `output_if_index` | uint32 | IE 10/14 | lado cliente vs WAN | dirección, tránsito |
 | `post_nat_src_ip/port`, `post_nat_dst_ip/port` | IP/uint16 | IE 225/226/227/228 | solo si el ISP activa `nat-*` (desactivado por defecto, dato sensible) | plan B de §4.4 |
@@ -148,8 +148,8 @@ Cómo se llenan:
 
 - Clave natural del cliente = `(tenant_id, realm_id, dirección canónica)`
   ([ADR-0018](adr/0018-la-ip-es-el-cliente.md)); IPv4 /32; IPv6 truncada a `ipv6_client_len` del
-  prefijo (**/64 por defecto**, /56 configurable; coincide con el prefijo delegado que propone
-  [`vendors/mikrotik.md`](vendors/mikrotik.md)). En PostgreSQL el cliente tiene además un
+  prefijo (**/64 por defecto**; 48, 56 o 60 configurables; debe coincidir con el prefijo delegado
+  por el router, ver §4.8 y [`vendors/mikrotik.md` §11](vendors/mikrotik.md)). En PostgreSQL el cliente tiene además un
   `customer_id` UUIDv7; ClickHouse no lo guarda ([`database.md` §2.3.1](database.md)).
 - **Realm**: los prefijos privados/CGNAT pertenecen al realm `node_private` de su nodo (la misma
   `10.0.0.5` en dos nodos o dos ISP son clientes distintos); los públicos al realm `public` del
@@ -185,7 +185,7 @@ Con D1 la IP del cliente debe ser la **anterior al NAT** (supuesto abierto de
 |------|-------------------------------------------------------------------------|------------|
 | Clientes con IP pública (sin NAT) | IP pública del cliente en ambos sentidos | directa |
 | CPE con NAT (residencial típico) | WAN del CPE = IP del cliente | directa; los dispositivos detrás no se ven |
-| **NAT/CGNAT en el propio router principal** | **Verificado con un router real (2026-10-09, §4.4.2):** en la **subida** `sourceIPv4Address` es la IP privada del cliente y `postNATSourceIPv4Address` la pública; en la **bajada** `destinationIPv4Address` es la **IP pública del NAT** y la privada del cliente llega en `postNATDestinationIPv4Address` | subida: `src`; bajada: `post_nat_dst` (IE 226). Los campos NAT de IPFIX son **obligatorios** para atribuir la bajada en este caso. |
+| **NAT/CGNAT en el propio router principal** | **Verificado con un router real (2026-10-09, §4.4.3):** en la **subida** `sourceIPv4Address` es la IP privada del cliente y `postNATSourceIPv4Address` la pública; en la **bajada** `destinationIPv4Address` es la **IP pública del NAT** y la privada del cliente llega en `postNATDestinationIPv4Address` | subida: `src`; bajada: `post_nat_dst` (IE 226). Los campos NAT de IPFIX son **obligatorios** para atribuir la bajada en este caso. |
 | CGNAT en otro equipo **detrás** del router principal (hacia Internet) | IP privada/CGNAT del cliente | directa |
 | CGNAT en otro equipo **entre** los clientes y el router principal | IP pública compartida: no identifica al cliente | **no atribuible**; el ISP debe exportar desde el equipo de CGNAT/BNG. Mientras tanto el tráfico cuenta en el nodo (`unknown`). |
 
@@ -202,23 +202,6 @@ El script de onboarding debe **activar** los campos NAT de IPFIX en routers con 
 bajada no es atribuible). Siguen siendo dato sensible: el ingester los usa para atribuir y **no**
 guarda la IP pública post-NAT en `flows_raw` salvo que el ISP active el modo de correlación de
 quejas de abuso.
-
-### 4.4.2 Verificación con un router real (2026-10-09)
-
-Captura de 74 s (1 069 datagramas IPFIX, 11 253 registros IPv4) exportada por el router principal
-de un nodo del PO, RouterOS 7, con NAT en el mismo router:
-
-| Comprobación | Resultado |
-|---|---|
-| Versión y plantillas | IPFIX (v10); plantilla 258 IPv4 (37 campos) y 259 IPv6 (34 campos), reenviadas con frecuencia |
-| Campos útiles presentes | bytes/paquetes delta, puertos, protocolo, `tcpControlBits`, TTL, ICMP type/code, `ingress/egressInterface`, MAC origen/destino y post-MAC, `systemInitTimeMilliseconds`, `flowStart/EndSysUpTime`, campos NAT 225–228 |
-| Subida con NAT | 3 277 registros con `src` privada y `postNATSrc` pública (3 IPs públicas de NAT) |
-| Bajada con NAT | 3 211 registros con `dst` = IP pública del NAT y `postNATDst` = IP privada del cliente |
-| Redes de clientes vistas | 172.31/16, 10.22/16, 10.25/16, 10.21/16, 10.18/16, 10.17/16, 10.20/16, 172.28/16, 172.29/16, 10.30/16 |
-| `active-flow-timeout=1m` | duración máxima de flujo 59,99 s; 78 % de los registros son de un solo paquete (duración 0) |
-| Volumen | ≈ 152 flujos/s y 14 datagramas/s en ese router |
-| `interfaces=` | el filtro **no** limitó la exportación a la interfaz indicada (aparecen flujos de varias interfaces): no confiar en él para reducir volumen |
-| IPv6 | 0 registros en la ventana capturada |
 
 ### 4.4.1 Interfaces dinámicas PPPoE/L2TP
 
@@ -245,6 +228,23 @@ flujos**. Para no presentar consumos incompletos como reales:
   ("los datos de flujo cubren el 62 % del tráfico del uplink").
 - La detección de botnets reduce la confianza de señales de volumen en nodos con baja cobertura
   (las señales de conteo —escaneo, puertos— siguen siendo válidas para lo que sí se ve).
+
+### 4.4.3 Verificación con un router real (2026-10-09)
+
+Captura de 74 s (1 069 datagramas IPFIX, 11 253 registros IPv4) exportada por el router principal
+de un nodo del PO, RouterOS 7, con NAT en el mismo router:
+
+| Comprobación | Resultado |
+|---|---|
+| Versión y plantillas | IPFIX (v10); plantilla 258 IPv4 (37 campos) y 259 IPv6 (34 campos), reenviadas con frecuencia |
+| Campos útiles presentes | bytes/paquetes delta, puertos, protocolo, `tcpControlBits`, TTL, ICMP type/code, `ingress/egressInterface`, MAC origen/destino y post-MAC, `systemInitTimeMilliseconds`, `flowStart/EndSysUpTime`, campos NAT 225–228 |
+| Subida con NAT | 3 277 registros con `src` privada y `postNATSrc` pública (3 IPs públicas de NAT) |
+| Bajada con NAT | 3 211 registros con `dst` = IP pública del NAT y `postNATDst` = IP privada del cliente |
+| Redes de clientes vistas | 172.31/16, 10.22/16, 10.25/16, 10.21/16, 10.18/16, 10.17/16, 10.20/16, 172.28/16, 172.29/16, 10.30/16 |
+| `active-flow-timeout=1m` | duración máxima de flujo 59,99 s; 78 % de los registros son de un solo paquete (duración 0) |
+| Volumen | ≈ 152 flujos/s y 14 datagramas/s en ese router |
+| `interfaces=` | el filtro **no** limitó la exportación a la interfaz indicada (aparecen flujos de varias interfaces): no confiar en él para reducir volumen |
+| IPv6 | 0 registros en la ventana capturada |
 
 ### 4.5 Descubrimiento de clientes
 
@@ -290,6 +290,114 @@ Traffic Flow lo registra por interfaz de **entrada**. Reglas:
 - Si un ISP exporta desde más de un router por nodo, el job de calidad compara bytes por cliente y
   hora entre exportadores y alerta `horus.flows.exporter.duplicated` (nombre a confirmar con el
   Agente C).
+
+### 4.8 IPv6: el cliente es el prefijo delegado
+
+> Añadido el 2026-10-09 (preparación IPv6 pedida por el PO). Fuentes RouterOS y plantilla IPFIX
+> IPv6 real en [`vendors/mikrotik.md` §11](vendors/mikrotik.md).
+
+**Qué exporta RouterOS.** El mismo `/ip traffic-flow` exporta IPv6 con una plantilla propia (259,
+34 campos, en el router del PO) que trae `sourceIPv6Address`/`destinationIPv6Address`, hop limit
+(`ipTTL`), ICMPv6 en IE 178/179 y `flowLabelIPv6`, y **ningún campo NAT**. En IPv6 no hay NAT en el
+ISP (el cliente recibe prefijo público), así que no hacen falta.
+
+#### 4.8.1 Identidad: prefijo delegado, nunca /128
+
+- El ISP delega a cada CPE un prefijo (DHCPv6-PD por PPPoE o IPoE: /56, /60 o /64; /48 a empresas).
+  Dentro, el CPE anuncia /64 por RA y cada dispositivo forma por SLAAC **varias** direcciones: la
+  estable (EUI-64 o *stable-privacy*, RFC 7217) y **temporales de privacidad** que rotan (RFC 8981).
+- Identificar por /128 convertiría un hogar en decenas de "clientes" que cambian cada día. Por eso
+  (D1 + [ADR-0018](adr/0018-la-ip-es-el-cliente.md)): **cliente IPv6 = prefijo delegado**. El
+  ingester:
+  1. busca la dirección **completa** en el trie LPM de `client_prefix` del nodo (§4.3);
+  2. si cae en un prefijo `customers`, trunca a su `ipv6_client_len` y esa red es `client_ip`
+     (p. ej. `2001:db8:1000:2a17:9c3e:…` en un pool /40 con `ipv6_client_len=56` →
+     `2001:db8:1000:2a00::`; en PostgreSQL `customer.address = 2001:db8:1000:2a00::/56`).
+- `remote_ip` sí se guarda completa (es un servidor de Internet); el fan-out usa /48 para IPv6
+  ([`database.md`](database.md), `remote_nets24_out`).
+
+#### 4.8.2 Tamaño de agregación configurable
+
+El tamaño vive en **cada `client_prefix`** (`ipv6_client_len` ∈ {48, 56, 60, 64}, defecto 64), no en
+el realm: el realm `public` de un ISP mezcla pools residenciales /56 con prefijos de empresa /48, y
+cada pool de RouterOS tiene su `prefix-length`. Cómo se fija:
+
+1. **Importación desde el router** (recomendada): `/ipv6/pool` `prefix-length` → `ipv6_client_len`
+   sugerido; `/ppp/profile` dice si el pool es de prefijos delegados o de enlaces PPP
+   ([`vendors/mikrotik.md` §11.4](vendors/mikrotik.md)). El operador confirma.
+2. **Manual** en la UI/API.
+3. Defecto 64 si no se sabe (seguro frente a mezclar clientes, pero puede partir uno en varios).
+
+| Configuración vs delegación real | Efecto | Detección |
+|---|---|---|
+| Igual | Correcto | — |
+| `ipv6_client_len` **más corto** (p. ej. 56 con delegación /64) | **Mezcla** hasta 256 clientes en uno: grave | Importación desde el pool; `/ipv6/pool/used` muestra la longitud real |
+| `ipv6_client_len` **más largo** (p. ej. 64 con delegación /56) | Un hogar con varias LAN aparece como varios clientes | Muchos /64 hermanos dentro del mismo /56 con actividad simultánea ⇒ sugerencia en el asistente (pendiente) |
+
+Cambiar `ipv6_client_len` de un prefijo existente **no reescribe** el histórico: los clientes con la
+longitud antigua pasan a `inactive` con razón `prefix_removed` y aparecen los nuevos (mismo ciclo
+de vida que reducir un prefijo, [`database.md` §2.3.4](database.md)). La UI lo advierte.
+
+**Prefijo de enlace PPP**: con `remote-ipv6-prefix-pool` el CPE tiene además un /64 de enlace que
+usa para su propio tráfico (DNS, gestión, malware del CPE). Se declara como `customers` con
+`ipv6_client_len=64` (es un cliente distinto del /56 del mismo abonado), salvo que el pool se
+reutilice entre todos (`remote-ipv6-prefix-reuse=yes`): entonces es `infrastructure`.
+
+#### 4.8.3 Tipos de dirección
+
+Se evalúan antes del LPM, en este orden:
+
+| Rango | Tratamiento |
+|---|---|
+| `::ffff:0:0/96` (IPv4-mapped) | Inválido en un flujo IPv6 real (es la forma en que ClickHouse guarda IPv4): se descarta y se cuenta como registro inválido del exportador. Evita colisiones con clientes IPv4. |
+| `::/128`, `::1/128` | Descartar (DAD, bucle local). |
+| `fe80::/10` (enlace local) | **Nunca es cliente**. ND, RA y DHCPv6 entre CPE y router llegan a Traffic Flow por `input`/`output`: `attribution_status = infrastructure`, sin `first_seen` ni `unattributed_1h`. |
+| `ff00::/8` (multicast; o IE 206 = 1) | `ff02::/16` (alcance de enlace) ⇒ `infrastructure`. Otros alcances: se atribuye por el otro extremo con la regla normal. |
+| `fc00::/7` (ULA) | Como RFC 1918: solo es cliente si el ISP lo declara en un `client_prefix` (realm `node_private` del nodo). Si no, `unknown`. Su aparición en el router principal suele indicar NPTv6 o gestión interna. |
+| `64:ff9b::/96` (NAT64) en el lado remoto | El cliente sigue siendo su prefijo; ASN, servicio y reputación se resuelven con la **IPv4 incrustada**. RouterOS no documenta NAT64 en las páginas consultadas (**a verificar**); se deja preparado en el clasificador. |
+| `2001:db8::/32` (documentación) | Solo en *fixtures* y `flowsim`. |
+| Global unicast (`2000::/3`) | LPM normal; realm `public` del tenant. |
+
+#### 4.8.4 Encaje con la regla NAT (§4.4)
+
+La regla de §4.4 se aplica igual a IPv6, con una diferencia: **el paso 2 nunca ocurre**, porque la
+plantilla IPv6 de RouterOS no trae `post_nat_*`. Queda:
+
+1. `src` en `client_prefix` del nodo ⇒ cliente = `src` truncada, `upload`.
+2. *(solo IPv4)* `post_nat_dst`.
+3. `dst` en `client_prefix` ⇒ cliente = `dst` truncada, `download`.
+4. Si no ⇒ `unknown` (o `infrastructure` por §4.8.3).
+
+Una misma sesión dual-stack produce flujos IPv4 (atribuidos con NAT, D12) y flujos IPv6 (sin NAT),
+**independientes**. Si un ISP hiciera **NAT66/NPTv6** en el router principal, la subida seguiría
+atribuyéndose por `src` pero la bajada no (llega con la dirección traducida y sin campo post-NAT):
+Horus detecta reglas en `/ipv6/firewall/nat` y avisa en el router; invertir un `netmap` 1:1 queda
+fuera de v1.
+
+#### 4.8.5 Privacidad y dual-stack
+
+- El ingester **descarta la parte de host** antes de escribir: `flows_raw.client_ip` y los agregados
+  solo tienen el prefijo del cliente. No se guarda ninguna /128 de cliente (minimización, D5).
+- El DUID (bindings DHCPv6) y el usuario PPP son alias opcionales con retención limitada, nunca
+  identidad (como la MAC y el usuario PPPoE en IPv4).
+- **Dual-stack**: un abonado con IPv4 privada (NAT en el router) y un /56 es, en v1, **dos clientes**
+  (D1: la IP es el cliente), más un tercero si su CPE usa un /64 de enlace. Los KPI de clientes
+  activos deben poder desglosarse por familia. Unirlos (misma sesión PPP: `/ppp/active` + binding del
+  servidor `<pppoe-usuario>`) es enriquecimiento futuro y pregunta abierta al PO
+  ([`vendors/mikrotik.md` §9.2](vendors/mikrotik.md)).
+
+#### 4.8.6 Descubrimiento y señales
+
+- Modo descubrimiento (§4.1): las IPv6 sin prefijo se registran en `flows.unattributed_1h`
+  **truncadas a /64** (nunca /128) y la UI propone el agregado que las cubre dentro del espacio del
+  ISP; la vía preferente es importar `/ipv6/pool` del router.
+- Límite anti-avalancha de `first_seen` por realm: en IPv6 el "tamaño del prefijo" es astronómico;
+  el tope usa el número de prefijos de cliente posibles (`2^(ipv6_client_len − longitud del
+  prefijo)`), acotado por un máximo fijo por realm (valor en el ingester, a fijar por FLOW).
+- Señales (§8, §9): el *hop limit* sirve para la heurística de SO como el TTL; en IPv6 el escaneo
+  aleatorio es inviable, así que el escaneo saliente se ve como barridos ICMPv6 (tipo 128) o puertos
+  contra listas de objetivos, y el fan-out por /48 remoto. Contar /128 distintas por cliente no es
+  fiable (temporales) y no se guarda.
 
 ---
 
@@ -448,3 +556,4 @@ Alineado con [ADR-0024](adr/0024-deteccion-de-botnets-como-objetivo-principal.md
 | Agente C (`events.md`) | `horus.flows.client.first_seen.<realm_id>` y `horus.flows.client.activity_summary.<realm_id>` (lotes, telemetría), `horus.devices.customer.*` (ciclo de vida), `horus.detection.customer.kind_suggested`, `horus.detection.finding.{opened,updated,resolved}.<finding_id>`, `horus.devices.client_prefix.*`; eliminar `customer.assigned/unassigned`; `tenant_id` en todos los sobres; lote `horus.flows.batch.received` con `tenant_id`, `site_id`, `router_id` ya resueltos por el collector. |
 | Agente A | Dueño del cliente (`devices`) y del descubrimiento (ingester de `flows`); emparejamiento de NAT en el ingester; ADR de botnets (alcance de `detection`). |
 | Agente D | Historias: prefijos por nodo + modo descubrimiento, importación de pools del MikroTik, widgets de seguridad para el modo NOC, cola de hallazgos, cambio de tipo manual. |
+| FLOW / laboratorio (IPv6, §4.8) | Decodificar la plantilla IPv6 (ICMPv6 por IE 178/179, sin NAT); filtros de §4.8.3 en el ingester; truncado a `ipv6_client_len`; `unattributed_1h` por /64; fixture IPFIX con registros IPv6 reales (la captura del PO tiene 0); validar en CHR con DHCPv6-PD por PPPoE ([`vendors/mikrotik.md` §11.8](vendors/mikrotik.md)). |

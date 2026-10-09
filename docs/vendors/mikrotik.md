@@ -22,13 +22,14 @@
 | --- | --- | --- |
 | Versión | **RouterOS v7** obligatorio para el camino completo (WireGuard + REST). Mínima propuesta **7.12**; recomendada la **última long-term v7**. v6 solo en "modo degradado" (§1.2). | A, D |
 | Exportación de flujos | **IPFIX** (alternativa NetFlow v9), **sin muestreo**, `active-flow-timeout=1m`, `inactive-flow-timeout=15s`, `cache-entries` ≥ 256k en nodos grandes, destino = colector de Horus **por el túnel WG** con `src-address` = IP de túnel. | B, D |
-| IP del cliente | Traffic Flow contabiliza en las cadenas input/forward/output: si el **NAT/CGNAT lo hace el mismo router**, la **subida** lleva la IP privada del cliente en `src`, pero la **bajada** lleva la IP pública del NAT en `dst` y la privada del cliente solo en el campo IPFIX `postNATDestinationIPv4Address`. **Verificado con un router real** ([`traffic-model.md` §4.4.2](../traffic-model.md)): hay que exportar los campos NAT. | B |
+| IP del cliente | Traffic Flow contabiliza en las cadenas input/forward/output: si el **NAT/CGNAT lo hace el mismo router**, la **subida** lleva la IP privada del cliente en `src`, pero la **bajada** lleva la IP pública del NAT en `dst` y la privada del cliente solo en el campo IPFIX `postNATDestinationIPv4Address`. **Verificado con un router real** ([`traffic-model.md` §4.4.3](../traffic-model.md)): hay que exportar los campos NAT. | B |
 | Identidad del exportador | La **IP de túnel WG** del router (única en todo Horus), no su IP pública. | B, A |
 | Ceguera por hardware | Tráfico con **offload por hardware** (bridge HW, L3HW en CCR2116/2216, FastTrack HW) **no** aparece en los flujos. Hay que detectarlo y avisar (§2.7). | B, D |
 | SNMP | **SNMPv3 authPriv (SHA1 + AES)** sobre el túnel; v2c solo en laboratorio. Sondeo 60 s (sistema/interfaces), 300 s (salud). No recorrer interfaces PPPoE dinámicas. | A, D |
 | API | **REST** (`https://<ip-túnel>/rest`) para lecturas puntuales; **API binaria TLS (8729)** para tablas grandes y sondeo periódico. Usuario `horus-ro` con política mínima y `address=` restringida. **Horus no escribe en el router en v1** (Q9 opción i). | A, D |
 | WireGuard | El router es **iniciador** hacia el hub de Horus (`persistent-keepalive=25s`), clave generada **en el router** (Q9 opción b), `allowed-address` = solo la red de servicios de Horus. | A, D |
 | Onboarding | Un script RouterOS con placeholders (§7) que Horus genera por nodo. | D |
+| IPv6 | Mismo `/ip traffic-flow` y mismo target; plantilla IPFIX IPv6 real (259, 34 campos) **sin campos NAT**. Cliente IPv6 = **prefijo delegado** (`ipv6_client_len` 48/56/60/64, sugerido desde `/ipv6 pool prefix-length`). NAT66 no soportado en v1. Detalle en §11. | B, D |
 | Laboratorio | CHR en QEMU/KVM (licencia free: 1 Mbps de subida por interfaz, suficiente para pruebas funcionales) + capturas IPFIX grabadas como *fixtures* para CI (§8). | D, todos |
 
 ---
@@ -129,7 +130,7 @@ origen, SNMPv3 por Internet o por un túnel alternativo, sin API REST. La vía p
 | Dato | v5 | v9 | IPFIX | Uso en Horus |
 | --- | --- | --- | --- | --- |
 | IPv4 origen/destino, puertos, protocolo | Sí | Sí | Sí | Núcleo del registro canónico. |
-| **IPv6** origen/destino | **No** | Sí | Sí (incluye `ipv6-flow-label`) | Obligatorio para clientes con IPv6 → descarta v5. |
+| **IPv6** origen/destino | **No** | Sí | Sí (incluye `ipv6-flow-label`; plantilla propia, 259 en el router del PO, **sin campos NAT**, ICMPv6 en IE 178/179) | Obligatorio para clientes con IPv6 → descarta v5. Ver §11.2. |
 | Bytes / paquetes | Sí (32 bits) | Sí | Sí (`bytes`, `packets`) | |
 | `in-interface` / `out-interface` (ifIndex) | 16 bits | Sí | Sí | Mapeo a `interface_id` y `flow_role`. |
 | TCP flags (OR acumulado) | Sí | Sí | Sí (`tcp-flags`) | Escaneos, SYN sin respuesta (D5). |
@@ -143,7 +144,7 @@ origen, SNMPv3 por Internet o por un túnel alternativo, sin API REST. La vía p
 
 **Recomendación**: IPFIX con todos los campos de la tabla activados, **incluidos los NAT** cuando el
 router principal hace NAT (la bajada solo se atribuye por `postNATDestinationIPv4Address`;
-verificado con un router real, [`traffic-model.md` §4.4.2](../traffic-model.md)). El colector debe leer plantillas, no asumir un orden de campos, y
+verificado con un router real, [`traffic-model.md` §4.4.3](../traffic-model.md)). El colector debe leer plantillas, no asumir un orden de campos, y
 tolerar campos ausentes. El nombre exacto de cada interruptor de `/ip traffic-flow ipfix` varía
 entre versiones: el script de onboarding (§7) solo toca los que existen en la versión mínima
 (**a verificar** en CHR).
@@ -157,7 +158,7 @@ en `forward`:
 | Topología del nodo | IP de cliente observada | Atribución (D1) |
 | --- | --- | --- |
 | **IP pública por cliente** (sin NAT) | Pública del cliente | Directa. |
-| **NAT/CGNAT en el mismo router principal** | Subida: privada del cliente en `src`. Bajada: pública del NAT en `dst`, privada del cliente en `postNATDestinationIPv4Address` (**verificado**, [`traffic-model.md` §4.4.2](../traffic-model.md)) | Subida por `src`; bajada por `post_nat_dst`. **Los campos NAT de IPFIX son necesarios.** |
+| **NAT/CGNAT en el mismo router principal** | Subida: privada del cliente en `src`. Bajada: pública del NAT en `dst`, privada del cliente en `postNATDestinationIPv4Address` (**verificado**, [`traffic-model.md` §4.4.3](../traffic-model.md)) | Subida por `src`; bajada por `post_nat_dst`. **Los campos NAT de IPFIX son necesarios.** |
 | **CGNAT en otro equipo, detrás del router principal** (hacia Internet) | Privada/CGNAT del cliente (el router está antes del NAT) | Directa. |
 | **CGNAT en otro equipo, entre clientes y router principal** | IP pública compartida: **no identifica al cliente** | No atribuible sin logs de NAT del otro equipo. Hay que exportar desde el equipo de CGNAT o el BNG. Pregunta al PO (§9). |
 | **NAT en el CPE del cliente** (residencial típico) | WAN del CPE | Una IP = un cliente (D1). Los dispositivos detrás no son visibles. |
@@ -313,7 +314,8 @@ pruebas. Ambas exigen certificado en el router (§4.3).
 | --- | --- | --- |
 | `/system/resource`, `/system/routerboard`, `/system/package` | Modelo, versión, arquitectura, CPU/RAM | 1 h |
 | `/interface` (+ `/interface/vlan`, `/interface/pppoe-server/server`) | Interfaces y sugerencia de `flow_role` | 1 h y en onboarding |
-| `/ip/address`, `/ipv6/address`, `/ip/pool`, `/ipv6/pool` | Rangos de clientes → *realm* y prefijos de clientes (atribución) | 1 h |
+| `/ip/address`, `/ipv6/address`, `/ip/pool`, `/ipv6/pool` | Rangos de clientes → *realm* y prefijos de clientes (atribución); en IPv6 también `prefix-length` → `ipv6_client_len` (§11.4) | 1 h |
+| `/ppp/profile`, `/ipv6/dhcp-server`, `/ipv6/dhcp-server/binding`, `/ipv6/firewall/nat` | Uso de cada pool IPv6 (PD o enlace), prefijo delegado ↔ sesión (alias), NAT66 (§11.4) | 1 h / 5 min |
 | `/ppp/active` | IP ↔ usuario PPPoE (alias opcional del cliente; **dato personal**) | 60 s (o `listen`) |
 | `/ip/dhcp-server/lease` | IP ↔ MAC ↔ hostname (alias opcional; fabricante del CPE por OUI) | 60 s |
 | `/ip/arp` | IP ↔ MAC en segmentos L2 directos | 5 min |
@@ -513,6 +515,8 @@ Placeholders:
 # Opción B (si se aprueba el endpoint de enrolment):
 # /tool fetch url="https://<HORUS_WG_ENDPOINT>/enroll/<ONE_TIME_TOKEN>" http-method=post \
 #     http-data=[/interface wireguard get [find name=wg-horus] public-key] output=none
+
+# 8) IPv6: comprobaciones opcionales (comentadas), ver §11.7
 ```
 
 Notas operativas:
@@ -587,7 +591,7 @@ Notas operativas:
 | R5 | **Diferencias entre versiones** de RouterOS (nombres de campos IPFIX, políticas `rest-api`, OIDs de salud) | Scripts o adaptador rotos | Matriz de versiones probada en CHR; fixtures por versión; aviso `unsupported_version`. |
 | R6 | **Datos personales** vía API (usuario PPPoE, hostname, MAC) y campos NAT | Riesgo legal/privacidad (D5 sigue sujeto a minimización) | Desactivados por defecto; retención limitada; acceso por rol. |
 | R7 | Cambiar parámetros **globales** de Traffic Flow afecta a otros colectores del ISP | Fricción con el ISP | El asistente muestra la configuración existente y el impacto. |
-| R8 | IPv6 con direcciones temporales: "una IP = un cliente" no se cumple en v6 | Clientes inflados en IPv6 | Tratar como cliente el **prefijo delegado** (/56 o /64), no la dirección (decisión a confirmar). |
+| R8 | IPv6 con direcciones temporales: "una IP = un cliente" no se cumple en v6 | Clientes inflados en IPv6 | Tratar como cliente el **prefijo delegado** (/48, /56, /60 o /64 según `ipv6_client_len`), nunca la /128 (adoptado en ADR-0018 y [`traffic-model.md` §4.8](../traffic-model.md); detalle RouterOS en §11). |
 | R9 | Colisión del rango de túneles con redes internas del ISP | Rutas rotas en el router | Rango configurable por despliegue; comprobación con `/ip/route` antes del onboarding. |
 
 ### 9.2 Preguntas abiertas
@@ -601,7 +605,9 @@ Notas operativas:
    copiar la clave pública a mano?
 5. ¿Horus puede leer **usuario PPPoE, hostname y MAC** como alias opcionales? ¿Y activar los campos
    **NAT** de IPFIX para atender quejas de abuso que llegan con la IP pública?
-6. En **IPv6**, ¿el cliente es el prefijo delegado? (afecta a D1).
+6. ~~En **IPv6**, ¿el cliente es el prefijo delegado?~~ Adoptado: sí (ADR-0018, §11). Queda
+   abierto: ¿un abonado dual-stack debe verse como **un** cliente (IPv4 + prefijo IPv6) o como dos?
+   En v1 son dos (D1: la IP es el cliente); unirlos exige leer la sesión PPP (§11.4).
 7. ¿Se contempla en el futuro que Horus **escriba** en el router (aplicar Traffic Flow, publicar
    address-lists de C2 para bloqueo)? Implica un usuario con escritura y otro nivel de riesgo.
 8. ¿Hay ISP que ya exporten flujos a otro colector (conflicto de parámetros globales)?
@@ -638,3 +644,282 @@ Fuentes secundarias (señaladas en el texto como reportes, no como hechos oficia
   <https://forum.mikrotik.com/t/6-49-21-long-term-is-released/272802>
 - CHR en contenedores para laboratorio: <https://forum.mikrotik.com/t/real-docker-images-for-chr-to-run-in-containerlalb/181934> ·
   <https://hub.docker.com/r/mikrotik/chr>
+- Fuentes de IPv6: §11.9.
+
+---
+
+## 11. IPv6
+
+> Añadido el 2026-10-09 a petición del PO ("preparar Horus para IPv6 siguiendo la documentación
+> oficial de MikroTik"). Igual que en el resto del documento, help.mikrotik.com y
+> manual.mikrotik.com **no se pudieron abrir directamente** desde el entorno (DNS/proxy bloqueado);
+> los datos se contrastaron con los extractos de esas páginas que devuelve el buscador y con la
+> captura real del router del PO ([`traffic-model.md` §4.4.3](../traffic-model.md)). Lo que no se
+> pudo confirmar va marcado **a verificar** y entra en la lista del laboratorio CHR (§11.8).
+> Fuentes en §11.9. La parte de atribución (qué es "el cliente" en IPv6) está en
+> [`traffic-model.md` §4.8](../traffic-model.md).
+
+### 11.1 Resumen
+
+| Tema | Decisión / recomendación |
+| --- | --- |
+| Exportación | **No hay un menú `/ipv6 traffic-flow`**: el mismo `/ip traffic-flow` y el mismo target exportan IPv4 e IPv6, cada familia con su plantilla. El target sigue siendo la IP IPv4 del colector **por el túnel WG**; la familia del transporte no tiene que ver con la de los flujos. |
+| Plantilla real | **IPFIX, plantilla 259, 34 campos** (RouterOS 7 del PO). **No trae campos NAT**: en IPv6 la atribución es siempre por `src`/`dst`. |
+| Cliente IPv6 | El **prefijo delegado** al CPE (DHCPv6-PD), no la dirección /128. Tamaño por `client_prefix.ipv6_client_len` (48, 56, 60 o 64), sugerido desde el `prefix-length` del `/ipv6 pool` del router. |
+| Lectura del router | Solo lectura por API: `/ipv6/pool`, `/ipv6/pool/used`, `/ipv6/dhcp-server/binding`, `/ipv6/dhcp-server`, `/ppp/profile`, `/ipv6/route`, `/ipv6/address`, `/ipv6/firewall/nat`, `/ipv6/settings`. Para atribuir solo hacen falta los **pools**; los *bindings* son enriquecimiento (alias, dato personal). |
+| NAT66 / NPTv6 | No se espera ni se soporta en v1 (el cliente es su prefijo público). Si Horus detecta reglas en `/ipv6/firewall/nat`, avisa: la bajada traducida no se puede atribuir (no hay campos NAT en la plantilla v6). |
+| SNMP | Sin cambios: se sondea por IPv4 dentro del túnel. Los contadores `ifHC*` de IF-MIB ya incluyen el tráfico IPv6. |
+| WireGuard | El túnel interior sigue siendo IPv4 (`10.255.0.0/16`). El **exterior** (endpoint) puede ser IPv6 si el nodo solo tiene salida IPv6: el hub publica A y AAAA. |
+| Onboarding | Sin comandos nuevos obligatorios. Comprobaciones IPv6 comentadas en el script (§11.7). Horus **no** activa IPv6 en el router del ISP. |
+
+### 11.2 Traffic Flow para IPv6
+
+**Qué dice la documentación oficial** (página *Traffic Flow* y referencia CLI
+`ip/traffic-flow/ipfix`, vía buscador):
+
+- Formatos: NetFlow v1, v5, v9 e IPFIX. **v9 e IPFIX** usan plantillas y pueden transportar IPv4 e
+  IPv6; v5 no transporta IPv6 (ya descartado en §2.3).
+- `/ip traffic-flow ipfix` tiene un interruptor por campo; entre ellos **`ipv6-flow-label`**
+  ("label field from an IPv6 header, used to classify flows"), `src-address-mask`/`dst-address-mask`
+  y los NAT (`nat-src-address`, `nat-dst-address`, `nat-src-port`, `nat-dst-port`, `nat-events`). La
+  documentación **no** dice si los campos NAT existen para IPv6; la captura real dice que no (abajo).
+- No hay parámetros separados por familia: `interfaces`, `cache-entries`, timeouts y muestreo de
+  `/ip traffic-flow` se aplican a ambas (**a verificar** en CHR que la caché es común y no una por
+  familia).
+- Igual que en IPv4, solo se contabiliza lo que procesa la CPU: el tráfico IPv6 con offload por
+  hardware no aparece. Si L3HW de los CCR2116/2216 acelera IPv6 en la versión del ISP es **a
+  verificar**; la comprobación de cobertura de §2.7 (flujos vs `ifHC*`) lo detecta igual, porque
+  los contadores de interfaz suman ambas familias.
+
+**Plantilla IPv6 real** (RouterOS 7 del PO, captura del 2026-10-09; los números de IE son los del
+registro IANA de IPFIX, a contrastar con el decodificador del colector):
+
+| # | Campo IPFIX (IE) | Uso en Horus |
+| --- | --- | --- |
+| 1 | `ipVersion` (60) | Siempre 6 en esta plantilla. |
+| 2–4 | `flowStartSysUpTime` (22), `flowEndSysUpTime` (21), `systemInitTimeMilliseconds` (160) | Tiempos absolutos, igual que en IPv4. |
+| 5–6 | `packetDeltaCount` (2), `octetDeltaCount` (1) | Volumen. |
+| 7–8 | `sourceTransportPort` (7), `destinationTransportPort` (11) | Puertos. |
+| 9–10 | `ingressInterface` (10), `egressInterface` (14) | `flow_role` y dirección. |
+| 11–13 | `protocolIdentifier` (4), `ipClassOfService` (5), `tcpControlBits` (6) | Protocolo (58 = ICMPv6), Traffic Class, flags TCP. |
+| 14–17 | `postDestinationMacAddress` (57), `destinationMacAddress` (80), `postSourceMacAddress` (81), `sourceMacAddress` (56) | MAC del salto L2 (CPE), igual que en IPv4. |
+| 18–19 | **`sourceIPv6Address` (27), `destinationIPv6Address` (28)** | Atribución (cliente = prefijo que contiene una de las dos). |
+| 20 | `ipNextHopIPv6Address` (62) | Diagnóstico. |
+| 21–22 | `sourceIPv6PrefixLength` (29), `destinationIPv6PrefixLength` (30) | Longitud de la ruta que casó; pista, no se usa para atribuir. |
+| 23 | `ipTTL` (192) | En IPv6 es el *hop limit*; misma heurística de SO que el TTL de IPv4 (§6). |
+| 24 | IE 206 (`isMulticast`) | Permite descartar multicast sin mirar la dirección. |
+| 25–26 | `ipHeaderLength` (189), IE 224 (`ipTotalLength`) | No se usan. |
+| 27 | `udpMessageLength` (205) | No se usa. |
+| 28–30 | `tcpSequenceNumber` (184), `tcpAcknowledgementNumber` (185), `tcpWindowSize` (186) | No se usan. |
+| 31 | IE 33 (`igmpType`) | No aplica a IPv6 (el equivalente, MLD, va dentro de ICMPv6). |
+| 32–33 | **IE 178 (`icmpTypeIPv6`), IE 179 (`icmpCodeIPv6`)** | **El colector debe construir `icmp_type_code` a partir de estos** (en IPv6 no llegan en IE 32/139 como en IPv4). |
+| 34 | `flowLabelIPv6` (31) | Activado por defecto según la captura; no se guarda en v1. |
+
+Consecuencias para el colector (FLOW):
+
+- **Sin campos NAT** (no existen `postNATSourceIPv6Address`/`postNATDestinationIPv6Address` en la
+  plantilla): el paso 2 de la regla de [`traffic-model.md` §4.4](../traffic-model.md) nunca aplica
+  en IPv6.
+- Leer siempre la plantilla (259 es el id en ese router; puede variar entre versiones o routers).
+  La plantilla se reenvía aunque no haya tráfico IPv6: en la captura del PO llegaron plantillas 259
+  y **0 registros IPv6** (el nodo no tuvo tráfico IPv6 en esos 74 s o no tiene IPv6 de clientes;
+  **a verificar** con `/ipv6 pool print` y `/ipv6 address print` en ese router).
+- Tamaño aproximado de un registro de la plantilla 259: ~150–170 B (frente a ~90 B en IPv4).
+  Ajustar las estimaciones de §2.5 con la proporción IPv6 de cada nodo.
+- Flujos de enlace local (ND, RA, DHCPv6 entre el CPE y el router: `fe80::/10`, `ff02::/16`) llegan
+  porque Traffic Flow también cuenta `input`/`output`. No son de clientes; ver
+  [`traffic-model.md` §4.8](../traffic-model.md).
+
+### 11.3 Cómo asigna IPv6 un ISP con MikroTik
+
+Esquema típico del concentrador (router principal, BNG PPPoE o servidor DHCP en VLAN):
+
+```
+ /ipv6 pool  pd-clientes   prefix=2001:db8:1000::/40  prefix-length=56   ──► un /56 por cliente (DHCPv6-PD)
+ /ipv6 pool  wan-clientes  prefix=2001:db8:ff00::/48  prefix-length=64   ──► un /64 por enlace PPP (opcional)
+
+ CPE ── PPPoE ──► <pppoe-usuario>  (interfaz dinámica)
+   │                 ├─ DHCPv6 server dinámico (por dhcpv6-pd-pool del perfil) → binding /56 al CPE
+   │                 └─ prefijo /64 del enlace (por remote-ipv6-prefix-pool) + ruta dinámica
+   └─ LAN del cliente: el CPE toma un /64 del /56 y lo anuncia por RA → SLAAC en los dispositivos
+```
+
+| Pieza RouterOS | Qué hace (documentación oficial) | Qué significa para Horus |
+| --- | --- | --- |
+| `/ipv6 pool` (`prefix`, `prefix-length`) | `prefix-length` es el tamaño de prefijo que se entrega a cada cliente; "siempre que es posible se entrega el mismo prefijo a cada cliente" (par OWNER/INFO). `from-pool` encadena pools. | `prefix` → `client_prefix` candidato; `prefix-length` → `ipv6_client_len` sugerido. |
+| `/ipv6 pool used` (solo lectura: `pool`, `prefix`, `owner`, `info`) | Prefijos reservados del pool; `owner` = quién lo reservó ("DHCP"…), `info` = DUID del cliente. | Cuántos prefijos están en uso (tamaño real del realm); `info` es dato personal. |
+| `/ppp profile` `dhcpv6-pd-pool` | Al conectar un cliente PPP se crea un **servidor DHCPv6 dinámico** que delega desde ese pool (página *IPv6 PD over PPP*). `dhcpv6-use-radius` usa RADIUS en esos servidores. | El prefijo delegado es el cliente. |
+| `/ppp profile` `remote-ipv6-prefix-pool` | Asigna al cliente un prefijo del pool para el **enlace PPP** e instala la ruta IPv6 correspondiente. `remote-ipv6-prefix-reuse=yes` reutiliza el mismo /64 para todos los clientes del perfil. | Es la "WAN" IPv6 del CPE: tráfico del **propio CPE** (§11.3.1). Con `reuse=yes` ese /64 es compartido y **no identifica** a nadie. |
+| `/ppp profile` `use-ipv6` | Habilita IPv6 en el perfil (fuente secundaria; nombre y defecto **a verificar**). | Sin él no hay IPv6 en PPPoE. |
+| `/ipv6 dhcp-server` (`interface`, `prefix-pool`, `address-pool`, `lease-time`, `binding-script`) | DHCPv6 para IPoE/VLAN: `prefix-pool` para PD; `address-pool` solo para direcciones /128 (IA_NA). DHCPv6 **no** da puerta de enlace: hace falta RA (ND). | Igual que PPPoE pero con servidor estático por interfaz. |
+| `/ipv6 dhcp-server binding` (`address`, `duid`, `iaid`, `ia-type` = `pd`/`na`, `server`, `life-time`, `status`, `expires-after`, `last-seen`; flags D/R/X/I; `make-static`; `rate-limit`) | Un binding por cliente identificado por **DUID + IAID** (no por MAC). Cada binding dinámico crea un pool dinámico con su caducidad. `R` = asignado por RADIUS. | Mapa prefijo ↔ servidor (↔ interfaz PPPoE ↔ usuario). Enriquecimiento, no identidad (D1). |
+| RADIUS | Atributos `Framed-IPv6-Prefix` (enlace) y `Delegated-IPv6-Prefix` (RFC 4818, PD); los bindings aparecen con flag `R`. | Prefijo fijo por abonado: `assignment_mode=static` en el `client_prefix`. |
+| `/ipv6 nd` y `/ipv6 nd prefix` | RADVD: RA con prefijos, flags, DNS (`advertise-dns`); una dirección con `advertise=yes` crea un `/ipv6 nd prefix` dinámico. SLAAC = prefijo de 64 bits + identificador de interfaz. | En la LAN del cliente (la gestiona el CPE) cada dispositivo forma varias /128 que cambian: por eso nunca se identifica por /128. |
+| `/ipv6 route` | Rutas estáticas a prefijos de clientes comerciales y rutas dinámicas creadas por PPP/DHCPv6-PD. | Prefijos estáticos de empresas: `client_prefix` con `ipv6_client_len=48` y `default_kind=commercial`. |
+
+**Tamaños habituales del prefijo delegado** (orientativos; el ISP decide):
+
+| Tamaño | Cuándo | `ipv6_client_len` |
+| --- | --- | --- |
+| **/56** | Residencial recomendado (256 LAN /64 por cliente; BCOP RIPE-690) | 56 |
+| /60 | Residencial en ISP con poco espacio (16 LAN) | 60 |
+| /64 | Mínimo: una sola LAN (IPoE simple o CPE sin PD) | 64 |
+| /48 | Empresas | 48 |
+
+#### 11.3.1 Prefijo del enlace PPP vs prefijo delegado
+
+Con `remote-ipv6-prefix-pool` + `dhcpv6-pd-pool` un mismo abonado tiene **dos** prefijos: el /64 del
+enlace (lo usa el propio CPE: su DNS, NTP, gestión TR-069, y su malware si está infectado) y el /56
+delegado (los dispositivos de la LAN). Para Horus (D1) son dos clientes IPv6 distintos.
+Recomendación:
+
+- Declarar el pool de enlace como `client_prefix` `customers` con `ipv6_client_len=64` (un CPE
+  infectado es justo lo que D5 quiere ver), salvo que tenga `remote-ipv6-prefix-reuse=yes`: entonces
+  es un /64 compartido y se declara `infrastructure` (con aviso en el asistente).
+- Si el CPE solo usa dirección de enlace local en la WAN (muy común), no hay prefijo de enlace y el
+  problema desaparece.
+- La vinculación "enlace ↔ delegado ↔ IPv4 del mismo abonado" se puede deducir de la sesión PPP
+  (§11.4) pero es enriquecimiento futuro, no identidad.
+
+### 11.4 Mapa prefijo delegado ↔ cliente desde RouterOS (solo lectura por API)
+
+Todas las lecturas usan el usuario `horus-ro` (§4.2), sin `sensitive` ni `write`. Para **atribuir**
+solo hacen falta los pools (pocas filas); el resto es opcional.
+
+| Ruta API | Campos | Para qué | Frecuencia |
+| --- | --- | --- | --- |
+| `/ipv6/settings` | `disable-ipv6`, `forward` | ¿El router enruta IPv6? (si no, 0 flujos IPv6 es lo esperado) | 1 h |
+| `/ipv6/pool` | `name`, `prefix`, `prefix-length`, `from-pool` | **Importación de `client_prefix`** (`origin=ipv6_pool`) con `ipv6_client_len` sugerido = `prefix-length` | onboarding / 1 h |
+| `/ppp/profile` | `name`, `dhcpv6-pd-pool`, `remote-ipv6-prefix-pool`, `remote-ipv6-prefix-reuse` | Saber qué pool es PD y cuál es de enlace (§11.3.1) | onboarding / 1 h |
+| `/ipv6/dhcp-server` | `name`, `interface`, `prefix-pool`, `address-pool`, `dynamic` | Pools usados por DHCPv6 estático (IPoE) | onboarding / 1 h |
+| `/ipv6/pool/used` | `pool`, `prefix`, `owner`, `info` | Prefijos en uso por pool (tamaño real; descubrimiento) | 1 h (solo conteo por defecto) |
+| `/ipv6/dhcp-server/binding` | `address`, `server`, `duid`, `iaid`, `status`, `last-seen`, flags | Prefijo delegado ↔ servidor dinámico `<pppoe-usuario>` ↔ usuario PPP (alias); `duid` es dato personal | 5 min, API binaria con `.proplist` (tabla grande en BNG) |
+| `/ppp/active` | `name`, `address` (IPv4), `caller-id`, `uptime` | Une IPv4 e IPv6 del mismo abonado por el nombre de la interfaz (alias dual-stack futuro). Si muestra también el prefijo IPv6 es **a verificar** | 60 s (igual que §4.1) |
+| `/ipv6/route` (dinámicas con gateway `<pppoe-…>`) | `dst-address`, `gateway`, flags | Alternativa a los bindings para ver prefijos instalados por PPP (flags **a verificar**) | bajo demanda |
+| `/ipv6/address` | `address`, `interface`, `advertise` | Prefijos de infraestructura y /64 de LAN servidos directamente por el router | 1 h |
+| `/ipv6/neighbor` | `address`, `mac-address`, `interface` | IPv6 ↔ MAC en segmentos L2 directos (como `/ip/arp`); muchas filas por SLAAC/temporales | No en v1 |
+| `/ipv6/firewall/nat` | `chain`, `action`, `to-address`, `disabled` | Detectar NAT66/NPTv6 (§11.5) | onboarding / 1 h |
+
+Ejemplo de lectura por REST (solo GET):
+
+```text
+GET https://<ip-túnel>/rest/ipv6/pool?.proplist=name,prefix,prefix-length
+GET https://<ip-túnel>/rest/ppp/profile?.proplist=name,dhcpv6-pd-pool,remote-ipv6-prefix-pool,remote-ipv6-prefix-reuse
+GET https://<ip-túnel>/rest/ipv6/firewall/nat?.proplist=chain,action,to-address,disabled
+```
+
+Los bindings y `/ppp/active` (miles de filas) van por la API binaria TLS (8729) con `.proplist`,
+igual que en §4. La propuesta de importación (`PrefixImportPreview`, I1-28) devuelve para cada pool
+IPv6 el `prefix-length` leído, el `ipv6_client_len` sugerido y el uso del pool (PD, enlace PPP,
+direcciones /128): ver "Enmienda propuesta IPv6" en [`contracts/G0.md`](../contracts/G0.md).
+
+### 11.5 NAT66 / NPTv6
+
+- RouterOS 7 tiene `/ipv6 firewall nat` con `masquerade`, `src-nat`, `dst-nat`, `redirect` y
+  `netmap` (1:1 por prefijo, lo que se usa para NPTv6); hay reportes de foro de que `netmap` en
+  `srcnat` no funcionaba en betas tempranas de 7.x.
+- En un ISP lo normal es **no** usar NAT en IPv6: cada cliente recibe prefijo público y **el cliente
+  es su prefijo** ([`traffic-model.md` §4.8](../traffic-model.md)).
+- Si el router principal hiciera NAT66, la plantilla 259 no trae direcciones post-NAT: la subida
+  sería atribuible (`src` antes del `srcnat`, como en IPv4) pero la bajada llegaría con `dst` =
+  dirección traducida y **no se podría atribuir**. Con `netmap` 1:1 la traducción es determinista y
+  Horus podría invertirla leyendo la regla, pero queda **fuera de v1**.
+- Horus lee `/ipv6/firewall/nat` y, si hay reglas de traducción activas, muestra un aviso en el
+  router (propuesta `ipv6_nat_detected` en `Router.warnings`, ver G0.md).
+
+### 11.6 SNMP y WireGuard con IPv6
+
+**SNMP**:
+
+- El agente SNMP de RouterOS admite IPv6 (`src-address` y `trap-target` aceptan IPv4 o IPv6;
+  responde por la interfaz por la que llegó la petición). Horus no lo necesita: sondea por la IP
+  IPv4 de túnel.
+- `ifHCInOctets`/`ifHCOutOctets` cuentan los bytes de interfaz de ambas familias: la comprobación de
+  cobertura (§2.7) sigue valiendo con IPv6.
+- Contadores por familia (IP-MIB `ipSystemStatsTable`, RFC 4293) o IPV6-MIB: soporte en RouterOS
+  **a verificar** (solo una fuente secundaria lo afirma). No se usan en v1; si existen, permitirían
+  medir qué parte del tráfico es IPv6 sin mirar flujos.
+
+**WireGuard**:
+
+- `allowed-address` acepta prefijos IPv4 e IPv6; `endpoint-address` acepta dirección o nombre
+  (manual oficial). El endpoint IPv6 literal y qué familia elige RouterOS cuando el nombre tiene A y
+  AAAA son **a verificar** en CHR.
+- El túnel **interior** sigue en IPv4 (`<ROUTER_WG_IP>/32`, `<HORUS_SERVICES_CIDR>`); no se añade
+  IPv6 interior en v1 (no aporta nada: los flujos IPv6 viajan dentro del UDP IPFIX).
+- El túnel **exterior** puede ir sobre IPv6 cuando el nodo solo tiene salida IPv6 o su IPv4 está
+  tras un CGNAT de su tránsito: el hub publica `<HORUS_WG_ENDPOINT>` con A y AAAA y escucha en ambas
+  familias. Como el router inicia, el retorno lo acepta la regla `established,related` de
+  `/ipv6 firewall filter` (si el ISP la tiene; el script no toca el firewall IPv6).
+
+### 11.7 Comandos para el script de onboarding (comentados)
+
+Horus **no** activa IPv6 en el router del ISP ni cambia su asignación de prefijos. Traffic Flow ya
+exporta IPv6 con la configuración de §7; estos comandos, comentados, se añaden al final del script
+para que el técnico compruebe y, si hace falta, active los campos IPv6:
+
+```routeros
+# 8) IPv6 (opcional). Traffic Flow no tiene menú IPv6 propio: /ip traffic-flow exporta IPv4 e IPv6
+#    con el mismo target (la plantilla IPv6 llega aunque no haya tráfico IPv6).
+# ¿El router enruta IPv6 y hay prefijos de clientes?
+# /ipv6 settings print
+# /ipv6 pool print
+# /ppp profile print where dhcpv6-pd-pool!="" || remote-ipv6-prefix-pool!=""
+# /ipv6 dhcp-server binding print count-only
+# ¿Hay NAT66? (Horus no lo soporta en v1: la bajada traducida no se atribuye)
+# /ipv6 firewall nat print where disabled=no
+# Campos IPFIX útiles en IPv6 (normalmente ya activos; nombres según /ip traffic-flow ipfix print):
+# /ip traffic-flow ipfix set ipv6-flow-label=yes icmp-type=yes icmp-code=yes \
+#     src-address-mask=yes dst-address-mask=yes
+```
+
+- `icmp-code` aparece en la referencia CLI 7.24 pero no en el extracto de 7.25: el asistente solo
+  genera los interruptores que existen en la versión detectada (**a verificar** en CHR).
+- El script de desinstalación no cambia: no hay nada específico de IPv6 que quitar.
+
+### 11.8 Validación en laboratorio (añadir a §8.3)
+
+1. CHR con PPPoE server: perfil con `dhcpv6-pd-pool` (/56) y `remote-ipv6-prefix-pool` (/64); un
+   CHR o netns como CPE con DHCPv6-PD y SLAAC en su LAN.
+2. El colector recibe la plantilla IPv6 y decodifica `sourceIPv6Address`/`destinationIPv6Address`,
+   ICMPv6 por IE 178/179 y hop limit; confirmar que no hay campos NAT IPv6 en la versión mínima ni en
+   la última long-term.
+3. Bytes de flujos IPv6 vs contadores de la interfaz del cliente: diferencia < 5 %, con y sin
+   FastTrack IPv6 (si la versión lo tiene; **a verificar**).
+4. La propuesta de importación lee `/ipv6/pool` y `/ppp/profile` y sugiere `ipv6_client_len=56` para
+   el pool PD y `64` para el de enlace; con `remote-ipv6-prefix-reuse=yes` propone `infrastructure`.
+5. Varios dispositivos del CPE con direcciones temporales generan **un solo** cliente (/56).
+6. Reconexión PPPoE: el prefijo delegado se mantiene si el pool puede reutilizarlo (OWNER/INFO); si
+   cambia, aparece un cliente nuevo, igual que una IPv4 dinámica (D1).
+7. Guardar como *fixtures*: pcap IPFIX con plantilla IPv6 y registros, y las salidas REST de §11.4.
+
+### 11.9 Fuentes IPv6
+
+Oficiales (MikroTik; acceso directo fallido por DNS/proxy, contenido obtenido por buscador):
+
+- Traffic Flow: <https://help.mikrotik.com/docs/spaces/ROS/pages/21102653/Traffic+Flow> ·
+  <https://manual.mikrotik.com/docs/diagnostics-monitoring-and-troubleshooting/traffic-flow/> ·
+  IPFIX CLI: <https://manual.mikrotik.com/docs/cli-reference/ip/traffic-flow/ipfix> ·
+  <https://manual.mikrotik.com/docs/7.24/cli-reference/ip/traffic-flow>
+- IPv6 PD over PPP: <https://manual.mikrotik.com/docs/virtual-private-networks/pppoe/ipv6-pd-over-ppp> ·
+  <https://help.mikrotik.com/docs/display/ROS/IPv6+PD+over+PPP>
+- PPP AAA (`dhcpv6-pd-pool`, `remote-ipv6-prefix-pool`, `remote-ipv6-prefix-reuse`, `dhcpv6-use-radius`):
+  <https://manual.mikrotik.com/docs/authentication-authorization-accounting/ppp-aaa> ·
+  <https://help.mikrotik.com/docs/spaces/ROS/pages/132350049/PPP%2BAAA>
+- DHCPv6 server y bindings: <https://manual.mikrotik.com/docs/network-management/dhcp/dhcpv6-server> ·
+  <https://manual.mikrotik.com/docs/cli-reference/ipv6/dhcp-server/binding/> ·
+  <https://wiki.mikrotik.com/Manual:IPv6/DHCP_Server> (antigua)
+- IPv6 pool: <https://manual.mikrotik.com/docs/cli-reference/ipv6/pool/> ·
+  <https://wiki.mikrotik.com/Manual:IPv6/Pool>
+- IPv6 Neighbor Discovery: <https://manual.mikrotik.com/docs/getting-started/networking-fundamentals/ipv6-neighbor-discovery> ·
+  <https://help.mikrotik.com/docs/display/ROS/IPv6+Neighbor+Discovery>
+- IPv6 firewall NAT: <https://manual.mikrotik.com/docs/7.25/cli-reference/ipv6/firewall/nat/>
+- SNMP: <https://manual.mikrotik.com/docs/diagnostics-monitoring-and-troubleshooting/snmp>
+- WireGuard peers: <https://manual.mikrotik.com/docs/cli-reference/interface/wireguard/peers/>
+
+Secundarias (reportes, no hechos oficiales): `netmap` NPTv6 en 7.12.1 y su problema de traceroute
+<https://forum.mikrotik.com/t/wrong-traceroute-with-ipv6-netmap-snat-dnat/172134>; `use-ipv6` en el
+perfil PPP <https://docs.onezeroart.com/zalultra/network/ipv6/mikrotik.html>; IPV6-MIB en
+<https://mikrotikdocs.fyi/diagnostics-monitoring-troubleshooting/snmp/>. Tamaños de prefijo: BCOP
+RIPE-690 (citado de memoria, **a verificar**). Números de IE: registro IANA de IPFIX
+(<https://www.iana.org/assignments/ipfix/>, no accesible desde el entorno).

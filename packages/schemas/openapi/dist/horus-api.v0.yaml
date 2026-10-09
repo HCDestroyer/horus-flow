@@ -9302,6 +9302,40 @@ components:
                   - static
                   - dynamic
                   - unknown
+              delegated_prefix_length:
+                type:
+                  - integer
+                  - 'null'
+                minimum: 1
+                maximum: 128
+                description: Solo IPv6. `prefix-length` leído de `/ipv6/pool` (tamaño que el router entrega a cada cliente); null en IPv4 o si no es un pool.
+              suggested_ipv6_client_len:
+                type:
+                  - integer
+                  - 'null'
+                enum:
+                  - 48
+                  - 56
+                  - 60
+                  - 64
+                  - null
+                description: Solo IPv6. Valor propuesto para `ipv6_client_len` (normalmente = delegated_prefix_length si es 48/56/60/64; null si no encaja y el operador debe decidir).
+              ipv6_pool_usage:
+                type:
+                  - string
+                  - 'null'
+                enum:
+                  - dhcpv6_pd
+                  - ppp_link
+                  - ppp_link_shared
+                  - dhcpv6_address
+                  - unused
+                  - unknown
+                  - null
+                description: |
+                  Solo IPv6. Uso del pool según `/ppp/profile` y `/ipv6/dhcp-server`: `dhcpv6_pd` (dhcpv6-pd-pool o prefix-pool),
+                  `ppp_link` (remote-ipv6-prefix-pool), `ppp_link_shared` (remote-ipv6-prefix-reuse=yes → se sugiere `infrastructure`),
+                  `dhcpv6_address` (address-pool /128). Ver docs/vendors/mikrotik.md §11.4.
               diff:
                 type: string
                 enum:

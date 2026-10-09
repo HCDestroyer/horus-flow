@@ -39,6 +39,10 @@ message FlowRecord {
   // netflow_v5 | netflow_v9 | ipfix
   string flow_source = 24;
   string batch_id = 25;
+  // Bajada con NAT en el router principal: IP/puerto privado del cliente (IE 226/228).
+  // Verificado con un MikroTik real (traffic-model.md §4.4.3); necesario para atribuir.
+  optional string post_nat_dst_ip = 26;
+  optional uint32 post_nat_dst_port = 27;
 }
 
 // FlowBatch: horus.flows.batch.received en horus.telemetry.flows.batch.<router_id> (un lote = un router = un tenant).
