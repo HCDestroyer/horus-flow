@@ -217,6 +217,7 @@ func (en *Engine) Evaluate(ctx context.Context, tenant uuid.UUID, now time.Time,
 		}
 		rep.Candidates = append(rep.Candidates, cands...)
 	}
+	rep.Candidates = dedupe(rep.Candidates)
 	cands, err := en.complete(ctx, tenant, rep, cache, end)
 	if err != nil {
 		return rep, err
@@ -300,6 +301,31 @@ func (en *Engine) complete(ctx context.Context, tenant uuid.UUID, rep *Report, c
 		out = append(out, c)
 	}
 	return out, nil
+}
+
+// dedupe deja un candidato por (cliente, kind, objetivo): el de última vez
+// más reciente (p. ej. marca en ingesta y barrido retroactivo del mismo C2).
+func dedupe(in []domain.Candidate) []domain.Candidate {
+	type k struct {
+		realm  uuid.UUID
+		ip     netip.Addr
+		kind   string
+		target domain.Target
+	}
+	idx := map[k]int{}
+	var out []domain.Candidate
+	for _, c := range in {
+		key := k{c.RealmID, c.Client.Unmap(), c.Kind, c.Target}
+		if i, ok := idx[key]; ok {
+			if c.LastSeen.After(out[i].LastSeen) {
+				out[i] = c
+			}
+			continue
+		}
+		idx[key] = len(out)
+		out = append(out, c)
+	}
+	return out
 }
 
 func allowed(list []AllowEntry, c *domain.Candidate) bool {

@@ -208,7 +208,7 @@ func c2Candidate(snap *reputation.Snapshot, f RepPair, known *reputation.Indicat
 	switch f.Category {
 	case "botnet_cc":
 		c.Kind, c.Severity = domain.KindC2, domain.SeverityMedium
-		c.Confidence = 0.35 + 0.4*base
+		c.Confidence = 0.3 + 0.4*base
 		if responded {
 			c.Severity, c.Confidence = domain.SeverityHigh, 0.6+0.4*base
 		}
