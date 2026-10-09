@@ -36,8 +36,8 @@ function ago(iso: string) {
     >
       <li
         v-for="row in rows"
-        data-fit-item
         :key="row.id"
+        data-fit-item
         class="w-label min-w-0 py-[0.35em] first:pt-0"
         data-testid="finding-row"
       >

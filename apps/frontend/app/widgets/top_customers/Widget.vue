@@ -42,9 +42,9 @@ const rows = computed(() =>
         </thead>
         <tbody>
           <tr
-            data-fit-item
             v-for="row in rows"
             :key="row.customer_ip + row.site"
+            data-fit-item
             class="border-default border-t"
           >
             <td class="truncate py-[0.3em] pe-2">

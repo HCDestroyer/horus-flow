@@ -23,8 +23,8 @@ const top = computed(() => props.max ?? Math.max(1, ...props.items.map((i) => i.
   >
     <li
       v-for="item in items"
-      data-fit-item
       :key="item.label"
+      data-fit-item
       class="w-label min-w-0"
       :class="{ 'text-muted': item.muted }"
     >

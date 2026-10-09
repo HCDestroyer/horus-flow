@@ -50,8 +50,8 @@ const rows = computed(() =>
         <tbody>
           <tr
             v-for="row in rows"
-            data-fit-item
             :key="`${row.protocol}/${row.port}`"
+            data-fit-item
             class="border-default border-t"
           >
             <td class="text-highlighted py-[0.3em] pe-2 font-mono tabular">
