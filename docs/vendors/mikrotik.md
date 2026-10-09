@@ -22,7 +22,7 @@
 | --- | --- | --- |
 | Versión | **RouterOS v7** obligatorio para el camino completo (WireGuard + REST). Mínima propuesta **7.12**; recomendada la **última long-term v7**. v6 solo en "modo degradado" (§1.2). | A, D |
 | Exportación de flujos | **IPFIX** (alternativa NetFlow v9), **sin muestreo**, `active-flow-timeout=1m`, `inactive-flow-timeout=15s`, `cache-entries` ≥ 256k en nodos grandes, destino = colector de Horus **por el túnel WG** con `src-address` = IP de túnel. | B, D |
-| IP del cliente | Traffic Flow contabiliza en las cadenas input/forward/output: si el **NAT/CGNAT lo hace el mismo router**, la **subida** lleva la IP privada del cliente en `src`, pero la **bajada** lleva la IP pública del NAT en `dst` y la privada del cliente solo en el campo IPFIX `postNATDestinationIPv4Address`. **Verificado con un router real** ([`traffic-model.md` §4.4.2](../traffic-model.md)): hay que exportar los campos NAT. | B |
+| IP del cliente | Traffic Flow contabiliza en las cadenas input/forward/output: si el **NAT/CGNAT lo hace el mismo router**, la **subida** lleva la IP privada del cliente en `src`, pero la **bajada** lleva la IP pública del NAT en `dst` y la privada del cliente solo en el campo IPFIX `postNATDestinationIPv4Address`. **Verificado con un router real** ([`traffic-model.md` §4.4.3](../traffic-model.md)): hay que exportar los campos NAT. | B |
 | Identidad del exportador | La **IP de túnel WG** del router (única en todo Horus), no su IP pública. | B, A |
 | Ceguera por hardware | Tráfico con **offload por hardware** (bridge HW, L3HW en CCR2116/2216, FastTrack HW) **no** aparece en los flujos. Hay que detectarlo y avisar (§2.7). | B, D |
 | SNMP | **SNMPv3 authPriv (SHA1 + AES)** sobre el túnel; v2c solo en laboratorio. Sondeo 60 s (sistema/interfaces), 300 s (salud). No recorrer interfaces PPPoE dinámicas. | A, D |
@@ -144,7 +144,7 @@ origen, SNMPv3 por Internet o por un túnel alternativo, sin API REST. La vía p
 
 **Recomendación**: IPFIX con todos los campos de la tabla activados, **incluidos los NAT** cuando el
 router principal hace NAT (la bajada solo se atribuye por `postNATDestinationIPv4Address`;
-verificado con un router real, [`traffic-model.md` §4.4.2](../traffic-model.md)). El colector debe leer plantillas, no asumir un orden de campos, y
+verificado con un router real, [`traffic-model.md` §4.4.3](../traffic-model.md)). El colector debe leer plantillas, no asumir un orden de campos, y
 tolerar campos ausentes. El nombre exacto de cada interruptor de `/ip traffic-flow ipfix` varía
 entre versiones: el script de onboarding (§7) solo toca los que existen en la versión mínima
 (**a verificar** en CHR).
@@ -158,7 +158,7 @@ en `forward`:
 | Topología del nodo | IP de cliente observada | Atribución (D1) |
 | --- | --- | --- |
 | **IP pública por cliente** (sin NAT) | Pública del cliente | Directa. |
-| **NAT/CGNAT en el mismo router principal** | Subida: privada del cliente en `src`. Bajada: pública del NAT en `dst`, privada del cliente en `postNATDestinationIPv4Address` (**verificado**, [`traffic-model.md` §4.4.2](../traffic-model.md)) | Subida por `src`; bajada por `post_nat_dst`. **Los campos NAT de IPFIX son necesarios.** |
+| **NAT/CGNAT en el mismo router principal** | Subida: privada del cliente en `src`. Bajada: pública del NAT en `dst`, privada del cliente en `postNATDestinationIPv4Address` (**verificado**, [`traffic-model.md` §4.4.3](../traffic-model.md)) | Subida por `src`; bajada por `post_nat_dst`. **Los campos NAT de IPFIX son necesarios.** |
 | **CGNAT en otro equipo, detrás del router principal** (hacia Internet) | Privada/CGNAT del cliente (el router está antes del NAT) | Directa. |
 | **CGNAT en otro equipo, entre clientes y router principal** | IP pública compartida: **no identifica al cliente** | No atribuible sin logs de NAT del otro equipo. Hay que exportar desde el equipo de CGNAT o el BNG. Pregunta al PO (§9). |
 | **NAT en el CPE del cliente** (residencial típico) | WAN del CPE | Una IP = un cliente (D1). Los dispositivos detrás no son visibles. |
@@ -654,7 +654,7 @@ Fuentes secundarias (señaladas en el texto como reportes, no como hechos oficia
 > oficial de MikroTik"). Igual que en el resto del documento, help.mikrotik.com y
 > manual.mikrotik.com **no se pudieron abrir directamente** desde el entorno (DNS/proxy bloqueado);
 > los datos se contrastaron con los extractos de esas páginas que devuelve el buscador y con la
-> captura real del router del PO ([`traffic-model.md` §4.4.2](../traffic-model.md)). Lo que no se
+> captura real del router del PO ([`traffic-model.md` §4.4.3](../traffic-model.md)). Lo que no se
 > pudo confirmar va marcado **a verificar** y entra en la lista del laboratorio CHR (§11.8).
 > Fuentes en §11.9. La parte de atribución (qué es "el cliente" en IPv6) está en
 > [`traffic-model.md` §4.8](../traffic-model.md).
