@@ -15,8 +15,10 @@ const props = withDefaults(
     live?: boolean
     /** Mural: llenar el viewport (vista mural) o filas de altura mural fija (galería). */
     fill?: boolean
+    /** Datos por vista previa (`POST /widget-data/preview`) en vez del dashboard guardado. */
+    preview?: boolean
   }>(),
-  { scale: 'normal', live: false, fill: true },
+  { scale: 'normal', live: false, fill: true, preview: false },
 )
 
 const root = useTemplateRef<HTMLElement>('root')
@@ -60,6 +62,7 @@ provide(DASHBOARD_CONTEXT, {
   scale: toRef(props, 'scale'),
   lastUpdate,
   live: toRef(props, 'live'),
+  preview: props.preview,
   report: (at: number) => {
     if (!lastUpdate.value || at > lastUpdate.value) lastUpdate.value = at
   },

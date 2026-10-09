@@ -18,6 +18,7 @@ const base = computed(() =>
 const live = ref<{ down_bps: number; up_bps: number } | null>(null)
 
 useRealtime('traffic.summary', (message) => {
+  if (message.type !== 'state') return
   const d = message.data as { down_bps?: number; up_bps?: number; partial?: boolean }
   if (typeof d.down_bps !== 'number' || typeof d.up_bps !== 'number') return
   live.value = { down_bps: d.down_bps, up_bps: d.up_bps }

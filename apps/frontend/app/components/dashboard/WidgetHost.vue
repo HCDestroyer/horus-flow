@@ -27,6 +27,7 @@ const { data, error, status, reload } = useWidgetData({
   widget: props.widget,
   refreshSeconds: refresh,
   enabled: hasData,
+  preview: ctx.preview,
 })
 
 const title = computed(() => props.widget.title ?? registered?.catalog.title ?? props.widget.type)

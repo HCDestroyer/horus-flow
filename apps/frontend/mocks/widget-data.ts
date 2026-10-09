@@ -19,8 +19,22 @@ import type {
   WidgetData,
   WidgetDataMeta,
 } from '~~/types/api'
-import findingExample from '~~/types/api/contract/examples/finding-outbound-scanning.api.json'
+import {
+  CATEGORIES,
+  maskIp,
+  ORGANIZATIONS,
+  SERVICES,
+  openFindings,
+  SEVERITY_ORDER,
+  SIGNALS_BY_KIND,
+  tenantScale,
+  type MockFinding,
+} from './base'
 import type { MockTenant } from './data'
+import { customerCounts, customersOf, isInactive, routersOf, sitesOf } from './inventory'
+import { hash, iso, rng } from './random'
+
+export { openFindings, type MockFinding } from './base'
 
 /**
  * Datos de widgets de la API simulada (`GET /dashboards/{id}/widgets/{wid}/data`, C9).
@@ -40,40 +54,16 @@ export interface WidgetDataContext {
   empty: boolean
 }
 
-function hash(text: string) {
-  let h = 2166136261
-  for (let i = 0; i < text.length; i++) {
-    h ^= text.charCodeAt(i)
-    h = Math.imul(h, 16777619)
-  }
-  return h >>> 0
-}
-
-/** PRNG determinista (mulberry32). */
-function rng(seed: number) {
-  let a = seed
-  return () => {
-    a = (a + 0x6d2b79f5) | 0
-    let t = Math.imul(a ^ (a >>> 15), 1 | a)
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
-
-const iso = (ms: number) => new Date(ms).toISOString()
-
 /** Curva diaria de tráfico (bps) con pico nocturno, típica de un ISP residencial. */
 function dailyCurve(scale: number, ms: number, timeZoneOffsetHours = -5) {
   const hour = (new Date(ms).getUTCHours() + timeZoneOffsetHours + 24) % 24
   const minute = new Date(ms).getUTCMinutes()
   const h = hour + minute / 60
-  const evening = Math.exp(-((h - 21) ** 2) / 8)
+  // Distancia circular a las 21 h: el pico nocturno sigue pasada la medianoche.
+  const toEvening = Math.min(Math.abs(h - 21), 24 - Math.abs(h - 21))
+  const evening = Math.exp(-(toEvening ** 2) / 8)
   const midday = 0.55 * Math.exp(-((h - 13) ** 2) / 10)
   return scale * (0.22 + 0.78 * Math.max(evening, midday))
-}
-
-function tenantScale(tenant: MockTenant) {
-  return 1 + (hash(tenant.tenant_id) % 7) / 4 // 1–2.5
 }
 
 function meta(
@@ -117,11 +107,6 @@ function table(
   }
 }
 
-function maskIp(ip: string) {
-  const parts = ip.split('.')
-  return `${parts.slice(0, 3).join('.')}.•••`
-}
-
 // ---------------------------------------------------------------------------------------------
 
 function trafficNow(ctx: WidgetDataContext): WidgetData {
@@ -153,30 +138,26 @@ function trafficNow(ctx: WidgetDataContext): WidgetData {
 }
 
 function customersActive(ctx: WidgetDataContext): WidgetData {
-  const r = rng(hash(ctx.tenant.tenant_id + 'customers'))
-  const total = Math.round(800 * tenantScale(ctx.tenant) + r() * 200)
+  const { total, newToday } = customerCounts(ctx.tenant)
+  let inactive = 0
+  for (let i = 0; i < total; i++) if (isInactive(i)) inactive++
   const values: CustomersActiveValues = ctx.empty
     ? { active: 0, new_today: 0, total: 0 }
-    : { active: Math.round(total * 0.91), new_today: Math.round(3 + r() * 9), total }
+    : { active: total - inactive, new_today: newToday, total }
   return state(ctx, values)
 }
 
 function exportersStatus(ctx: WidgetDataContext, degraded: boolean): WidgetData {
-  const t = ctx.now.getTime()
-  const r = rng(hash(ctx.tenant.tenant_id + 'exporters'))
-  const rows: ExporterRow[] = ctx.tenant.sites.map((site, i) => {
-    const silent = degraded && i === ctx.tenant.sites.length - 1
-    const lossy = !silent && i === 1
-    return {
-      router: `rt-${site.name.replace('Nodo ', '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')}`,
-      site: site.name,
-      state: silent ? 'silent' : lossy ? 'lossy' : 'exporting',
-      state_since: iso(t - (silent ? 7 * 60_000 : (2 + i) * 3_600_000)),
-      last_flow_at: iso(t - (silent ? 7 * 60_000 : Math.round(1 + r() * 4) * 1000)),
-      flows_per_second: silent ? null : Math.round(250 + r() * 600),
-      loss_ratio: silent ? null : lossy ? 0.031 : Math.round(r() * 20) / 10_000,
-    }
-  })
+  // Misma base que `GET /flow-exporters` y las fichas de router.
+  const rows: ExporterRow[] = routersOf(ctx.tenant, ctx.now, { degraded }).map((item) => ({
+    router: item.router.name,
+    site: item.site.name,
+    state: item.exporter.state,
+    state_since: item.exporter.state_since,
+    last_flow_at: item.exporter.last_flow_at,
+    flows_per_second: item.exporter.flows_per_second,
+    loss_ratio: item.exporter.loss_ratio_5m,
+  }))
   return table(
     ctx,
     [
@@ -192,6 +173,12 @@ function exportersStatus(ctx: WidgetDataContext, degraded: boolean): WidgetData 
   )
 }
 
+/** Parte del ISP que filtra `config.site_ids` (vacío = todo el ISP). */
+function siteShare(ctx: WidgetDataContext) {
+  const ids = (ctx.widget.config.site_ids as string[] | undefined) ?? []
+  return ids.length ? Math.min(1, ids.length / ctx.tenant.sites.length) : 1
+}
+
 function rangeMs(range: unknown) {
   const map: Record<string, number> = { '1h': 1, '6h': 6, '24h': 24, '7d': 168, '30d': 720 }
   return (map[String(range)] ?? 24) * 3_600_000
@@ -201,7 +188,7 @@ function trafficTimeseries(ctx: WidgetDataContext): WidgetData {
   const span = rangeMs(ctx.widget.config.range)
   const stepS = span <= 6 * 3_600_000 ? 60 : 300
   const t = Math.floor(ctx.now.getTime() / (stepS * 1000)) * stepS * 1000
-  const scale = 4.2e9 * tenantScale(ctx.tenant)
+  const scale = 4.2e9 * tenantScale(ctx.tenant) * siteShare(ctx)
   const down: [string, number | null][] = []
   const up: [string, number | null][] = []
   // Hueco de 25 min hace ~5 h (colector reiniciado): se muestra como hueco, no como cero.
@@ -231,30 +218,29 @@ function trafficTimeseries(ctx: WidgetDataContext): WidgetData {
   }
 }
 
-const CATEGORIES = [
-  'Streaming de video',
-  'Redes sociales',
-  'Videojuegos',
-  'Actualizaciones de software',
-  'Navegación web',
-  'Mensajería',
-  'Nube y almacenamiento',
-  'Videollamadas',
-  'Música',
-  'Comercio electrónico',
-]
-
 function topCategories(ctx: WidgetDataContext): WidgetData {
-  const r = rng(hash(ctx.tenant.tenant_id + 'categories'))
+  const r = rng(hash(ctx.tenant.tenant_id + ctx.widget.type))
   const n = Number(ctx.widget.config.n ?? 8)
-  const total = 38e12 * tenantScale(ctx.tenant)
+  const labels =
+    ctx.widget.type === 'top_services'
+      ? SERVICES
+      : ctx.widget.type === 'top_organizations'
+        ? ORGANIZATIONS
+        : CATEGORIES
+  const total =
+    38e12 *
+    tenantScale(ctx.tenant) *
+    siteShare(ctx) *
+    (rangeMs(ctx.widget.config.range) / 86_400_000)
   let rest = total
-  const rows: TopRow[] = CATEGORIES.map((label, i) => {
-    const share = i === 0 ? 0.42 : (rest / total) * (0.28 + r() * 0.12)
-    const down = Math.round(total * share)
-    rest -= down
-    return { label, down_bytes: down, up_bytes: Math.round(down * (0.04 + r() * 0.1)) }
-  }).sort((a, b) => b.down_bytes - a.down_bytes)
+  const rows: TopRow[] = labels
+    .map((label, i) => {
+      const share = i === 0 ? 0.42 : (rest / total) * (0.28 + r() * 0.12)
+      const down = Math.round(total * share)
+      rest -= down
+      return { label, down_bytes: down, up_bytes: Math.round(down * (0.04 + r() * 0.1)) }
+    })
+    .sort((a, b) => b.down_bytes - a.down_bytes)
   const others = rows.slice(n).reduce(
     (acc, row) => ({
       label: 'Otros',
@@ -275,24 +261,23 @@ function topCategories(ctx: WidgetDataContext): WidgetData {
   )
 }
 
-const ALIASES = ['Panadería Sol', 'Ferretería El Puente', null, null, 'Clínica Dental Norte', null]
-
 function topCustomers(ctx: WidgetDataContext): WidgetData {
-  const r = rng(hash(ctx.tenant.tenant_id + 'top-customers'))
+  // Los clientes que más bajan de la base común (los mismos de la lista de Clientes).
   const n = Number(ctx.widget.config.n ?? 10)
-  const rows: TopCustomerRow[] = Array.from({ length: n }, (_, i) => {
-    const down = Math.round(9.5e11 / (i + 1.4) + r() * 4e10)
-    const alias = ALIASES[i % ALIASES.length] ?? null
-    const ip = `${ctx.tenant.prefix}.${Math.floor(r() * 3)}.${Math.floor(10 + r() * 240)}`
-    return {
-      customer_ip: ctx.canSeePersonalData ? ip : maskIp(ip),
-      alias,
-      kind: alias ? 'commercial' : 'residential',
-      site: ctx.tenant.sites[i % ctx.tenant.sites.length]!.name,
-      down_bytes: down,
-      up_bytes: Math.round(down * (alias ? 0.6 : 0.08 + r() * 0.1)),
-    }
-  })
+  const sites = new Map(sitesOf(ctx.tenant).map((s) => [s.id, s.name]))
+  const ids = (ctx.widget.config.site_ids as string[] | undefined) ?? []
+  const rows: TopCustomerRow[] = customersOf(ctx.tenant, ctx.now)
+    .filter((c) => c.traffic_24h && (!ids.length || ids.includes(c.site_id)))
+    .sort((a, b) => Number(b.traffic_24h!.down_bytes) - Number(a.traffic_24h!.down_bytes))
+    .slice(0, n)
+    .map((c) => ({
+      customer_ip: ctx.canSeePersonalData ? c.address : maskIp(c.address),
+      alias: c.alias,
+      kind: c.kind === 'commercial' ? 'commercial' : 'residential',
+      site: sites.get(c.site_id) ?? '',
+      down_bytes: Number(c.traffic_24h!.down_bytes),
+      up_bytes: Number(c.traffic_24h!.up_bytes),
+    }))
   return table(
     ctx,
     [
@@ -306,130 +291,6 @@ function topCustomers(ctx: WidgetDataContext): WidgetData {
     rows,
     { meta: { masked_personal_data: !ctx.canSeePersonalData } },
   )
-}
-
-/** Plantillas de resumen de hallazgos (el primero, del ejemplo del contrato). */
-const FINDING_TEMPLATES: Pick<FindingFeedRow, 'kind' | 'severity' | 'summary'>[] = [
-  {
-    kind: findingExample.kind,
-    severity: findingExample.severity as FindingFeedRow['severity'],
-    summary: findingExample.summary.text,
-  },
-  {
-    kind: 'botnet_c2_communication',
-    severity: 'critical',
-    summary: 'Conexiones a un servidor de control de botnet conocido (Feodo Tracker)',
-  },
-  {
-    kind: 'spam_smtp_outbound',
-    severity: 'medium',
-    summary: 'SMTP saliente directo a 86 servidores en 1 h',
-  },
-  {
-    kind: 'beaconing',
-    severity: 'medium',
-    summary: 'Conexiones periódicas cada 60 s al mismo destino',
-  },
-  {
-    kind: 'outbound_scanning',
-    severity: 'high',
-    summary: 'Escaneo del puerto 445 a 610 destinos en 10 min',
-  },
-  {
-    kind: 'ddos_participation',
-    severity: 'high',
-    summary: 'Ráfaga de 48 000 pps UDP/123 hacia 2 destinos',
-  },
-  {
-    kind: 'reputation_hit',
-    severity: 'low',
-    summary: 'Contacto con una IP listada en Spamhaus DROP',
-  },
-  {
-    kind: 'outbound_scanning',
-    severity: 'medium',
-    summary: 'Escaneo del puerto 7547 a 320 destinos en 15 min',
-  },
-  {
-    kind: 'beaconing',
-    severity: 'low',
-    summary: 'Conexiones periódicas cada 300 s a un dominio nuevo',
-  },
-  {
-    kind: 'spam_smtp_outbound',
-    severity: 'low',
-    summary: 'SMTP saliente directo a 14 servidores en 1 h',
-  },
-]
-
-/** Señales de botnet (traffic-model.md §8) que aporta cada tipo de hallazgo. */
-const SIGNALS_BY_KIND: Record<string, BotnetSignal[]> = {
-  outbound_scanning: ['scanning', 'fan_out', 'watched_ports'],
-  botnet_c2_communication: ['c2_contact'],
-  beaconing: ['beaconing'],
-  spam_smtp_outbound: ['smtp', 'fan_out'],
-  ddos_participation: ['ddos', 'sustained_upload'],
-  reputation_hit: [],
-}
-
-const SEVERITY_ORDER = ['info', 'low', 'medium', 'high', 'critical']
-
-/** Hallazgo abierto de la base simulada: lo que ve el feed más lo que necesitan los agregados. */
-export interface MockFinding extends FindingFeedRow {
-  /** Índice del cliente en el pool sintético del ISP (agrupa por cliente). */
-  customer: number
-  opened_at: string
-}
-
-/**
- * Hallazgos abiertos del ISP: **una sola base** de la que salen el resumen
- * (`findings_summary`), el feed (`findings_feed`), la tendencia (`findings_trend`), la
- * seguridad por nodo (`security_by_node`) y las señales de botnet (`botnet_signals`), para
- * que los widgets nunca se contradigan (p. ej. "Crítica 0" con una crítica en el feed).
- * Determinista por ISP; las fechas son relativas a `now`. Un cliente con un hallazgo de C2
- * es "Infectado" (D18) en todos sus hallazgos; el resto, "Sospechoso".
- */
-export function openFindings(tenant: MockTenant, now: Date): MockFinding[] {
-  const r = rng(hash(tenant.tenant_id + 'findings-base'))
-  const t = now.getTime()
-  const total = 30 + (hash(tenant.tenant_id) % 12)
-  const pool = 14
-  const base = Array.from({ length: total }, (_, i) => {
-    const template =
-      i < FINDING_TEMPLATES.length
-        ? FINDING_TEMPLATES[i]!
-        : FINDING_TEMPLATES[Math.floor(r() * FINDING_TEMPLATES.length)]!
-    // Los diez más recientes son de clientes distintos; los demás repiten clientes.
-    const customer = i < 10 ? i : Math.floor(r() * pool)
-    const lastSeen = t - (i * 7 + 1) * 60_000 - Math.round(r() * 50_000)
-    // Abiertos en los últimos 30 días; dos tercios en la última semana.
-    const age = (r() < 0.66 ? r() * 7 : 7 + r() * 23) * 86_400_000
-    return { template, customer, lastSeen, opened: Math.min(lastSeen, t - age) }
-  })
-  const infected = new Set(
-    base.filter((f) => f.template.kind === 'botnet_c2_communication').map((f) => f.customer),
-  )
-  return base.map(({ template, customer, lastSeen, opened }, i) => {
-    const ip =
-      customer === 0
-        ? findingExample.customer.address.replace('10.20', tenant.prefix)
-        : `${tenant.prefix}.${customer % 3}.${10 + ((customer * 37) % 240)}`
-    return {
-      id: `${findingExample.id.slice(0, -2)}${String(i).padStart(2, '0')}`,
-      ...template,
-      customer,
-      customer_ip: ip,
-      alias: customer === 2 ? 'Ferretería El Puente' : null,
-      site: tenant.sites[customer % tenant.sites.length]!.name,
-      security_state: infected.has(customer) ? 'infected' : 'suspected',
-      confidence:
-        template.kind === 'botnet_c2_communication'
-          ? 0.94
-          : Math.round((0.55 + r() * 0.4) * 100) / 100,
-      opened_at: iso(opened),
-      last_seen_at: iso(lastSeen),
-    }
-  })
 }
 
 function atLeast(findings: MockFinding[], minSeverity: unknown) {
@@ -498,7 +359,7 @@ function findingsFeed(ctx: WidgetDataContext): WidgetData {
   )
     .sort((a, b) => b.last_seen_at.localeCompare(a.last_seen_at))
     .slice(0, limit)
-    .map(({ customer: _customer, opened_at: _opened, ...row }) => ({
+    .map(({ customer: _customer, opened_at: _opened, seq: _seq, ...row }) => ({
       ...row,
       customer_ip: ctx.canSeePersonalData ? row.customer_ip : maskIp(row.customer_ip),
     }))

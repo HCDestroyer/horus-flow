@@ -2,14 +2,18 @@ import type {
   AccessTokenResponse,
   Dashboard,
   DashboardSummary,
-  ProblemDetails,
   SystemStatus,
   WidgetType,
 } from '~~/types/api'
 import nocTemplate from '~~/types/api/contract/templates/noc-isp.json'
 import securityTemplate from '~~/types/api/contract/templates/security.json'
 import { WIDGET_CATALOG } from '~~/types/api/widget-catalog'
+import { channelRoute } from './channels'
 import { findTenant, MOCK_TOTP_CODE, USERS, type MockUser } from './data'
+import { json, problem, randomHex } from './http'
+import { currentKiosk, enroll, kioskAdminRoute, kioskConfig, touchKiosk } from './kiosk'
+import { platformRoute } from './platform'
+import { tenantRoute } from './tenant-routes'
 import { widgetData } from './widget-data'
 
 /**
@@ -64,39 +68,9 @@ interface TokenRecord {
   userId: string
   scope: AccessTokenResponse['scope']
   tenantId?: string
+  /** Solo `scope=kiosk`: el kiosco (dispositivo) del token. */
+  kioskId?: string
   expires: number
-}
-
-function json(body: unknown, status = 200, headers: Record<string, string> = {}) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json', ...headers },
-  })
-}
-
-function problem(
-  status: number,
-  code: string,
-  title: string,
-  headers: Record<string, string> = {},
-) {
-  const body: ProblemDetails = {
-    type: `https://docs.horus-flow.local/errors/${code.toLowerCase().replaceAll('_', '-')}`,
-    title,
-    status,
-    code,
-    trace_id: randomHex(32),
-  }
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/problem+json', ...headers },
-  })
-}
-
-function randomHex(length: number) {
-  const bytes = new Uint8Array(length / 2)
-  crypto.getRandomValues(bytes)
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
 function safeStorage(): MockOptions['storage'] {
@@ -117,15 +91,17 @@ export function readScenario(): MockScenario {
   return 'normal'
 }
 
-/** Vida del access token para pruebas: `localStorage['horus.mock.tokenTtlMs']`. */
-function readTokenTtl(): number | undefined {
+function readNumber(key: string): number | undefined {
   try {
-    const value = Number(window.localStorage.getItem('horus.mock.tokenTtlMs'))
+    const value = Number(window.localStorage.getItem(key))
     return Number.isFinite(value) && value > 0 ? value : undefined
   } catch {
     return undefined
   }
 }
+
+/** Vida del access token para pruebas: `localStorage['horus.mock.tokenTtlMs']`. */
+const readTokenTtl = () => readNumber('horus.mock.tokenTtlMs')
 
 function hasPermission(user: MockUser, tenantId: string | undefined, permission: string) {
   const m = user.me.memberships.find((x) => x.tenant_id === tenantId)
@@ -174,13 +150,79 @@ export function createMockFetch(options: MockOptions = {}) {
     return json(body)
   }
 
-  function bearer(req: Request) {
+  function rawRecord(req: Request) {
     const header = req.headers.get('Authorization') ?? ''
     const token = header.startsWith('Bearer ') ? header.slice(7) : ''
     const record = tokens.get(token)
     if (!record || record.expires <= now().getTime()) return undefined
+    return record
+  }
+
+  function bearer(req: Request) {
+    const record = rawRecord(req)
+    if (!record || record.scope === 'kiosk') return undefined
     const user = findUser(record.userId)
     return user ? { user, record } : undefined
+  }
+
+  /** `POST /kiosk/token`: la credencial del dispositivo da un JWT de kiosco de 10 min. */
+  function kioskToken(req: Request) {
+    if (req.headers.get('X-Requested-With') !== 'horus') {
+      return problem(403, 'ORIGIN_NOT_ALLOWED', 'Origen no permitido')
+    }
+    const kiosk = currentKiosk(now())
+    if (!kiosk) return problem(401, 'UNAUTHENTICATED', 'Pantalla no enrolada o revocada')
+    touchKiosk(kiosk.id, now())
+    const token = `mock.kiosk.${randomHex(24)}`
+    const expires = now().getTime() + ttl
+    tokens.set(token, {
+      userId: '',
+      scope: 'kiosk',
+      tenantId: kiosk.tenant_id,
+      kioskId: kiosk.id,
+      expires,
+    })
+    const body: AccessTokenResponse = {
+      access_token: token,
+      token_type: 'Bearer',
+      expires_at: new Date(expires).toISOString(),
+      scope: 'kiosk',
+      tenant_id: kiosk.tenant_id,
+    }
+    return json(body)
+  }
+
+  /** Rutas de un token de kiosco: solo lectura de sus dashboards (api.md §2.12). */
+  function kioskRoute(req: Request, path: string, record: TokenRecord): Response {
+    const kiosk = currentKiosk(now())
+    // Revocado o caducado: 401 en cualquier llamada → la TV vuelve a la pantalla de código.
+    if (!kiosk || kiosk.id !== record.kioskId) {
+      return problem(401, 'SESSION_REVOKED', 'Pantalla revocada')
+    }
+    const config = kioskConfig(kiosk)
+    const assigned = config.items.map((i) => i.dashboard_id)
+    if (req.method === 'GET' && path === '/kiosk/config') return json(config)
+    if (req.method === 'GET' && path === '/system/status') return systemStatus(false)
+    if (req.method === 'GET' && path === '/widget-types') {
+      return json({
+        data: WIDGET_CATALOG.filter((t) => t.kiosk_allowed) as unknown as WidgetType[],
+      })
+    }
+    const dashboardMatch = path.match(/^\/dashboards\/([^/]+)$/)
+    if (req.method === 'GET' && dashboardMatch && assigned.includes(dashboardMatch[1]!)) {
+      const dashboard = TEMPLATES.find((d) => d.id === dashboardMatch[1])
+      if (dashboard) return json(dashboard, 200, { ETag: `"${dashboard.version}"` })
+    }
+    const dataMatch = path.match(/^\/dashboards\/([^/]+)\/widgets\/([^/]+)\/data$/)
+    if (req.method === 'GET' && dataMatch && assigned.includes(dataMatch[1]!)) {
+      return widgetDataFor(
+        { kind: 'kiosk', showPersonalData: kiosk.show_personal_data },
+        kiosk.tenant_id,
+        dataMatch[1]!,
+        dataMatch[2]!,
+      )
+    }
+    return problem(403, 'KIOSK_FORBIDDEN', 'Una pantalla NOC solo puede leer sus dashboards')
   }
 
   function cookieUser() {
@@ -253,7 +295,7 @@ export function createMockFetch(options: MockOptions = {}) {
     return issue(user, 'tenant', membership.tenant_id)
   }
 
-  function systemStatus(): Response {
+  function systemStatus(detail: boolean): Response {
     const mode = scenario()
     if (mode === 'system-error')
       return problem(503, 'SERVICE_UNAVAILABLE', 'Servicio no disponible')
@@ -272,24 +314,42 @@ export function createMockFetch(options: MockOptions = {}) {
         detection: 'ok',
         notifications: 'ok',
       },
-      components: [],
+      components: detail
+        ? [
+            { name: 'postgres', status: 'up' },
+            { name: 'valkey', status: 'up' },
+            { name: 'nats', status: 'up' },
+            {
+              name: 'clickhouse',
+              status: degraded ? 'down' : 'up',
+              since: degraded ? new Date(now().getTime() - 18 * 60_000).toISOString() : null,
+              detail: degraded ? 'Sin respuesta en el puerto 9000' : null,
+            },
+            { name: 'collector', status: 'up' },
+            { name: 'wg_agent', status: 'up' },
+            { name: 'local_storage', status: 'up', detail: '62 % de 2 TB en /var/lib/horus' },
+            { name: 'remote_storage', status: 'not_configured' },
+          ]
+        : [],
+      disk_usage_ratio: detail ? 0.62 : null,
     }
     return json(body)
   }
 
-  function widgetDataResponse(
-    user: MockUser,
-    tenantId: string,
-    dashboardId: string,
-    widgetId: string,
-  ) {
+  type Viewer = { kind: 'user'; user: MockUser } | { kind: 'kiosk'; showPersonalData: boolean }
+
+  function widgetDataFor(viewer: Viewer, tenantId: string, dashboardId: string, widgetId: string) {
     const dashboard = TEMPLATES.find((d) => d.id === dashboardId)
     if (!dashboard) return problem(404, 'DASHBOARD_NOT_FOUND', 'No encontrado')
     const widget = dashboard.widgets.find((w) => w.id === widgetId)
     if (!widget) return problem(404, 'NOT_FOUND', 'No encontrado')
     const type = WIDGET_CATALOG.find((t) => t.type === widget.type)
     if (!type) return problem(422, 'WIDGET_TYPE_UNKNOWN', 'Tipo de widget desconocido')
-    if (!hasPermission(user, tenantId, type.required_permission)) {
+    const allowed =
+      viewer.kind === 'kiosk'
+        ? type.kiosk_allowed
+        : hasPermission(viewer.user, tenantId, type.required_permission)
+    if (!allowed) {
       return problem(403, 'WIDGET_TYPE_NOT_ALLOWED', 'No tienes acceso a este widget')
     }
     const mode = scenario()
@@ -310,7 +370,11 @@ export function createMockFetch(options: MockOptions = {}) {
         tenant,
         widget,
         now: now(),
-        canSeePersonalData: hasPermission(user, tenantId, 'customers.read'),
+        // Kiosco: IPs de clientes solo si la pantalla lo permite (frontend.md §7.4).
+        canSeePersonalData:
+          viewer.kind === 'kiosk'
+            ? viewer.showPersonalData
+            : hasPermission(viewer.user, tenantId, 'customers.read'),
         empty: mode === 'empty',
       },
       { degraded: mode === 'degraded' },
@@ -345,7 +409,14 @@ export function createMockFetch(options: MockOptions = {}) {
         return new Response(null, { status: 204 })
       case 'POST /auth/token':
         return tokenFor(req, body)
+      case 'POST /kiosk/enroll':
+        return enroll(req, body, now())
+      case 'POST /kiosk/token':
+        return kioskToken(req)
     }
+
+    const kioskRecord = rawRecord(req)
+    if (kioskRecord?.scope === 'kiosk') return kioskRoute(req, path, kioskRecord)
 
     const auth = bearer(req)
     if (!auth) return problem(401, 'TOKEN_EXPIRED', 'La sesión caducó')
@@ -355,9 +426,22 @@ export function createMockFetch(options: MockOptions = {}) {
       case 'GET /me':
         return json(user.me)
       case 'GET /system/status':
-        return systemStatus()
+        return systemStatus(user.me.platform_permissions.includes('platform.status.read'))
       case 'GET /widget-types':
         return json({ data: WIDGET_CATALOG as unknown as WidgetType[] })
+    }
+
+    if (record.scope === 'platform' && path.startsWith('/platform/')) {
+      const res = platformRoute({
+        req,
+        url,
+        path,
+        method: req.method,
+        body,
+        can: (p) => user.me.platform_permissions.includes(p),
+        now: now(),
+      })
+      return res ?? problem(404, 'NOT_FOUND', 'No encontrado')
     }
 
     // Rutas de negocio: exigen token de ISP (api.md §0.2; D-G0: sin ISP → TOKEN_SCOPE_INVALID).
@@ -385,8 +469,25 @@ export function createMockFetch(options: MockOptions = {}) {
     }
     const dataMatch = path.match(/^\/dashboards\/([^/]+)\/widgets\/([^/]+)\/data$/)
     if (req.method === 'GET' && dataMatch) {
-      return widgetDataResponse(user, tenantId, dataMatch[1]!, dataMatch[2]!)
+      return widgetDataFor({ kind: 'user', user }, tenantId, dataMatch[1]!, dataMatch[2]!)
     }
+
+    const tenant = findTenant(tenantId)!
+    const can = (p: string) => hasPermission(user, tenantId, p)
+    const mode = scenario()
+    const shared = { req, path, method: req.method, body, tenant, can, now: now() }
+    const res =
+      tenantRoute({
+        ...shared,
+        url,
+        userId: user.me.id,
+        degraded: mode === 'degraded',
+        empty: mode === 'empty',
+        stepMs: readNumber('horus.mock.onboardingStepMs') ?? 6000,
+      }) ??
+      channelRoute(shared) ??
+      kioskAdminRoute(shared)
+    if (res) return res
 
     return problem(404, 'NOT_FOUND', 'No encontrado')
   }

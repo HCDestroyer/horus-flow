@@ -69,7 +69,9 @@
       "platformUsers": "Usuarios de plataforma",
       "platformWireguard": "WireGuard",
       "platformStorage": "Almacenamiento",
-      "platformSystem": "Estado del sistema"
+      "platformSystem": "Estado del sistema",
+      "notifications": "Canales de notificación",
+      "platformReputation": "Fuentes de reputación"
     },
     "search": "Buscar",
     "searchPlaceholder": "Buscar secciones…",
@@ -192,6 +194,12 @@
     },
     "platform-system": {
       "question": "¿Está sano cada rol del binario horus?"
+    },
+    "notifications": {
+      "question": "¿Por dónde avisa Horus de hallazgos y caídas?"
+    },
+    "platform-reputation": {
+      "question": "¿Qué listas de reputación usa la detección?"
     }
   },
   "account": {
@@ -230,7 +238,8 @@
   "time": {
     "agoSeconds": "hace {n} s",
     "agoMinutes": "hace {n} min",
-    "agoHours": "hace {n} h"
+    "agoHours": "hace {n} h",
+    "agoDays": "hace {n} días"
   },
   "freshness": {
     "live": "En vivo · {ago}",
@@ -380,8 +389,9 @@
       "listLabel": "Categorías con más tráfico"
     },
     "top_services": {
-      "description": "Muestra los servicios que más se consumen.",
-      "empty": "Sin tráfico clasificado en este periodo."
+      "description": "Muestra los servicios más consumidos.",
+      "empty": "Sin tráfico clasificado en este periodo.",
+      "listLabel": "Servicios con más tráfico"
     },
     "top_customers": {
       "description": "Muestra los clientes que más consumen.",
@@ -418,6 +428,744 @@
       "service": "Servicio",
       "customers": "Clientes",
       "flows": "Flujos"
+    },
+    "top_organizations": {
+      "description": "Muestra las organizaciones (ASN) hacia las que va más tráfico.",
+      "empty": "Sin tráfico atribuido a organizaciones en este periodo.",
+      "listLabel": "Organizaciones con más tráfico"
+    }
+  },
+  "common": {
+    "copy": "Copiar",
+    "copied": "Copiado",
+    "download": "Descargar .{name}",
+    "clear": "Borrar",
+    "clearFilters": "Limpiar filtros",
+    "loadMore": "Cargar más",
+    "cancel": "Cancelar",
+    "save": "Guardar cambios",
+    "more": "Más acciones",
+    "allSites": "Todos los nodos",
+    "close": "Cerrar",
+    "yes": "Sí",
+    "no": "No",
+    "never": "Nunca",
+    "since": "desde {time}"
+  },
+  "ranges": {
+    "1h": "Última hora",
+    "6h": "Últimas 6 h",
+    "24h": "Últimas 24 h",
+    "7d": "Últimos 7 días",
+    "30d": "Últimos 30 días"
+  },
+  "degraded": {
+    "analyticsTitle": "Analítica no disponible",
+    "analyticsBody": "Los flujos se siguen recibiendo y se procesarán al recuperarse. Nodos, routers, hallazgos y la lista de clientes siguen funcionando."
+  },
+  "clients": {
+    "detailTitle": "Ficha del cliente",
+    "search": "Buscar por IP, prefijo o alias",
+    "searchHint": "La IP no se guarda en la dirección de la página",
+    "searchPlaceholder": "10.20.0.41 · 2001:db8:4a28::/56 · alias",
+    "searchSubmit": "Buscar",
+    "searchInvalid": "Escribe una IP o un prefijo válido, por ejemplo 10.20.0.41 o 10.20.0.0/24.",
+    "showing": "Mostrando {n} clientes",
+    "empty": "Aún no hemos visto clientes en los flujos de este ISP",
+    "emptyFiltered": "Ningún cliente coincide con esta búsqueda o estos filtros",
+    "reviewPrefixes": "Revisar prefijos de clientes",
+    "privacy": "Las consultas a fichas de cliente quedan registradas.",
+    "ipv6": "IPv6",
+    "ipv6Hint": "Cliente IPv6: su prefijo delegado, independiente del IPv4 del mismo abonado",
+    "ipv6Delegated": "IPv6 · prefijo delegado /{len}",
+    "locked": "Tipo fijado a mano: el scoring no lo cambia",
+    "findingsCount": "Hallazgos abiertos: {n}",
+    "seen": "Visto",
+    "firstSeen": "Primera vez {date}",
+    "markedBy": "Marcado a mano el {date}: “{reason}”",
+    "unlock": "Desbloquear tipo",
+    "unlocked": "Tipo desbloqueado: vuelve al scoring",
+    "whyState": "Por qué tiene este estado",
+    "dynamicPool": "En este rango la IP puede cambiar de persona: el cliente es la IP.",
+    "resetAt": "Cliente reiniciado el {date}: los datos anteriores no se muestran.",
+    "trafficTitle": "Tráfico de este cliente",
+    "col": {
+      "client": "Cliente",
+      "site": "Nodo",
+      "kind": "Tipo",
+      "traffic": "Tráfico 24 h",
+      "top": "Principal",
+      "security": "Seguridad",
+      "status": "Estado",
+      "seen": "Visto"
+    },
+    "filters": {
+      "allKinds": "Todos los tipos",
+      "allStatus": "Todos",
+      "allSecurity": "Todos",
+      "withFindings": "Con hallazgos"
+    },
+    "kind": {
+      "residential": "Residencial",
+      "commercial": "Comercial",
+      "unknown": "Sin tipo"
+    },
+    "kindSource": {
+      "default": "por defecto",
+      "manual": "manual",
+      "scoring": "detectado",
+      "scoringWith": "detectado (confianza {n})"
+    },
+    "status": {
+      "active": "Activo",
+      "inactive": "Inactivo"
+    },
+    "tabs": {
+      "summary": "Resumen",
+      "traffic": "Tráfico",
+      "security": "Seguridad ({n})",
+      "history": "Historial"
+    },
+    "kpi": {
+      "down": "Bajada en 24 h",
+      "top": "Consumo principal",
+      "findings": "Hallazgos abiertos"
+    },
+    "inactive": {
+      "title": "Inactivo desde el {date}",
+      "noTraffic": "No vemos tráfico de esta IP desde hace {days} días. Vuelve a Activo si reaparece; a los 25 meses sin tráfico se purga.",
+      "prefixRemoved": "Su prefijo dejó de estar declarado como de clientes en el nodo."
+    },
+    "history": {
+      "default": "Tipo inicial: {kind} (por defecto)",
+      "manual": "Cambiado a {kind} a mano",
+      "scoring": "Detectado como {kind}",
+      "reset": "Cliente reiniciado: vuelve a {kind}",
+      "confidence": "confianza {pct}"
+    },
+    "setKind": {
+      "action": "Cambiar tipo",
+      "title": "Cambiar tipo de cliente",
+      "description": "El tipo manual prevalece sobre el detectado.",
+      "kind": "Tipo",
+      "reason": "Motivo",
+      "reasonHint": "Queda en el historial",
+      "reasonPlaceholder": "Por ejemplo: local con TPV y horario comercial",
+      "reasonRequired": "Escribe el motivo del cambio",
+      "lockNote": "El tipo quedará fijado (candado): el scoring automático no lo cambiará hasta que lo desbloquees.",
+      "submit": "Cambiar tipo",
+      "retry": "Reintentar con el valor actual",
+      "done": "Tipo actualizado",
+      "conflictTitle": "El tipo cambió mientras editabas",
+      "conflictBody": "Este es el valor actual. Revisa si sigues queriendo cambiarlo y vuelve a intentarlo."
+    },
+    "reset": {
+      "action": "Reiniciar cliente",
+      "title": "¿Reiniciar este cliente?",
+      "body": "Úsalo cuando la IP pasó a otra persona. No se puede deshacer:",
+      "effectAlias": "Se borran el alias y las notas.",
+      "effectKind": "El tipo vuelve al valor por defecto del ISP.",
+      "effectHistory": "El historial registra el reinicio y los dashboards muestran datos desde ahora.",
+      "reason": "Motivo",
+      "reasonPlaceholder": "Por ejemplo: la IP se reasignó a otro abonado",
+      "reasonRequired": "Escribe el motivo del reinicio",
+      "submit": "Reiniciar cliente",
+      "done": "Cliente reiniciado"
+    },
+    "alias": {
+      "action": "Alias y notas",
+      "title": "Alias y notas",
+      "description": "Solo los ve tu ISP. Evita datos personales innecesarios.",
+      "alias": "Alias",
+      "aliasPlaceholder": "Por ejemplo: Panadería Sol",
+      "notes": "Notas",
+      "done": "Alias y notas guardados"
+    }
+  },
+  "findings": {
+    "empty": "Ningún cliente muestra señales de botnet en este periodo",
+    "kindOther": "Otro tipo de señal",
+    "tableCaption": "Hallazgos ordenados por severidad y recencia",
+    "col": {
+      "severity": "Severidad",
+      "summary": "Hallazgo",
+      "customer": "Cliente",
+      "site": "Nodo",
+      "confidence": "Confianza",
+      "state": "Estado",
+      "lastSeen": "Última vez"
+    },
+    "state": {
+      "open": "Abierto",
+      "acknowledged": "Reconocido",
+      "resolved": "Resuelto",
+      "false_positive": "Falso positivo"
+    },
+    "confidence": {
+      "low": "Baja",
+      "medium": "Media",
+      "high": "Alta"
+    },
+    "detailTitle": "Hallazgo",
+    "kpis": "Resumen de hallazgos",
+    "emptyFiltered": "Ningún hallazgo coincide con estos filtros",
+    "firstLast": "Primera vez {first} · última {last}",
+    "occurrences": "{n} ocurrencias",
+    "why": "Por qué lo marcamos",
+    "kpi": {
+      "open": "abiertos",
+      "new24h": "Nuevos en 24 h",
+      "affected": "IP afectadas",
+      "infected": "Infectados: {n}"
+    },
+    "filters": {
+      "label": "Filtros de hallazgos",
+      "kind": "Tipo de hallazgo",
+      "allSeverities": "Todas",
+      "allKinds": "Todos los tipos",
+      "state": {
+        "active": "Abiertos y reconocidos",
+        "open": "Abiertos",
+        "acknowledged": "Reconocidos",
+        "resolved": "Resueltos",
+        "false_positive": "Falsos positivos",
+        "all": "Todos"
+      }
+    },
+    "live": {
+      "announce": "Hallazgos nuevos: {n}"
+    },
+    "narrative": {
+      "outbound_scanning": "Esta IP intentó conectar a muchas direcciones distintas en poco tiempo y casi ninguna respondió. Es el patrón típico de equipos IoT (cámaras, DVR, routers con contraseñas por defecto) reclutados por botnets tipo Mirai que buscan nuevas víctimas. Son señales compatibles con un equipo comprometido; ninguna señal sola lo confirma.",
+      "botnet_c2_communication": "Esta IP se comunicó con un servidor que listas de reputación reconocidas identifican como servidor de control (C2) de una botnet, y el servidor respondió. Es la señal más fuerte de que un equipo del cliente está comprometido.",
+      "reputation_hit": "Esta IP contactó con una dirección que figura en una lista de reputación. Por sí solo puede ser casual (publicidad, enlaces); se vigila por si aparecen otras señales.",
+      "spam_smtp_outbound": "Esta IP envió correo directamente a muchos servidores de correo distintos, algo que un cliente residencial no suele hacer. Es compatible con un equipo infectado con un bot de spam y puede llevar a que las IP del ISP acaben en listas negras.",
+      "beaconing": "Esta IP se conecta al mismo destino a intervalos casi exactos y con muy pocos datos por conexión. La periodicidad es compatible con un equipo que consulta a su servidor de control, aunque también la producen algunas aplicaciones legítimas.",
+      "ddos_participation": "Esta IP envió una ráfaga de tráfico muy por encima de lo habitual hacia muy pocos destinos. Es compatible con la participación en un ataque de denegación de servicio desde un equipo comprometido.",
+      "other": "Horus encontró señales compatibles con actividad de botnet en el tráfico de esta IP. Revisa las razones y la evidencia antes de decidir."
+    },
+    "evidence": {
+      "title": "Evidencia",
+      "destinations": "Destinos distintos",
+      "nets24": "Redes /24 distintas",
+      "synRatio": "SYN sin respuesta",
+      "flows": "Flujos",
+      "bytes": "Volumen estimado",
+      "smtpPerHour": "Servidores SMTP por hora",
+      "interval": "Intervalo medio",
+      "intervalCv": "Coef. de variación",
+      "duration": "Duración",
+      "ppsPeak": "Pico de paquetes",
+      "bpsPeak": "Pico de tráfico",
+      "protocol": "Protocolo",
+      "target": "Objetivo",
+      "asns": "ASN de destino",
+      "ports": "Puertos",
+      "perMinute": "Destinos por minuto",
+      "sample": "Muestra de destinos (IP remotas)",
+      "listedIn": "Listada en {source} desde el {date}",
+      "responded": "con respuesta",
+      "synOnly": "solo SYN, sin respuesta"
+    },
+    "flows": {
+      "action": "Ver flujos de evidencia",
+      "audited": "El acceso a los flujos de un cliente queda registrado. Solo metadatos, nunca contenido.",
+      "caption": "Flujos de evidencia (metadatos)",
+      "time": "Hora",
+      "remote": "Destino",
+      "bytes": "Bytes"
+    },
+    "timeline": {
+      "title": "Línea de tiempo",
+      "firstSeen": "Primera señal observada",
+      "opened": "Hallazgo abierto (regla {rule})",
+      "acknowledged": "Reconocido por el equipo",
+      "lastSeen": "Última ocurrencia · {n} en total",
+      "resolved": "Resuelto",
+      "false_positive": "Marcado como falso positivo",
+      "auto_expired": "Cerrado automáticamente por inactividad"
+    },
+    "actions": {
+      "title": "Qué hacer",
+      "manualNote": "Horus no ejecuta nada en tus routers: copia los comandos y aplícalos a mano si decides hacerlo. Cada uno trae su comando para deshacerlo.",
+      "customerMessage": "Mensaje sugerido para el cliente",
+      "copyMessage": "Copiar mensaje",
+      "commands": "Comandos RouterOS (v{version} o superior)",
+      "copyCommands": "Copiar comandos",
+      "undo": "Para deshacerlo",
+      "copyUndo": "Copiar deshacer",
+      "placeholders": "Sin permiso para ver la IP del cliente: los comandos muestran marcadores (customer_address, finding_id) para que los sustituyas.",
+      "applied": "La apliqué a mano",
+      "risk": {
+        "low": "Impacto bajo",
+        "medium": "Impacto medio",
+        "high": "Impacto alto"
+      },
+      "audience": {
+        "noc": "NOC",
+        "network_engineer": "Ingeniería de red",
+        "customer_support": "Atención al cliente"
+      }
+    },
+    "ack": {
+      "action": "Reconocer",
+      "done": "Reconocido: el hallazgo queda asignado a ti"
+    },
+    "resolve": {
+      "action": "Resolver",
+      "title": "Resolver hallazgo",
+      "description": "Úsalo cuando el problema se corrigió (por ejemplo, el cliente cambió sus contraseñas).",
+      "comment": "Comentario (opcional)",
+      "placeholder": "Qué se hizo",
+      "applied": "Acciones que anotaste como aplicadas: {n}",
+      "submit": "Resolver",
+      "done": "Hallazgo resuelto"
+    },
+    "fp": {
+      "action": "Falso positivo",
+      "title": "Marcar como falso positivo",
+      "description": "Cuéntanos por qué no es una señal real: así Horus aprende qué es ruido en tu red.",
+      "whatHappens": "Qué hará Horus con esto",
+      "effectClose": "Cierra este hallazgo como falso positivo.",
+      "effectSilence": "No volverá a abrir este mismo patrón para este cliente durante {days} días.",
+      "effectLearn": "Tu comentario llega al equipo de detección para ajustar las reglas; no cambia los umbrales por sí solo.",
+      "comment": "Por qué es un falso positivo",
+      "placeholder": "Por ejemplo: es el servidor de copias del cliente",
+      "commentRequired": "Explica por qué es un falso positivo",
+      "silence": "Silenciar este patrón",
+      "days": "{n} días",
+      "submit": "Marcar como falso positivo",
+      "done": "Marcado como falso positivo"
+    }
+  },
+  "traffic": {
+    "range": "Rango de tiempo",
+    "series": "Tráfico ↓ / ↑",
+    "topCustomers": "Clientes que más consumen",
+    "topServices": "Servicios",
+    "topCategories": "Categorías",
+    "topOrganizations": "Organizaciones (ASN)",
+    "partial": "Datos incompletos en este rango",
+    "partialHint": "Solo hay datos del {pct} del periodo (retención, routers que empezaron a exportar después o huecos). Los huecos se muestran como huecos, no como cero.",
+    "attributed": "de los bytes atribuidos a clientes",
+    "unattributed": "{pct} fuera de los prefijos declarados",
+    "infrastructure": "{pct} de infraestructura",
+    "reviewPrefixes": "Revisar prefijos de clientes"
+  },
+  "nodes": {
+    "discovery": "Sin prefijos · modo descubrimiento",
+    "activeCustomers": "Clientes activos: {n}",
+    "connect": "Conectar router",
+    "openRouter": "Abrir ficha"
+  },
+  "router": {
+    "title": "Router",
+    "since": "desde",
+    "handshake": "Último handshake",
+    "noHandshake": "Túnel sin handshake",
+    "fps": "{n} flujos/s",
+    "uninstall": "Script de desinstalación",
+    "uninstallHint": "Quita del router todo lo que creó el script de alta (lo marcado con el comentario \"horus\"). Horus no lo ejecuta: pégalo tú.",
+    "trafficTitle": "Tráfico de este nodo",
+    "trafficHint": "La vista de Tráfico, filtrada por el nodo de este router.",
+    "openTraffic": "Abrir Tráfico del nodo",
+    "silentTitle": "Silencioso desde {since}",
+    "silentBody": "No llegan flujos de este router. Revisa:",
+    "tabs": {
+      "summary": "Resumen",
+      "connection": "Conexión",
+      "prefixes": "Prefijos de clientes",
+      "traffic": "Tráfico"
+    },
+    "facts": {
+      "lastFlow": "Último flujo",
+      "fps": "Flujos/s",
+      "loss": "Pérdida (5 min)",
+      "source": "Exportación",
+      "handshake": "Último handshake",
+      "tunnelIp": "IP de túnel",
+      "routeros": "RouterOS",
+      "model": "Modelo"
+    },
+    "hints": {
+      "check_tunnel": "El túnel WireGuard: ¿el router sigue teniendo salida a Internet hacia el endpoint de Horus (UDP)?",
+      "check_traffic_flow_target": "Traffic Flow: el destino debe ser la IP de túnel de Horus (/ip traffic-flow target).",
+      "check_firewall": "El firewall del router: no debe bloquear la salida del túnel ni el tráfico hacia el puerto de flujos.",
+      "hardware_offload_suspected": "Offload por hardware (fasttrack o switch chip): el tráfico acelerado no genera flujos.",
+      "check_ntp": "La hora del router (NTP): un reloj desfasado descarta flujos."
+    },
+    "warnings": {
+      "routeros_version_unsupported": "RouterOS anterior a 7.12: no es compatible (solo RouterOS 7).",
+      "traffic_flow_target_drift": "El destino de Traffic Flow del router no coincide con Horus.",
+      "hardware_offload_suspected": "Posible offload por hardware: parte del tráfico no genera flujos (pérdidas)."
+    }
+  },
+  "onboarding": {
+    "stepN": "Paso {n}",
+    "revoked": "Token revocado: el script generado ya no sirve",
+    "state": {
+      "done": "hecho",
+      "current": "en curso",
+      "waiting": "pendiente",
+      "error": "requiere acción"
+    },
+    "generate": {
+      "title": "Generar script",
+      "reqVersion": "RouterOS v7, versión 7.12 o superior.",
+      "reqNoWrite": "Horus no escribe en tu router: el script lo pegas tú en una terminal (Winbox o SSH).",
+      "reqOutbound": "El router necesita salida a Internet hacia el endpoint de Horus por UDP (WireGuard).",
+      "action": "Generar script",
+      "regenerate": "Regenerar",
+      "revoke": "Revocar token",
+      "noPermission": "Pide a quien administra el ISP que genere el script (permiso de WireGuard).",
+      "onceTitle": "Solo se muestra una vez",
+      "onceBody": "Contiene la contraseña del usuario de solo lectura y el token de enrolamiento (un solo uso, válido hasta {date}). Cópialo o descárgalo ahora; si lo pierdes, regéneralo.",
+      "scriptLabel": "Script de alta (RouterOS)"
+    },
+    "paste": {
+      "title": "Pegar en el router",
+      "body": "Pega el script en una terminal del router. Crea la clave WireGuard en el router y la envía sola a Horus con el token: no hay que copiar nada de vuelta.",
+      "waiting": "Esperando la clave del router…",
+      "received": "Clave recibida",
+      "expired": "El token de enrolamiento caducó antes de que el router enviara su clave.",
+      "revoked": "El token de enrolamiento fue revocado.",
+      "newToken": "Generar otro script"
+    },
+    "verify": {
+      "title": "Verificación",
+      "key": "Clave del router recibida",
+      "tunnel": "Handshake del túnel",
+      "flow": "Primer flujo recibido",
+      "customers": "Primeros clientes descubiertos",
+      "needPrefixes": "Llegan flujos, pero este nodo no tiene prefijos de clientes: declara o importa sus prefijos para que aparezcan clientes.",
+      "stuck": "¿No avanza en 2 minutos? Qué revisar",
+      "checkFirewall": "Firewall del router: que permita la salida UDP del túnel hacia Horus.",
+      "checkOutbound": "Salida a Internet del router hacia el endpoint de Horus.",
+      "checkTrafficFlow": "Traffic Flow habilitado y con destino la IP de túnel de Horus.",
+      "checkOffload": "Offload por hardware (fasttrack): el tráfico acelerado no genera flujos."
+    }
+  },
+  "prefixes": {
+    "title": "Prefijos de clientes",
+    "empty": "Este nodo no tiene prefijos de clientes",
+    "emptyHint": "Impórtalos del MikroTik o añádelos a mano; mientras tanto, revisa las propuestas del modo descubrimiento.",
+    "customers": "Clientes activos: {n}",
+    "clientLen": "IPv6: un cliente por /{len}",
+    "clientLenHelp": "Tamaño del prefijo delegado a cada abonado: cada uno es un cliente (D22).",
+    "role": {
+      "customers": "Clientes",
+      "infrastructure": "Infraestructura",
+      "excluded": "Excluido"
+    },
+    "assignment": {
+      "static": "Estática",
+      "dynamic": "Dinámica (pool)",
+      "unknown": "Sin indicar"
+    },
+    "source": {
+      "manual": "Manual",
+      "routeros_api": "Importado del MikroTik",
+      "discovery_confirmed": "Propuesto (modo descubrimiento)"
+    },
+    "origin": {
+      "ip_pool": "Pool IPv4",
+      "ipv6_pool": "Pool IPv6",
+      "interface_address": "Red de interfaz"
+    },
+    "poolUsage": {
+      "dhcpv6_pd": "Delegación de prefijos (DHCPv6-PD)",
+      "ppp_link": "Enlaces PPP (un prefijo por sesión)",
+      "ppp_link_shared": "Enlaces PPP compartidos: se sugiere Infraestructura",
+      "dhcpv6_address": "Direcciones DHCPv6 (/128)",
+      "unused": "Pool sin uso en el router",
+      "unknown": "Uso desconocido"
+    },
+    "col": {
+      "prefix": "Prefijo",
+      "role": "Rol",
+      "assignment": "Asignación",
+      "clientLen": "Tamaño de cliente IPv6",
+      "note": "Nota"
+    },
+    "form": {
+      "action": "Añadir prefijo",
+      "placeholder": "10.20.0.0/22 o 2001:db8:4a00::/40",
+      "required": "Escribe un prefijo en notación CIDR",
+      "submit": "Añadir prefijo",
+      "done": "Prefijo añadido"
+    },
+    "remove": {
+      "action": "Quitar {prefix}",
+      "title": "¿Quitar {prefix}?",
+      "inactive": "{n} clientes de este prefijo pasarán a Inactivo (su historial se conserva).",
+      "body": "El tráfico de este rango dejará de tratarse con este rol.",
+      "submit": "Quitar prefijo",
+      "done": "Prefijo quitado"
+    },
+    "discovery": {
+      "title": "Este nodo no tiene prefijos de clientes",
+      "body": "El tráfico cuenta para el nodo pero no crea clientes. Importa los prefijos del MikroTik o acepta las propuestas.",
+      "proposals": "Propuestas del modo descubrimiento",
+      "proposalsHint": "Rangos vistos en los flujos de este nodo (últimos 7 días).",
+      "stats": "{ips} IP vistas · {bytes}",
+      "suggested": "sugerido: {role}",
+      "acceptCustomers": "Aceptar como Clientes",
+      "markInfra": "Infraestructura",
+      "exclude": "Excluir",
+      "accepted": "{prefix} marcado como {role}"
+    },
+    "import": {
+      "action": "Importar del MikroTik",
+      "needsTunnel": "Disponible cuando el router tenga túnel con Horus",
+      "title": "Importar del MikroTik",
+      "description": "Lectura de pools y redes del router (solo lectura). Revisa cada prefijo: nada se aplica hasta que confirmes.",
+      "reading": "Leyendo el router por su API…",
+      "unreachable": "Horus no pudo leer el router por el túnel. Comprueba que el túnel está activo.",
+      "readAt": "RouterOS {version} · leído el {date}",
+      "fingerprint": "Huella TLS de la API:",
+      "select": "Importar {prefix}",
+      "delegated": "El router delega /{len} a cada cliente",
+      "chooseLen": "Elige un tamaño",
+      "lenRequired": "Elige el tamaño de prefijo de cada cliente",
+      "selected": "Seleccionados: {n}",
+      "confirm": "Confirmar importación",
+      "done": "Prefijos importados: {n}",
+      "diff": {
+        "new": "Nuevo",
+        "exists": "Ya existe",
+        "overlaps": "Solapa con uno existente"
+      }
+    }
+  },
+  "platform": {
+    "tenantStatus": {
+      "active": "Activo",
+      "suspended": "Suspendido",
+      "offboarding": "En baja"
+    },
+    "noRemote": {
+      "title": "Sin copia remota configurada",
+      "body": "Todos los datos están solo en el disco de este servidor: si el disco falla, se pierden. Configura un destino remoto (SFTP u otro) cuando esté disponible."
+    },
+    "isps": {
+      "routers": "Routers",
+      "exporting": "Exportando",
+      "silent": "Silenciosos",
+      "fps": "Flujos/s",
+      "critical": "Hallazgos críticos abiertos",
+      "tunnelsDown": "Túneles caídos"
+    },
+    "wireguard": {
+      "readOnly": "Hubs y rangos de túneles de la instalación (solo lectura; la gestión llega más adelante).",
+      "occupancy": "{used} de {total} direcciones",
+      "occupancyLabel": "Ocupación del rango de túneles",
+      "endpoint": "Endpoint público",
+      "range": "Rango de túneles",
+      "services": "Rango de servicios",
+      "peers": "Peers",
+      "peersValue": "{active} activos · {tenants} ISP",
+      "publicKey": "Clave pública del hub"
+    },
+    "storage": {
+      "local": "Disco local",
+      "usage": "Uso del disco local",
+      "high": "Uso por encima del 85 %: revisa retenciones o amplía el disco.",
+      "byTypePending": "El desglose por tipo de dato y la retención efectiva aparecerán cuando el contrato los exponga.",
+      "remote": "Destinos remotos",
+      "remoteNone": "Ninguno. El alta de destinos (SFTP primero) llega en una versión posterior."
+    },
+    "system": {
+      "capabilities": "Capacidades",
+      "components": "Componentes",
+      "checked": "Comprobado",
+      "notConfigured": "Sin configurar"
+    },
+    "access": {
+      "title": "Acceso a la instalación",
+      "mode": {
+        "domain": "Dominio propio",
+        "subdomain": "Subdominio",
+        "ip_only": "Solo IP del servidor"
+      },
+      "warnings": {
+        "ip_only_access": "Acceso solo por IP",
+        "self_signed_certificate": "Certificado autogenerado",
+        "certificate_expiring": "El certificado caduca pronto",
+        "acme_renewal_failed": "Falló la renovación automática del certificado"
+      },
+      "tls": "Certificado",
+      "tlsMode": {
+        "acme": "Automático (Let's Encrypt)",
+        "acme_ip": "Automático para IP",
+        "self_signed": "Autogenerado",
+        "provided": "Aportado por el operador"
+      },
+      "issuer": "Emisor",
+      "expires": "Caduca",
+      "hsts": "HSTS",
+      "fingerprint": "Huella SHA-256 del certificado",
+      "fingerprintHint": "Compárala con la que muestra el navegador antes de aceptar su aviso de seguridad.",
+      "wgEndpoint": "Endpoint de WireGuard"
+    }
+  },
+  "reputation": {
+    "intro": "Catálogo base aprobado y listas añadidas por el superadministrador. Se cargan solas y quedan en el snapshot de la detección.",
+    "add": "Añadir fuente",
+    "enabledLabel": "Activa",
+    "enabled": "Fuente activada",
+    "disabled": "Fuente desactivada",
+    "reload": "Cargar ahora",
+    "reloadQueued": "Carga de {name} en cola",
+    "delete": "Borrar {name}",
+    "deleteTitle": "¿Borrar {name}?",
+    "deleteBody": "Deja de cargarse; sus indicadores salen del próximo snapshot. Los hallazgos ya abiertos se conservan.",
+    "deleteSubmit": "Borrar fuente",
+    "deleted": "Fuente borrada",
+    "every": "cada {f}",
+    "license": "Licencia: {license}",
+    "hasAuth": "Con cabecera de autenticación (no se muestra)",
+    "since": "alta {date}",
+    "origin": {
+      "catalog": "Catálogo base",
+      "custom": "Personalizada"
+    },
+    "status": {
+      "ok": "Cargada",
+      "pending": "Pendiente",
+      "failing": "Falla",
+      "disabled": "Desactivada"
+    },
+    "col": {
+      "category": "Categoría",
+      "format": "Formato",
+      "frequency": "Frecuencia",
+      "confidence": "Confianza",
+      "entries": "Entradas",
+      "lastSuccess": "Última carga"
+    },
+    "category": {
+      "botnet_cc": "Control de botnet (C2)",
+      "scanner": "Escáneres",
+      "malware_dist": "Distribución de malware",
+      "mining_pool": "Minería",
+      "proxy_vpn": "Proxy / VPN",
+      "tor_exit": "Salida de Tor",
+      "blocklist": "Lista de bloqueo"
+    },
+    "format": {
+      "netset": "IP o CIDR por línea",
+      "abusech-feodo-csv": "CSV de Feodo (abuse.ch)",
+      "abusech-threatfox-csv": "CSV de ThreatFox (abuse.ch)",
+      "spamhaus-drop-json": "DROP de Spamhaus (JSON)"
+    },
+    "frequency": {
+      "15m": "Cada 15 min",
+      "1h": "Cada hora",
+      "6h": "Cada 6 h",
+      "24h": "Cada día",
+      "7d": "Cada semana"
+    },
+    "form": {
+      "title": "Añadir fuente de reputación",
+      "description": "La carga es automática; si falla, se conserva la anterior.",
+      "name": "Nombre",
+      "key": "Clave",
+      "keyHelp": "Identificador estable (minúsculas y guion bajo); aparece en hallazgos y no se puede cambiar.",
+      "url": "URL",
+      "urlHelp": "Solo https y direcciones públicas.",
+      "confidenceHelp": "0–100: cuánto pesa un indicador de esta lista.",
+      "license": "Licencia o condiciones de uso",
+      "auth": "Autenticación (opcional)",
+      "authName": "Cabecera",
+      "authValue": "Valor",
+      "writeOnly": "Se guarda cifrado y no se vuelve a mostrar.",
+      "terms": "Confirmo que la licencia de esta lista permite usarla en esta instalación",
+      "termsRequired": "Confirma que puedes usar esta lista",
+      "submit": "Añadir fuente",
+      "done": "Fuente añadida: se cargará en unos minutos"
+    }
+  },
+  "channels": {
+    "intro": "Por dónde avisa Horus a tu equipo. Cada ISP configura los suyos; nada se comparte entre ISP.",
+    "add": "Nuevo canal",
+    "empty": "Aún no hay canales de notificación",
+    "emptyHint": "Añade un correo, un grupo de Telegram o tu LibreNMS para recibir avisos.",
+    "chat": "Chat {id}",
+    "credentialsSet": "Credenciales configuradas (no se muestran)",
+    "credentialsMissing": "Faltan las credenciales",
+    "testConnection": "Probar conexión",
+    "sendTest": "Enviar prueba",
+    "testQueued": "Mensaje de prueba enviado",
+    "testOk": "Conexión correcta ({ms} ms)",
+    "remoteVersion": "Versión remota: {v}",
+    "edit": "Editar {name}",
+    "delete": "Borrar {name}",
+    "deleteTitle": "¿Borrar {name}?",
+    "deleteBody": "Dejará de recibir avisos; sus credenciales se borran.",
+    "deleteSubmit": "Borrar canal",
+    "deleted": "Canal borrado",
+    "lastDelivery": "Último envío",
+    "personalOn": "Incluye la IP del cliente",
+    "kind": {
+      "email": "Correo",
+      "telegram": "Telegram",
+      "librenms": "LibreNMS"
+    },
+    "status": {
+      "ok": "Funciona",
+      "unverified": "Sin probar",
+      "failing": "Falla",
+      "disabled": "Desactivado"
+    },
+    "testError": {
+      "dns_failed": "No se resuelve el nombre del servidor",
+      "connect_failed": "No se puede conectar con el servidor",
+      "tls_invalid": "El certificado del servidor no es válido",
+      "auth_failed": "Usuario, contraseña o token incorrectos",
+      "forbidden": "El usuario no tiene permiso en el destino",
+      "timeout": "El servidor no respondió a tiempo",
+      "unexpected_response": "Respuesta inesperada del destino",
+      "missing_credentials": "Faltan las credenciales del canal"
+    },
+    "events": {
+      "finding_opened": "Hallazgo nuevo",
+      "finding_reopened": "Hallazgo reabierto",
+      "exporter_silent": "Router silencioso",
+      "exporter_recovered": "Router recuperado",
+      "tunnel_down": "Túnel caído",
+      "tunnel_recovered": "Túnel recuperado"
+    },
+    "form": {
+      "title": "Nuevo canal de notificación",
+      "editTitle": "Editar canal",
+      "description": "Las credenciales no se vuelven a mostrar después de guardarlas.",
+      "kind": "Tipo de canal",
+      "name": "Nombre",
+      "recipients": "Destinatarios",
+      "recipientsHelp": "Uno o más correos separados por comas.",
+      "chatId": "chat_id",
+      "chatIdHelp": "Los grupos empiezan por -100. Añade el bot de Horus al grupo.",
+      "botToken": "Token del bot propio (opcional)",
+      "baseUrl": "URL de LibreNMS",
+      "baseUrlHelp": "Instancia dedicada a Horus, sin credenciales en la URL; Horus añade /api/v0.",
+      "username": "Usuario de LibreNMS",
+      "password": "Contraseña",
+      "apiToken": "Token de API",
+      "optional": "Opcional.",
+      "writeOnly": "Se guarda cifrado y no se vuelve a mostrar.",
+      "keepSecret": "Déjalo vacío para conservar el actual.",
+      "tlsVerify": "Verificar el certificado del servidor",
+      "tlsVerifyOff": "Solo para certificados autogenerados; queda registrado.",
+      "isolation": "Aunque otro ISP use el mismo LibreNMS, sus credenciales y avisos están aislados.",
+      "events": "Avisar de",
+      "minSeverity": "Hallazgos desde",
+      "fromSeverity": "Desde {s}",
+      "personal": "Incluir la IP del cliente",
+      "personalHelp": "Por defecto se envía el alias o la IP enmascarada. Queda registrado.",
+      "enabled": "Canal activo",
+      "submit": "Guardar canal",
+      "created": "Canal creado: pruébalo para verificarlo",
+      "updated": "Canal actualizado"
     }
   }
 }

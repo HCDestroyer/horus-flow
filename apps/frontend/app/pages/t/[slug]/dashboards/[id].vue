@@ -24,7 +24,8 @@ useHead({
     [dashboard.value?.name ?? t('dashboards.title'), tenantName.value].filter(Boolean).join(' · '),
 })
 
-watch(error, (e) => {
+watch(error, (raw) => {
+  const e = originalError(raw)
   if (e instanceof ApiError && e.status === 404) {
     showError(createError({ statusCode: 404, statusMessage: 'Not Found' }))
   }
