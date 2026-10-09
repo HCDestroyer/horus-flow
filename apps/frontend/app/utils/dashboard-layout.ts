@@ -58,7 +58,8 @@ export function fillGaps<T extends Pick<DashboardWidget, 'id' | 'position'>>(
   }
   const free = (r0: number, r1: number, c0: number, c1: number) => {
     if (r0 < 0 || c0 < 0 || r1 > rows || c1 > columns) return false
-    for (let r = r0; r < r1; r++) for (let c = c0; c < c1; c++) if (grid[r]![c] !== null) return false
+    for (let r = r0; r < r1; r++)
+      for (let c = c0; c < c1; c++) if (grid[r]![c] !== null) return false
     return true
   }
   const claim = (id: string, r0: number, r1: number, c0: number, c1: number) => {

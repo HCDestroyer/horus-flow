@@ -43,10 +43,18 @@ export async function layoutProblems(
       const vh = window.innerHeight
 
       if (doc.scrollWidth > vw + tol) {
-        problems.push({ where: 'page', kind: 'page-scroll', text: `ancho ${doc.scrollWidth} > ${vw}` })
+        problems.push({
+          where: 'page',
+          kind: 'page-scroll',
+          text: `ancho ${doc.scrollWidth} > ${vw}`,
+        })
       }
       if (noScroll && doc.scrollHeight > vh + tol) {
-        problems.push({ where: 'page', kind: 'page-scroll', text: `alto ${doc.scrollHeight} > ${vh}` })
+        problems.push({
+          where: 'page',
+          kind: 'page-scroll',
+          text: `alto ${doc.scrollHeight} > ${vh}`,
+        })
       }
 
       const ancestorsUntil = (el: Element, stop: Element) => {
@@ -66,13 +74,22 @@ export async function layoutProblems(
       }
       const isTruncation = (el: Element) => {
         const cs = getComputedStyle(el)
-        return cs.textOverflow === 'ellipsis' && cs.whiteSpace === 'nowrap' && !el.closest('.w-kpi, .w-kpi-2')
+        return (
+          cs.textOverflow === 'ellipsis' &&
+          cs.whiteSpace === 'nowrap' &&
+          !el.closest('.w-kpi, .w-kpi-2')
+        )
       }
       const clips = (el: Element) => {
         const cs = getComputedStyle(el)
         return cs.overflowX !== 'visible' || cs.overflowY !== 'visible'
       }
-      const box = (r: DOMRect | Box): Box => ({ left: r.left, right: r.right, top: r.top, bottom: r.bottom })
+      const box = (r: DOMRect | Box): Box => ({
+        left: r.left,
+        right: r.right,
+        top: r.top,
+        bottom: r.bottom,
+      })
       const inter = (a: Box, b: Box): Box => ({
         left: Math.max(a.left, b.left),
         right: Math.min(a.right, b.right),
@@ -80,7 +97,10 @@ export async function layoutProblems(
         bottom: Math.min(a.bottom, b.bottom),
       })
       const inside = (a: Box, b: Box) =>
-        a.left >= b.left - tol && a.right <= b.right + tol && a.top >= b.top - tol && a.bottom <= b.bottom + tol
+        a.left >= b.left - tol &&
+        a.right <= b.right + tol &&
+        a.top >= b.top - tol &&
+        a.bottom <= b.bottom + tol
       // Las cajas de texto incluyen el interlineado interno de la fuente: para los solapes
       // se recortan un 20 % arriba y abajo (≈ la tinta de los glifos).
       const ink = (b: Box): Box => {
@@ -139,7 +159,11 @@ export async function layoutProblems(
             reported = true
           }
           if (!reported && boxes.some((b) => b.left < -tol || b.right > vw + tol)) {
-            problems.push({ where, kind: 'outside', text: `${describe(text)} (fuera de la ventana)` })
+            problems.push({
+              where,
+              kind: 'outside',
+              text: `${describe(text)} (fuera de la ventana)`,
+            })
           }
           texts.push({ el, text, boxes })
         }

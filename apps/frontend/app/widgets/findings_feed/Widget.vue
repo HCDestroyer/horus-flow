@@ -28,9 +28,7 @@ function ago(iso: string) {
 </script>
 
 <template>
-  <div
-    class="@container flex min-h-0 flex-1 flex-col gap-[calc(var(--w-gap)*0.5)] overflow-hidden"
-  >
+  <div class="@container flex min-h-0 flex-1 flex-col gap-[calc(var(--w-gap)*0.5)] overflow-hidden">
     <ul
       v-fit-rows
       class="divide-default flex min-h-0 flex-1 flex-col divide-y overflow-hidden"
