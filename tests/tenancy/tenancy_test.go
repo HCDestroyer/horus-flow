@@ -55,9 +55,17 @@ func cases() map[string]tenanttest.Case {
 			c[id] = tenanttest.Case{Kind: tenanttest.Pending, Owner: owner}
 		}
 	}
-	pending("CORE I1 (devices: clientes, credenciales, importación y lotes de prefijos)",
-		"listCustomers", "getCustomerStats", "getCustomer", "listCustomerKindHistory", "updateCustomer", "confirmClientPrefix",
-		"lookupCustomers", "resetCustomer", "setCustomerKind", "unlockCustomerKind", "putRouterCredential")
+	// devices: clientes (I1-06, CORE)
+	c["listCustomers"] = tenanttest.Case{Kind: tenanttest.List}
+	c["getCustomerStats"] = tenanttest.Case{Kind: tenanttest.List}
+	c["getCustomer"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["listCustomerKindHistory"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["updateCustomer"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"alias": "pirata"}}
+	c["lookupCustomers"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"address": "10.10.0.41"}}
+	c["resetCustomer"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"reason": "intento de otro ISP"}}
+	c["setCustomerKind"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"kind": "commercial", "reason": "intento de otro ISP"}}
+	c["unlockCustomerKind"] = tenanttest.Case{Kind: tenanttest.ByID}
+	pending("CORE I1 (devices: credenciales y confirmación de prefijos)", "confirmClientPrefix", "putRouterCredential")
 	pending("CORE I1 (auth: miembros, roles y kioscos)",
 		"removeMember", "listKiosks", "getKiosk", "listMembers", "listRoles", "updateKiosk", "createKiosk",
 		"createKioskEnrollmentCode", "revokeKiosk", "inviteMember", "replaceMemberRoleAssignments")
@@ -105,6 +113,13 @@ func (a *app) fixtureISP(x isp, cidr string) map[string]string {
 		"token_id": script.Header.Get("X-Horus-Enrollment-Token-Id")}
 	for k, v := range a.fixtureDetection(x, site, router) {
 		out[k] = v
+	}
+	// Cliente real (I1-06) en el prefijo del nodo.
+	realm := a.realmOf(x.token, site)
+	out["customer_id"] = a.insertCustomer(x.id, site, realm, cp, "10.10.0.41")
+	if _, err := a.admin.Exec(context.Background(), `UPDATE detection.finding SET customer_id = $1 WHERE id = $2`,
+		out["customer_id"], out["finding_id"]); err != nil {
+		a.t.Fatal(err)
 	}
 	return out
 }

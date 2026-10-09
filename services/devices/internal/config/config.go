@@ -32,6 +32,11 @@ type Config struct {
 	// RouterOSBaseURL: plantilla de la URL REST del router ({ip} = IP de túnel).
 	RouterOSBaseURL string        `env:"HORUS_DEVICES_ROUTEROS_BASE_URL" envDefault:"https://{ip}"`
 	RouterOSTimeout time.Duration `env:"HORUS_DEVICES_ROUTEROS_TIMEOUT" envDefault:"20s"`
+	// Ciclo de vida de clientes (docs/database.md §2.3.4): días sin tráfico
+	// hasta inactive, meses hasta la purga y periodo del job.
+	CustomerInactivityDays  int           `env:"HORUS_DEVICES_CUSTOMER_INACTIVITY_DAYS" envDefault:"30"`
+	CustomerRetentionMonths int           `env:"HORUS_DEVICES_CUSTOMER_RETENTION_MONTHS" envDefault:"25"`
+	CustomerLifecycleEvery  time.Duration `env:"HORUS_DEVICES_CUSTOMER_LIFECYCLE_EVERY" envDefault:"24h"`
 }
 
 // LogValue implementa slog.LogValuer (sin secretos).

@@ -42,7 +42,13 @@ const ServiceBus = "natsx.Bus"
 type Bus struct {
 	NC *nats.Conn
 	JS jetstream.JetStream
+	// DurablePrefix (HORUS_NATS_DURABLE_PREFIX) aísla los durables de
+	// varias instancias de prueba sobre el mismo servidor; vacío en despliegue.
+	DurablePrefix string
 }
+
+// Durable devuelve el nombre del durable con el prefijo de la instancia.
+func (b *Bus) Durable(name string) string { return b.DurablePrefix + name }
 
 var busMu sync.Mutex
 
@@ -98,7 +104,7 @@ func Shared(ctx context.Context, services *module.Services, environ []string, lo
 			return nil, err
 		}
 	}
-	b := &Bus{NC: nc, JS: js}
+	b := &Bus{NC: nc, JS: js, DurablePrefix: EnvValue(environ, "HORUS_NATS_DURABLE_PREFIX")}
 	if services != nil {
 		_ = services.Provide(ServiceBus, b)
 	}

@@ -15,6 +15,8 @@ import (
 	"log/slog"
 	"net/netip"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/hcdestroyer/horus-flow/packages/go/authz"
 	"github.com/hcdestroyer/horus-flow/packages/go/config"
@@ -38,9 +40,12 @@ import (
 const Role = "devices"
 
 type mod struct {
-	db      *pgdb.DB
-	logger  *slog.Logger
-	migrate bool
+	db        *pgdb.DB
+	logger    *slog.Logger
+	migrate   bool
+	customers *app.Customers
+	bus       *natsx.Bus
+	every     time.Duration
 }
 
 // Register construye el módulo del rol devices (firma module.Factory).
@@ -107,12 +112,24 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		func() (authapi.AuditRecorder, bool) {
 			return module.Lookup[authapi.AuditRecorder](deps.Services, authapi.ServiceAudit)
 		}, nil, logger)
+	customers := app.NewCustomers(store, pagination.NewCodec([]byte(cfg.CursorKey.Reveal())),
+		func() (authapi.AuditRecorder, bool) {
+			return module.Lookup[authapi.AuditRecorder](deps.Services, authapi.ServiceAudit)
+		}, nil, logger)
+	customers.InactivityDays, customers.RetentionMonths = cfg.CustomerInactivityDays, cfg.CustomerRetentionMonths
 	if deps.Routes != nil {
 		guard := authz.NewGuard(verifier)
 		httpapi.New(svc, guard, cfg.PublicBaseURL, logger).Mount(deps.Routes)
 		httpapi.NewImport(importer, guard, logger).Mount(deps.Routes)
+		httpapi.NewCustomers(customers, guard, logger).Mount(deps.Routes)
 	}
-	return natsx.WithRelay(ctx, deps, &mod{db: db, logger: logger, migrate: cfg.Migrate}, db, migrations.Schema)
+	bus, err := natsx.Shared(ctx, deps.Services, deps.Environ, logger)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	m := &mod{db: db, logger: logger, migrate: cfg.Migrate, customers: customers, bus: bus, every: cfg.CustomerLifecycleEvery}
+	return natsx.WithRelay(ctx, deps, m, db, migrations.Schema)
 }
 
 // loadSealer carga la KEK de credenciales (efímera solo en dev).
@@ -146,8 +163,31 @@ func (m *mod) Start(ctx context.Context) error {
 	return nil
 }
 
+// Run consume los lotes de descubrimiento y actividad de clientes (si hay
+// NATS) y ejecuta el ciclo de vida diario (inactivación y purga).
 func (m *mod) Run(ctx context.Context) error {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() { defer wg.Done(); m.customers.RunLifecycleDaily(ctx, m.every) }()
+	if m.bus != nil {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			_ = natsx.Consume(ctx, m.bus.JS, natsx.ConsumerConfig{Service: Role, Stream: "FLOWS_EVENTS", Durable: m.bus.Durable(app.DurableFirstSeen),
+				FilterSubjects: []string{"horus.flows.client.first_seen.>"}, Logger: m.logger}, m.customers.HandleFirstSeen)
+		}()
+		go func() {
+			defer wg.Done()
+			_ = natsx.Consume(ctx, m.bus.JS, natsx.ConsumerConfig{Service: Role, Stream: "TLM_FLOWS", Durable: m.bus.Durable(app.DurableActivity),
+				FilterSubjects: []string{"horus.telemetry.flows.client_activity.>"}, Encoding: natsx.EncodingTelemetry,
+				MaxDeliver: 5, BackOff: []time.Duration{5 * time.Second, 30 * time.Second, 2 * time.Minute, 5 * time.Minute},
+				AckWait: time.Minute, MaxAckPending: 1000, Logger: m.logger}, m.customers.HandleActivity)
+		}()
+	} else {
+		m.logger.WarnContext(ctx, "customer discovery consumers inactive: HORUS_NATS_URL not set")
+	}
 	<-ctx.Done()
+	wg.Wait()
 	return nil
 }
 
