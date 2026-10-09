@@ -75,10 +75,17 @@ func cases() map[string]tenanttest.Case {
 	c["revokeKiosk"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"reason": "pirata"}}
 	pending("CORE I1 (auth: miembros y roles)",
 		"removeMember", "listMembers", "listRoles", "inviteMember", "replaceMemberRoleAssignments")
-	pending("CORE I1 (alerts: canales de notificación, D13/D17/D21)",
-		"deleteNotificationChannel", "listNotificationChannels", "getNotificationChannel", "listNotificationDeliveries",
-		"updateNotificationChannel", "createNotificationChannel", "testNotificationChannelConnection", "testNotificationChannel",
-		"putNotificationChannelCredentials")
+	// alerts: canal mínimo (D13/D17/D21, CORE)
+	c["listNotificationChannels"] = tenanttest.Case{Kind: tenanttest.List}
+	c["createNotificationChannel"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"name": "pirata", "kind": "telegram",
+		"config": map[string]any{"chat_id": "12345"}, "subscription": map[string]any{"event_types": []string{"finding_opened"}}}}
+	c["getNotificationChannel"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["updateNotificationChannel"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"name": "pirata"}}
+	c["deleteNotificationChannel"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["putNotificationChannelCredentials"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"telegram_bot_token": "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef0123"}}
+	c["testNotificationChannelConnection"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["testNotificationChannel"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["listNotificationDeliveries"] = tenanttest.Case{Kind: tenanttest.List}
 	// analytics: dashboards, playlists y kiosco (I1-15, CORE)
 	widget := map[string]any{"id": "w-pirata", "type": "traffic_now", "title": "x", "position": map[string]any{"x": 0, "y": 0, "w": 2, "h": 2}, "config": map[string]any{}}
 	layout := map[string]any{"grid": "12-col", "columns": 12, "row_height_px": 80}
@@ -146,6 +153,8 @@ func (a *app) fixtureISP(x isp, cidr string) map[string]string {
 		"widgets": []any{map[string]any{"id": "w-1", "type": "noc_header", "title": nil, "position": map[string]any{"x": 0, "y": 0, "w": 12, "h": 1}, "config": map[string]any{}}},
 	}), 201).str("id")
 	out["dashboard_id"], out["widget_id"] = dash, "w-1"
+	out["channel_id"] = a.must(a.post(x.token, "/api/v1/notification-channels", map[string]any{"name": "NOC", "kind": "telegram",
+		"config": map[string]any{"chat_id": "-100123"}, "subscription": map[string]any{"event_types": []string{"finding_opened"}}}), 201).str("id")
 	out["playlist_id"] = a.must(a.post(x.token, "/api/v1/playlists", map[string]any{"name": "Rotación",
 		"items": []any{map[string]any{"dashboard_id": dash, "duration_seconds": 30}}}), 201).str("id")
 	if _, err := a.admin.Exec(context.Background(), `UPDATE detection.finding SET customer_id = $1 WHERE id = $2`,
@@ -199,7 +208,7 @@ func TestTenantIsolationMatrix(t *testing.T) {
 				"{peer_id}", paramsA["peer_id"], "{token_id}", paramsA["token_id"],
 				"{finding_id}", paramsA["finding_id"], "{customer_id}", paramsA["customer_id"], "{entry_id}", paramsA["entry_id"],
 				"{kiosk_id}", paramsA["kiosk_id"], "{dashboard_id}", paramsA["dashboard_id"], "{widget_id}", paramsA["widget_id"],
-				"{playlist_id}", paramsA["playlist_id"],
+				"{playlist_id}", paramsA["playlist_id"], "{channel_id}", paramsA["channel_id"],
 			).Replace(tmpl), nil)
 			return a.mux.Matches(r)
 		},
