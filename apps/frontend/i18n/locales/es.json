@@ -743,5 +743,190 @@
     "unattributed": "{pct} fuera de los prefijos declarados",
     "infrastructure": "{pct} de infraestructura",
     "reviewPrefixes": "Revisar prefijos de clientes"
+  },
+  "nodes": {
+    "discovery": "Sin prefijos · modo descubrimiento",
+    "activeCustomers": "Clientes activos: {n}",
+    "connect": "Conectar router",
+    "openRouter": "Abrir ficha"
+  },
+  "router": {
+    "title": "Router",
+    "since": "desde",
+    "handshake": "Último handshake",
+    "noHandshake": "Túnel sin handshake",
+    "fps": "{n} flujos/s",
+    "uninstall": "Script de desinstalación",
+    "uninstallHint": "Quita del router todo lo que creó el script de alta (lo marcado con el comentario \"horus\"). Horus no lo ejecuta: pégalo tú.",
+    "trafficTitle": "Tráfico de este nodo",
+    "trafficHint": "La vista de Tráfico, filtrada por el nodo de este router.",
+    "openTraffic": "Abrir Tráfico del nodo",
+    "silentTitle": "Silencioso desde {since}",
+    "silentBody": "No llegan flujos de este router. Revisa:",
+    "tabs": {
+      "summary": "Resumen",
+      "connection": "Conexión",
+      "prefixes": "Prefijos de clientes",
+      "traffic": "Tráfico"
+    },
+    "facts": {
+      "lastFlow": "Último flujo",
+      "fps": "Flujos/s",
+      "loss": "Pérdida (5 min)",
+      "source": "Exportación",
+      "handshake": "Último handshake",
+      "tunnelIp": "IP de túnel",
+      "routeros": "RouterOS",
+      "model": "Modelo"
+    },
+    "hints": {
+      "check_tunnel": "El túnel WireGuard: ¿el router sigue teniendo salida a Internet hacia el endpoint de Horus (UDP)?",
+      "check_traffic_flow_target": "Traffic Flow: el destino debe ser la IP de túnel de Horus (/ip traffic-flow target).",
+      "check_firewall": "El firewall del router: no debe bloquear la salida del túnel ni el tráfico hacia el puerto de flujos.",
+      "hardware_offload_suspected": "Offload por hardware (fasttrack o switch chip): el tráfico acelerado no genera flujos.",
+      "check_ntp": "La hora del router (NTP): un reloj desfasado descarta flujos."
+    },
+    "warnings": {
+      "routeros_version_unsupported": "RouterOS anterior a 7.12: no es compatible (solo RouterOS 7).",
+      "traffic_flow_target_drift": "El destino de Traffic Flow del router no coincide con Horus.",
+      "hardware_offload_suspected": "Posible offload por hardware: parte del tráfico no genera flujos (pérdidas)."
+    }
+  },
+  "onboarding": {
+    "stepN": "Paso {n}",
+    "revoked": "Token revocado: el script generado ya no sirve",
+    "state": {
+      "done": "hecho",
+      "current": "en curso",
+      "waiting": "pendiente",
+      "error": "requiere acción"
+    },
+    "generate": {
+      "title": "Generar script",
+      "reqVersion": "RouterOS v7, versión 7.12 o superior.",
+      "reqNoWrite": "Horus no escribe en tu router: el script lo pegas tú en una terminal (Winbox o SSH).",
+      "reqOutbound": "El router necesita salida a Internet hacia el endpoint de Horus por UDP (WireGuard).",
+      "action": "Generar script",
+      "regenerate": "Regenerar",
+      "revoke": "Revocar token",
+      "noPermission": "Pide a quien administra el ISP que genere el script (permiso de WireGuard).",
+      "onceTitle": "Solo se muestra una vez",
+      "onceBody": "Contiene la contraseña del usuario de solo lectura y el token de enrolamiento (un solo uso, válido hasta {date}). Cópialo o descárgalo ahora; si lo pierdes, regéneralo.",
+      "scriptLabel": "Script de alta (RouterOS)"
+    },
+    "paste": {
+      "title": "Pegar en el router",
+      "body": "Pega el script en una terminal del router. Crea la clave WireGuard en el router y la envía sola a Horus con el token: no hay que copiar nada de vuelta.",
+      "waiting": "Esperando la clave del router…",
+      "received": "Clave recibida",
+      "expired": "El token de enrolamiento caducó antes de que el router enviara su clave.",
+      "revoked": "El token de enrolamiento fue revocado.",
+      "newToken": "Generar otro script"
+    },
+    "verify": {
+      "title": "Verificación",
+      "key": "Clave del router recibida",
+      "tunnel": "Handshake del túnel",
+      "flow": "Primer flujo recibido",
+      "customers": "Primeros clientes descubiertos",
+      "needPrefixes": "Llegan flujos, pero este nodo no tiene prefijos de clientes: declara o importa sus prefijos para que aparezcan clientes.",
+      "stuck": "¿No avanza en 2 minutos? Qué revisar",
+      "checkFirewall": "Firewall del router: que permita la salida UDP del túnel hacia Horus.",
+      "checkOutbound": "Salida a Internet del router hacia el endpoint de Horus.",
+      "checkTrafficFlow": "Traffic Flow habilitado y con destino la IP de túnel de Horus.",
+      "checkOffload": "Offload por hardware (fasttrack): el tráfico acelerado no genera flujos."
+    }
+  },
+  "prefixes": {
+    "title": "Prefijos de clientes",
+    "empty": "Este nodo no tiene prefijos de clientes",
+    "emptyHint": "Impórtalos del MikroTik o añádelos a mano; mientras tanto, revisa las propuestas del modo descubrimiento.",
+    "customers": "Clientes activos: {n}",
+    "clientLen": "IPv6: un cliente por /{len}",
+    "clientLenHelp": "Tamaño del prefijo delegado a cada abonado: cada uno es un cliente (D22).",
+    "role": {
+      "customers": "Clientes",
+      "infrastructure": "Infraestructura",
+      "excluded": "Excluido"
+    },
+    "assignment": {
+      "static": "Estática",
+      "dynamic": "Dinámica (pool)",
+      "unknown": "Sin indicar"
+    },
+    "source": {
+      "manual": "Manual",
+      "routeros_api": "Importado del MikroTik",
+      "discovery_confirmed": "Propuesto (modo descubrimiento)"
+    },
+    "origin": {
+      "ip_pool": "Pool IPv4",
+      "ipv6_pool": "Pool IPv6",
+      "interface_address": "Red de interfaz"
+    },
+    "poolUsage": {
+      "dhcpv6_pd": "Delegación de prefijos (DHCPv6-PD)",
+      "ppp_link": "Enlaces PPP (un prefijo por sesión)",
+      "ppp_link_shared": "Enlaces PPP compartidos: se sugiere Infraestructura",
+      "dhcpv6_address": "Direcciones DHCPv6 (/128)",
+      "unused": "Pool sin uso en el router",
+      "unknown": "Uso desconocido"
+    },
+    "col": {
+      "prefix": "Prefijo",
+      "role": "Rol",
+      "assignment": "Asignación",
+      "clientLen": "Tamaño de cliente IPv6",
+      "note": "Nota"
+    },
+    "form": {
+      "action": "Añadir prefijo",
+      "placeholder": "10.20.0.0/22 o 2001:db8:4a00::/40",
+      "required": "Escribe un prefijo en notación CIDR",
+      "submit": "Añadir prefijo",
+      "done": "Prefijo añadido"
+    },
+    "remove": {
+      "action": "Quitar {prefix}",
+      "title": "¿Quitar {prefix}?",
+      "inactive": "{n} clientes de este prefijo pasarán a Inactivo (su historial se conserva).",
+      "body": "El tráfico de este rango dejará de tratarse con este rol.",
+      "submit": "Quitar prefijo",
+      "done": "Prefijo quitado"
+    },
+    "discovery": {
+      "title": "Este nodo no tiene prefijos de clientes",
+      "body": "El tráfico cuenta para el nodo pero no crea clientes. Importa los prefijos del MikroTik o acepta las propuestas.",
+      "proposals": "Propuestas del modo descubrimiento",
+      "proposalsHint": "Rangos vistos en los flujos de este nodo (últimos 7 días).",
+      "stats": "{ips} IP vistas · {bytes}",
+      "suggested": "sugerido: {role}",
+      "acceptCustomers": "Aceptar como Clientes",
+      "markInfra": "Infraestructura",
+      "exclude": "Excluir",
+      "accepted": "{prefix} marcado como {role}"
+    },
+    "import": {
+      "action": "Importar del MikroTik",
+      "needsTunnel": "Disponible cuando el router tenga túnel con Horus",
+      "title": "Importar del MikroTik",
+      "description": "Lectura de pools y redes del router (solo lectura). Revisa cada prefijo: nada se aplica hasta que confirmes.",
+      "reading": "Leyendo el router por su API…",
+      "unreachable": "Horus no pudo leer el router por el túnel. Comprueba que el túnel está activo.",
+      "readAt": "RouterOS {version} · leído el {date}",
+      "fingerprint": "Huella TLS de la API:",
+      "select": "Importar {prefix}",
+      "delegated": "El router delega /{len} a cada cliente",
+      "chooseLen": "Elige un tamaño",
+      "lenRequired": "Elige el tamaño de prefijo de cada cliente",
+      "selected": "Seleccionados: {n}",
+      "confirm": "Confirmar importación",
+      "done": "Prefijos importados: {n}",
+      "diff": {
+        "new": "Nuevo",
+        "exists": "Ya existe",
+        "overlaps": "Solapa con uno existente"
+      }
+    }
   }
 }
