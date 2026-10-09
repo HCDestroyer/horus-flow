@@ -40,6 +40,9 @@ type Deps struct {
 	// Environ es el entorno del proceso, para config.Load de la configuración
 	// propia del módulo.
 	Environ []string
+	// Services es el registro en proceso de contratos entre módulos
+	// (puede ser nil en tests de un solo módulo).
+	Services *Services
 }
 
 // Module es un módulo en ejecución. Run trabaja hasta que ctx se cancela y

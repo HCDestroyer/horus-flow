@@ -27,6 +27,9 @@ const (
 // run es main sin efectos globales: recibe argumentos, entorno y salidas, y
 // devuelve el código de salida. ctx se cancela al recibir la señal de apagado.
 func run(ctx context.Context, args, environ []string, stdout, stderr io.Writer, catalog []roleSpec) int {
+	if len(args) > 0 && args[0] == "healthcheck" {
+		return healthcheck(ctx, args[1:], environ, stdout, stderr)
+	}
 	fs := flag.NewFlagSet("horus", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	rolesFlag := fs.String("roles", "", "comma-separated roles to run (overrides HORUS_ROLES); \"all\" = every public role")
@@ -109,18 +112,21 @@ func build(ctx context.Context, cfg config.Common, roles []roleSpec, environ []s
 	}), logger, httpx.ServerOptions{})
 	mgr.Append(admin.Hook())
 
+	// Contratos entre módulos con implementación en proceso (ADR-0025 §1).
+	services := module.NewServices()
 	for _, spec := range roles {
 		rlog := observability.ForRole(logger, spec.name)
 		hrole := hreg.Role(spec.name)
 		rctx := observability.WithRole(ctx, spec.name)
 		mod, err := spec.factory(rctx, module.Deps{
-			Role:    spec.name,
-			Logger:  rlog,
-			Health:  hrole,
-			Metrics: metrics,
-			Routes:  api.ForService(spec.name),
-			Common:  cfg,
-			Environ: environ,
+			Role:     spec.name,
+			Logger:   rlog,
+			Health:   hrole,
+			Metrics:  metrics,
+			Routes:   api.ForService(spec.name),
+			Common:   cfg,
+			Environ:  environ,
+			Services: services,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("register role %s: %w", spec.name, err)

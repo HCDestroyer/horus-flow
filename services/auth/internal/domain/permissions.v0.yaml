@@ -1,0 +1,144 @@
+# C7 — Catálogo de permisos, roles predefinidos y token de kiosco (docs/security.md §5.5, §6).
+# Fuente de verdad del contrato v0: `auth` lo siembra por migración y lo sirve en GET /api/v1/permissions.
+# Cambiar `pii`, `audited`, `requires_mfa` o los permisos de un rol de sistema es ruta sensible (persona).
+version: v0
+token_claims:
+  common: [iss, aud, sub, typ, scope, sid, amr, auth_time, iat, exp, jti]
+  tenant: [tid, perms, via_platform]
+  kiosk: [tid, kiosk_id]
+  notes: >-
+    `perms` = permisos efectivos en ESE tenant con alcance ({"devices.read": ["*"], "customers.kind.write":
+    ["site:<uuid>"]}); si superara 4 KiB se sustituye por `perms_ver`. Nunca se suman permisos de dos tenants.
+scopes:
+  - tenant
+  - 'site:<uuid>'
+  - 'router_group:<uuid>'
+permissions:
+  tenant:
+    - { key: users.read, description: 'Ver miembros del ISP' }
+    - { key: users.manage, description: 'Invitar y quitar miembros del ISP' }
+    - { key: roles.read, description: 'Ver roles y asignaciones' }
+    - { key: roles.manage, description: 'Crear y editar roles propios del ISP' }
+    - { key: roles.assign, description: 'Asignar roles a miembros', reauth: true }
+    - { key: audit.read, description: 'Ver la auditoría del ISP', pii: true }
+    - { key: audit.export, description: 'Exportar la auditoría del ISP', pii: true, audited: true }
+    - { key: sites.read, description: 'Ver nodos y prefijos de clientes' }
+    - { key: sites.create, description: 'Crear nodos' }
+    - { key: sites.update, description: 'Editar nodos y gestionar prefijos de clientes (incluida importación desde el MikroTik)' }
+    - { key: sites.delete, description: 'Dar de baja nodos' }
+    - { key: devices.read, description: 'Ver routers' }
+    - { key: devices.create, description: 'Registrar routers' }
+    - { key: devices.update, description: 'Editar routers' }
+    - { key: devices.delete, description: 'Dar de baja routers' }
+    - { key: devices.credentials.write, description: 'Reemplazar credenciales write-only (SNMPv3, usuario de solo lectura de RouterOS)', reauth: true, audited: true }
+    - { key: devices.credentials.reveal, description: 'Revelar credenciales en claro', reauth: true, requires_mfa: true, audited: true }
+    - { key: wireguard.read, description: 'Ver túneles (peers)' }
+    - { key: wireguard.write, description: 'Generar script de onboarding, tokens de enrolamiento y script inverso', reauth: true, audited: true }
+    - { key: wireguard.keys.rotate, description: 'Rotación de claves (I3)', reauth: true }
+    - { key: snmp.read, description: 'Ver métricas SNMP (I2)' }
+    - { key: snmp.manage, description: 'Perfiles e intervalos SNMP (I2)' }
+    - { key: flows.read, description: 'Ver estado de exportadores' }
+    - { key: flows.manage, description: 'Configuración de exportadores' }
+    - { key: customers.read, description: 'Lista y ficha de clientes (IPs, dato personal)', pii: true, audited: true }
+    - { key: customers.update, description: 'Alias y notas de clientes', pii: true }
+    - { key: customers.kind.write, description: 'Cambio manual de tipo, desbloqueo y reinicio' }
+    - { key: customers.export, description: 'Exportar clientes (CSV con IPs, I2)', pii: true, audited: true }
+    - { key: traffic.read, description: 'Agregados de tráfico por nodo, router, servicio, categoría y ASN' }
+    - { key: traffic.customer.read, description: 'Tráfico de un cliente concreto', pii: true, audited: true }
+    - { key: traffic.catalog.read, description: 'Leer el catálogo de clasificación (de plataforma)' }
+    - { key: security.findings.read, description: 'Hallazgos, estado de seguridad por cliente, feeds y allowlist' }
+    - { key: security.findings.manage, description: 'Reconocer, resolver, falso positivo y allowlist del ISP' }
+    - { key: security.evidence.read, description: 'Flujos de evidencia de un cliente', pii: true, audited: true }
+    - { key: alerts.read, description: 'Ver canales de notificación y entregas (I1) y alertas (I3)' }
+    - { key: alerts.ack, description: 'Reconocer alertas (I3)' }
+    - { key: alerts.manage, description: 'Gestionar canales de notificación email, Telegram y LibreNMS por API (I1, D13, D17), sus credenciales write-only y reglas (I3)', audited: true }
+    - { key: reports.read, description: 'Ver y descargar reportes' }
+    - { key: reports.export, description: 'Generar exportaciones' }
+    - { key: dashboards.read, description: 'Ver dashboards compartidos y plantillas, crear privados' }
+    - { key: dashboards.manage, description: 'Dashboards y playlists compartidos con el ISP' }
+    - { key: kiosks.manage, description: 'Alta, códigos de enrolamiento y revocación de kioscos', reauth: true }
+    - { key: settings.read, description: 'Ver configuración del ISP' }
+    - { key: settings.manage, description: 'Configuración del ISP (inactividad de clientes, reglas de tipo, retenciones)' }
+    - { key: api_tokens.manage, description: 'API tokens del ISP', reauth: true }
+  platform:
+    - { key: platform.tenants.read, description: 'Ver ISP de la instalación' }
+    - { key: platform.tenants.manage, description: 'Alta, edición, suspensión y baja de ISP', reauth: true }
+    - { key: platform.users.read, description: 'Ver usuarios y membresías' }
+    - { key: platform.users.manage, description: 'Bloquear usuarios, roles de plataforma, sesiones', reauth: true }
+    - { key: platform.support_access, description: 'Abrir acceso de soporte temporal a un ISP (auditado en ambos lados)', reauth: true, requires_mfa: true, audited: true }
+    - { key: platform.audit.read, description: 'Auditoría de plataforma' }
+    - { key: platform.status.read, description: 'Estado detallado de la instalación, hubs WireGuard, overview' }
+    - { key: platform.storage.manage, description: 'Destinos remotos de copias' }
+    - { key: platform.catalog.manage, description: 'Catálogo de clasificación de tráfico' }
+    - { key: platform.reputation_sources.manage, description: 'Fuentes de reputación: ver estado, alta/edición/baja de listas personalizadas, habilitar las del catálogo base y forzar cargas (D20)', reauth: true, audited: true }
+roles:
+  tenant:
+    - key: tenant_admin
+      name: Administrador del ISP
+      requires_mfa: true
+      permissions: ['*']
+      note: Todos los permisos de tenant, incluidos devices.credentials.reveal y kiosks.manage.
+    - key: security_analyst
+      name: Analista de seguridad
+      requires_mfa: true
+      permissions: [security.findings.read, security.findings.manage, security.evidence.read, customers.read, traffic.read, traffic.customer.read, alerts.read, alerts.ack, alerts.manage, audit.read, dashboards.read, sites.read, devices.read, flows.read]
+    - key: network_engineer
+      name: Ingeniero de red
+      requires_mfa: true
+      permissions: [sites.read, sites.create, sites.update, sites.delete, devices.read, devices.create, devices.update, devices.delete, devices.credentials.write, wireguard.read, wireguard.write, wireguard.keys.rotate, snmp.read, snmp.manage, flows.read, flows.manage, alerts.read, alerts.ack, traffic.read, dashboards.read, dashboards.manage]
+    - key: noc
+      name: Operador NOC
+      requires_mfa: false
+      permissions: [sites.read, devices.read, wireguard.read, snmp.read, flows.read, traffic.read, security.findings.read, alerts.read, alerts.ack, reports.read, dashboards.read]
+    - key: analyst
+      name: Analista
+      requires_mfa: false
+      permissions: [traffic.read, traffic.customer.read, customers.read, customers.update, customers.kind.write, reports.read, reports.export, devices.read, sites.read, dashboards.read, dashboards.manage]
+    - key: auditor
+      name: Auditor
+      requires_mfa: false
+      permissions: [audit.read, audit.export, users.read, roles.read]
+    - key: viewer
+      name: Solo lectura
+      requires_mfa: false
+      permissions: [users.read, roles.read, sites.read, devices.read, wireguard.read, snmp.read, flows.read, traffic.read, traffic.catalog.read, security.findings.read, alerts.read, reports.read, dashboards.read, settings.read]
+      note: Todos los *.read salvo customers.read, traffic.customer.read, security.evidence.read y audit.read.
+  platform:
+    - key: platform_admin
+      name: Superadministrador
+      requires_mfa: true
+      permissions: [platform.tenants.read, platform.tenants.manage, platform.users.read, platform.users.manage, platform.audit.read, platform.status.read, platform.storage.manage, platform.catalog.manage, platform.reputation_sources.manage]
+      note: platform.support_access se concede aparte aunque sea a la misma persona.
+    - key: platform_operator
+      name: Operador de plataforma
+      requires_mfa: true
+      permissions: [platform.status.read, platform.tenants.read, platform.audit.read]
+    - key: platform_auditor
+      name: Auditor de plataforma
+      requires_mfa: true
+      permissions: [platform.audit.read, platform.tenants.read, platform.users.read]
+backlog_role_aliases:
+  # Nombres usados en docs/backlog/increment-0.md e increment-1.md → rol canónico de security.md §6.2.
+  superadmin: platform_admin
+  isp_admin: tenant_admin
+  isp_operator: noc
+  isp_viewer: viewer
+  customers.manage: [customers.update, customers.kind.write]
+kiosk:
+  principal: kiosk
+  token: { typ: kiosk, sub: 'kiosk:<id>', ttl_seconds: 600, write: false }
+  credential: { cookie: __Secure-hf_kiosk, path: /api/v1/kiosk, rotating: true, reuse_detection: revoke_and_alert, absolute_ttl_days: 180, idle_ttl_days: 14 }
+  enrollment_code: { length: 8, alphabet: 'A-HJ-NP-Z2-9', ttl_seconds: 600, single_use: true, max_failures: 10 }
+  allowed_operations:
+    - GET /dashboards/{dashboard_id}            # solo asignados
+    - GET /dashboards/{dashboard_id}/widgets/{widget_id}/data   # solo tipos kiosk_allowed
+    - GET /kiosk/config
+    - GET /system/status                        # resumen
+    - GET /widget-types
+    - POST /ws/tickets
+    - GET /customers/stats
+    - GET /security/summary
+    - GET /flow-exporters
+  denied_response: 403 KIOSK_FORBIDDEN
+  personal_data_default: false
+  network: allowed_cidrs aplicado al canje del código, al canje del JWT y a cada petición
