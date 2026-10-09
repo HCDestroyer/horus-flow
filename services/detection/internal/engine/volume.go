@@ -179,7 +179,6 @@ func detectDDoS(ctx context.Context, e *env) ([]domain.Candidate, error) {
 		run, best, prev := 0, 0, int64(math.MinInt64)
 		var peak, peakBps float64
 		targets := map[netip.Addr]float64{}
-		var perMin []int
 		for _, m := range sortedMinutes(mm) {
 			a := mm[m]
 			top := topDests(a.dstPkts, p.MaxTargets)
@@ -200,7 +199,6 @@ func detectDDoS(ctx context.Context, e *env) ([]domain.Candidate, error) {
 					}
 				}
 				peak, peakBps = math.Max(peak, pps), math.Max(peakBps, by*8/60)
-				perMin = append(perMin, len(top))
 			} else {
 				run = 0
 			}

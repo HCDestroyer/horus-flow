@@ -157,33 +157,33 @@ type Resolution struct {
 
 // Finding es un hallazgo persistido.
 type Finding struct {
-	ID, TenantID                       uuid.UUID
-	Version                            int
-	State, Kind, Category              string
-	Severity                           string
-	Confidence                         float64
-	CustomerID, RealmID, SiteID        uuid.UUID
-	RouterID                           uuid.UUID
-	Address                            netip.Prefix // IP (/32, /128) o prefijo IPv6 del cliente (D22)
-	CustomerKind                       string
-	Target                             Target
-	Signals                            []string
-	Summary                            Summary
-	Reasons                            []Reason
-	Evidence                           map[string]any
-	WindowFrom, WindowTo               time.Time
-	FirstSeenAt, LastSeenAt            time.Time
-	OpenedAt, UpdatedAt                time.Time
-	Occurrences                        int
-	RuleVersion                        string
-	ReputationSnapshotVersion          *int
-	MinSamplingRate                    *int
-	SamplingReducedConfidence          bool
-	PreviousFindingID                  *uuid.UUID
-	AcknowledgedBy                     *uuid.UUID
-	AcknowledgedAt                     *time.Time
-	Resolution                         *Resolution
-	ResolvedAt, SilenceUntil           *time.Time
+	ID, TenantID                uuid.UUID
+	Version                     int
+	State, Kind, Category       string
+	Severity                    string
+	Confidence                  float64
+	CustomerID, RealmID, SiteID uuid.UUID
+	RouterID                    uuid.UUID
+	Address                     netip.Prefix // IP (/32, /128) o prefijo IPv6 del cliente (D22)
+	CustomerKind                string
+	Target                      Target
+	Signals                     []string
+	Summary                     Summary
+	Reasons                     []Reason
+	Evidence                    map[string]any
+	WindowFrom, WindowTo        time.Time
+	FirstSeenAt, LastSeenAt     time.Time
+	OpenedAt, UpdatedAt         time.Time
+	Occurrences                 int
+	RuleVersion                 string
+	ReputationSnapshotVersion   *int
+	MinSamplingRate             *int
+	SamplingReducedConfidence   bool
+	PreviousFindingID           *uuid.UUID
+	AcknowledgedBy              *uuid.UUID
+	AcknowledgedAt              *time.Time
+	Resolution                  *Resolution
+	ResolvedAt, SilenceUntil    *time.Time
 }
 
 // Active indica si el hallazgo sigue abierto (open o acknowledged).

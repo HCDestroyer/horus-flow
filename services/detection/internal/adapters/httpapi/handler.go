@@ -52,7 +52,9 @@ func (h *Handler) Mount(r *httpx.ServiceMux) {
 	r.Handle("DELETE /api/v1/reputation/allowlist/{entry_id}", h.guard.Tenant(app.PermManage, h.deleteAllow))
 }
 
-func (h *Handler) fail(w http.ResponseWriter, r *http.Request, err error) { apperr.WriteHTTP(w, r, h.logger, err) }
+func (h *Handler) fail(w http.ResponseWriter, r *http.Request, err error) {
+	apperr.WriteHTTP(w, r, h.logger, err)
+}
 
 func pathID(w http.ResponseWriter, r *http.Request, name, code string) (uuid.UUID, bool) {
 	id, err := uuid.Parse(r.PathValue(name))

@@ -47,7 +47,9 @@ import (
 // ClickHouse de test (lector por tenant con row policies).
 const detectionCHPassword = "detection-test-password-0123"
 
-func repo(parts ...string) string { return filepath.Join(append([]string{"..", "..", ".."}, parts...)...) }
+func repo(parts ...string) string {
+	return filepath.Join(append([]string{"..", "..", ".."}, parts...)...)
+}
 
 // simExpected es lo que usa la prueba del expected.json del simulador.
 type simExpected struct {
@@ -82,17 +84,16 @@ type simExpected struct {
 // world es un ISP con su pipeline de flujos (collector + ingester reales),
 // ClickHouse, PostgreSQL y el motor de detección.
 type world struct {
-	t       *testing.T
-	tenant  uuid.UUID
-	site    uuid.UUID
-	router  uuid.UUID
-	ch      *sql.DB
-	pg      *pgdb.DB
-	reader  *chreader.Reader
-	svc     *app.Service
-	engine  *engine.Engine
-	env     []string
-	start   time.Time // inicio de los datos tras el traslado
+	t      *testing.T
+	tenant uuid.UUID
+	site   uuid.UUID
+	router uuid.UUID
+	ch     *sql.DB
+	pg     *pgdb.DB
+	reader *chreader.Reader
+	svc    *app.Service
+	engine *engine.Engine
+	env    []string
 }
 
 func migrateCH(ctx context.Context, dsn, pw string) error {

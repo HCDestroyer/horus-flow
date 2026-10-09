@@ -168,7 +168,9 @@ func splitList(v string) []string {
 	return out
 }
 
-func badFilter(msg string) error { return apperr.New(apperr.KindBadRequest, problem.CodeInvalidFilter, msg) }
+func badFilter(msg string) error {
+	return apperr.New(apperr.KindBadRequest, problem.CodeInvalidFilter, msg)
+}
 
 var (
 	validStates     = []string{domain.StateOpen, domain.StateAcknowledged, domain.StateResolved, domain.StateFalsePositive}

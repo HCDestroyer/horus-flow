@@ -59,12 +59,12 @@ type SecurityRow struct {
 // cliente (heurística de iniciador: puerto local ≥ 1024 o remoto < 1024; así
 // las respuestas de un servidor comercial no cuentan como fan-out).
 type InitiatedStats struct {
-	Key                     ClientKey
-	TCP, SynOnly            uint64
-	SynDests, SynNets24     uint64
-	Dests, Nets24, ASNs     uint64
-	Sample                  []string
-	First, Last             time.Time
+	Key                      ClientKey
+	TCP, SynOnly             uint64
+	SynDests, SynNets24      uint64
+	Dests, Nets24, ASNs      uint64
+	Sample                   []string
+	First, Last              time.Time
 	MinSampling, MaxSampling uint32
 }
 
@@ -79,17 +79,17 @@ type PortStat struct {
 
 // VerticalRow es un destino con muchos puertos distintos.
 type VerticalRow struct {
-	Key      ClientKey
-	Remote   netip.Addr
-	ASN      uint32
-	Ports    uint64
-	Flows    uint64
-	Small    uint64
-	SynOnly  uint64
-	MinPort  uint16
-	MaxPort  uint16
-	First    time.Time
-	Last     time.Time
+	Key     ClientKey
+	Remote  netip.Addr
+	ASN     uint32
+	Ports   uint64
+	Flows   uint64
+	Small   uint64
+	SynOnly uint64
+	MinPort uint16
+	MaxPort uint16
+	First   time.Time
+	Last    time.Time
 }
 
 // WatchRow son los flujos de un cliente a puertos vigilados (client_port_1m).

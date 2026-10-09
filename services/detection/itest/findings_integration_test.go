@@ -102,7 +102,7 @@ func TestFindingLifecycle(t *testing.T) {
 	l := newLifecycle(t)
 	t0 := l.now.Add(-10 * time.Minute)
 	l.apply(l.cand(t0))
-	l.apply(l.cand(t0))                       // misma ocurrencia: sin cambios
+	l.apply(l.cand(t0))                      // misma ocurrencia: sin cambios
 	l.apply(l.cand(t0.Add(5 * time.Minute))) // nueva ocurrencia: updated
 	fs := findingsOf(t, l.db, l.tenant)
 	if len(fs) != 1 || fs[0].Occurrences != 2 || fs[0].Version != 2 || !fs[0].LastSeenAt.Equal(t0.Add(5*time.Minute)) {

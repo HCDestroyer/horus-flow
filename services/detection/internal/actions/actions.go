@@ -145,7 +145,7 @@ func rateLimit(why string) Action {
 func inspect(what string) Action {
 	return Action{Code: "inspect_device", Title: "Revisar el equipo del cliente",
 		Explanation: what + " Pida al cliente (o a su técnico) que identifique el equipo con la IP afectada y lo revise; no cambia nada en la red.",
-		Risk: "low", Audience: "customer_support"}
+		Risk:        "low", Audience: "customer_support"}
 }
 
 func credentials() Action {
@@ -158,7 +158,7 @@ func credentials() Action {
 func monitor(what string) Action {
 	return Action{Code: "monitor", Title: "Vigilar la evolución",
 		Explanation: what + " Si el patrón continúa o aparecen otras señales, el hallazgo se actualiza y subirá el estado del cliente.",
-		Risk: "low", Audience: "noc"}
+		Risk:        "low", Audience: "noc"}
 }
 
 func allowlist(what string) Action {

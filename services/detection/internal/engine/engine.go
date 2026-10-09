@@ -66,13 +66,13 @@ type Options struct {
 
 // Engine evalúa los detectores por tenant.
 type Engine struct {
-	sig    Signals
-	sink   Sink
-	rep    Reputation
-	lag    time.Duration
-	log    *slog.Logger
-	mu     sync.Mutex
-	last   map[string]time.Time // tenant|detector → fin de la última ventana evaluada
+	sig  Signals
+	sink Sink
+	rep  Reputation
+	lag  time.Duration
+	log  *slog.Logger
+	mu   sync.Mutex
+	last map[string]time.Time // tenant|detector → fin de la última ventana evaluada
 }
 
 // New crea el motor.
