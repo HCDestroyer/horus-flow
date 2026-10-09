@@ -27,6 +27,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/pagination"
 	"github.com/hcdestroyer/horus-flow/packages/go/pgdb"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
+	"github.com/hcdestroyer/horus-flow/services/detection/api/securitywidgets"
 	chreader "github.com/hcdestroyer/horus-flow/services/detection/internal/adapters/clickhouse"
 	"github.com/hcdestroyer/horus-flow/services/detection/internal/adapters/httpapi"
 	"github.com/hcdestroyer/horus-flow/services/detection/internal/adapters/postgres"
@@ -97,6 +98,9 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 	if audit, ok := module.Lookup[authapi.AuditRecorder](deps.Services, authapi.ServiceAudit); ok {
 		opts.Audit = audit
 	}
+	opts.Kiosks = func() (authapi.KioskChecker, bool) {
+		return module.Lookup[authapi.KioskChecker](deps.Services, authapi.ServiceKiosks)
+	}
 	if cfg.ClickHouseDSN != "" {
 		m.ch, err = chreader.Open(cfg.ClickHouseDSN, cfg.ClickHouseUser, cfg.ClickHousePassword.Reveal(), cfg.ClickHouseTimeout)
 		if err != nil {
@@ -113,6 +117,13 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		deps.Health.AddCheck(health.Check{Name: "postgres", Critical: true, Probe: db.Ping})
 		if m.ch != nil {
 			deps.Health.AddCheck(health.Check{Name: "clickhouse", Critical: false, Probe: m.ch.Ping})
+		}
+	}
+	if deps.Services != nil {
+		// Datos de los widgets de seguridad para analytics/dashboards (C9).
+		if err := deps.Services.Provide(securitywidgets.ServiceWidgetData, securitywidgets.Provider(svc.Widgets())); err != nil {
+			db.Close()
+			return nil, err
 		}
 	}
 	if deps.Routes != nil {

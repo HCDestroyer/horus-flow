@@ -489,3 +489,58 @@ func Summary(ctx context.Context, tx pgx.Tx, sites []uuid.UUID, now time.Time) (
 	}
 	return sc, rows.Err()
 }
+
+// TrendRow es un recuento de hallazgos abiertos por día y grupo.
+type TrendRow struct {
+	Day   time.Time
+	Group string
+	Count int
+}
+
+// Trend cuenta los hallazgos abiertos por día (UTC) y kind o severidad desde from.
+func Trend(ctx context.Context, tx pgx.Tx, sites []uuid.UUID, from time.Time, bySeverity bool) ([]TrendRow, error) {
+	col := "kind"
+	if bySeverity {
+		col = "severity"
+	}
+	q := `SELECT date_trunc('day', opened_at AT TIME ZONE 'UTC'), ` + col + `, count(*) FROM detection.finding WHERE opened_at >= $1`
+	args := []any{from}
+	if sites != nil {
+		q += ` AND site_id = ANY($2)`
+		args = append(args, sites)
+	}
+	rows, err := tx.Query(ctx, q+` GROUP BY 1, 2 ORDER BY 1, 2`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []TrendRow
+	for rows.Next() {
+		var r TrendRow
+		if err := rows.Scan(&r.Day, &r.Group, &r.Count); err != nil {
+			return nil, err
+		}
+		r.Day = time.Date(r.Day.Year(), r.Day.Month(), r.Day.Day(), 0, 0, 0, 0, time.UTC)
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// SecurityStates devuelve el estado de seguridad de los clientes dados.
+func SecurityStates(ctx context.Context, tx pgx.Tx, customers []uuid.UUID) (map[uuid.UUID]string, error) {
+	out := map[uuid.UUID]string{}
+	rows, err := tx.Query(ctx, `SELECT customer_id, state FROM detection.customer_security WHERE customer_id = ANY($1)`, customers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id uuid.UUID
+		var st string
+		if err := rows.Scan(&id, &st); err != nil {
+			return nil, err
+		}
+		out[id] = st
+	}
+	return out, rows.Err()
+}

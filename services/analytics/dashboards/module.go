@@ -104,7 +104,7 @@ func New(ctx context.Context, deps module.Deps) (*Module, error) {
 		kiosks: func() (authapi.KioskChecker, bool) {
 			return module.Lookup[authapi.KioskChecker](deps.Services, authapi.ServiceKiosks)
 		},
-		widgets: func() (tw.Provider, bool) { return module.Lookup[tw.Provider](deps.Services, tw.ServiceWidgetData) },
+		widgets: func() (tw.Provider, bool) { return lookupProviders(deps.Services) },
 	}
 	if deps.Services != nil {
 		if err := deps.Services.Provide(dashapi.ServiceAccess, dashapi.Access(svc)); err != nil {
