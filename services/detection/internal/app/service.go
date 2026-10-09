@@ -74,6 +74,7 @@ type Flows interface {
 	Evidence(ctx context.Context, tenant, realm uuid.UUID, client netip.Prefix, from, to time.Time, offset, limit int) ([]EvidenceRow, error)
 	WatchedPorts(ctx context.Context, tenant uuid.UUID, sites []uuid.UUID, from, to time.Time) ([]WatchedPort, error)
 	Customers(ctx context.Context, tenant uuid.UUID, keys []engine.ClientKey) (map[engine.ClientKey]engine.Customer, error)
+	CustomerKnown(ctx context.Context, tenant, customer uuid.UUID) (bool, error)
 }
 
 // Registry anota los tenants que usan detection (planificador del motor).
@@ -245,6 +246,19 @@ func (s *Service) List(ctx context.Context, qv url.Values, customer *uuid.UUID) 
 	}
 	var rows []domain.Finding
 	err = s.db.TenantTx(ctx, t, func(tx pgx.Tx) error {
+		if customer != nil {
+			known, err := postgres.KnownCustomer(ctx, tx, *customer)
+			if err != nil {
+				return err
+			}
+			if !known && s.flows != nil {
+				// Cliente sin historial de seguridad: existe si devices lo proyectó en dim.customer.
+				known, _ = s.flows.CustomerKnown(ctx, t.UUID(), *customer)
+			}
+			if !known {
+				return apperr.NotFound("CUSTOMER_NOT_FOUND")
+			}
+		}
 		rows, err = postgres.List(ctx, tx, f)
 		return err
 	})
@@ -332,6 +346,10 @@ type Transition struct {
 func (s *Service) Transition(ctx context.Context, id uuid.UUID, ifMatch int, op string, body Transition) (map[string]any, int, error) {
 	p, t, allowed, err := s.scope(ctx, PermManage)
 	if err != nil {
+		return nil, 0, err
+	}
+	// Existencia antes que validación: un hallazgo de otro ISP es 404, no 422.
+	if _, _, _, err := s.load(ctx, PermManage, id); err != nil {
 		return nil, 0, err
 	}
 	if op == "false_positive" {

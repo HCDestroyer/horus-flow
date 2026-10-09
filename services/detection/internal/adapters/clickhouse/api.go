@@ -77,3 +77,11 @@ func (r *Reader) WatchedPorts(ctx context.Context, tenant uuid.UUID, sites []uui
 		}, args...)
 	return out, err
 }
+
+// CustomerKnown implementa app.Flows: el cliente existe en dim.customer del tenant.
+func (r *Reader) CustomerKnown(ctx context.Context, tenant, customer uuid.UUID) (bool, error) {
+	var n uint64
+	err := r.query(ctx, tenant, `SELECT count() FROM dim.customer FINAL WHERE tenant_id = ? AND customer_id = ? AND deleted = 0`,
+		func(rows driver.Rows) error { return rows.Scan(&n) }, tenant, customer)
+	return n > 0, err
+}

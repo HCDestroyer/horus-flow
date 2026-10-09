@@ -222,6 +222,16 @@ func ActiveOfCustomer(ctx context.Context, tx pgx.Tx, customer uuid.UUID) ([]dom
 	return collect(rows)
 }
 
+// KnownCustomer indica si detection conoce al cliente en el tenant (tiene
+// hallazgos o estado de seguridad). El registro de clientes es de devices:
+// un cliente sin historial de seguridad no existe para esta ruta.
+func KnownCustomer(ctx context.Context, tx pgx.Tx, customer uuid.UUID) (bool, error) {
+	var ok bool
+	err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM detection.finding WHERE customer_id = $1)
+		OR EXISTS (SELECT 1 FROM detection.customer_security WHERE customer_id = $1)`, customer).Scan(&ok)
+	return ok, err
+}
+
 // LastResolvedAt devuelve el último cierre por el ISP (verdict resolved) de un cliente.
 func LastResolvedAt(ctx context.Context, tx pgx.Tx, customer uuid.UUID) (*time.Time, error) {
 	var t *time.Time

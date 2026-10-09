@@ -60,10 +60,19 @@ func cases() map[string]tenanttest.Case {
 		"getTrafficAttribution", "getTrafficTimeseries", "getTrafficTop", "getWidgetData", "getKioskConfig", "listPlaylists",
 		"listPrefixProposals", "updateDashboard", "updateDashboardWidget", "updatePlaylist", "createDashboard",
 		"duplicateDashboard", "addDashboardWidget", "createPlaylist", "previewWidgetData", "replaceDashboardLayout")
-	pending("SEC I1 (detection: hallazgos y reputación)",
-		"deleteAllowlistEntry", "listCustomerFindings", "listFindings", "getFinding", "getFindingEvidence", "listAllowlist",
-		"listReputationSources", "getSecuritySummary", "acknowledgeFinding", "markFindingFalsePositive", "resolveFinding",
-		"createAllowlistEntry")
+	// detection (I1-12, SEC)
+	c["listFindings"] = tenanttest.Case{Kind: tenanttest.List}
+	c["listCustomerFindings"] = tenanttest.Case{Kind: tenanttest.List}
+	c["getFinding"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["getFindingEvidence"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["acknowledgeFinding"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["resolveFinding"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["markFindingFalsePositive"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"comment": "intento de otro ISP"}}
+	c["getSecuritySummary"] = tenanttest.Case{Kind: tenanttest.List}
+	c["listAllowlist"] = tenanttest.Case{Kind: tenanttest.List}
+	c["createAllowlistEntry"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"prefix": "198.51.100.0/24", "reason": "pirata"}}
+	c["deleteAllowlistEntry"] = tenanttest.Case{Kind: tenanttest.ByID}
+	pending("SEC I1 (detection: estado de feeds en el rol; feedsync aún no integrado en horus)", "listReputationSources")
 	pending("FLOW I1 (flows: exportadores)", "listFlowExporters", "getFlowExporter")
 	pending("CORE I1 (wireguard: peers y scripts)",
 		"listWireguardPeers", "getWireguardPeer", "createDeprovisioningScript", "createProvisioningScript", "revokeEnrollmentToken")
@@ -76,7 +85,11 @@ func (a *app) fixtureISP(x isp, cidr string) map[string]string {
 	site := a.must(a.post(x.token, "/api/v1/sites", map[string]any{"name": "Nodo"}), 201).str("id")
 	router := a.must(a.post(x.token, "/api/v1/routers", map[string]any{"site_id": site, "name": "rt-1", "routeros_version": "7.16"}), 201).str("id")
 	cp := a.must(a.post(x.token, "/api/v1/sites/"+site+"/client-prefixes", map[string]any{"prefix": cidr, "role": "customers"}), 201).str("id")
-	return map[string]string{"site_id": site, "router_id": router, "client_prefix_id": cp}
+	out := map[string]string{"site_id": site, "router_id": router, "client_prefix_id": cp}
+	for k, v := range a.fixtureDetection(x, site, router) {
+		out[k] = v
+	}
+	return out
 }
 
 // I0-08: matriz de aislamiento sobre el contrato. Para cada operación de ISP
@@ -115,6 +128,7 @@ func TestTenantIsolationMatrix(t *testing.T) {
 		Mounted: func(method, tmpl string) bool {
 			r, _ := http.NewRequestWithContext(context.Background(), method, strings.NewReplacer(
 				"{site_id}", paramsA["site_id"], "{router_id}", paramsA["router_id"], "{client_prefix_id}", paramsA["client_prefix_id"],
+				"{finding_id}", paramsA["finding_id"], "{customer_id}", paramsA["customer_id"], "{entry_id}", paramsA["entry_id"],
 			).Replace(tmpl), nil)
 			return a.mux.Matches(r)
 		},
