@@ -156,16 +156,43 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ env.GO_VERSION }}
-      - name: go test -tags=integration (testcontainers)
+      - id: detect
+        name: ¿hay tests con la etiqueta integration?
+        run: |
+          if grep -rqE --include='*.go' '^//go:build .*integration' .; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "integration: aún no hay tests con la etiqueta 'integration'; se omite"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+      # PostgreSQL y ClickHouse reales: el compose de desarrollo (mismas versiones fijadas que en
+      # local). Los tests del esquema ClickHouse (I0-13) descubren deployments/compose/.env y
+      # secrets/clickhouse_password.txt; pgtest usa HORUS_TEST_POSTGRES_DSN en vez de levantar
+      # su propio contenedor con testcontainers.
+      - name: make up (PostgreSQL, ClickHouse, NATS, Valkey)
+        if: steps.detect.outputs.present == 'true'
+        run: make up
+      - name: go test -tags=integration
+        if: steps.detect.outputs.present == 'true'
         env:
           UNITS: ${{ needs.changes.outputs.go_units }}
         run: |
-          if ! grep -rqE --include='*.go' '^//go:build .*integration' .; then
-            echo "integration: aún no hay tests con la etiqueta 'integration'; se omite"
-            exit 0
-          fi
+          set -a; . deployments/compose/.env; set +a
+          pg_pw="$(cat deployments/compose/secrets/postgres_password.txt)"
+          echo "::add-mask::$pg_pw"
+          export HORUS_TEST_POSTGRES_DSN="postgres://${HORUS_PG_USER}:${pg_pw}@127.0.0.1:${HORUS_PG_PORT}/${HORUS_PG_DB}?sslmode=disable"
+          export HORUS_CH_TEST_DSN="clickhouse://${HORUS_CH_USER}@127.0.0.1:${HORUS_CH_NATIVE_PORT}/${HORUS_CH_DB}"
+          export HORUS_CH_TEST_PASSWORD_FILE="$PWD/deployments/compose/secrets/clickhouse_password.txt"
           mapfile -t pkgs < <(jq -r '.[] | if . == "." then "./..." else "./\(.)/..." end' <<<"$UNITS")
-          go test -tags=integration -race -shuffle=on "${pkgs[@]}"
+          go test -tags=integration -race -shuffle=on -count=1 "${pkgs[@]}"
+      - name: logs del compose si falla
+        if: failure() && steps.detect.outputs.present == 'true'
+        run: |
+          docker compose --project-directory deployments/compose -f deployments/compose/compose.dev.yaml ps -a
+          docker compose --project-directory deployments/compose -f deployments/compose/compose.dev.yaml logs --tail 80
+      - name: make reset
+        if: always() && steps.detect.outputs.present == 'true'
+        run: make reset
 
   # -------------------------------------------------------------------------------------------
   contracts:
