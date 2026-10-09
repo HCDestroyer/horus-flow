@@ -55,21 +55,59 @@ func cases() map[string]tenanttest.Case {
 			c[id] = tenanttest.Case{Kind: tenanttest.Pending, Owner: owner}
 		}
 	}
-	pending("CORE I1 (devices: clientes, credenciales, importación y lotes de prefijos)",
-		"listCustomers", "getCustomerStats", "getCustomer", "listCustomerKindHistory", "updateCustomer", "confirmClientPrefix",
-		"lookupCustomers", "resetCustomer", "setCustomerKind", "unlockCustomerKind", "putRouterCredential")
-	pending("CORE I1 (auth: miembros, roles y kioscos)",
-		"removeMember", "listKiosks", "getKiosk", "listMembers", "listRoles", "updateKiosk", "createKiosk",
-		"createKioskEnrollmentCode", "revokeKiosk", "inviteMember", "replaceMemberRoleAssignments")
-	pending("CORE I1 (alerts: canales de notificación, D13/D17/D21)",
-		"deleteNotificationChannel", "listNotificationChannels", "getNotificationChannel", "listNotificationDeliveries",
-		"updateNotificationChannel", "createNotificationChannel", "testNotificationChannelConnection", "testNotificationChannel",
-		"putNotificationChannelCredentials")
-	pending("analytics (dashboards, widgets, playlists, tráfico)",
-		"listDashboards", "getDashboard", "deleteDashboard", "deleteDashboardWidget", "deletePlaylist", "getCustomerTraffic",
-		"getTrafficAttribution", "getTrafficTimeseries", "getTrafficTop", "getWidgetData", "getKioskConfig", "listPlaylists",
-		"listPrefixProposals", "updateDashboard", "updateDashboardWidget", "updatePlaylist", "createDashboard",
-		"duplicateDashboard", "addDashboardWidget", "createPlaylist", "previewWidgetData", "replaceDashboardLayout")
+	// devices: clientes (I1-06, CORE)
+	c["listCustomers"] = tenanttest.Case{Kind: tenanttest.List}
+	c["getCustomerStats"] = tenanttest.Case{Kind: tenanttest.List}
+	c["getCustomer"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["listCustomerKindHistory"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["updateCustomer"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"alias": "pirata"}}
+	c["lookupCustomers"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"address": "10.10.0.41"}}
+	c["resetCustomer"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"reason": "intento de otro ISP"}}
+	c["setCustomerKind"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"kind": "commercial", "reason": "intento de otro ISP"}}
+	c["unlockCustomerKind"] = tenanttest.Case{Kind: tenanttest.ByID}
+	pending("CORE I1 (devices: credenciales y confirmación de prefijos)", "confirmClientPrefix", "putRouterCredential")
+	// auth: kioscos (I1-14, CORE)
+	c["listKiosks"] = tenanttest.Case{Kind: tenanttest.List}
+	c["createKiosk"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"name": "TV pirata"}}
+	c["getKiosk"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["updateKiosk"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"name": "pirata"}}
+	c["createKioskEnrollmentCode"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["revokeKiosk"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"reason": "pirata"}}
+	pending("CORE I1 (auth: miembros y roles)",
+		"removeMember", "listMembers", "listRoles", "inviteMember", "replaceMemberRoleAssignments")
+	// alerts: canal mínimo (D13/D17/D21, CORE)
+	c["listNotificationChannels"] = tenanttest.Case{Kind: tenanttest.List}
+	c["createNotificationChannel"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"name": "pirata", "kind": "telegram",
+		"config": map[string]any{"chat_id": "12345"}, "subscription": map[string]any{"event_types": []string{"finding_opened"}}}}
+	c["getNotificationChannel"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["updateNotificationChannel"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"name": "pirata"}}
+	c["deleteNotificationChannel"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["putNotificationChannelCredentials"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"telegram_bot_token": "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef0123"}}
+	c["testNotificationChannelConnection"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["testNotificationChannel"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["listNotificationDeliveries"] = tenanttest.Case{Kind: tenanttest.List}
+	// analytics: dashboards, playlists y kiosco (I1-15, CORE)
+	widget := map[string]any{"id": "w-pirata", "type": "traffic_now", "title": "x", "position": map[string]any{"x": 0, "y": 0, "w": 2, "h": 2}, "config": map[string]any{}}
+	layout := map[string]any{"grid": "12-col", "columns": 12, "row_height_px": 80}
+	c["listDashboards"] = tenanttest.Case{Kind: tenanttest.List}
+	c["getDashboard"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["createDashboard"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"name": "pirata", "layout": layout, "widgets": []any{}}}
+	c["updateDashboard"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"name": "pirata"}}
+	c["deleteDashboard"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["duplicateDashboard"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"name": "pirata"}}
+	c["replaceDashboardLayout"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"layout": layout, "positions": map[string]any{}}}
+	c["addDashboardWidget"] = tenanttest.Case{Kind: tenanttest.ByID, Body: widget}
+	c["updateDashboardWidget"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"title": "pirata"}}
+	c["deleteDashboardWidget"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["getWidgetData"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["previewWidgetData"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"type": "noc_header", "config": map[string]any{}}}
+	c["listPlaylists"] = tenanttest.Case{Kind: tenanttest.List}
+	c["createPlaylist"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"name": "pirata", "items": []any{map[string]any{"dashboard_id": "0192f000-0000-7000-8000-00000000d001", "duration_seconds": 30}}}}
+	c["updatePlaylist"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"name": "pirata"}}
+	c["deletePlaylist"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["getKioskConfig"] = tenanttest.Case{Kind: tenanttest.KioskOnly}
+	pending("FLOW I1 (analytics: tráfico y propuestas; su suite usa ClickHouse)",
+		"getCustomerTraffic", "getTrafficAttribution", "getTrafficTimeseries", "getTrafficTop", "listPrefixProposals")
 	// detection (I1-12, SEC)
 	c["listFindings"] = tenanttest.Case{Kind: tenanttest.List}
 	c["listCustomerFindings"] = tenanttest.Case{Kind: tenanttest.List}
@@ -105,6 +143,23 @@ func (a *app) fixtureISP(x isp, cidr string) map[string]string {
 		"token_id": script.Header.Get("X-Horus-Enrollment-Token-Id")}
 	for k, v := range a.fixtureDetection(x, site, router) {
 		out[k] = v
+	}
+	// Cliente real (I1-06) en el prefijo del nodo.
+	realm := a.realmOf(x.token, site)
+	out["customer_id"] = a.insertCustomer(x.id, site, realm, cp, "10.10.0.41")
+	out["kiosk_id"] = a.must(a.post(x.token, "/api/v1/kiosks", map[string]any{"name": "TV NOC"}), 201).str("id")
+	dash := a.must(a.post(x.token, "/api/v1/dashboards", map[string]any{"name": "NOC propio", "visibility": "tenant",
+		"layout":  map[string]any{"grid": "12-col", "columns": 12, "row_height_px": 80},
+		"widgets": []any{map[string]any{"id": "w-1", "type": "noc_header", "title": nil, "position": map[string]any{"x": 0, "y": 0, "w": 12, "h": 1}, "config": map[string]any{}}},
+	}), 201).str("id")
+	out["dashboard_id"], out["widget_id"] = dash, "w-1"
+	out["channel_id"] = a.must(a.post(x.token, "/api/v1/notification-channels", map[string]any{"name": "NOC", "kind": "telegram",
+		"config": map[string]any{"chat_id": "-100123"}, "subscription": map[string]any{"event_types": []string{"finding_opened"}}}), 201).str("id")
+	out["playlist_id"] = a.must(a.post(x.token, "/api/v1/playlists", map[string]any{"name": "Rotación",
+		"items": []any{map[string]any{"dashboard_id": dash, "duration_seconds": 30}}}), 201).str("id")
+	if _, err := a.admin.Exec(context.Background(), `UPDATE detection.finding SET customer_id = $1 WHERE id = $2`,
+		out["customer_id"], out["finding_id"]); err != nil {
+		a.t.Fatal(err)
 	}
 	return out
 }
@@ -152,6 +207,8 @@ func TestTenantIsolationMatrix(t *testing.T) {
 				"{site_id}", paramsA["site_id"], "{router_id}", paramsA["router_id"], "{client_prefix_id}", paramsA["client_prefix_id"],
 				"{peer_id}", paramsA["peer_id"], "{token_id}", paramsA["token_id"],
 				"{finding_id}", paramsA["finding_id"], "{customer_id}", paramsA["customer_id"], "{entry_id}", paramsA["entry_id"],
+				"{kiosk_id}", paramsA["kiosk_id"], "{dashboard_id}", paramsA["dashboard_id"], "{widget_id}", paramsA["widget_id"],
+				"{playlist_id}", paramsA["playlist_id"], "{channel_id}", paramsA["channel_id"],
 			).Replace(tmpl), nil)
 			return a.mux.Matches(r)
 		},

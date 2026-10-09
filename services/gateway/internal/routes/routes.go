@@ -28,6 +28,9 @@ const (
 	PermRefreshCookie   = "refresh_cookie"
 	PermKioskCookie     = "kiosk_cookie"
 	PermEnrollmentToken = "enrollment_token"
+	PermWidgetType      = "widget_type"
+	PermDashboardAccess = "dashboard_access"
+	PermKioskSelf       = "kiosk_self"
 )
 
 // Route es una entrada (prefijo + método) de la tabla.

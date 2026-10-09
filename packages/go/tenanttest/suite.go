@@ -104,6 +104,9 @@ const (
 	// Pending: el endpoint aún no existe (otra historia/incremento). Falla si
 	// está montado.
 	Pending
+	// KioskOnly: ruta exclusiva del JWT de kiosco (x-principals: [kiosk]):
+	// un token de usuario del ISP → 403 (el aislamiento lo da el tid del kiosco).
+	KioskOnly
 )
 
 // Case es el caso de aislamiento declarado de una operación.
@@ -228,6 +231,8 @@ func (s *Suite) Run(t *testing.T) {
 				s.list(t, op)
 			case Create:
 				s.create(t, op, c)
+			case KioskOnly:
+				s.kioskOnly(t, op, c)
 			default:
 				t.Fatalf("tipo de caso desconocido %d", c.Kind)
 			}
@@ -331,5 +336,16 @@ func (s *Suite) mismatch(t *testing.T, op Operation, c Case, path string) {
 	body["tenant_id"] = s.TenantB
 	if st, b := s.Do(s.TokenA, op.Method, path, body, headers()); st != http.StatusForbidden || code(b) != "TENANT_MISMATCH" {
 		t.Errorf("tenant_id de B en el cuerpo: %d %s, quiero 403 TENANT_MISMATCH", st, b)
+	}
+}
+
+func (s *Suite) kioskOnly(t *testing.T, op Operation, c Case) {
+	t.Helper()
+	path, err := fill(op.Path, s.ParamsA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st, b := s.Do(s.TokenA, op.Method, path, s.body(op, c), headers()); st != http.StatusForbidden {
+		t.Errorf("token de usuario en ruta de kiosco: %d %s, quiero 403", st, b)
 	}
 }

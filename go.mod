@@ -7,6 +7,7 @@ toolchain go1.26.8
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.40.3
 	github.com/caarlos0/env/v11 v11.3.1
+	github.com/coder/websocket v1.8.12
 	github.com/docker/docker v28.4.0+incompatible
 	github.com/docker/go-units v0.5.0
 	github.com/go-chi/chi/v5 v5.2.3

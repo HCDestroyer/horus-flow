@@ -23,6 +23,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/config"
 	"github.com/hcdestroyer/horus-flow/packages/go/health"
 	"github.com/hcdestroyer/horus-flow/packages/go/module"
+	"github.com/hcdestroyer/horus-flow/packages/go/natsx"
 	"github.com/hcdestroyer/horus-flow/packages/go/pagination"
 	"github.com/hcdestroyer/horus-flow/packages/go/pgdb"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
@@ -117,7 +118,7 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 	if deps.Routes != nil {
 		httpapi.New(svc, authz.NewGuard(verifier), cfg.PublicBaseURL, logger).Mount(deps.Routes)
 	}
-	return m, nil
+	return natsx.WithRelay(ctx, deps, m, db, migrations.Schema)
 }
 
 func (m *mod) Start(ctx context.Context) error {
