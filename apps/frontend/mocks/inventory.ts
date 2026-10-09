@@ -355,7 +355,11 @@ export function routersOf(
         token_state: progress.tokenState,
         token_id: progress.run?.tokenId ?? null,
         token_expires_at: progress.run ? iso(progress.run.expiresAt) : null,
-        enrolled_at: progress.keyAt ? iso(progress.keyAt) : hasTunnel ? '2026-09-02T15:10:00.000Z' : null,
+        enrolled_at: progress.keyAt
+          ? iso(progress.keyAt)
+          : hasTunnel
+            ? '2026-09-02T15:10:00.000Z'
+            : null,
       },
     }
     return { site, router, exporter, peer, progress }
@@ -422,89 +426,89 @@ export function prefixImportPreview(
   const site = item.site
   const existing = prefixesOf(tenant, site)
   const v6 = v6CustomerPrefix(tenant)
-  const raw: Omit<PrefixImportPreview['items'][number], 'diff' | 'existing_client_prefix_id'>[] =
-    [
-      {
-        prefix: `${tenant.prefix}.0.0/20`,
-        origin: 'ip_pool',
-        origin_name: 'pool-pppoe',
-        suggested_role: 'customers',
-        suggested_assignment_mode: 'dynamic',
-      },
-      {
-        prefix: `${tenant.prefix}.32.0/24`,
-        origin: 'ip_pool',
-        origin_name: 'pool-hotspot',
-        suggested_role: 'customers',
-        suggested_assignment_mode: 'dynamic',
-      },
-      {
-        prefix: '100.64.40.0/22',
-        origin: 'ip_pool',
-        origin_name: 'pool-cgnat',
-        suggested_role: 'customers',
-        suggested_assignment_mode: 'dynamic',
-      },
-      {
-        prefix: `${tenant.prefix}.0.0/16`,
-        origin: 'interface_address',
-        origin_name: 'bridge-clientes',
-        suggested_role: 'customers',
-        suggested_assignment_mode: 'unknown',
-      },
-      {
-        prefix: `${tenant.prefix}.250.0/29`,
-        origin: 'interface_address',
-        origin_name: 'ether1-uplink',
-        suggested_role: 'infrastructure',
-        suggested_assignment_mode: 'static',
-      },
-      {
-        prefix: v6,
-        origin: 'ipv6_pool',
-        origin_name: 'pd-clientes',
-        suggested_role: 'customers',
-        suggested_assignment_mode: 'dynamic',
-        delegated_prefix_length: V6_CLIENT_LEN,
-        ipv6_pool_usage: 'dhcpv6_pd',
-        suggested_ipv6_client_len: V6_CLIENT_LEN,
-      },
-      {
-        prefix: v6.replace('00::/40', 'f0::/44'),
-        origin: 'ipv6_pool',
-        origin_name: 'pd-empresas',
-        suggested_role: 'customers',
-        suggested_assignment_mode: 'static',
-        delegated_prefix_length: 48,
-        ipv6_pool_usage: 'dhcpv6_pd',
-        suggested_ipv6_client_len: 48,
-      },
-      {
-        prefix: v6.replace('00::/40', 'ff:ff00::/56'),
-        origin: 'ipv6_pool',
-        origin_name: 'ppp-enlaces',
-        suggested_role: 'infrastructure',
-        suggested_assignment_mode: 'dynamic',
-        delegated_prefix_length: 64,
-        ipv6_pool_usage: 'ppp_link_shared',
-        suggested_ipv6_client_len: null,
-      },
-      {
-        prefix: v6.replace('00::/40', 'fe:4000::/50'),
-        origin: 'ipv6_pool',
-        origin_name: 'pd-pruebas',
-        suggested_role: 'excluded',
-        suggested_assignment_mode: 'unknown',
-        delegated_prefix_length: 62,
-        ipv6_pool_usage: 'unused',
-        suggested_ipv6_client_len: null,
-      },
-    ]
+  const raw: Omit<PrefixImportPreview['items'][number], 'diff' | 'existing_client_prefix_id'>[] = [
+    {
+      prefix: `${tenant.prefix}.0.0/20`,
+      origin: 'ip_pool',
+      origin_name: 'pool-pppoe',
+      suggested_role: 'customers',
+      suggested_assignment_mode: 'dynamic',
+    },
+    {
+      prefix: `${tenant.prefix}.32.0/24`,
+      origin: 'ip_pool',
+      origin_name: 'pool-hotspot',
+      suggested_role: 'customers',
+      suggested_assignment_mode: 'dynamic',
+    },
+    {
+      prefix: '100.64.40.0/22',
+      origin: 'ip_pool',
+      origin_name: 'pool-cgnat',
+      suggested_role: 'customers',
+      suggested_assignment_mode: 'dynamic',
+    },
+    {
+      prefix: `${tenant.prefix}.0.0/16`,
+      origin: 'interface_address',
+      origin_name: 'bridge-clientes',
+      suggested_role: 'customers',
+      suggested_assignment_mode: 'unknown',
+    },
+    {
+      prefix: `${tenant.prefix}.250.0/29`,
+      origin: 'interface_address',
+      origin_name: 'ether1-uplink',
+      suggested_role: 'infrastructure',
+      suggested_assignment_mode: 'static',
+    },
+    {
+      prefix: v6,
+      origin: 'ipv6_pool',
+      origin_name: 'pd-clientes',
+      suggested_role: 'customers',
+      suggested_assignment_mode: 'dynamic',
+      delegated_prefix_length: V6_CLIENT_LEN,
+      ipv6_pool_usage: 'dhcpv6_pd',
+      suggested_ipv6_client_len: V6_CLIENT_LEN,
+    },
+    {
+      prefix: v6.replace('00::/40', 'f0::/44'),
+      origin: 'ipv6_pool',
+      origin_name: 'pd-empresas',
+      suggested_role: 'customers',
+      suggested_assignment_mode: 'static',
+      delegated_prefix_length: 48,
+      ipv6_pool_usage: 'dhcpv6_pd',
+      suggested_ipv6_client_len: 48,
+    },
+    {
+      prefix: v6.replace('00::/40', 'ff:ff00::/56'),
+      origin: 'ipv6_pool',
+      origin_name: 'ppp-enlaces',
+      suggested_role: 'infrastructure',
+      suggested_assignment_mode: 'dynamic',
+      delegated_prefix_length: 64,
+      ipv6_pool_usage: 'ppp_link_shared',
+      suggested_ipv6_client_len: null,
+    },
+    {
+      prefix: v6.replace('00::/40', 'fe:4000::/50'),
+      origin: 'ipv6_pool',
+      origin_name: 'pd-pruebas',
+      suggested_role: 'excluded',
+      suggested_assignment_mode: 'unknown',
+      delegated_prefix_length: 62,
+      ipv6_pool_usage: 'unused',
+      suggested_ipv6_client_len: null,
+    },
+  ]
   return {
     router_id: item.router.id,
     routeros_version: '7.16.2',
     read_at: now.toISOString(),
-    tls_fingerprint_sha256: 'SHA256:7f3a9c1e2b4d5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e',
+    tls_fingerprint_sha256:
+      'SHA256:7f3a9c1e2b4d5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e',
     items: raw.map((item) => {
       const same = existing.find((p) => p.prefix === item.prefix)
       const over = same ? undefined : overlapping(tenant, site, item.prefix)
@@ -654,7 +658,12 @@ export function buildCustomer(
   const prefix = prefixes.find((p) => {
     const ip = parseIp(customerAddress(tenant, i))
     const c = parseCidr(p.prefix)
-    return p.role === 'customers' && ip && c && contains(c, { ...c, network: ip.value, length: ip.family === 4 ? 32 : 128 })
+    return (
+      p.role === 'customers' &&
+      ip &&
+      c &&
+      contains(c, { ...c, network: ip.value, length: ip.family === 4 ? 32 : 128 })
+    )
   })
   const pppAlias = !commercial && i >= 20 && i <= 30 && i % 2 === 0
   const base: CustomerDetail = {
