@@ -238,11 +238,14 @@ de un nodo del PO, RouterOS 7, con NAT en el mismo router:
 |---|---|
 | Versión y plantillas | IPFIX (v10); plantilla 258 IPv4 (37 campos) y 259 IPv6 (34 campos), reenviadas con frecuencia |
 | Campos útiles presentes | bytes/paquetes delta, puertos, protocolo, `tcpControlBits`, TTL, ICMP type/code, `ingress/egressInterface`, MAC origen/destino y post-MAC, `systemInitTimeMilliseconds`, `flowStart/EndSysUpTime`, campos NAT 225–228 |
-| Subida con NAT | 3 277 registros con `src` privada y `postNATSrc` pública (3 IPs públicas de NAT) |
+| Subida con NAT | 3 277 registros con `src` privada y `postNATSrc` distinta: 2 IPs públicas de NAT y 1 IP privada (un `srcnat` entre redes internas, 1 418 registros) |
+| Tráfico interno | 4 429 registros privado→privado entre redes del ISP (`internal`): no son tráfico de clientes hacia Internet |
+| Pérdidas en la captura | 80 saltos de secuencia IPFIX en 74 s (≈ 11 985 registros enviados que no están en la captura): pendiente averiguar si se pierden en el sniffer del router o salen por otra interfaz. El colector debe medir `sequence_gaps` |
 | Bajada con NAT | 3 211 registros con `dst` = IP pública del NAT y `postNATDst` = IP privada del cliente |
 | Redes de clientes vistas | 172.31/16, 10.22/16, 10.25/16, 10.21/16, 10.18/16, 10.17/16, 10.20/16, 172.28/16, 172.29/16, 10.30/16 |
 | `active-flow-timeout=1m` | duración máxima de flujo 59,99 s; 78 % de los registros son de un solo paquete (duración 0) |
 | Volumen | ≈ 152 flujos/s y 14 datagramas/s en ese router |
+| Fixture anonimizado | `tests/fixtures/mikrotik-real/ipfix-nat-20s.pcapng` (20 s, 2 596 registros; IPs y MAC remapeadas, captura cruda fuera del repo) |
 | `interfaces=` | el filtro **no** limitó la exportación a la interfaz indicada (aparecen flujos de varias interfaces): no confiar en él para reducir volumen |
 | IPv6 | 0 registros en la ventana capturada |
 
