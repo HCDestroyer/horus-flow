@@ -30,29 +30,31 @@ const states = computed(() =>
       <p class="w-kpi text-highlighted" data-testid="findings-open">
         {{ formatNumber(v.open_total) }}
       </p>
-      <div class="flex min-w-0 flex-col gap-0.5 pb-[0.05em]">
+      <div class="flex min-w-0 flex-col gap-[0.15em] pb-[0.05em]">
         <ul
-          class="w-label flex flex-wrap gap-x-3 gap-y-0.5"
+          class="w-label flex flex-wrap gap-x-[0.75em] gap-y-0.5"
           :aria-label="t('widgets.findings_summary.bySeverity')"
+          data-fit-optional="3"
         >
-          <li v-for="x in severities" :key="x.s" class="inline-flex items-baseline gap-1">
+          <li v-for="x in severities" :key="x.s" class="inline-flex items-baseline gap-[0.3em]">
             <SeverityBadge :severity="x.s" />
             <span class="text-highlighted font-semibold tabular">{{ x.n }}</span>
           </li>
         </ul>
         <ul
           v-if="states.length"
-          class="w-meta flex flex-wrap gap-x-3 gap-y-0.5"
+          class="w-meta flex flex-wrap gap-x-[0.75em] gap-y-0.5"
           :aria-label="t('widgets.findings_summary.byState')"
+          data-fit-optional="2"
         >
-          <li v-for="x in states" :key="x.s" class="inline-flex items-baseline gap-1">
+          <li v-for="x in states" :key="x.s" class="inline-flex items-baseline gap-[0.3em]">
             <SecurityStateBadge :state="x.s" />
             <span class="text-highlighted font-semibold tabular">{{ x.n }}</span>
           </li>
         </ul>
       </div>
     </div>
-    <p v-if="scale === 'normal'" class="w-meta text-muted mt-auto tabular">
+    <p v-if="scale === 'normal'" class="w-meta text-muted mt-auto tabular" data-fit-optional="1">
       {{
         t('widgets.findings_summary.new24h', { n: v.new_last_24h, customers: v.affected_customers })
       }}

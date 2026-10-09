@@ -1,14 +1,16 @@
-import type {
-  BotnetSignalsValues,
-  CustomersActiveValues,
-  ExporterRow,
-  FindingFeedRow,
-  FindingsSummaryValues,
-  SecurityByNodeRow,
-  TopCustomerRow,
-  TopRow,
-  TrafficNowValues,
-  WatchedPortRow,
+import {
+  BOTNET_SIGNALS,
+  type BotnetSignal,
+  type BotnetSignalsValues,
+  type CustomersActiveValues,
+  type ExporterRow,
+  type FindingFeedRow,
+  type FindingsSummaryValues,
+  type SecurityByNodeRow,
+  type TopCustomerRow,
+  type TopRow,
+  type TrafficNowValues,
+  type WatchedPortRow,
 } from '~/widgets/shapes'
 import type {
   DashboardWidget,
@@ -25,7 +27,8 @@ import type { MockTenant } from './data'
  *
  * Sintéticos y deterministas por ISP (semilla = tenant) y minuto, con la forma del sobre
  * `widget-data.schema.json`. Los hallazgos parten del ejemplo del contrato
- * (`finding-outbound-scanning.api.json`). Huecos como `null`, nunca ceros.
+ * (`finding-outbound-scanning.api.json`) y todos los widgets de seguridad salen de una misma
+ * base (`openFindings`). Huecos como `null`, nunca ceros.
  */
 
 export interface WidgetDataContext {
@@ -155,54 +158,6 @@ function customersActive(ctx: WidgetDataContext): WidgetData {
   const values: CustomersActiveValues = ctx.empty
     ? { active: 0, new_today: 0, total: 0 }
     : { active: Math.round(total * 0.91), new_today: Math.round(3 + r() * 9), total }
-  return state(ctx, values)
-}
-
-function findingsSummary(ctx: WidgetDataContext): WidgetData {
-  const r = rng(hash(ctx.tenant.tenant_id + 'findings'))
-  const bySeverity = ctx.empty
-    ? {}
-    : {
-        critical: Math.round(r() * 2),
-        high: Math.round(2 + r() * 5),
-        medium: Math.round(4 + r() * 8),
-        low: Math.round(3 + r() * 6),
-      }
-  const minSeverity = String(ctx.widget.config.min_severity ?? 'low')
-  const order = ['low', 'medium', 'high', 'critical']
-  const filtered = Object.fromEntries(
-    Object.entries(bySeverity).filter(([s]) => order.indexOf(s) >= order.indexOf(minSeverity)),
-  )
-  const openTotal = Object.values(filtered).reduce((a, b) => a + b, 0)
-  const values: FindingsSummaryValues = {
-    open_total: openTotal,
-    open_by_severity: filtered,
-    new_last_24h: ctx.empty ? 0 : Math.round(2 + r() * 6),
-    affected_customers: ctx.empty ? 0 : Math.round(openTotal * 0.7),
-    by_security_state: ctx.empty
-      ? {}
-      : { infected: Math.round(1 + r() * 2), suspected: Math.round(openTotal * 0.5) },
-  }
-  return state(ctx, values)
-}
-
-function botnetSignals(ctx: WidgetDataContext): WidgetData {
-  const r = rng(hash(ctx.tenant.tenant_id + 'signals'))
-  const values: BotnetSignalsValues = ctx.empty
-    ? { by_signal: {}, affected_customers: 0 }
-    : {
-        by_signal: {
-          c2_contact: Math.round(1 + r() * 3),
-          beaconing: Math.round(r() * 4),
-          fan_out: Math.round(2 + r() * 5),
-          scanning: Math.round(3 + r() * 7),
-          watched_ports: Math.round(2 + r() * 6),
-          sustained_upload: Math.round(r() * 3),
-          smtp: Math.round(r() * 2),
-          ddos: 0,
-        },
-        affected_customers: Math.round(9 + r() * 8),
-      }
   return state(ctx, values)
 }
 
@@ -407,32 +362,146 @@ const FINDING_TEMPLATES: Pick<FindingFeedRow, 'kind' | 'severity' | 'summary'>[]
   },
 ]
 
+/** Señales de botnet (traffic-model.md §8) que aporta cada tipo de hallazgo. */
+const SIGNALS_BY_KIND: Record<string, BotnetSignal[]> = {
+  outbound_scanning: ['scanning', 'fan_out', 'watched_ports'],
+  botnet_c2_communication: ['c2_contact'],
+  beaconing: ['beaconing'],
+  spam_smtp_outbound: ['smtp', 'fan_out'],
+  ddos_participation: ['ddos', 'sustained_upload'],
+  reputation_hit: [],
+}
+
+const SEVERITY_ORDER = ['info', 'low', 'medium', 'high', 'critical']
+
+/** Hallazgo abierto de la base simulada: lo que ve el feed más lo que necesitan los agregados. */
+export interface MockFinding extends FindingFeedRow {
+  /** Índice del cliente en el pool sintético del ISP (agrupa por cliente). */
+  customer: number
+  opened_at: string
+}
+
+/**
+ * Hallazgos abiertos del ISP: **una sola base** de la que salen el resumen
+ * (`findings_summary`), el feed (`findings_feed`), la tendencia (`findings_trend`), la
+ * seguridad por nodo (`security_by_node`) y las señales de botnet (`botnet_signals`), para
+ * que los widgets nunca se contradigan (p. ej. "Crítica 0" con una crítica en el feed).
+ * Determinista por ISP; las fechas son relativas a `now`. Un cliente con un hallazgo de C2
+ * es "Infectado" (D18) en todos sus hallazgos; el resto, "Sospechoso".
+ */
+export function openFindings(tenant: MockTenant, now: Date): MockFinding[] {
+  const r = rng(hash(tenant.tenant_id + 'findings-base'))
+  const t = now.getTime()
+  const total = 30 + (hash(tenant.tenant_id) % 12)
+  const pool = 14
+  const base = Array.from({ length: total }, (_, i) => {
+    const template =
+      i < FINDING_TEMPLATES.length
+        ? FINDING_TEMPLATES[i]!
+        : FINDING_TEMPLATES[Math.floor(r() * FINDING_TEMPLATES.length)]!
+    // Los diez más recientes son de clientes distintos; los demás repiten clientes.
+    const customer = i < 10 ? i : Math.floor(r() * pool)
+    const lastSeen = t - (i * 7 + 1) * 60_000 - Math.round(r() * 50_000)
+    // Abiertos en los últimos 30 días; dos tercios en la última semana.
+    const age = (r() < 0.66 ? r() * 7 : 7 + r() * 23) * 86_400_000
+    return { template, customer, lastSeen, opened: Math.min(lastSeen, t - age) }
+  })
+  const infected = new Set(
+    base.filter((f) => f.template.kind === 'botnet_c2_communication').map((f) => f.customer),
+  )
+  return base.map(({ template, customer, lastSeen, opened }, i) => {
+    const ip =
+      customer === 0
+        ? findingExample.customer.address.replace('10.20', tenant.prefix)
+        : `${tenant.prefix}.${customer % 3}.${10 + ((customer * 37) % 240)}`
+    return {
+      id: `${findingExample.id.slice(0, -2)}${String(i).padStart(2, '0')}`,
+      ...template,
+      customer,
+      customer_ip: ip,
+      alias: customer === 2 ? 'Ferretería El Puente' : null,
+      site: tenant.sites[customer % tenant.sites.length]!.name,
+      security_state: infected.has(customer) ? 'infected' : 'suspected',
+      confidence:
+        template.kind === 'botnet_c2_communication'
+          ? 0.94
+          : Math.round((0.55 + r() * 0.4) * 100) / 100,
+      opened_at: iso(opened),
+      last_seen_at: iso(lastSeen),
+    }
+  })
+}
+
+function atLeast(findings: MockFinding[], minSeverity: unknown) {
+  const min = SEVERITY_ORDER.indexOf(String(minSeverity ?? 'low'))
+  return findings.filter((f) => SEVERITY_ORDER.indexOf(f.severity) >= min)
+}
+
+function findingsSummary(ctx: WidgetDataContext): WidgetData {
+  if (ctx.empty) {
+    return state(ctx, {
+      open_total: 0,
+      open_by_severity: {},
+      new_last_24h: 0,
+      affected_customers: 0,
+      by_security_state: {},
+    } satisfies FindingsSummaryValues)
+  }
+  const findings = atLeast(openFindings(ctx.tenant, ctx.now), ctx.widget.config.min_severity)
+  const min = SEVERITY_ORDER.indexOf(String(ctx.widget.config.min_severity ?? 'low'))
+  const bySeverity = Object.fromEntries(
+    (['low', 'medium', 'high', 'critical'] as const)
+      .filter((s) => SEVERITY_ORDER.indexOf(s) >= min)
+      .map((s) => [s, findings.filter((f) => f.severity === s).length]),
+  )
+  const customers = (list: MockFinding[]) => new Set(list.map((f) => f.customer)).size
+  const dayAgo = ctx.now.getTime() - 86_400_000
+  const values: FindingsSummaryValues = {
+    open_total: findings.length,
+    open_by_severity: bySeverity,
+    new_last_24h: findings.filter((f) => new Date(f.opened_at).getTime() >= dayAgo).length,
+    affected_customers: customers(findings),
+    by_security_state: {
+      infected: customers(findings.filter((f) => f.security_state === 'infected')),
+      suspected: customers(findings.filter((f) => f.security_state === 'suspected')),
+    },
+  }
+  return state(ctx, values)
+}
+
+function botnetSignals(ctx: WidgetDataContext): WidgetData {
+  if (ctx.empty) {
+    return state(ctx, { by_signal: {}, affected_customers: 0 } satisfies BotnetSignalsValues)
+  }
+  const findings = openFindings(ctx.tenant, ctx.now)
+  const bySignal = new Map<BotnetSignal, Set<number>>()
+  const affected = new Set<number>()
+  for (const f of findings) {
+    for (const signal of SIGNALS_BY_KIND[f.kind] ?? []) {
+      if (!bySignal.has(signal)) bySignal.set(signal, new Set())
+      bySignal.get(signal)!.add(f.customer)
+      affected.add(f.customer)
+    }
+  }
+  const values: BotnetSignalsValues = {
+    by_signal: Object.fromEntries(BOTNET_SIGNALS.map((s) => [s, bySignal.get(s)?.size ?? 0])),
+    affected_customers: affected.size,
+  }
+  return state(ctx, values)
+}
+
 function findingsFeed(ctx: WidgetDataContext): WidgetData {
-  const r = rng(hash(ctx.tenant.tenant_id + 'feed'))
   const limit = Number(ctx.widget.config.limit ?? 8)
-  const order = ['info', 'low', 'medium', 'high', 'critical']
-  const min = order.indexOf(String(ctx.widget.config.min_severity ?? 'low'))
-  const t = ctx.now.getTime()
-  const rows: FindingFeedRow[] = FINDING_TEMPLATES.filter((f) => order.indexOf(f.severity) >= min)
+  const rows: FindingFeedRow[] = atLeast(
+    openFindings(ctx.tenant, ctx.now),
+    ctx.widget.config.min_severity,
+  )
+    .sort((a, b) => b.last_seen_at.localeCompare(a.last_seen_at))
     .slice(0, limit)
-    .map((f, i) => {
-      const ip =
-        i === 0
-          ? findingExample.customer.address.replace('10.20', ctx.tenant.prefix)
-          : `${ctx.tenant.prefix}.${Math.floor(r() * 3)}.${Math.floor(10 + r() * 240)}`
-      const confidence = i === 1 ? 0.94 : Math.round((0.55 + r() * 0.4) * 100) / 100
-      return {
-        id: `${findingExample.id.slice(0, -2)}${String(i).padStart(2, '0')}`,
-        ...f,
-        customer_ip: ctx.canSeePersonalData ? ip : maskIp(ip),
-        alias: i === 2 ? 'Ferretería El Puente' : null,
-        site: ctx.tenant.sites[i % ctx.tenant.sites.length]!.name,
-        // D18: un cliente con C2 confirmado y confianza alta aparece como "Infectado".
-        security_state: f.kind === 'botnet_c2_communication' ? 'infected' : 'suspected',
-        confidence,
-        last_seen_at: iso(t - (i * 7 + 1) * 60_000 - Math.round(r() * 50_000)),
-      }
-    })
+    .map(({ customer: _customer, opened_at: _opened, ...row }) => ({
+      ...row,
+      customer_ip: ctx.canSeePersonalData ? row.customer_ip : maskIp(row.customer_ip),
+    }))
   return table(
     ctx,
     [
@@ -451,35 +520,42 @@ function findingsFeed(ctx: WidgetDataContext): WidgetData {
   )
 }
 
+/** Tipos de la tendencia, en orden fijo (paleta categórica). */
+export const TREND_KINDS = [
+  'outbound_scanning',
+  'botnet_c2_communication',
+  'spam_smtp_outbound',
+  'beaconing',
+  'ddos_participation',
+]
+
+/** Hallazgos abiertos por día de apertura y tipo, de la misma base que el resumen. */
 function findingsTrend(ctx: WidgetDataContext): WidgetData {
   const days = String(ctx.widget.config.range) === '30d' ? 30 : 7
   const dayMs = 86_400_000
   const end = Math.floor(ctx.now.getTime() / dayMs) * dayMs
-  const kinds = [
-    'outbound_scanning',
-    'botnet_c2_communication',
-    'spam_smtp_outbound',
-    'beaconing',
-    'ddos_participation',
-  ]
+  const start = end - (days - 1) * dayMs
+  const findings = openFindings(ctx.tenant, ctx.now)
   const series: SeriesData['series'] = ctx.empty
     ? []
-    : kinds.map((kind, k) => {
-        const r = rng(hash(ctx.tenant.tenant_id + kind))
+    : TREND_KINDS.map((kind) => {
+        const counts = Array<number>(days).fill(0)
+        for (const f of findings) {
+          if (f.kind !== kind) continue
+          const day = Math.floor((new Date(f.opened_at).getTime() - start) / dayMs)
+          if (day >= 0 && day < days) counts[day]!++
+        }
         return {
           metric: 'findings_opened',
           unit: 'count',
           group: kind,
-          points: Array.from({ length: days }, (_, i) => [
-            iso(end - (days - 1 - i) * dayMs),
-            Math.round((5 - k) * (0.6 + r()) + (k === 0 ? i * 0.4 : 0)),
-          ]),
+          points: counts.map((n, i) => [iso(start + i * dayMs), n] as [string, number]),
         }
       })
   return {
     data: { kind: 'series', series },
     meta: meta(ctx, 'series', {
-      from: iso(end - (days - 1) * dayMs),
+      from: iso(start),
       to: iso(end),
       step: 86_400,
       freshness_seconds: 20,
@@ -488,13 +564,17 @@ function findingsTrend(ctx: WidgetDataContext): WidgetData {
 }
 
 function securityByNode(ctx: WidgetDataContext): WidgetData {
-  const r = rng(hash(ctx.tenant.tenant_id + 'by-node'))
+  const findings = openFindings(ctx.tenant, ctx.now)
   const rows: SecurityByNodeRow[] = ctx.tenant.sites
-    .map((s) => ({
-      site: s.name,
-      customers_with_signals: Math.round(1 + r() * 9),
-      open_findings: Math.round(2 + r() * 12),
-    }))
+    .map((s) => {
+      const here = findings.filter((f) => f.site === s.name)
+      return {
+        site: s.name,
+        customers_with_signals: new Set(here.map((f) => f.customer)).size,
+        open_findings: here.length,
+      }
+    })
+    .filter((row) => row.open_findings > 0)
     .sort((a, b) => b.customers_with_signals - a.customers_with_signals)
     .slice(0, Number(ctx.widget.config.n ?? 8))
   return table(

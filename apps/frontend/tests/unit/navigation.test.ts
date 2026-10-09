@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest'
 import {
   buildNavigation,
   canSeeSection,
+  DEFAULT_NAV_INCREMENT,
   findSection,
   NAV_SECTIONS,
+  parseIncrement,
+  sectionAccess,
   tenantSwitchPath,
 } from '~/utils/navigation'
 import { USERS } from '~~/mocks/data'
@@ -104,5 +107,39 @@ describe('cambio de ISP (frontend.md §3.2)', () => {
       '/t/red-andina',
     )
     expect(tenantSwitchPath('/t/fibra-norte', 'red-andina', admin, 'I1')).toBe('/t/red-andina')
+  })
+})
+
+describe('incrementos futuros (aparición progresiva)', () => {
+  it('navIncrement se normaliza y cae en I1 si no es válido', () => {
+    expect(DEFAULT_NAV_INCREMENT).toBe('I1')
+    expect(parseIncrement(' i2 ')).toBe('I2')
+    expect(parseIncrement('I3')).toBe('I3')
+    expect(parseIncrement('')).toBe('I1')
+    expect(parseIncrement(undefined)).toBe('I1')
+    expect(parseIncrement('I9')).toBe('I1')
+  })
+
+  it('con I1, ninguna sección de I2/I3 aparece en el menú y su URL da "no encontrado"', () => {
+    const future = NAV_SECTIONS.filter((s) => s.increment === 'I2' || s.increment === 'I3')
+    expect(future.map((s) => s.id)).toEqual(['investigate', 'alerts', 'reports', 'audit'])
+    const visible = ids(buildNavigation(admin, 'fibra-norte', DEFAULT_NAV_INCREMENT))
+    for (const s of future) {
+      expect(visible).not.toContain(s.id)
+      // La administradora tiene el permiso: aun así, 404 (no 403) para no revelar la sección.
+      expect(canSeeSection(s, admin, 'fibra-norte')).toBe(true)
+      expect(sectionAccess(s, admin, 'fibra-norte', 'I1')).toBe('not-found')
+    }
+    expect(sectionAccess(findSection('tenant', 'admin/audit'), admin, 'fibra-norte', 'I2')).toBe(
+      'ok',
+    )
+  })
+
+  it('sección inexistente → no encontrada; sin permiso → prohibida', () => {
+    expect(sectionAccess(undefined, admin, 'fibra-norte', 'I3')).toBe('not-found')
+    expect(sectionAccess(findSection('tenant', 'clients'), noc, 'fibra-norte', 'I1')).toBe(
+      'forbidden',
+    )
+    expect(sectionAccess(findSection('tenant', 'nodes'), noc, 'fibra-norte', 'I1')).toBe('ok')
   })
 })

@@ -6,14 +6,10 @@
  */
 const { t } = useI18n()
 const route = useRoute()
-const { me } = useAuth()
 const { membership } = useTenant()
 const config = useRuntimeConfig()
 
-const section = findSection('tenant', 'dashboards')!
-if (!canSeeSection(section, me.value, String(route.params.slug))) {
-  throw createError({ statusCode: 403, statusMessage: 'Forbidden' })
-}
+useSectionGuard()(findSection('tenant', 'dashboards'), String(route.params.slug))
 
 const id = computed(() => String(route.params.id))
 const wall = computed(() => route.query.scale === 'wall')
@@ -99,10 +95,13 @@ onBeforeUnmount(() => {
         color="neutral"
         variant="outline"
         icon="i-lucide-maximize-2"
-        :label="t('dashboards.wall')"
+        :aria-label="t('dashboards.wall')"
         :to="{ path: route.path, query: { scale: 'wall' } }"
         data-testid="open-wall"
-      />
+      >
+        <!-- En móvil solo el icono: el título de la página necesita el ancho. -->
+        <span class="hidden sm:inline">{{ t('dashboards.wall') }}</span>
+      </UButton>
     </template>
 
     <LoadingState v-if="status === 'pending' && !dashboard" :rows="4" />

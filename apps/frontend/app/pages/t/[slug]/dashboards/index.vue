@@ -4,12 +4,8 @@
  * "Seguridad"), de solo lectura; crear, duplicar y editar llegan en I2.
  */
 const { t } = useI18n()
-const { me } = useAuth()
 const route = useRoute()
-const section = findSection('tenant', 'dashboards')!
-if (!canSeeSection(section, me.value, String(route.params.slug))) {
-  throw createError({ statusCode: 403, statusMessage: 'Forbidden' })
-}
+useSectionGuard()(findSection('tenant', 'dashboards'), String(route.params.slug))
 
 const { data: dashboards, error, status, refresh } = useDashboardList()
 const slug = computed(() => String(route.params.slug))

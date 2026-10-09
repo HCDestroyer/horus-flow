@@ -1,4 +1,4 @@
-import type { Increment } from '~/utils/navigation'
+import type { Increment, NavSection } from '~/utils/navigation'
 
 /**
  * ISP actual (frontend.md §3). El slug sale de la URL; la membresía, de `GET /me`; el token
@@ -7,7 +7,7 @@ import type { Increment } from '~/utils/navigation'
 export function useTenant() {
   const route = useRoute()
   const { me } = useAuth()
-  const config = useRuntimeConfig()
+  const navIncrement = useNavIncrement()
 
   const slug = computed(() =>
     typeof route.params.slug === 'string' ? route.params.slug : (lastTenant() ?? undefined),
@@ -25,12 +25,7 @@ export function useTenant() {
   /** Cambia de ISP conservando la sección si existe allí (§3.2). */
   async function switchTo(toSlug: string) {
     if (toSlug === membership.value?.tenant_slug) return
-    const target = tenantSwitchPath(
-      route.path,
-      toSlug,
-      me.value,
-      config.public.navIncrement as Increment,
-    )
+    const target = tenantSwitchPath(route.path, toSlug, me.value, navIncrement.value)
     await navigateTo(target)
   }
 
@@ -42,13 +37,34 @@ export function useTenant() {
   }
 }
 
+/** Incremento máximo visible (`NUXT_PUBLIC_NAV_INCREMENT`, por defecto I1), normalizado. */
+export function useNavIncrement() {
+  const config = useRuntimeConfig()
+  return computed<Increment>(() => parseIncrement(config.public.navIncrement))
+}
+
 /** Navegación visible para el usuario en el ISP actual. */
 export function useNavigation() {
   const { me } = useAuth()
   const { slug } = useTenant()
-  const config = useRuntimeConfig()
-  const max = computed(() => config.public.navIncrement as Increment)
+  const max = useNavIncrement()
   return computed(() => buildNavigation(me.value, slug.value, max.value))
+}
+
+/**
+ * Guardia de las páginas de sección: la función devuelta corta la página si la sección no
+ * está disponible: 404 "No encontrado" si no existe o es de un incremento posterior al
+ * visible; 403 en contexto sin permiso (frontend.md §9.3). Se crea en `setup` y puede
+ * llamarse después (al cambiar la ruta).
+ */
+export function useSectionGuard() {
+  const { me } = useAuth()
+  const max = useNavIncrement()
+  return (section: NavSection | undefined, slug?: string) => {
+    const access = sectionAccess(section, me.value, slug, max.value)
+    if (access === 'not-found') throw createError({ statusCode: 404, statusMessage: 'Not Found' })
+    if (access === 'forbidden') throw createError({ statusCode: 403, statusMessage: 'Forbidden' })
+  }
 }
 
 /**

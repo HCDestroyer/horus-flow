@@ -42,9 +42,9 @@ const rows = computed(() =>
         </thead>
         <tbody>
           <tr
-            data-fit-item
             v-for="row in rows"
             :key="row.customer_ip + row.site"
+            data-fit-item
             class="border-default border-t"
           >
             <td class="truncate py-[0.3em] pe-2">
@@ -53,7 +53,7 @@ const rows = computed(() =>
                 class="font-mono"
                 :class="
                   row.alias
-                    ? ['text-muted ms-1.5', scale === 'normal' ? 'text-[0.85em]' : '']
+                    ? ['text-muted ms-[0.4em]', scale === 'normal' ? 'text-[0.85em]' : '']
                     : 'text-highlighted'
                 "
                 >{{ row.customer_ip }}</span
@@ -61,7 +61,7 @@ const rows = computed(() =>
               <UIcon
                 v-if="row.kind === 'commercial'"
                 name="i-lucide-building-2"
-                class="text-info ms-1.5 size-[0.9em] align-[-0.1em]"
+                class="text-info ms-[0.4em] size-[0.9em] align-[-0.1em]"
                 :aria-label="t('widgets.top_customers.commercial')"
               />
             </td>
@@ -80,7 +80,10 @@ const rows = computed(() =>
         </tbody>
       </table>
     </div>
-    <p v-if="meta?.masked_personal_data" class="w-meta text-muted mt-auto flex items-center gap-1">
+    <p
+      v-if="meta?.masked_personal_data"
+      class="w-meta text-muted mt-auto flex items-center gap-[0.3em]"
+    >
       <UIcon name="i-lucide-eye-off" class="size-[1.1em]" aria-hidden="true" />
       {{ t('widgets.common.masked') }}
     </p>

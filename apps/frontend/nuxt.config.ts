@@ -35,9 +35,11 @@ export default defineNuxtConfig({
       // criterio 4); sin la variable, la SPA habla con el gateway en `apiBase`. En una SPA
       // generada el valor queda fijado en la build (`pnpm build:mocks` para demos y e2e).
       apiMock: ['1', 'true'].includes(process.env.HORUS_UI_MOCKS ?? ''),
-      // Incremento máximo cuyas secciones aparecen en la barra lateral (frontend.md §4,
-      // aparición progresiva). Valores: I0 | I1 | I2 | I3.
-      navIncrement: 'I1',
+      // Incremento máximo cuyas secciones existen en la UI (frontend.md §4, aparición
+      // progresiva): las posteriores no salen en el menú y su URL da 404. Valores: I0 | I1 |
+      // I2 | I3; por defecto I1 (entrega y demo). En una SPA generada se fija en la build:
+      // `NUXT_PUBLIC_NAV_INCREMENT=I2 pnpm build`. Un valor no válido cae en I1.
+      navIncrement: process.env.NUXT_PUBLIC_NAV_INCREMENT ?? 'I1',
     },
   },
 

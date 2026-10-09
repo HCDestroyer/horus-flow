@@ -23,7 +23,7 @@ const label = computed(() =>
 
 <template>
   <span
-    class="inline-flex shrink-0 items-center gap-1 font-medium"
+    class="inline-flex shrink-0 items-center gap-[0.3em] font-medium"
     :class="visual.cls"
     :data-security-state="state"
   >

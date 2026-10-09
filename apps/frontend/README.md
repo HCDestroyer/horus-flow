@@ -26,6 +26,8 @@ pnpm build              # nuxt generate contra el gateway → .output/public
 pnpm build:mocks        # igual, con la API simulada (demos y e2e)
 pnpm e2e --grep @tenant # Playwright (construye con build:mocks si no hay E2E_NO_BUILD=1)
 pnpm e2e --grep @widgets
+pnpm e2e --grep @layout # sin desbordamiento: mural 720p–4K, escritorio y móvil 320–430 px
+pnpm e2e --grep @tour   # recorrido con capturas en docs/screenshots/tour/
 pnpm screenshots        # capturas en docs/screenshots/
 ```
 
@@ -77,8 +79,12 @@ silencioso) · `system-error` · `widget-error` (dos widgets fallan una vez) · 
   tamaños permitidos) y en el **build** (`modules/widget-manifests.ts`): uno inválido rompe
   `nuxt generate`.
 - `DashboardGrid`: 12 columnas con `row_height_px`, adaptación §5.2 por ancho del contenedor,
-  vista mural (`?scale=wall`) a pantalla completa con escala `--u` = altura/1080 (KPI 72 px,
-  títulos 28, etiquetas 22, nada < 20). `WidgetHost`: carga, vacío, error con "Reintentar",
+  vista mural (`?scale=wall`) a pantalla completa: el diseño de 1920×1080 se escala de forma
+  uniforme con `--u` = min(alto/1080, ancho/1920) (KPI 72 px, títulos 28, etiquetas 22, nada
+  < 20 a 1080p); si algo no cabe, `v-fit-optional` oculta primero lo secundario
+  (`data-fit-optional`) y `v-fit-rows` las filas que no caben enteras. Los huecos de las
+  plantillas se cierran estirando widgets (`fillGaps`); en una o dos columnas las filas crecen
+  con el contenido. `WidgetHost`: carga, vacío, error con "Reintentar",
   sin permiso, degradado (503), datos parciales y frescura (fresco/atrasado/obsoleto).
 - Widgets: `noc_header`, `traffic_now` (en vivo), `customers_active`, `findings_summary`,
   `botnet_signals`, `exporters_status`, `traffic_timeseries`, `top_categories`, `top_customers`,
@@ -93,8 +99,6 @@ silencioso) · `system-error` · `widget-error` (dos widgets fallan una vez) · 
 - Cliente WebSocket real (ticket, reconexión, re-suscripción) e indicador de conexión: I1.
 - Kiosco (`/kiosk`, credencial de dispositivo, rotación, wake lock): I1.
 - CI: el job `frontend` no ejecuta Playwright; `e2e --grep @tenant` y `@widgets` se corren a mano.
-- Las plantillas del contrato dejan huecos en la grilla (p. ej. NOC fila 8, Seguridad filas 4–5);
-  se respetan tal cual.
 
 ## Decisiones
 
@@ -104,6 +108,11 @@ silencioso) · `system-error` · `widget-error` (dos widgets fallan una vez) · 
   `X-Requested-With: horus`; sin Pinia. La API simulada guarda su "cookie" en `sessionStorage`
   solo dentro de `mocks/`.
 - **Navegación:** fuente única en `app/utils/navigation.ts`; aparición progresiva por incremento
-  (`NUXT_PUBLIC_NAV_INCREMENT`) y secciones **ocultas** sin permiso.
+  (`NUXT_PUBLIC_NAV_INCREMENT`, fijado en la build; por defecto **I1**): las secciones de
+  incrementos posteriores no aparecen y su URL da "No encontrado"; secciones **ocultas** sin
+  permiso.
+- **API simulada coherente:** todos los widgets de seguridad (resumen, feed, tendencia, por nodo,
+  señales) salen de una base de hallazgos abiertos (`openFindings`); lo garantiza
+  `tests/unit/mock-findings.test.ts`.
 - **D18:** el estado `infected` se muestra como "Infectado", siempre con su confianza.
 - **Marca provisional** (P-20 abierta): `primary` teal, neutros zinc.
