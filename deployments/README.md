@@ -40,3 +40,48 @@ make reset   # para y BORRA los volúmenes (PostgreSQL, ClickHouse, NATS, Valkey
 - **ClickHouse y `nofile`:** si `make up` falla con `error setting rlimit`, el host o el daemon de
   Docker tienen un límite de descriptores menor que 262144: baja `HORUS_CH_NOFILE` en `.env`.
 - **CI:** el job `compose-smoke` ejecuta `make up && scripts/wait-healthy.sh && make down`.
+
+## Producción en un servidor (I1-22) y backups locales (I1-23)
+
+Requisitos: Debian 12/13 o Ubuntu 22.04/24.04 LTS, Docker Engine ≥ 24 con compose v2, ≥ 4 núcleos,
+≥ 8 GiB de RAM, ≥ 100 GiB libres (mejor un **segundo disco** para `--store-dir`), puertos 80/443 TCP
+y 51820 UDP libres, módulo WireGuard del kernel (o `wireguard-go`).
+
+```bash
+git clone https://github.com/hcdestroyer/horus-flow && cd horus-flow
+sudo bash scripts/install.sh                     # pregunta: modo de acceso, rango de túneles, superadmin
+# desatendido, solo IP:
+sudo bash scripts/install.sh --yes --mode ip --admin-email noc@isp.net --admin-password-file /root/pw
+# con dominio o subdominio (TLS automático de Let's Encrypt):
+sudo bash scripts/install.sh --yes --mode domain --domain horus.isp.net --acme-email noc@isp.net \
+     --admin-email noc@isp.net --admin-password-file /root/pw --store-dir /mnt/backups/horus
+sudo /opt/horus/bin/install.sh --check           # puertos, salud de cada rol, disco, TLS, backups
+sudo /opt/horus/bin/install.sh --uninstall       # conserva datos y secretos (--purge los borra)
+```
+
+| Qué | Dónde |
+| --- | --- |
+| Compose (copia de [`compose/compose.prod.yaml`](compose/compose.prod.yaml)), `.env` sin secretos, `config/`, `bin/` | `/opt/horus` |
+| Secretos (0700, nunca se regeneran), TLS, respuestas del instalador (`install.conf`) | `/etc/horus/{secrets,tls}` |
+| Datos de PostgreSQL, ClickHouse, NATS, Valkey, Traefik y métricas de backups | `/var/lib/horus/*` |
+| Almacén y backups (`backups/postgres` pgBackRest, `backups/clickhouse`, `reports/`, `catalog/`…) | `--store-dir` (`/var/lib/horus/store`) |
+| Paquete de secretos offline cifrado (guárdalo fuera y ejecuta `install.sh --confirm-bundle`) | `/root/horus-secrets-<host>-<fecha>.tar.gz.{enc,age}` |
+
+- **Modos de acceso (D19):** `domain`/`subdomain` → router Traefik por `Host()`, reto HTTP-01 en
+  :80, HSTS; `ip` (`ip_only`) → certificado autogenerado (EC P-256, SAN IP, 825 días) cuya huella
+  SHA-256 muestran el instalador y `--check`; `wireguard` lo incluye en el script RouterOS.
+- **Red:** solo Traefik (80/443) y el UDP de WireGuard del hub son públicos. `horus-wg-agent` va en
+  la red del host con `NET_ADMIN` y gestiona `wg0` (creada por `bin/horus-tunnel` /
+  `horus-tunnel.service`); el colector publica 4739/2055 UDP **solo en la IP del hub** y
+  `DOCKER-USER`/`INPUT` descartan ese UDP si no entra por `wg0`. gRPC `wireguard` ↔ `wg-agent` con
+  mTLS (CA interna generada por el instalador) por la puerta de enlace de la red del compose.
+- **NATS:** usuario/contraseña; el servicio one-shot `nats-init` (`horus nats-provision`) aplica los
+  streams del contrato C4 y el KV `flow_exporter_state` antes de los `horus-*`.
+- **Backups (I1-23):** `horus-backup run all` a las 02:15 UTC (pgBackRest full el domingo / diff;
+  WAL continuo con `archive_timeout=60`; ClickHouse `BACKUP` nativo full el domingo / incremental,
+  sin `flows_raw`), `verify all` los domingos 06:00 (restauración en PostgreSQL y ClickHouse
+  efímeros y vacíos, comparación tabla a tabla), `check-ttl` diario y métricas cada 5 min
+  (`127.0.0.1:9109/metrics.prom`; reglas en `infrastructure/backup/prometheus-rules.yml`).
+  Retención: 3 completos de PostgreSQL (≥ 14 días de PITR sin destino remoto) y 3 cadenas de
+  ClickHouse. Alertas: log del sistema, métrica a 0 y `HORUS_BACKUP_ALERT_WEBHOOK` opcional.
+  `make test-backup` lo prueba de punta a punta. El destino remoto (rclone/SFTP) llega en I3.

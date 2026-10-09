@@ -23,12 +23,14 @@ import (
 
 	"github.com/hcdestroyer/horus-flow/packages/go/apperr"
 	"github.com/hcdestroyer/horus-flow/packages/go/authz"
+	"github.com/hcdestroyer/horus-flow/packages/go/datasets"
 	"github.com/hcdestroyer/horus-flow/packages/go/outbox"
 	"github.com/hcdestroyer/horus-flow/packages/go/pagination"
 	"github.com/hcdestroyer/horus-flow/packages/go/pgdb"
 	"github.com/hcdestroyer/horus-flow/packages/go/problem"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
 	"github.com/hcdestroyer/horus-flow/services/detection/internal/adapters/postgres"
+	"github.com/hcdestroyer/horus-flow/services/detection/internal/app/feedsync"
 	"github.com/hcdestroyer/horus-flow/services/detection/internal/domain"
 	"github.com/hcdestroyer/horus-flow/services/detection/internal/engine"
 )
@@ -75,6 +77,7 @@ type Flows interface {
 	WatchedPorts(ctx context.Context, tenant uuid.UUID, sites []uuid.UUID, from, to time.Time) ([]WatchedPort, error)
 	Customers(ctx context.Context, tenant uuid.UUID, keys []engine.ClientKey) (map[engine.ClientKey]engine.Customer, error)
 	CustomerKnown(ctx context.Context, tenant, customer uuid.UUID) (bool, error)
+	SiteNames(ctx context.Context, tenant uuid.UUID, ids []uuid.UUID) (map[uuid.UUID]string, error)
 }
 
 // Registry anota los tenants que usan detection (planificador del motor).
@@ -89,6 +92,8 @@ type Service struct {
 	audit    authapi.AuditRecorder
 	cursor   *pagination.Codec
 	registry Registry
+	kiosks   func() (authapi.KioskChecker, bool)
+	sources  SourceLister
 	now      func() time.Time
 	log      *slog.Logger
 }
@@ -99,8 +104,10 @@ type Options struct {
 	Audit    authapi.AuditRecorder
 	Cursor   *pagination.Codec
 	Registry Registry
-	Now      func() time.Time
-	Logger   *slog.Logger
+	// Kiosks resuelve el estado de un kiosco (auth en proceso); nil = se fía del gateway.
+	Kiosks func() (authapi.KioskChecker, bool)
+	Now    func() time.Time
+	Logger *slog.Logger
 }
 
 // NewService crea el servicio.
@@ -114,7 +121,7 @@ func NewService(db *pgdb.DB, o Options) *Service {
 	if o.Logger == nil {
 		o.Logger = slog.New(slog.DiscardHandler)
 	}
-	return &Service{db: db, flows: o.Flows, audit: o.Audit, cursor: o.Cursor, registry: o.Registry, now: o.Now, log: o.Logger}
+	return &Service{db: db, flows: o.Flows, audit: o.Audit, cursor: o.Cursor, registry: o.Registry, kiosks: o.Kiosks, now: o.Now, log: o.Logger}
 }
 
 // scope devuelve principal, tenant y los nodos a los que se limita perm.
@@ -286,6 +293,23 @@ func (s *Service) views(ctx context.Context, p *authz.Principal, t pgdb.TenantID
 	if p == nil || p.Type == authz.TypeKiosk || !p.Has(PermCustomers) {
 		return out
 	}
+	for i, cv := range s.customerViews(ctx, t, rows) {
+		out[i] = View{Customer: &cv, Render: true}
+	}
+	return out
+}
+
+// addrString es la dirección del cliente: IPv4 o prefijo IPv6 delegado (D22).
+func addrString(f *domain.Finding) string {
+	if f.Address.Addr().Is6() && !f.Address.Addr().Is4In6() {
+		return f.Address.String()
+	}
+	return f.Address.Addr().Unmap().String()
+}
+
+// customerViews resuelve dirección, alias y tipo de cada hallazgo (alias y
+// tipo de dim.customer si ClickHouse está disponible).
+func (s *Service) customerViews(ctx context.Context, t pgdb.TenantID, rows []domain.Finding) []CustomerView {
 	custs := map[engine.ClientKey]engine.Customer{}
 	if s.flows != nil && len(rows) > 0 {
 		keys := make([]engine.ClientKey, 0, len(rows))
@@ -296,16 +320,14 @@ func (s *Service) views(ctx context.Context, p *authz.Principal, t pgdb.TenantID
 			custs = got
 		}
 	}
-	for i, f := range rows {
-		addr := f.Address.Addr().Unmap().String()
-		if f.Address.Addr().Is6() && !f.Address.Addr().Is4In6() {
-			addr = f.Address.String()
-		}
-		cv := &CustomerView{Address: addr, Kind: f.CustomerKind}
+	out := make([]CustomerView, len(rows))
+	for i := range rows {
+		f := &rows[i]
+		cv := CustomerView{Address: addrString(f), Kind: f.CustomerKind}
 		if c, ok := custs[engine.ClientKey{Realm: f.RealmID, IP: f.Address.Addr().Unmap()}]; ok {
 			cv.Alias, cv.Kind = c.Alias, c.Kind
 		}
-		out[i] = View{Customer: cv, Render: true}
+		out[i] = cv
 	}
 	return out
 }
@@ -513,9 +535,36 @@ func (s *Service) recordAudit(ctx context.Context, p *authz.Principal, t pgdb.Te
 var ranges = map[string]time.Duration{"15m": 15 * time.Minute, "1h": time.Hour, "6h": 6 * time.Hour, "24h": 24 * time.Hour,
 	"7d": 7 * 24 * time.Hour, "30d": 30 * 24 * time.Hour, "90d": 90 * 24 * time.Hour}
 
+// readScope es el alcance de lectura de las rutas que admiten kioscos
+// (x-principals: kiosk): un kiosco activo del tenant lee todo el ISP sin
+// datos personales; un usuario necesita security.findings.read.
+func (s *Service) readScope(ctx context.Context) (pgdb.TenantID, []uuid.UUID, error) {
+	p := authz.FromContext(ctx)
+	if p == nil || p.Type != authz.TypeKiosk {
+		_, t, allowed, err := s.scope(ctx, PermRead)
+		return t, allowed, err
+	}
+	tid, err := authz.TenantOf(ctx)
+	if err != nil {
+		return pgdb.TenantID{}, nil, apperr.Forbidden(problem.CodeTokenScopeInvalid, "")
+	}
+	if s.kiosks != nil {
+		if kc, ok := s.kiosks(); ok {
+			st, err := kc.CheckKiosk(ctx, tid, p.KioskID)
+			if err != nil {
+				return pgdb.TenantID{}, nil, err
+			}
+			if st == nil || !st.Active {
+				return pgdb.TenantID{}, nil, &apperr.Error{Kind: apperr.KindUnauthorized, Code: problem.CodeSessionRevoked}
+			}
+		}
+	}
+	return pgdb.TenantID(tid), nil, nil
+}
+
 // Summary es GET /security/summary (sin IPs; también para kioscos).
 func (s *Service) Summary(ctx context.Context, qv url.Values) (map[string]any, error) {
-	_, t, allowed, err := s.scope(ctx, PermRead)
+	t, allowed, err := s.readScope(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -712,4 +761,60 @@ func (s *Service) DeleteAllow(ctx context.Context, id uuid.UUID) error {
 		return apperr.NotFound(problem.CodeNotFound)
 	}
 	return err
+}
+
+// SourceLister da el estado de las fuentes de reputación (feedsync en el rol).
+type SourceLister interface {
+	Status(ctx context.Context) ([]feedsync.SourceStatus, error)
+}
+
+// SetSources conecta el estado de las fuentes de reputación.
+func (s *Service) SetSources(l SourceLister) { s.sources = l }
+
+// Categoría del feed → enum del contrato (reputation_category de flows_raw).
+var sourceCategory = map[string]string{"botnet_cc": "botnet_cc", "scanner": "scanner", "malware": "malware_dist", "mining": "mining_pool",
+	"proxy": "proxy_vpn", "tor": "tor_exit", "blocklist": "blocklist", "spam": "blocklist", "other": "blocklist"}
+
+// ListSources es GET /reputation/sources: estado de los feeds de plataforma
+// (catálogo base y listas personalizadas, D20).
+func (s *Service) ListSources(ctx context.Context) ([]map[string]any, error) {
+	if _, _, _, err := s.scope(ctx, PermRead); err != nil {
+		return nil, err
+	}
+	if s.sources == nil {
+		return []map[string]any{}, nil
+	}
+	list, err := s.sources.Status(ctx)
+	if err != nil {
+		return nil, err
+	}
+	now := s.now().UTC()
+	out := make([]map[string]any, 0, len(list))
+	for _, x := range list {
+		src, st := x.Source, x.State
+		origin := "catalog"
+		if src.Origin == datasets.OriginCustom {
+			origin = "custom"
+		}
+		cat := sourceCategory[src.Category]
+		if cat == "" {
+			cat = "blocklist"
+		}
+		entries := 0
+		if st.Current != nil {
+			entries = st.Current.Entries
+		}
+		var last, age any
+		if !st.LastSuccess.IsZero() {
+			last, age = ts(st.LastSuccess), int(now.Sub(st.LastSuccess).Seconds())
+		}
+		name := src.Name
+		if name == "" {
+			name = src.ID
+		}
+		out = append(out, map[string]any{"key": src.ID, "name": name, "origin": origin, "confidence": src.Confidence, "category": cat,
+			"entries": entries, "last_success_at": last, "age_seconds": age,
+			"commercial_use_allowed": src.CommercialUse == datasets.CommercialYes || origin == "custom"})
+	}
+	return out, nil
 }

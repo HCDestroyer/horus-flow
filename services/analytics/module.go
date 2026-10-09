@@ -25,6 +25,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/health"
 	"github.com/hcdestroyer/horus-flow/packages/go/module"
 	analyticsapi "github.com/hcdestroyer/horus-flow/services/analytics/api/trafficwidgets"
+	"github.com/hcdestroyer/horus-flow/services/analytics/dashboards"
 	"github.com/hcdestroyer/horus-flow/services/analytics/internal/adapters/chread"
 	"github.com/hcdestroyer/horus-flow/services/analytics/internal/adapters/httpapi"
 	"github.com/hcdestroyer/horus-flow/services/analytics/internal/app"
@@ -69,6 +70,10 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 	if deps.Health != nil && cfg.ClickHouseDSN != "" {
 		deps.Health.AddCheck(health.Check{Name: "clickhouse", Critical: false, Probe: m.q.Ping})
 	}
+	// Submódulo de dashboards, playlists y kiosco (CORE, I1-15).
+	if m.dash, err = dashboards.New(ctx, deps); err != nil {
+		return nil, err
+	}
 	return m, nil
 }
 
@@ -95,11 +100,17 @@ type mod struct {
 	widgets *app.Widgets
 	js      jetstream.JetStream
 	loops   []func(context.Context)
+	dash    *dashboards.Module
 }
 
 // Start abre ClickHouse (si está configurado). Un ClickHouse caído no
 // impide arrancar: las consultas responden 503 ANALYTICS_UNAVAILABLE.
 func (m *mod) Start(ctx context.Context) error {
+	if m.dash != nil {
+		if err := m.dash.Start(ctx); err != nil {
+			return err
+		}
+	}
 	if m.cfg.ClickHouseDSN == "" {
 		m.log.WarnContext(ctx, "analytics: HORUS_CLICKHOUSE_DSN not set: traffic queries unavailable")
 		return nil
@@ -122,12 +133,18 @@ func (m *mod) Run(ctx context.Context) error {
 	for _, l := range m.loops {
 		go l(ctx)
 	}
+	if m.dash != nil {
+		go func() { _ = m.dash.Run(ctx) }()
+	}
 	<-ctx.Done()
 	return nil
 }
 
 // Stop cierra ClickHouse.
-func (m *mod) Stop(context.Context) error {
+func (m *mod) Stop(ctx context.Context) error {
+	if m.dash != nil {
+		_ = m.dash.Stop(ctx)
+	}
 	if r := m.q.get(); r != nil {
 		_ = r.Close()
 	}

@@ -1,0 +1,21 @@
+<!--
+  Disco `backups` de ClickHouse en el almacén local de Horus (I1-23; docs/storage.md §2.2 y §6.1,
+  docs/disaster-recovery.md §3.2). Lo usan los BACKUP/RESTORE nativos de horus-backup:
+    BACKUP DATABASE dim, DATABASE flows EXCEPT TABLES flows.flows_raw TO Disk('backups', 'full_...')
+  La ruta del contenedor la monta compose.prod.yaml desde HORUS_STORE_DIR/backups/clickhouse
+  (otro disco que /var/lib/clickhouse, idealmente).
+-->
+<clickhouse>
+    <storage_configuration>
+        <disks>
+            <backups>
+                <type>local</type>
+                <path>/var/lib/horus/store/backups/clickhouse/</path>
+            </backups>
+        </disks>
+    </storage_configuration>
+    <backups>
+        <allowed_disk>backups</allowed_disk>
+        <allowed_path>/var/lib/horus/store/backups/clickhouse/</allowed_path>
+    </backups>
+</clickhouse>

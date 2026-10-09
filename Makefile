@@ -204,6 +204,43 @@ lab-console: ## Consola serie del CHR (salir con Ctrl-])
 lab-selftest: ## Validación §8.3 en un CHR limpio; deja la salida en .lab/selftest-<ROS>.log
 	bash scripts/lab/selftest.sh
 
+##@ Producción (un servidor)
+
+# Instalador de un servidor (I1-22, scripts/install.sh --help). INSTALL_ARGS pasa opciones, p. ej.
+#   sudo make install INSTALL_ARGS="--mode domain --domain horus.isp.net --acme-email noc@isp.net"
+# Backups locales verificados (I1-23, scripts/backup/horus-backup.sh) de la instalación en
+# HORUS_INSTALL_DIR (/opt/horus).
+HORUS_INSTALL_DIR ?= /opt/horus
+INSTALL_ARGS      ?=
+
+.PHONY: install
+install: ## Instala o actualiza Horus en este servidor (sudo; INSTALL_ARGS="--mode ip ...")
+	bash scripts/install.sh $(INSTALL_ARGS)
+
+.PHONY: install-check
+install-check: ## Comprueba la instalación: puertos, salud de cada rol, disco, TLS y backups
+	bash scripts/install.sh --check $(INSTALL_ARGS)
+
+.PHONY: uninstall
+uninstall: ## Desinstala (conserva datos y secretos; INSTALL_ARGS="--purge" los borra)
+	bash scripts/install.sh --uninstall $(INSTALL_ARGS)
+
+.PHONY: backup-run
+backup-run: ## Backup local ahora (pgBackRest + ClickHouse; full el domingo o si no hay)
+	$(HORUS_INSTALL_DIR)/bin/horus-backup run all
+
+.PHONY: backup-verify
+backup-verify: ## Restauración de prueba en bases vacías y comparación con el origen
+	$(HORUS_INSTALL_DIR)/bin/horus-backup verify all
+
+.PHONY: backup-status
+backup-status: ## Estado de backups, restauraciones de prueba y disco
+	$(HORUS_INSTALL_DIR)/bin/horus-backup status
+
+.PHONY: test-backup
+test-backup: ## Prueba de I1-23: instala en un raíz temporal, backups, restauración verificada y alertas (sudo)
+	@GO='$(GO)' bash scripts/backup/test-backup.sh
+
 ##@ Aceptación
 
 # Batería de aceptación del incremento 0 (I0-19, tests/acceptance/README.md). Levanta su propio

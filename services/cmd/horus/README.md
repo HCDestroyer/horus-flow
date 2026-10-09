@@ -22,6 +22,7 @@ go run ./services/cmd/horus --version        # versión y roles disponibles
 | `main.go` | Señales (`SIGINT`/`SIGTERM`; una segunda señal termina de inmediato) y `os.Exit` |
 | `app.go` | `run` (flags, configuración, logger) y `build` (cableado manual: admin, roles, API) |
 | `roles.go` | Catálogo de roles en orden de arranque; `scripts/new-module.sh` añade aquí los nuevos |
+| `natsprov.go` | Subcomando `horus nats-provision`: aplica de forma idempotente los streams y durables de `packages/events/streams/streams.yaml` (C4, omite los de `since` posterior a `--increment`) y los buckets KV de `infrastructure/nats/kv.yaml` (p. ej. `flow_exporter_state`). Lo ejecuta el servicio one-shot `nats-init` del compose de producción (I1-22) |
 
 ## Roles
 

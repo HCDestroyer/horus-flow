@@ -1,0 +1,52 @@
+# Rutas de PRODUCCIÓN — modo ip_only (D19): sin dominio, certificado autogenerado por
+# scripts/install.sh para la IP del servidor (SAN IP:@HORUS_HOST@). La huella SHA-256 se
+# muestra al instalar y en `install.sh --check`, y wireguard la incluye en el script RouterOS
+# (HORUS_PUBLIC_TLS_CERT_FILE) para no usar nunca check-certificate=no. Sin HSTS: el navegador
+# avisará del certificado no emitido por una CA pública hasta que la persona lo acepte.
+
+http:
+  routers:
+    horus-http:
+      entryPoints: [web]
+      rule: "PathPrefix(`/`)"
+      middlewares: [https-redirect]
+      service: noop@internal
+    horus-api:
+      entryPoints: [websecure]
+      rule: "PathPrefix(`/api`) || PathPrefix(`/ws`)"
+      middlewares: [security-headers, api-ratelimit]
+      service: horus-gateway
+      tls: {}
+
+  middlewares:
+    https-redirect:
+      redirectScheme:
+        scheme: https
+        permanent: true
+    security-headers:
+      headers:
+        frameDeny: true
+        contentTypeNosniff: true
+        referrerPolicy: no-referrer
+        customResponseHeaders:
+          Server: ""
+    api-ratelimit:
+      rateLimit:
+        average: 50
+        burst: 100
+
+  services:
+    horus-gateway:
+      loadBalancer:
+        servers:
+          - url: "http://horus-app:8080"
+
+tls:
+  options:
+    default:
+      minVersion: VersionTLS12
+  stores:
+    default:
+      defaultCertificate:
+        certFile: /etc/traefik/tls/public.crt
+        keyFile: /etc/traefik/tls/public.key

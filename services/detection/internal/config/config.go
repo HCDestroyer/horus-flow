@@ -53,6 +53,17 @@ type Config struct {
 	Interval time.Duration `env:"HORUS_DETECTION_INTERVAL" envDefault:"1m"`
 	Lag      time.Duration `env:"HORUS_DETECTION_LAG" envDefault:"2m"`
 	Tenants  []string      `env:"HORUS_DETECTION_TENANTS" envSeparator:","`
+
+	// Feeds de reputación (I0-17, D20) dentro del rol: almacén, declaración,
+	// listas personalizadas y sincronización periódica (descarga de Internet:
+	// desactivada por defecto; HORUS_FEEDS_FIXTURES lee de un directorio).
+	DataDir         string        `env:"HORUS_DATA_DIR" envDefault:"/var/lib/horus/store"`
+	FeedsConfig     string        `env:"HORUS_FEEDS_CONFIG"`
+	FeedsCustom     string        `env:"HORUS_FEEDS_CUSTOM"`
+	FeedsFixtures   string        `env:"HORUS_FEEDS_FIXTURES"`
+	FeedsSync       bool          `env:"HORUS_DETECTION_FEEDS_SYNC" envDefault:"false"`
+	FeedsInterval   time.Duration `env:"HORUS_DETECTION_FEEDS_INTERVAL" envDefault:"15m"`
+	AllowUnverified bool          `env:"HORUS_FEEDS_ALLOW_UNVERIFIED" envDefault:"false"`
 }
 
 // LogValue implementa slog.LogValuer (sin secretos).

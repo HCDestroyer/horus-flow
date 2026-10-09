@@ -1,0 +1,43 @@
+# Alertas de backups locales y disco (I1-23; docs/disaster-recovery.md §4, docs/storage.md §7.1).
+# Para el Prometheus que raspe 127.0.0.1:9109/metrics.prom del servidor (job horus-backup,
+# metrics_path /metrics.prom). horus-backup ya avisa por sí mismo (log del sistema y webhook
+# HORUS_BACKUP_ALERT_WEBHOOK); estas reglas cubren además que el job deje de ejecutarse.
+groups:
+  - name: horus-backup
+    rules:
+      - alert: BackupFailed
+        expr: horus_backup_last_status == 0 and horus_backup_last_attempt_timestamp_seconds > 0
+        for: 5m
+        labels: { severity: page }
+        annotations:
+          summary: "El último backup local de {{ $labels.component }} falló"
+      - alert: BackupTooOld
+        expr: time() - horus_backup_last_success_timestamp_seconds > 36 * 3600
+        for: 15m
+        labels: { severity: page }
+        annotations:
+          summary: "Sin backup local correcto de {{ $labels.component }} desde hace más de 36 h"
+      - alert: RestoreTestTooOld
+        expr: time() - horus_backup_restore_test_last_success_timestamp_seconds > 8 * 86400
+        for: 1h
+        labels: { severity: ticket }
+        annotations:
+          summary: "Sin restauración de prueba correcta de {{ $labels.component }} en 8 días"
+      - alert: RawTTLMismatch
+        expr: horus_backup_raw_ttl_ok == 0
+        for: 1h
+        labels: { severity: ticket }
+        annotations:
+          summary: "El TTL de flows.flows_raw no coincide con docs/storage.md"
+      - alert: LocalStoreFilling
+        expr: horus_store_disk_used_ratio > 0.70
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "Disco {{ $labels.volume }} por encima del 70 %"
+      - alert: LocalStoreCritical
+        expr: horus_store_disk_used_ratio > 0.85
+        for: 5m
+        labels: { severity: page }
+        annotations:
+          summary: "Disco {{ $labels.volume }} por encima del 85 %"

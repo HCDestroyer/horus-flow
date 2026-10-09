@@ -1,0 +1,158 @@
+# Nocturno de Horus Flow (pendiente de I0-19 e historias I1-22 / I1-23 de PLAT).
+#
+#   accept-i0     `make accept-i0` con ACCEPT_IMAGE_MODE=dockerfile: la imagen sale del Dockerfile
+#                 raíz (en el runner no hay proxy que rompa `go mod download`), nunca del binario
+#                 del host. El paso lab-chr se omite: necesita el checksum de la imagen CHR y
+#                 descargar de mikrotik.com (lo cubre I1-25 en un host de laboratorio).
+#   install       I1-22: instala Horus con scripts/install.sh en el runner limpio (modo ip_only,
+#                 certificado autogenerado), `install.sh --check`, segunda ejecución idempotente
+#                 (los secretos no cambian) y desinstalación con --purge.
+#   test-backup   I1-23: `make test-backup` (pgBackRest + ClickHouse BACKUP, restauración de
+#                 prueba en una base vacía y comparación de huellas, TTL del crudo, métricas).
+#
+# Se ejecuta cada noche y a mano (workflow_dispatch). Los logs quedan como artefactos 14 días.
+# Actions fijadas por SHA (comentario = versión), igual que ci.yml.
+
+name: nightly
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GO_VERSION: "1.26.8"
+  GOLANGCI_LINT_VERSION: v2.14.0
+  BUF_VERSION: v1.47.2
+
+jobs:
+  # -------------------------------------------------------------------------------------------
+  accept-i0:
+    name: accept-i0
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          package_json_file: apps/frontend/package.json
+      - name: Herramientas (golangci-lint, buf, pglast, chdb)
+        run: |
+          go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}"
+          go install "github.com/bufbuild/buf/cmd/buf@${BUF_VERSION}"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          python3 -m pip install --user pglast==7.2 chdb==3.1.2
+      - name: Navegadores de Playwright
+        working-directory: apps/frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec playwright install --with-deps chromium
+      - name: make accept-i0 (ACCEPT_IMAGE_MODE=dockerfile)
+        env:
+          ACCEPT_IMAGE_MODE: dockerfile
+          ACCEPT_SKIP: lab-chr
+        run: make accept-i0
+      - name: Logs de la batería
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: accept-i0-logs
+          path: |
+            bin/accept-i0/*.log
+            bin/accept-i0/compose-logs.txt
+          retention-days: 14
+          if-no-files-found: ignore
+
+  # -------------------------------------------------------------------------------------------
+  install:
+    name: install (I1-22)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Imagen horus del Dockerfile raíz
+        run: |
+          docker build -t horus:nightly --build-arg "VERSION=nightly-${GITHUB_SHA::12}" \
+            --build-arg "REVISION=${GITHUB_SHA}" .
+      - name: wireguard-go (si el kernel del runner no trae el módulo)
+        run: sudo apt-get update -q && sudo apt-get install -yq wireguard-tools wireguard-go || true
+      - name: Instalación limpia (modo ip_only)
+        run: |
+          printf '%s' "Nightly-$(openssl rand -hex 12)" > "$RUNNER_TEMP/admin-password"
+          sudo bash scripts/install.sh --yes --mode ip --public-ip 127.0.0.1 \
+            --admin-email admin@horus.test --admin-password-file "$RUNNER_TEMP/admin-password" \
+            --tunnel-cidr 10.200.0.0/16 --image horus:nightly --store-dir /mnt/horus-store \
+            --bundle-out "$RUNNER_TEMP/bundle"
+      - name: install.sh --check
+        run: sudo bash scripts/install.sh --check
+      - name: Segunda ejecución (idempotente, no regenera secretos)
+        run: |
+          before="$(sudo sh -c 'sha256sum /etc/horus/secrets/*' | sha256sum)"
+          sudo bash scripts/install.sh --yes --image horus:nightly
+          after="$(sudo sh -c 'sha256sum /etc/horus/secrets/*' | sha256sum)"
+          test "$before" = "$after"
+      - name: HTTPS con el certificado autogenerado (huella)
+        run: |
+          fp="$(sudo cat /etc/horus/tls/fingerprint-sha256.txt)"
+          echo "huella: $fp"
+          code="$(curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1/api/v1/system/status)"
+          test "$code" = 401
+      - name: Backup y restauración de prueba sobre la instalación
+        run: |
+          sudo /opt/horus/bin/horus-backup run all
+          sudo /opt/horus/bin/horus-backup verify
+          sudo /opt/horus/bin/horus-backup status
+      - name: Diagnóstico si falla
+        if: failure()
+        run: |
+          sudo docker ps -a
+          sudo docker compose --project-directory /opt/horus -f /opt/horus/compose.yaml logs --tail 80 || true
+      - name: Desinstalación (--purge)
+        if: always()
+        run: sudo bash scripts/install.sh --uninstall --purge --yes
+
+  # -------------------------------------------------------------------------------------------
+  test-backup:
+    name: test-backup (I1-23)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: wireguard-go (si el kernel del runner no trae el módulo)
+        run: sudo apt-get update -q && sudo apt-get install -yq wireguard-tools wireguard-go || true
+      # El instalador necesita root (directorios, iptables, interfaz WireGuard); la imagen horus
+      # sale del Dockerfile raíz (ACCEPT_IMAGE_MODE=dockerfile).
+      - name: make test-backup
+        env:
+          ACCEPT_IMAGE_MODE: dockerfile
+        run: sudo -E env "PATH=$PATH" make test-backup
+      - name: Logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-backup-logs
+          path: bin/test-backup/
+          retention-days: 14
+          if-no-files-found: ignore

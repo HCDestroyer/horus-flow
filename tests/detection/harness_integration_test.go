@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 
 	"github.com/hcdestroyer/horus-flow/packages/go/authz"
@@ -26,7 +27,6 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/config"
 	"github.com/hcdestroyer/horus-flow/packages/go/datasets"
 	"github.com/hcdestroyer/horus-flow/packages/go/flowbus"
-	"github.com/hcdestroyer/horus-flow/packages/go/flowbus/flowbustest"
 	"github.com/hcdestroyer/horus-flow/packages/go/flowinv"
 	"github.com/hcdestroyer/horus-flow/packages/go/flowpb"
 	"github.com/hcdestroyer/horus-flow/packages/go/module"
@@ -110,13 +110,13 @@ func newWorld(t *testing.T, d flowinv.Data, tenant, site, router uuid.UUID, inge
 	t.Helper()
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	ch := chtest.Start(t, migrateCH)
-	natsURL := flowbustest.URL(t)
+	natsURL := natsURL(t)
 	b, _ := json.Marshal(d)
 	inv := filepath.Join(t.TempDir(), "inventory.json")
 	if err := os.WriteFile(inv, b, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	env := []string{"HORUS_NATS_URL=" + natsURL, "HORUS_NATS_ENSURE_STREAMS=true", "HORUS_TLM_FLOWS_MAX_BYTES=268435456",
+	env := []string{"HORUS_NATS_URL=" + natsURL, "HORUS_NATS_ENSURE_STREAMS=true", "HORUS_TLM_FLOWS_MAX_BYTES=67108864",
 		"HORUS_FLOWS_INVENTORY_FILE=" + inv}
 	ingEnv := append([]string{"HORUS_CLICKHOUSE_DSN=" + ch.DSN, "HORUS_CLICKHOUSE_PASSWORD=" + ch.Password, "HORUS_INGESTER_CH_MIGRATE=false"}, env...)
 	if ingestSnap != nil {
@@ -242,6 +242,14 @@ func scenarioSnapshot(t *testing.T, exp simExpected, listed time.Time) *reputati
 
 // shift traslada los tiempos de los lotes (los fixtures son de enero de 2026
 // y flows_raw tiene TTL de 7 días).
+//
+// Debe ser idempotente: el publisher del collector reintenta con el MISMO
+// *nats.Msg cuando JetStream tarda o falla (backoff), y collector.Replay
+// vuelve a pasar el mensaje por Transform. Si se modificara m.Data en su
+// sitio, un reintento trasladaría el lote dos veces (~9 meses de más) y sus
+// flujos saldrían de la ventana: era la causa de los fallos intermitentes de
+// beacon y sustained_out (dependía de la latencia de JetStream, no de la
+// hora). Por eso se devuelve un mensaje nuevo y el original no se toca.
 func shift(d time.Duration) func(*nats.Msg) *nats.Msg {
 	return func(m *nats.Msg) *nats.Msg {
 		if !strings.HasPrefix(m.Subject, flowbus.SubjectBatchPrefix) {
@@ -255,8 +263,10 @@ func shift(d time.Duration) func(*nats.Msg) *nats.Msg {
 			fb.Records[i].TS = fb.Records[i].TS.Add(d)
 			fb.Records[i].FlowStart = fb.Records[i].FlowStart.Add(d)
 		}
-		m.Data = fb.Marshal()
-		return m
+		out := nats.NewMsg(m.Subject)
+		out.Header = m.Header
+		out.Data = fb.Marshal()
+		return out
 	}
 }
 
@@ -296,6 +306,7 @@ func (w *world) evaluate(now time.Time) detection.EvaluateReport {
 	if err != nil {
 		w.t.Fatalf("evaluate: %v", err)
 	}
+	w.t.Logf("evaluate(%s): %+v", now.Format(time.RFC3339), rep)
 	return rep
 }
 
@@ -349,4 +360,25 @@ func (w *world) findings() []finding {
 
 func detectionEvaluate(w *world, tenant uuid.UUID, now time.Time) (detection.EvaluateReport, error) {
 	return detection.Evaluate(context.Background(), w.det, tenant, now)
+}
+
+// natsURL arranca un NATS con JetStream en proceso con un límite de
+// almacenamiento fijo: así la reserva de los streams (FLOWS_EVENTS reserva
+// 1 GiB) no depende del disco libre de la máquina en ese momento.
+func natsURL(t *testing.T) string {
+	t.Helper()
+	s, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: t.TempDir(),
+		JetStreamMaxStore: 8 << 30, JetStreamMaxMemory: 256 << 20, NoLog: true, NoSigs: true, MaxPayload: 1 << 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go s.Start()
+	if !s.ReadyForConnections(10 * time.Second) {
+		t.Fatal("nats server not ready")
+	}
+	t.Cleanup(func() {
+		s.Shutdown()
+		s.WaitForShutdown()
+	})
+	return s.ClientURL()
 }

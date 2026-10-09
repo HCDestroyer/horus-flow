@@ -1,0 +1,493 @@
+# Horus Flow — compose de PRODUCCIÓN de un servidor (historias I1-22 y I1-23).
+#
+# Perfil mínimo de ADR-0025: horus-app, horus-collector y horus-wg-agent (una sola imagen) +
+# PostgreSQL (con pgBackRest), ClickHouse, NATS JetStream, Valkey y Traefik. Lo instala y lo
+# mantiene scripts/install.sh: copia este archivo a <instalación>/compose.yaml, genera
+# <instalación>/.env (sin secretos) y los secretos en HORUS_SECRETS_DIR (/etc/horus/secrets).
+# No se edita a mano en el servidor: se cambia aquí y se vuelve a ejecutar el instalador.
+#
+#   docker compose --project-directory /opt/horus -f /opt/horus/compose.yaml --env-file /opt/horus/.env ps
+#
+# Reglas (además de las del compose de desarrollo): imágenes con versión fija y digest, nada
+# escucha en Internet salvo Traefik (HTTP/HTTPS) y el puerto UDP de WireGuard del host; el UDP
+# de IPFIX/NetFlow solo se publica en la IP del hub en la interfaz del túnel (wg0) y el
+# instalador además lo filtra en DOCKER-USER para cualquier otra interfaz (D16, security.md);
+# datos en directorios del host (docs/storage.md §2.1) y el almacén/backups en HORUS_STORE_DIR,
+# idealmente otro disco.
+
+name: ${COMPOSE_PROJECT_NAME:-horus}
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+x-hardening: &hardening
+  security_opt:
+    - no-new-privileges:true
+  logging: *logging
+  restart: unless-stopped
+
+x-horus-image: &horus-image ${HORUS_IMAGE:?falta HORUS_IMAGE}
+
+# Entorno común de los contenedores propios. Secretos siempre como archivos (*_FILE).
+x-horus-env: &horus-env
+  HORUS_ENV: prod
+  HORUS_LOG_LEVEL: ${HORUS_LOG_LEVEL:-info}
+  HORUS_LOG_FORMAT: json
+  HORUS_HTTP_ADDR: ":8080"
+  HORUS_GRPC_ADDR: ":9090"
+  HORUS_ADMIN_ADDR: ":8081"
+  HORUS_DATA_DIR: /var/lib/horus/store
+  HORUS_POSTGRES_DSN: postgres://${HORUS_PG_USER:-horus}@postgres:5432/${HORUS_PG_DB:-horus}?sslmode=disable
+  HORUS_POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+  HORUS_CLICKHOUSE_DSN: clickhouse://${HORUS_CH_USER:-horus}@clickhouse:9000/${HORUS_CH_DB:-horus}
+  HORUS_CLICKHOUSE_PASSWORD_FILE: /run/secrets/clickhouse_password
+  HORUS_NATS_URL_FILE: /run/secrets/nats_url
+  HORUS_VALKEY_URL: redis://default@valkey:6379/0
+  HORUS_VALKEY_PASSWORD_FILE: /run/secrets/valkey_password
+  HORUS_TLM_FLOWS_MAX_BYTES: ${HORUS_TLM_FLOWS_MAX_BYTES:-53687091200}
+  # Acceso público (D14, D19): modo domain | subdomain | ip_only y URL base https.
+  HORUS_ACCESS_MODE: ${HORUS_ACCESS_MODE:?falta HORUS_ACCESS_MODE}
+  HORUS_PUBLIC_BASE_URL: ${HORUS_PUBLIC_BASE_URL:?falta HORUS_PUBLIC_BASE_URL}
+  HORUS_ALLOWED_ORIGINS: ${HORUS_PUBLIC_BASE_URL}
+  HORUS_TLS_MODE: ${HORUS_TLS_MODE:?falta HORUS_TLS_MODE}
+  # Hub WireGuard (I1-01): mismo valor en wireguard (horus-app) y wg-agent.
+  HORUS_WG_HUB_ID: ${HORUS_WG_HUB_ID:?falta HORUS_WG_HUB_ID}
+  HORUS_WG_PORT: ${HORUS_WG_PORT:-51820}
+  GRPC_TLS_MODE: mtls
+  HORUS_TLS_CA_FILE: /run/secrets/grpc_ca
+
+services:
+  # ------------------------------------------------------------------------------------------
+  # PostgreSQL 18.6 + pgBackRest (I1-23): WAL continuo a repo1 posix en el almacén local
+  # (archive_timeout=60 → RPO ≤ 1–5 min). Checksums de datos: activos por defecto en PG 18.
+  # ------------------------------------------------------------------------------------------
+  postgres:
+    <<: *hardening
+    image: ${HORUS_POSTGRES_IMAGE:-horus-postgres:18.6-pgbackrest2.59.3}
+    build:
+      context: ${HORUS_CONFIG_DIR:-../..}/images/postgres
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=pgbackrest --config=/run/secrets/pgbackrest_conf --stanza=horus archive-push %p
+      - -c
+      - archive_timeout=60
+      - -c
+      - max_wal_size=2GB
+    environment:
+      POSTGRES_DB: ${HORUS_PG_DB:-horus}
+      POSTGRES_USER: ${HORUS_PG_USER:-horus}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_INITDB_ARGS: --encoding=UTF8 --locale=C.UTF-8 --data-checksums
+    secrets:
+      - postgres_password
+      - pgbackrest_conf
+    volumes:
+      - ${HORUS_DATA_ROOT:?falta HORUS_DATA_ROOT}/postgres:/var/lib/postgresql
+      - ${HORUS_STORE_DIR:?falta HORUS_STORE_DIR}/backups/postgres:/var/lib/pgbackrest
+    shm_size: 256m
+    mem_limit: ${HORUS_PG_MEM:-2g}
+    networks: [horus]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -q -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
+
+  # ------------------------------------------------------------------------------------------
+  # ClickHouse 26.8 LTS. Disco `backups` en el almacén local para BACKUP/RESTORE nativos (I1-23).
+  # ------------------------------------------------------------------------------------------
+  clickhouse:
+    <<: *hardening
+    image: clickhouse/clickhouse-server:26.8.20.9@sha256:9b61e3c635c04ad5bb521eb4f6e61ce7585b5580814e51c25bb9e8292ce43364
+    environment:
+      CLICKHOUSE_DB: ${HORUS_CH_DB:-horus}
+      CLICKHOUSE_USER: ${HORUS_CH_USER:-horus}
+      CLICKHOUSE_PASSWORD_FILE: /run/secrets/clickhouse_password
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    secrets:
+      - clickhouse_password
+    volumes:
+      - ${HORUS_DATA_ROOT}/clickhouse:/var/lib/clickhouse
+      - ${HORUS_DATA_ROOT}/clickhouse-logs:/var/log/clickhouse-server
+      - ${HORUS_CONFIG_DIR:-../..}/backup/clickhouse-backups.xml:/etc/clickhouse-server/config.d/horus-backups.xml:ro
+      - ${HORUS_STORE_DIR}/backups/clickhouse:/var/lib/horus/store/backups/clickhouse
+    ulimits:
+      nofile:
+        soft: ${HORUS_CH_NOFILE:-262144}
+        hard: ${HORUS_CH_NOFILE:-262144}
+    mem_limit: ${HORUS_CH_MEM:-4g}
+    networks: [horus]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8123/ping | grep -q Ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+
+  # ------------------------------------------------------------------------------------------
+  # NATS JetStream con usuario y contraseña (secreto nats_auth.conf); solo en la red interna.
+  # ------------------------------------------------------------------------------------------
+  nats:
+    <<: *hardening
+    image: nats:2.14.7-alpine@sha256:4063edae0717ba5f7501bfde75f97fd9b57f5b93597b92c70b6a6fbbf6a74e06
+    command: ["nats-server", "--config", "/etc/nats/nats.conf"]
+    environment:
+      HORUS_NATS_MAX_FILE_STORE: ${HORUS_NATS_MAX_FILE_STORE:-60GB}
+    volumes:
+      - ${HORUS_CONFIG_DIR:-../..}/nats/nats.prod.conf:/etc/nats/nats.conf:ro
+      - ${HORUS_SECRETS_DIR:?falta HORUS_SECRETS_DIR}/nats_auth.conf:/etc/nats/auth.conf:ro
+      - ${HORUS_DATA_ROOT}/nats:/data
+    mem_limit: 1g
+    networks: [horus]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- 'http://127.0.0.1:8222/healthz?js-enabled-only=true' | grep -q ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  # Streams del contrato C4 y KV (flow_exporter_state) antes de los contenedores horus-*.
+  nats-init:
+    image: *horus-image
+    command: ["nats-provision", "--streams", "/etc/horus/nats/streams.yaml", "--kv", "/etc/horus/nats/kv.yaml", "--increment", "I1"]
+    environment:
+      HORUS_NATS_URL_FILE: /run/secrets/nats_url
+      HORUS_TLM_FLOWS_MAX_BYTES: ${HORUS_TLM_FLOWS_MAX_BYTES:-53687091200}
+    secrets:
+      - nats_url
+    volumes:
+      - ${HORUS_CONFIG_DIR:-../..}/nats/streams.yaml:/etc/horus/nats/streams.yaml:ro
+      - ${HORUS_CONFIG_DIR:-../..}/nats/kv.yaml:/etc/horus/nats/kv.yaml:ro
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    logging: *logging
+    restart: "no"
+    networks: [horus]
+    depends_on:
+      nats:
+        condition: service_healthy
+
+  # ------------------------------------------------------------------------------------------
+  # Valkey (ADR-0020): ACL con hash de la contraseña.
+  # ------------------------------------------------------------------------------------------
+  valkey:
+    <<: *hardening
+    image: valkey/valkey:8.1.10-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
+    command: ["valkey-server", "--appendonly", "yes", "--aclfile", "/run/secrets/valkey_acl",
+              "--maxmemory", "384mb", "--maxmemory-policy", "volatile-lru"]
+    secrets:
+      - valkey_acl
+      - valkey_password
+    volumes:
+      - ${HORUS_DATA_ROOT}/valkey:/data
+    mem_limit: 512m
+    networks: [horus]
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$(cat /run/secrets/valkey_password)\" valkey-cli --no-auth-warning ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  # ------------------------------------------------------------------------------------------
+  # Traefik — único servicio expuesto a Internet (D14). Configuración estática por argumentos
+  # (el certificado ACME o autogenerado depende del modo, D19); rutas en ${HORUS_CONFIG_DIR}/traefik.
+  # Escucha 8080/8443 sin privilegios; el host publica 80/443.
+  # ------------------------------------------------------------------------------------------
+  traefik:
+    <<: *hardening
+    image: traefik:v3.7.14@sha256:e849695bc5c317da0cec22bfee4794fd9e15871fe554f864d31b625983e883ff
+    user: "65534:65534"
+    read_only: true
+    command:
+      - --global.checkNewVersion=false
+      - --global.sendAnonymousUsage=false
+      - --entryPoints.web.address=:8080
+      - --entryPoints.websecure.address=:8443
+      - --entryPoints.websecure.http.tls=true
+      - --entryPoints.traefik.address=:8082
+      - --ping.entryPoint=traefik
+      - --metrics.prometheus.entryPoint=traefik
+      - --metrics.prometheus.addRoutersLabels=false
+      - --metrics.prometheus.addServicesLabels=false
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
+      - --certificatesResolvers.le.acme.email=${HORUS_ACME_EMAIL:-}
+      - --certificatesResolvers.le.acme.storage=/data/acme.json
+      - --certificatesResolvers.le.acme.caServer=${HORUS_ACME_CA_SERVER:-https://acme-v02.api.letsencrypt.org/directory}
+      - --certificatesResolvers.le.acme.httpChallenge.entryPoint=web
+      - --log.level=INFO
+      - --log.format=json
+      - --accessLog.format=json
+    volumes:
+      - ${HORUS_CONFIG_DIR:-../..}/traefik/dynamic:/etc/traefik/dynamic:ro
+      - ${HORUS_TLS_DIR:?falta HORUS_TLS_DIR}:/etc/traefik/tls:ro
+      - ${HORUS_DATA_ROOT}/traefik:/data
+    ports:
+      - "${HORUS_PUBLIC_BIND:-0.0.0.0}:${HORUS_HTTP_PORT:-80}:8080"
+      - "${HORUS_PUBLIC_BIND:-0.0.0.0}:${HORUS_HTTPS_PORT:-443}:8443"
+    mem_limit: 256m
+    networks: [horus]
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping", "--ping.entryPoint=traefik", "--entryPoints.traefik.address=:8082"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+
+  # ------------------------------------------------------------------------------------------
+  # Contenedores propios (ADR-0025 §2): misma imagen, cambian HORUS_ROLES, capacidades y red.
+  # ------------------------------------------------------------------------------------------
+  horus-app:
+    <<: *hardening
+    image: *horus-image
+    read_only: true
+    environment:
+      <<: *horus-env
+      HORUS_ROLES: gateway,auth,devices,wireguard,snmp,traffic,detection,alerts,analytics,reporting,ingester,jobs
+      HORUS_PROCESS: horus-app
+      HORUS_AUTH_SIGNING_KEY_FILE: /run/secrets/auth_signing_key
+      HORUS_AUTH_KEK_FILE: /run/secrets/auth_kek
+      HORUS_DEVICES_KEK_FILE: /run/secrets/devices_kek
+      HORUS_ALERTS_KEK_FILE: /run/secrets/alerts_kek
+      HORUS_ALERTS_CURSOR_KEY_FILE: /run/secrets/cursor_key
+      # Reputación (SEC): detection sincroniza las fuentes y publica el snapshot en el almacén;
+      # ingester marca los flujos con ese mismo snapshot.
+      HORUS_DETECTION_FEEDS_SYNC: "true"
+      HORUS_REPUTATION_SNAPSHOT_DIR: /var/lib/horus/store/catalog/reputation
+      # Canal mínimo de alertas por correo (D13). Vacío = sin SMTP. Telegram se configura por ISP.
+      HORUS_SMTP_HOST: ${HORUS_SMTP_HOST:-}
+      HORUS_SMTP_PORT: ${HORUS_SMTP_PORT:-587}
+      HORUS_SMTP_FROM: ${HORUS_SMTP_FROM:-}
+      HORUS_SMTP_USERNAME: ${HORUS_SMTP_USERNAME:-}
+      HORUS_SMTP_TLS: ${HORUS_SMTP_TLS:-starttls}
+      HORUS_SMTP_PASSWORD_FILE: /run/secrets/smtp_password
+      HORUS_DEVICES_CURSOR_KEY_FILE: /run/secrets/cursor_key
+      HORUS_WIREGUARD_CURSOR_KEY_FILE: /run/secrets/cursor_key
+      HORUS_DETECTION_CURSOR_KEY_FILE: /run/secrets/cursor_key
+      HORUS_CLICKHOUSE_INGESTER_PASSWORD_FILE: /run/secrets/ch_ingester_password
+      HORUS_CLICKHOUSE_ANALYTICS_PASSWORD_FILE: /run/secrets/ch_analytics_password
+      HORUS_CLICKHOUSE_DETECTION_PASSWORD_FILE: /run/secrets/ch_detection_password
+      HORUS_CLICKHOUSE_ALERTS_PASSWORD_FILE: /run/secrets/ch_alerts_password
+      HORUS_CLICKHOUSE_JOBS_PASSWORD_FILE: /run/secrets/ch_jobs_password
+      # Superadministrador inicial (I0-06): se crea al primer arranque si no existe; el primer
+      # login exige cambiar la contraseña y activar TOTP.
+      HORUS_SEED_ADMIN_EMAIL: ${HORUS_SEED_ADMIN_EMAIL:?falta HORUS_SEED_ADMIN_EMAIL}
+      HORUS_SEED_ADMIN_PASSWORD_FILE: /run/secrets/seed_admin_password
+      # WireGuard (control): endpoint público del hub, rangos de túnel y gRPC mTLS con wg-agent.
+      HORUS_WG_ENDPOINT: ${HORUS_WG_ENDPOINT:?falta HORUS_WG_ENDPOINT}
+      HORUS_WG_HUB_PUBLIC_KEY: ${HORUS_WG_HUB_PUBLIC_KEY:?falta HORUS_WG_HUB_PUBLIC_KEY}
+      HORUS_WG_TUNNEL_CIDRS: ${HORUS_WG_TUNNEL_CIDRS:?falta HORUS_WG_TUNNEL_CIDRS}
+      HORUS_WG_SERVICES_CIDR: ${HORUS_WG_SERVICES_CIDR:?falta HORUS_WG_SERVICES_CIDR}
+      HORUS_COLLECTOR_IP: ${HORUS_COLLECTOR_IP:?falta HORUS_COLLECTOR_IP}
+      HORUS_PUBLIC_TLS_CERT_FILE: /etc/horus/tls/public.crt
+      HORUS_WIREGUARD_GRPC_ADDR: ":9094"
+      HORUS_WGAGENT_ADDR: ${HORUS_GRPC_BIND:?falta HORUS_GRPC_BIND}:9095
+      HORUS_TLS_CERT_FILE: /run/secrets/grpc_wireguard_crt
+      HORUS_TLS_KEY_FILE: /run/secrets/grpc_wireguard_key
+      GOMEMLIMIT: 1800MiB
+    secrets:
+      - postgres_password
+      - clickhouse_password
+      - valkey_password
+      - nats_url
+      - seed_admin_password
+      - auth_signing_key
+      - auth_kek
+      - devices_kek
+      - alerts_kek
+      - smtp_password
+      - cursor_key
+      - ch_ingester_password
+      - ch_analytics_password
+      - ch_detection_password
+      - ch_alerts_password
+      - ch_jobs_password
+      - grpc_ca
+      - grpc_wireguard_crt
+      - grpc_wireguard_key
+    volumes:
+      - ${HORUS_STORE_DIR}:/var/lib/horus/store
+      - ${HORUS_TLS_DIR}/public.crt:/etc/horus/tls/public.crt:ro
+    ports:
+      # ControlService de wireguard para wg-agent (red del host) por la IP de la puerta de
+      # enlace de la red del compose; mTLS obligatorio.
+      - "${HORUS_GRPC_BIND}:9094:9094"
+    depends_on: &horus-deps
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      nats-init:
+        condition: service_completed_successfully
+      valkey:
+        condition: service_healthy
+    mem_limit: 2g
+    networks: [horus]
+    healthcheck: &horus-healthcheck
+      test: ["CMD", "/horus", "healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 30s
+
+  horus-collector:
+    <<: *hardening
+    image: *horus-image
+    read_only: true
+    environment:
+      <<: *horus-env
+      HORUS_ROLES: collector
+      HORUS_PROCESS: horus-collector
+      GOMEMLIMIT: 900MiB
+    secrets: [postgres_password, clickhouse_password, valkey_password, nats_url, grpc_ca]
+    ports:
+      # IPFIX y NetFlow v9 SOLO en la IP del hub (wg0): nunca en la interfaz pública.
+      - "${HORUS_COLLECTOR_IP}:4739:4739/udp"
+      - "${HORUS_COLLECTOR_IP}:2055:2055/udp"
+    depends_on:
+      nats:
+        condition: service_healthy
+      nats-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    mem_limit: 1g
+    networks: [horus]
+    healthcheck: *horus-healthcheck
+
+  horus-wg-agent:
+    <<: *hardening
+    image: *horus-image
+    read_only: true
+    # Único contenedor con CAP_NET_ADMIN y red del host (ADR-0025): gestiona clave, puerto y
+    # peers de wg0, que crea el instalador (horus-tunnel). /var/run/wireguard: UAPI de
+    # wireguard-go cuando el kernel no tiene el módulo. Corre como uid 0 SOLO para que
+    # NET_ADMIN sea efectiva (Docker no la concede a un usuario no root) y pueda abrir el socket
+    # UAPI (root, 0700); sin ninguna otra capacidad, sistema de archivos de solo lectura.
+    user: "0:0"
+    network_mode: host
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN]
+    # Entorno propio (sin el común): wg-agent no usa PostgreSQL, ClickHouse, Valkey ni NATS.
+    environment:
+      HORUS_ENV: prod
+      HORUS_LOG_LEVEL: ${HORUS_LOG_LEVEL:-info}
+      HORUS_LOG_FORMAT: json
+      HORUS_ROLES: wg-agent
+      HORUS_PROCESS: horus-wg-agent
+      HORUS_ADMIN_ADDR: 127.0.0.1:${HORUS_WGAGENT_ADMIN_PORT:-18081}
+      HORUS_WG_HUB_ID: ${HORUS_WG_HUB_ID}
+      HORUS_WG_PORT: ${HORUS_WG_PORT:-51820}
+      HORUS_WGAGENT_INTERFACE: ${HORUS_WG_INTERFACE:-wg0}
+      HORUS_WGAGENT_DRIVER: kernel
+      HORUS_WGAGENT_PRIVATE_KEY_FILE: /run/secrets/wg_hub_private_key
+      HORUS_WGAGENT_GRPC_ADDR: ${HORUS_GRPC_BIND}:9095
+      HORUS_WIREGUARD_GRPC_ADDR_REMOTE: ${HORUS_GRPC_BIND}:9094
+      GRPC_TLS_MODE: mtls
+      HORUS_TLS_CA_FILE: /run/secrets/grpc_ca
+      HORUS_TLS_CERT_FILE: /run/secrets/grpc_wgagent_crt
+      HORUS_TLS_KEY_FILE: /run/secrets/grpc_wgagent_key
+      GOMEMLIMIT: 100MiB
+    secrets: [wg_hub_private_key, grpc_ca, grpc_wgagent_crt, grpc_wgagent_key]
+    volumes:
+      - /var/run/wireguard:/var/run/wireguard
+    depends_on:
+      horus-app:
+        condition: service_started
+    mem_limit: 128m
+    healthcheck: *horus-healthcheck
+
+  # ------------------------------------------------------------------------------------------
+  # Métricas horus_backup_* y horus_store_* (I1-23): las escribe /opt/horus/bin/horus-backup en
+  # ${HORUS_DATA_ROOT}/metrics y este servidor estático las expone solo en el loopback del host.
+  # ------------------------------------------------------------------------------------------
+  backup-metrics:
+    <<: *hardening
+    image: busybox:1.37.0-musl@sha256:5cec3fc171c87218698e85a52af7087de727372aae264a787b8112901a5b0092
+    user: "65534:65534"
+    read_only: true
+    command: ["httpd", "-f", "-p", "9109", "-h", "/www", "-c", "/etc/httpd.conf"]
+    volumes:
+      - ${HORUS_DATA_ROOT}/metrics:/www:ro
+      - ${HORUS_CONFIG_DIR:-../..}/backup/httpd.conf:/etc/httpd.conf:ro
+    ports:
+      - "127.0.0.1:${HORUS_BACKUP_METRICS_PORT:-9109}:9109"
+    mem_limit: 32m
+    networks: [horus]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9109/metrics.prom | grep -q horus_backup_last_status"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+networks:
+  horus:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${HORUS_DOCKER_SUBNET:-172.31.250.0/24}
+          gateway: ${HORUS_GRPC_BIND}
+
+secrets:
+  postgres_password:
+    file: ${HORUS_SECRETS_DIR}/postgres_password
+  clickhouse_password:
+    file: ${HORUS_SECRETS_DIR}/clickhouse_password
+  valkey_password:
+    file: ${HORUS_SECRETS_DIR}/valkey_password
+  valkey_acl:
+    file: ${HORUS_SECRETS_DIR}/valkey_users.acl
+  nats_url:
+    file: ${HORUS_SECRETS_DIR}/nats_url
+  seed_admin_password:
+    file: ${HORUS_SECRETS_DIR}/seed_admin_password
+  auth_signing_key:
+    file: ${HORUS_SECRETS_DIR}/auth_signing_key.pem
+  auth_kek:
+    file: ${HORUS_SECRETS_DIR}/auth_kek
+  devices_kek:
+    file: ${HORUS_SECRETS_DIR}/devices_kek
+  alerts_kek:
+    file: ${HORUS_SECRETS_DIR}/alerts_kek
+  smtp_password:
+    file: ${HORUS_SECRETS_DIR}/smtp_password
+  cursor_key:
+    file: ${HORUS_SECRETS_DIR}/cursor_key
+  ch_ingester_password:
+    file: ${HORUS_SECRETS_DIR}/ch_ingester_password
+  ch_analytics_password:
+    file: ${HORUS_SECRETS_DIR}/ch_analytics_password
+  ch_detection_password:
+    file: ${HORUS_SECRETS_DIR}/ch_detection_password
+  ch_alerts_password:
+    file: ${HORUS_SECRETS_DIR}/ch_alerts_password
+  ch_jobs_password:
+    file: ${HORUS_SECRETS_DIR}/ch_jobs_password
+  pgbackrest_conf:
+    file: ${HORUS_SECRETS_DIR}/pgbackrest.conf
+  wg_hub_private_key:
+    file: ${HORUS_SECRETS_DIR}/wg_hub_private_key
+  grpc_ca:
+    file: ${HORUS_SECRETS_DIR}/grpc/ca.crt
+  grpc_wireguard_crt:
+    file: ${HORUS_SECRETS_DIR}/grpc/wireguard.crt
+  grpc_wireguard_key:
+    file: ${HORUS_SECRETS_DIR}/grpc/wireguard.key
+  grpc_wgagent_crt:
+    file: ${HORUS_SECRETS_DIR}/grpc/wg-agent.crt
+  grpc_wgagent_key:
+    file: ${HORUS_SECRETS_DIR}/grpc/wg-agent.key

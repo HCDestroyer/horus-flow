@@ -45,8 +45,9 @@ func (h *Handler) Mount(r *httpx.ServiceMux) {
 	r.Handle("POST /api/v1/findings/{finding_id}/resolve", h.guard.Tenant(app.PermManage, h.transition("resolve")))
 	r.Handle("POST /api/v1/findings/{finding_id}/mark-false-positive", h.guard.Tenant(app.PermManage, h.transition("false_positive")))
 	r.Handle("GET /api/v1/customers/{customer_id}/findings", h.guard.Tenant(app.PermRead, h.customerFindings))
-	r.Handle("GET /api/v1/security/summary", h.guard.Wrap(authz.Requirement{Scope: authz.ScopeTenant, Permission: app.PermRead, AllowKiosk: true},
+	r.Handle("GET /api/v1/security/summary", h.guard.Wrap(authz.Requirement{Scope: authz.ScopeTenant, AllowKiosk: true},
 		http.HandlerFunc(h.summary)))
+	r.Handle("GET /api/v1/reputation/sources", h.guard.Tenant(app.PermRead, h.sources))
 	r.Handle("GET /api/v1/reputation/allowlist", h.guard.Tenant(app.PermRead, h.listAllow))
 	r.Handle("POST /api/v1/reputation/allowlist", h.guard.Tenant(app.PermManage, h.createAllow))
 	r.Handle("DELETE /api/v1/reputation/allowlist/{entry_id}", h.guard.Tenant(app.PermManage, h.deleteAllow))
@@ -198,4 +199,13 @@ func (h *Handler) deleteAllow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) sources(w http.ResponseWriter, r *http.Request) {
+	data, err := h.svc.ListSources(r.Context())
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	jsonapi.Write(w, http.StatusOK, map[string]any{"data": data})
 }
