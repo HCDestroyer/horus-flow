@@ -47,9 +47,18 @@ export class NetworkError extends Error {
 export const WITH_CSRF = { params: { header: { 'X-Requested-With': 'horus' as const } } }
 
 /** Rutas que usan la cookie de refresh y exigen la cabecera anti-CSRF (security.md §5.1). */
-export const COOKIE_AUTH_PATHS = ['/auth/refresh', '/auth/logout']
+export const COOKIE_AUTH_PATHS = ['/auth/refresh', '/auth/logout', '/kiosk/enroll', '/kiosk/token']
 /** Rutas en las que un 401 no dispara refresh (credenciales, no un token caducado). */
-const NO_REFRESH_PATHS = ['/auth/login', '/auth/mfa/verify', '/auth/refresh', '/auth/logout']
+const NO_REFRESH_PATHS = [
+  '/auth/login',
+  '/auth/mfa/verify',
+  '/auth/refresh',
+  '/auth/logout',
+  // El kiosco renueva su propio token con la credencial de dispositivo (useKiosk).
+  '/kiosk/enroll',
+  '/kiosk/token',
+  '/kiosk/config',
+]
 
 export interface AuthFetchOptions {
   /** Transporte: `globalThis.fetch` o el de la API simulada. */

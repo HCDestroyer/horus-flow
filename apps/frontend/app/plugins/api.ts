@@ -55,7 +55,8 @@ export default defineNuxtPlugin({
     function goToLogin(reason?: 'expired') {
       useAuth().clear()
       const route = useRoute()
-      if (!route.meta.public) {
+      // El kiosco no tiene sesión de usuario: renueva su propio token (useKiosk).
+      if (!route.meta.public && !window.location.pathname.startsWith('/kiosk')) {
         navigateTo({
           path: '/login',
           query: { redirect: route.fullPath, ...(reason ? { reason } : {}) },

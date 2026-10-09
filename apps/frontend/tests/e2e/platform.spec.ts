@@ -43,6 +43,22 @@ test.describe('consola de plataforma @platform', () => {
     await expect(access.getByTestId('cert-fingerprint')).toHaveCount(0)
   })
 
+  test('disco local ≥ 85 %: aviso en Almacenamiento y en Estado del sistema', async ({ page }) => {
+    await page.addInitScript(() => window.localStorage.setItem('horus.mock.diskRatio', '0.91'))
+    await loginAsAdmin(page)
+    await page.goto('/platform/system')
+    await expect(page.getByTestId('disk-usage-notice')).toContainText('Disco local al 91 %')
+    await page.goto('/platform/storage')
+    await expect(page.getByTestId('disk-usage-notice')).toBeVisible()
+  })
+
+  test('disco local por debajo del 85 %: sin aviso', async ({ page }) => {
+    await loginAsAdmin(page)
+    await page.goto('/platform/system')
+    await expect(page.getByTestId('system-components')).toBeVisible()
+    await expect(page.getByTestId('disk-usage-notice')).toHaveCount(0)
+  })
+
   test('WireGuard: cada hub con endpoint, rango y ocupación', async ({ page }) => {
     await loginAsAdmin(page)
     await page.goto('/platform/wireguard')

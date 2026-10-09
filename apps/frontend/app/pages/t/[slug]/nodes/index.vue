@@ -53,7 +53,7 @@ const rows = computed(() =>
     <ul v-else class="grid gap-3 md:grid-cols-2 2xl:grid-cols-3" data-testid="nodes-list">
       <li v-for="row in rows" :key="row.site.id">
         <UCard :ui="{ body: 'p-4 sm:p-4 flex flex-col gap-3' }" :data-node="row.site.name">
-          <div class="flex items-start justify-between gap-2">
+          <div class="flex flex-wrap items-start justify-between gap-2">
             <NuxtLink
               :to="`/t/${slug}/nodes/${row.site.id}`"
               class="text-highlighted text-base font-semibold hover:underline"

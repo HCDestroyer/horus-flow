@@ -74,3 +74,46 @@ test.describe('sin desbordamiento @layout', () => {
     })
   }
 })
+
+/** Pantallas de I1 (I1-16…I1-21, I1-31): sin cortes ni solapes en escritorio y en móvil. */
+const I1_SCREENS = [
+  '/t/fibra-norte/clients',
+  '/t/fibra-norte/clients/0193c000-0000-7000-8000-000000100001',
+  '/t/fibra-norte/clients/0193c000-0000-7000-8000-000000100040',
+  '/t/fibra-norte/traffic',
+  '/t/fibra-norte/security/findings',
+  '/t/fibra-norte/security/findings/0192f0d1-1b2c-7e44-8a10-6b9c2d1e0f00',
+  '/t/fibra-norte/nodes',
+  '/t/fibra-norte/nodes/0192e111-0000-7000-8000-000000000105',
+  '/t/fibra-norte/routers/0192e333-0000-7000-8000-000000000106/connection',
+  '/t/fibra-norte/routers/0192e333-0000-7000-8000-000000000101/prefixes',
+  '/t/fibra-norte/admin/kiosks',
+  '/t/fibra-norte/admin/notifications',
+  '/platform/isps',
+  '/platform/wireguard',
+  '/platform/storage',
+  '/platform/system',
+  '/platform/reputation',
+]
+
+test.describe('pantallas de I1 sin desbordamiento @layout', () => {
+  for (const width of [320, 390, 1440]) {
+    test(`pantallas de I1 a ${width} px`, async ({ page }) => {
+      test.setTimeout(180_000)
+      await page.setViewportSize({ width, height: 900 })
+      await page.emulateMedia({ reducedMotion: 'reduce' })
+      await page.addInitScript(() => window.localStorage.setItem('horus.mock.findingEveryMs', '0'))
+      await loginAsAdmin(page)
+      for (const path of I1_SCREENS) {
+        await page.goto(path)
+        await page.waitForLoadState('load')
+        await expect(page.locator('#main-content')).toBeVisible()
+        await page.waitForTimeout(1500)
+        const problems = await layoutReport(page, {
+          extra: ['[data-testid="app-navbar"]', '#main-content'],
+        })
+        expect(problems, `${path} a ${width}px`).toEqual([])
+      }
+    })
+  }
+})

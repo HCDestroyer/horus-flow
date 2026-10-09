@@ -100,6 +100,25 @@ function readNumber(key: string): number | undefined {
   }
 }
 
+/** Uso del disco local (`horus_store_disk_*`): `localStorage['horus.mock.diskRatio']`. */
+function readDiskRatio() {
+  try {
+    const v = Number(window.localStorage.getItem('horus.mock.diskRatio'))
+    if (Number.isFinite(v) && v > 0 && v <= 1) return v
+  } catch {
+    // sin storage
+  }
+  return 0.62
+}
+
+function readOffline() {
+  try {
+    return window.localStorage.getItem('horus.mock.offline') === '1'
+  } catch {
+    return false
+  }
+}
+
 /** Vida del access token para pruebas: `localStorage['horus.mock.tokenTtlMs']`. */
 const readTokenTtl = () => readNumber('horus.mock.tokenTtlMs')
 
@@ -327,11 +346,15 @@ export function createMockFetch(options: MockOptions = {}) {
             },
             { name: 'collector', status: 'up' },
             { name: 'wg_agent', status: 'up' },
-            { name: 'local_storage', status: 'up', detail: '62 % de 2 TB en /var/lib/horus' },
+            {
+              name: 'local_storage',
+              status: readDiskRatio() >= 0.85 ? 'degraded' : 'up',
+              detail: `${Math.round(readDiskRatio() * 100)} % de 2 TB en /var/lib/horus`,
+            },
             { name: 'remote_storage', status: 'not_configured' },
           ]
         : [],
-      disk_usage_ratio: detail ? 0.62 : null,
+      disk_usage_ratio: detail ? readDiskRatio() : null,
     }
     return json(body)
   }
@@ -499,6 +522,8 @@ export function createMockFetch(options: MockOptions = {}) {
       await new Promise((resolve) => setTimeout(resolve, latency + extra))
     }
     if (req.signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+    // Corte de red simulado (pruebas del kiosco): `localStorage['horus.mock.offline'] = '1'`.
+    if (readOffline()) throw new TypeError('Failed to fetch')
     return handle(req)
   }
 }

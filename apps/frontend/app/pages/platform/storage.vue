@@ -22,6 +22,7 @@ const ratio = computed(() => system.value?.disk_usage_ratio ?? null)
 
 <template>
   <AppPage :title="t('nav.items.platformStorage')" panel-id="platform-storage">
+    <DiskUsageNotice :ratio="ratio" />
     <NoRemoteCopyNotice v-if="destinations && !destinations.length" />
     <ErrorState v-if="error" :error="error" @retry="refresh()" />
 
@@ -33,12 +34,12 @@ const ratio = computed(() => system.value?.disk_usage_ratio ?? null)
       <UProgress
         v-if="ratio !== null"
         :model-value="ratio * 100"
-        :color="ratio > 0.85 ? 'error' : 'primary'"
+        :color="ratio >= 0.85 ? 'error' : 'primary'"
         class="mt-2"
         :aria-label="t('platform.storage.usage')"
       />
       <p class="text-muted mt-2 text-sm">{{ local?.detail ?? t('platform.storage.usage') }}</p>
-      <p v-if="ratio !== null && ratio > 0.85" class="text-error mt-1 text-sm">
+      <p v-if="ratio !== null && ratio >= 0.85" class="text-error mt-1 text-sm">
         {{ t('platform.storage.high') }}
       </p>
       <p class="text-dimmed mt-3 text-xs">{{ t('platform.storage.byTypePending') }}</p>

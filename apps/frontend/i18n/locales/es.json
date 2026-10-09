@@ -336,7 +336,8 @@
       "description": "Muestra la hora, el ISP y cuán frescos son los datos.",
       "live": "En vivo",
       "updated": "Actualizado",
-      "waiting": "Esperando datos…"
+      "waiting": "Esperando datos…",
+      "paused": "En pausa"
     },
     "traffic_now": {
       "description": "Muestra el tráfico actual de bajada y subida, su variación frente a ayer y la última hora.",
@@ -1006,6 +1007,11 @@
       "fingerprint": "Huella SHA-256 del certificado",
       "fingerprintHint": "Compárala con la que muestra el navegador antes de aceptar su aviso de seguridad.",
       "wgEndpoint": "Endpoint de WireGuard"
+    },
+    "disk": {
+      "warning": "Disco local al {pct}",
+      "critical": "Disco local casi lleno: {pct}",
+      "body": "Por encima del 85 % revisa las retenciones o amplía el disco; cerca del 100 % la ingesta descarta flujos y se pierden datos."
     }
   },
   "reputation": {
@@ -1166,6 +1172,75 @@
       "submit": "Guardar canal",
       "created": "Canal creado: pruébalo para verificarlo",
       "updated": "Canal actualizado"
+    }
+  },
+  "kiosk": {
+    "title": "Pantalla NOC",
+    "starting": "Conectando con Horus Flow…",
+    "offline": "Sin conexión desde las {time} · mostrando los últimos datos",
+    "fullscreen": "Pulsa para pantalla completa",
+    "enroll": {
+      "title": "Conectar esta pantalla",
+      "body": "Escribe el código de 8 caracteres que aparece en Horus Flow, en Administración › Pantallas NOC.",
+      "label": "Código de la pantalla",
+      "submit": "Conectar",
+      "length": "El código tiene 8 caracteres",
+      "errors": {
+        "invalid": "Ese código no es válido o caducó. Genera otro en Pantallas NOC.",
+        "rate_limited": "Demasiados intentos. Espera un minuto y genera un código nuevo.",
+        "network": "No se puede conectar con Horus Flow. Revisa la red de esta pantalla."
+      }
+    }
+  },
+  "kiosks": {
+    "intro": "Pantallas murales que muestran dashboards sin interacción. Cada una es un dispositivo, no un usuario.",
+    "add": "Nuevo kiosco",
+    "lastSignal": "Última señal",
+    "offlineSince": "Desconectado desde {time}",
+    "pendingHint": "Genera un código y escríbelo en la TV (dirección de Horus terminada en /kiosk).",
+    "revokedHint": "Revocado: la TV volvió a la pantalla de código.",
+    "lastIp": "Última IP",
+    "version": "Versión del frontend",
+    "network": "Red permitida",
+    "anyNetwork": "Cualquiera",
+    "personal": "Datos de clientes",
+    "personalOn": "Se muestran (IP completas)",
+    "personalOff": "Ocultos: alias o IP enmascarada",
+    "cidrRisk": "Sin red permitida: la credencial funcionaría desde cualquier red. Recomendado: la red del NOC.",
+    "generateCode": "Generar código",
+    "revoke": "Revocar",
+    "revoked": "{name} revocado",
+    "revokeTitle": "¿Revocar {name}?",
+    "revokeBody": "La pantalla volverá a la pantalla de código en menos de un minuto y su credencial dejará de valer. Para volver a usarla habrá que generar otro código.",
+    "revokeSubmit": "Revocar pantalla",
+    "codeTitle": "Código para {name}",
+    "codeHint": "Un solo uso, válido 10 minutos.",
+    "expiresIn": "Caduca en {time}",
+    "codeExpired": "El código caducó: genera otro.",
+    "openKiosk": "En la TV, abre /kiosk y escribe el código.",
+    "copyLink": "Copiar enlace con código",
+    "fragmentNote": "El enlace lleva el código tras #, así no viaja al servidor ni queda en registros.",
+    "presence": {
+      "online": "En línea",
+      "offline": "Desconectado",
+      "pending": "Pendiente de enrolar",
+      "revoked": "Revocado",
+      "expired": "Caducado"
+    },
+    "form": {
+      "title": "Nuevo kiosco",
+      "description": "Al guardar se genera el código para conectar la TV.",
+      "name": "Nombre",
+      "namePlaceholder": "TV sala NOC",
+      "playlist": "Lista de reproducción",
+      "cidrs": "Red permitida",
+      "cidrsHelp": "Recomendado: la red del NOC. Varias separadas por comas.",
+      "critical": "Interrumpir con hallazgos críticos",
+      "criticalHelp": "Banda superior durante 60 s, sin cambiar el dashboard.",
+      "personal": "Mostrar datos de clientes",
+      "personalHelp": "Desactivado por defecto: una pantalla la ven visitas y cámaras.",
+      "personalReason": "Motivo (queda registrado)",
+      "submit": "Crear y generar código"
     }
   }
 }

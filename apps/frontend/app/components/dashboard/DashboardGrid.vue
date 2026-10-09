@@ -17,8 +17,10 @@ const props = withDefaults(
     fill?: boolean
     /** Datos por vista previa (`POST /widget-data/preview`) en vez del dashboard guardado. */
     preview?: boolean
+    /** Kiosco: posición en la lista de reproducción (la muestra `noc_header`). */
+    rotation?: DashboardRotation | null
   }>(),
-  { scale: 'normal', live: false, fill: true, preview: false },
+  { scale: 'normal', live: false, fill: true, preview: false, rotation: null },
 )
 
 const root = useTemplateRef<HTMLElement>('root')
@@ -63,6 +65,7 @@ provide(DASHBOARD_CONTEXT, {
   lastUpdate,
   live: toRef(props, 'live'),
   preview: props.preview,
+  rotation: toRef(props, 'rotation'),
   report: (at: number) => {
     if (!lastUpdate.value || at > lastUpdate.value) lastUpdate.value = at
   },
