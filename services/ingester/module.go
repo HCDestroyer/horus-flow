@@ -130,8 +130,25 @@ func (m *ingester) Start(ctx context.Context) error {
 	return nil
 }
 
+type jsPub struct{ js jetstream.JetStream }
+
+func (p jsPub) PublishMsg(ctx context.Context, msg *nats.Msg) error {
+	_, err := p.js.PublishMsg(ctx, msg)
+	return err
+}
+
 // wire añade enriquecimiento, descubrimiento y resúmenes al procesador.
-func (m *ingester) wire(_ context.Context, _ *app.Processor) {}
+func (m *ingester) wire(_ context.Context, proc *app.Processor) {
+	pub := jsPub{js: m.js}
+	disc := app.NewDiscovery(app.DiscoveryOptions{TTL: m.cfg.FirstSeenTTL, PerMinute: m.cfg.DiscoveryPerMinute,
+		RealmMax: m.cfg.DiscoveryRealmMax}, pub, m.deps.Metrics, m.log)
+	disc.LoadKnown(m.inv.Load().Data().Customers)
+	proc.Observers = append(proc.Observers, disc)
+	m.loops = append(m.loops,
+		func(ctx context.Context) { disc.Run(ctx, m.cfg.FirstSeenInterval, m.cfg.ActivityInterval) },
+		func(ctx context.Context) { disc.RunKnownClients(ctx, m.js, m.log) },
+	)
+}
 
 // Run consume lotes hasta el apagado.
 func (m *ingester) Run(ctx context.Context) error {

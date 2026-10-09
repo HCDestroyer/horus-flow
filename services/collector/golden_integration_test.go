@@ -115,7 +115,7 @@ func TestGoldenRealMikroTik(t *testing.T) {
 	ing, err := ingester.Register(ctx, module.Deps{Logger: log, Common: config.Common{Env: "dev"}, Environ: []string{
 		"HORUS_NATS_URL=" + natsURL, "HORUS_NATS_ENSURE_STREAMS=true", "HORUS_TLM_FLOWS_MAX_BYTES=268435456",
 		"HORUS_CLICKHOUSE_DSN=" + ch.DSN, "HORUS_CLICKHOUSE_PASSWORD=" + ch.Password, "HORUS_INGESTER_CH_MIGRATE=false",
-		"HORUS_FLOWS_INVENTORY_FILE=" + invFile,
+		"HORUS_FLOWS_INVENTORY_FILE=" + invFile, "HORUS_INGESTER_FIRST_SEEN_INTERVAL=500ms",
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -241,6 +241,44 @@ func TestGoldenRealMikroTik(t *testing.T) {
 		}
 	}
 	t.Logf("clientes IPv4: %d (esperado %d)", len(got), len(ex.Clients))
+
+	// Descubrimiento (I1-05): first_seen del realm cubre los 236 clientes, una vez cada uno.
+	fs := map[string]int{}
+	evs, err := js.Stream(ctx, flowbus.StreamEvents)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline) && len(fs) < len(ex.Clients); time.Sleep(300 * time.Millisecond) {
+		fs = map[string]int{}
+		info, _ := evs.Info(ctx)
+		for seq := uint64(1); seq <= info.State.LastSeq; seq++ {
+			raw, err := evs.GetMsg(ctx, seq)
+			if err != nil || raw.Subject != flowbus.TypeClientFirstSeen+"."+realm.String() {
+				continue
+			}
+			var env flowbus.Envelope
+			var p struct {
+				Clients []struct {
+					Address string `json:"address"`
+				} `json:"clients"`
+			}
+			if json.Unmarshal(raw.Data, &env) != nil || json.Unmarshal(env.Data, &p) != nil {
+				t.Fatal("bad first_seen")
+			}
+			for _, c := range p.Clients {
+				fs[c.Address]++
+			}
+		}
+	}
+	for ip, n := range fs {
+		if n != 1 {
+			t.Errorf("first_seen %s emitted %d times", ip, n)
+		}
+	}
+	if len(fs) != len(ex.Clients) {
+		t.Errorf("first_seen keys = %d, want %d", len(fs), len(ex.Clients))
+	}
+	t.Logf("first_seen: %d claves", len(fs))
 
 	// Reentrega fuera de la ventana de deduplicación de JetStream: el mismo
 	// lote con otro Nats-Msg-Id no duplica filas (insert_deduplication_token).
