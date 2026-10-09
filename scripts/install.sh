@@ -39,7 +39,7 @@
 #   --install-dir DIR (/opt/horus)   --etc-dir DIR (/etc/horus)
 #   --root DIR                   prefijo para todas las rutas por defecto (pruebas; no activa systemd/cron)
 #   --project NOMBRE (horus)     --http-port 80  --https-port 443  --wg-port 51820  --wg-interface wg0
-#   --docker-subnet CIDR (172.31.250.0/24)    --tlm-max-bytes BYTES (telemetría NATS; según disco)
+#   --backup-metrics-port 9109 (127.0.0.1)   --docker-subnet CIDR (172.31.250.0/24)    --tlm-max-bytes BYTES (telemetría NATS; según disco)
 #   --bundle-recipient CLAVE_AGE  cifra el paquete offline para esa clave pública age (si no: frase
 #                                 aleatoria que se muestra UNA vez)
 #   --bundle-out DIR             dónde dejar el paquete offline (/root)
@@ -70,7 +70,7 @@ while [ "$#" -gt 0 ]; do
     --mode | --domain | --acme-email | --public-ip | --tunnel-cidr | --admin-email | --admin-password-file | \
       --image | --store-dir | --data-dir | --install-dir | --etc-dir | --root | --project | --http-port | \
       --https-port | --wg-port | --wg-interface | --docker-subnet | --tlm-max-bytes | --bundle-recipient | --bundle-out | \
-      --smtp-host | --smtp-port | --smtp-from | --smtp-user | --smtp-tls | --smtp-password-file)
+      --smtp-host | --smtp-port | --smtp-from | --smtp-user | --smtp-tls | --smtp-password-file | --backup-metrics-port)
       need_arg "$@"; opt[${1#--}]="$2"; shift 2 ;;
     --acme-staging) opt[acme-staging]=1; shift ;;
     --check) action=check; shift ;;
@@ -290,7 +290,8 @@ save_conf() {
       data-dir "$data_dir" install-dir "$install_dir" project "$project" http-port "$http_port" \
       https-port "$https_port" wg-port "$wg_port" wg-interface "$wg_if" docker-subnet "$docker_subnet" \
       tlm-max-bytes "$tlm_max_bytes" smtp-host "$(get smtp-host "")" smtp-port "$(get smtp-port 587)" \
-      smtp-from "$(get smtp-from "")" smtp-user "$(get smtp-user "")" smtp-tls "$(get smtp-tls starttls)" bundle-out "$(get bundle-out "${root:-}/root")"
+      smtp-from "$(get smtp-from "")" smtp-user "$(get smtp-user "")" smtp-tls "$(get smtp-tls starttls)" \
+      backup-metrics-port "$(get backup-metrics-port 9109)" bundle-out "$(get bundle-out "${root:-}/root")"
     [ -z "${opt[acme-staging]:-${saved[acme-staging]:-}}" ] || echo "acme-staging=1"
   } >"$conf_file"
   chmod 0644 "$conf_file"
