@@ -231,7 +231,7 @@ services:
       - --accessLog.format=json
     volumes:
       - ${HORUS_CONFIG_DIR:-../..}/traefik/dynamic:/etc/traefik/dynamic:ro
-      - ${HORUS_CONFIG_DIR:-../..}/tls:/etc/traefik/tls:ro
+      - ${HORUS_TLS_DIR:?falta HORUS_TLS_DIR}:/etc/traefik/tls:ro
       - ${HORUS_DATA_ROOT}/traefik:/data
     ports:
       - "${HORUS_PUBLIC_BIND:-0.0.0.0}:${HORUS_HTTP_PORT:-80}:8080"
@@ -258,6 +258,7 @@ services:
       HORUS_PROCESS: horus-app
       HORUS_AUTH_SIGNING_KEY_FILE: /run/secrets/auth_signing_key
       HORUS_AUTH_KEK_FILE: /run/secrets/auth_kek
+      HORUS_DEVICES_KEK_FILE: /run/secrets/devices_kek
       HORUS_DEVICES_CURSOR_KEY_FILE: /run/secrets/cursor_key
       HORUS_WIREGUARD_CURSOR_KEY_FILE: /run/secrets/cursor_key
       HORUS_DETECTION_CURSOR_KEY_FILE: /run/secrets/cursor_key
@@ -290,6 +291,7 @@ services:
       - seed_admin_password
       - auth_signing_key
       - auth_kek
+      - devices_kek
       - cursor_key
       - ch_ingester_password
       - ch_analytics_password
@@ -301,7 +303,7 @@ services:
       - grpc_wireguard_key
     volumes:
       - ${HORUS_STORE_DIR}:/var/lib/horus/store
-      - ${HORUS_CONFIG_DIR:-../..}/tls/public.crt:/etc/horus/tls/public.crt:ro
+      - ${HORUS_TLS_DIR}/public.crt:/etc/horus/tls/public.crt:ro
     ports:
       # ControlService de wireguard para wg-agent (red del host) por la IP de la puerta de
       # enlace de la red del compose; mTLS obligatorio.
@@ -357,21 +359,30 @@ services:
     read_only: true
     # Único contenedor con CAP_NET_ADMIN y red del host (ADR-0025): gestiona clave, puerto y
     # peers de wg0, que crea el instalador (horus-tunnel). /var/run/wireguard: UAPI de
-    # wireguard-go cuando el kernel no tiene el módulo.
+    # wireguard-go cuando el kernel no tiene el módulo. Corre como uid 0 SOLO para que
+    # NET_ADMIN sea efectiva (Docker no la concede a un usuario no root) y pueda abrir el socket
+    # UAPI (root, 0700); sin ninguna otra capacidad, sistema de archivos de solo lectura.
+    user: "0:0"
     network_mode: host
     cap_drop: [ALL]
     cap_add: [NET_ADMIN]
+    # Entorno propio (sin el común): wg-agent no usa PostgreSQL, ClickHouse, Valkey ni NATS.
     environment:
-      <<: *horus-env
+      HORUS_ENV: prod
+      HORUS_LOG_LEVEL: ${HORUS_LOG_LEVEL:-info}
+      HORUS_LOG_FORMAT: json
       HORUS_ROLES: wg-agent
       HORUS_PROCESS: horus-wg-agent
       HORUS_ADMIN_ADDR: 127.0.0.1:${HORUS_WGAGENT_ADMIN_PORT:-18081}
-      HORUS_NATS_URL_FILE: ""
+      HORUS_WG_HUB_ID: ${HORUS_WG_HUB_ID}
+      HORUS_WG_PORT: ${HORUS_WG_PORT:-51820}
       HORUS_WGAGENT_INTERFACE: ${HORUS_WG_INTERFACE:-wg0}
       HORUS_WGAGENT_DRIVER: kernel
       HORUS_WGAGENT_PRIVATE_KEY_FILE: /run/secrets/wg_hub_private_key
       HORUS_WGAGENT_GRPC_ADDR: ${HORUS_GRPC_BIND}:9095
       HORUS_WIREGUARD_GRPC_ADDR_REMOTE: ${HORUS_GRPC_BIND}:9094
+      GRPC_TLS_MODE: mtls
+      HORUS_TLS_CA_FILE: /run/secrets/grpc_ca
       HORUS_TLS_CERT_FILE: /run/secrets/grpc_wgagent_crt
       HORUS_TLS_KEY_FILE: /run/secrets/grpc_wgagent_key
       GOMEMLIMIT: 100MiB
@@ -402,8 +413,8 @@ services:
     mem_limit: 32m
     networks: [horus]
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9109/metrics.prom"]
-      interval: 30s
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9109/metrics.prom | grep -q horus_backup_last_status"]
+      interval: 10s
       timeout: 3s
       retries: 3
       start_period: 5s
@@ -433,6 +444,8 @@ secrets:
     file: ${HORUS_SECRETS_DIR}/auth_signing_key.pem
   auth_kek:
     file: ${HORUS_SECRETS_DIR}/auth_kek
+  devices_kek:
+    file: ${HORUS_SECRETS_DIR}/devices_kek
   cursor_key:
     file: ${HORUS_SECRETS_DIR}/cursor_key
   ch_ingester_password:

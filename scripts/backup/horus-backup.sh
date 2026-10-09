@@ -154,7 +154,8 @@ alert() {
 }
 
 # run_step <componente> <tipo backup|restore> <función> [args…]: ejecuta con set -e en un
-# subshell, mide, actualiza el estado y alerta si falla.
+# subshell, mide, actualiza el estado y alerta si falla (rc_total=1). Se llama siempre como
+# orden simple: dentro de `|| …` o `if` bash desactiva set -e en todo el subshell.
 run_step() {
   local comp="$1" kind="$2" fn="$3" start rc
   shift 3
@@ -185,7 +186,17 @@ run_step() {
     fi
   fi
   render_metrics
-  return "$rc"
+  [ "$rc" = 0 ] || rc_total=1
+}
+
+# run_plain <función>: como run_step pero sin estado ni métricas.
+run_plain() {
+  local rc
+  set +e
+  ( set -e; "$@" )
+  rc=$?
+  set -e
+  [ "$rc" = 0 ] || rc_total=1
 }
 
 # --- PostgreSQL ----------------------------------------------------------------------------------
@@ -249,18 +260,18 @@ pg_verify() {
     --entrypoint /bin/sh "$PG_IMAGE" -s >"$tmp/restored.txt" <<EOF
 set -e
 install -d -o postgres -g postgres -m 0700 /var/lib/pgrestore/data
-su-exec postgres pgbackrest --config=/etc/pgbackrest/pgbackrest.conf --stanza=horus \
+gosu postgres pgbackrest --config=/etc/pgbackrest/pgbackrest.conf --stanza=horus \
   --pg1-path=/var/lib/pgrestore/data --type=name --target="\$TARGET" --target-action=promote \
   --log-level-console=warn restore >&2
-su-exec postgres pg_ctl -D /var/lib/pgrestore/data -l /tmp/pg.log -w -t 600 \
+gosu postgres pg_ctl -D /var/lib/pgrestore/data -l /tmp/pg.log -w -t 600 \
   -o "-c archive_mode=off -c listen_addresses='' -c unix_socket_directories=/tmp -c port=5432" start >&2 \
   || { cat /tmp/pg.log >&2; exit 1; }
 i=0
-until [ "\$(su-exec postgres psql -h /tmp -XAtq -c 'SELECT pg_is_in_recovery()')" = f ]; do
+until [ "\$(gosu postgres psql -h /tmp -XAtq -c 'SELECT pg_is_in_recovery()')" = f ]; do
   i=\$((i+1)); [ \$i -lt 300 ] || { cat /tmp/pg.log >&2; exit 1; }; sleep 1
 done
-su-exec postgres psql -h /tmp -X -v ON_ERROR_STOP=1 -Atq -c "$PG_FINGERPRINT_SQL"
-su-exec postgres pg_ctl -D /var/lib/pgrestore/data -m fast stop >&2
+gosu postgres psql -h /tmp -X -v ON_ERROR_STOP=1 -Atq -c "$PG_FINGERPRINT_SQL"
+gosu postgres pg_ctl -D /var/lib/pgrestore/data -m fast stop >&2
 EOF
   local tables
   tables="$(wc -l <"$tmp/source.txt")"
@@ -318,7 +329,7 @@ ch_backup() {
   fi
   log "ClickHouse: BACKUP $name ${base:+(base $base)} — flows (sin flows_raw) y dim"
   ch_counts | sort >"$CH_BACKUP_DIR/meta/$name.before"
-  printf "BACKUP DATABASE flows EXCEPT TABLES flows.flows_raw, DATABASE dim TO Disk('backups', '%s') %s\n" "$name" "$settings" | ch_sql >/dev/null
+  printf "BACKUP DATABASE dim, DATABASE flows EXCEPT TABLES flows.flows_raw TO Disk('backups', '%s') %s\n" "$name" "$settings" | ch_sql >/dev/null
   ch_counts | sort >"$CH_BACKUP_DIR/meta/$name.after"
   if [ "$type" = incr ]; then
     local full="$base"
@@ -408,7 +419,7 @@ disk_metrics() {
     path="$HORUS_STORE_DIR"; [ "$vol" = data ] && path="$HORUS_DATA_ROOT"
     line="$(df -P -B1 "$path" | awk 'NR == 2 { print $2, $3, $4 }')"
     read -r _ used avail <<<"$line"
-    ratio="$(awk -v u="$used" -v a="$avail" 'BEGIN { printf "%.4f", (u + a) > 0 ? u / (u + a) : 0 }')"
+    ratio="$(awk -v u="$used" -v a="$avail" 'BEGIN { printf "%.4f", ((u + a) > 0 ? u / (u + a) : 0) }')"
     state_set disk "${vol}_ratio" "$ratio"
     state_set disk "${vol}_free" "$avail"
     if awk -v r="$ratio" -v t="$ALERT_RATIO" 'BEGIN { exit !(r > t) }'; then
@@ -446,25 +457,25 @@ exec 9>"$state_dir/lock"
 if ! flock -w 3600 9; then die "otro horus-backup sigue en marcha"; fi
 
 cmd="${1:-}"; shift || true
-rc=0
+rc_total=0
 case "$cmd" in
   run)
     what="${1:-all}"
-    case "$what" in all | pg) run_step postgres backup pg_backup auto || rc=1 ;; esac
-    case "$what" in all | ch) run_step clickhouse backup ch_backup auto || rc=1 ;; esac
+    case "$what" in all | pg) run_step postgres backup pg_backup auto ;; esac
+    case "$what" in all | ch) run_step clickhouse backup ch_backup auto ;; esac
     disk_metrics || true
     ;;
-  pg) run_step postgres backup pg_backup "${1:-auto}" || rc=1 ;;
-  ch) run_step clickhouse backup ch_backup "${1:-auto}" || rc=1 ;;
+  pg) run_step postgres backup pg_backup "${1:-auto}" ;;
+  ch) run_step clickhouse backup ch_backup "${1:-auto}" ;;
   verify)
     what="${1:-all}"
-    case "$what" in all | pg) run_step postgres restore pg_verify || rc=1 ;; esac
-    case "$what" in all | ch) run_step clickhouse restore ch_verify || rc=1 ;; esac
+    case "$what" in all | pg) run_step postgres restore pg_verify ;; esac
+    case "$what" in all | ch) run_step clickhouse restore ch_verify ;; esac
     ;;
-  pg-init) pg_init || rc=1 ;;
-  check-ttl) check_ttl || rc=1 ;;
-  metrics) disk_metrics || rc=1 ;;
+  pg-init) run_plain pg_init ;;
+  check-ttl) run_plain check_ttl ;;
+  metrics) run_plain disk_metrics ;;
   status) status ;;
   *) usage ;;
 esac
-exit "$rc"
+exit "$rc_total"
