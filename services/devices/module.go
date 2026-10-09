@@ -13,6 +13,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
+	"strings"
 
 	"github.com/hcdestroyer/horus-flow/packages/go/authz"
 	"github.com/hcdestroyer/horus-flow/packages/go/config"
@@ -25,6 +27,7 @@ import (
 	devapi "github.com/hcdestroyer/horus-flow/services/devices/api"
 	"github.com/hcdestroyer/horus-flow/services/devices/internal/adapters/httpapi"
 	"github.com/hcdestroyer/horus-flow/services/devices/internal/adapters/postgres"
+	"github.com/hcdestroyer/horus-flow/services/devices/internal/adapters/routeros"
 	"github.com/hcdestroyer/horus-flow/services/devices/internal/app"
 	modcfg "github.com/hcdestroyer/horus-flow/services/devices/internal/config"
 	"github.com/hcdestroyer/horus-flow/services/devices/migrations"
@@ -90,8 +93,23 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 	if deps.Health != nil {
 		deps.Health.AddCheck(health.Check{Name: "postgres", Critical: true, Probe: db.Ping})
 	}
+	var exclude []netip.Prefix
+	for _, c := range cfg.TunnelCIDRs {
+		if p, err := netip.ParsePrefix(strings.TrimSpace(c)); err == nil {
+			exclude = append(exclude, p)
+		}
+	}
+	reader := routeros.Reader{Timeout: cfg.RouterOSTimeout, BaseURL: func(ip string) string {
+		return strings.ReplaceAll(cfg.RouterOSBaseURL, "{ip}", ip)
+	}}
+	importer := app.NewImporter(store, onboarding, reader, exclude,
+		func() (authapi.AuditRecorder, bool) {
+			return module.Lookup[authapi.AuditRecorder](deps.Services, authapi.ServiceAudit)
+		}, nil, logger)
 	if deps.Routes != nil {
-		httpapi.New(svc, authz.NewGuard(verifier), cfg.PublicBaseURL, logger).Mount(deps.Routes)
+		guard := authz.NewGuard(verifier)
+		httpapi.New(svc, guard, cfg.PublicBaseURL, logger).Mount(deps.Routes)
+		httpapi.NewImport(importer, guard, logger).Mount(deps.Routes)
 	}
 	return &mod{db: db, logger: logger, migrate: cfg.Migrate}, nil
 }
