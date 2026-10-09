@@ -49,6 +49,8 @@ test.describe('clientes @clients', () => {
     await expect(page.getByTestId('clients-table')).toBeVisible()
     await page.getByTestId('client-search').fill('10.20.0.41')
     await page.getByTestId('client-search').press('Enter')
+    // La búsqueda terminó (y no la lista inicial): un único resultado.
+    await expect(page.getByTestId('clients-count')).toContainText('Mostrando 1 ')
     await expect(page.getByTestId('clients-count')).toContainText('1')
     expect(page.url()).not.toContain('10.20.0.41')
     // Y la ficha tampoco lleva la IP en la URL.
@@ -62,6 +64,8 @@ test.describe('clientes @clients', () => {
     await expect(page.getByTestId('clients-table')).toBeVisible()
     await page.getByTestId('client-search').fill('2001:db8:4a28:1800::1')
     await page.getByTestId('client-search').press('Enter')
+    // La búsqueda terminó (y no la lista inicial): un único resultado.
+    await expect(page.getByTestId('clients-count')).toContainText('Mostrando 1 ')
     await expect(page.getByTestId('clients-count')).toContainText('Mostrando 1 ')
     await expect(page.getByTestId('clients-table').getByTestId('client-address')).toHaveText(
       '2001:db8:4a28:1800::/56',
@@ -75,6 +79,8 @@ test.describe('clientes @clients', () => {
     await expect(page.getByTestId('clients-table')).toBeVisible()
     await page.getByTestId('client-search').fill('10.20.1.47')
     await page.getByTestId('client-search').press('Enter')
+    // La búsqueda terminó (y no la lista inicial): un único resultado.
+    await expect(page.getByTestId('clients-count')).toContainText('Mostrando 1 ')
     await page.getByTestId('client-link').first().click()
     await expect(page.getByTestId('client-header').getByTestId('client-kind')).toContainText(
       'por defecto',
@@ -98,6 +104,8 @@ test.describe('clientes @clients', () => {
     await expect(page.getByTestId('clients-table')).toBeVisible()
     await page.getByTestId('client-search').fill('10.20.2.177')
     await page.getByTestId('client-search').press('Enter')
+    // La búsqueda terminó (y no la lista inicial): un único resultado.
+    await expect(page.getByTestId('clients-count')).toContainText('Mostrando 1 ')
     await page.getByTestId('client-link').first().click()
     await expect(page.getByTestId('client-header').getByTestId('client-kind')).toContainText(
       'detectado',
@@ -119,6 +127,8 @@ test.describe('clientes @clients', () => {
     await expect(page.getByTestId('clients-table')).toBeVisible()
     await page.getByTestId('client-search').fill('Panadería')
     await page.getByTestId('client-search').press('Enter')
+    // La búsqueda terminó (y no la lista inicial): un único resultado.
+    await expect(page.getByTestId('clients-count')).toContainText('Mostrando 1 ')
     await page.getByTestId('client-link').first().click()
     await expect(page.getByTestId('client-alias')).toContainText('Panadería Sol')
     await page.getByTestId('client-more').click()
