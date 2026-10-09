@@ -103,7 +103,9 @@ test.describe('layout @i0', () => {
     await page.addInitScript(() => localStorage.setItem('horus.mock.scenario', 'system-error'))
     await loginAsNoc(page)
     const card = page.getByTestId('system-status')
-    await expect(card.getByRole('alert')).toContainText('No pudimos consultar el estado')
+    await expect(
+      card.getByRole('alert').filter({ hasText: 'No pudimos consultar el estado' }),
+    ).toBeVisible()
     await expect(card.getByRole('button', { name: 'Reintentar' })).toBeVisible()
     // El resto del layout sigue funcionando.
     await expect(page.getByTestId('main-nav')).toBeVisible()
