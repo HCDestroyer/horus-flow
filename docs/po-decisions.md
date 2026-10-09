@@ -56,3 +56,9 @@ Respuestas por defecto de G0 adoptadas: nombres de rol de `security.md`; petici�
 puede tener varios roles en un ISP; token de enrolamiento en el cuerpo JSON (a verificar en CHR);
 email y Telegram sin IPs de clientes por defecto; bot de Telegram configurable por ISP (mismo
 criterio de aislamiento que D17).
+
+# Decisiones del product owner (ronda 4 — IPv6)
+
+| # | Decisión del PO | Interpretación para el diseño |
+| --- | --- | --- |
+| D22 | **Un abonado puede tener o no IPv6; cada versión se toma como un cliente más**, validado según la versión que use. **Agrupar IPv6 por prefijo está bien.** | IPv4 e IPv6 son clientes independientes: la IP IPv4 es un cliente y el prefijo delegado IPv6 (truncado a `ipv6_client_len`, /64 por defecto) es otro. No se vinculan entre sí en v1 (cierra E-IPv6-4). Tipo, scoring y hallazgos se calculan por cliente, por separado para cada versión. |
