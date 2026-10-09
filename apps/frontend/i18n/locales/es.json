@@ -69,7 +69,9 @@
       "platformUsers": "Usuarios de plataforma",
       "platformWireguard": "WireGuard",
       "platformStorage": "Almacenamiento",
-      "platformSystem": "Estado del sistema"
+      "platformSystem": "Estado del sistema",
+      "notifications": "Canales de notificación",
+      "platformReputation": "Fuentes de reputación"
     },
     "search": "Buscar",
     "searchPlaceholder": "Buscar secciones…",
@@ -192,6 +194,12 @@
     },
     "platform-system": {
       "question": "¿Está sano cada rol del binario horus?"
+    },
+    "notifications": {
+      "question": "¿Por dónde avisa Horus de hallazgos y caídas?"
+    },
+    "platform-reputation": {
+      "question": "¿Qué listas de reputación usa la detección?"
     }
   },
   "account": {
@@ -927,6 +935,237 @@
         "exists": "Ya existe",
         "overlaps": "Solapa con uno existente"
       }
+    }
+  },
+  "platform": {
+    "tenantStatus": {
+      "active": "Activo",
+      "suspended": "Suspendido",
+      "offboarding": "En baja"
+    },
+    "noRemote": {
+      "title": "Sin copia remota configurada",
+      "body": "Todos los datos están solo en el disco de este servidor: si el disco falla, se pierden. Configura un destino remoto (SFTP u otro) cuando esté disponible."
+    },
+    "isps": {
+      "routers": "Routers",
+      "exporting": "Exportando",
+      "silent": "Silenciosos",
+      "fps": "Flujos/s",
+      "critical": "Hallazgos críticos abiertos",
+      "tunnelsDown": "Túneles caídos"
+    },
+    "wireguard": {
+      "readOnly": "Hubs y rangos de túneles de la instalación (solo lectura; la gestión llega más adelante).",
+      "occupancy": "{used} de {total} direcciones",
+      "occupancyLabel": "Ocupación del rango de túneles",
+      "endpoint": "Endpoint público",
+      "range": "Rango de túneles",
+      "services": "Rango de servicios",
+      "peers": "Peers",
+      "peersValue": "{active} activos · {tenants} ISP",
+      "publicKey": "Clave pública del hub"
+    },
+    "storage": {
+      "local": "Disco local",
+      "usage": "Uso del disco local",
+      "high": "Uso por encima del 85 %: revisa retenciones o amplía el disco.",
+      "byTypePending": "El desglose por tipo de dato y la retención efectiva aparecerán cuando el contrato los exponga.",
+      "remote": "Destinos remotos",
+      "remoteNone": "Ninguno. El alta de destinos (SFTP primero) llega en una versión posterior."
+    },
+    "system": {
+      "capabilities": "Capacidades",
+      "components": "Componentes",
+      "checked": "Comprobado",
+      "notConfigured": "Sin configurar"
+    },
+    "access": {
+      "title": "Acceso a la instalación",
+      "mode": {
+        "domain": "Dominio propio",
+        "subdomain": "Subdominio",
+        "ip_only": "Solo IP del servidor"
+      },
+      "warnings": {
+        "ip_only_access": "Acceso solo por IP",
+        "self_signed_certificate": "Certificado autogenerado",
+        "certificate_expiring": "El certificado caduca pronto",
+        "acme_renewal_failed": "Falló la renovación automática del certificado"
+      },
+      "tls": "Certificado",
+      "tlsMode": {
+        "acme": "Automático (Let's Encrypt)",
+        "acme_ip": "Automático para IP",
+        "self_signed": "Autogenerado",
+        "provided": "Aportado por el operador"
+      },
+      "issuer": "Emisor",
+      "expires": "Caduca",
+      "hsts": "HSTS",
+      "fingerprint": "Huella SHA-256 del certificado",
+      "fingerprintHint": "Compárala con la que muestra el navegador antes de aceptar su aviso de seguridad.",
+      "wgEndpoint": "Endpoint de WireGuard"
+    }
+  },
+  "reputation": {
+    "intro": "Catálogo base aprobado y listas añadidas por el superadministrador. Se cargan solas y quedan en el snapshot de la detección.",
+    "add": "Añadir fuente",
+    "enabledLabel": "Activa",
+    "enabled": "Fuente activada",
+    "disabled": "Fuente desactivada",
+    "reload": "Cargar ahora",
+    "reloadQueued": "Carga de {name} en cola",
+    "delete": "Borrar {name}",
+    "deleteTitle": "¿Borrar {name}?",
+    "deleteBody": "Deja de cargarse; sus indicadores salen del próximo snapshot. Los hallazgos ya abiertos se conservan.",
+    "deleteSubmit": "Borrar fuente",
+    "deleted": "Fuente borrada",
+    "every": "cada {f}",
+    "license": "Licencia: {license}",
+    "hasAuth": "Con cabecera de autenticación (no se muestra)",
+    "since": "alta {date}",
+    "origin": {
+      "catalog": "Catálogo base",
+      "custom": "Personalizada"
+    },
+    "status": {
+      "ok": "Cargada",
+      "pending": "Pendiente",
+      "failing": "Falla",
+      "disabled": "Desactivada"
+    },
+    "col": {
+      "category": "Categoría",
+      "format": "Formato",
+      "frequency": "Frecuencia",
+      "confidence": "Confianza",
+      "entries": "Entradas",
+      "lastSuccess": "Última carga"
+    },
+    "category": {
+      "botnet_cc": "Control de botnet (C2)",
+      "scanner": "Escáneres",
+      "malware_dist": "Distribución de malware",
+      "mining_pool": "Minería",
+      "proxy_vpn": "Proxy / VPN",
+      "tor_exit": "Salida de Tor",
+      "blocklist": "Lista de bloqueo"
+    },
+    "format": {
+      "netset": "IP o CIDR por línea",
+      "abusech-feodo-csv": "CSV de Feodo (abuse.ch)",
+      "abusech-threatfox-csv": "CSV de ThreatFox (abuse.ch)",
+      "spamhaus-drop-json": "DROP de Spamhaus (JSON)"
+    },
+    "frequency": {
+      "15m": "Cada 15 min",
+      "1h": "Cada hora",
+      "6h": "Cada 6 h",
+      "24h": "Cada día",
+      "7d": "Cada semana"
+    },
+    "form": {
+      "title": "Añadir fuente de reputación",
+      "description": "La carga es automática; si falla, se conserva la anterior.",
+      "name": "Nombre",
+      "key": "Clave",
+      "keyHelp": "Identificador estable (minúsculas y guion bajo); aparece en hallazgos y no se puede cambiar.",
+      "url": "URL",
+      "urlHelp": "Solo https y direcciones públicas.",
+      "confidenceHelp": "0–100: cuánto pesa un indicador de esta lista.",
+      "license": "Licencia o condiciones de uso",
+      "auth": "Autenticación (opcional)",
+      "authName": "Cabecera",
+      "authValue": "Valor",
+      "writeOnly": "Se guarda cifrado y no se vuelve a mostrar.",
+      "terms": "Confirmo que la licencia de esta lista permite usarla en esta instalación",
+      "termsRequired": "Confirma que puedes usar esta lista",
+      "submit": "Añadir fuente",
+      "done": "Fuente añadida: se cargará en unos minutos"
+    }
+  },
+  "channels": {
+    "intro": "Por dónde avisa Horus a tu equipo. Cada ISP configura los suyos; nada se comparte entre ISP.",
+    "add": "Nuevo canal",
+    "empty": "Aún no hay canales de notificación",
+    "emptyHint": "Añade un correo, un grupo de Telegram o tu LibreNMS para recibir avisos.",
+    "chat": "Chat {id}",
+    "credentialsSet": "Credenciales configuradas (no se muestran)",
+    "credentialsMissing": "Faltan las credenciales",
+    "testConnection": "Probar conexión",
+    "sendTest": "Enviar prueba",
+    "testQueued": "Mensaje de prueba enviado",
+    "testOk": "Conexión correcta ({ms} ms)",
+    "remoteVersion": "Versión remota: {v}",
+    "edit": "Editar {name}",
+    "delete": "Borrar {name}",
+    "deleteTitle": "¿Borrar {name}?",
+    "deleteBody": "Dejará de recibir avisos; sus credenciales se borran.",
+    "deleteSubmit": "Borrar canal",
+    "deleted": "Canal borrado",
+    "lastDelivery": "Último envío",
+    "personalOn": "Incluye la IP del cliente",
+    "kind": {
+      "email": "Correo",
+      "telegram": "Telegram",
+      "librenms": "LibreNMS"
+    },
+    "status": {
+      "ok": "Funciona",
+      "unverified": "Sin probar",
+      "failing": "Falla",
+      "disabled": "Desactivado"
+    },
+    "testError": {
+      "dns_failed": "No se resuelve el nombre del servidor",
+      "connect_failed": "No se puede conectar con el servidor",
+      "tls_invalid": "El certificado del servidor no es válido",
+      "auth_failed": "Usuario, contraseña o token incorrectos",
+      "forbidden": "El usuario no tiene permiso en el destino",
+      "timeout": "El servidor no respondió a tiempo",
+      "unexpected_response": "Respuesta inesperada del destino",
+      "missing_credentials": "Faltan las credenciales del canal"
+    },
+    "events": {
+      "finding_opened": "Hallazgo nuevo",
+      "finding_reopened": "Hallazgo reabierto",
+      "exporter_silent": "Router silencioso",
+      "exporter_recovered": "Router recuperado",
+      "tunnel_down": "Túnel caído",
+      "tunnel_recovered": "Túnel recuperado"
+    },
+    "form": {
+      "title": "Nuevo canal de notificación",
+      "editTitle": "Editar canal",
+      "description": "Las credenciales no se vuelven a mostrar después de guardarlas.",
+      "kind": "Tipo de canal",
+      "name": "Nombre",
+      "recipients": "Destinatarios",
+      "recipientsHelp": "Uno o más correos separados por comas.",
+      "chatId": "chat_id",
+      "chatIdHelp": "Los grupos empiezan por -100. Añade el bot de Horus al grupo.",
+      "botToken": "Token del bot propio (opcional)",
+      "baseUrl": "URL de LibreNMS",
+      "baseUrlHelp": "Instancia dedicada a Horus, sin credenciales en la URL; Horus añade /api/v0.",
+      "username": "Usuario de LibreNMS",
+      "password": "Contraseña",
+      "apiToken": "Token de API",
+      "optional": "Opcional.",
+      "writeOnly": "Se guarda cifrado y no se vuelve a mostrar.",
+      "keepSecret": "Déjalo vacío para conservar el actual.",
+      "tlsVerify": "Verificar el certificado del servidor",
+      "tlsVerifyOff": "Solo para certificados autogenerados; queda registrado.",
+      "isolation": "Aunque otro ISP use el mismo LibreNMS, sus credenciales y avisos están aislados.",
+      "events": "Avisar de",
+      "minSeverity": "Hallazgos desde",
+      "fromSeverity": "Desde {s}",
+      "personal": "Incluir la IP del cliente",
+      "personalHelp": "Por defecto se envía el alias o la IP enmascarada. Queda registrado.",
+      "enabled": "Canal activo",
+      "submit": "Guardar canal",
+      "created": "Canal creado: pruébalo para verificarlo",
+      "updated": "Canal actualizado"
     }
   }
 }

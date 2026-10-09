@@ -28,9 +28,10 @@ describe('buildNavigation', () => {
   })
 
   it('elimina los grupos que se quedan vacíos', () => {
-    const groups = buildNavigation(noc, 'fibra-norte', 'I1').map((g) => g.id)
-    expect(groups).not.toContain('admin')
-    expect(groups).not.toContain('platform')
+    const nav = buildNavigation(noc, 'fibra-norte', 'I1')
+    expect(nav.map((g) => g.id)).not.toContain('platform')
+    // De administración, el NOC solo ve los canales de notificación (alerts.read, D13).
+    expect(nav.find((g) => g.id === 'admin')?.sections.map((s) => s.id)).toEqual(['notifications'])
   })
 
   it('muestra la consola de plataforma solo con permisos platform.*', () => {
@@ -141,5 +142,11 @@ describe('incrementos futuros (aparición progresiva)', () => {
       'forbidden',
     )
     expect(sectionAccess(findSection('tenant', 'nodes'), noc, 'fibra-norte', 'I1')).toBe('ok')
+  })
+
+  it('la consola de plataforma da "no encontrado" (no 403) a quien no es superadmin', () => {
+    const system = findSection('platform', '/platform/system')
+    expect(sectionAccess(system, noc, undefined, 'I1')).toBe('not-found')
+    expect(sectionAccess(system, admin, undefined, 'I1')).toBe('ok')
   })
 })

@@ -53,12 +53,14 @@ export const NAV_SECTIONS: NavSection[] = [
   { id: 'reports', group: 'management', labelKey: 'nav.items.reports', icon: 'i-lucide-file-chart-column', path: 'reports', scope: 'tenant', increment: 'I3', permission: 'reports.read' },
   { id: 'users', group: 'admin', labelKey: 'nav.items.users', icon: 'i-lucide-user-cog', path: 'admin/users', scope: 'tenant', increment: 'I0', permission: 'users.read' },
   { id: 'kiosks', group: 'admin', labelKey: 'nav.items.kiosks', icon: 'i-lucide-monitor', path: 'admin/kiosks', scope: 'tenant', increment: 'I1', permission: 'kiosks.manage' },
+  { id: 'notifications', group: 'admin', labelKey: 'nav.items.notifications', icon: 'i-lucide-send', path: 'admin/notifications', scope: 'tenant', increment: 'I1', permission: 'alerts.read' },
   { id: 'detection', group: 'admin', labelKey: 'nav.items.detection', icon: 'i-lucide-scan-search', path: 'admin/detection', scope: 'tenant', increment: 'I1', permission: 'settings.read' },
   { id: 'audit', group: 'admin', labelKey: 'nav.items.audit', icon: 'i-lucide-scroll-text', path: 'admin/audit', scope: 'tenant', increment: 'I2', permission: 'audit.read' },
   { id: 'platform-isps', group: 'platform', labelKey: 'nav.items.platformIsps', icon: 'i-lucide-building-2', path: '/platform/isps', scope: 'platform', increment: 'I0', permission: 'platform.tenants.read' },
   { id: 'platform-users', group: 'platform', labelKey: 'nav.items.platformUsers', icon: 'i-lucide-users-round', path: '/platform/users', scope: 'platform', increment: 'I0', permission: 'platform.users.read' },
   { id: 'platform-wireguard', group: 'platform', labelKey: 'nav.items.platformWireguard', icon: 'i-lucide-waypoints', path: '/platform/wireguard', scope: 'platform', increment: 'I1', permission: 'platform.status.read' },
   { id: 'platform-storage', group: 'platform', labelKey: 'nav.items.platformStorage', icon: 'i-lucide-hard-drive', path: '/platform/storage', scope: 'platform', increment: 'I1', permission: 'platform.storage.manage' },
+  { id: 'platform-reputation', group: 'platform', labelKey: 'nav.items.platformReputation', icon: 'i-lucide-list-checks', path: '/platform/reputation', scope: 'platform', increment: 'I1', permission: 'platform.reputation_sources.manage' },
   { id: 'platform-system', group: 'platform', labelKey: 'nav.items.platformSystem', icon: 'i-lucide-heart-pulse', path: '/platform/system', scope: 'platform', increment: 'I1', permission: 'platform.status.read' },
 ]
 
@@ -91,7 +93,9 @@ export function sectionAccess(
   maxIncrement: Increment,
 ): 'ok' | 'not-found' | 'forbidden' {
   if (!section || !isIncrementVisible(section.increment, maxIncrement)) return 'not-found'
-  return canSeeSection(section, me, slug) ? 'ok' : 'forbidden'
+  if (canSeeSection(section, me, slug)) return 'ok'
+  // La consola de plataforma no se revela a quien no es superadmin (I1-31 criterio 3).
+  return section.scope === 'platform' ? 'not-found' : 'forbidden'
 }
 
 export function sectionHref(section: NavSection, slug?: string) {
