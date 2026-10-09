@@ -15,17 +15,23 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/hcdestroyer/horus-flow/packages/go/authz"
 	"github.com/hcdestroyer/horus-flow/packages/go/config"
 	"github.com/hcdestroyer/horus-flow/packages/go/flowbus"
 	"github.com/hcdestroyer/horus-flow/packages/go/flowinv"
 	"github.com/hcdestroyer/horus-flow/packages/go/health"
 	"github.com/hcdestroyer/horus-flow/packages/go/module"
+	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
+	collectorapi "github.com/hcdestroyer/horus-flow/services/collector/api"
 	chadapter "github.com/hcdestroyer/horus-flow/services/ingester/internal/adapters/clickhouse"
+	"github.com/hcdestroyer/horus-flow/services/ingester/internal/adapters/httpapi"
 	"github.com/hcdestroyer/horus-flow/services/ingester/internal/app"
 	modcfg "github.com/hcdestroyer/horus-flow/services/ingester/internal/config"
 )
@@ -43,7 +49,7 @@ func Register(_ context.Context, deps module.Deps) (module.Module, error) {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	m := &ingester{Module: module.Idle(), cfg: cfg, log: log, deps: deps, inv: flowinv.NewStore(nil)}
+	m := &ingester{Module: module.Idle(), cfg: cfg, log: log, deps: deps, inv: flowinv.NewStore(nil), states: &lazyStates{}}
 	if cfg.NATSURL != "" {
 		m.metrics = app.NewMetrics(deps.Metrics)
 		if cfg.InventoryFile != "" {
@@ -53,8 +59,40 @@ func Register(_ context.Context, deps module.Deps) (module.Module, error) {
 			}
 			m.inv.Swap(s)
 		}
+		if deps.Routes != nil {
+			if v := verifier(cfg, deps); v != nil {
+				httpapi.New(authz.NewGuard(v), m.inv, m.states).Mount(deps.Routes)
+			} else {
+				log.Warn("ingester: no token verifier (auth not local, HORUS_JWT_PUBLIC_KEYS unset): /flow-exporters not served")
+			}
+		}
 	}
 	return m, nil
+}
+
+func verifier(cfg modcfg.Config, deps module.Deps) *authz.Verifier {
+	if v, ok := module.Lookup[*authz.Verifier](deps.Services, authapi.ServiceVerifier); ok {
+		return v
+	}
+	if cfg.PublicKeys == "" {
+		return nil
+	}
+	keys, err := authz.ParsePublicKeysPEM([]byte(cfg.PublicKeys))
+	if err != nil {
+		return nil
+	}
+	return authz.NewVerifier(keys, cfg.Issuer, nil)
+}
+
+// lazyStates da acceso al bucket KV del estado de exportadores una vez conectado.
+type lazyStates struct{ kv atomic.Pointer[httpapi.KVStates] }
+
+func (l *lazyStates) Get(ctx context.Context, id uuid.UUID) (*collectorapi.FlowExporter, error) {
+	kv := l.kv.Load()
+	if kv == nil {
+		return nil, nil
+	}
+	return kv.Get(ctx, id)
 }
 
 type ingester struct {
@@ -64,6 +102,7 @@ type ingester struct {
 	deps    module.Deps
 	inv     *flowinv.Store
 	metrics *app.Metrics
+	states  *lazyStates
 
 	nc       *nats.Conn
 	js       jetstream.JetStream
@@ -113,6 +152,12 @@ func (m *ingester) Start(ctx context.Context) error {
 		return fmt.Errorf("ingester: consumer %s: %w", flowbus.ConsumerIngester, err)
 	}
 	m.cons = cons
+	if kv, err := js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: flowbus.ExporterStateBucket,
+		Description: "Estado de los exportadores de flujos (I1-09)", History: 1, Storage: jetstream.FileStorage}); err == nil {
+		m.states.kv.Store(&httpapi.KVStates{KV: kv})
+	} else {
+		m.log.WarnContext(ctx, "exporter state bucket unavailable", "error", err)
+	}
 	proc := &app.Processor{Inv: m.inv}
 	m.wire(ctx, proc)
 	m.consumer = &app.Consumer{Proc: proc, Ins: w, Workers: m.cfg.Workers, M: m.metrics, Log: m.log,

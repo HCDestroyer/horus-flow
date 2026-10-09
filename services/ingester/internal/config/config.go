@@ -42,6 +42,10 @@ type Config struct {
 	DiscoveryRealmMax  int           `env:"HORUS_INGESTER_DISCOVERY_REALM_MAX" envDefault:"1048576"`
 	ActivityInterval   time.Duration `env:"HORUS_INGESTER_ACTIVITY_INTERVAL" envDefault:"1h"`
 	SummaryInterval    time.Duration `env:"HORUS_INGESTER_SUMMARY_INTERVAL" envDefault:"10s"`
+	// API de estado de exportadores (I1-09): validación del access JWT si el
+	// rol auth no corre en el mismo proceso.
+	PublicKeys string `env:"HORUS_JWT_PUBLIC_KEYS"`
+	Issuer     string `env:"HORUS_AUTH_ISSUER" envDefault:"horus-auth"`
 	// Snapshots versionados (datasets.SnapshotDir) que se recargan en caliente (I1-07, §11).
 	ASNSnapshotDir        string `env:"HORUS_ASN_SNAPSHOT_DIR"`
 	CatalogSnapshotDir    string `env:"HORUS_CATALOG_SNAPSHOT_DIR"`
