@@ -24,8 +24,11 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/config"
 	"github.com/hcdestroyer/horus-flow/packages/go/jsonapi"
 	"github.com/hcdestroyer/horus-flow/packages/go/module"
+	"github.com/hcdestroyer/horus-flow/packages/go/natsx"
+	dashapi "github.com/hcdestroyer/horus-flow/services/analytics/api/dashboards"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
 	"github.com/hcdestroyer/horus-flow/services/gateway/internal/edge"
+	"github.com/hcdestroyer/horus-flow/services/gateway/internal/realtime"
 	"github.com/hcdestroyer/horus-flow/services/gateway/internal/routes"
 )
 
@@ -38,6 +41,9 @@ type Config struct {
 	// (HORUS_JWT_PUBLIC_KEYS_FILE).
 	PublicKeys string `env:"HORUS_JWT_PUBLIC_KEYS"`
 	Issuer     string `env:"HORUS_AUTH_ISSUER" envDefault:"horus-auth"`
+	// Orígenes permitidos del WebSocket (D14).
+	AllowedOrigins []string `env:"HORUS_ALLOWED_ORIGINS" envSeparator:","`
+	PublicBaseURL  string   `env:"HORUS_PUBLIC_BASE_URL"`
 }
 
 // Register construye el módulo del rol gateway (firma module.Factory).
@@ -83,8 +89,49 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		return nil, err
 	}
 	deps.Routes.HandleFunc("GET /api/v1/system/status", systemStatus(deps.Routes))
-	logger.InfoContext(ctx, "gateway edge mounted", slog.Int("routes", len(table)), slog.Bool("session_check", sessions != nil))
-	return module.Idle(), nil
+	// Tiempo real (I1-13): tickets de un uso y hub WebSocket.
+	hub := realtime.New(realtime.Options{
+		Verifier: verifier, Sessions: sessions, Kiosks: kiosks, Origins: authz.ParseOrigins(cfg.AllowedOrigins, cfg.PublicBaseURL),
+		PublicBaseURL: cfg.PublicBaseURL, Logger: logger, Metrics: deps.Metrics,
+		Dashboards: func() (dashapi.Access, bool) {
+			return module.Lookup[dashapi.Access](deps.Services, dashapi.ServiceAccess)
+		},
+	})
+	deps.Routes.HandleFunc("POST /api/v1/ws/tickets", hub.HandleTicket)
+	deps.Routes.HandleFunc("GET /api/v1/ws", hub.HandleWS)
+	bus, err := natsx.Shared(ctx, deps.Services, deps.Environ, logger)
+	if err != nil {
+		return nil, err
+	}
+	logger.InfoContext(ctx, "gateway edge mounted", slog.Int("routes", len(table)), slog.Bool("session_check", sessions != nil),
+		slog.Bool("realtime_bus", bus != nil))
+	return &mod{hub: hub, bus: bus, logger: logger}, nil
+}
+
+type mod struct {
+	hub    *realtime.Hub
+	bus    *natsx.Bus
+	logger *slog.Logger
+}
+
+// Run suscribe el hub a NATS core (si hay bus) y cierra las conexiones al apagar.
+func (m *mod) Run(ctx context.Context) error {
+	if m.bus != nil {
+		subs, err := m.hub.Subscribe(m.bus.NC)
+		if err != nil {
+			m.logger.ErrorContext(ctx, "realtime: nats subscribe failed", slog.Any("error", err))
+		}
+		defer func() {
+			for _, s := range subs {
+				_ = s.Unsubscribe()
+			}
+		}()
+	} else {
+		m.logger.WarnContext(ctx, "realtime degraded: HORUS_NATS_URL not set")
+	}
+	<-ctx.Done()
+	m.hub.Shutdown()
+	return nil
 }
 
 // systemStatus sirve GET /api/v1/system/status: capacidades según qué
