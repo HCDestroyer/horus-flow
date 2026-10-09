@@ -54,6 +54,12 @@ type app struct {
 
 func startApp(t *testing.T) *app {
 	t.Helper()
+	return startAppEnv(t)
+}
+
+// startAppEnv arranca el binario en proceso con variables extra.
+func startAppEnv(t *testing.T, extra ...string) *app {
+	t.Helper()
 	dsn := pgtest.New(t)
 	environ := []string{
 		"HORUS_POSTGRES_DSN=" + dsn,
@@ -65,6 +71,7 @@ func startApp(t *testing.T) *app {
 		// al pedir el script (síncrono) y las versiones de los routers no cambian solas.
 		"HORUS_WIREGUARD_RECONCILE_EVERY=1h", "HORUS_WGAGENT_REPORT_EVERY=200ms",
 	}
+	environ = append(environ, extra...)
 	ctx, cancel := context.WithCancel(context.Background())
 	mux := httpx.NewMux(nil, nil)
 	services := module.NewServices()

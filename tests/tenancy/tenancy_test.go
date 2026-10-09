@@ -46,6 +46,9 @@ func cases() map[string]tenanttest.Case {
 		"createProvisioningScript":   {Kind: tenanttest.ByID, Body: map[string]any{"routeros_version": "7.16"}},
 		"createDeprovisioningScript": {Kind: tenanttest.ByID},
 		"revokeEnrollmentToken":      {Kind: tenanttest.ByID},
+		// devices: importación del MikroTik (I1-28, CORE)
+		"previewRouterPrefixImport": {Kind: tenanttest.ByID},
+		"batchCreateClientPrefixes": {Kind: tenanttest.Create, Body: map[string]any{"items": []any{map[string]any{"prefix": "10.98.0.0/24", "role": "customers"}}}},
 	}
 	pending := func(owner string, ids ...string) {
 		for _, id := range ids {
@@ -54,8 +57,7 @@ func cases() map[string]tenanttest.Case {
 	}
 	pending("CORE I1 (devices: clientes, credenciales, importación y lotes de prefijos)",
 		"listCustomers", "getCustomerStats", "getCustomer", "listCustomerKindHistory", "updateCustomer", "confirmClientPrefix",
-		"lookupCustomers", "resetCustomer", "setCustomerKind", "unlockCustomerKind", "previewRouterPrefixImport",
-		"batchCreateClientPrefixes", "putRouterCredential")
+		"lookupCustomers", "resetCustomer", "setCustomerKind", "unlockCustomerKind", "putRouterCredential")
 	pending("CORE I1 (auth: miembros, roles y kioscos)",
 		"removeMember", "listKiosks", "getKiosk", "listMembers", "listRoles", "updateKiosk", "createKiosk",
 		"createKioskEnrollmentCode", "revokeKiosk", "inviteMember", "replaceMemberRoleAssignments")
