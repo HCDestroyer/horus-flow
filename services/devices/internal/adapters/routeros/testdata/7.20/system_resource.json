@@ -1,0 +1,7 @@
+{
+  "architecture-name": "x86_64",
+  "board-name": "CHR",
+  "cpu-count": "2",
+  "platform": "MikroTik",
+  "version": "7.20.2 (long-term)"
+}

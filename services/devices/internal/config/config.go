@@ -4,6 +4,7 @@ package config
 
 import (
 	"log/slog"
+	"time"
 
 	"github.com/hcdestroyer/horus-flow/packages/go/observability"
 )
@@ -22,6 +23,15 @@ type Config struct {
 	PublicKeys    string `env:"HORUS_JWT_PUBLIC_KEYS"`
 	Issuer        string `env:"HORUS_AUTH_ISSUER" envDefault:"horus-auth"`
 	PublicBaseURL string `env:"HORUS_PUBLIC_BASE_URL"`
+	// KEK de 32 B (hex o base64; HORUS_DEVICES_KEK_FILE) para cifrar las
+	// credenciales de routers (docs/security.md S9). Vacía en dev = efímera.
+	KEK observability.Secret `env:"HORUS_DEVICES_KEK"`
+	// TunnelCIDRs: rangos de túneles de Horus (los mismos que wireguard); la
+	// importación de prefijos nunca los propone.
+	TunnelCIDRs []string `env:"HORUS_WG_TUNNEL_CIDRS" envSeparator:"," envDefault:"10.255.0.0/16"`
+	// RouterOSBaseURL: plantilla de la URL REST del router ({ip} = IP de túnel).
+	RouterOSBaseURL string        `env:"HORUS_DEVICES_ROUTEROS_BASE_URL" envDefault:"https://{ip}"`
+	RouterOSTimeout time.Duration `env:"HORUS_DEVICES_ROUTEROS_TIMEOUT" envDefault:"20s"`
 }
 
 // LogValue implementa slog.LogValuer (sin secretos).

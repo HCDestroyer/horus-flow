@@ -1,0 +1,16 @@
+[
+  {
+    ".id": "*0",
+    "name": "default",
+    "dhcpv6-pd-pool": "",
+    "remote-ipv6-prefix-pool": "",
+    "remote-ipv6-prefix-reuse": "false"
+  },
+  {
+    ".id": "*1",
+    "name": "perfil-residencial",
+    "dhcpv6-pd-pool": "pd-clientes",
+    "remote-ipv6-prefix-pool": "wan-clientes",
+    "remote-ipv6-prefix-reuse": "false"
+  }
+]

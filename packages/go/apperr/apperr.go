@@ -28,6 +28,8 @@ const (
 	KindPreconditionRequired
 	KindTooManyRequests
 	KindUnavailable
+	// KindBadGateway: un sistema externo (p. ej. el router) no responde (502).
+	KindBadGateway
 )
 
 var kindStatus = map[Kind]int{
@@ -41,6 +43,7 @@ var kindStatus = map[Kind]int{
 	KindPreconditionRequired: http.StatusPreconditionRequired,
 	KindTooManyRequests:      http.StatusTooManyRequests,
 	KindUnavailable:          http.StatusServiceUnavailable,
+	KindBadGateway:           http.StatusBadGateway,
 }
 
 // Error es un error de aplicación con código del contrato.

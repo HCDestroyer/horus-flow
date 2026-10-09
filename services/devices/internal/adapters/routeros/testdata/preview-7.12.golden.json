@@ -1,0 +1,101 @@
+[
+  {
+    "prefix": "10.20.0.0/24",
+    "origin": "ip_pool",
+    "origin_name": "pool-dhcp-lan",
+    "suggested_role": "customers",
+    "suggested_assignment_mode": "dynamic",
+    "delegated_prefix_length": null,
+    "suggested_ipv6_client_len": null,
+    "ipv6_pool_usage": null,
+    "diff": "exists"
+  },
+  {
+    "prefix": "100.64.0.0/20",
+    "origin": "ip_pool",
+    "origin_name": "pool-pppoe",
+    "suggested_role": "customers",
+    "suggested_assignment_mode": "dynamic",
+    "delegated_prefix_length": null,
+    "suggested_ipv6_client_len": null,
+    "ipv6_pool_usage": null,
+    "diff": "exists"
+  },
+  {
+    "prefix": "192.168.88.0/24",
+    "origin": "interface_address",
+    "origin_name": "ether5-gestion",
+    "suggested_role": "infrastructure",
+    "suggested_assignment_mode": "static",
+    "delegated_prefix_length": null,
+    "suggested_ipv6_client_len": null,
+    "ipv6_pool_usage": null,
+    "diff": "new"
+  },
+  {
+    "prefix": "198.51.100.0/30",
+    "origin": "interface_address",
+    "origin_name": "ether1-upstream",
+    "suggested_role": "infrastructure",
+    "suggested_assignment_mode": "static",
+    "delegated_prefix_length": null,
+    "suggested_ipv6_client_len": null,
+    "ipv6_pool_usage": null,
+    "diff": "new"
+  },
+  {
+    "prefix": "203.0.113.0/26",
+    "origin": "ip_pool",
+    "origin_name": "pool-publicas",
+    "suggested_role": "customers",
+    "suggested_assignment_mode": "dynamic",
+    "delegated_prefix_length": null,
+    "suggested_ipv6_client_len": null,
+    "ipv6_pool_usage": null,
+    "diff": "new"
+  },
+  {
+    "prefix": "203.0.113.64/27",
+    "origin": "ip_pool",
+    "origin_name": "pool-publicas",
+    "suggested_role": "customers",
+    "suggested_assignment_mode": "dynamic",
+    "delegated_prefix_length": null,
+    "suggested_ipv6_client_len": null,
+    "ipv6_pool_usage": null,
+    "diff": "new"
+  },
+  {
+    "prefix": "2001:db8:1000::/40",
+    "origin": "ipv6_pool",
+    "origin_name": "pd-clientes",
+    "suggested_role": "customers",
+    "suggested_assignment_mode": "dynamic",
+    "delegated_prefix_length": 56,
+    "suggested_ipv6_client_len": 56,
+    "ipv6_pool_usage": "dhcpv6_pd",
+    "diff": "new"
+  },
+  {
+    "prefix": "2001:db8:aaaa::/64",
+    "origin": "interface_address",
+    "origin_name": "ether5-gestion",
+    "suggested_role": "infrastructure",
+    "suggested_assignment_mode": "static",
+    "delegated_prefix_length": null,
+    "suggested_ipv6_client_len": 64,
+    "ipv6_pool_usage": null,
+    "diff": "new"
+  },
+  {
+    "prefix": "2001:db8:ff00::/48",
+    "origin": "ipv6_pool",
+    "origin_name": "wan-clientes",
+    "suggested_role": "customers",
+    "suggested_assignment_mode": "dynamic",
+    "delegated_prefix_length": 64,
+    "suggested_ipv6_client_len": 64,
+    "ipv6_pool_usage": "ppp_link",
+    "diff": "new"
+  }
+]
