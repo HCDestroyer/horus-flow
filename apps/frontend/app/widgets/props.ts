@@ -16,9 +16,10 @@ export interface WidgetViewProps {
   rows: number
 }
 
-/** Filas de tabla/lista que caben: ≤ 8 en mural (§7.4), algo más en escritorio. */
+/**
+ * Filas de tabla/lista a pintar: ≤ 8 en mural (§7.4), algo más en escritorio. Las que no
+ * caben enteras las oculta `v-fit-rows`.
+ */
 export function maxListRows(scale: WidgetScale, gridRows: number) {
-  return scale === 'wall'
-    ? Math.min(8, Math.max(2, gridRows * 2 - 2))
-    : Math.max(3, gridRows * 2 + 1)
+  return scale === 'wall' ? 8 : Math.max(3, gridRows * 2 + 1)
 }

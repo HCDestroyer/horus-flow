@@ -13,6 +13,11 @@ const props = defineProps<{
 const { t } = useI18n()
 const { membership } = useTenant()
 
+// El cuerpo del panel hace scroll propio: debe poder enfocarse para desplazarlo con el
+// teclado aunque el contenido no tenga controles (WCAG 2.1.1, axe scrollable-region-focusable).
+const content = useTemplateRef<HTMLElement>('content')
+onMounted(() => content.value?.parentElement?.setAttribute('tabindex', '0'))
+
 useHead({
   title: () =>
     membership.value ? `${props.title} · ${membership.value.tenant_name}` : props.title,
@@ -49,7 +54,7 @@ useHead({
     </template>
 
     <template #body>
-      <div id="main-content" tabindex="-1" class="flex flex-col gap-6 outline-none">
+      <div id="main-content" ref="content" tabindex="-1" class="flex flex-col gap-6 outline-none">
         <slot />
       </div>
     </template>

@@ -30,11 +30,13 @@ function ago(iso: string) {
 <template>
   <div class="flex min-h-0 flex-1 flex-col gap-[calc(var(--w-gap)*0.5)] overflow-hidden">
     <ul
-      class="divide-default flex min-h-0 flex-col divide-y"
+      v-fit-rows
+      class="divide-default flex min-h-0 flex-1 flex-col divide-y overflow-hidden"
       :aria-label="t('widgets.findings_feed.listLabel')"
     >
       <li
         v-for="row in rows"
+        data-fit-item
         :key="row.id"
         class="w-label min-w-0 py-[0.35em] first:pt-0"
         data-testid="finding-row"
@@ -43,9 +45,12 @@ function ago(iso: string) {
           <SeverityBadge :severity="row.severity" class="w-[5.8em] shrink-0" />
           <span class="text-highlighted min-w-0 flex-1 truncate">{{ row.summary }}</span>
           <template v-if="scale === 'wall' || wide">
-            <span v-if="wide" class="text-muted shrink-0 truncate font-mono">{{
-              row.alias ?? row.customer_ip
-            }}</span>
+            <span
+              v-if="wide"
+              class="text-muted shrink-0 truncate"
+              :class="{ 'font-mono': !row.alias }"
+              >{{ row.alias ?? row.customer_ip }}</span
+            >
             <SecurityStateBadge
               v-if="wide"
               :state="row.security_state"

@@ -104,7 +104,7 @@
   --w-kpi: calc(var(--u) * 72);
   --w-kpi-2: calc(var(--u) * 44);
   --w-meta: calc(var(--u) * 20);
-  --w-pad: calc(var(--u) * 16);
+  --w-pad: calc(var(--u) * 14);
   --w-gap: calc(var(--u) * 12);
   padding: var(--w-gap);
   overflow: hidden;

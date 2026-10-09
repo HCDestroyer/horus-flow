@@ -58,7 +58,7 @@ export function joinUnit(f: Formatted) {
 /** Variación relativa (`0.12` → "+12 %"). */
 export function formatChange(current: number | null, previous: number | null): string | null {
   if (current === null || previous === null || previous === 0) return null
-  const ratio = (current - previous) / previous
-  const sign = ratio > 0 ? '+' : ratio < 0 ? '−' : '±'
-  return `${sign}${fixed(Math.abs(ratio) * 100, 0)} %`
+  const pct = Math.round(((current - previous) / previous) * 100)
+  const sign = pct > 0 ? '+' : pct < 0 ? '−' : '±'
+  return `${sign}${fixed(Math.abs(pct), 0)} %`
 }

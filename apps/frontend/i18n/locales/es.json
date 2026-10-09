@@ -334,7 +334,7 @@
       "empty": "Sin tráfico registrado ahora mismo.",
       "down": "Bajada",
       "up": "Subida",
-      "vsYesterday": "Frente a ayer: ↓ {down} · ↑ {up}",
+      "vsYesterday": "vs. ayer ↓ {down} · ↑ {up}",
       "sparkLabel": "Tráfico de la última hora"
     },
     "customers_active": {

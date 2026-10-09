@@ -482,7 +482,7 @@ function findingsTrend(ctx: WidgetDataContext): WidgetData {
       from: iso(end - (days - 1) * dayMs),
       to: iso(end),
       step: 86_400,
-      freshness_seconds: 120,
+      freshness_seconds: 20,
     }),
   }
 }

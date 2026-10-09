@@ -16,9 +16,14 @@ const top = computed(() => props.max ?? Math.max(1, ...props.items.map((i) => i.
 </script>
 
 <template>
-  <ul class="flex min-h-0 flex-col justify-start gap-[calc(var(--w-gap)*0.55)]" :aria-label="label">
+  <ul
+    v-fit-rows
+    class="flex min-h-0 flex-1 flex-col justify-start gap-[calc(var(--w-gap)*0.55)] overflow-hidden"
+    :aria-label="label"
+  >
     <li
       v-for="item in items"
+      data-fit-item
       :key="item.label"
       class="w-label min-w-0"
       :class="{ 'text-muted': item.muted }"

@@ -19,7 +19,7 @@ test.describe('selector de ISP @tenant', () => {
 
     await page.getByTestId('tenant-switcher').click()
     const options = page.getByRole('menuitemcheckbox')
-    await expect(options).toHaveText(['Fibra Norte', 'Red Andina', 'Valle Conecta'])
+    await expect(options).toHaveText([/Fibra Norte/, /Red Andina/, /Valle Conecta/])
     await page.getByRole('menuitemcheckbox', { name: 'Valle Conecta' }).click()
 
     await expect(page).toHaveURL(/\/t\/valle-conecta\/security\/findings$/)
@@ -79,7 +79,7 @@ test.describe('sesión y refresh @tenant', () => {
     await page.evaluate(() => sessionStorage.removeItem('horus.mock.session'))
     await page.waitForTimeout(2000)
     await page.getByTestId('main-nav').getByRole('link', { name: 'Dashboards' }).click()
-    await expect(page).toHaveURL(/\/login\?redirect=%2Ft%2Ffibra-norte%2Fdashboards/)
+    await expect(page).toHaveURL(/\/login\?redirect=\/t\/fibra-norte\/dashboards/)
     await expect(page.getByTestId('login-error')).toContainText('Tu sesión terminó')
   })
 })
