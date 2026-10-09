@@ -35,7 +35,7 @@ const items = computed(() => {
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col gap-[calc(var(--w-gap)*0.5)] overflow-hidden">
-    <p class="w-meta text-muted">
+    <p class="w-meta text-muted" data-fit-optional="1">
       {{ t('widgets.common.downVolume', { range: String(widget.config.range ?? '24h') }) }}
     </p>
     <BarList :items="items" :label="t('widgets.top_categories.listLabel')" />

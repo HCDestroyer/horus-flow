@@ -6,8 +6,9 @@ import type { ChartOption, TimeSeries } from '~/utils/chart-palette'
  * - Un solo eje Y; color por serie en orden fijo de la paleta categórica validada.
  * - Huecos como hueco (`null`, `connectNulls: false`), nunca cero.
  * - Escritorio: leyenda + tooltip con cruz; líneas de 2 px.
- * - Mural: sin tooltip ni leyenda, **etiquetas directas** al final de cada serie, líneas de
- *   3 px, ≤ 5 marcas por eje y texto ≥ 22 px a 1080 p.
+ * - Mural: sin tooltip; la leyenda pasa a HTML encima del gráfico con el **último valor**
+ *   de cada serie (texto del DOM: no se solapa y se audita, a diferencia de las etiquetas
+ *   dibujadas en el canvas), líneas de 3 px, ≤ 5 marcas por eje y texto ≥ 22 px a 1080 p.
  * - Siempre con tabla alternativa para lectores de pantalla (`ChartTable`).
  */
 
@@ -29,19 +30,34 @@ const props = withDefaults(
 )
 
 const theme = useChartTheme()
-const viewport = ref(1080)
+/** Factor de escala mural, igual que `--u` en CSS (diseño de 1920×1080 escalado). */
+const unit = ref(1)
+function onResize() {
+  unit.value = Math.min(window.innerHeight / 1080, window.innerWidth / 1920)
+}
 onMounted(() => {
-  viewport.value = window.innerHeight
+  onResize()
   window.addEventListener('resize', onResize)
 })
 onBeforeUnmount(() => window.removeEventListener('resize', onResize))
-function onResize() {
-  viewport.value = window.innerHeight
-}
 
 const wall = computed(() => props.scale === 'wall')
-/** px a 1080 p escalados como `--u` en CSS. */
-const px = (n: number) => (wall.value ? Math.round((n * viewport.value) / 1080) : n)
+/** px a 1920×1080 escalados como `--u` en CSS. */
+const px = (n: number) => (wall.value ? Math.round(n * unit.value) : n)
+
+/** Leyenda mural: nombre y último valor no nulo de cada serie. */
+const wallLegend = computed(() =>
+  wall.value
+    ? props.series.map((s, i) => {
+        const last = [...s.points].reverse().find(([, v]) => typeof v === 'number')
+        return {
+          name: s.name,
+          color: theme.value.series[i],
+          value: last && props.kind === 'line' ? props.format(last[1] as number) : null,
+        }
+      })
+    : [],
+)
 
 const timeFmt = computed(
   () =>
@@ -61,7 +77,7 @@ const option = computed<ChartOption>(() => {
     aria: { enabled: true, decal: { show: false } },
     grid: {
       left: 4,
-      right: wall.value && props.kind === 'line' ? px(230) : 12,
+      right: wall.value ? px(16) : 12,
       top: wall.value || !props.showLegend ? px(8) : 36,
       bottom: 4,
       containLabel: true,
@@ -125,17 +141,6 @@ const option = computed<ChartOption>(() => {
         lineStyle: { width: wall.value ? 3 : 2 },
         areaStyle: props.area && i === 0 ? { opacity: 0.08 } : undefined,
         emphasis: { disabled: wall.value },
-        endLabel: wall.value
-          ? {
-              show: true,
-              color: ink.text,
-              fontSize,
-              formatter: (p: { value: unknown }) => {
-                const v = Array.isArray(p.value) ? p.value[1] : null
-                return `${s.name} ${typeof v === 'number' ? props.format(v) : ''}`
-              },
-            }
-          : { show: false },
       }
     }),
   }
@@ -143,7 +148,28 @@ const option = computed<ChartOption>(() => {
 </script>
 
 <template>
-  <div class="flex size-full min-h-0 flex-col">
+  <div class="flex size-full min-h-0 flex-col gap-[calc(var(--w-gap)*0.4)]">
+    <ul
+      v-if="wallLegend.length && showLegend"
+      class="w-label flex min-w-0 flex-wrap gap-x-[calc(var(--w-gap)*2)]"
+      data-testid="chart-wall-legend"
+    >
+      <li
+        v-for="item in wallLegend"
+        :key="item.name"
+        class="inline-flex min-w-0 items-center gap-[0.4em] whitespace-nowrap"
+      >
+        <span
+          class="inline-block h-[0.25em] w-[0.9em] shrink-0 rounded-full"
+          :style="{ background: item.color }"
+          aria-hidden="true"
+        />
+        <span class="text-muted">{{ item.name }}</span>
+        <span v-if="item.value" class="text-highlighted font-semibold tabular">{{
+          item.value
+        }}</span>
+      </li>
+    </ul>
     <div class="min-h-0 flex-1">
       <EChart :option="option" :label="label" />
     </div>

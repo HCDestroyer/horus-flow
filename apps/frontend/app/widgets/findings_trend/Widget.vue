@@ -40,7 +40,7 @@ const format = (v: number) => formatNumber(v)
         />
         {{ s.name }}
       </li>
-      <li class="text-muted ms-auto tabular">
+      <li class="text-muted ms-auto tabular" data-fit-optional="1">
         {{ t('widgets.findings_trend.total', { n: total }) }}
       </li>
     </ul>

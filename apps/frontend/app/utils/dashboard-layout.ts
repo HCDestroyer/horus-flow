@@ -35,8 +35,56 @@ export interface PlacedWidget {
   style: Record<string, string>
 }
 
+/**
+ * Cierra los huecos del layout diseñado: las plantillas del contrato dejan celdas vacías
+ * (NOC: columna 12 de la fila 2 y fila 9 bajo "Tráfico 24 h"; Seguridad: varias). Cada
+ * widget, en orden de lectura, se estira hacia la derecha, luego hacia abajo y luego hacia
+ * la izquierda mientras toda la franja que ganaría esté vacía. Nunca se mueve ni se encoge
+ * un widget, ni crece más allá de las filas del layout.
+ */
+export function fillGaps<T extends Pick<DashboardWidget, 'id' | 'position'>>(
+  widgets: readonly T[],
+  columns = 12,
+): T[] {
+  const rows = totalRows(widgets)
+  const grid: (string | null)[][] = Array.from({ length: rows }, () =>
+    Array<string | null>(columns).fill(null),
+  )
+  const out = readingOrder(widgets).map((w) => ({ ...w, position: { ...w.position } }))
+  for (const { id, position: p } of out) {
+    for (let r = p.y; r < p.y + p.h; r++) {
+      for (let c = p.x; c < p.x + p.w; c++) if (grid[r]) grid[r]![c] = id
+    }
+  }
+  const free = (r0: number, r1: number, c0: number, c1: number) => {
+    if (r0 < 0 || c0 < 0 || r1 > rows || c1 > columns) return false
+    for (let r = r0; r < r1; r++) for (let c = c0; c < c1; c++) if (grid[r]![c] !== null) return false
+    return true
+  }
+  const claim = (id: string, r0: number, r1: number, c0: number, c1: number) => {
+    for (let r = r0; r < r1; r++) for (let c = c0; c < c1; c++) grid[r]![c] = id
+  }
+  for (const { id, position: p } of out) {
+    while (free(p.y, p.y + p.h, p.x + p.w, p.x + p.w + 1)) {
+      claim(id, p.y, p.y + p.h, p.x + p.w, p.x + p.w + 1)
+      p.w++
+    }
+    while (free(p.y + p.h, p.y + p.h + 1, p.x, p.x + p.w)) {
+      claim(id, p.y + p.h, p.y + p.h + 1, p.x, p.x + p.w)
+      p.h++
+    }
+    while (free(p.y, p.y + p.h, p.x - 1, p.x)) {
+      claim(id, p.y, p.y + p.h, p.x - 1, p.x)
+      p.x--
+      p.w++
+    }
+  }
+  return out
+}
+
 export function placeWidgets(widgets: readonly DashboardWidget[], mode: GridMode): PlacedWidget[] {
-  return readingOrder(widgets).map((widget) => {
+  const list = mode === 'designed' ? fillGaps(widgets) : readingOrder(widgets)
+  return list.map((widget) => {
     const { x, y, w, h } = widget.position
     let style: Record<string, string>
     switch (mode) {

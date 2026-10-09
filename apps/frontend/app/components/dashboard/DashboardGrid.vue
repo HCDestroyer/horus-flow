@@ -44,7 +44,13 @@ const gridStyle = computed(() => {
       ? { gridTemplateRows: `repeat(${rows.value}, minmax(0, 1fr))` }
       : { gridAutoRows: 'calc(100dvh / 15)' }
   }
-  return { gridAutoRows: `${props.dashboard.layout.row_height_px}px` }
+  // Una o dos columnas (móvil, tableta): la fila crece con el contenido en vez de dejar que
+  // se solape o se corte (los widgets con gráfico se quedan en su altura mínima).
+  const row = props.dashboard.layout.row_height_px
+  if (mode.value === 'single' || mode.value === 'narrow') {
+    return { gridAutoRows: `minmax(${row}px, auto)` }
+  }
+  return { gridAutoRows: `${row}px` }
 })
 
 const lastUpdate = ref<number | null>(null)

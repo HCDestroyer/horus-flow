@@ -37,12 +37,78 @@ const fitRows: Directive<HTMLElement> = {
   },
 }
 
+/**
+ * `v-fit-optional`: degradación ordenada de un widget que no cabe (frontend.md §7.4,
+ * "ocultar lo secundario antes que cortar"). Mientras el contenedor desborde (su contenido
+ * ocupa más que su caja), oculta con `display: none` los elementos `[data-fit-optional="N"]`
+ * de menor a mayor N (1 = lo primero que sobra). Si cabe todo, no oculta nada; con filas
+ * de altura automática (móvil) nunca desborda y se ve todo. Se recalcula al cambiar el
+ * tamaño o el contenido (datos en vivo, reloj).
+ */
+const OPTIONAL = '[data-fit-optional]'
+
+function overflows(el: HTMLElement) {
+  return el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1
+}
+
+function fitOptional(el: HTMLElement) {
+  const items = [...el.querySelectorAll<HTMLElement>(OPTIONAL)]
+  if (!items.length) return
+  for (const item of items) item.style.removeProperty('display')
+  items.sort((a, b) => Number(a.dataset.fitOptional) - Number(b.dataset.fitOptional))
+  for (const item of items) {
+    if (!overflows(el)) break
+    item.style.setProperty('display', 'none')
+  }
+}
+
+interface FitWatch {
+  resize: ResizeObserver
+  mutation: MutationObserver
+  frame: number
+}
+const watches = new WeakMap<HTMLElement, FitWatch>()
+
+function schedule(el: HTMLElement) {
+  const w = watches.get(el)
+  if (!w || w.frame) return
+  w.frame = requestAnimationFrame(() => {
+    w.frame = 0
+    fitOptional(el)
+  })
+}
+
+const fitOptionalDirective: Directive<HTMLElement> = {
+  mounted(el) {
+    const resize = new ResizeObserver(() => schedule(el))
+    // Solo texto y nodos: los cambios de `style` que hace el propio ajuste no lo relanzan.
+    const mutation = new MutationObserver(() => schedule(el))
+    watches.set(el, { resize, mutation, frame: 0 })
+    resize.observe(el)
+    mutation.observe(el, { childList: true, characterData: true, subtree: true })
+    schedule(el)
+  },
+  updated(el) {
+    schedule(el)
+  },
+  unmounted(el) {
+    const w = watches.get(el)
+    if (!w) return
+    w.resize.disconnect()
+    w.mutation.disconnect()
+    cancelAnimationFrame(w.frame)
+    watches.delete(el)
+  },
+}
+
 declare module 'vue' {
   interface GlobalDirectives {
     vFitRows: Directive<HTMLElement>
+    vFitOptional: Directive<HTMLElement>
   }
 }
 
 export default defineNuxtPlugin((nuxtApp) => {
   nuxtApp.vueApp.directive('fit-rows', fitRows)
+  nuxtApp.vueApp.directive('fit-optional', fitOptionalDirective)
 })

@@ -84,6 +84,7 @@ const emptyText = computed(() => {
 
 <template>
   <section
+    v-fit-optional
     class="widget-card relative flex min-h-0 min-w-0 flex-col overflow-hidden"
     :class="isHeader ? 'widget-band' : 'bg-default ring-default rounded-lg ring-1'"
     :aria-labelledby="isHeader ? undefined : headingId"

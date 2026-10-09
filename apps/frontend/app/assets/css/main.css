@@ -82,9 +82,12 @@
 /*
  * Dashboards y widgets (frontend.md §6, §7.4). Una sola escala tipográfica con dos
  * valores: escritorio (rem, respeta el tamaño de texto del usuario) y mural, que escala
- * con la altura del viewport: `--u` = 1 px a 1080 p, así en 4K o en una TV de 75" las
- * proporciones se mantienen. Mínimos a 1080 p: KPI 72 px, título 28, etiquetas 22,
- * frescura 20 (nada por debajo de 20).
+ * el diseño de 1920×1080 de forma uniforme: `--u` = 1 px a 1920×1080 y, en cualquier otra
+ * pantalla, el factor que lo hace caber a lo ancho Y a lo alto (como una TV que escala la
+ * imagen). Así 720 p, 1440 p o 4K conservan las proporciones exactas y una pantalla más
+ * estrecha (16:10, 4:3) no corta texto: solo gana aire vertical. Mínimos a 1920×1080:
+ * KPI 72 px, título 28, etiquetas 22, frescura 20 (nada por debajo de 20). Si aun así algo
+ * no cabe, `v-fit-optional` oculta primero lo secundario (frontend.md §7.4).
  */
 .dash {
   --w-title: 0.9375rem;
@@ -98,7 +101,7 @@
 }
 
 .dash-wall {
-  --u: calc(100dvh / 1080);
+  --u: min(calc(100dvh / 1080), calc(100dvw / 1920));
   --w-title: calc(var(--u) * 28);
   --w-label: calc(var(--u) * 22);
   --w-kpi: calc(var(--u) * 72);

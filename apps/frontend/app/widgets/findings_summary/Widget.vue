@@ -32,8 +32,9 @@ const states = computed(() =>
       </p>
       <div class="flex min-w-0 flex-col gap-0.5 pb-[0.05em]">
         <ul
-          class="w-label flex flex-wrap gap-x-3 gap-y-0.5"
+          class="w-label flex flex-wrap gap-x-[0.75em] gap-y-0.5"
           :aria-label="t('widgets.findings_summary.bySeverity')"
+          data-fit-optional="3"
         >
           <li v-for="x in severities" :key="x.s" class="inline-flex items-baseline gap-1">
             <SeverityBadge :severity="x.s" />
@@ -42,8 +43,9 @@ const states = computed(() =>
         </ul>
         <ul
           v-if="states.length"
-          class="w-meta flex flex-wrap gap-x-3 gap-y-0.5"
+          class="w-meta flex flex-wrap gap-x-[0.75em] gap-y-0.5"
           :aria-label="t('widgets.findings_summary.byState')"
+          data-fit-optional="2"
         >
           <li v-for="x in states" :key="x.s" class="inline-flex items-baseline gap-1">
             <SecurityStateBadge :state="x.s" />
@@ -52,7 +54,7 @@ const states = computed(() =>
         </ul>
       </div>
     </div>
-    <p v-if="scale === 'normal'" class="w-meta text-muted mt-auto tabular">
+    <p v-if="scale === 'normal'" class="w-meta text-muted mt-auto tabular" data-fit-optional="1">
       {{
         t('widgets.findings_summary.new24h', { n: v.new_last_24h, customers: v.affected_customers })
       }}

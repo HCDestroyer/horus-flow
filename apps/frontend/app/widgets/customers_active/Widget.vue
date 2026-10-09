@@ -16,12 +16,12 @@ const v = computed(() =>
       <p class="w-kpi text-highlighted" data-testid="customers-active">
         {{ formatNumber(v.active) }}
       </p>
-      <p class="w-label text-default pb-[0.1em]">
+      <p class="w-label text-default pb-[0.1em]" data-fit-optional="2">
         <span class="font-semibold tabular">+{{ formatNumber(v.new_today) }}</span>
         {{ t('widgets.customers_active.newToday', v.new_today) }}
       </p>
     </div>
-    <p v-if="scale === 'normal'" class="w-meta text-muted mt-auto tabular">
+    <p v-if="scale === 'normal'" class="w-meta text-muted mt-auto tabular" data-fit-optional="1">
       {{ t('widgets.customers_active.total', { n: formatNumber(v.total) }) }}
     </p>
   </div>

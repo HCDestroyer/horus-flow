@@ -51,7 +51,7 @@ const spark = computed(() => {
           >{{ downF.value }}<span class="w-unit">{{ downF.unit }}</span></span
         >
       </p>
-      <div class="flex min-w-0 flex-col pb-[0.05em]">
+      <div class="flex min-w-0 flex-col pb-[0.05em]" data-fit-optional="3">
         <p class="text-default">
           <span class="sr-only">{{ t('widgets.traffic_now.up') }}:</span>
           <span class="w-label text-muted me-1" aria-hidden="true">↑</span>
@@ -59,14 +59,14 @@ const spark = computed(() => {
             >{{ upF.value }}<span class="w-unit">{{ upF.unit }}</span></span
           >
         </p>
-        <p v-if="downChange || upChange" class="w-meta text-muted tabular">
+        <p v-if="downChange || upChange" class="w-meta text-muted tabular" data-fit-optional="1">
           {{
             t('widgets.traffic_now.vsYesterday', { down: downChange ?? '—', up: upChange ?? '—' })
           }}
         </p>
       </div>
     </div>
-    <div v-if="spark && scale === 'normal'" class="mt-auto h-10 min-h-0">
+    <div v-if="spark && scale === 'normal'" class="mt-auto h-10 min-h-0" data-fit-optional="2">
       <Sparkline :series="spark" :label="t('widgets.traffic_now.sparkLabel')" />
     </div>
   </div>

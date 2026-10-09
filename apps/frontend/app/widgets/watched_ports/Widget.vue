@@ -19,7 +19,7 @@ const rows = computed(() =>
 </script>
 
 <template>
-  <div class="min-h-0 flex-1 overflow-hidden">
+  <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
     <div v-fit-rows class="min-h-0 flex-1 overflow-hidden">
       <table class="w-label w-full border-collapse">
         <caption class="sr-only">

@@ -27,7 +27,7 @@ useHead({
 <template>
   <UDashboardPanel :id="panelId ?? 'main-panel'" :ui="{ body: 'gap-6 sm:gap-6' }">
     <template #header>
-      <UDashboardNavbar :title="title" class="chrome-material">
+      <UDashboardNavbar :title="title" class="chrome-material" data-testid="app-navbar">
         <template #leading>
           <UDashboardSidebarCollapse :aria-label="t('toolbar.collapse')" />
         </template>
