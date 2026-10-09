@@ -366,7 +366,7 @@ ch_verify() {
   [ -n "$name" ] || die "no hay backups de ClickHouse que verificar"
   cname="horus-verify-ch-$$"
   tmp="$(mktemp -d)"
-  trap 'docker rm -f "$cname" >/dev/null 2>&1 || true; rm -rf "$tmp"' RETURN
+  trap 'docker rm -f -v "$cname" >/dev/null 2>&1 || true; rm -rf "$tmp"' RETURN
   log "ClickHouse: restauración de $name en un ClickHouse efímero y vacío"
   docker run -d --name "$cname" --network none --memory 2g \
     --ulimit "nofile=${HORUS_CH_NOFILE:-262144}:${HORUS_CH_NOFILE:-262144}" \
