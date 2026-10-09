@@ -11,6 +11,7 @@ import (
 
 	"github.com/hcdestroyer/horus-flow/packages/go/flowinv"
 	"github.com/hcdestroyer/horus-flow/services/analytics/internal/adapters/chread"
+	"github.com/hcdestroyer/horus-flow/services/traffic/api/catalog"
 )
 
 // Querier ejecuta consultas por tenant (chread.Reader).
@@ -23,8 +24,10 @@ type Service struct {
 	Q   Querier
 	Inv *flowinv.Store
 	Now func() time.Time
-	// Names resuelve nombres de servicios, categorías y organizaciones.
+	// Names resuelve nombres de ASN (snapshot ASN, opcional).
 	Names Names
+	// Catalog devuelve el catálogo vigente (nil = semilla).
+	Catalog func() *catalog.Catalog
 }
 
 func (s *Service) now() time.Time {
