@@ -12,12 +12,15 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/klauspost/compress v1.19.1
+	github.com/nats-io/nats-server/v2 v2.12.1
+	github.com/nats-io/nats.go v1.47.0
 	github.com/netsampler/goflow2/v2 v2.2.3
 	github.com/pressly/goose/v3 v3.26.0
 	github.com/prometheus/client_golang v1.22.0
 	github.com/testcontainers/testcontainers-go v0.39.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.39.0
 	golang.org/x/crypto v0.54.0
+	google.golang.org/protobuf v1.36.12
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -67,8 +70,6 @@ require (
 	github.com/morikuni/aec v1.0.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/nats-io/jwt/v2 v2.8.0 // indirect
-	github.com/nats-io/nats-server/v2 v2.12.1 // indirect
-	github.com/nats-io/nats.go v1.47.0 // indirect
 	github.com/nats-io/nkeys v0.4.11 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
@@ -94,7 +95,6 @@ require (
 	go.opentelemetry.io/otel v1.46.0 // indirect
 	go.opentelemetry.io/otel/metric v1.46.0 // indirect
 	go.opentelemetry.io/otel/trace v1.46.0 // indirect
-	go.uber.org/automaxprocs v1.6.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba // indirect
@@ -103,5 +103,4 @@ require (
 	golang.org/x/text v0.42.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 	google.golang.org/grpc v1.84.0 // indirect
-	google.golang.org/protobuf v1.36.12 // indirect
 )
