@@ -67,9 +67,14 @@ type Exporter struct {
 	// NATIPs son las IPs públicas del NAT del router (con campos NAT).
 	NATIPs []string `json:"nat_ips,omitempty"`
 	// Templates son las plantillas de datos que anuncia el exportador.
-	Templates []Template        `json:"templates,omitempty"`
-	Totals    Totals            `json:"totals"`
-	ByStatus  map[string]uint64 `json:"by_status"`
+	Templates []Template `json:"templates,omitempty"`
+	// SequenceGaps y LostRecords: saltos de secuencia y registros que faltan
+	// según los números de secuencia (0 en el simulador; en una captura real,
+	// datagramas que no llegaron al punto de captura).
+	SequenceGaps int               `json:"sequence_gaps,omitempty"`
+	LostRecords  uint64            `json:"lost_records,omitempty"`
+	Totals       Totals            `json:"totals"`
+	ByStatus     map[string]uint64 `json:"by_status"`
 	// ByRule cuenta los registros atribuidos según la regla de
 	// docs/traffic-model.md §4.4 que decidió al cliente.
 	ByRule       map[string]uint64 `json:"by_rule,omitempty"`

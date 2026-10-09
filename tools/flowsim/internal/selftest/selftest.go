@@ -329,3 +329,42 @@ func CheckFixtures(ctx context.Context, dir string, w io.Writer, verbose bool) (
 	}
 	return ok && found > 0, nil
 }
+
+// CheckRealFixtures verifica cada captura real anonimizada de dir
+// (<nombre>.pcapng con su <nombre>.expected.json, o expected.json si solo hay
+// una) contra lo que debe dar el verificador.
+func CheckRealFixtures(dir string, w io.Writer, verbose bool) (bool, error) {
+	caps, err := filepath.Glob(filepath.Join(dir, "*.pcapng"))
+	if err != nil {
+		return false, fmt.Errorf("fixtures reales: %w", err)
+	}
+	if len(caps) == 0 {
+		return false, fmt.Errorf("fixtures reales: no hay *.pcapng en %s", dir)
+	}
+	sort.Strings(caps)
+	ok := true
+	for _, cp := range caps {
+		ep := strings.TrimSuffix(cp, ".pcapng") + ".expected.json"
+		if _, err := os.Stat(ep); errors.Is(err, os.ErrNotExist) && len(caps) == 1 {
+			ep = filepath.Join(dir, "expected.json")
+		}
+		exp, err := expect.Load(ep)
+		if err != nil {
+			return false, err
+		}
+		fh, err := os.Open(cp) //nolint:gosec // ruta interna de fixtures
+		if err != nil {
+			return false, fmt.Errorf("fixtures reales: %w", err)
+		}
+		rep, err := VerifyCapture(fh, exp, verify.Options{})
+		_ = fh.Close()
+		if err != nil {
+			return false, err
+		}
+		if err := summarize(w, "real "+filepath.Base(cp), rep, verbose); err != nil {
+			return false, err
+		}
+		ok = ok && rep.OK
+	}
+	return ok, nil
+}

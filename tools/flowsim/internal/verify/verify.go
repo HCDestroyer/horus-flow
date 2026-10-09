@@ -33,6 +33,7 @@ type exporterState struct {
 	seqStarted bool
 	nextSeq    uint32
 	seqErrors  int
+	lostRecs   uint64
 	pkt        int64
 	lastTmpl   int64
 	lastTmplAt time.Time
@@ -170,6 +171,9 @@ func (v *Verifier) Feed(d capture.Datagram) {
 	// Secuencia: v9 cuenta paquetes; IPFIX cuenta registros de datos.
 	if es.seqStarted && info.Sequence != es.nextSeq {
 		es.seqErrors++
+		if d := info.Sequence - es.nextSeq; d < 1<<31 {
+			es.lostRecs += uint64(d)
+		}
 	}
 	es.seqStarted = true
 	if info.Version == 9 {
@@ -329,6 +333,37 @@ func within(got, want uint64, tol float64) bool {
 	return float64(want-got) <= tol*float64(want)
 }
 
+// Golden devuelve una copia de expected.json con lo observado (totales,
+// atribución por estado y regla, clientes, IPs fuera de prefijos, plantillas
+// y señales). Sirve para fijar el expected.json de una captura real: los
+// parámetros del nodo (prefijos, IPs, timeouts) los pone quien la describe.
+func (v *Verifier) Golden() *expect.Expected {
+	out := *v.exp
+	out.Exporters = make([]expect.Exporter, len(v.exp.Exporters))
+	for i, es := range v.exporters {
+		ex := v.exp.Exporters[i]
+		ex.ByStatus, ex.ByRule, ex.Clients, ex.Unattributed = nil, nil, nil, nil
+		es.tally.Fill(&ex)
+		ex.Totals.Datagrams, ex.Totals.TemplateSends = es.datagrams, es.tmplSends
+		ex.SequenceGaps, ex.LostRecords = es.seqErrors, es.lostRecs
+		ids := make([]int, 0, len(es.templates))
+		for id := range es.templates {
+			ids = append(ids, int(id))
+		}
+		sort.Ints(ids)
+		ex.Templates = nil
+		for _, id := range ids {
+			ex.Templates = append(ex.Templates, expect.Template{ID: uint16(id), Fields: es.templates[uint16(id)]}) //nolint:gosec // IDs de plantilla
+		}
+		out.Exporters[i] = ex
+	}
+	out.Signals = v.acc.Results()
+	if out.Signals == nil {
+		out.Signals = []signals.Signal{}
+	}
+	return &out
+}
+
 // Report compara lo recibido con expected.json.
 func (v *Verifier) Report() *Report {
 	e := v.exp
@@ -354,7 +389,8 @@ func (v *Verifier) Report() *Report {
 
 		rep.add(p+"decodificación", es.decodeN == 0 && es.datagrams > 0, "%d datagramas decodificados, %d errores %v", es.datagrams, es.decodeN, es.decodeErrs)
 		rep.add(p+"versión y dominio", es.verErrs == 0 && es.odidErrs == 0, "%s, observation domain %d (versión errónea: %d, dominio erróneo: %d)", e.Protocol, ex.ObservationDomainID, es.verErrs, es.odidErrs)
-		rep.add(p+"secuencia", es.seqErrors == 0 || (tol > 0 && lost), "%d saltos de secuencia", es.seqErrors)
+		rep.add(p+"secuencia", (es.seqErrors == ex.SequenceGaps && es.lostRecs == ex.LostRecords) || (tol > 0 && lost),
+			"%d saltos de secuencia, %d registros perdidos según la secuencia (esperado %d y %d)", es.seqErrors, es.lostRecs, ex.SequenceGaps, ex.LostRecords)
 		rep.add(p+"plantillas antes de datos", es.missing == 0, "%d sets de datos sin plantilla", es.missing)
 		maxGapT := time.Duration(e.Export.TemplateTimeoutSeconds*float64(time.Second)) + time.Second
 		okTmpl := es.tmplSends > 0 && es.maxGapPkts <= int64(e.Export.TemplateRefreshPackets) && es.maxGapTime <= maxGapT

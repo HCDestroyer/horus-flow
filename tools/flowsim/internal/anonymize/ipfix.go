@@ -169,9 +169,11 @@ func parseTemplates(version uint16, id uint16, b []byte) (map[uint16]template, e
 	return out, nil
 }
 
-// walkRecords recorre los campos de los registros de un set de datos y llama
-// a fn con cada valor (vista modificable). Devuelve el nº de registros.
-func walkRecords(t template, b []byte, fn func(f field, v []byte)) (int, error) {
+// walkRecords recorre los registros de un set de datos y llama a fn con los
+// valores de cada uno (vistas modificables, en el orden de la plantilla).
+// Devuelve el nº de registros; los bytes finales que no forman un registro
+// son relleno.
+func walkRecords(t template, b []byte, fn func(vals [][]byte)) (int, error) {
 	fixed := 0
 	variable := false
 	for _, f := range t.fields {
@@ -185,12 +187,10 @@ func walkRecords(t template, b []byte, fn func(f field, v []byte)) (int, error) 
 		return 0, errors.New("plantilla de longitud cero")
 	}
 	n := 0
-	for {
-		if len(b) == 0 || (!variable && len(b) < fixed) {
-			return n, nil
-		}
+	vals := make([][]byte, len(t.fields))
+	for len(b) >= max(fixed, 1) {
 		rest := b
-		for _, f := range t.fields {
+		for i, f := range t.fields {
 			l := int(f.length)
 			if f.length == varLen {
 				if len(rest) < 1 {
@@ -200,7 +200,7 @@ func walkRecords(t template, b []byte, fn func(f field, v []byte)) (int, error) 
 				rest = rest[1:]
 				if l == 255 {
 					if len(rest) < 2 {
-						return n, errors.New("campo variable truncado")
+						return n, nil
 					}
 					l = int(binary.BigEndian.Uint16(rest))
 					rest = rest[2:]
@@ -212,10 +212,12 @@ func walkRecords(t template, b []byte, fn func(f field, v []byte)) (int, error) 
 				}
 				return n, errors.New("registro truncado")
 			}
-			fn(f, rest[:l])
+			vals[i] = rest[:l]
 			rest = rest[l:]
 		}
+		fn(vals)
 		n++
 		b = rest
 	}
+	return n, nil
 }
