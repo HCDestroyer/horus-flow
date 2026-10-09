@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -29,9 +30,22 @@ func RouterEventData(r *domain.Router, changed []string) map[string]any {
 		"id": r.ID.String(), "version": r.Version, "site_id": r.SiteID.String(), "name": r.Hostname, "display_name": r.DisplayName,
 		"is_primary": r.IsPrimary, "vendor": r.Vendor, "model": r.Model, "routeros_version": r.RouterOSVersion,
 		"routeros_version_supported": r.RouterOSVersionOK, "admin_state": r.AdminState, "onboarding_state": r.OnboardingState,
-		"tunnel_address": r.TunnelAddress, "tags": r.Tags, "created_at": r.CreatedAt.UTC().Format(outbox.TimeFormat),
+		"tunnel_address": tunnelCIDR(r.TunnelAddress), "tags": r.Tags, "created_at": r.CreatedAt.UTC().Format(outbox.TimeFormat),
 		"updated_at": r.UpdatedAt.UTC().Format(outbox.TimeFormat), "deleted_at": tsOrNil(r.DeletedAt), "changed_fields": changed,
 	}
+}
+
+// tunnelCIDR expresa la IP de túnel como /32 (/128) en los eventos.
+func tunnelCIDR(a *string) *string {
+	if a == nil || *a == "" || strings.Contains(*a, "/") {
+		return a
+	}
+	bits := "/32"
+	if strings.Contains(*a, ":") {
+		bits = "/128"
+	}
+	v := *a + bits
+	return &v
 }
 
 func applyRouter(f *fieldErrs, r *domain.Router, fields Fields, create bool) {
