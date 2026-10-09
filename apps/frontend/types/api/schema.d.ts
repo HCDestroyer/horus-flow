@@ -2718,9 +2718,18 @@ export interface components {
         };
         PrefixImportPreview: {
             items: {
+                /** @description Solo IPv6. `prefix-length` leído de `/ipv6/pool` (tamaño que el router entrega a cada cliente); null en IPv4 o si no es un pool. */
+                delegated_prefix_length?: number | null;
                 /** @enum {string} */
                 diff: "new" | "exists" | "overlaps";
                 existing_client_prefix_id?: components["schemas"]["Uuid"] | null;
+                /**
+                 * @description Solo IPv6. Uso del pool según `/ppp/profile` y `/ipv6/dhcp-server`: `dhcpv6_pd` (dhcpv6-pd-pool o prefix-pool),
+                 *     `ppp_link` (remote-ipv6-prefix-pool), `ppp_link_shared` (remote-ipv6-prefix-reuse=yes → se sugiere `infrastructure`),
+                 *     `dhcpv6_address` (address-pool /128). Ver docs/vendors/mikrotik.md §11.4.
+                 * @enum {string|null}
+                 */
+                ipv6_pool_usage?: "dhcpv6_pd" | "ppp_link" | "ppp_link_shared" | "dhcpv6_address" | "unused" | "unknown" | null;
                 /** @enum {string} */
                 origin: "ip_pool" | "ipv6_pool" | "interface_address";
                 /** @example pool-pppoe */
@@ -2728,6 +2737,11 @@ export interface components {
                 prefix: components["schemas"]["Cidr"];
                 /** @enum {string} */
                 suggested_assignment_mode?: "static" | "dynamic" | "unknown";
+                /**
+                 * @description Solo IPv6. Valor propuesto para `ipv6_client_len` (normalmente = delegated_prefix_length si es 48/56/60/64; null si no encaja y el operador debe decidir).
+                 * @enum {integer|null}
+                 */
+                suggested_ipv6_client_len?: 48 | 56 | 60 | 64 | null;
                 suggested_role: components["schemas"]["ClientPrefixRole"];
             }[];
             read_at: components["schemas"]["Timestamp"];
