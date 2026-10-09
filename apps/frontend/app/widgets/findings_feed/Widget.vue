@@ -9,6 +9,8 @@ import { maxListRows, type WidgetViewProps } from '../props'
  */
 const props = defineProps<WidgetViewProps>()
 const { t } = useI18n()
+const route = useRoute()
+const slug = computed(() => (typeof route.params.slug === 'string' ? route.params.slug : null))
 const now = useNow()
 
 const rows = computed(() =>
@@ -43,7 +45,14 @@ function ago(iso: string) {
       >
         <div class="flex min-w-0 items-baseline gap-[0.5em]">
           <SeverityBadge :severity="row.severity" class="w-[5.8em] shrink-0" />
-          <span class="text-highlighted min-w-0 flex-1 truncate">{{ row.summary }}</span>
+          <!-- Escritorio: cada fila enlaza a su detalle. Mural/kiosco: sin enlaces (§7.3). -->
+          <NuxtLink
+            v-if="scale === 'normal' && slug"
+            :to="`/t/${slug}/security/findings/${row.id}`"
+            class="text-highlighted min-w-0 flex-1 truncate hover:underline"
+            >{{ row.summary }}</NuxtLink
+          >
+          <span v-else class="text-highlighted min-w-0 flex-1 truncate">{{ row.summary }}</span>
           <!-- Una línea solo si el widget es ancho de verdad (≥ 48 rem); si no, segunda línea. -->
           <span
             v-if="wide"

@@ -58,6 +58,10 @@ test.describe('modo kiosco @kiosk', () => {
 
     await enroll(tv, code)
     await expect(tv.locator('html')).toHaveClass(/dark/)
+    // I1-20 criterio 5: sin permiso de datos personales, alias o IP enmascarada.
+    const top = tv.getByTestId('kiosk-current').locator('[data-widget-type="top_customers"]')
+    await expect(top).toContainText('•••')
+    await expect(top).not.toContainText(/\b10\.20\.\d+\.\d+\b/)
     await expect(tv.getByTestId('main-nav')).toHaveCount(0)
     await expect(tv.getByRole('button', { name: /cerrar sesión|salir/i })).toHaveCount(0)
     // El admin la ve en línea.
