@@ -215,7 +215,8 @@ check_requirements() {
     ok "Horus ya está en marcha (proyecto $project): no se comprueban sus puertos"
   else
     local p
-    for p in "tcp:$(get http-port 80)" "tcp:$(get https-port 443)" "udp:$(get wg-port 51820)"; do
+    # 18081/tcp: admin de horus-wg-agent (red del host, solo 127.0.0.1).
+    for p in "tcp:$(get http-port 80)" "tcp:$(get https-port 443)" "udp:$(get wg-port 51820)" "tcp:18081"; do
       if port_busy "${p%%:*}" "${p#*:}"; then fail "puerto ${p#*:}/${p%%:*} ocupado"; else ok "puerto ${p#*:}/${p%%:*} libre"; fi
     done
   fi
