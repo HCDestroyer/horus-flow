@@ -349,6 +349,11 @@ func Anonymize(frames []capture.Frame, cfg Config) ([]capture.Frame, *Stats, err
 		fixed[a] = cfg.NATIPs[i]
 	}
 	st.NATIPs = len(nats)
+	for _, v := range fixed {
+		if inv.IPs[v] {
+			return nil, nil, fmt.Errorf("la IP de sustitución %s ya aparece en la captura original: elige otra", v)
+		}
+	}
 	m, err := newMapper(cfg.Key, cfg.ClientNet, fixed, inv)
 	if err != nil {
 		return nil, nil, err
