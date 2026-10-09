@@ -152,7 +152,6 @@ type Inventory struct {
 	// Exporters cuenta datagramas por IP de origen.
 	Exporters map[netip.Addr]int
 	templates map[tmplKey]template
-	conflicts int
 }
 
 func newInventory() *Inventory {
