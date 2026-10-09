@@ -109,6 +109,14 @@ func (a *Attributor) customerEdge(ifIndex uint32) bool {
 	return ifIndex != 0 && ifIndex != a.upstream && ifIndex != a.tunnelIf && ifIndex != a.transitIf
 }
 
+var linkMulticastV6 = netip.MustParsePrefix("ff02::/16")
+
+// linkScopeV6 indica una IPv6 de enlace local (fe80::/10) o multicast de
+// alcance de enlace (ff02::/16): nunca es cliente (docs/traffic-model.md §4.8.3).
+func linkScopeV6(a netip.Addr) bool {
+	return a.Is6() && !a.Is4In6() && (a.IsLinkLocalUnicast() || linkMulticastV6.Contains(a))
+}
+
 // postNATClient devuelve la IP privada del cliente de una bajada con NAT en
 // el router principal: postNATDestinationIPv4Address (IE 226) presente,
 // distinta de dst y dentro de un prefijo de cliente del nodo.
@@ -130,8 +138,10 @@ func (a *Attributor) postNATClient(r *flow.Record) (netip.Addr, bool) {
 //  3. si no, dst en un prefijo de cliente → cliente = dst, bajada;
 //  4. si no, unknown (o transit/infrastructure según §4.6).
 //
-// Antes se descartan los rangos excluidos y el tráfico del túnel; si ambos
-// extremos son clientes del nodo el flujo es internal.
+// Antes se descartan los rangos excluidos y el tráfico del túnel, y el de
+// enlace local IPv6 es infraestructura (§4.8.3); si ambos extremos son
+// clientes del nodo el flujo es internal. En IPv6 el paso 2 nunca ocurre
+// (la plantilla 259 no trae campos NAT, §4.8.4).
 func (a *Attributor) Attribute(r *flow.Record) signals.Attribution {
 	src, dst := a.lookup(r.SrcIP), a.lookup(r.DstIP)
 	natClient, natOK := a.postNATClient(r)
@@ -140,6 +150,9 @@ func (a *Attributor) Attribute(r *flow.Record) signals.Attribution {
 		return signals.Attribution{Status: signals.StatusExcluded}
 	case a.tunnel[r.SrcIP] || a.tunnel[r.DstIP]:
 		return signals.Attribution{Status: signals.StatusTunnel}
+	case linkScopeV6(r.SrcIP) || linkScopeV6(r.DstIP):
+		// §4.8.3: enlace local (ND, RA, DHCPv6) y multicast de enlace.
+		return signals.Attribution{Status: signals.StatusInfrastructure}
 	case src == roleCustomer && (dst == roleCustomer || natOK):
 		return signals.Attribution{Status: signals.StatusInternal, Client: a.key(r.SrcIP), Upload: true, Rule: expect.RuleInternal}
 	case src == roleCustomer:

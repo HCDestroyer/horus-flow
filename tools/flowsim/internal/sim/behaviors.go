@@ -277,7 +277,7 @@ func (g *gen) addConn(c *client, k conn) {
 	}
 	if g.natFields && g.nat && local.Is4() && k.internalTo == nil && status == signals.StatusAttributed {
 		// NAT en el router principal tal como lo exporta RouterOS 7
-		// (docs/traffic-model.md §4.4.2): subida con src privada y
+		// (docs/traffic-model.md §4.4.3): subida con src privada y
 		// postNATSrc pública; bajada con dst = IP pública del NAT y la
 		// privada del cliente solo en postNATDst (IE 226). El puerto se
 		// conserva casi siempre (masquerade) y siempre en servicios entrantes.
@@ -854,9 +854,70 @@ func (l *lateral) emit(g *gen, c *client, t int64) {
 // del router (infraestructura).
 type routerBehavior struct {
 	nextSNMP, nextDNS, nextNTP int64
+	// IPv6 (docs/traffic-model.md §4.8): RA/NS en enlace local
+	// (infraestructura) y pings ICMPv6 de clientes (IE 178/179). Generador
+	// propio para no alterar el resto del tráfico.
+	ndRng          *rand.Rand
+	v6Clients      []*client
+	nextRA, nextV6 int64
+}
+
+// linkLocal devuelve la dirección de enlace local EUI-64 de una MAC.
+func linkLocal(mac [6]byte) netip.Addr {
+	return netip.AddrFrom16([16]byte{0xfe, 0x80, 8: mac[0] ^ 0x02, 9: mac[1], 10: mac[2], 11: 0xff, 12: 0xfe,
+		13: mac[3], 14: mac[4], 15: mac[5]})
+}
+
+// emitIPv6 genera el tráfico ICMPv6 del nodo: cada minuto un RA del router a
+// ff02::1 y una NS de un CPE al router (enlace local ⇒ infraestructura) y un
+// ping ICMPv6 de un cliente con prefijo delegado (tipo 128/129).
+func (rb *routerBehavior) emitIPv6(g *gen, es *expState, t int64) {
+	if t == 0 {
+		rb.ndRng = rand.New(rand.NewPCG(g.opt.Seed, streamSeed(fmt.Sprint(g.opt.Seed), es.spec.Name, "ipv6-nd")))
+		for _, c := range es.clients {
+			if len(c.v6) > 0 && c.status == signals.StatusAttributed {
+				rb.v6Clients = append(rb.v6Clients, c)
+			}
+		}
+		rb.nextRA = rb.ndRng.Int64N(60_000)
+		rb.nextV6 = rb.ndRng.Int64N(30_000)
+	}
+	if len(rb.v6Clients) == 0 {
+		return
+	}
+	r := rb.ndRng
+	spec := es.spec
+	infra := signals.Attribution{Status: signals.StatusInfrastructure}
+	if rb.nextRA >= t && rb.nextRA < t+tickMs {
+		routerLL := linkLocal(es.routerMAC)
+		g.addFlow(es, flow.Record{
+			SrcIP: routerLL, DstIP: netip.MustParseAddr("ff02::1"), Proto: flow.ProtoICMPv6, ICMPTypeCode: 134 << 8,
+			OutIf: spec.Interfaces.AccessIfIndex, MinTTL: 255, MaxTTL: 255, SrcMAC: es.routerMAC,
+			DstMAC: [6]byte{0x33, 0x33, 0, 0, 0, 1}, DstMask: 0,
+		}, rb.nextRA, rb.nextRA, 1, 120, flagsNone, infra)
+		c := pick(r, rb.v6Clients)
+		g.addFlow(es, flow.Record{
+			SrcIP: linkLocal(c.mac), DstIP: routerLL, Proto: flow.ProtoICMPv6, ICMPTypeCode: 135 << 8,
+			InIf: c.accessIf, MinTTL: 255, MaxTTL: 255, SrcMAC: c.mac, DstMAC: es.routerMAC,
+		}, rb.nextRA+20, rb.nextRA+20, 1, 72, flagsNone, infra)
+		rb.nextRA += 60_000
+	}
+	if rb.nextV6 >= t && rb.nextV6 < t+tickMs {
+		c := pick(r, rb.v6Clients)
+		pk := uint64(1 + r.IntN(4))
+		g.addConn(c, conn{
+			proto: flow.ProtoICMPv6, v6: true, remote: randomIn(r, services["publicdns"].v6[0]),
+			start: rb.nextV6, dur: int64(pk-1) * 1000, upPkts: pk, upBytes: pk * 104, downPkts: pk, downBytes: pk * 104,
+			icmpUp: 128 << 8, icmpDown: 129 << 8, remoteTTL: 57,
+		})
+		rb.nextV6 += 30_000 + r.Int64N(30_000)
+	}
 }
 
 func (rb *routerBehavior) emit(g *gen, es *expState, t int64) {
+	if g.ipv6 {
+		rb.emitIPv6(g, es, t)
+	}
 	spec := es.spec
 	r := es.rng
 	tun := signals.Attribution{Status: signals.StatusTunnel}

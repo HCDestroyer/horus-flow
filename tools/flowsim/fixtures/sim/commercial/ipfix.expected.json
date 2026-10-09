@@ -348,23 +348,23 @@
         }
       ],
       "totals": {
-        "datagrams": 911,
+        "datagrams": 916,
         "template_sends": 46,
-        "data_records": 9066,
+        "data_records": 9076,
         "records_v4": 8452,
-        "records_v6": 614,
-        "bytes": 1140964084,
-        "packets": 1148885
+        "records_v6": 624,
+        "bytes": 1140770513,
+        "packets": 1148678
       },
       "by_status": {
-        "attributed": 9048,
-        "infrastructure": 12,
+        "attributed": 9054,
+        "infrastructure": 16,
         "tunnel": 6
       },
       "by_rule": {
-        "download_dst": 307,
+        "download_dst": 310,
         "download_post_nat_dst": 4217,
-        "upload_src": 4524
+        "upload_src": 4527
       },
       "clients": [
         {
@@ -879,8 +879,8 @@
           "population": "households",
           "kind": "residential",
           "records": 20,
-          "bytes_up": 10259,
-          "bytes_down": 188186,
+          "bytes_up": 10325,
+          "bytes_down": 188269,
           "packets_up": 98,
           "packets_down": 167
         },
@@ -2595,10 +2595,10 @@
           "population": "households",
           "kind": "residential",
           "records": 12,
-          "bytes_up": 10896,
-          "bytes_down": 324217,
-          "packets_up": 141,
-          "packets_down": 263
+          "bytes_up": 4998,
+          "bytes_down": 111594,
+          "packets_up": 56,
+          "packets_down": 97
         },
         {
           "key": "10.20.0.97",
@@ -2649,22 +2649,22 @@
           "family": 6,
           "population": "households",
           "kind": "residential",
-          "records": 8,
-          "bytes_up": 7264,
-          "bytes_down": 165107,
-          "packets_up": 72,
-          "packets_down": 134
+          "records": 10,
+          "bytes_up": 9183,
+          "bytes_down": 186981,
+          "packets_up": 85,
+          "packets_down": 155
         },
         {
           "key": "2001:db8:1000:12::/64",
           "family": 6,
           "population": "households",
           "kind": "residential",
-          "records": 12,
-          "bytes_up": 8422,
-          "bytes_down": 72991,
-          "packets_up": 44,
-          "packets_down": 69
+          "records": 14,
+          "bytes_up": 8630,
+          "bytes_down": 73199,
+          "packets_up": 46,
+          "packets_down": 71
         },
         {
           "key": "2001:db8:1000:13::/64",
@@ -2770,11 +2770,11 @@
           "family": 6,
           "population": "households",
           "kind": "residential",
-          "records": 14,
-          "bytes_up": 5618,
-          "bytes_down": 23752,
-          "packets_up": 23,
-          "packets_down": 29
+          "records": 16,
+          "bytes_up": 5722,
+          "bytes_down": 23856,
+          "packets_up": 24,
+          "packets_down": 30
         },
         {
           "key": "2001:db8:1000:1c::/64",

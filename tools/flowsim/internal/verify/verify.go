@@ -53,6 +53,8 @@ type exporterState struct {
 	natUp      uint64 // subidas traducidas (postNATSrc != src)
 	natDown    uint64 // bajadas atribuidas por IE 226
 	natOutside uint64 // registros NAT cuya IP pública no es del pool declarado
+	icmp6      uint64 // registros ICMPv6 con tipo (IE 178 o 139)
+	linkLocal6 uint64 // registros IPv6 de enlace local (infraestructura)
 }
 
 // Verifier consume datagramas y produce un informe.
@@ -202,6 +204,12 @@ func (v *Verifier) Feed(d capture.Datagram) {
 		v.sanity(es, r, info)
 		at := es.att.Attribute(r)
 		v.natCount(es, r, at)
+		if r.IsV6() && r.Proto == flow.ProtoICMPv6 && r.ICMPTypeCode != 0 {
+			es.icmp6++
+		}
+		if r.SrcIP.Is6() && (r.SrcIP.IsLinkLocalUnicast() || r.DstIP.IsLinkLocalUnicast()) {
+			es.linkLocal6++
+		}
 		es.tally.Add(r, at)
 		v.acc.Add(es.name, r, at)
 	}
@@ -381,7 +389,7 @@ func (v *Verifier) Report() *Report {
 		v.templateCheck(rep, p, es, ex.Templates)
 		v.natCheck(rep, p, got.Clients)
 		v.natRuleCheck(rep, p, es)
-		v.ipv6Check(rep, p, got.Clients, ex.Clients)
+		v.ipv6Check(rep, p, es, got.Clients, ex.Clients)
 	}
 	v.signalChecks(rep, lossy)
 	rep.OK = true
@@ -531,7 +539,7 @@ func (v *Verifier) natRuleCheck(rep *Report, p string, es *exporterState) {
 		es.natUp, es.natDown, es.natOutside)
 }
 
-func (v *Verifier) ipv6Check(rep *Report, p string, got, want []expect.Client) {
+func (v *Verifier) ipv6Check(rep *Report, p string, es *exporterState, got, want []expect.Client) {
 	if !v.exp.IPv6 {
 		rep.skip(p+"IPv6: prefijos delegados", "IPv6 desactivado")
 		return
@@ -554,7 +562,10 @@ func (v *Verifier) ipv6Check(rep *Report, p string, got, want []expect.Client) {
 			}
 		}
 	}
-	rep.add(p+"IPv6: prefijos delegados", n > 0, "%d clientes IPv6 identificados por prefijo delegado", n)
+	// §4.8: cliente = prefijo delegado; ICMPv6 con tipo/código y enlace
+	// local como infraestructura (el simulador emite RA/NS y pings).
+	rep.add(p+"IPv6: prefijos delegados", n > 0 && es.icmp6 > 0,
+		"%d clientes IPv6 identificados por prefijo delegado; %d registros ICMPv6 con tipo, %d de enlace local", n, es.icmp6, es.linkLocal6)
 }
 
 func detailJSON(d map[string]any) string {

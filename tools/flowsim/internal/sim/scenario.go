@@ -351,8 +351,10 @@ func (sc *Scenario) validate() error {
 				return fmt.Errorf("%s: nat_ips %s debe ser una IPv4 pública", ex.Name, a)
 			}
 		}
-		if ex.IPv6ClientLen != 64 && ex.IPv6ClientLen != 56 && ex.IPv6ClientLen != 48 {
-			return fmt.Errorf("%s: ipv6_client_len debe ser 48, 56 o 64", ex.Name)
+		switch ex.IPv6ClientLen { // docs/traffic-model.md §4.8.2
+		case 48, 56, 60, 64:
+		default:
+			return fmt.Errorf("%s: ipv6_client_len debe ser 48, 56, 60 o 64", ex.Name)
 		}
 		for _, set := range []PrefixSet{ex.Prefixes.NAT, ex.Prefixes.Public} {
 			if !containsAny(set.Infrastructure, ex.WANIP) {

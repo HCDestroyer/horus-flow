@@ -102,7 +102,7 @@ func TestNATFields(t *testing.T) {
 }
 
 // TestRouterOSTemplates comprueba que las plantillas por defecto de IPFIX
-// son las de la captura real (docs/traffic-model.md §4.4.2): IDs 258/259,
+// son las de la captura real (docs/traffic-model.md §4.4.3): IDs 258/259,
 // 37 y 34 campos, mismo orden y longitudes.
 func TestRouterOSTemplates(t *testing.T) {
 	want4 := [][2]uint16{{60, 1}, {22, 4}, {21, 4}, {160, 8}, {2, 8}, {1, 8}, {7, 2}, {11, 2}, {10, 4}, {14, 4},

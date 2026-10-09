@@ -3,7 +3,7 @@
 // que imitan lo que exporta MikroTik RouterOS 7 (docs/vendors/mikrotik.md §2.3).
 //
 // Las plantillas IPFIX por defecto (perfil routeros7) reproducen campo a
-// campo las de una captura real de RouterOS 7 (docs/traffic-model.md §4.4.2):
+// campo las de una captura real de RouterOS 7 (docs/traffic-model.md §4.4.3):
 // ID 258 para IPv4 (37 campos) y 259 para IPv6 (34 campos). El perfil legacy
 // conserva las plantillas supuestas de I0-10 (ID 256/257) y NetFlow v9 las
 // sigue usando porque aún no hay captura real de v9.
