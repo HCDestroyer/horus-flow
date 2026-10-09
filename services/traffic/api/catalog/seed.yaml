@@ -1,0 +1,135 @@
+# Catálogo semilla de clasificación de tráfico (I1-07, EP-12; docs/traffic-model.md §6).
+# Global de plataforma: categorías → servicios → organizaciones → ASN → prefijos, con reglas
+# deterministas (prefix > asn_port > asn > port). Sin editor hasta I4: se cambia aquí y se publica
+# como snapshot versionado (horus-catalog publish). Los prefijos son rangos publicados por cada
+# proveedor; se clasifica al nivel que la evidencia soporta (genéricos de CDN/nube, nunca más).
+version: 1
+categories:
+  - {slug: video_streaming, name: Streaming de video}
+  - {slug: social, name: Redes sociales}
+  - {slug: gaming, name: Videojuegos}
+  - {slug: software_updates, name: Actualizaciones de software}
+  - {slug: web, name: Navegación web}
+  - {slug: messaging, name: Mensajería}
+  - {slug: cloud, name: Nube y almacenamiento}
+  - {slug: video_calls, name: Videollamadas}
+  - {slug: music, name: Música}
+  - {slug: ecommerce, name: Comercio electrónico}
+  - {slug: cdn_infra, name: CDN e infraestructura}
+  - {slug: network_services, name: Servicios de red (DNS, NTP)}
+
+organizations:
+  - {slug: google, name: Google, country: US, asns: [15169, 36040, 396982]}
+  - {slug: meta, name: Meta, country: US, asns: [32934]}
+  - {slug: netflix, name: Netflix, country: US, asns: [2906, 40027]}
+  - {slug: cloudflare, name: Cloudflare, country: US, asns: [13335]}
+  - {slug: akamai, name: Akamai, country: US, asns: [20940, 16625]}
+  - {slug: amazon, name: Amazon, country: US, asns: [16509, 14618]}
+  - {slug: microsoft, name: Microsoft, country: US, asns: [8075, 8068]}
+  - {slug: apple, name: Apple, country: US, asns: [714, 6185]}
+  - {slug: zoom, name: Zoom, country: US, asns: [30103]}
+  - {slug: spotify, name: Spotify, country: SE, asns: [8403]}
+  - {slug: bytedance, name: ByteDance (TikTok), country: SG, asns: [138699, 396986]}
+  - {slug: twitch, name: Twitch, country: US, asns: [46489]}
+  - {slug: valve, name: Valve (Steam), country: US, asns: [32590]}
+  - {slug: discord, name: Discord, country: US, asns: [49544]}
+  - {slug: telegram, name: Telegram, country: GB, asns: [62041, 62014, 59930]}
+  - {slug: mercadolibre, name: Mercado Libre, country: AR, asns: [264696]}
+
+# Servicios. rules: asn (+ ports/protocols = asn_port), port (sin ASN = port). confidence 0–100.
+services:
+  - {slug: google_generic, name: Google (genérico), category: cdn_infra, org: google,
+     rules: [{asn: [15169, 36040, 396982], confidence: 55}]}
+  - {slug: youtube, name: YouTube, category: video_streaming, org: google,
+     rules: [{asn: [36040], confidence: 75}]}
+  - {slug: google_dns, name: Google Public DNS, category: network_services, org: google,
+     rules: [{asn: [15169], ports: [53, 853], confidence: 80}]}
+  - {slug: meta_generic, name: Meta (genérico), category: social, org: meta,
+     rules: [{asn: [32934], confidence: 60}]}
+  - {slug: whatsapp, name: WhatsApp, category: messaging, org: meta,
+     rules: [{asn: [32934], ports: [5222, 3478], confidence: 70}]}
+  - {slug: netflix, name: Netflix, category: video_streaming, org: netflix,
+     rules: [{asn: [2906, 40027], confidence: 85}]}
+  - {slug: cloudflare_generic, name: Cloudflare (genérico), category: cdn_infra, org: cloudflare,
+     rules: [{asn: [13335], confidence: 50}]}
+  - {slug: cloudflare_dns, name: Cloudflare DNS (1.1.1.1), category: network_services, org: cloudflare,
+     rules: [{asn: [13335], ports: [53, 853], confidence: 80}]}
+  - {slug: ntp, name: NTP, category: network_services,
+     rules: [{ports: [123], protocols: [17], confidence: 60}]}
+  - {slug: dns, name: DNS, category: network_services,
+     rules: [{ports: [53], confidence: 40}]}
+  - {slug: akamai_generic, name: Akamai (genérico), category: cdn_infra, org: akamai,
+     rules: [{asn: [20940, 16625], confidence: 50}]}
+  - {slug: amazon_cloudfront, name: Amazon CloudFront, category: cdn_infra, org: amazon,
+     rules: [{asn: [16509], confidence: 45}]}
+  - {slug: amazon_s3, name: Amazon S3, category: cloud, org: amazon}
+  - {slug: microsoft_365, name: Microsoft 365, category: web, org: microsoft,
+     rules: [{asn: [8075], confidence: 55}]}
+  - {slug: microsoft_teams, name: Microsoft Teams, category: video_calls, org: microsoft,
+     rules: [{asn: [8075], ports: [3478, 3479, 3480, 3481], protocols: [17], confidence: 75}]}
+  - {slug: windows_update, name: Windows Update, category: software_updates, org: microsoft,
+     rules: [{asn: [8068], confidence: 70}]}
+  - {slug: apple_generic, name: Apple (genérico), category: cloud, org: apple,
+     rules: [{asn: [714, 6185], confidence: 55}]}
+  - {slug: apple_push, name: Apple Push (APNs), category: messaging, org: apple,
+     rules: [{asn: [714, 6185], ports: [5223], confidence: 80}]}
+  - {slug: zoom, name: Zoom, category: video_calls, org: zoom,
+     rules: [{asn: [30103], confidence: 85}]}
+  - {slug: spotify, name: Spotify, category: music, org: spotify,
+     rules: [{asn: [8403], confidence: 85}]}
+  - {slug: tiktok, name: TikTok, category: social, org: bytedance,
+     rules: [{asn: [138699, 396986], confidence: 80}]}
+  - {slug: twitch, name: Twitch, category: video_streaming, org: twitch,
+     rules: [{asn: [46489], confidence: 85}]}
+  - {slug: steam, name: Steam, category: gaming, org: valve,
+     rules: [{asn: [32590], confidence: 85}]}
+  - {slug: xbox_live, name: Xbox Live, category: gaming, org: microsoft,
+     rules: [{asn: [8075], ports: [3074], confidence: 75}]}
+  - {slug: discord, name: Discord, category: messaging, org: discord,
+     rules: [{asn: [49544], confidence: 80}]}
+  - {slug: telegram, name: Telegram, category: messaging, org: telegram,
+     rules: [{asn: [62041, 62014, 59930], confidence: 85}]}
+  - {slug: mercadolibre, name: Mercado Libre, category: ecommerce, org: mercadolibre,
+     rules: [{asn: [264696], confidence: 80}]}
+  - {slug: web_https, name: Web (HTTPS), category: web,
+     rules: [{ports: [443], protocols: [6], confidence: 20}]}
+  - {slug: web_http, name: Web (HTTP), category: web,
+     rules: [{ports: [80], protocols: [6], confidence: 20}]}
+  - {slug: quic, name: QUIC, category: web,
+     rules: [{ports: [443], protocols: [17], confidence: 20}]}
+
+# Rangos publicados (regla prefix y tabla prefijo → ASN de respaldo cuando no hay snapshot ASN).
+prefixes:
+  - {prefix: 142.250.0.0/15, asn: 15169, service: google_generic}
+  - {prefix: 172.217.0.0/16, asn: 15169, service: google_generic}
+  - {prefix: 2a00:1450:4000::/37, asn: 15169, service: google_generic}
+  - {prefix: 8.8.8.0/24, asn: 15169, service: google_dns}
+  - {prefix: 8.8.4.0/24, asn: 15169, service: google_dns}
+  - {prefix: 2001:4860:4860::/48, asn: 15169, service: google_dns}
+  - {prefix: 157.240.0.0/16, asn: 32934, service: meta_generic}
+  - {prefix: 31.13.64.0/18, asn: 32934, service: meta_generic}
+  - {prefix: 2a03:2880::/32, asn: 32934, service: meta_generic}
+  - {prefix: 45.57.0.0/17, asn: 2906, service: netflix}
+  - {prefix: 198.38.96.0/19, asn: 2906, service: netflix}
+  - {prefix: 2a00:86c0::/32, asn: 2906, service: netflix}
+  - {prefix: 104.16.0.0/13, asn: 13335, service: cloudflare_generic}
+  - {prefix: 172.64.0.0/13, asn: 13335, service: cloudflare_generic}
+  - {prefix: 2606:4700::/32, asn: 13335, service: cloudflare_generic}
+  - {prefix: 1.1.1.0/24, asn: 13335, service: cloudflare_dns}
+  - {prefix: 1.0.0.0/24, asn: 13335, service: cloudflare_dns}
+  - {prefix: 2606:4700:4700::/48, asn: 13335, service: cloudflare_dns}
+  - {prefix: 162.159.200.0/24, asn: 13335, service: ntp}
+  - {prefix: 2606:4700:f1::/48, asn: 13335, service: ntp}
+  - {prefix: 23.32.0.0/11, asn: 20940, service: akamai_generic}
+  - {prefix: 2.16.0.0/13, asn: 20940, service: akamai_generic}
+  - {prefix: 2a02:26f0::/29, asn: 20940, service: akamai_generic}
+  - {prefix: 52.84.0.0/15, asn: 16509, service: amazon_cloudfront}
+  - {prefix: 54.230.0.0/16, asn: 16509, service: amazon_cloudfront}
+  - {prefix: 2600:9000::/28, asn: 16509, service: amazon_cloudfront}
+  - {prefix: 52.216.0.0/15, asn: 16509, service: amazon_s3}
+  - {prefix: 52.96.0.0/14, asn: 8075, service: microsoft_365}
+  - {prefix: 40.96.0.0/13, asn: 8075, service: microsoft_365}
+  - {prefix: 2603:1000::/25, asn: 8075, service: microsoft_365}
+  - {prefix: 17.0.0.0/8, asn: 714, service: apple_generic}
+  - {prefix: 2620:149::/32, asn: 714, service: apple_generic}
+  - {prefix: 170.114.0.0/16, asn: 30103, service: zoom}
