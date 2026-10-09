@@ -43,6 +43,8 @@
 #   --bundle-recipient CLAVE_AGE  cifra el paquete offline para esa clave pública age (si no: frase
 #                                 aleatoria que se muestra UNA vez)
 #   --bundle-out DIR             dónde dejar el paquete offline (/root)
+#   --smtp-host H --smtp-port 587 --smtp-from EMAIL --smtp-user U --smtp-tls starttls|tls|none
+#   --smtp-password-file F       canal mínimo de alertas por correo (D13); opcional
 #   --confirm-bundle             marca el paquete offline como guardado fuera del servidor
 #   --skip-firewall --skip-tunnel --skip-systemd --skip-backup --force (ignora requisitos no críticos)
 #   --yes                        no pregunta (usa opciones, respuestas guardadas o valores por defecto)
@@ -67,7 +69,8 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --mode | --domain | --acme-email | --public-ip | --tunnel-cidr | --admin-email | --admin-password-file | \
       --image | --store-dir | --data-dir | --install-dir | --etc-dir | --root | --project | --http-port | \
-      --https-port | --wg-port | --wg-interface | --docker-subnet | --tlm-max-bytes | --bundle-recipient | --bundle-out)
+      --https-port | --wg-port | --wg-interface | --docker-subnet | --tlm-max-bytes | --bundle-recipient | --bundle-out | \
+      --smtp-host | --smtp-port | --smtp-from | --smtp-user | --smtp-tls | --smtp-password-file)
       need_arg "$@"; opt[${1#--}]="$2"; shift 2 ;;
     --acme-staging) opt[acme-staging]=1; shift ;;
     --check) action=check; shift ;;
@@ -286,7 +289,8 @@ save_conf() {
       tunnel-cidr "$tunnel_cidr" admin-email "$admin_email" image "$image" store-dir "$store_dir" \
       data-dir "$data_dir" install-dir "$install_dir" project "$project" http-port "$http_port" \
       https-port "$https_port" wg-port "$wg_port" wg-interface "$wg_if" docker-subnet "$docker_subnet" \
-      tlm-max-bytes "$tlm_max_bytes" bundle-out "$(get bundle-out "${root:-}/root")"
+      tlm-max-bytes "$tlm_max_bytes" smtp-host "$(get smtp-host "")" smtp-port "$(get smtp-port 587)" \
+      smtp-from "$(get smtp-from "")" smtp-user "$(get smtp-user "")" smtp-tls "$(get smtp-tls starttls)" bundle-out "$(get bundle-out "${root:-}/root")"
     [ -z "${opt[acme-staging]:-${saved[acme-staging]:-}}" ] || echo "acme-staging=1"
   } >"$conf_file"
   chmod 0644 "$conf_file"
@@ -404,6 +408,13 @@ make_secrets() {
   done
   new_secret auth_kek gen_hex32
   new_secret devices_kek gen_hex32
+  new_secret alerts_kek gen_hex32
+  if [ -n "${opt[smtp-password-file]:-}" ]; then
+    [ -r "${opt[smtp-password-file]}" ] || die "no puedo leer ${opt[smtp-password-file]}"
+    head -n1 "${opt[smtp-password-file]}" | tr -d '\r\n' >"$secrets_dir/smtp_password"
+  fi
+  [ -e "$secrets_dir/smtp_password" ] || : >"$secrets_dir/smtp_password"
+  chmod 0644 "$secrets_dir/smtp_password"
   new_secret auth_signing_key.pem gen_ed25519
   new_secret wg_hub_private_key gen_wg_private
   [ -s "$secrets_dir/seed_admin_password" ] || new_secret seed_admin_password gen_admin_password
@@ -555,6 +566,11 @@ HORUS_TLM_FLOWS_MAX_BYTES=$tlm_max_bytes
 HORUS_NATS_MAX_FILE_STORE=$nats_max_store
 HORUS_BACKUP_METRICS_PORT=$(get backup-metrics-port 9109)
 HORUS_RAW_TTL_DAYS=7
+HORUS_SMTP_HOST=$(get smtp-host "")
+HORUS_SMTP_PORT=$(get smtp-port 587)
+HORUS_SMTP_FROM=$(get smtp-from "")
+HORUS_SMTP_USERNAME=$(get smtp-user "")
+HORUS_SMTP_TLS=$(get smtp-tls starttls)
 HORUS_BACKUP_CH_KEEP_FULL=3
 EOF
   chmod 0644 "$env_file"
