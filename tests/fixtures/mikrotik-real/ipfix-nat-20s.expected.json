@@ -1,0 +1,2994 @@
+{
+  "schema": "horus.flowsim.expected/v1",
+  "scenario": "mikrotik-real-nat",
+  "description": "Captura real anonimizada (RouterOS 7, NAT en el router principal), 20 s. Ver README.md.",
+  "seed": 0,
+  "protocol": "ipfix",
+  "nat": true,
+  "ipv6": false,
+  "nat_fields": true,
+  "template_profile": "routeros7",
+  "fixture": true,
+  "rate": 0,
+  "start": "2026-10-09T04:36:30Z",
+  "duration_seconds": 20,
+  "export": {
+    "active_timeout_seconds": 60,
+    "inactive_timeout_seconds": 15,
+    "template_refresh_packets": 60,
+    "template_timeout_seconds": 60,
+    "max_datagram": 1500,
+    "collector_port": 4739
+  },
+  "exporters": [
+    {
+      "name": "po-router",
+      "exporter_ip": "10.255.3.17",
+      "collector_ip": "",
+      "observation_domain_id": 0,
+      "boot_time": "0001-01-01T00:00:00Z",
+      "interfaces": {
+        "upstream": 2,
+        "tunnel": 0,
+        "transit": 0,
+        "access": "vlan"
+      },
+      "prefixes": {
+        "customers": [
+          "10.20.0.0/16"
+        ],
+        "infrastructure": [
+          "192.0.2.10/32",
+          "192.0.2.11/32"
+        ],
+        "excluded": []
+      },
+      "ipv6_client_len": 64,
+      "nat_ips": [
+        "192.0.2.10",
+        "192.0.2.11"
+      ],
+      "templates": [
+        {
+          "id": 258,
+          "fields": [
+            [
+              60,
+              1
+            ],
+            [
+              22,
+              4
+            ],
+            [
+              21,
+              4
+            ],
+            [
+              160,
+              8
+            ],
+            [
+              2,
+              8
+            ],
+            [
+              1,
+              8
+            ],
+            [
+              7,
+              2
+            ],
+            [
+              11,
+              2
+            ],
+            [
+              10,
+              4
+            ],
+            [
+              14,
+              4
+            ],
+            [
+              4,
+              1
+            ],
+            [
+              5,
+              1
+            ],
+            [
+              6,
+              1
+            ],
+            [
+              57,
+              6
+            ],
+            [
+              80,
+              6
+            ],
+            [
+              81,
+              6
+            ],
+            [
+              56,
+              6
+            ],
+            [
+              8,
+              4
+            ],
+            [
+              12,
+              4
+            ],
+            [
+              15,
+              4
+            ],
+            [
+              9,
+              1
+            ],
+            [
+              13,
+              1
+            ],
+            [
+              192,
+              1
+            ],
+            [
+              206,
+              1
+            ],
+            [
+              189,
+              1
+            ],
+            [
+              224,
+              8
+            ],
+            [
+              205,
+              2
+            ],
+            [
+              184,
+              4
+            ],
+            [
+              185,
+              4
+            ],
+            [
+              186,
+              2
+            ],
+            [
+              33,
+              1
+            ],
+            [
+              176,
+              1
+            ],
+            [
+              177,
+              1
+            ],
+            [
+              225,
+              4
+            ],
+            [
+              226,
+              4
+            ],
+            [
+              227,
+              2
+            ],
+            [
+              228,
+              2
+            ]
+          ]
+        },
+        {
+          "id": 259,
+          "fields": [
+            [
+              60,
+              1
+            ],
+            [
+              22,
+              4
+            ],
+            [
+              21,
+              4
+            ],
+            [
+              160,
+              8
+            ],
+            [
+              2,
+              8
+            ],
+            [
+              1,
+              8
+            ],
+            [
+              7,
+              2
+            ],
+            [
+              11,
+              2
+            ],
+            [
+              10,
+              4
+            ],
+            [
+              14,
+              4
+            ],
+            [
+              4,
+              1
+            ],
+            [
+              5,
+              1
+            ],
+            [
+              6,
+              1
+            ],
+            [
+              57,
+              6
+            ],
+            [
+              80,
+              6
+            ],
+            [
+              81,
+              6
+            ],
+            [
+              56,
+              6
+            ],
+            [
+              27,
+              16
+            ],
+            [
+              28,
+              16
+            ],
+            [
+              62,
+              16
+            ],
+            [
+              29,
+              1
+            ],
+            [
+              30,
+              1
+            ],
+            [
+              192,
+              1
+            ],
+            [
+              206,
+              1
+            ],
+            [
+              189,
+              1
+            ],
+            [
+              224,
+              8
+            ],
+            [
+              205,
+              2
+            ],
+            [
+              184,
+              4
+            ],
+            [
+              185,
+              4
+            ],
+            [
+              186,
+              2
+            ],
+            [
+              33,
+              1
+            ],
+            [
+              178,
+              1
+            ],
+            [
+              179,
+              1
+            ],
+            [
+              31,
+              4
+            ]
+          ]
+        }
+      ],
+      "sequence_gaps": 23,
+      "lost_records": 3247,
+      "totals": {
+        "datagrams": 246,
+        "template_sends": 10,
+        "data_records": 2596,
+        "records_v4": 2596,
+        "records_v6": 0,
+        "bytes": 206970463,
+        "packets": 155479
+      },
+      "by_status": {
+        "attributed": 1513,
+        "internal": 1072,
+        "tunnel": 8,
+        "unknown": 3
+      },
+      "by_rule": {
+        "download_dst": 2,
+        "download_post_nat_dst": 728,
+        "internal": 1072,
+        "upload_src": 783
+      },
+      "clients": [
+        {
+          "key": "10.20.0.2",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.100.4",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 186,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.108.2",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 2,
+          "bytes_up": 240,
+          "bytes_down": 0,
+          "packets_up": 4,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.108.9",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.110.3",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.110.6",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 2,
+          "bytes_up": 277,
+          "bytes_down": 0,
+          "packets_up": 2,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.110.8",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 240,
+          "bytes_down": 0,
+          "packets_up": 4,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.111.2",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 2,
+          "bytes_up": 127,
+          "bytes_down": 0,
+          "packets_up": 2,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.111.3",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 2,
+          "bytes_up": 123,
+          "bytes_down": 0,
+          "packets_up": 2,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.112.2",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 14,
+          "bytes_up": 880,
+          "bytes_down": 0,
+          "packets_up": 19,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.116.2",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 199,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.116.5",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 228,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.117.2",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 3,
+          "bytes_up": 456,
+          "bytes_down": 0,
+          "packets_up": 5,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.117.4",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.118.30",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.122.10",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 9,
+          "bytes_up": 23764,
+          "bytes_down": 23684,
+          "packets_up": 56,
+          "packets_down": 61
+        },
+        {
+          "key": "10.20.122.12",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 62,
+          "bytes_up": 99185,
+          "bytes_down": 1165421,
+          "packets_up": 531,
+          "packets_down": 811
+        },
+        {
+          "key": "10.20.122.14",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 5,
+          "bytes_up": 352,
+          "bytes_down": 93,
+          "packets_up": 6,
+          "packets_down": 1
+        },
+        {
+          "key": "10.20.122.15",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 4,
+          "bytes_up": 201,
+          "bytes_down": 729,
+          "packets_up": 3,
+          "packets_down": 10
+        },
+        {
+          "key": "10.20.122.3",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 8,
+          "bytes_up": 6374,
+          "bytes_down": 8096,
+          "packets_up": 11,
+          "packets_down": 13
+        },
+        {
+          "key": "10.20.122.4",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 104,
+          "bytes_up": 174980,
+          "bytes_down": 120209,
+          "packets_up": 358,
+          "packets_down": 259
+        },
+        {
+          "key": "10.20.122.5",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 0,
+          "bytes_down": 166,
+          "packets_up": 0,
+          "packets_down": 2
+        },
+        {
+          "key": "10.20.122.7",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 35,
+          "bytes_up": 32252,
+          "bytes_down": 42252,
+          "packets_up": 93,
+          "packets_down": 103
+        },
+        {
+          "key": "10.20.122.8",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 21,
+          "bytes_up": 51604,
+          "bytes_down": 2615176,
+          "packets_up": 759,
+          "packets_down": 1340
+        },
+        {
+          "key": "10.20.123.6",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.124.2",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 287,
+          "bytes_up": 146707963,
+          "bytes_down": 0,
+          "packets_up": 75382,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.124.3",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 37,
+          "bytes_up": 7751956,
+          "bytes_down": 0,
+          "packets_up": 4255,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.126.22",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 176,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.129.14",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 32,
+          "bytes_up": 4500,
+          "bytes_down": 0,
+          "packets_up": 75,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.130.12",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 30,
+          "bytes_up": 27494,
+          "bytes_down": 0,
+          "packets_up": 163,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.134.10",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 230,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.134.13",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 215,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.134.16",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.134.17",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 2,
+          "bytes_up": 402,
+          "bytes_down": 0,
+          "packets_up": 4,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.134.4",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 229,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.137.11",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 2,
+          "bytes_up": 381,
+          "bytes_down": 0,
+          "packets_up": 4,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.137.44",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.137.8",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.141.6",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.142.18",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 13,
+          "bytes_up": 924,
+          "bytes_down": 0,
+          "packets_up": 13,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.142.22",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 34,
+          "bytes_up": 2546,
+          "bytes_down": 0,
+          "packets_up": 34,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.142.253",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 11,
+          "bytes_up": 27084,
+          "bytes_down": 0,
+          "packets_up": 497,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.142.254",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 58,
+          "bytes_up": 9962,
+          "bytes_down": 0,
+          "packets_up": 58,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.142.34",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 320,
+          "bytes_up": 1485607,
+          "bytes_down": 0,
+          "packets_up": 27897,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.142.42",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 6,
+          "bytes_up": 32541,
+          "bytes_down": 0,
+          "packets_up": 32,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.142.46",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 37,
+          "bytes_up": 1963,
+          "bytes_down": 1790,
+          "packets_up": 26,
+          "packets_down": 11
+        },
+        {
+          "key": "10.20.142.6",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 3,
+          "bytes_up": 162,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.144.6",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 204,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.15.10",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 20,
+          "bytes_up": 16237,
+          "bytes_down": 25216,
+          "packets_up": 81,
+          "packets_down": 68
+        },
+        {
+          "key": "10.20.15.16",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 26,
+          "bytes_up": 149383,
+          "bytes_down": 284767,
+          "packets_up": 414,
+          "packets_down": 226
+        },
+        {
+          "key": "10.20.15.21",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 0,
+          "bytes_down": 182,
+          "packets_up": 0,
+          "packets_down": 2
+        },
+        {
+          "key": "10.20.15.3",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 32,
+          "bytes_up": 137378,
+          "bytes_down": 1473766,
+          "packets_up": 580,
+          "packets_down": 857
+        },
+        {
+          "key": "10.20.15.5",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 18,
+          "bytes_up": 22646,
+          "bytes_down": 16349,
+          "packets_up": 56,
+          "packets_down": 38
+        },
+        {
+          "key": "10.20.15.7",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 6,
+          "bytes_up": 484,
+          "bytes_down": 276,
+          "packets_up": 9,
+          "packets_down": 5
+        },
+        {
+          "key": "10.20.15.8",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 22,
+          "bytes_up": 17796,
+          "bytes_down": 23615,
+          "packets_up": 58,
+          "packets_down": 51
+        },
+        {
+          "key": "10.20.15.9",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 11,
+          "bytes_up": 624,
+          "bytes_down": 531,
+          "packets_up": 10,
+          "packets_down": 6
+        },
+        {
+          "key": "10.20.151.10",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.153.2",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.153.4",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.160.2",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.164.11",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.165.21",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.165.30",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 214,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.165.35",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 2,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.165.39",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 2,
+          "bytes_up": 300,
+          "bytes_down": 0,
+          "packets_up": 5,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.165.6",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.165.8",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.166.3",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.177.9",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.178.10",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 2,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.178.11",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 2,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.178.13",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 2,
+          "bytes_up": 120,
+          "bytes_down": 0,
+          "packets_up": 2,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.178.14",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.178.18",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.178.2",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 183,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.178.20",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 3,
+          "bytes_up": 321,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.178.22",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.183.13",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 2,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.184.20",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 69,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.186.10",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.186.2",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 2,
+          "bytes_up": 300,
+          "bytes_down": 0,
+          "packets_up": 5,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.187.6",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 3,
+          "bytes_up": 710,
+          "bytes_down": 0,
+          "packets_up": 7,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.189.2",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 2,
+          "bytes_up": 213,
+          "bytes_down": 170,
+          "packets_up": 3,
+          "packets_down": 3
+        },
+        {
+          "key": "10.20.189.3",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 54,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.189.4",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 54,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.19.15",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.19.22",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.19.23",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.19.24",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 2,
+          "bytes_up": 240,
+          "bytes_down": 0,
+          "packets_up": 4,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.19.27",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.19.31",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.19.8",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.19.9",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 2,
+          "bytes_up": 240,
+          "bytes_down": 0,
+          "packets_up": 4,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.193.14",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.193.2",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.193.7",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 2,
+          "bytes_up": 240,
+          "bytes_down": 0,
+          "packets_up": 4,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.196.238",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 4,
+          "bytes_up": 156,
+          "bytes_down": 246,
+          "packets_up": 3,
+          "packets_down": 6
+        },
+        {
+          "key": "10.20.196.253",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 77,
+          "bytes_up": 68436,
+          "bytes_down": 294186,
+          "packets_up": 334,
+          "packets_down": 275
+        },
+        {
+          "key": "10.20.2.10",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 7,
+          "bytes_up": 23435,
+          "bytes_down": 3287,
+          "packets_up": 36,
+          "packets_down": 12
+        },
+        {
+          "key": "10.20.2.11",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 29,
+          "bytes_up": 74706,
+          "bytes_down": 9639925,
+          "packets_up": 279,
+          "packets_down": 6156
+        },
+        {
+          "key": "10.20.2.12",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 5,
+          "bytes_up": 480,
+          "bytes_down": 517348,
+          "packets_up": 7,
+          "packets_down": 177
+        },
+        {
+          "key": "10.20.2.13",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 6,
+          "bytes_up": 3433,
+          "bytes_down": 5685,
+          "packets_up": 12,
+          "packets_down": 13
+        },
+        {
+          "key": "10.20.2.14",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 240,
+          "bytes_down": 0,
+          "packets_up": 4,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.2.5",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 31,
+          "bytes_up": 9052,
+          "bytes_down": 5320,
+          "packets_up": 47,
+          "packets_down": 35
+        },
+        {
+          "key": "10.20.2.9",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 6,
+          "bytes_up": 1584,
+          "bytes_down": 505,
+          "packets_up": 5,
+          "packets_down": 7
+        },
+        {
+          "key": "10.20.20.2",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.20.3",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.20.4",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.200.13",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 240,
+          "bytes_down": 0,
+          "packets_up": 4,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.200.17",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.202.12",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 214,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.202.28",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 2,
+          "bytes_up": 240,
+          "bytes_down": 0,
+          "packets_up": 4,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.202.31",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.202.32",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.202.5",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 2,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.202.7",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.205.2",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.205.8",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.206.5",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 221,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.209.3",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 5,
+          "bytes_up": 1621828,
+          "bytes_down": 0,
+          "packets_up": 938,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.21.153",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 40,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.210.10",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 47,
+          "bytes_up": 94348,
+          "bytes_down": 195374,
+          "packets_up": 331,
+          "packets_down": 305
+        },
+        {
+          "key": "10.20.210.11",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 28,
+          "bytes_up": 217892,
+          "bytes_down": 875350,
+          "packets_up": 355,
+          "packets_down": 809
+        },
+        {
+          "key": "10.20.210.12",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 5,
+          "bytes_up": 262,
+          "bytes_down": 186,
+          "packets_up": 5,
+          "packets_down": 3
+        },
+        {
+          "key": "10.20.210.13",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 6,
+          "bytes_up": 625,
+          "bytes_down": 429,
+          "packets_up": 11,
+          "packets_down": 7
+        },
+        {
+          "key": "10.20.210.14",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 11,
+          "bytes_up": 103762,
+          "bytes_down": 5519634,
+          "packets_up": 872,
+          "packets_down": 3944
+        },
+        {
+          "key": "10.20.210.15",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 15,
+          "bytes_up": 130283,
+          "bytes_down": 6804378,
+          "packets_up": 1010,
+          "packets_down": 5396
+        },
+        {
+          "key": "10.20.210.16",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 20,
+          "bytes_up": 4943,
+          "bytes_down": 2910,
+          "packets_up": 35,
+          "packets_down": 26
+        },
+        {
+          "key": "10.20.210.17",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 59,
+          "bytes_up": 54569,
+          "bytes_down": 1264756,
+          "packets_up": 543,
+          "packets_down": 757
+        },
+        {
+          "key": "10.20.210.18",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 33,
+          "bytes_up": 67656,
+          "bytes_down": 2558924,
+          "packets_up": 744,
+          "packets_down": 1353
+        },
+        {
+          "key": "10.20.210.19",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 6,
+          "bytes_up": 6737,
+          "bytes_down": 3145,
+          "packets_up": 22,
+          "packets_down": 15
+        },
+        {
+          "key": "10.20.210.20",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 11,
+          "bytes_up": 18214,
+          "bytes_down": 332716,
+          "packets_up": 121,
+          "packets_down": 195
+        },
+        {
+          "key": "10.20.210.21",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 12,
+          "bytes_up": 2262,
+          "bytes_down": 2812,
+          "packets_up": 21,
+          "packets_down": 17
+        },
+        {
+          "key": "10.20.210.23",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 9,
+          "bytes_up": 200513,
+          "bytes_down": 15968,
+          "packets_up": 148,
+          "packets_down": 104
+        },
+        {
+          "key": "10.20.210.24",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 49,
+          "bytes_up": 50290,
+          "bytes_down": 1106556,
+          "packets_up": 469,
+          "packets_down": 497
+        },
+        {
+          "key": "10.20.210.25",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 2,
+          "bytes_up": 62,
+          "bytes_down": 62,
+          "packets_up": 1,
+          "packets_down": 1
+        },
+        {
+          "key": "10.20.210.27",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 37,
+          "bytes_up": 12086,
+          "bytes_down": 97104,
+          "packets_up": 97,
+          "packets_down": 129
+        },
+        {
+          "key": "10.20.210.28",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 6,
+          "bytes_up": 226,
+          "bytes_down": 186,
+          "packets_up": 4,
+          "packets_down": 3
+        },
+        {
+          "key": "10.20.210.5",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 3,
+          "bytes_up": 404,
+          "bytes_down": 204,
+          "packets_up": 6,
+          "packets_down": 3
+        },
+        {
+          "key": "10.20.210.6",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 18,
+          "bytes_up": 27485,
+          "bytes_down": 10074,
+          "packets_up": 89,
+          "packets_down": 49
+        },
+        {
+          "key": "10.20.210.7",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 21,
+          "bytes_up": 6839,
+          "bytes_down": 7195,
+          "packets_up": 39,
+          "packets_down": 28
+        },
+        {
+          "key": "10.20.210.9",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 98,
+          "bytes_up": 151489,
+          "bytes_down": 3121594,
+          "packets_up": 646,
+          "packets_down": 2326
+        },
+        {
+          "key": "10.20.213.3",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.213.8",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 2,
+          "bytes_up": 240,
+          "bytes_down": 0,
+          "packets_up": 4,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.214.4",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 0,
+          "bytes_down": 88,
+          "packets_up": 0,
+          "packets_down": 1
+        },
+        {
+          "key": "10.20.215.15",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.215.7",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 240,
+          "bytes_down": 0,
+          "packets_up": 4,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.218.10",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 3,
+          "bytes_up": 198,
+          "bytes_down": 93,
+          "packets_up": 3,
+          "packets_down": 1
+        },
+        {
+          "key": "10.20.218.4",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 21,
+          "bytes_up": 38921,
+          "bytes_down": 59854,
+          "packets_up": 189,
+          "packets_down": 157
+        },
+        {
+          "key": "10.20.218.9",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 16,
+          "bytes_up": 11745,
+          "bytes_down": 4278,
+          "packets_up": 32,
+          "packets_down": 17
+        },
+        {
+          "key": "10.20.22.3",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.223.14",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.223.3",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.223.34",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 2,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.223.6",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.224.11",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 2,
+          "bytes_up": 120,
+          "bytes_down": 0,
+          "packets_up": 2,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.224.16",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.224.9",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 2,
+          "bytes_up": 417,
+          "bytes_down": 0,
+          "packets_up": 4,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.225.13",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 2,
+          "bytes_up": 286,
+          "bytes_down": 0,
+          "packets_up": 2,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.225.16",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.225.3",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.225.6",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 2,
+          "bytes_up": 240,
+          "bytes_down": 0,
+          "packets_up": 4,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.226.10",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 238,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.226.14",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 227,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.226.3",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 232,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.228.13",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 209,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.23.5",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 24,
+          "bytes_up": 47140,
+          "bytes_down": 1637523,
+          "packets_up": 600,
+          "packets_down": 860
+        },
+        {
+          "key": "10.20.24.1",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 205,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.244.2",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.244.4",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.244.8",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 2,
+          "bytes_up": 240,
+          "bytes_down": 0,
+          "packets_up": 4,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.244.9",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 240,
+          "bytes_down": 0,
+          "packets_up": 4,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.248.3",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 17,
+          "bytes_up": 14208,
+          "bytes_down": 8481,
+          "packets_up": 48,
+          "packets_down": 20
+        },
+        {
+          "key": "10.20.249.10",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.249.2",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.25.3",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 2,
+          "bytes_up": 240,
+          "bytes_down": 0,
+          "packets_up": 4,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.254.13",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 240,
+          "bytes_down": 0,
+          "packets_up": 4,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.254.14",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.254.15",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.254.20",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.29.2",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.29.5",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 2,
+          "bytes_up": 240,
+          "bytes_down": 0,
+          "packets_up": 4,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.31.10",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 10,
+          "bytes_up": 4780,
+          "bytes_down": 763,
+          "packets_up": 26,
+          "packets_down": 6
+        },
+        {
+          "key": "10.20.31.13",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 141,
+          "bytes_down": 0,
+          "packets_up": 2,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.31.16",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 13,
+          "bytes_up": 33044,
+          "bytes_down": 523358,
+          "packets_up": 392,
+          "packets_down": 304
+        },
+        {
+          "key": "10.20.31.6",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 27,
+          "bytes_up": 66121,
+          "bytes_down": 500336,
+          "packets_up": 198,
+          "packets_down": 314
+        },
+        {
+          "key": "10.20.32.3",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 2,
+          "bytes_up": 120,
+          "bytes_down": 0,
+          "packets_up": 2,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.34.37",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.51.14",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.51.16",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.51.9",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.52.25",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 220,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.52.27",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 210,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.53.11",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 2,
+          "bytes_up": 240,
+          "bytes_down": 0,
+          "packets_up": 4,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.53.27",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.62.2",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.62.3",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 228,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.65.18",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 214,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.65.20",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 240,
+          "bytes_down": 0,
+          "packets_up": 4,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.65.25",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 210,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.65.28",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 2,
+          "bytes_up": 300,
+          "bytes_down": 0,
+          "packets_up": 5,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.67.3",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.67.5",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.7.11",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 3,
+          "bytes_up": 300,
+          "bytes_down": 0,
+          "packets_up": 5,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.7.15",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 240,
+          "bytes_down": 0,
+          "packets_up": 4,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.7.6",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 240,
+          "bytes_down": 0,
+          "packets_up": 4,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.7.8",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 240,
+          "bytes_down": 0,
+          "packets_up": 4,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.72.13",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 240,
+          "bytes_down": 0,
+          "packets_up": 4,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.72.14",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.72.6",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.72.7",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 240,
+          "bytes_down": 0,
+          "packets_up": 4,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.72.9",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.78.10",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 65,
+          "bytes_up": 341496,
+          "bytes_down": 4705976,
+          "packets_up": 1331,
+          "packets_down": 3399
+        },
+        {
+          "key": "10.20.78.11",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 2,
+          "bytes_up": 80,
+          "bytes_down": 128,
+          "packets_up": 2,
+          "packets_down": 2
+        },
+        {
+          "key": "10.20.78.12",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 0,
+          "bytes_down": 72,
+          "packets_up": 0,
+          "packets_down": 1
+        },
+        {
+          "key": "10.20.78.3",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 29,
+          "bytes_up": 24377,
+          "bytes_down": 85115,
+          "packets_up": 100,
+          "packets_down": 204
+        },
+        {
+          "key": "10.20.78.9",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 6,
+          "bytes_up": 10193,
+          "bytes_down": 3441,
+          "packets_up": 15,
+          "packets_down": 15
+        },
+        {
+          "key": "10.20.8.2",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 17,
+          "bytes_up": 2788,
+          "bytes_down": 7283,
+          "packets_up": 32,
+          "packets_down": 23
+        },
+        {
+          "key": "10.20.82.10",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.82.2",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.82.3",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 60,
+          "bytes_down": 0,
+          "packets_up": 1,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.88.6",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 2,
+          "bytes_up": 120,
+          "bytes_down": 0,
+          "packets_up": 2,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.9.5",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 6,
+          "bytes_up": 15054,
+          "bytes_down": 0,
+          "packets_up": 42,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.91.11",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 15,
+          "bytes_up": 9439,
+          "bytes_down": 6172,
+          "packets_up": 43,
+          "packets_down": 41
+        },
+        {
+          "key": "10.20.91.4",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 45,
+          "bytes_up": 36713,
+          "bytes_down": 291737,
+          "packets_up": 226,
+          "packets_down": 322
+        },
+        {
+          "key": "10.20.91.9",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 47,
+          "bytes_up": 77114,
+          "bytes_down": 385438,
+          "packets_up": 278,
+          "packets_down": 370
+        },
+        {
+          "key": "10.20.93.10",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 15,
+          "bytes_up": 4077,
+          "bytes_down": 722,
+          "packets_up": 26,
+          "packets_down": 13
+        },
+        {
+          "key": "10.20.93.4",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 180,
+          "bytes_down": 0,
+          "packets_up": 3,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.93.6",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 5,
+          "bytes_up": 260,
+          "bytes_down": 144,
+          "packets_up": 3,
+          "packets_down": 2
+        },
+        {
+          "key": "10.20.93.9",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 6,
+          "bytes_up": 5027,
+          "bytes_down": 10501,
+          "packets_up": 27,
+          "packets_down": 25
+        },
+        {
+          "key": "10.20.94.15",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 15,
+          "bytes_up": 1496,
+          "bytes_down": 0,
+          "packets_up": 17,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.94.17",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 11,
+          "bytes_up": 651,
+          "bytes_down": 563,
+          "packets_up": 7,
+          "packets_down": 7
+        },
+        {
+          "key": "10.20.94.201",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 4,
+          "bytes_up": 213,
+          "bytes_down": 189,
+          "packets_up": 3,
+          "packets_down": 2
+        },
+        {
+          "key": "10.20.94.60",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 35,
+          "bytes_up": 31702,
+          "bytes_down": 931,
+          "packets_up": 125,
+          "packets_down": 12
+        },
+        {
+          "key": "10.20.98.2",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 1,
+          "bytes_up": 240,
+          "bytes_down": 0,
+          "packets_up": 4,
+          "packets_down": 0
+        },
+        {
+          "key": "10.20.99.2",
+          "family": 4,
+          "population": "",
+          "kind": "",
+          "records": 7,
+          "bytes_up": 0,
+          "bytes_down": 616,
+          "packets_up": 0,
+          "packets_down": 7
+        }
+      ],
+      "unattributed": [
+        {
+          "ip": "203.0.113.16",
+          "records": 2
+        },
+        {
+          "ip": "203.0.113.131",
+          "records": 1
+        }
+      ]
+    }
+  ],
+  "indicators": [],
+  "signals": [
+    {
+      "exporter": "po-router",
+      "client": "10.20.124.2",
+      "signal": "scan_vertical",
+      "detail": {
+        "destination": "10.20.26.50",
+        "ports": 285,
+        "window_start": "2026-10-09T04:36:30Z"
+      }
+    }
+  ],
+  "findings": []
+}

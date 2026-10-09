@@ -41,7 +41,13 @@ func rec(src, dst string, in, out uint32) flow.Record {
 	return flow.Record{SrcIP: netip.MustParseAddr(src), DstIP: netip.MustParseAddr(dst), InIf: in, OutIf: out}
 }
 
-// Tabla de docs/traffic-model.md §4.6.
+func natRec(src, dst, postSrc, postDst string) flow.Record {
+	r := rec(src, dst, 1, 12)
+	r.PostNATSrc, r.PostNATDst = netip.MustParseAddr(postSrc), netip.MustParseAddr(postDst)
+	return r
+}
+
+// Tabla de docs/traffic-model.md §4.6 y regla de NAT de §4.4.
 func TestAttribution(t *testing.T) {
 	a, err := verify.NewAttributor(testExpected(), 0)
 	if err != nil {
@@ -52,10 +58,21 @@ func TestAttribution(t *testing.T) {
 		r    flow.Record
 		want signals.Attribution
 	}{
-		{"subida", rec("10.20.0.5", "142.250.1.1", 12, 1), signals.Attribution{Status: "attributed", Client: "10.20.0.5", Upload: true}},
-		{"bajada", rec("142.250.1.1", "10.20.0.5", 1, 12), signals.Attribution{Status: "attributed", Client: "10.20.0.5"}},
-		{"ipv6 /64", rec("2001:db8:1000:7::99", "2a00:1450::1", 12, 1), signals.Attribution{Status: "attributed", Client: "2001:db8:1000:7::/64", Upload: true}},
-		{"interno", rec("10.20.0.5", "10.20.0.6", 12, 12), signals.Attribution{Status: "internal", Client: "10.20.0.5", Upload: true}},
+		{"subida", rec("10.20.0.5", "142.250.1.1", 12, 1), signals.Attribution{Status: "attributed", Client: "10.20.0.5", Upload: true, Rule: expect.RuleUploadSrc}},
+		{"bajada", rec("142.250.1.1", "10.20.0.5", 1, 12), signals.Attribution{Status: "attributed", Client: "10.20.0.5", Rule: expect.RuleDownloadDst}},
+		{"ipv6 /64", rec("2001:db8:1000:7::99", "2a00:1450::1", 12, 1), signals.Attribution{Status: "attributed", Client: "2001:db8:1000:7::/64", Upload: true, Rule: expect.RuleUploadSrc}},
+		{"interno", rec("10.20.0.5", "10.20.0.6", 12, 12), signals.Attribution{Status: "internal", Client: "10.20.0.5", Upload: true, Rule: expect.RuleInternal}},
+		// NAT en el router principal (§4.4): subida por src aunque lleve postNATSrc
+		// pública; bajada con dst = IP pública del NAT y cliente en IE 226.
+		{"NAT subida", natRec("10.20.0.5", "142.250.1.1", "203.0.113.10", "142.250.1.1"), signals.Attribution{Status: "attributed", Client: "10.20.0.5", Upload: true, Rule: expect.RuleUploadSrc}},
+		{"NAT bajada", natRec("142.250.1.1", "203.0.113.10", "142.250.1.1", "10.20.0.5"), signals.Attribution{Status: "attributed", Client: "10.20.0.5", Rule: expect.RuleDownloadPostNATDst}},
+		{"NAT bajada IE 226 igual a dst", natRec("142.250.1.1", "10.20.0.5", "142.250.1.1", "10.20.0.5"), signals.Attribution{Status: "attributed", Client: "10.20.0.5", Rule: expect.RuleDownloadDst}},
+		{"NAT bajada IE 226 fuera de prefijos", natRec("142.250.1.1", "203.0.113.10", "142.250.1.1", "172.16.50.2"), signals.Attribution{Status: "infrastructure"}},
+		{"NAT bajada IE 226 a cero", natRec("142.250.1.1", "203.0.113.10", "142.250.1.1", "0.0.0.0"), signals.Attribution{Status: "infrastructure"}},
+		{"IPv6 enlace local (RA)", rec("fe80::4e5e:cff:fe10:c", "ff02::1", 0, 12), signals.Attribution{Status: "infrastructure"}},
+		{"IPv6 NS de CPE", rec("fe80::52c7:bfff:fe01:203", "fe80::4e5e:cff:fe10:c", 12, 0), signals.Attribution{Status: "infrastructure"}},
+		{"IPv6 bajada sin NAT", rec("2a00:1450::1", "2001:db8:1000:7::99", 1, 12), signals.Attribution{Status: "attributed", Client: "2001:db8:1000:7::/64", Rule: expect.RuleDownloadDst}},
+		{"NAT horquilla", natRec("10.20.0.5", "203.0.113.10", "203.0.113.10", "10.20.0.6"), signals.Attribution{Status: "internal", Client: "10.20.0.5", Upload: true, Rule: expect.RuleInternal}},
 		{"tránsito", rec("2001:db8:1100::1", "2a00:1450::1", 3, 1), signals.Attribution{Status: "transit"}},
 		{"infraestructura", rec("203.0.113.2", "1.1.1.1", 0, 1), signals.Attribution{Status: "infrastructure"}},
 		{"excluido", rec("10.20.250.9", "1.1.1.1", 12, 1), signals.Attribution{Status: "excluded"}},

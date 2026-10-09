@@ -34,6 +34,7 @@ type Case struct {
 	Protocol  flow.Protocol
 	NAT       *bool
 	IPv6      *bool
+	Profile   flow.Profile
 	NATFields bool
 	Format    capture.Format
 }
@@ -47,19 +48,26 @@ func (c Case) Name() string {
 	if c.IPv6 != nil {
 		n += fmt.Sprintf(" ipv6=%t", *c.IPv6)
 	}
+	if c.Profile != "" {
+		n += " " + string(c.Profile)
+	}
 	if c.NATFields {
 		n += " nat-fields"
 	}
-	if c.Format == capture.FormatPcap {
+	switch c.Format {
+	case capture.FormatPcap:
 		n += " pcap"
+	case capture.FormatPcapng:
+		n += " pcapng"
 	}
 	return n
 }
 
 func boolp(b bool) *bool { return &b }
 
-// DefaultCases son todos los escenarios en IPFIX y v9, más variantes sin NAT,
-// sin IPv6, con campos NAT y a través de pcap.
+// DefaultCases son todos los escenarios en IPFIX (plantillas reales de
+// RouterOS 7, con NAT real) y v9, más variantes sin NAT, sin IPv6, con las
+// plantillas legacy de I0-10 (con y sin campos NAT) y a través de pcap/pcapng.
 func DefaultCases() []Case {
 	var cs []Case
 	for _, n := range scenarios.Names() {
@@ -71,7 +79,9 @@ func DefaultCases() []Case {
 		Case{Scenario: "normal", Protocol: flow.IPFIX, NAT: boolp(false), Format: capture.FormatHFSim},
 		Case{Scenario: "out_of_prefix", Protocol: flow.V9, NAT: boolp(false), Format: capture.FormatHFSim},
 		Case{Scenario: "normal", Protocol: flow.V9, IPv6: boolp(false), Format: capture.FormatHFSim},
-		Case{Scenario: "c2", Protocol: flow.IPFIX, NATFields: true, Format: capture.FormatPcap},
+		Case{Scenario: "normal", Protocol: flow.IPFIX, Profile: flow.ProfileLegacy, Format: capture.FormatHFSim},
+		Case{Scenario: "c2", Protocol: flow.IPFIX, Profile: flow.ProfileLegacy, NATFields: true, Format: capture.FormatPcap},
+		Case{Scenario: "commercial", Protocol: flow.IPFIX, Format: capture.FormatPcapng},
 		Case{Scenario: "scan", Protocol: flow.V9, Format: capture.FormatPcap},
 	)
 }
@@ -89,7 +99,7 @@ func Generate(ctx context.Context, c Case) ([]byte, *expect.Expected, error) {
 		return nil, nil, err
 	}
 	exp, err := sim.Run(ctx, sc, sim.Options{
-		Seed: FixtureSeed, Protocol: c.Protocol, Fixture: true, NAT: c.NAT, IPv6: c.IPv6, NATFields: c.NATFields,
+		Seed: FixtureSeed, Protocol: c.Protocol, Fixture: true, NAT: c.NAT, IPv6: c.IPv6, Profile: c.Profile, NATFields: c.NATFields,
 	}, func(d capture.Datagram, _ int) error { return w.Write(d) })
 	if err != nil {
 		return nil, nil, err
@@ -318,4 +328,43 @@ func CheckFixtures(ctx context.Context, dir string, w io.Writer, verbose bool) (
 		}
 	}
 	return ok && found > 0, nil
+}
+
+// CheckRealFixtures verifica cada captura real anonimizada de dir
+// (<nombre>.pcapng con su <nombre>.expected.json, o expected.json si solo hay
+// una) contra lo que debe dar el verificador.
+func CheckRealFixtures(dir string, w io.Writer, verbose bool) (bool, error) {
+	caps, err := filepath.Glob(filepath.Join(dir, "*.pcapng"))
+	if err != nil {
+		return false, fmt.Errorf("fixtures reales: %w", err)
+	}
+	if len(caps) == 0 {
+		return false, fmt.Errorf("fixtures reales: no hay *.pcapng en %s", dir)
+	}
+	sort.Strings(caps)
+	ok := true
+	for _, cp := range caps {
+		ep := strings.TrimSuffix(cp, ".pcapng") + ".expected.json"
+		if _, err := os.Stat(ep); errors.Is(err, os.ErrNotExist) && len(caps) == 1 {
+			ep = filepath.Join(dir, "expected.json")
+		}
+		exp, err := expect.Load(ep)
+		if err != nil {
+			return false, err
+		}
+		fh, err := os.Open(cp) //nolint:gosec // ruta interna de fixtures
+		if err != nil {
+			return false, fmt.Errorf("fixtures reales: %w", err)
+		}
+		rep, err := VerifyCapture(fh, exp, verify.Options{})
+		_ = fh.Close()
+		if err != nil {
+			return false, err
+		}
+		if err := summarize(w, "real "+filepath.Base(cp), rep, verbose); err != nil {
+			return false, err
+		}
+		ok = ok && rep.OK
+	}
+	return ok, nil
 }

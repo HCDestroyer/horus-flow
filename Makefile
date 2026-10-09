@@ -109,9 +109,11 @@ check-codeowners: ## Verifica que toda carpeta de primer nivel y cada módulo ti
 
 # Simulador de flujos (tools/flowsim, I0-10). Variables:
 #   SCENARIO (normal) SEED (1) PROTO (ipfix|v9) RATE DURATION NAT IPV6 SPEED (1)
-#   SIM_TARGET (127.0.0.1:4739 o :2055) SIM_OUT (fichero .hfsim/.pcap[.gz] en vez de UDP)
+#   SIM_PROFILE (routeros7: plantillas 258/259 reales y NAT real | legacy) NAT_IPS (a,b,c)
+#   SIM_TARGET (127.0.0.1:4739 o :2055) SIM_OUT (fichero .hfsim/.pcap/.pcapng[.gz] en vez de UDP)
 #   SIM_EXPECTED (bin/sim/<escenario>-<proto>.expected.json) SIM_ARGS (flags extra)
-#   sim-verify: sin variables = prueba sin router de todos los escenarios + fixtures;
+#   sim-verify: sin variables = prueba sin router de todos los escenarios + fixtures
+#   + captura real anonimizada (SIM_REAL_FIXTURES, I0-12);
 #   SIM_IN=fichero o SIM_LISTEN=host:puerto verifican contra SIM_EXPECTED.
 SCENARIO     ?= normal
 SEED         ?= 1
@@ -120,6 +122,7 @@ SPEED        ?= 1
 SIM_DIR      ?= bin/sim
 SIM_EXPECTED ?= $(SIM_DIR)/$(SCENARIO)-$(PROTO).expected.json
 SIM_FIXTURES ?= tools/flowsim/fixtures/sim
+SIM_REAL_FIXTURES ?= tests/fixtures/mikrotik-real
 
 .PHONY: sim
 sim: ## Genera flujos IPFIX/NetFlow v9 simulados (make sim SCENARIO=scan PROTO=v9 RATE=2000)
@@ -127,6 +130,7 @@ sim: ## Genera flujos IPFIX/NetFlow v9 simulados (make sim SCENARIO=scan PROTO=v
 	$(GO) run ./tools/flowsim/cmd/flowsim -scenario $(SCENARIO) -seed $(SEED) -proto $(PROTO) \
 		$(if $(RATE),-rate $(RATE)) $(if $(DURATION),-duration $(DURATION)) \
 		$(if $(NAT),-nat=$(NAT)) $(if $(IPV6),-ipv6=$(IPV6)) \
+		$(if $(SIM_PROFILE),-profile $(SIM_PROFILE)) $(if $(NAT_IPS),-nat-ips $(NAT_IPS)) \
 		$(if $(SIM_OUT),-out $(SIM_OUT),$(if $(SIM_TARGET),-target $(SIM_TARGET)) -speed $(SPEED)) \
 		-expected $(SIM_EXPECTED) $(SIM_ARGS)
 
@@ -137,7 +141,7 @@ ifneq ($(SIM_LISTEN),)
 else ifneq ($(SIM_IN),)
 	$(GO) run ./tools/flowsim/cmd/sim-verify -in $(SIM_IN) -expected $(SIM_EXPECTED) $(SIM_ARGS)
 else
-	$(GO) run ./tools/flowsim/cmd/sim-verify -selftest -fixtures $(SIM_FIXTURES) $(SIM_ARGS)
+	$(GO) run ./tools/flowsim/cmd/sim-verify -selftest -fixtures $(SIM_FIXTURES) -real-fixtures $(SIM_REAL_FIXTURES) $(SIM_ARGS)
 endif
 
 # Laboratorio MikroTik CHR (I0-11, infrastructure/lab/chr/README.md). Necesita Linux, sudo y

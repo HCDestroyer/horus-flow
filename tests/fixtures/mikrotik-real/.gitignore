@@ -1,0 +1,3 @@
+# Captura real ANONIMIZADA con tools/flowsim/cmd/ipfix-anonymize (ver README.md).
+# Nunca añadir aquí capturas sin anonimizar.
+!*.pcapng

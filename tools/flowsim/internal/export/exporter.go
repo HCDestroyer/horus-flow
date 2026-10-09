@@ -7,6 +7,7 @@ package export
 
 import (
 	"encoding/binary"
+	"hash/fnv"
 	"net/netip"
 	"time"
 
@@ -41,6 +42,7 @@ type Stats struct {
 type Exporter struct {
 	cfg          Config
 	v4, v6       flow.Template
+	routerOS     bool // perfil routeros7: post-NAT copia los valores previos
 	seq          uint32
 	sinceTmpl    int
 	lastTmpl     time.Time
@@ -67,7 +69,10 @@ func New(cfg Config) *Exporter {
 		cfg.MaxDatagram = 1392
 	}
 	v4, v6 := flow.Templates(cfg.Protocol, cfg.Templates)
-	return &Exporter{cfg: cfg, v4: v4, v6: v6}
+	return &Exporter{
+		cfg: cfg, v4: v4, v6: v6,
+		routerOS: cfg.Templates.EffectiveProfile(cfg.Protocol) == flow.ProfileRouterOS7,
+	}
 }
 
 // Stats devuelve los contadores acumulados.
@@ -199,7 +204,7 @@ func (b *builder) addRecord(t *flow.Template, r *flow.Record) {
 	if !b.inSet || b.curSet != t.ID {
 		b.openSet(t.ID)
 	}
-	b.buf = encodeRecord(b.buf, t, r, b.e.cfg.Boot)
+	b.buf = encodeRecord(b.buf, t, r, b.e.cfg.Boot, b.e.routerOS)
 	b.records++
 }
 
@@ -264,8 +269,61 @@ func appendAddr(buf []byte, a netip.Addr, n uint16) []byte {
 	return append(buf, b[:]...)
 }
 
-func encodeRecord(buf []byte, t *flow.Template, r *flow.Record, boot time.Time) []byte {
+// tcpState devuelve número de secuencia, ACK y ventana plausibles y
+// deterministas para un registro TCP (RouterOS exporta los del último
+// paquete; el simulador no modela la sesión TCP).
+func tcpState(r *flow.Record) (seq, ack uint32, win uint16) {
+	h := fnv.New64a()
+	sb, db := r.SrcIP.As16(), r.DstIP.As16()
+	_, _ = h.Write(sb[:])
+	_, _ = h.Write(db[:])
+	var b [18]byte
+	binary.BigEndian.PutUint16(b[0:], r.SrcPort)
+	binary.BigEndian.PutUint16(b[2:], r.DstPort)
+	binary.BigEndian.PutUint64(b[4:], uint64(r.Start.UnixMilli())) //nolint:gosec // fechas posteriores a 1970
+	binary.BigEndian.PutUint64(b[10:], r.Packets)
+	_, _ = h.Write(b[:])
+	v := h.Sum64()
+	seq = uint32(v)
+	if r.TCPFlags&flow.ACK != 0 {
+		ack = uint32(v>>32) | 1
+	}
+	windows := [...]uint16{65535, 64240, 63239, 35840, 29200, 15119, 2048, 501}
+	win = windows[(v>>13)%uint64(len(windows))]
+	if r.TCPFlags&flow.RST != 0 {
+		win = 0
+	}
+	return seq, ack, win
+}
+
+func encodeRecord(buf []byte, t *flow.Template, r *flow.Record, boot time.Time, routerOS bool) []byte {
 	bootMs := boot.UnixMilli()
+	postSrc, postDst := r.PostNATSrc, r.PostNATDst
+	postSrcPort, postDstPort := r.PostNATSrcPort, r.PostNATDstPort
+	if routerOS {
+		// Sin traducción, RouterOS repite los valores previos al NAT.
+		if !postSrc.IsValid() {
+			postSrc, postSrcPort = r.SrcIP, r.SrcPort
+		}
+		if !postDst.IsValid() {
+			postDst, postDstPort = r.DstIP, r.DstPort
+		}
+	}
+	v6 := r.IsV6()
+	ipHdr := uint64(20)
+	if v6 {
+		ipHdr = 40
+	}
+	totalLen := uint64(0)
+	if r.Packets > 0 {
+		totalLen = r.Bytes / r.Packets
+	}
+	var seq, ack uint32
+	var win uint16
+	if r.Proto == flow.ProtoTCP {
+		seq, ack, win = tcpState(r)
+	}
+	icmp := r.Proto == flow.ProtoICMP || r.Proto == flow.ProtoICMPv6
 	for _, f := range t.Fields {
 		switch f.ID {
 		case flow.IESysInitTimeMs:
@@ -285,13 +343,59 @@ func encodeRecord(buf []byte, t *flow.Template, r *flow.Record, boot time.Time) 
 		case flow.IENextHopV4, flow.IENextHopV6:
 			buf = appendAddr(buf, r.NextHop, f.Len)
 		case flow.IEPostNATSrcIPv4:
-			buf = appendAddr(buf, r.PostNATSrc, f.Len)
+			buf = appendAddr(buf, postSrc, f.Len)
 		case flow.IEPostNATDstIPv4:
-			buf = appendAddr(buf, r.PostNATDst, f.Len)
+			buf = appendAddr(buf, postDst, f.Len)
 		case flow.IEPostNAPTSrcPort:
-			buf = appendUint(buf, uint64(r.PostNATSrcPort), f.Len)
+			buf = appendUint(buf, uint64(postSrcPort), f.Len)
 		case flow.IEPostNAPTDstPort:
-			buf = appendUint(buf, uint64(r.PostNATDstPort), f.Len)
+			buf = appendUint(buf, uint64(postDstPort), f.Len)
+		case flow.IEIPVersion:
+			ver := uint64(4)
+			if v6 {
+				ver = 6
+			}
+			buf = appendUint(buf, ver, f.Len)
+		case flow.IEIPTTL:
+			buf = appendUint(buf, uint64(r.MaxTTL), f.Len)
+		case flow.IEIsMulticast:
+			mc := uint64(0)
+			if r.DstIP.IsMulticast() {
+				mc = 1
+			}
+			buf = appendUint(buf, mc, f.Len)
+		case flow.IEIPHeaderLength: // en palabras de 4 bytes
+			buf = appendUint(buf, ipHdr/4, f.Len)
+		case flow.IEIPTotalLength:
+			buf = appendUint(buf, totalLen, f.Len)
+		case flow.IEUDPMessageLength:
+			ul := uint64(0)
+			if r.Proto == flow.ProtoUDP && totalLen > ipHdr {
+				ul = totalLen - ipHdr
+			}
+			buf = appendUint(buf, ul, f.Len)
+		case flow.IETCPSeq:
+			buf = appendUint(buf, uint64(seq), f.Len)
+		case flow.IETCPAck:
+			buf = appendUint(buf, uint64(ack), f.Len)
+		case flow.IETCPWindow:
+			buf = appendUint(buf, uint64(win), f.Len)
+		case flow.IEICMPTypeV4, flow.IEICMPTypeV6:
+			v := uint64(0)
+			if icmp {
+				v = uint64(r.ICMPTypeCode >> 8)
+			}
+			buf = appendUint(buf, v, f.Len)
+		case flow.IEICMPCodeV4, flow.IEICMPCodeV6:
+			v := uint64(0)
+			if icmp {
+				v = uint64(r.ICMPTypeCode & 0xff)
+			}
+			buf = appendUint(buf, v, f.Len)
+		case flow.IEPostSrcMAC:
+			buf = append(buf, r.PostSrcMAC[:]...)
+		case flow.IEPostDstMAC:
+			buf = append(buf, r.PostDstMAC[:]...)
 		case flow.IESrcPort:
 			buf = appendUint(buf, uint64(r.SrcPort), f.Len)
 		case flow.IEDstPort:

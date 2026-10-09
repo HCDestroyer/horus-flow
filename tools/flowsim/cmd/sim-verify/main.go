@@ -43,6 +43,8 @@ type config struct {
 	tolerance float64
 	jsonOut   bool
 	verbose   bool
+	update    bool
+	real      string
 }
 
 func main() {
@@ -69,6 +71,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 	fs.Float64Var(&c.tolerance, "tolerance", 0, "fracción de datagramas perdidos admitida (UDP)")
 	fs.BoolVar(&c.jsonOut, "json", false, "imprime el informe en JSON")
 	fs.BoolVar(&c.verbose, "v", false, "con -selftest: imprime cada comprobación")
+	fs.BoolVar(&c.update, "update", false, "con -in: reescribe -expected con lo observado (fija el expected.json de una captura real) y verifica")
+	fs.StringVar(&c.real, "real-fixtures", "", "con -selftest: verifica también las capturas reales anonimizadas de este directorio (*.pcapng + expected.json)")
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("flags: %w", err)
 	}
@@ -93,6 +97,13 @@ func run(args []string, stdout, stderr io.Writer) error {
 		if err := capture.ReadFile(c.in, func(d capture.Datagram) error { v.Feed(d); return nil }); err != nil {
 			return err
 		}
+		if c.update {
+			if err := v.Golden().Save(c.expected); err != nil {
+				return err
+			}
+			fmt.Fprintf(stderr, "sim-verify: %s actualizado con lo observado\n", c.expected) //nolint:errcheck
+			return c.reverify(stdout)
+		}
 		return report(v.Report(), c.jsonOut, stdout)
 	case c.listen != "":
 		if c.expected == "" {
@@ -102,6 +113,21 @@ func run(args []string, stdout, stderr io.Writer) error {
 	}
 	fs.Usage()
 	return errors.New("indica -selftest, -in o -listen")
+}
+
+func (c *config) reverify(stdout io.Writer) error {
+	exp, err := expect.Load(c.expected)
+	if err != nil {
+		return err
+	}
+	v, err := verify.New(exp, verify.Options{Tolerance: c.tolerance})
+	if err != nil {
+		return err
+	}
+	if err := capture.ReadFile(c.in, func(d capture.Datagram) error { v.Feed(d); return nil }); err != nil {
+		return err
+	}
+	return report(v.Report(), c.jsonOut, stdout)
 }
 
 func report(rep *verify.Report, jsonOut bool, w io.Writer) error {
@@ -132,6 +158,13 @@ func runSelftest(ctx context.Context, c *config, w io.Writer) error {
 			return err
 		}
 		ok = ok && fok
+	}
+	if c.real != "" {
+		rok, err := selftest.CheckRealFixtures(c.real, w, c.verbose)
+		if err != nil {
+			return err
+		}
+		ok = ok && rok
 	}
 	res := "OK"
 	if !ok {

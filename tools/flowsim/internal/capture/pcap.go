@@ -142,7 +142,7 @@ func buildIPUDP(d Datagram) ([]byte, error) {
 	return append(ip, udp...), nil
 }
 
-func readPcap(r *bufio.Reader, fn func(Datagram) error) error {
+func readPcap(r *bufio.Reader, fn func(Frame) error) error {
 	var gh [24]byte
 	if _, err := io.ReadFull(r, gh[:]); err != nil {
 		return fmt.Errorf("pcap: cabecera: %w", err)
@@ -159,7 +159,7 @@ func readPcap(r *bufio.Reader, fn func(Datagram) error) error {
 	case 0x4d3cb2a1:
 		bo, nano = binary.BigEndian, true
 	default:
-		return errors.New("capture: formato desconocido (ni hfsim ni pcap; pcapng no está soportado)")
+		return errors.New("capture: formato desconocido (ni hfsim, ni pcap, ni pcapng)")
 	}
 	link := bo.Uint32(gh[20:24]) & 0x0fffffff
 	for {
@@ -183,15 +183,18 @@ func readPcap(r *bufio.Reader, fn func(Datagram) error) error {
 		if !nano {
 			ns *= 1000
 		}
-		d, ok := parseFrame(link, data)
-		if !ok {
-			continue // no es UDP sobre IP (ARP, fragmento, etc.)
-		}
-		d.Time = time.Unix(int64(sec), ns).UTC()
-		if err := fn(d); err != nil {
+		if err := fn(Frame{Time: time.Unix(int64(sec), ns).UTC(), LinkType: link, Data: data}); err != nil {
 			return err
 		}
 	}
+}
+
+// ParseFrame extrae el datagrama UDP de una trama (Ethernet con 802.1Q, SLL o
+// IP en bruto). Devuelve false si no es UDP sobre IP sin fragmentar.
+func ParseFrame(f Frame) (Datagram, bool) {
+	d, ok := parseFrame(f.LinkType, f.Data)
+	d.Time = f.Time
+	return d, ok
 }
 
 func parseFrame(link uint32, b []byte) (Datagram, bool) {

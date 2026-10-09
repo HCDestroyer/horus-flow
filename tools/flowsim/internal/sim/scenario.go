@@ -17,6 +17,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/hcdestroyer/horus-flow/tools/flowsim/internal/flow"
 	"github.com/hcdestroyer/horus-flow/tools/flowsim/scenarios"
 )
 
@@ -131,20 +132,24 @@ type InterfaceSpec struct {
 
 // ExporterSpec es un router principal de nodo que exporta flujos.
 type ExporterSpec struct {
-	Name                string        `yaml:"name"`
-	ExporterIP          netip.Addr    `yaml:"exporter_ip"`
-	CollectorIP         netip.Addr    `yaml:"collector_ip"`
-	ObservationDomainID uint32        `yaml:"observation_domain_id"`
-	Uptime              Duration      `yaml:"uptime"`
-	WANIP               netip.Addr    `yaml:"wan_ip"`
-	Gateway             netip.Addr    `yaml:"gateway"`
-	GatewayV6           netip.Addr    `yaml:"gateway_v6"`
-	HubIP               netip.Addr    `yaml:"hub_ip"`
-	Interfaces          InterfaceSpec `yaml:"interfaces"`
-	Prefixes            Prefixes      `yaml:"prefixes"`
-	IPv6ClientLen       int           `yaml:"ipv6_client_len"`
-	RouterTraffic       bool          `yaml:"router_traffic"`
-	Populations         []Population  `yaml:"populations"`
+	Name                string     `yaml:"name"`
+	ExporterIP          netip.Addr `yaml:"exporter_ip"`
+	CollectorIP         netip.Addr `yaml:"collector_ip"`
+	ObservationDomainID uint32     `yaml:"observation_domain_id"`
+	Uptime              Duration   `yaml:"uptime"`
+	WANIP               netip.Addr `yaml:"wan_ip"`
+	// NATIPs son las IPs públicas del NAT del router principal (srcnat con
+	// varias direcciones; la captura real usa 3). Cada cliente sale siempre
+	// por la misma.
+	NATIPs        []netip.Addr  `yaml:"nat_ips"`
+	Gateway       netip.Addr    `yaml:"gateway"`
+	GatewayV6     netip.Addr    `yaml:"gateway_v6"`
+	HubIP         netip.Addr    `yaml:"hub_ip"`
+	Interfaces    InterfaceSpec `yaml:"interfaces"`
+	Prefixes      Prefixes      `yaml:"prefixes"`
+	IPv6ClientLen int           `yaml:"ipv6_client_len"`
+	RouterTraffic bool          `yaml:"router_traffic"`
+	Populations   []Population  `yaml:"populations"`
 }
 
 // Population es un grupo de clientes con el mismo comportamiento.
@@ -223,11 +228,16 @@ func ma(s string) netip.Addr   { return netip.MustParseAddr(s) }
 func defaultExporter(i int) ExporterSpec {
 	n := byte(i)
 	return ExporterSpec{
-		Name:          fmt.Sprintf("node-%c", 'a'+i),
-		ExporterIP:    netip.AddrFrom4([4]byte{10, 255, 0, 2 + n}),
-		CollectorIP:   ma("10.255.0.1"),
-		Uptime:        Duration(72*time.Hour + time.Duration(i)*time.Hour),
-		WANIP:         netip.AddrFrom4([4]byte{203, 0, 113, 2 + n}),
+		Name:        fmt.Sprintf("node-%c", 'a'+i),
+		ExporterIP:  netip.AddrFrom4([4]byte{10, 255, 0, 2 + n}),
+		CollectorIP: ma("10.255.0.1"),
+		Uptime:      Duration(72*time.Hour + time.Duration(i)*time.Hour),
+		WANIP:       netip.AddrFrom4([4]byte{203, 0, 113, 2 + n}),
+		NATIPs: []netip.Addr{
+			netip.AddrFrom4([4]byte{203, 0, 113, 10 + 3*n}),
+			netip.AddrFrom4([4]byte{203, 0, 113, 11 + 3*n}),
+			netip.AddrFrom4([4]byte{203, 0, 113, 12 + 3*n}),
+		},
 		Gateway:       ma("203.0.113.1"),
 		GatewayV6:     netip.AddrFrom16([16]byte{0x20, 0x01, 0x0d, 0xb8, 0xff, n, 15: 1}),
 		HubIP:         ma("192.0.2.10"),
@@ -333,8 +343,18 @@ func (sc *Scenario) validate() error {
 		if ex.Interfaces.Access != "vlan" && ex.Interfaces.Access != "pppoe" {
 			return fmt.Errorf("%s: interfaces.access debe ser vlan o pppoe", ex.Name)
 		}
-		if ex.IPv6ClientLen != 64 && ex.IPv6ClientLen != 56 && ex.IPv6ClientLen != 48 {
-			return fmt.Errorf("%s: ipv6_client_len debe ser 48, 56 o 64", ex.Name)
+		if len(ex.NATIPs) == 0 {
+			return fmt.Errorf("%s: nat_ips necesita al menos una IP", ex.Name)
+		}
+		for _, a := range ex.NATIPs {
+			if !a.Is4() || flow.IsClientPrivate(a) {
+				return fmt.Errorf("%s: nat_ips %s debe ser una IPv4 pública", ex.Name, a)
+			}
+		}
+		switch ex.IPv6ClientLen { // docs/traffic-model.md §4.8.2
+		case 48, 56, 60, 64:
+		default:
+			return fmt.Errorf("%s: ipv6_client_len debe ser 48, 56, 60 o 64", ex.Name)
 		}
 		for _, set := range []PrefixSet{ex.Prefixes.NAT, ex.Prefixes.Public} {
 			if !containsAny(set.Infrastructure, ex.WANIP) {

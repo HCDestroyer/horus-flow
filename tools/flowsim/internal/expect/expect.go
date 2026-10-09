@@ -19,14 +19,16 @@ const Schema = "horus.flowsim.expected/v1"
 
 // Expected es el contenido de expected.json.
 type Expected struct {
-	Schema          string              `json:"schema"`
-	Scenario        string              `json:"scenario"`
-	Description     string              `json:"description,omitempty"`
-	Seed            uint64              `json:"seed"`
-	Protocol        string              `json:"protocol"`
-	NAT             bool                `json:"nat"`
-	IPv6            bool                `json:"ipv6"`
-	NATFields       bool                `json:"nat_fields"`
+	Schema      string `json:"schema"`
+	Scenario    string `json:"scenario"`
+	Description string `json:"description,omitempty"`
+	Seed        uint64 `json:"seed"`
+	Protocol    string `json:"protocol"`
+	NAT         bool   `json:"nat"`
+	IPv6        bool   `json:"ipv6"`
+	NATFields   bool   `json:"nat_fields"`
+	// TemplateProfile es el juego de plantillas (routeros7 o legacy).
+	TemplateProfile string              `json:"template_profile,omitempty"`
 	Fixture         bool                `json:"fixture"`
 	Rate            float64             `json:"rate"`
 	Start           time.Time           `json:"start"`
@@ -56,16 +58,28 @@ type Exporter struct {
 	CollectorIP string `json:"collector_ip"`
 	// SentFrom es la dirección UDP real de envío cuando difiere de
 	// exporter_ip (p. ej. 127.0.0.10:49152 en una prueba de loopback).
-	SentFrom            string            `json:"sent_from,omitempty"`
-	ObservationDomainID uint32            `json:"observation_domain_id"`
-	BootTime            time.Time         `json:"boot_time"`
-	Interfaces          Interfaces        `json:"interfaces"`
-	Prefixes            Prefixes          `json:"prefixes"`
-	IPv6ClientLen       int               `json:"ipv6_client_len"`
-	Totals              Totals            `json:"totals"`
-	ByStatus            map[string]uint64 `json:"by_status"`
-	Clients             []Client          `json:"clients"`
-	Unattributed        []Unattributed    `json:"unattributed"`
+	SentFrom            string     `json:"sent_from,omitempty"`
+	ObservationDomainID uint32     `json:"observation_domain_id"`
+	BootTime            time.Time  `json:"boot_time"`
+	Interfaces          Interfaces `json:"interfaces"`
+	Prefixes            Prefixes   `json:"prefixes"`
+	IPv6ClientLen       int        `json:"ipv6_client_len"`
+	// NATIPs son las IPs públicas del NAT del router (con campos NAT).
+	NATIPs []string `json:"nat_ips,omitempty"`
+	// Templates son las plantillas de datos que anuncia el exportador.
+	Templates []Template `json:"templates,omitempty"`
+	// SequenceGaps y LostRecords: saltos de secuencia y registros que faltan
+	// según los números de secuencia (0 en el simulador; en una captura real,
+	// datagramas que no llegaron al punto de captura).
+	SequenceGaps int               `json:"sequence_gaps,omitempty"`
+	LostRecords  uint64            `json:"lost_records,omitempty"`
+	Totals       Totals            `json:"totals"`
+	ByStatus     map[string]uint64 `json:"by_status"`
+	// ByRule cuenta los registros atribuidos según la regla de
+	// docs/traffic-model.md §4.4 que decidió al cliente.
+	ByRule       map[string]uint64 `json:"by_rule,omitempty"`
+	Clients      []Client          `json:"clients"`
+	Unattributed []Unattributed    `json:"unattributed"`
 }
 
 // Interfaces son los ifIndex del router simulado.
@@ -82,6 +96,20 @@ type Prefixes struct {
 	Infrastructure []string `json:"infrastructure"`
 	Excluded       []string `json:"excluded"`
 }
+
+// Template es una plantilla de datos: ID y pares (IE, longitud) en orden.
+type Template struct {
+	ID     uint16      `json:"id"`
+	Fields [][2]uint16 `json:"fields"`
+}
+
+// Reglas de atribución de docs/traffic-model.md §4.4 (claves de ByRule).
+const (
+	RuleUploadSrc          = "upload_src"
+	RuleDownloadPostNATDst = "download_post_nat_dst"
+	RuleDownloadDst        = "download_dst"
+	RuleInternal           = "internal"
+)
 
 // Totals son los conteos de transporte y de registros.
 type Totals struct {

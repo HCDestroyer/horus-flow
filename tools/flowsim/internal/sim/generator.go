@@ -31,7 +31,10 @@ type Options struct {
 	Start time.Time
 	// Fixture usa la duración y tasa reducidas del bloque fixture.
 	Fixture bool
-	// NATFields añade los campos post-NAT (IE 225-228) en IPFIX.
+	// Profile elige las plantillas IPFIX (vacío = routeros7, las reales).
+	Profile flow.Profile
+	// NATFields añade los campos post-NAT (IE 225-228) al perfil legacy de
+	// IPFIX (el perfil routeros7 siempre los lleva).
 	NATFields bool
 	// CollectorPort; 0 = puerto estándar del protocolo.
 	CollectorPort uint16
@@ -74,6 +77,11 @@ type gen struct {
 	sc        *Scenario
 	opt       Options
 	nat, ipv6 bool
+	// natFields: la plantilla IPv4 lleva IE 225-228 y el NAT se emula como
+	// en el router real (docs/traffic-model.md §4.4); sin ellos, el modelo
+	// idealizado de I0-10 (IP privada del cliente en ambos sentidos).
+	natFields bool
+	tmplOpt   flow.TemplateOptions
 	start     time.Time
 	durMs     int64
 	activeMs  int64
@@ -119,6 +127,8 @@ func newGen(sc *Scenario, opt Options) (*gen, error) {
 	if opt.IPv6 != nil {
 		g.ipv6 = *opt.IPv6
 	}
+	g.tmplOpt = flow.TemplateOptions{Profile: opt.Profile, NATFields: opt.NATFields}
+	g.natFields = g.tmplOpt.HasNATFields(opt.Protocol)
 	dur := sc.Duration.D()
 	if opt.Fixture {
 		if sc.Fixture.Duration > 0 {
@@ -188,7 +198,7 @@ func newGen(sc *Scenario, opt Options) (*gen, error) {
 			TemplateRefresh:   sc.Export.TemplateRefresh,
 			TemplateTimeout:   sc.Export.TemplateTimeout.D(),
 			MaxDatagram:       maxDgram,
-			Templates:         flow.TemplateOptions{NATFields: opt.NATFields},
+			Templates:         g.tmplOpt,
 		})
 		if spec.RouterTraffic {
 			es.router = &routerBehavior{}
@@ -506,6 +516,12 @@ func (g *gen) addFlow(es *expState, base flow.Record, start, end int64, pkts, by
 	}
 	if bytes < pkts {
 		bytes = pkts
+	}
+	if base.PostDstMAC == ([6]byte{}) {
+		base.PostDstMAC = base.DstMAC // RouterOS 7 repite la MAC de destino
+	}
+	if base.PostSrcMAC == ([6]byte{}) && base.InIf == 0 {
+		base.PostSrcMAC = base.SrcMAC // tráfico originado en el router
 	}
 	for _, s := range segments(start, end, pkts, bytes, fm, g.activeMs, g.inactMs) {
 		r := base

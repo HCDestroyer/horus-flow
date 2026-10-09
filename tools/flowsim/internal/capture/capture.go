@@ -1,4 +1,4 @@
-// Package capture escribe y lee datagramas de exportación en dos formatos:
+// Package capture escribe y lee datagramas de exportación en tres formatos:
 //
 //   - hfsim: formato binario propio del simulador, pensado para fixtures de CI
 //     (los *.pcap están en .gitignore porque podrían contener datos reales).
@@ -6,6 +6,10 @@
 //     herramientas estándar. Al leer admite enlaces Ethernet (con 802.1Q),
 //     Linux cooked (SLL), IPv4/IPv6 en bruto, de modo que también sirve para
 //     las capturas del laboratorio CHR (I0-12).
+//   - pcapng: lectura completa (varias secciones e interfaces, if_tsresol,
+//     EPB/SPB) para capturas de routers reales tomadas con Wireshark o el
+//     sniffer de RouterOS; escritura con una sola interfaz y sin opciones
+//     identificativas (lo usa ipfix-anonymize).
 //
 // Formato hfsim (todos los enteros big-endian):
 //
@@ -45,6 +49,7 @@ type Format int
 const (
 	FormatHFSim Format = iota + 1
 	FormatPcap
+	FormatPcapng
 )
 
 // ParseFormat interpreta "hfsim"/"bin" o "pcap".
@@ -54,15 +59,20 @@ func ParseFormat(s string) (Format, error) {
 		return FormatHFSim, nil
 	case "pcap":
 		return FormatPcap, nil
+	case "pcapng":
+		return FormatPcapng, nil
 	}
-	return 0, fmt.Errorf("formato desconocido %q (usa hfsim o pcap)", s)
+	return 0, fmt.Errorf("formato desconocido %q (usa hfsim, pcap o pcapng)", s)
 }
 
-// FormatFromPath deduce el formato por la extensión (.pcap o .pcap.gz →
-// pcap; resto → hfsim).
+// FormatFromPath deduce el formato por la extensión (.pcap[.gz] → pcap,
+// .pcapng[.gz] → pcapng; resto → hfsim).
 func FormatFromPath(p string) Format {
-	if strings.HasSuffix(strings.TrimSuffix(p, ".gz"), ".pcap") {
+	switch base := strings.TrimSuffix(p, ".gz"); {
+	case strings.HasSuffix(base, ".pcap"):
 		return FormatPcap
+	case strings.HasSuffix(base, ".pcapng"):
+		return FormatPcapng
 	}
 	return FormatHFSim
 }
@@ -131,6 +141,8 @@ type Writer interface {
 func NewWriter(w io.Writer, f Format) (Writer, error) {
 	bw := bufio.NewWriterSize(w, 1<<16)
 	switch f {
+	case FormatPcapng:
+		return NewPcapngWriter(w, linkRaw, "flowsim")
 	case FormatPcap:
 		pw := &pcapWriter{w: bw}
 		if err := pw.header(); err != nil {
@@ -231,6 +243,41 @@ func Read(r io.Reader, fn func(Datagram) error) error {
 	}
 	if bytes.HasPrefix(hfsimMagic, head) {
 		return readHFSim(br, fn)
+	}
+	return readFrames(br, head, func(f Frame) error {
+		d, ok := ParseFrame(f)
+		if !ok {
+			return nil // no es UDP sobre IP (ARP, fragmento, etc.)
+		}
+		return fn(d)
+	})
+}
+
+// ReadFrames recorre las tramas de un fichero pcap o pcapng (opcionalmente
+// comprimido con gzip).
+func ReadFrames(r io.Reader, fn func(Frame) error) error {
+	br := bufio.NewReaderSize(r, 1<<16)
+	head, err := br.Peek(4)
+	if err != nil {
+		return fmt.Errorf("capture: cabecera: %w", err)
+	}
+	if head[0] == 0x1f && head[1] == 0x8b {
+		gz, err := gzip.NewReader(br)
+		if err != nil {
+			return fmt.Errorf("capture: gzip: %w", err)
+		}
+		defer func() { _ = gz.Close() }()
+		br = bufio.NewReaderSize(gz, 1<<16)
+		if head, err = br.Peek(4); err != nil {
+			return fmt.Errorf("capture: cabecera: %w", err)
+		}
+	}
+	return readFrames(br, head, fn)
+}
+
+func readFrames(br *bufio.Reader, head []byte, fn func(Frame) error) error {
+	if binary.LittleEndian.Uint32(head) == pcapngSHB {
+		return readPcapng(br, fn)
 	}
 	return readPcap(br, fn)
 }

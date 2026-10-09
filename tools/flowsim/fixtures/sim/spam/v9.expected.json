@@ -7,6 +7,7 @@
   "nat": true,
   "ipv6": true,
   "nat_fields": false,
+  "template_profile": "legacy",
   "fixture": true,
   "rate": 60,
   "start": "2026-01-05T18:00:00Z",
@@ -45,19 +46,191 @@
         "excluded": []
       },
       "ipv6_client_len": 64,
+      "templates": [
+        {
+          "id": 256,
+          "fields": [
+            [
+              22,
+              4
+            ],
+            [
+              21,
+              4
+            ],
+            [
+              8,
+              4
+            ],
+            [
+              12,
+              4
+            ],
+            [
+              7,
+              2
+            ],
+            [
+              11,
+              2
+            ],
+            [
+              4,
+              1
+            ],
+            [
+              6,
+              1
+            ],
+            [
+              5,
+              1
+            ],
+            [
+              1,
+              4
+            ],
+            [
+              2,
+              4
+            ],
+            [
+              10,
+              4
+            ],
+            [
+              14,
+              4
+            ],
+            [
+              15,
+              4
+            ],
+            [
+              9,
+              1
+            ],
+            [
+              13,
+              1
+            ],
+            [
+              32,
+              2
+            ],
+            [
+              16,
+              4
+            ],
+            [
+              17,
+              4
+            ]
+          ]
+        },
+        {
+          "id": 257,
+          "fields": [
+            [
+              22,
+              4
+            ],
+            [
+              21,
+              4
+            ],
+            [
+              27,
+              16
+            ],
+            [
+              28,
+              16
+            ],
+            [
+              7,
+              2
+            ],
+            [
+              11,
+              2
+            ],
+            [
+              4,
+              1
+            ],
+            [
+              6,
+              1
+            ],
+            [
+              5,
+              1
+            ],
+            [
+              1,
+              4
+            ],
+            [
+              2,
+              4
+            ],
+            [
+              10,
+              4
+            ],
+            [
+              14,
+              4
+            ],
+            [
+              62,
+              16
+            ],
+            [
+              29,
+              1
+            ],
+            [
+              30,
+              1
+            ],
+            [
+              31,
+              4
+            ],
+            [
+              139,
+              2
+            ],
+            [
+              16,
+              4
+            ],
+            [
+              17,
+              4
+            ]
+          ]
+        }
+      ],
       "totals": {
         "datagrams": 382,
         "template_sends": 20,
-        "data_records": 7354,
-        "records_v4": 6772,
-        "records_v6": 582,
-        "bytes": 707480880,
-        "packets": 713258
+        "data_records": 7370,
+        "records_v4": 6774,
+        "records_v6": 596,
+        "bytes": 707586345,
+        "packets": 713404
       },
       "by_status": {
-        "attributed": 7336,
-        "infrastructure": 12,
+        "attributed": 7348,
+        "infrastructure": 16,
         "tunnel": 6
+      },
+      "by_rule": {
+        "download_dst": 3674,
+        "upload_src": 3674
       },
       "clients": [
         {
@@ -450,11 +623,11 @@
           "family": 4,
           "population": "households",
           "kind": "residential",
-          "records": 18,
-          "bytes_up": 18989,
-          "bytes_down": 375439,
-          "packets_up": 174,
-          "packets_down": 312
+          "records": 20,
+          "bytes_up": 20958,
+          "bytes_down": 414150,
+          "packets_up": 193,
+          "packets_down": 345
         },
         {
           "key": "10.20.0.132",
@@ -2123,10 +2296,10 @@
           "population": "households",
           "kind": "residential",
           "records": 16,
-          "bytes_up": 9166,
-          "bytes_down": 190005,
-          "packets_up": 91,
-          "packets_down": 161
+          "bytes_up": 12010,
+          "bytes_down": 250311,
+          "packets_up": 118,
+          "packets_down": 210
         },
         {
           "key": "10.20.0.87",
@@ -2287,11 +2460,11 @@
           "family": 6,
           "population": "households",
           "kind": "residential",
-          "records": 14,
-          "bytes_up": 6866,
-          "bytes_down": 159575,
-          "packets_up": 71,
-          "packets_down": 131
+          "records": 18,
+          "bytes_up": 7144,
+          "bytes_down": 159890,
+          "packets_up": 74,
+          "packets_down": 134
         },
         {
           "key": "2001:db8:1000:11::/64",
@@ -2386,11 +2559,11 @@
           "family": 6,
           "population": "households",
           "kind": "residential",
-          "records": 10,
-          "bytes_up": 6480,
-          "bytes_down": 99094,
-          "packets_up": 50,
-          "packets_down": 86
+          "records": 12,
+          "bytes_up": 6593,
+          "bytes_down": 99143,
+          "packets_up": 51,
+          "packets_down": 87
         },
         {
           "key": "2001:db8:1000:1::/64",
@@ -2716,11 +2889,11 @@
           "family": 6,
           "population": "households",
           "kind": "residential",
-          "records": 16,
-          "bytes_up": 1008002,
-          "bytes_down": 81183278,
-          "packets_up": 19346,
-          "packets_down": 58002
+          "records": 20,
+          "bytes_up": 1008250,
+          "bytes_down": 81183526,
+          "packets_up": 19349,
+          "packets_down": 58005
         }
       ],
       "unattributed": []
