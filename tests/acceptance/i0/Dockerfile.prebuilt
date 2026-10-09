@@ -1,0 +1,31 @@
+# syntax=docker/dockerfile:1
+#
+# Imagen EQUIVALENTE a la del Dockerfile raíz, montada desde un binario ya compilado en el
+# host (historia I0-19). Solo la usa scripts/accept/image.sh cuando `docker build` del
+# Dockerfile raíz no puede descargar módulos Go (p. ej. un proxy HTTPS con CA propia que el
+# contenedor de build no conoce: "x509: certificate signed by unknown authority").
+#
+# Misma base runtime (distroless/static:nonroot fijada por digest), mismo usuario 65532,
+# mismo /horus, mismo HORUS_DATA_DIR y mismos puertos. El binario se compila en el host con
+# los mismos flags que el Dockerfile raíz (CGO_ENABLED=0, -trimpath, -s -w).
+#
+# Contexto de build: un directorio con `horus` (binario) y `var/lib/horus/` (vacío).
+
+ARG RUNTIME_IMAGE=gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+FROM ${RUNTIME_IMAGE}
+
+ARG VERSION=dev
+ARG REVISION=unknown
+LABEL org.opencontainers.image.title="horus" \
+      org.opencontainers.image.description="Horus Flow: binario modular con roles (HORUS_ROLES) — build prebuilt de aceptación" \
+      org.opencontainers.image.source="https://github.com/hcdestroyer/horus-flow" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}"
+
+COPY horus /horus
+COPY --chown=65532:65532 var/lib/horus /var/lib/horus
+
+ENV HORUS_DATA_DIR=/var/lib/horus
+USER 65532:65532
+EXPOSE 8080 9090 8081 4739/udp 2055/udp
+ENTRYPOINT ["/horus"]

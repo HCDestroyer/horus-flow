@@ -21,6 +21,24 @@ x-logging: &logging
     max-size: "10m"
     max-file: "3"
 
+# Entorno común de los contenedores propios (perfil `app`).
+x-horus-env: &horus-env
+  HORUS_ENV: dev
+  HORUS_LOG_LEVEL: ${HORUS_LOG_LEVEL:-info}
+  HORUS_LOG_FORMAT: json
+  HORUS_ROLES: gateway,auth,devices,wireguard,snmp,traffic,detection,alerts,analytics,reporting,ingester,jobs
+  HORUS_HTTP_ADDR: ":8080"
+  HORUS_GRPC_ADDR: ":9090"
+  HORUS_ADMIN_ADDR: ":8081"
+  HORUS_DATA_DIR: /var/lib/horus
+  HORUS_POSTGRES_DSN: postgres://${HORUS_PG_USER:?falta HORUS_PG_USER}@postgres:5432/${HORUS_PG_DB:?falta HORUS_PG_DB}?sslmode=disable
+  HORUS_POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+  HORUS_CLICKHOUSE_DSN: clickhouse://${HORUS_CH_USER:?falta HORUS_CH_USER}@clickhouse:9000/${HORUS_CH_DB:?falta HORUS_CH_DB}
+  HORUS_CLICKHOUSE_PASSWORD_FILE: /run/secrets/clickhouse_password
+  HORUS_NATS_URL: nats://nats:4222
+  HORUS_VALKEY_URL: redis://default@valkey:6379/0
+  HORUS_VALKEY_PASSWORD_FILE: /run/secrets/valkey_password
+
 x-hardening: &hardening
   security_opt:
     - no-new-privileges:true
@@ -183,27 +201,18 @@ services:
       context: ../..
       dockerfile: Dockerfile
     read_only: true
-    environment: &horus-env
-      HORUS_ENV: dev
-      HORUS_LOG_LEVEL: ${HORUS_LOG_LEVEL:-info}
-      HORUS_LOG_FORMAT: json
-      HORUS_ROLES: gateway,auth,devices,wireguard,snmp,traffic,detection,alerts,analytics,reporting,ingester,jobs
-      HORUS_HTTP_ADDR: ":8080"
-      HORUS_GRPC_ADDR: ":9090"
-      HORUS_ADMIN_ADDR: ":8081"
-      HORUS_DATA_DIR: /var/lib/horus
-      HORUS_POSTGRES_DSN: postgres://${HORUS_PG_USER:?falta HORUS_PG_USER}@postgres:5432/${HORUS_PG_DB:?falta HORUS_PG_DB}?sslmode=disable
-      HORUS_POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
-      HORUS_CLICKHOUSE_DSN: clickhouse://${HORUS_CH_USER:?falta HORUS_CH_USER}@clickhouse:9000/${HORUS_CH_DB:?falta HORUS_CH_DB}
-      HORUS_CLICKHOUSE_PASSWORD_FILE: /run/secrets/clickhouse_password
-      HORUS_NATS_URL: nats://nats:4222
-      HORUS_VALKEY_URL: redis://default@valkey:6379/0
-      HORUS_VALKEY_PASSWORD_FILE: /run/secrets/valkey_password
+    environment:
+      <<: *horus-env
+      # Superadministrador semilla (I0-06): se crea al arrancar si no existe; debe cambiar la
+      # contraseña y activar TOTP en el primer login. Contraseña: secrets/seed_admin_password.txt.
+      HORUS_SEED_ADMIN_EMAIL: ${HORUS_SEED_ADMIN_EMAIL:-admin@horus.localhost}
+      HORUS_SEED_ADMIN_PASSWORD_FILE: /run/secrets/seed_admin_password
       GOMEMLIMIT: 900MiB
-    secrets: &horus-secrets
+    secrets:
       - postgres_password
       - clickhouse_password
       - valkey_password
+      - seed_admin_password
     volumes:
       - horus-data:/var/lib/horus
     ports:
@@ -234,7 +243,10 @@ services:
       <<: *horus-env
       HORUS_ROLES: collector
       GOMEMLIMIT: 450MiB
-    secrets: *horus-secrets
+    secrets: &horus-secrets
+      - postgres_password
+      - clickhouse_password
+      - valkey_password
     ports:
       - "${HORUS_BIND_ADDR:-127.0.0.1}:${HORUS_COLLECTOR_IPFIX_PORT:-4739}:4739/udp"
       - "${HORUS_BIND_ADDR:-127.0.0.1}:${HORUS_COLLECTOR_V9_PORT:-2055}:2055/udp"
@@ -275,6 +287,8 @@ secrets:
     file: ./secrets/valkey_password.txt
   valkey_acl:
     file: ./secrets/valkey_users.acl
+  seed_admin_password:
+    file: ./secrets/seed_admin_password.txt
 
 volumes:
   pg-data:

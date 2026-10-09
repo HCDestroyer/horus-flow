@@ -17,6 +17,8 @@
 | `ci/dod.py` | Check `dod`: Definición de Terminado mínima verificada por máquina. I0-03. |
 | `ci/review_gates.py` | Checks `agent-review` y `persona-gate`. I0-03. |
 | `ci/observability-smoke.sh` | `make observability-smoke`: levanta el perfil `observability`, comprueba que Prometheus raspa la pila, que Grafana tiene datasources sanos y el dashboard con API e Ingesta, y que Loki recibe logs. `OBS_SMOKE_APP=1` incluye los `horus-*`. I0-18. |
+| `accept/accept-i0.sh` | `make accept-i0`: batería de aceptación del incremento 0 con resumen OK/FAIL/SKIP por paso ([`tests/acceptance/README.md`](../tests/acceptance/README.md)). I0-19. |
+| `accept/image.sh` | `make accept-image`: imagen `horus:accept` con el Dockerfile raíz o, si `docker build` no puede descargar módulos (CA de un proxy), desde el binario del host. I0-19. |
 | `lab/lab.sh` | `make lab-up/lab-down/lab-status/lab-traffic/lab-console`: laboratorio MikroTik CHR en QEMU/KVM con clientes en netns, NAT, túnel WireGuard e IPFIX ([`infrastructure/lab/chr/README.md`](../infrastructure/lab/chr/README.md)). I0-11. |
 | `lab/selftest.sh` | `make lab-selftest`: validación §8.3 de `vendors/mikrotik.md` en un CHR limpio; salida en `.lab/selftest-<ROS>.log`. I0-11. |
 | `lab/fetch-chr.sh`, `lab/render-rsc.py`, `lab/internet-sim.py`, `lab/traffic.py`, `lab/ipfix-probe.py` | Descarga verificada de CHR, render del onboarding §7, servidores y tráfico de prueba, receptor IPFIX mínimo. I0-11. |
