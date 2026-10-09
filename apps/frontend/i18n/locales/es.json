@@ -230,7 +230,8 @@
   "time": {
     "agoSeconds": "hace {n} s",
     "agoMinutes": "hace {n} min",
-    "agoHours": "hace {n} h"
+    "agoHours": "hace {n} h",
+    "agoDays": "hace {n} días"
   },
   "freshness": {
     "live": "En vivo · {ago}",
@@ -419,5 +420,180 @@
       "customers": "Clientes",
       "flows": "Flujos"
     }
+  },
+  "common": {
+    "copy": "Copiar",
+    "copied": "Copiado",
+    "download": "Descargar .{name}",
+    "clear": "Borrar",
+    "clearFilters": "Limpiar filtros",
+    "loadMore": "Cargar más",
+    "cancel": "Cancelar",
+    "save": "Guardar cambios",
+    "more": "Más acciones",
+    "allSites": "Todos los nodos",
+    "close": "Cerrar",
+    "yes": "Sí",
+    "no": "No",
+    "never": "Nunca",
+    "since": "desde {time}"
+  },
+  "ranges": {
+    "1h": "Última hora",
+    "6h": "Últimas 6 h",
+    "24h": "Últimas 24 h",
+    "7d": "Últimos 7 días",
+    "30d": "Últimos 30 días"
+  },
+  "degraded": {
+    "analyticsTitle": "Analítica no disponible",
+    "analyticsBody": "Los flujos se siguen recibiendo y se procesarán al recuperarse. Nodos, routers, hallazgos y la lista de clientes siguen funcionando."
+  },
+  "clients": {
+    "detailTitle": "Ficha del cliente",
+    "search": "Buscar por IP, prefijo o alias",
+    "searchHint": "La IP no se guarda en la dirección de la página",
+    "searchPlaceholder": "10.20.0.41 · 2001:db8:4a28::/56 · alias",
+    "searchSubmit": "Buscar",
+    "searchInvalid": "Escribe una IP o un prefijo válido, por ejemplo 10.20.0.41 o 10.20.0.0/24.",
+    "showing": "Mostrando {n} clientes",
+    "empty": "Aún no hemos visto clientes en los flujos de este ISP",
+    "emptyFiltered": "Ningún cliente coincide con esta búsqueda o estos filtros",
+    "reviewPrefixes": "Revisar prefijos de clientes",
+    "privacy": "Las consultas a fichas de cliente quedan registradas.",
+    "ipv6": "IPv6",
+    "ipv6Hint": "Cliente IPv6: su prefijo delegado, independiente del IPv4 del mismo abonado",
+    "ipv6Delegated": "IPv6 · prefijo delegado /{len}",
+    "locked": "Tipo fijado a mano: el scoring no lo cambia",
+    "findingsCount": "Hallazgos abiertos: {n}",
+    "seen": "Visto",
+    "firstSeen": "Primera vez {date}",
+    "markedBy": "Marcado a mano el {date}: “{reason}”",
+    "unlock": "Desbloquear tipo",
+    "unlocked": "Tipo desbloqueado: vuelve al scoring",
+    "whyState": "Por qué tiene este estado",
+    "dynamicPool": "En este rango la IP puede cambiar de persona: el cliente es la IP.",
+    "resetAt": "Cliente reiniciado el {date}: los datos anteriores no se muestran.",
+    "trafficTitle": "Tráfico de este cliente",
+    "col": {
+      "client": "Cliente",
+      "site": "Nodo",
+      "kind": "Tipo",
+      "traffic": "Tráfico 24 h",
+      "top": "Principal",
+      "security": "Seguridad",
+      "status": "Estado",
+      "seen": "Visto"
+    },
+    "filters": {
+      "allKinds": "Todos los tipos",
+      "allStatus": "Todos",
+      "allSecurity": "Todos",
+      "withFindings": "Con hallazgos"
+    },
+    "kind": {
+      "residential": "Residencial",
+      "commercial": "Comercial",
+      "unknown": "Sin tipo"
+    },
+    "kindSource": {
+      "default": "por defecto",
+      "manual": "manual",
+      "scoring": "detectado",
+      "scoringWith": "detectado (confianza {n})"
+    },
+    "status": {
+      "active": "Activo",
+      "inactive": "Inactivo"
+    },
+    "tabs": {
+      "summary": "Resumen",
+      "traffic": "Tráfico",
+      "security": "Seguridad ({n})",
+      "history": "Historial"
+    },
+    "kpi": {
+      "down": "Bajada en 24 h",
+      "top": "Consumo principal",
+      "findings": "Hallazgos abiertos"
+    },
+    "inactive": {
+      "title": "Inactivo desde el {date}",
+      "noTraffic": "No vemos tráfico de esta IP desde hace {days} días. Vuelve a Activo si reaparece; a los 25 meses sin tráfico se purga.",
+      "prefixRemoved": "Su prefijo dejó de estar declarado como de clientes en el nodo."
+    },
+    "history": {
+      "default": "Tipo inicial: {kind} (por defecto)",
+      "manual": "Cambiado a {kind} a mano",
+      "scoring": "Detectado como {kind}",
+      "reset": "Cliente reiniciado: vuelve a {kind}",
+      "confidence": "confianza {pct}"
+    },
+    "setKind": {
+      "action": "Cambiar tipo",
+      "title": "Cambiar tipo de cliente",
+      "description": "El tipo manual prevalece sobre el detectado.",
+      "kind": "Tipo",
+      "reason": "Motivo",
+      "reasonHint": "Queda en el historial",
+      "reasonPlaceholder": "Por ejemplo: local con TPV y horario comercial",
+      "reasonRequired": "Escribe el motivo del cambio",
+      "lockNote": "El tipo quedará fijado (candado): el scoring automático no lo cambiará hasta que lo desbloquees.",
+      "submit": "Cambiar tipo",
+      "retry": "Reintentar con el valor actual",
+      "done": "Tipo actualizado",
+      "conflictTitle": "El tipo cambió mientras editabas",
+      "conflictBody": "Este es el valor actual. Revisa si sigues queriendo cambiarlo y vuelve a intentarlo."
+    },
+    "reset": {
+      "action": "Reiniciar cliente",
+      "title": "¿Reiniciar este cliente?",
+      "body": "Úsalo cuando la IP pasó a otra persona. No se puede deshacer:",
+      "effectAlias": "Se borran el alias y las notas.",
+      "effectKind": "El tipo vuelve al valor por defecto del ISP.",
+      "effectHistory": "El historial registra el reinicio y los dashboards muestran datos desde ahora.",
+      "reason": "Motivo",
+      "reasonPlaceholder": "Por ejemplo: la IP se reasignó a otro abonado",
+      "reasonRequired": "Escribe el motivo del reinicio",
+      "submit": "Reiniciar cliente",
+      "done": "Cliente reiniciado"
+    },
+    "alias": {
+      "action": "Alias y notas",
+      "title": "Alias y notas",
+      "description": "Solo los ve tu ISP. Evita datos personales innecesarios.",
+      "alias": "Alias",
+      "aliasPlaceholder": "Por ejemplo: Panadería Sol",
+      "notes": "Notas",
+      "done": "Alias y notas guardados"
+    }
+  },
+  "findings": {
+    "empty": "Ningún cliente muestra señales de botnet en este periodo",
+    "kindOther": "Otro tipo de señal",
+    "tableCaption": "Hallazgos ordenados por severidad y recencia",
+    "col": {
+      "severity": "Severidad",
+      "summary": "Hallazgo",
+      "customer": "Cliente",
+      "site": "Nodo",
+      "confidence": "Confianza",
+      "state": "Estado",
+      "lastSeen": "Última vez"
+    },
+    "state": {
+      "open": "Abierto",
+      "acknowledged": "Reconocido",
+      "resolved": "Resuelto",
+      "false_positive": "Falso positivo"
+    },
+    "confidence": {
+      "low": "Baja",
+      "medium": "Media",
+      "high": "Alta"
+    }
+  },
+  "traffic": {
+    "range": "Rango de tiempo"
   }
 }

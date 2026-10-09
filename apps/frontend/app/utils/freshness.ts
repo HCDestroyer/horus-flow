@@ -11,12 +11,13 @@ export function freshnessLevel(ageSeconds: number, expectedSeconds: number): Fre
   return 'fresh'
 }
 
-/** Clave i18n y parámetros de "hace N s / min / h". */
+/** Clave i18n y parámetros de "hace N s / min / h / días". */
 export function agoParts(ageSeconds: number): { key: string; n: number } {
   const s = Math.max(0, Math.round(ageSeconds))
   if (s < 60) return { key: 'time.agoSeconds', n: s }
   if (s < 3600) return { key: 'time.agoMinutes', n: Math.floor(s / 60) }
-  return { key: 'time.agoHours', n: Math.floor(s / 3600) }
+  if (s < 2 * 86_400) return { key: 'time.agoHours', n: Math.floor(s / 3600) }
+  return { key: 'time.agoDays', n: Math.floor(s / 86_400) }
 }
 
 /** Instante del dato: generado en servidor menos su edad declarada (`meta.freshness_seconds`). */
