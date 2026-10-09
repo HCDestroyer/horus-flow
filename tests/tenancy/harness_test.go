@@ -31,8 +31,11 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/module"
 	"github.com/hcdestroyer/horus-flow/packages/go/pgdb/pgtest"
 	"github.com/hcdestroyer/horus-flow/services/auth"
+	"github.com/hcdestroyer/horus-flow/services/detection"
 	"github.com/hcdestroyer/horus-flow/services/devices"
 	"github.com/hcdestroyer/horus-flow/services/gateway"
+	"github.com/hcdestroyer/horus-flow/services/wgagent"
+	"github.com/hcdestroyer/horus-flow/services/wireguard"
 )
 
 const (
@@ -41,7 +44,7 @@ const (
 	userPassword = "una-clave-bastante-larga"
 )
 
-// app es el binario horus en proceso con los roles auth, devices y gateway
+// app es el binario horus en proceso con los roles auth, devices, detection y gateway
 // (el mismo cableado que services/cmd/horus) sobre una base vacía.
 type app struct {
 	t     *testing.T
@@ -52,12 +55,24 @@ type app struct {
 
 func startApp(t *testing.T) *app {
 	t.Helper()
+	return startAppEnv(t)
+}
+
+// startAppEnv arranca el binario en proceso con variables extra.
+func startAppEnv(t *testing.T, extra ...string) *app {
+	t.Helper()
 	dsn := pgtest.New(t)
 	environ := []string{
 		"HORUS_POSTGRES_DSN=" + dsn,
 		"HORUS_AUTH_ARGON2_MEMORY_KIB=1024", "HORUS_AUTH_ARGON2_TIME=1",
 		"HORUS_SEED_ADMIN_EMAIL=" + seedEmail, "HORUS_SEED_ADMIN_PASSWORD=" + seedPassword,
+		// wireguard + wg-agent en proceso con la interfaz en memoria (sin NET_ADMIN).
+		"HORUS_WGAGENT_DRIVER=memory", "HORUS_WG_ENDPOINT=horus.test",
+		// Reconciliación periódica desactivada en la práctica: el túnel se asigna
+		// al pedir el script (síncrono) y las versiones de los routers no cambian solas.
+		"HORUS_WIREGUARD_RECONCILE_EVERY=1h", "HORUS_WGAGENT_REPORT_EVERY=200ms",
 	}
+	environ = append(environ, extra...)
 	ctx, cancel := context.WithCancel(context.Background())
 	mux := httpx.NewMux(nil, nil)
 	services := module.NewServices()
@@ -66,7 +81,8 @@ func startApp(t *testing.T) *app {
 	for _, r := range []struct {
 		name string
 		f    module.Factory
-	}{{auth.Role, auth.Register}, {devices.Role, devices.Register}, {gateway.Role, gateway.Register}} {
+	}{{auth.Role, auth.Register}, {devices.Role, devices.Register}, {wireguard.Role, wireguard.Register},
+		{wgagent.Role, wgagent.Register}, {detection.Role, detection.Register}, {gateway.Role, gateway.Register}} {
 		m, err := r.f(ctx, module.Deps{Role: r.name, Health: hreg.Role(r.name), Routes: mux.ForService(r.name),
 			Common: config.Common{Env: "dev"}, Environ: environ, Services: services})
 		if err != nil {

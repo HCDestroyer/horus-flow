@@ -1,0 +1,14 @@
+[
+  {
+    ".id": "*1",
+    "name": "pd-clientes",
+    "prefix": "2001:db8:1000::/40",
+    "prefix-length": "56"
+  },
+  {
+    ".id": "*2",
+    "name": "wan-clientes",
+    "prefix": "2001:db8:ff00::/48",
+    "prefix-length": "64"
+  }
+]

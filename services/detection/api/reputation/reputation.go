@@ -10,7 +10,9 @@ package reputation
 
 import (
 	"fmt"
+	"hash/fnv"
 	"io"
+	"iter"
 	"net/netip"
 	"slices"
 	"time"
@@ -300,3 +302,18 @@ func (c *countWriter) Write(p []byte) (int, error) {
 	c.n += int64(n)
 	return n, err
 }
+
+// SourceID convierte el id textual de una fuente en el UInt16 de
+// flows_raw.reputation_source_id (FNV-1a, nunca 0). Es la misma función que
+// usa el ingester al marcar la reputación en ingesta
+// (services/ingester/internal/app.SourceID); detection la usa para resolver
+// la fuente de un flujo marcado.
+func SourceID(source string) uint16 {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(source))
+	return uint16(h.Sum32()%65535) + 1 //nolint:gosec // acotado a 1..65535
+}
+
+// All recorre todos los prefijos del snapshot con sus indicadores (barrido
+// retroactivo de detection).
+func (s *Snapshot) All() iter.Seq2[netip.Prefix, []Indicator] { return s.table.All() }
