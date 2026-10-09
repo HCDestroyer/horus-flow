@@ -12,7 +12,7 @@ export interface LayoutProblem {
  * (`[data-testid="widget"]` y los selectores de `extra`), ningún texto visible puede:
  * - quedar **cortado**: salirse de un ancestro que recorta (`overflow` ≠ `visible`), salvo el
  *   truncado deliberado con puntos suspensivos (nunca en cifras KPI);
- * - **salirse** del contenedor o de la ventana;
+ * - **salirse** del contenedor, de su tarjeta (`[data-layout-box]`) o de la ventana;
  * - **solaparse** con otro texto (rectángulos de los nodos de texto, `Range.getClientRects`).
  * Además, la página no puede tener scroll horizontal (y, con `noScroll`, tampoco vertical).
  *
@@ -157,6 +157,19 @@ export async function layoutProblems(
           if (!reported && boxes.some((b) => !inside(b, rootBox))) {
             problems.push({ where, kind: 'outside', text: describe(text) })
             reported = true
+          }
+          // Cajas visibles dentro del widget (tarjetas con fondo, `data-layout-box`): el texto
+          // tampoco puede salirse de su fondo aunque no recorte.
+          const tile = el.closest('[data-layout-box]')
+          if (!reported && tile && root.contains(tile)) {
+            if (boxes.some((b) => !inside(b, box(tile.getBoundingClientRect())))) {
+              problems.push({
+                where,
+                kind: 'outside',
+                text: `${describe(text)} (fuera de su tarjeta)`,
+              })
+              reported = true
+            }
           }
           if (!reported && boxes.some((b) => b.left < -tol || b.right > vw + tol)) {
             problems.push({
