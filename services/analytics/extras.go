@@ -67,6 +67,7 @@ func (m *mod) startExtras(ctx context.Context) error {
 			return nil
 		}
 		m.widgets.States = collectorapi.KVStates{KV: kv}
+		m.js = js
 	}
 	return nil
 }

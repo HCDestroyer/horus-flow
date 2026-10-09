@@ -17,7 +17,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -72,6 +71,7 @@ type mod struct {
 	m      *app.Metrics
 	health *health.Role
 	nc     *nats.Conn
+	js     jetstream.JetStream
 	engine *app.Engine
 }
 
@@ -88,7 +88,7 @@ func (m *mod) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	m.nc = nc
+	m.nc, m.js = nc, js
 	if m.cfg.EnsureStreams {
 		if err := flowbus.EnsureStreams(ctx, js, m.cfg.TLMMaxBytes); err != nil {
 			return err
@@ -126,9 +126,7 @@ func (m *mod) Start(ctx context.Context) error {
 
 // Run procesa datagramas y recarga el inventario hasta el apagado.
 func (m *mod) Run(ctx context.Context) error {
-	if m.cfg.InventoryFile != "" {
-		go flowinv.WatchFile(ctx, m.cfg.InventoryFile, m.inv, 5*time.Second, m.log)
-	}
+	go flowinv.Keep(ctx, m.inv, m.cfg.InventoryFile, m.js, "flows-inventory-"+Role, m.log)
 	return m.engine.Run(ctx)
 }
 

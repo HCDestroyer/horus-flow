@@ -15,9 +15,9 @@ import (
 	"fmt"
 	"log/slog"
 	"sync/atomic"
-	"time"
 
 	"github.com/google/uuid"
+	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/hcdestroyer/horus-flow/packages/go/authz"
 	"github.com/hcdestroyer/horus-flow/packages/go/config"
@@ -93,6 +93,7 @@ type mod struct {
 	q       *lazyQuerier
 	svc     *app.Service
 	widgets *app.Widgets
+	js      jetstream.JetStream
 	loops   []func(context.Context)
 }
 
@@ -117,9 +118,7 @@ func (m *mod) Start(ctx context.Context) error {
 
 // Run espera al apagado (y recarga el inventario).
 func (m *mod) Run(ctx context.Context) error {
-	if m.cfg.InventoryFile != "" {
-		go flowinv.WatchFile(ctx, m.cfg.InventoryFile, m.inv, 5*time.Second, m.log)
-	}
+	go flowinv.Keep(ctx, m.inv, m.cfg.InventoryFile, m.js, "flows-inventory-"+Role, m.log)
 	for _, l := range m.loops {
 		go l(ctx)
 	}

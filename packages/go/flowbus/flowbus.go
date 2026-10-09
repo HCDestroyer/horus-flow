@@ -43,15 +43,15 @@ const (
 	TypeExporterStateChanged = "horus.flows.exporter.state_changed"
 	TypeCollectorDataGap     = "horus.flows.collector.data_gap"
 
-	SubjectBatchPrefix     = "horus.telemetry.flows.batch."
-	SubjectActivityPrefix  = "horus.telemetry.flows.client_activity."
-	SubjectSummaryPrefix   = "horus.telemetry.flows.summary."
-	StreamTelemetry        = "TLM_FLOWS"
-	StreamEvents           = "FLOWS_EVENTS"
-	StreamDevices          = "DEVICES_EVENTS"
-	ConsumerIngester       = "flows-ingester"
-	ExporterStateBucket    = "flow_exporter_state"
-	TimeFormat             = "2006-01-02T15:04:05.000Z07:00"
+	SubjectBatchPrefix    = "horus.telemetry.flows.batch."
+	SubjectActivityPrefix = "horus.telemetry.flows.client_activity."
+	SubjectSummaryPrefix  = "horus.telemetry.flows.summary."
+	StreamTelemetry       = "TLM_FLOWS"
+	StreamEvents          = "FLOWS_EVENTS"
+	StreamDevices         = "DEVICES_EVENTS"
+	ConsumerIngester      = "flows-ingester"
+	ExporterStateBucket   = "flow_exporter_state"
+	TimeFormat            = "2006-01-02T15:04:05.000Z07:00"
 )
 
 // Subject construye el subject de un evento de dominio: <type>.<entity>.

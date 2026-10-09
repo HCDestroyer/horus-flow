@@ -86,7 +86,9 @@ func verifier(cfg modcfg.Config, deps module.Deps) *authz.Verifier {
 }
 
 // lazyStates da acceso al bucket KV del estado de exportadores una vez conectado.
-type lazyStates struct{ kv atomic.Pointer[httpapi.KVStates] }
+type lazyStates struct {
+	kv atomic.Pointer[httpapi.KVStates]
+}
 
 func (l *lazyStates) Get(ctx context.Context, id uuid.UUID) (*collectorapi.FlowExporter, error) {
 	kv := l.kv.Load()
@@ -214,9 +216,7 @@ func (m *ingester) Run(ctx context.Context) error {
 		<-ctx.Done()
 		return nil
 	}
-	if m.cfg.InventoryFile != "" {
-		go flowinv.WatchFile(ctx, m.cfg.InventoryFile, m.inv, 5*time.Second, m.log)
-	}
+	go flowinv.Keep(ctx, m.inv, m.cfg.InventoryFile, m.js, "flows-inventory-"+Role, m.log)
 	var wg sync.WaitGroup
 	for _, l := range m.loops {
 		wg.Add(1)

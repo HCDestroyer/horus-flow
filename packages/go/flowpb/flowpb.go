@@ -54,9 +54,9 @@ type FlowRecord struct {
 	PostNATSrcIP        netip.Addr // 21 (opcional)
 	PostNATSrcPort      uint16     // 22 (opcional, presente si HasPostNATSrcPort)
 	HasPostNATSrcPort   bool
-	SamplingRate        uint32 // 23 (opcional: 0 = ausente)
-	FlowSource          string // 24 netflow_v5 | netflow_v9 | ipfix
-	BatchID             string // 25
+	SamplingRate        uint32     // 23 (opcional: 0 = ausente)
+	FlowSource          string     // 24 netflow_v5 | netflow_v9 | ipfix
+	BatchID             string     // 25
 	PostNATDstIP        netip.Addr // 26 (opcional)
 	PostNATDstPort      uint16     // 27 (opcional, presente si HasPostNATDstPort)
 	HasPostNATDstPort   bool
