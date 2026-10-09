@@ -4,6 +4,7 @@ package detection_test
 
 import (
 	"context"
+	"fmt"
 	"net/netip"
 	"slices"
 	"strings"
@@ -23,17 +24,45 @@ type scenarioRun struct {
 
 // runScenario reproduce el fixture IPFIX de un escenario del simulador por
 // el pipeline real y evalúa el motor a evalAfter del inicio de los datos.
+// clock fija el instante y la zona horaria del ISP de un escenario: los
+// datos empiezan a las Hour:00 locales de Zone. La fecha es la de hace dos
+// días (único dato del reloj real: flows_raw tiene TTL de 7 días respecto a
+// la hora del servidor), así que el resultado no depende de la hora a la que
+// se ejecute la prueba.
+type clock struct {
+	Zone string
+	Hour int
+}
+
+// defaultClock: mediodía en Ciudad de México.
+var defaultClock = clock{Zone: "America/Mexico_City", Hour: 12}
+
+func (c clock) anchor(t *testing.T) time.Time {
+	t.Helper()
+	loc, err := time.LoadLocation(c.Zone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := time.Now().In(loc).AddDate(0, 0, -2)
+	return time.Date(d.Year(), d.Month(), d.Day(), c.Hour, 0, 0, 0, loc).UTC()
+}
+
 func runScenario(t *testing.T, name string, back time.Duration, withIngestRep, withEngineRep bool) *scenarioRun {
+	t.Helper()
+	return runScenarioAt(t, name, defaultClock, back, withIngestRep, withEngineRep)
+}
+
+// runScenarioAt reproduce el fixture IPFIX de un escenario por el pipeline
+// real con los datos trasladados al instante de c (menos back) y la zona
+// horaria de c en dim.tenant (la que usa el motor para la franja de copias).
+func runScenarioAt(t *testing.T, name string, c clock, back time.Duration, withIngestRep, withEngineRep bool) *scenarioRun {
 	t.Helper()
 	base := repo("tools", "flowsim", "fixtures", "sim", name)
 	exp := loadExpected(t, base+"/ipfix.expected.json")
 	d, tenant, site, router := simInventory(exp)
-	// Datos trasladados a las 12:00 UTC de hoy (menos back): fuera de la franja
-	// nocturna de copias de seguridad y dentro del TTL de 7 días de flows_raw.
-	noon := time.Now().UTC().Truncate(24 * time.Hour).Add(12 * time.Hour)
-	s := noon.Add(-back)
+	s := c.anchor(t).Add(-back)
 	shiftBy := s.Sub(exp.Start)
-	snap := scenarioSnapshot(t, exp, time.Now().Add(-24*time.Hour))
+	snap := scenarioSnapshot(t, exp, s.Add(-24*time.Hour))
 	var ing, eng = snap, snap
 	if !withIngestRep {
 		ing = nil
@@ -42,6 +71,9 @@ func runScenario(t *testing.T, name string, back time.Duration, withIngestRep, w
 		eng = nil
 	}
 	w := newWorld(t, d, tenant, site, router, ing, eng)
+	if _, err := w.ch.Exec(`INSERT INTO dim.tenant (tenant_id, name, timezone, version) VALUES (?, 'ISP de prueba', ?, 1)`, tenant, c.Zone); err != nil {
+		t.Fatal(err)
+	}
 	ex := exp.Exporters[0]
 	w.replay(base+"/ipfix.hfsim.gz", shiftBy, ex.Totals.DataRecords-ex.ByStatus["tunnel"]-ex.ByStatus["excluded"])
 	return &scenarioRun{w: w, exp: exp, s: s}
@@ -135,7 +167,7 @@ func TestScenarioC2(t *testing.T) {
 // con la ventana real.
 func TestC2RetroactiveSweep(t *testing.T) {
 	r := runScenario(t, "c2", 72*time.Hour, false, true)
-	r.w.evaluate(time.Now())
+	r.w.evaluate(defaultClock.anchor(t)) // el indicador entra hoy; el tráfico es de hace 3 días
 	got := checkExpected(t, r)
 	for _, f := range got {
 		if f.WindowFrom.Before(r.s.Add(-time.Minute)) || f.WindowFrom.After(r.s.Add(3*time.Minute)) || f.LastSeen.After(r.s.Add(10*time.Minute)) {
@@ -285,5 +317,26 @@ func TestTenantIsolationInClickHouse(t *testing.T) {
 	}
 	if err := r.w.chDet.QueryRow("SELECT count() FROM flows.flows_raw").Scan(&theirs); err == nil {
 		t.Fatal("consulta sin SQL_horus_tenant aceptada")
+	}
+}
+
+// Independencia de la hora y de la zona horaria: los escenarios con ventanas
+// largas (beacon 6,5 h, sustained_out 35 min) y uno de 5 min (scan) dan los
+// mismos hallazgos con los datos a las 03:00, 12:00 y 23:00 locales de tres
+// zonas distintas (el destino de sustained_out no es una nube conocida en el
+// pipeline de prueba, así que la franja de copias nocturnas no lo exime).
+func TestScenariosAnyHourAndZone(t *testing.T) {
+	for _, zone := range []string{"America/Mexico_City", "Europe/Madrid", "UTC"} {
+		for _, hour := range []int{3, 12, 23} {
+			c := clock{Zone: zone, Hour: hour}
+			t.Run(fmt.Sprintf("%s-%02d", strings.ReplaceAll(zone, "/", "_"), hour), func(t *testing.T) {
+				for _, name := range []string{"beacon", "sustained_out", "scan"} {
+					r := runScenarioAt(t, name, c, 0, false, false)
+					// Fin de los datos + margen (la ventana de 5 min del escaneo cubre sus 2 min).
+					r.w.evaluate(r.s.Add(time.Duration(r.exp.Duration)*time.Second + 5*time.Minute))
+					checkExpected(t, r)
+				}
+			})
+		}
 	}
 }
