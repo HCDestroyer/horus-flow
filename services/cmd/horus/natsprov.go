@@ -15,6 +15,8 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"gopkg.in/yaml.v3"
+
+	"github.com/hcdestroyer/horus-flow/packages/go/config"
 )
 
 // natsProvision implementa `horus nats-provision`: aplica de forma idempotente
@@ -33,7 +35,12 @@ import (
 func natsProvision(ctx context.Context, args, environ []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("horus nats-provision", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	env := envMap(environ)
+	// HORUS_NATS_URL_FILE (con credenciales) se resuelve como en el resto del binario.
+	env, err := config.Resolve(environ, os.ReadFile)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "horus nats-provision: %v\n", err)
+		return exitUsage
+	}
 	url := fs.String("url", firstNonEmpty(env["HORUS_NATS_URL"], nats.DefaultURL), "NATS URL")
 	streamsFile := fs.String("streams", "/etc/horus/nats/streams.yaml", "streams.yaml (C4)")
 	kvFile := fs.String("kv", "", "KV buckets file (optional)")
@@ -51,7 +58,7 @@ func natsProvision(ctx context.Context, args, environ []string, stdout, stderr i
 	defer cancel()
 	nc, err := connectRetry(ctx, *url)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "horus nats-provision: connect %s: %v\n", *url, err)
+		_, _ = fmt.Fprintf(stderr, "horus nats-provision: connect: %v\n", err)
 		return exitFailure
 	}
 	defer nc.Close()
@@ -336,16 +343,6 @@ func parseSize(s string) (int64, error) {
 	mult := map[string]int64{"": 1, "K": 1e3, "M": 1e6, "G": 1e9, "T": 1e12,
 		"KI": 1 << 10, "MI": 1 << 20, "GI": 1 << 30, "TI": 1 << 40}[unit]
 	return n * mult, nil
-}
-
-func envMap(environ []string) map[string]string {
-	m := make(map[string]string, len(environ))
-	for _, kv := range environ {
-		if k, v, ok := strings.Cut(kv, "="); ok {
-			m[k] = v
-		}
-	}
-	return m
 }
 
 func firstNonEmpty(v ...string) string {
