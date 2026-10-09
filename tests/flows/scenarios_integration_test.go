@@ -56,8 +56,12 @@ func shift(d time.Duration) func(*nats.Msg) *nats.Msg {
 			fb.Records[i].TS = fb.Records[i].TS.Add(d)
 			fb.Records[i].FlowStart = fb.Records[i].FlowStart.Add(d)
 		}
-		m.Data = fb.Marshal()
-		return m
+		// Mensaje nuevo: el publisher reintenta con el mismo *nats.Msg y Replay lo vuelve a
+		// pasar por aquí; modificar m.Data lo desplazaría dos veces.
+		out := nats.NewMsg(m.Subject)
+		out.Header = m.Header
+		out.Data = fb.Marshal()
+		return out
 	}
 }
 
