@@ -41,13 +41,13 @@ function ago(iso: string) {
         class="w-label min-w-0 py-[0.35em] first:pt-0"
         data-testid="finding-row"
       >
-        <div class="flex min-w-0 items-baseline gap-2">
+        <div class="flex min-w-0 items-baseline gap-[0.5em]">
           <SeverityBadge :severity="row.severity" class="w-[5.8em] shrink-0" />
           <span class="text-highlighted min-w-0 flex-1 truncate">{{ row.summary }}</span>
           <!-- Una línea solo si el widget es ancho de verdad (≥ 48 rem); si no, segunda línea. -->
           <span
             v-if="wide"
-            class="min-w-0 shrink-0 items-baseline gap-2"
+            class="min-w-0 shrink-0 items-baseline gap-[0.5em]"
             :class="scale === 'normal' ? 'hidden @3xl:flex' : 'flex'"
           >
             <span class="text-muted truncate" :class="{ 'font-mono': !row.alias }">{{
@@ -65,7 +65,7 @@ function ago(iso: string) {
         </div>
         <p
           v-if="scale === 'normal'"
-          class="w-meta text-muted mt-0.5 flex min-w-0 flex-wrap items-baseline gap-x-2"
+          class="w-meta text-muted mt-0.5 flex min-w-0 flex-wrap items-baseline gap-x-[0.6em]"
           :class="{ '@3xl:hidden': wide }"
         >
           <span class="font-mono">{{
@@ -78,7 +78,7 @@ function ago(iso: string) {
     </ul>
     <p
       v-if="meta?.masked_personal_data && scale === 'normal'"
-      class="w-meta text-muted mt-auto flex items-center gap-1"
+      class="w-meta text-muted mt-auto flex items-center gap-[0.3em]"
     >
       <UIcon name="i-lucide-eye-off" class="size-[1.1em]" aria-hidden="true" />
       {{ t('widgets.common.masked') }}

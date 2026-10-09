@@ -35,22 +35,23 @@ function ago(iso: string | null) {
       {{ t('widgets.exporters_status.summary', { ok: healthy, total: rows.length }) }}
     </p>
     <ul
-      class="grid min-h-0 flex-1 auto-rows-fr gap-[calc(var(--w-gap)*0.75)] [grid-template-columns:repeat(auto-fit,minmax(min(100%,13rem),1fr))]"
+      class="grid min-h-0 flex-1 [grid-auto-rows:minmax(min-content,1fr)] gap-[calc(var(--w-gap)*0.75)] [grid-template-columns:repeat(auto-fit,minmax(min(100%,13rem),1fr))]"
       :aria-label="t('widgets.exporters_status.listLabel')"
     >
       <li
         v-for="row in rows"
         :key="row.router"
-        class="bg-muted flex min-w-0 flex-col justify-center gap-0.5 rounded-md px-[calc(var(--w-pad)*0.75)] py-[calc(var(--w-pad)*0.4)]"
+        class="bg-muted flex min-w-0 flex-col justify-center gap-[0.15em] rounded-md px-[calc(var(--w-pad)*0.75)] py-[calc(var(--w-pad)*0.4)]"
         :data-exporter-state="row.state"
+        data-layout-box
       >
-        <div class="flex min-w-0 items-baseline justify-between gap-2">
+        <div class="flex min-w-0 items-baseline justify-between gap-[0.5em]">
           <span class="w-label text-highlighted truncate font-mono font-semibold">{{
             row.router
           }}</span>
           <ExporterStateBadge :state="row.state" class="w-label" />
         </div>
-        <p class="w-meta text-muted flex min-w-0 flex-wrap gap-x-2 tabular">
+        <p class="w-meta text-muted flex min-w-0 flex-wrap gap-x-[0.6em] tabular">
           <span v-if="scale === 'normal'" class="truncate" data-fit-optional="1">{{
             row.site
           }}</span>

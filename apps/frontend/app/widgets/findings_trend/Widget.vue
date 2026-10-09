@@ -29,10 +29,10 @@ const format = (v: number) => formatNumber(v)
 <template>
   <div class="flex min-h-0 flex-1 flex-col gap-[calc(var(--w-gap)*0.5)]">
     <ul
-      class="w-meta text-default flex flex-wrap gap-x-3 gap-y-0.5"
+      class="w-meta text-default flex flex-wrap gap-x-[0.9em] gap-y-0.5"
       :aria-label="t('widgets.findings_trend.legend')"
     >
-      <li v-for="(s, i) in series" :key="s.name" class="inline-flex items-center gap-1.5">
+      <li v-for="(s, i) in series" :key="s.name" class="inline-flex items-center gap-[0.4em]">
         <span
           class="inline-block size-[0.75em] rounded-sm"
           :style="{ background: theme.series[i] }"

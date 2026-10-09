@@ -19,7 +19,7 @@ const label = computed(() =>
 </script>
 
 <template>
-  <span class="inline-flex shrink-0 items-center gap-1 font-medium" :class="visual.cls">
+  <span class="inline-flex shrink-0 items-center gap-[0.3em] font-medium" :class="visual.cls">
     <UIcon :name="visual.icon" class="size-[1.1em] shrink-0" aria-hidden="true" />
     <span>{{ label }}</span>
   </span>

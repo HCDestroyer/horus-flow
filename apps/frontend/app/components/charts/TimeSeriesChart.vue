@@ -110,13 +110,20 @@ const option = computed<ChartOption>(() => {
         color: ink.muted,
         fontSize,
         hideOverlap: true,
+        // El margen por defecto (8 px) no escala: en 4K las etiquetas de ambos ejes se tocan.
+        margin: px(12),
         formatter: (v: number) => timeFmt.value.format(new Date(v)),
       },
     },
     yAxis: {
       type: 'value',
       splitNumber: wall.value ? 3 : 4,
-      axisLabel: { color: ink.muted, fontSize, formatter: (v: number) => props.format(v) },
+      axisLabel: {
+        color: ink.muted,
+        fontSize,
+        margin: px(10),
+        formatter: (v: number) => props.format(v),
+      },
       splitLine: { lineStyle: { color: ink.grid, width: 1 } },
     },
     series: props.series.map((s, i) => {

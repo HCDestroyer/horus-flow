@@ -95,10 +95,13 @@ onBeforeUnmount(() => {
         color="neutral"
         variant="outline"
         icon="i-lucide-maximize-2"
-        :label="t('dashboards.wall')"
+        :aria-label="t('dashboards.wall')"
         :to="{ path: route.path, query: { scale: 'wall' } }"
         data-testid="open-wall"
-      />
+      >
+        <!-- En móvil solo el icono: el título de la página necesita el ancho. -->
+        <span class="hidden sm:inline">{{ t('dashboards.wall') }}</span>
+      </UButton>
     </template>
 
     <LoadingState v-if="status === 'pending' && !dashboard" :rows="4" />

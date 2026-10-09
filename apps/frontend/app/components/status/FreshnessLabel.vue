@@ -44,7 +44,7 @@ const absolute = computed(() => d(new Date(props.at), 'long'))
 <template>
   <span
     v-if="always || level !== 'fresh'"
-    class="w-meta inline-flex shrink-0 items-center gap-1 tabular"
+    class="w-meta inline-flex shrink-0 items-center gap-[0.3em] tabular"
     :class="level === 'fresh' ? 'text-muted' : 'text-warning'"
     :data-freshness="level"
     data-testid="freshness"

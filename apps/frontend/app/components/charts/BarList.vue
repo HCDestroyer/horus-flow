@@ -28,7 +28,7 @@ const top = computed(() => props.max ?? Math.max(1, ...props.items.map((i) => i.
       class="w-label min-w-0"
       :class="{ 'text-muted': item.muted }"
     >
-      <div class="flex min-w-0 items-baseline justify-between gap-3">
+      <div class="flex min-w-0 items-baseline justify-between gap-[0.75em]">
         <span class="text-default min-w-0 truncate" :class="{ 'font-mono': item.mono }">{{
           item.label
         }}</span>
@@ -38,7 +38,7 @@ const top = computed(() => props.max ?? Math.max(1, ...props.items.map((i) => i.
         </span>
       </div>
       <div
-        class="mt-1 h-[0.35em] min-h-1 overflow-hidden rounded-full bg-(--viz-track)"
+        class="mt-[0.3em] h-[0.35em] min-h-1 overflow-hidden rounded-full bg-(--viz-track)"
         aria-hidden="true"
       >
         <div
