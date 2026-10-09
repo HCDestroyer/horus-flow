@@ -1007,6 +1007,11 @@
       "fingerprint": "Huella SHA-256 del certificado",
       "fingerprintHint": "Compárala con la que muestra el navegador antes de aceptar su aviso de seguridad.",
       "wgEndpoint": "Endpoint de WireGuard"
+    },
+    "disk": {
+      "warning": "Disco local al {pct}",
+      "critical": "Disco local casi lleno: {pct}",
+      "body": "Por encima del 85 % revisa las retenciones o amplía el disco; cerca del 100 % la ingesta descarta flujos y se pierden datos."
     }
   },
   "reputation": {

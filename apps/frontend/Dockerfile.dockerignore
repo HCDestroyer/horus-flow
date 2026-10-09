@@ -1,0 +1,16 @@
+# Contexto de build de `horus-web` (apps/frontend/Dockerfile, BuildKit lee este archivo en vez
+# del .dockerignore de la raíz). Lista blanca: la app y los contratos que lee `pnpm build`.
+*
+
+!packages/schemas/
+!apps/frontend/
+
+**/node_modules/
+apps/frontend/.nuxt/
+apps/frontend/.output/
+apps/frontend/.scratch/
+apps/frontend/test-results/
+apps/frontend/playwright-report/
+**/.env
+**/.env.*
+**/secrets/

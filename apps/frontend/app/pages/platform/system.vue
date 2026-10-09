@@ -42,6 +42,7 @@ const modeIcon = {
     <LoadingState v-if="status === 'pending' && !system" :rows="4" />
     <ErrorState v-else-if="error" :error="error" @retry="refresh()" />
     <template v-else-if="system">
+      <DiskUsageNotice :ratio="system.disk_usage_ratio" />
       <NoRemoteCopyNotice v-if="noRemote" />
 
       <UCard data-testid="installation-access">
