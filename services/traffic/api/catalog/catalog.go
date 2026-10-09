@@ -254,7 +254,7 @@ func (c *Catalog) Classify(remote netip.Addr, asn uint32, proto uint8, remotePor
 			}
 		}
 	}
-	if byPrefix != nil && !(asnPort != nil && strings.HasSuffix(byPrefix.Service, "_generic")) {
+	if byPrefix != nil && (asnPort == nil || !strings.HasSuffix(byPrefix.Service, "_generic")) {
 		return c.result(c.services[byPrefix.Service], MethodPrefix, 85)
 	}
 	if asnPort != nil {

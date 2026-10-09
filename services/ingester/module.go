@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -159,7 +160,9 @@ func (m *ingester) Start(ctx context.Context) error {
 		m.log.WarnContext(ctx, "exporter state bucket unavailable", "error", err)
 	}
 	proc := &app.Processor{Inv: m.inv}
-	m.wire(ctx, proc)
+	if err := m.wire(ctx, proc); err != nil {
+		return err
+	}
 	m.consumer = &app.Consumer{Proc: proc, Ins: w, Workers: m.cfg.Workers, M: m.metrics, Log: m.log,
 		DLQ: func(ctx context.Context, msg *nats.Msg) error { _, err := js.PublishMsg(ctx, msg); return err }}
 	if h := m.deps.Health; h != nil {
@@ -183,7 +186,16 @@ func (p jsPub) PublishMsg(ctx context.Context, msg *nats.Msg) error {
 }
 
 // wire añade enriquecimiento, descubrimiento y resúmenes al procesador.
-func (m *ingester) wire(_ context.Context, proc *app.Processor) {
+func (m *ingester) wire(_ context.Context, proc *app.Processor) error {
+	enr, err := app.NewEnrichment(m.deps.Metrics, m.log)
+	if err != nil {
+		return err
+	}
+	enr.Reload(m.cfg.ASNSnapshotDir, m.cfg.CatalogSnapshotDir, m.cfg.ReputationSnapshotDir)
+	proc.Enricher = enr
+	m.loops = append(m.loops, func(ctx context.Context) {
+		enr.Watch(ctx, 30*time.Second, m.cfg.ASNSnapshotDir, m.cfg.CatalogSnapshotDir, m.cfg.ReputationSnapshotDir)
+	})
 	pub := jsPub{js: m.js}
 	disc := app.NewDiscovery(app.DiscoveryOptions{TTL: m.cfg.FirstSeenTTL, PerMinute: m.cfg.DiscoveryPerMinute,
 		RealmMax: m.cfg.DiscoveryRealmMax}, pub, m.deps.Metrics, m.log)
@@ -193,6 +205,7 @@ func (m *ingester) wire(_ context.Context, proc *app.Processor) {
 		func(ctx context.Context) { disc.Run(ctx, m.cfg.FirstSeenInterval, m.cfg.ActivityInterval) },
 		func(ctx context.Context) { disc.RunKnownClients(ctx, m.js, m.log) },
 	)
+	return nil
 }
 
 // Run consume lotes hasta el apagado.
@@ -204,10 +217,17 @@ func (m *ingester) Run(ctx context.Context) error {
 	if m.cfg.InventoryFile != "" {
 		go flowinv.WatchFile(ctx, m.cfg.InventoryFile, m.inv, 5*time.Second, m.log)
 	}
+	var wg sync.WaitGroup
 	for _, l := range m.loops {
-		go l(ctx)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			l(ctx)
+		}()
 	}
-	return m.consumer.Run(ctx, m.cons)
+	err := m.consumer.Run(ctx, m.cons)
+	wg.Wait() // los bucles publican lo pendiente (first_seen) antes de cerrar NATS
+	return err
 }
 
 // Stop cierra NATS y ClickHouse.
