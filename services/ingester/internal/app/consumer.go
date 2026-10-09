@@ -71,7 +71,8 @@ const (
 )
 
 // Process procesa un mensaje y devuelve qué hacer con él (testeable sin NATS).
-func (c *Consumer) Process(ctx context.Context, data []byte, headers nats.Header) (outcome, error) {
+// stop corta los reintentos de INSERT (apagado); progress alarga ack_wait.
+func (c *Consumer) Process(ctx context.Context, stop <-chan struct{}, data []byte, headers nats.Header, progress func()) (outcome, error) {
 	fb, err := flowpb.UnmarshalFlowBatch(data)
 	if err != nil {
 		return outTerm, err
@@ -84,8 +85,26 @@ func (c *Consumer) Process(ctx context.Context, data []byte, headers nats.Header
 		return outNak, err
 	}
 	start := time.Now()
-	if err := c.Ins.Insert(ctx, fb.BatchID, rows); err != nil {
-		return outNak, err
+	// ClickHouse caído: se reintenta sin soltar el mensaje (InProgress alarga
+	// ack_wait) para que el stream retenga lo pendiente y no se agoten las
+	// entregas (I1-04 criterio 6). Se sale solo al apagar.
+	backoff := 200 * time.Millisecond
+	for {
+		err := c.Ins.Insert(ctx, fb.BatchID, rows)
+		if err == nil {
+			break
+		}
+		if progress != nil {
+			progress()
+		}
+		c.M.Batches.WithLabelValues("insert_retry").Inc()
+		c.Log.Warn("flows_raw insert failed: retrying", "batch_id", fb.BatchID, "error", err)
+		select {
+		case <-stop:
+			return outNak, err
+		case <-time.After(backoff):
+		}
+		backoff = min(backoff*2, 10*time.Second)
 	}
 	c.M.InsertDur.Observe(time.Since(start).Seconds())
 	for i := range rows {
@@ -94,8 +113,8 @@ func (c *Consumer) Process(ctx context.Context, data []byte, headers nats.Header
 	return outAck, nil
 }
 
-func (c *Consumer) handle(ctx context.Context, msg jetstream.Msg) {
-	out, err := c.Process(ctx, msg.Data(), msg.Headers())
+func (c *Consumer) handle(ctx context.Context, stop <-chan struct{}, msg jetstream.Msg) {
+	out, err := c.Process(ctx, stop, msg.Data(), msg.Headers(), func() { _ = msg.InProgress() })
 	switch out {
 	case outAck:
 		c.M.Batches.WithLabelValues("ok").Inc()
@@ -157,7 +176,7 @@ func (c *Consumer) Run(ctx context.Context, cons jetstream.Consumer) error {
 		go func() {
 			defer wg.Done()
 			for m := range ch {
-				c.handle(context.WithoutCancel(ctx), m)
+				c.handle(context.WithoutCancel(ctx), ctx.Done(), m)
 			}
 		}()
 	}
