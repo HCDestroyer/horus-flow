@@ -91,6 +91,21 @@ test.describe('layout @i0', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Clientes' })).toBeVisible()
   })
 
+  test('las secciones de incrementos futuros no aparecen y su URL da "No encontrado"', async ({
+    page,
+  }) => {
+    await loginAsAdmin(page)
+    const nav = page.getByTestId('main-nav')
+    await expect(nav.getByRole('link', { name: 'Hallazgos' })).toBeVisible()
+    for (const name of ['Investigar IP', 'Alertas', 'Reportes', 'Auditoría']) {
+      await expect(nav.getByRole('link', { name })).toHaveCount(0)
+    }
+    for (const path of ['security/investigate', 'alerts', 'reports', 'admin/audit']) {
+      await page.goto(`/t/fibra-norte/${path}`)
+      await expect(page.getByTestId('error-page')).toContainText('No encontrado')
+    }
+  })
+
   test('un ISP ajeno muestra "No encontrado"', async ({ page }) => {
     await loginAsNoc(page)
     await page.goto('/t/valle-conecta')

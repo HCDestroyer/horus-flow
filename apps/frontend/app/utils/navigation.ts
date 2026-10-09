@@ -6,7 +6,10 @@ import { findMembership, hasPlatformPermission, hasTenantPermission } from './pe
  * (⌘K) y las páginas de sección.
  *
  * - Aparición progresiva: cada sección declara su incremento y solo entra si
- *   `increment <= navIncrement` (runtime config).
+ *   `increment <= navIncrement` (`NUXT_PUBLIC_NAV_INCREMENT`, por defecto **I1** en las
+ *   builds de entrega y demo). Una sección de un incremento posterior no aparece en la barra
+ *   lateral, ni en ⌘K, ni en el Resumen, y su URL directa da "No encontrado" (404), igual que
+ *   una ruta que no existe.
  * - Sin permiso de lectura, la sección se OCULTA, no se deshabilita (§12, criterio 4 de I0-14).
  */
 
@@ -61,8 +64,34 @@ export const NAV_SECTIONS: NavSection[] = [
 
 const INCREMENT_ORDER: Increment[] = ['I0', 'I1', 'I2', 'I3']
 
+/** Incremento visible si la configuración no dice otro (o dice uno que no existe). */
+export const DEFAULT_NAV_INCREMENT: Increment = 'I1'
+
+/** Normaliza `navIncrement` ("i2", " I2 ") y cae en el valor por defecto si no es válido. */
+export function parseIncrement(value: unknown, fallback: Increment = DEFAULT_NAV_INCREMENT) {
+  const v = String(value ?? '')
+    .trim()
+    .toUpperCase()
+  return (INCREMENT_ORDER as string[]).includes(v) ? (v as Increment) : fallback
+}
+
 export function isIncrementVisible(section: Increment, max: Increment) {
   return INCREMENT_ORDER.indexOf(section) <= INCREMENT_ORDER.indexOf(max)
+}
+
+/**
+ * Acceso a la URL de una sección: `not-found` si no existe o es de un incremento posterior
+ * al visible (misma respuesta que una ruta inexistente: no se revela qué llegará),
+ * `forbidden` sin permiso de lectura, `ok` en otro caso.
+ */
+export function sectionAccess(
+  section: NavSection | undefined,
+  me: Me | null | undefined,
+  slug: string | undefined,
+  maxIncrement: Increment,
+): 'ok' | 'not-found' | 'forbidden' {
+  if (!section || !isIncrementVisible(section.increment, maxIncrement)) return 'not-found'
+  return canSeeSection(section, me, slug) ? 'ok' : 'forbidden'
 }
 
 export function sectionHref(section: NavSection, slug?: string) {

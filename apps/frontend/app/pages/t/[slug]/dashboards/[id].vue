@@ -6,14 +6,10 @@
  */
 const { t } = useI18n()
 const route = useRoute()
-const { me } = useAuth()
 const { membership } = useTenant()
 const config = useRuntimeConfig()
 
-const section = findSection('tenant', 'dashboards')!
-if (!canSeeSection(section, me.value, String(route.params.slug))) {
-  throw createError({ statusCode: 403, statusMessage: 'Forbidden' })
-}
+useSectionGuard()(findSection('tenant', 'dashboards'), String(route.params.slug))
 
 const id = computed(() => String(route.params.id))
 const wall = computed(() => route.query.scale === 'wall')
