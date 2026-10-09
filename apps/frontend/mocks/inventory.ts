@@ -232,8 +232,9 @@ export function routersOf(
   const t = now.getTime()
   const ti = tenantIndex(tenant)
   const r = rng(hash(tenant.tenant_id + 'exporters'))
-  const active = sitesOf(tenant).filter((s) => s.role === 'active')
-  return sitesOf(tenant).map((site) => {
+  const sites = sitesOf(tenant)
+  const active = sites.filter((s) => s.role === 'active')
+  return sites.map((site) => {
     const id = mockUuid('0192e333', ti * 100 + site.index + 1)
     const pending = site.role === 'pending'
     const progress = pending

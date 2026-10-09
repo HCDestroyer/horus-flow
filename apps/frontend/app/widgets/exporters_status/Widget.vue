@@ -34,8 +34,11 @@ function ago(iso: string | null) {
     <p class="w-label text-muted" data-fit-optional="4">
       {{ t('widgets.exporters_status.summary', { ok: healthy, total: rows.length }) }}
     </p>
+    <!-- Si no caben todas las tarjetas, se ocultan enteras las últimas (las sanas: los problemas
+         van primero) y el resumen "N de M exportando" sigue diciendo cuántas hay. -->
     <ul
-      class="grid min-h-0 flex-1 [grid-auto-rows:minmax(min-content,1fr)] gap-[calc(var(--w-gap)*0.75)] [grid-template-columns:repeat(auto-fit,minmax(min(100%,13rem),1fr))]"
+      v-fit-rows
+      class="grid min-h-0 flex-1 overflow-hidden [grid-auto-rows:minmax(min-content,1fr)] gap-[calc(var(--w-gap)*0.75)] [grid-template-columns:repeat(auto-fit,minmax(min(100%,13rem),1fr))]"
       :aria-label="t('widgets.exporters_status.listLabel')"
     >
       <li
@@ -44,6 +47,7 @@ function ago(iso: string | null) {
         class="bg-muted flex min-w-0 flex-col justify-center gap-[0.15em] rounded-md px-[calc(var(--w-pad)*0.75)] py-[calc(var(--w-pad)*0.4)]"
         :data-exporter-state="row.state"
         data-layout-box
+        data-fit-item
       >
         <div class="flex min-w-0 items-baseline justify-between gap-[0.5em]">
           <span class="w-label text-highlighted truncate font-mono font-semibold">{{
