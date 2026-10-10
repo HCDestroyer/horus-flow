@@ -36,6 +36,11 @@ x-horus-env: &horus-env
   HORUS_CLICKHOUSE_DSN: clickhouse://${HORUS_CH_USER:?falta HORUS_CH_USER}@clickhouse:9000/${HORUS_CH_DB:?falta HORUS_CH_DB}
   HORUS_CLICKHOUSE_PASSWORD_FILE: /run/secrets/clickhouse_password
   HORUS_NATS_URL: nats://nats:4222
+  # En dev no hay nats-init (`horus nats-provision`, compose.prod.yaml): los roles crean los
+  # streams del contrato (TLM_FLOWS, FLOWS_EVENTS…) si faltan. Sin esto el ingester no arranca
+  # ("stream not found") y horus-app queda en bucle de reinicios.
+  HORUS_NATS_ENSURE_STREAMS: "true"
+  HORUS_TLM_FLOWS_MAX_BYTES: ${HORUS_TLM_FLOWS_MAX_BYTES:-2147483648}
   HORUS_VALKEY_URL: redis://default@valkey:6379/0
   HORUS_VALKEY_PASSWORD_FILE: /run/secrets/valkey_password
 
