@@ -16,6 +16,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -24,8 +25,10 @@ import (
 	"net/netip"
 	"os"
 	"os/signal"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -65,6 +68,7 @@ type config struct {
 	fixturesDir string
 	maxDatagram int
 	showVersion bool
+	sendLog     string
 }
 
 func main() {
@@ -100,6 +104,7 @@ func parseFlags(args []string, stderr io.Writer) (*config, error) {
 	fs.BoolVar(&c.allowUnmet, "allow-unmet", false, "no falla si las señales no cumplen lo declarado en el escenario")
 	fs.BoolVar(&c.flat, "flat", false, "ignora el perfil diario del escenario (daily): tasa fija = rate")
 	fs.StringVar(&c.fixturesDir, "fixtures-dir", "", "regenera los fixtures de todos los escenarios en este directorio y sale")
+	fs.StringVar(&c.sendLog, "sendlog", "", "UDP: escribe en este JSON cuándo se envió cada tick (reloj real) y los registros por segundo de fin de flujo (pruebas de fallo)")
 	fs.IntVar(&c.maxDatagram, "max-datagram", 0, "tamaño máximo de datagrama en bytes (0 = escenario, 1392 por defecto)")
 	fs.BoolVar(&c.showVersion, "version", false, "muestra la versión")
 	if err := fs.Parse(args); err != nil {
@@ -287,6 +292,11 @@ func toUDP(ctx context.Context, c *config, sc *sim.Scenario, opt sim.Options, st
 		conns[i] = cn
 	}
 
+	var sl *sendLog
+	if c.sendLog != "" {
+		sl = newSendLog()
+		opt.OnRecords = func(tick time.Time, _ int, recs []flow.Record) { sl.records(tick, recs) }
+	}
 	wallStart := time.Now()
 	simStart := opt.Start
 	send := func(d capture.Datagram, idx int) error {
@@ -331,6 +341,9 @@ func toUDP(ctx context.Context, c *config, sc *sim.Scenario, opt sim.Options, st
 				}
 				if err == nil {
 					err = send(tb.dgram[i], tb.idx[i])
+					if err == nil && sl != nil {
+						sl.sent(tb.at)
+					}
 				}
 				if err != nil {
 					break
@@ -371,7 +384,87 @@ func toUDP(ctx context.Context, c *config, sc *sim.Scenario, opt sim.Options, st
 	for i := range exp.Exporters {
 		exp.Exporters[i].SentFrom = conns[i].LocalAddr().(*net.UDPAddr).AddrPort().String()
 	}
+	if sl != nil {
+		if err := sl.save(c.sendLog); err != nil {
+			return nil, err
+		}
+	}
 	return exp, nil
+}
+
+// sendLog es la contabilidad de -sendlog: para cada tick simulado, cuándo se
+// envió su primer y su último datagrama (reloj real) y cuántos registros
+// llevaba; y los registros enviados por segundo de fin de flujo (ts), que es
+// como se agrupan en flows_raw. Con ello las pruebas de fallo saben qué se
+// envió mientras un componente estaba caído.
+type sendLog struct {
+	mu    sync.Mutex
+	ticks map[int64]*sendTick
+	byEnd map[int64]uint64
+}
+
+type sendTick struct {
+	Tick      int64  `json:"tick_unix_ms"`
+	First     int64  `json:"first_sent_unix_ms"`
+	Last      int64  `json:"last_sent_unix_ms"`
+	Records   uint64 `json:"records"`
+	Datagrams uint64 `json:"datagrams"`
+}
+
+func newSendLog() *sendLog {
+	return &sendLog{ticks: map[int64]*sendTick{}, byEnd: map[int64]uint64{}}
+}
+
+func (l *sendLog) tick(at time.Time) *sendTick {
+	k := at.UnixMilli()
+	t := l.ticks[k]
+	if t == nil {
+		t = &sendTick{Tick: k}
+		l.ticks[k] = t
+	}
+	return t
+}
+
+func (l *sendLog) records(tick time.Time, recs []flow.Record) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.tick(tick).Records += uint64(len(recs))
+	for i := range recs {
+		l.byEnd[recs[i].End.Unix()]++
+	}
+}
+
+func (l *sendLog) sent(tick time.Time) {
+	now := time.Now().UnixMilli()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	t := l.tick(tick)
+	if t.First == 0 {
+		t.First = now
+	}
+	t.Last = now
+	t.Datagrams++
+}
+
+func (l *sendLog) save(path string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	out := struct {
+		Ticks       []*sendTick       `json:"ticks"`
+		ByEndSecond map[string]uint64 `json:"records_by_end_second"`
+	}{ByEndSecond: map[string]uint64{}}
+	for _, t := range l.ticks {
+		out.Ticks = append(out.Ticks, t)
+	}
+	sort.Slice(out.Ticks, func(i, j int) bool { return out.Ticks[i].Tick < out.Ticks[j].Tick })
+	for s, n := range l.byEnd {
+		out.ByEndSecond[strconv.FormatInt(s, 10)] = n
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, b, 0o644) //nolint:gosec // informe de la prueba
 }
 
 func udpNet(dst netip.Addr) string {
