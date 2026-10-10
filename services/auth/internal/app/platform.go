@@ -338,6 +338,62 @@ func (s *Service) UpdateTenant(ctx context.Context, p *authz.Principal, id uuid.
 	return s.GetTenant(ctx, id)
 }
 
+// SetTenantStatus es POST /platform/tenants/{id}/suspend (suspend = true,
+// con motivo) y /resume. Idempotente: suspender un ISP ya suspendido (o
+// reactivar uno activo) devuelve su estado sin emitir nada. Un ISP
+// suspendido no obtiene tokens nuevos (TENANT_SUSPENDED).
+func (s *Service) SetTenantStatus(ctx context.Context, p *authz.Principal, id uuid.UUID, suspend bool, reason string, pauseIngest bool,
+	requestIP string,
+) (*domain.Tenant, error) {
+	want, typ, action := domain.TenantActive, "horus.auth.tenant.resumed", "platform.tenant.resumed"
+	if suspend {
+		want, typ, action = domain.TenantSuspended, "horus.auth.tenant.suspended", "platform.tenant.suspended"
+		reason = strings.TrimSpace(reason)
+		if reason == "" || len([]rune(reason)) > 300 {
+			return nil, apperr.Validation(apperr.Field("reason", "INVALID_VALUE", "Motivo obligatorio (máx. 300)."))
+		}
+	} else {
+		reason, pauseIngest = "", false
+	}
+	t, err := s.GetTenant(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if t.Status == want {
+		return t, nil
+	}
+	if t.Status != domain.TenantActive && t.Status != domain.TenantSuspended {
+		return nil, apperr.Conflict(problem.CodeConflict, "El ISP está en baja ("+t.Status+").")
+	}
+	prev := t.Status
+	now := s.now()
+	actor := s.actor(p)
+	ok, err := s.store.SetTenantStatus(ctx, id, prev, want, now, func(nt domain.Tenant) OutboxEvent {
+		tid := nt.ID
+		var why any
+		if reason != "" {
+			why = reason
+		}
+		return OutboxEvent{ID: uuid.Must(uuid.NewV7()), Type: typ, TenantID: &tid, AggregateType: "tenant", AggregateID: nt.ID,
+			AggregateVersion: nt.Version, Actor: actor, OccurredAt: now, Data: map[string]any{"id": nt.ID.String(), "version": nt.Version,
+				"previous_status": prev, "status": want, "reason": why, "pause_ingest": pauseIngest,
+				"changed_at": now.UTC().Format("2006-01-02T15:04:05.000Z")}}
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, apperr.Conflict(problem.CodeConflict, "El estado del ISP cambió a la vez; vuelva a intentarlo.")
+	}
+	changes := map[string]any{"previous_status": prev, "status": want}
+	if reason != "" {
+		changes["reason"] = reason
+	}
+	_ = s.Record(ctx, api.AuditEntry{ActorType: p.Type, ActorID: p.Subject, Action: action, ResourceType: "tenant",
+		ResourceID: id.String(), IP: requestIP, Changes: changes})
+	return s.GetTenant(ctx, id)
+}
+
 // mergePatch aplica RFC 7396 a un objeto (null borra la clave).
 func mergePatch(target, patch map[string]any) map[string]any {
 	out := map[string]any{}

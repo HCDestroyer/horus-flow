@@ -6,7 +6,6 @@ package httpapi
 import (
 	"encoding/json"
 	"log/slog"
-	"net"
 	"net/http"
 	"time"
 
@@ -14,6 +13,7 @@ import (
 
 	"github.com/hcdestroyer/horus-flow/packages/go/apperr"
 	"github.com/hcdestroyer/horus-flow/packages/go/authz"
+	"github.com/hcdestroyer/horus-flow/packages/go/clientip"
 	"github.com/hcdestroyer/horus-flow/packages/go/httpx"
 	"github.com/hcdestroyer/horus-flow/packages/go/jsonapi"
 	"github.com/hcdestroyer/horus-flow/packages/go/pagination"
@@ -79,22 +79,17 @@ func (h *Handler) Mount(r *httpx.ServiceMux) {
 	r.Handle("POST /api/v1/platform/tenants", h.guard.Platform("platform.tenants.manage", h.createTenant))
 	r.Handle("GET /api/v1/platform/tenants/{tenant_id}", h.guard.Platform("platform.tenants.read", h.getTenant))
 	r.Handle("PATCH /api/v1/platform/tenants/{tenant_id}", h.guard.Platform("platform.tenants.manage", h.updateTenant))
+	r.Handle("POST /api/v1/platform/tenants/{tenant_id}/suspend", h.guard.Platform("platform.tenants.manage", h.suspendTenant))
+	r.Handle("POST /api/v1/platform/tenants/{tenant_id}/resume", h.guard.Platform("platform.tenants.manage", h.resumeTenant))
 }
 
 func (h *Handler) fail(w http.ResponseWriter, r *http.Request, err error) {
 	apperr.WriteHTTP(w, r, h.logger, err)
 }
 
-func clientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return ""
-	}
-	if net.ParseIP(host) == nil {
-		return ""
-	}
-	return host
-}
+// clientIP es la IP real del cliente tras los proxies de confianza
+// (packages/go/clientip); "" si no se puede determinar.
+func clientIP(r *http.Request) string { return clientip.String(r) }
 
 func loginInput(r *http.Request) app.LoginInput {
 	ua := r.UserAgent()
@@ -450,6 +445,44 @@ func (h *Handler) getTenant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t, err := h.svc.GetTenant(r.Context(), id)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	w.Header().Set("ETag", jsonapi.ETag(t.Version))
+	jsonapi.Write(w, http.StatusOK, tenantJSON(t))
+}
+
+// suspendTenant es POST /platform/tenants/{id}/suspend.
+func (h *Handler) suspendTenant(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, r, "tenant_id", problem.CodeTenantNotFound)
+	if !ok {
+		return
+	}
+	body := struct {
+		Reason      string `json:"reason"`
+		PauseIngest *bool  `json:"pause_ingest"`
+	}{}
+	if !jsonapi.Decode(w, r, &body, true) {
+		return
+	}
+	pause := body.PauseIngest == nil || *body.PauseIngest
+	t, err := h.svc.SetTenantStatus(r.Context(), authz.FromContext(r.Context()), id, true, body.Reason, pause, clientIP(r))
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	w.Header().Set("ETag", jsonapi.ETag(t.Version))
+	jsonapi.Write(w, http.StatusOK, tenantJSON(t))
+}
+
+// resumeTenant es POST /platform/tenants/{id}/resume.
+func (h *Handler) resumeTenant(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, r, "tenant_id", problem.CodeTenantNotFound)
+	if !ok {
+		return
+	}
+	t, err := h.svc.SetTenantStatus(r.Context(), authz.FromContext(r.Context()), id, false, "", false, clientIP(r))
 	if err != nil {
 		h.fail(w, r, err)
 		return

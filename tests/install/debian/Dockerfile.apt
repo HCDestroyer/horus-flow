@@ -1,0 +1,13 @@
+# Debian "recién instalado" con systemd como PID 1 para `make test-install-debian`
+# (TEST_MODE=apt, el de CI): solo systemd; bootstrap-debian.sh instala TODO lo demás por apt
+# (Docker desde el repositorio oficial, wireguard-tools, age, jq, iptables, NTP…).
+ARG DEBIAN_VERSION=12
+FROM debian:${DEBIAN_VERSION}
+ENV container=docker
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends systemd systemd-sysv dbus procps iproute2 \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -f /etc/systemd/system/*.wants/* /lib/systemd/system/multi-user.target.wants/getty* \
+    && systemctl mask systemd-firstboot.service getty.target console-getty.service
+STOPSIGNAL SIGRTMIN+3
+CMD ["/lib/systemd/systemd"]

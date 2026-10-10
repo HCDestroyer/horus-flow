@@ -176,6 +176,8 @@ paths:
     $ref: ./alerts.yaml#/paths/~1notification-deliveries
   /permissions:
     $ref: ./auth.yaml#/paths/~1permissions
+  /platform/events:
+    $ref: ./platform.yaml#/paths/~1platform~1events
   /platform/exporters/unregistered:
     $ref: ./platform.yaml#/paths/~1platform~1exporters~1unregistered
   /platform/installation:
@@ -198,6 +200,8 @@ paths:
     $ref: ./platform.yaml#/paths/~1platform~1tenants~1{tenant_id}~1resume
   /platform/tenants/{tenant_id}/suspend:
     $ref: ./platform.yaml#/paths/~1platform~1tenants~1{tenant_id}~1suspend
+  /platform/updates:
+    $ref: ./platform.yaml#/paths/~1platform~1updates
   /platform/users:
     $ref: ./platform.yaml#/paths/~1platform~1users
   /platform/wireguard/hubs:

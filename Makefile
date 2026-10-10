@@ -241,6 +241,19 @@ backup-status: ## Estado de backups, restauraciones de prueba y disco
 test-backup: ## Prueba de I1-23: instala en un raíz temporal, backups, restauración verificada y alertas (sudo)
 	@GO='$(GO)' bash scripts/backup/test-backup.sh
 
+# Instalación de punta a punta en Debian con systemd y Docker dentro (I1-22, docs/install-debian.md):
+# bootstrap-debian.sh, paquete offline, reinicio, upgrade con vuelta atrás y desinstalación.
+#   make test-install-debian DEBIAN_VERSION=13 TEST_MODE=sandbox
+DEBIAN_VERSION ?= 12
+TEST_MODE ?= apt
+.PHONY: test-install-debian
+test-install-debian: ## Prueba el instalador en Debian 12/13 (DEBIAN_VERSION, TEST_MODE=apt|sandbox; Docker privilegiado)
+	@DEBIAN_VERSION='$(DEBIAN_VERSION)' TEST_MODE='$(TEST_MODE)' GO='$(GO)' bash tests/install/debian/run.sh
+
+.PHONY: release-artifacts
+release-artifacts: ## Artefactos de release locales (VERSION=X.Y.Z; imágenes locales HORUS_IMAGE, HORUS_WEB_IMAGE, HORUS_POSTGRES_IMAGE)
+	bash scripts/release/build-release.sh --version '$(VERSION)' --out dist --arch amd64 --source local
+
 ##@ Carga y fallo
 
 # Prueba de carga y pruebas de fallo de I1 (I1-26, tests/load/REPORT.md). Levantan su propio
@@ -271,6 +284,17 @@ load-isp10k: ## Carga de un ISP de 10 000 clientes (rampa 10k→60k flujos/s) y 
 .PHONY: chaos-restart-flows
 chaos-restart-flows: ## Reinicios bruscos de collector, horus-app, NATS y ClickHouse: 0 pérdida (salvo UDP con el collector caído) y 0 duplicados
 	@GO='$(GO)' bash tests/chaos/restart-flows.sh
+
+# Matriz de reinicio brusco de los módulos no de flujos (CORE, D23; tests/chaos/core/run.sh):
+# instalación real en /tmp/horus-chaos-core (proyecto horus-chaos-core, puertos +22000), kill -9 y
+# docker restart de horus-app, horus-wg-agent, PostgreSQL, NATS y Valkey en orden y momento
+# aleatorios, caída larga de horus-app con flujos durante la caída y accept-i1 contra la misma
+# instalación al terminar. Necesita root. Variables: CHAOS_ROUNDS (2), CHAOS_SCENARIOS, CHAOS_SEED,
+# CHAOS_SKIP_ACCEPT=1, CHAOS_SKIP_OUTAGE=1, CHAOS_KEEP=1, CHAOS_REUSE=1,
+# ACCEPT_IMAGE_MODE. Resultados: bin/chaos-core/report.{md,json} y diagnose.tar.gz.
+.PHONY: chaos-restart-core
+chaos-restart-core: ## Matriz de reinicio brusco (kill -9 y restart) de app, wg-agent, PostgreSQL, NATS y Valkey + accept-i1
+	@GO='$(GO)' GOLANGCI_LINT='$(GOLANGCI_LINT)' bash tests/chaos/core/run.sh
 
 ##@ Aceptación
 

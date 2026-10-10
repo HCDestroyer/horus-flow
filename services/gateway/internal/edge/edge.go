@@ -23,7 +23,6 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -33,6 +32,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/hcdestroyer/horus-flow/packages/go/authz"
+	"github.com/hcdestroyer/horus-flow/packages/go/clientip"
 	"github.com/hcdestroyer/horus-flow/packages/go/observability"
 	"github.com/hcdestroyer/horus-flow/packages/go/problem"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
@@ -117,13 +117,9 @@ func (e *Edge) Middleware(next http.Handler) http.Handler {
 	return r
 }
 
-func clientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
-}
+// clientIP es la IP real del cliente (detrás de Traefik y, en modo TLS
+// externo, del proxy inverso de confianza): packages/go/clientip.
+func clientIP(r *http.Request) string { return clientip.String(r) }
 
 func (e *Edge) serve(w http.ResponseWriter, r *http.Request, rt routes.Route, next http.Handler) {
 	for k := range r.Header {

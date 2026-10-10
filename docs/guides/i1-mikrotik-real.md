@@ -86,38 +86,20 @@ Al terminar tendrás:
 
 ## 3. Instalar Horus en el servidor
 
-Conéctate al servidor por SSH y ejecuta:
+Sigue [`../install-debian.md`](../install-debian.md): en un **Debian 12 o 13** recién instalado
+basta **un comando** (como root), que instala Docker, WireGuard y la hora automática, descarga una
+versión verificada de Horus y la arranca (no hace falta clonar el repositorio ni compilar):
 
 ```bash
-git clone https://github.com/hcdestroyer/horus-flow
-cd horus-flow
-sudo bash scripts/install.sh
+apt-get install -y curl && curl -fsSLO https://github.com/hcdestroyer/horus-flow/releases/latest/download/bootstrap-debian.sh && bash bootstrap-debian.sh
 ```
 
-El instalador **pregunta** y comprueba los requisitos. Responde:
-
-1. **Modo de acceso**: `domain`, `subdomain` o `ip` (tabla del paso 2).
-2. **Nombre** (solo `domain`/`subdomain`): p. ej. `horus.tu-isp.net`, y un **email** para avisos de
-   Let's Encrypt.
-3. **IP pública** (solo `ip`): la que usará el router para llegar al servidor.
-4. **Rango de túneles**: deja el propuesto `10.255.0.0/16` salvo que ya uses esa red. **Nunca**
-   `100.64.0.0/10` (es el CGNAT de los ISP; el instalador lo rechaza).
-5. **Email del superadministrador**: el tuyo. La contraseña inicial la genera y te la muestra (o
-   usa la tuya con `--admin-password-file`).
-
-Si prefieres no responder preguntas, los tres modos en una línea:
-
-```bash
-# Dominio propio (o subdominio: --mode subdomain)
-sudo bash scripts/install.sh --yes --mode domain --domain horus.tu-isp.net --acme-email noc@tu-isp.net \
-     --admin-email noc@tu-isp.net --admin-password-file /root/clave-horus
-
-# Solo IP (sin dominio)
-sudo bash scripts/install.sh --yes --mode ip --public-ip 203.0.113.20 \
-     --admin-email noc@tu-isp.net --admin-password-file /root/clave-horus
-```
-
-(`/root/clave-horus` es un archivo que creas tú con la contraseña inicial dentro.)
+Responde a las preguntas: **modo de acceso** (`ip`, `domain` o `subdomain`, tabla del paso 2;
+o detrás de tu propio proxy inverso con `--tls external`, apartado 11 de esa guía), **rango de
+túneles** (deja `10.255.0.0/16` salvo que ya uses esa red; **nunca** `100.64.0.0/10`) y **email y
+contraseña del superadministrador**. Para hacerlo sin preguntas, en otro sistema que no sea Debian o
+sin Internet (paquete offline), mira los apartados 3, 4 y 12 de
+[`../install-debian.md`](../install-debian.md).
 
 Al terminar el instalador muestra un resumen. **Guarda estas tres cosas:**
 
@@ -134,11 +116,12 @@ Al terminar el instalador muestra un resumen. **Guarda estas tres cosas:**
 Comprueba que todo está sano (debe terminar en `check: OK`):
 
 ```bash
-sudo /opt/horus/bin/install.sh --check
+sudo horus-ctl check
 ```
 
-> Si algo falla, vuelve a ejecutar `sudo bash scripts/install.sh`: es seguro repetirlo (no cambia
-> contraseñas ni secretos). Si sigue fallando, guarda la salida y abre un issue.
+> Si algo falla, vuelve a ejecutar `bash bootstrap-debian.sh`: es seguro repetirlo (no cambia
+> contraseñas ni secretos). `sudo horus-ctl status` y `sudo horus-ctl logs` ayudan a ver qué pasa;
+> los problemas frecuentes están en el apartado 13 de [`../install-debian.md`](../install-debian.md).
 
 ## 4. Primer acceso: contraseña y código de verificación
 

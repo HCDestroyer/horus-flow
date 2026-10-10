@@ -13,6 +13,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/apperr"
 	"github.com/hcdestroyer/horus-flow/packages/go/authz"
 	"github.com/hcdestroyer/horus-flow/packages/go/outbox"
+	"github.com/hcdestroyer/horus-flow/packages/go/platformevents"
 	"github.com/hcdestroyer/horus-flow/packages/go/pagination"
 	"github.com/hcdestroyer/horus-flow/packages/go/pgdb"
 	"github.com/hcdestroyer/horus-flow/packages/go/problem"
@@ -99,8 +100,22 @@ func (s *Service) ReportStatus(ctx context.Context, req *agentv1.ReportStatusReq
 	if req.GetAppliedVersion() < desired {
 		s.mu.Lock()
 		s.lastPush = 0 // fuerza el reenvío
+		noted := s.agentZeroNoted
+		s.agentZeroNoted = req.GetAppliedVersion() == 0
 		s.mu.Unlock()
+		if req.GetAppliedVersion() == 0 && !noted {
+			// applied_version = 0: el agente arrancó (o se reinició) sin estado;
+			// queda en el registro de plataforma y se le reenvía todo.
+			platformevents.Emit(ctx, platformevents.Event{Kind: platformevents.KindAgentRestarted, Severity: platformevents.SeverityWarn,
+				Role: "wireguard", Message: "wg-agent reported no applied state (started or restarted); full desired state re-sent",
+				Details: map[string]any{"hub_id": s.o.Hub.ID.String(), "desired_version": desired, "interface_up": req.GetInterfaceUp(),
+					"observed_peers": len(req.GetPeers())}})
+		}
 		s.Kick()
+	} else {
+		s.mu.Lock()
+		s.agentZeroNoted = false
+		s.mu.Unlock()
 	}
 	return &agentv1.ReportStatusResponse{DesiredVersion: desired}, nil
 }

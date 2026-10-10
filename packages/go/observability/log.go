@@ -26,6 +26,11 @@ const (
 	KeyVersion   = "version"
 	KeyEnv       = "env"
 	KeyError     = "error"
+	// Claves cuando aplican (docs/observability.md §3.1).
+	KeyEventID    = "event_id"
+	KeyRouterID   = "router_id"
+	KeyErrorCause = "error_cause"
+	KeyErrorType  = "error_type"
 )
 
 // TimeFormat es RFC 3339 con milisegundos y Z.
@@ -128,6 +133,7 @@ func (h *ContextHandler) Enabled(ctx context.Context, l slog.Level) bool {
 
 // Handle implementa slog.Handler.
 func (h *ContextHandler) Handle(ctx context.Context, r slog.Record) error {
+	r, seen, cause := normalize(r)
 	role := RoleFrom(ctx)
 	traceID, spanID := TraceFrom(ctx)
 	add := func(key, val string) {
@@ -144,11 +150,82 @@ func (h *ContextHandler) Handle(ctx context.Context, r slog.Record) error {
 	add(KeyTraceID, traceID)
 	add(KeySpanID, spanID)
 	add(KeyRequestID, RequestIDFrom(ctx))
-	add(KeyTenantID, TenantFrom(ctx))
+	if !seen[KeyTenantID] {
+		add(KeyTenantID, TenantFrom(ctx))
+	}
+	// Opcionales: solo cuando aplican (mensaje NATS, operación de un router).
+	if v := EventIDFrom(ctx); v != "" && !seen[KeyEventID] {
+		add(KeyEventID, v)
+	}
+	if v := RouterFrom(ctx); v != "" && !seen[KeyRouterID] {
+		add(KeyRouterID, v)
+	}
+	if cause != nil {
+		r.AddAttrs(slog.String(KeyErrorCause, cause.Error()), slog.String(KeyErrorType, fmt.Sprintf("%T", cause)))
+	}
 	if err := h.inner.Handle(ctx, r); err != nil {
 		return fmt.Errorf("log handler: %w", err)
 	}
 	return nil
+}
+
+// normalize homogeneiza las claves de una línea (docs/observability.md
+// §3.1): `err` → `error` y `tenant` → `tenant_id`. Devuelve las claves
+// presentes y, si `error` es un error envuelto, su causa raíz (se añade como
+// error_cause y error_type para poder agrupar fallos por causa).
+func normalize(r slog.Record) (slog.Record, map[string]bool, error) {
+	seen := map[string]bool{}
+	var cause error
+	changed := false
+	attrs := make([]slog.Attr, 0, r.NumAttrs())
+	r.Attrs(func(a slog.Attr) bool {
+		switch a.Key {
+		case "err":
+			a.Key, changed = KeyError, true
+		case "tenant":
+			a.Key, changed = KeyTenantID, true
+		}
+		if a.Key == KeyError {
+			if e, ok := a.Value.Any().(error); ok && e != nil {
+				if root := rootCause(e); root != e && root.Error() != e.Error() {
+					cause = root
+				}
+			}
+		}
+		seen[a.Key] = true
+		attrs = append(attrs, a)
+		return true
+	})
+	if !changed {
+		return r, seen, cause
+	}
+	out := slog.NewRecord(r.Time, r.Level, r.Message, r.PC)
+	out.AddAttrs(attrs...)
+	return out, seen, cause
+}
+
+// rootCause recorre la cadena de errores envueltos (la primera rama en
+// errors.Join) hasta el último.
+func rootCause(err error) error {
+	for range 32 {
+		switch u := err.(type) { //nolint:errorlint // se recorre la cadena a mano
+		case interface{ Unwrap() error }:
+			next := u.Unwrap()
+			if next == nil {
+				return err
+			}
+			err = next
+		case interface{ Unwrap() []error }:
+			list := u.Unwrap()
+			if len(list) == 0 || list[0] == nil {
+				return err
+			}
+			err = list[0]
+		default:
+			return err
+		}
+	}
+	return err
 }
 
 // WithAttrs implementa slog.Handler.

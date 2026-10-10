@@ -16,11 +16,15 @@
 #   sim-router.sh down-all                    borra todos los routers simulados
 #
 # Necesita root, iproute2, wireguard-tools (wg) y el módulo wireguard o wireguard-go.
-# Variables: SIM_ROUTER_DIR (claves; bin/accept-i1/sim).
+# Variables: SIM_ROUTER_DIR (claves; bin/accept-i1/sim). Para convivir con otra batería en el mismo host
+# (p. ej. make chaos-restart-core mientras corre accept-i1): SIM_ROUTER_NS_PREFIX (hfsim-),
+# SIM_ROUTER_IF_PREFIX (hfsim; ≤ 6 caracteres) y SIM_ROUTER_LINK_NET (169.254.77).
 
 set -euo pipefail
 
-prefix=hfsim-
+prefix="${SIM_ROUTER_NS_PREFIX:-hfsim-}"
+ifp="${SIM_ROUTER_IF_PREFIX:-hfsim}"
+linknet="${SIM_ROUTER_LINK_NET:-169.254.77}"
 dir="${SIM_ROUTER_DIR:-$(cd "$(dirname "$0")/../.." && pwd)/bin/accept-i1/sim}"
 mkdir -p "$dir"
 chmod 0700 "$dir"
@@ -36,14 +40,14 @@ up() {
   local ns veth_h veth_n base host_ip ns_ip
   ns="$(ns_of "$name")"
   [[ "$idx" =~ ^[0-9]+$ ]] && [ "$idx" -lt 60 ] || die "índice inválido: $idx"
-  veth_h="hfsimh$idx" veth_n="hfsimn$idx"
+  veth_h="${ifp}h$idx" veth_n="${ifp}n$idx"
   # Nombre de interfaz único en el host: el socket UAPI de wireguard-go
   # (/var/run/wireguard/<nombre>.sock) no está aislado por namespace.
-  local wgi="hfsimwg$idx"
+  local wgi="${ifp}wg$idx"
   echo "$wgi" >"$dir/$name.if"
   # Enlace host ↔ namespace por un /30 de 169.254.77.0/24 (el host es el servidor de Horus).
   base=$((idx * 4))
-  host_ip="169.254.77.$((base + 1))" ns_ip="169.254.77.$((base + 2))"
+  host_ip="$linknet.$((base + 1))" ns_ip="$linknet.$((base + 2))"
   ip netns del "$ns" 2>/dev/null || true
   ip link del "$veth_h" 2>/dev/null || true
   ip netns add "$ns"
@@ -93,10 +97,10 @@ down_all() {
     ip netns pids "$ns" 2>/dev/null | xargs -r kill 2>/dev/null || true
     ip netns del "$ns" 2>/dev/null || true
   done
-  for l in $(ip -o link show 2>/dev/null | awk -F': ' '{ print $2 }' | cut -d@ -f1 | grep '^hfsimh' || true); do
+  for l in $(ip -o link show 2>/dev/null | awk -F': ' '{ print $2 }' | cut -d@ -f1 | grep "^${ifp}h[0-9]" || true); do
     ip link del "$l" 2>/dev/null || true
   done
-  rm -f "$dir"/*.key "$dir"/*.if /var/run/wireguard/hfsimwg*.sock
+  rm -f "$dir"/*.key "$dir"/*.if /var/run/wireguard/"$ifp"wg*.sock
 }
 
 cmd="${1:-}"

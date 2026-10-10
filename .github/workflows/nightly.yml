@@ -18,6 +18,11 @@
 #                 real de MikroTik, clientes, tops, hallazgos, exportadores, aislamiento, WebSocket y
 #                 kiosco. "Hecho cuando": verde dos noches seguidas. lab-chr se omite (sin KVM).
 #
+#   install-debian  I1-22: `make test-install-debian` en matriz Debian 12/13 con TEST_MODE=apt:
+#                 contenedor Debian con systemd, bootstrap-debian.sh instala por apt Docker oficial,
+#                 WireGuard, age, jq, iptables y NTP; paquete offline, reinicio, upgrade con vuelta
+#                 atrás, desinstalación y modo detrás de nginx (--tls external).
+#
 # Se ejecuta cada noche y a mano (workflow_dispatch). Los logs quedan como artefactos 14 días.
 # Actions fijadas por SHA (comentario = versión), igual que ci.yml.
 
@@ -135,6 +140,38 @@ jobs:
       - name: Desinstalación (--purge)
         if: always()
         run: sudo bash scripts/install.sh --uninstall --purge --yes
+
+  # -------------------------------------------------------------------------------------------
+  install-debian:
+    name: install-debian ${{ matrix.debian }} (I1-22)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        debian: ["12", "13"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      # Imágenes del Dockerfile raíz y del frontend (en el runner no hay proxy que lo impida).
+      - name: make test-install-debian
+        env:
+          DEBIAN_VERSION: ${{ matrix.debian }}
+          TEST_MODE: apt
+          TEST_IMAGE_MODE: dockerfile
+        run: make test-install-debian
+      - name: Logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: install-debian-${{ matrix.debian }}
+          path: bin/test-install-debian/debian${{ matrix.debian }}/
+          retention-days: 14
+          if-no-files-found: ignore
 
   # -------------------------------------------------------------------------------------------
   test-backup:

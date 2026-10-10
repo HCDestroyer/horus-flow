@@ -11,6 +11,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+
+	"github.com/hcdestroyer/horus-flow/packages/go/observability"
 )
 
 // Message es un mensaje entregado a un handler con el tenant ya validado.
@@ -186,6 +188,7 @@ func Process(ctx context.Context, js jetstream.JetStream, c *ConsumerConfig, msg
 		return
 	}
 	m.Delivered = delivered
+	ctx = MessageContext(ctx, m)
 	err = h(ctx, m)
 	switch {
 	case err == nil:
@@ -198,6 +201,30 @@ func Process(ctx context.Context, js jetstream.JetStream, c *ConsumerConfig, msg
 			slog.Uint64("delivered", delivered), slog.Any("error", err))
 		_ = msg.Nak()
 	}
+}
+
+// MessageContext devuelve el contexto de procesamiento de m (consumidor
+// 1:1, docs/observability.md §4.2): continúa la traza del mensaje (el
+// trace_parent del sobre es la fuente de verdad; si no, la cabecera
+// traceparent) con un span nuevo y marca tenant_id y event_id para que
+// todos los logs del handler los lleven.
+func MessageContext(ctx context.Context, m *Message) context.Context {
+	tp := m.Header.Get(observability.HeaderTraceParent)
+	if m.Envelope != nil && m.Envelope.TraceParent != nil {
+		tp = *m.Envelope.TraceParent
+	}
+	ctx = observability.ContinueTrace(ctx, tp)
+	if m.Tenant != uuid.Nil {
+		ctx = observability.WithTenant(ctx, m.Tenant.String())
+	}
+	id := m.Header.Get(HeaderMsgID)
+	if m.Envelope != nil {
+		id = m.Envelope.ID.String()
+	}
+	if id != "" {
+		ctx = observability.WithEventID(ctx, id)
+	}
+	return ctx
 }
 
 // ErrTenantInvalid es la causa de DLQ de un mensaje sin tenant válido.

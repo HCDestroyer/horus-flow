@@ -240,6 +240,64 @@ paths:
                     type: array
                     items: { $ref: '#/components/schemas/TenantOverview' }
         '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+  /platform/events:
+    get:
+      tags: [platform]
+      operationId: platformListEvents
+      summary: Registro de eventos de plataforma (arranques, caídas, migraciones, degradaciones; D23)
+      description: |
+        Eventos de la instalación, más recientes primero: arranque y parada de cada proceso y rol con su versión,
+        paradas no limpias detectadas al arrancar (`unclean_shutdown`), dependencias caídas o recuperadas según el
+        healthcheck de cada rol, migraciones aplicadas, búfer de telemetría por encima del 70 %, spool activo,
+        reinicios del agente WireGuard, fallos definitivos de envío de alertas y cambios de la configuración
+        efectiva entre arranques. Sin datos de clientes; `tenant_id` solo en eventos de un ISP (p. ej.
+        `alert_delivery_failed`). Retención `HORUS_PLATFORM_EVENTS_RETENTION` (90 días). La UI de la consola de
+        plataforma queda pendiente.
+      x-module: gateway
+      x-scope: platform
+      x-permission: platform.status.read
+      x-increment: I1
+      security:
+        - platformBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Limit'
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - name: kind
+          in: query
+          description: Tipos separados por comas.
+          schema: { type: string, examples: ['unclean_shutdown,dependency_down'] }
+        - name: severity
+          in: query
+          description: Severidad mínima.
+          schema: { type: string, enum: [info, warn, error] }
+        - name: process
+          in: query
+          schema: { type: string, examples: [horus-app] }
+        - name: role
+          in: query
+          schema: { type: string, examples: [alerts] }
+        - name: since
+          in: query
+          schema: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        - name: until
+          in: query
+          schema: { $ref: './common.yaml#/components/schemas/Timestamp' }
+      responses:
+        '200':
+          description: Página de eventos.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/PlatformEvent' }
+                  page: { $ref: './common.yaml#/components/schemas/PageInfo' }
+        '400': { $ref: './common.yaml#/components/responses/BadRequest' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
   /platform/exporters/unregistered:
     get:
       tags: [platform]
@@ -297,6 +355,31 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/InstallationAccess' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+  /platform/updates:
+    get:
+      tags: [platform]
+      operationId: platformGetUpdates
+      summary: Aviso de versión nueva de Horus (canal stable o beta) con notas y comando de actualización
+      description: |
+        Lo calcula el rol `jobs` cada 6 h consultando la fuente de versiones de la instalación
+        (`HORUS_UPDATE_SOURCE`: API de releases de GitHub o un `latest.json` publicado con cada release).
+        Sin salida a Internet la comprobación falla en silencio y `status` = `unchecked`. Solo lectura: la
+        actualización la aplica la persona en el servidor (`sudo horus-ctl upgrade`) o, si está activada, la
+        actualización automática de parches (Z de X.Y.Z) en la ventana de mantenimiento.
+      x-module: jobs
+      x-scope: platform
+      x-permission: platform.updates.read
+      x-increment: I1
+      security:
+        - platformBearer: []
+      responses:
+        '200':
+          description: Estado de la última comprobación.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UpdateStatus' }
         '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
         '403': { $ref: './common.yaml#/components/responses/Forbidden' }
   /platform/reputation/sources:
@@ -625,6 +708,29 @@ components:
               tenant_id: { $ref: './common.yaml#/components/schemas/Uuid' }
               tenant_slug: { type: string }
               role_keys: { type: array, items: { type: string } }
+    PlatformEvent:
+      type: object
+      required: [id, occurred_at, kind, severity, process, instance, message]
+      properties:
+        id: { type: string, format: uuid }
+        occurred_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        kind:
+          type: string
+          enum: [process_started, process_stopped, unclean_shutdown, role_started, role_stopped, role_failed, dependency_down,
+            dependency_recovered, migration_applied, buffer_high, buffer_recovered, spool_active, spool_drained,
+            alert_delivery_failed, config_changed, agent_restarted, container_restarted]
+        severity: { type: string, enum: [info, warn, error] }
+        process: { type: string, examples: [horus-app] }
+        instance: { type: string, description: Hostname del contenedor (o HORUS_INSTANCE). }
+        role: { type: string }
+        version: { type: string }
+        tenant_id: { type: [string, 'null'], format: uuid }
+        message: { type: string }
+        details:
+          type: object
+          additionalProperties: true
+          description: Datos del evento sin secretos ni datos de clientes (p. ej. dependency, error, schema, changed_keys).
+        trace_id: { type: string }
     TenantOverview:
       type: object
       required: [tenant_id, slug, name, status, routers_total, exporters_exporting, exporters_silent, open_findings_critical, ingest_flows_per_second]
@@ -671,7 +777,9 @@ components:
         `acme_ip`: certificado para IP si el emisor ACME lo soporta (solo `ip_only`, opcional).
         `self_signed`: certificado autogenerado en la instalación con SAN = IP (por defecto en `ip_only`).
         `provided`: certificado aportado por el operador (CA interna del ISP), en cualquier modo.
-      enum: [acme, acme_ip, self_signed, provided]
+        `external`: TLS terminado por un proxy inverso de la persona (Nginx Proxy Manager, nginx, Caddy…) delante
+        de Horus; Traefik sirve HTTP solo a `--trusted-proxies` y Horus no emite HSTS (cuarto modo de D19).
+      enum: [acme, acme_ip, self_signed, provided, external]
     InstallationAccess:
       type: object
       required: [access_mode, public_base_url, host, allowed_origins, wireguard_endpoint, tls, warnings]
@@ -710,11 +818,46 @@ components:
               code:
                 anyOf:
                   - type: string
-                    enum: [ip_only_access, self_signed_certificate, certificate_expiring, acme_renewal_failed]
+                    enum: [ip_only_access, self_signed_certificate, certificate_expiring, acme_renewal_failed, proxy_forwarded_proto_http, proxy_untrusted_source]
                   - type: string
                     pattern: '^[a-z][a-z0-9_]*$'
               severity: { type: string, enum: [info, warning, critical] }
               message: { type: string }
+    UpdateStatus:
+      type: object
+      required: [status, current_version, channel, checked_at, update_available]
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          description: |
+            `up_to_date`: no hay versión mayor en el canal. `available`: hay una (ver `latest`). `unchecked`: no se
+            pudo consultar la fuente (sin Internet, fuente caída) o la comprobación está desactivada.
+          enum: [up_to_date, available, unchecked]
+        current_version: { type: string, description: 'Versión instalada (HORUS_VERSION, semver).', examples: ['1.2.3'] }
+        channel: { type: string, enum: [stable, beta] }
+        update_available: { type: boolean }
+        checked_at:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
+        latest:
+          oneOf:
+            - type: 'null'
+            - type: object
+              required: [version, notes_url, upgrade_command, patch_only]
+              additionalProperties: false
+              properties:
+                version: { type: string, examples: ['1.2.4'] }
+                published_at:
+                  oneOf:
+                    - $ref: './common.yaml#/components/schemas/Timestamp'
+                    - type: 'null'
+                notes_url: { type: string, format: uri }
+                notes: { type: [string, 'null'], description: 'Notas del cambio (Markdown de la release), recortadas a 8 KiB.' }
+                upgrade_command: { type: string, examples: ['sudo horus-ctl upgrade --to 1.2.4'] }
+                patch_only: { type: boolean, description: 'true si solo cambia Z (X.Y iguales): la actualización automática, si está activada, la aplicará en la ventana.' }
+        error: { type: [string, 'null'], description: 'Motivo de `unchecked` (texto para la consola; sin secretos).' }
     ReputationSourceOrigin:
       type: string
       description: '`catalog`: catálogo base de la instalación (D20: uso comercial aprobado). `custom`: agregada por el superadministrador.'

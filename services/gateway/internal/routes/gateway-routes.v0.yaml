@@ -478,6 +478,10 @@ modules:
       methods:
         GET: platform.tenants.read
   gateway:
+    - prefix: /api/v1/platform/events
+      scope: platform
+      methods:
+        GET: platform.status.read
     - prefix: /api/v1/platform/installation
       scope: platform
       methods:
@@ -511,6 +515,11 @@ modules:
         - user
         - api_token
         - kiosk
+  jobs:
+    - prefix: /api/v1/platform/updates
+      scope: platform
+      methods:
+        GET: platform.updates.read
   wireguard:
     - prefix: /api/v1/enroll/wireguard
       scope: public

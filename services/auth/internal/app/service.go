@@ -55,7 +55,6 @@ type Service struct {
 	dummyHash string
 
 	mu          sync.Mutex
-	mfaFailures map[uuid.UUID]int
 	cache       map[string]cachedStatus
 }
 
@@ -83,7 +82,7 @@ func NewService(store Store, o Options) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Service{store: store, o: o, dummyHash: dummy, mfaFailures: map[uuid.UUID]int{}, cache: map[string]cachedStatus{}}, nil
+	return &Service{store: store, o: o, dummyHash: dummy, cache: map[string]cachedStatus{}}, nil
 }
 
 func (s *Service) now() time.Time { return s.o.Now().UTC() }
@@ -283,19 +282,18 @@ func (s *Service) VerifyMFA(ctx context.Context, mfaToken, code string, in Login
 	}
 	in.Username = u.Email
 	if !s.checkSecondFactor(ctx, u.ID, code, now) {
-		s.mu.Lock()
-		s.mfaFailures[sid]++
-		n := s.mfaFailures[sid]
-		s.mu.Unlock()
+		// El contador vive en la sesión pendiente (D23: un reinicio no
+		// regala intentos).
+		n, err := s.store.MFAFailure(ctx, sid)
+		if err != nil {
+			return nil, err
+		}
 		s.auditLogin(ctx, in, u.ID.String(), "auth.mfa.failed", "failure", map[string]any{"attempt": n})
 		if n >= maxMFAFailures {
 			_ = s.revoke(ctx, sess, "mfa_failures", now)
 		}
 		return nil, errInvalidCredentials
 	}
-	s.mu.Lock()
-	delete(s.mfaFailures, sid)
-	s.mu.Unlock()
 	rt, raw, err := s.newRefresh(sess, now)
 	if err != nil {
 		return nil, err
