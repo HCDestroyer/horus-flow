@@ -1,8 +1,9 @@
 # ===== Horus Flow · onboarding de router · RouterOS v7 long-term (>= 7.18) · plantilla 7-longterm =====
 # Router: rt-centro _1__x (0192e333-0000-7000-8000-000000000033)
-# Revise el script antes de pegarlo. Todo lo que crea lleva comment="horus" y se deshace con el
-# script inverso. Contraseñas y token de enrolamiento se muestran UNA SOLA VEZ: guarde este archivo
-# en un lugar seguro o bórrelo tras pegarlo. El token caduca a las 24 h y sirve una sola vez.
+# Revise el script antes de pegarlo. Todo lo que crea lleva comment="horus" (salvo el destino de
+# Traffic Flow, que no admite comment) y se deshace con el script inverso. Contraseñas y token
+# de enrolamiento se muestran UNA SOLA VEZ: guarde este archivo en un lugar seguro o bórrelo tras
+# pegarlo. El token caduca a las 24 h y sirve una sola vez.
 # Horus no escribe en el router: solo lee por el túnel con el usuario de solo lectura.
 
 # 0) Hora (los timestamps de IPFIX dependen de NTP)
@@ -63,7 +64,7 @@
     /ip traffic-flow set enabled=yes
 }
 /ip traffic-flow target add dst-address=10.255.0.1 port=4739 version=ipfix \
-    src-address=10.255.3.17 v9-template-refresh=20 v9-template-timeout=1m comment="horus"
+    src-address=10.255.3.17 v9-template-refresh=20 v9-template-timeout=1m
 # Campos IPFIX, incluidos los NAT: con NAT/CGNAT en este router la bajada solo se atribuye al cliente
 # por postNATDestinationIPv4Address (verificado con un router real, docs/traffic-model.md §4.4.3).
 /ip traffic-flow ipfix set sys-init-time=yes first-forwarded=yes last-forwarded=yes \

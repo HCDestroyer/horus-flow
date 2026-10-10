@@ -394,7 +394,7 @@ export function provisioningScript(
     `/interface wireguard peers add interface=wg-horus endpoint-address=${endpoint} endpoint-port=51820 public-key="HoRuSHubPublicKeyExampleBase64xxxxxxxxxxxxx=" allowed-address=10.255.0.1/32 persistent-keepalive=25s comment="horus"`,
     '/ip route add dst-address=10.255.0.1/32 gateway=wg-horus comment="horus"',
     `/ip traffic-flow set enabled=yes interfaces=all cache-entries=128k active-flow-timeout=1m inactive-flow-timeout=15s`,
-    '/ip traffic-flow target add dst-address=10.255.0.1 port=4739 version=ipfix comment="horus"',
+    `/ip traffic-flow target add dst-address=10.255.0.1 port=4739 version=ipfix src-address=${tunnel}`,
     '/user group add name=horus-ro policy=read,api,rest-api,!write,!policy comment="horus"',
     '/user add name=horus-ro group=horus-ro password=$horusPass comment="horus"',
     ':local pub [/interface wireguard get [find name=wg-horus] public-key]',
@@ -407,7 +407,7 @@ export function provisioningScript(
 export function deprovisioningScript(item: MockRouter) {
   return [
     `# Horus Flow · desinstalación de ${item.router.name}`,
-    '/ip traffic-flow target remove [find comment="horus"]',
+    `/ip traffic-flow target remove [find where dst-address=10.255.0.1 && port=4739]`,
     '/ip route remove [find comment="horus"]',
     '/interface wireguard peers remove [find comment="horus"]',
     '/ip address remove [find comment="horus"]',
