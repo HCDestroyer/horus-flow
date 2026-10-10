@@ -331,6 +331,11 @@ func (c *chaos) restartScenario(ctx context.Context, target, method string, repe
 		}
 	}
 	lastUp := time.Now()
+	// Estado del exportador con el tráfico aún entrando (tras el último
+	// reinicio; el simulador sigue 40 s): registrado en el ingester (API) y
+	// exportando.
+	sleep(ctx, 10*time.Second)
+	c.exporterState(ctx, &r, 25*time.Second)
 	if err := <-sim.Done(); err != nil {
 		r.Why = append(r.Why, "simulador: "+err.Error())
 	}
@@ -698,23 +703,23 @@ func (c *chaos) verifyRestart(ctx context.Context, r *restartResult, sim *loadki
 	if r.Customers[1] < r.Customers[0] || r.Prefixes[1] != r.Prefixes[0] {
 		r.Why = append(r.Why, fmt.Sprintf("clientes %v → %v, prefijos %d → %d", r.Customers[0], r.Customers[1], r.Prefixes[0], r.Prefixes[1]))
 	}
-	// Exportador: registrado en el ingester (API) y exportando.
-	deadline := time.Now().Add(60 * time.Second)
+}
+
+func (c *chaos) exporterState(ctx context.Context, r *restartResult, d time.Duration) {
+	deadline := time.Now().Add(d)
 	for time.Now().Before(deadline) {
 		res, err := c.api.TenantDo(ctx, loadkit.Call{Method: http.MethodGet, Path: "/api/v1/flow-exporters/" + c.st.RouterID})
 		if err == nil && res.Status == http.StatusOK {
 			r.ExporterState = res.Str("state")
 			if r.ExporterState == "exporting" {
-				break
+				return
 			}
 		} else if err == nil {
 			r.ExporterState = fmt.Sprintf("HTTP %d", res.Status)
 		}
 		time.Sleep(2 * time.Second)
 	}
-	if r.ExporterState != "exporting" {
-		r.Why = append(r.Why, "estado del exportador: "+r.ExporterState)
-	}
+	r.Why = append(r.Why, "estado del exportador tras el último reinicio: "+r.ExporterState)
 }
 
 // aggQuery cuenta los grupos del agregado que no coinciden (bytes, paquetes,
