@@ -12,6 +12,8 @@
 #      después, en orden aleatorio y repetido (CHAOS_ROUNDS), `kill -9` del proceso principal y
 #      `docker restart` de horus-app, horus-wg-agent, PostgreSQL, NATS y Valkey en un momento
 #      aleatorio, y tras cada uno comprueba recuperación, túneles, sesión, WebSocket y kiosco;
+#      después, una caída larga de horus-app (9 min, más que una ventana del motor) con flujos del
+#      escenario dos_out durante la caída: al volver, su hallazgo debe abrirse (ventanas atrasadas);
 #      al final, hallazgos sin pérdidas ni duplicados, alertas sin pérdidas ni duplicados (salvo la
 #      deduplicación documentada), outbox sin eventos colgados, eventos de plataforma y un paquete
 #      `horus diagnose` sin IPs de clientes;
@@ -23,6 +25,7 @@
 #   CHAOS_SCENARIOS                subconjunto, p. ej. "kill:horus-app,restart:postgres"
 #   CHAOS_SEED                     semilla del orden y de los momentos (por defecto, la hora)
 #   CHAOS_SKIP_ACCEPT=1            no ejecuta accept-i1 al final
+#   CHAOS_SKIP_OUTAGE=1            sin la caída larga de horus-app
 #   CHAOS_KEEP=1                   conserva instalación y routers simulados
 #   CHAOS_REUSE=1                  reutiliza la instalación de CHAOS_ROOT (no reinstala)
 #   CHAOS_ROOT (/tmp/horus-chaos-core), CHAOS_PORT_OFFSET (22000), ACCEPT_IMAGE_MODE (auto)

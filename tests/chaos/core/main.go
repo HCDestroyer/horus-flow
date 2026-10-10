@@ -156,9 +156,12 @@ func (r *run) main() int {
 		return 1
 	}
 	loadCtx, stopLoad := context.WithCancel(ctx)
+	flowsCtx, stopFlows := context.WithCancel(loadCtx)
 	var wg sync.WaitGroup
-	wg.Add(3)
-	go func() { defer wg.Done(); r.flowsLoop(loadCtx) }()
+	var flowsWG sync.WaitGroup
+	wg.Add(2)
+	flowsWG.Add(1)
+	go func() { defer flowsWG.Done(); r.flowsLoop(flowsCtx) }()
 	go func() { defer wg.Done(); r.testNotifications(loadCtx) }()
 	go func() { defer wg.Done(); r.userWS(loadCtx) }()
 	go r.kiosk.Run(loadCtx)
@@ -173,6 +176,14 @@ func (r *run) main() int {
 			ok = ok && res.OK
 			r.writeReport()
 		}
+	}
+	stopFlows()
+	flowsWG.Wait()
+	if os.Getenv("CHAOS_SKIP_OUTAGE") != "1" {
+		res := r.outage(ctx)
+		r.results = append(r.results, res)
+		ok = ok && res.OK
+		r.writeReport()
 	}
 	stopLoad()
 	wg.Wait()
@@ -591,6 +602,84 @@ func (r *run) scenario(ctx context.Context, round int, sc string) scenarioResult
 	return res
 }
 
+// outage es la caída larga de horus-app (D23, ventanas del motor): con
+// horus-app parado más que una ventana de detección más su retraso, el router
+// exporta el escenario dos_out (el collector lo deja en TLM_FLOWS); al volver,
+// el motor debe evaluar las ventanas atrasadas y abrir el hallazgo
+// ddos_participation esperado, y su alerta debe llegar. Antes del arreglo solo
+// se evaluaba la ventana actual y ese hallazgo se perdía.
+func (r *run) outage(ctx context.Context) scenarioResult {
+	res := scenarioResult{Round: 0, Scenario: "outage:horus-app (9 min, flujos durante la caída)", Recovery: map[string]string{}}
+	r.logf("==> caída larga de horus-app: docker stop, escenario dos_out durante la caída, docker start a los 9 min")
+	t0 := time.Now()
+	if _, err := docker(ctx, "stop", "-t", "10", r.container("horus-app")); err != nil {
+		res.Errors = append(res.Errors, err.Error())
+		return res
+	}
+	rt := r.routers[0]
+	logf, _ := os.Create(filepath.Join(r.c.state, "flowsim-outage.log"))                                               //nolint:gosec // log de la prueba
+	cmd := exec.CommandContext(ctx, r.c.simRouter, "exec", rt.name, r.c.flowsim, "-scenario", "dos_out", "-seed", "1", //nolint:gosec // prueba
+		"-proto", "ipfix", "-fixture", "-target", rt.onb.collector+":4739", "-src", rt.tunnelIP, "-speed", "1",
+		"-expected", filepath.Join(r.c.state, "dos_out.expected.json"))
+	cmd.Stdout, cmd.Stderr = logf, logf
+	err := cmd.Run()
+	_ = logf.Close()
+	if err != nil {
+		res.Errors = append(res.Errors, "flowsim dos_out: "+err.Error())
+	}
+	if d := time.Until(t0.Add(9 * time.Minute)); d > 0 {
+		time.Sleep(d)
+	}
+	start := time.Now()
+	if _, err := docker(ctx, "start", r.container("horus-app")); err != nil {
+		res.Errors = append(res.Errors, err.Error())
+		return res
+	}
+	if err := eventually(ctx, 4*time.Minute, 2*time.Second, func() error { return r.healthy(ctx, "horus-app") }); err != nil {
+		res.Errors = append(res.Errors, "horus-app: "+err.Error())
+	} else {
+		res.Recovery["app_healthy"] = time.Since(start).Round(time.Second).String()
+	}
+	q := "SELECT count(*) FROM detection.finding WHERE tenant_id='" + r.tenant + "' AND kind='ddos_participation' AND host(address)='10.20.0.202'"
+	err = eventually(ctx, 10*time.Minute, 10*time.Second, func() error {
+		n, err := r.psql(ctx, q)
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(n) != "1" {
+			return fmt.Errorf("hallazgos ddos_participation de 10.20.0.202: %s", strings.TrimSpace(n))
+		}
+		return nil
+	})
+	if err != nil {
+		res.Errors = append(res.Errors, "hallazgo de la caída perdido: "+err.Error())
+		res.Recovery["finding_from_outage"] = "FAIL: " + err.Error()
+	} else {
+		res.Recovery["finding_from_outage"] = time.Since(start).Round(time.Second).String()
+	}
+	for k, f := range map[string]func() error{
+		"session":   func() error { _, err := r.refreshSession(ctx); return err },
+		"websocket": func() error { return r.wsProbe(ctx) },
+		"kiosk": func() error {
+			st := r.kiosk.Status()
+			if !st.Connected || st.HTTPStatus != 200 || st.HTTPOKAt.Before(start) {
+				return fmt.Errorf("kiosco: conectado=%v http=%d (%s)", st.Connected, st.HTTPStatus, st.LastErr)
+			}
+			return nil
+		},
+	} {
+		if err := eventually(ctx, 2*time.Minute, 2*time.Second, f); err != nil {
+			res.Errors = append(res.Errors, k+": "+err.Error())
+			res.Recovery[k] = "FAIL: " + err.Error()
+		} else {
+			res.Recovery[k] = time.Since(start).Round(time.Second).String()
+		}
+	}
+	res.OK = len(res.Errors) == 0
+	r.logf("    %s: %v", map[bool]string{true: "OK", false: "FAIL"}[res.OK], res.Recovery)
+	return res
+}
+
 func (r *run) healthy(ctx context.Context, svc string) error {
 	st, err := docker(ctx, "inspect", "-f", "{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}", r.container(svc))
 	if err != nil {
@@ -1000,7 +1089,13 @@ func (r *run) writeReport() {
 			cell("container_healthy"), cell("app_healthy"), cell("api"), cell("session"), cell("tunnels"), cell("websocket"), cell("kiosk"),
 			map[bool]string{true: "OK", false: "FAIL"}[s.OK])
 	}
-	md.WriteString("\nTiempos desde el fallo hasta que cada comprobación pasa.\n\n## Verificación final\n\n")
+	md.WriteString("\nTiempos desde el fallo hasta que cada comprobación pasa (en la caída larga, desde el arranque; `finding_from_outage` = hallazgo de los flujos enviados con horus-app parado).\n\n")
+	for _, s := range r.results {
+		if s.Round == 0 {
+			fmt.Fprintf(&md, "- **%s**: %s · %v\n", s.Scenario, map[bool]string{true: "OK", false: "FAIL"}[s.OK], s.Recovery)
+		}
+	}
+	md.WriteString("\n## Verificación final\n\n")
 	keys := make([]string, 0, len(r.final))
 	for k := range r.final {
 		keys = append(keys, k)
