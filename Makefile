@@ -241,6 +241,19 @@ backup-status: ## Estado de backups, restauraciones de prueba y disco
 test-backup: ## Prueba de I1-23: instala en un raíz temporal, backups, restauración verificada y alertas (sudo)
 	@GO='$(GO)' bash scripts/backup/test-backup.sh
 
+# Instalación de punta a punta en Debian con systemd y Docker dentro (I1-22, docs/install-debian.md):
+# bootstrap-debian.sh, paquete offline, reinicio, upgrade con vuelta atrás y desinstalación.
+#   make test-install-debian DEBIAN_VERSION=13 TEST_MODE=sandbox
+DEBIAN_VERSION ?= 12
+TEST_MODE ?= apt
+.PHONY: test-install-debian
+test-install-debian: ## Prueba el instalador en Debian 12/13 (DEBIAN_VERSION, TEST_MODE=apt|sandbox; Docker privilegiado)
+	@DEBIAN_VERSION='$(DEBIAN_VERSION)' TEST_MODE='$(TEST_MODE)' GO='$(GO)' bash tests/install/debian/run.sh
+
+.PHONY: release-artifacts
+release-artifacts: ## Artefactos de release locales (VERSION=X.Y.Z; imágenes locales HORUS_IMAGE, HORUS_WEB_IMAGE, HORUS_POSTGRES_IMAGE)
+	bash scripts/release/build-release.sh --version '$(VERSION)' --out dist --arch amd64 --source local
+
 ##@ Carga y fallo
 
 # Prueba de carga y pruebas de fallo de I1 (I1-26, tests/load/REPORT.md). Levantan su propio

@@ -1,0 +1,17 @@
+# Debian con systemd como PID 1 para `make test-install-debian` en entornos SIN acceso a los
+# espejos de Debian (TEST_MODE=sandbox): base debian + systemd ya hecha (imágenes de prueba de
+# Molecule) y, en lugar de apt, binarios estáticos equivalentes de Docker Engine, compose, curl,
+# jq y wireguard-go (en cache/). bootstrap-debian.sh se ejecuta con --no-apt. Sin iptables en la
+# imagen: dockerd corre con --iptables=false y el instalador con --skip-firewall.
+ARG DEBIAN_VERSION=12
+FROM geerlingguy/docker-debian${DEBIAN_VERSION}-ansible:latest
+ENV container=docker
+COPY cache/docker/ /usr/bin/
+COPY cache/docker-compose /usr/libexec/docker/cli-plugins/docker-compose
+COPY cache/curl cache/jq cache/wireguard-go /usr/bin/
+COPY docker.service /etc/systemd/system/docker.service
+RUN chmod 0755 /usr/bin/curl /usr/bin/jq /usr/bin/wireguard-go /usr/libexec/docker/cli-plugins/docker-compose \
+    && groupadd -f docker \
+    && systemctl enable docker.service
+STOPSIGNAL SIGRTMIN+3
+CMD ["/lib/systemd/systemd"]

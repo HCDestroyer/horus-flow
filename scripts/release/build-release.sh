@@ -10,6 +10,8 @@
 #   horus-<v>-linux-<arch>.tar.gz    lo mismo + images/horus-images.tar (docker save de TODAS las
 #                                    imágenes del compose, fijadas por digest) para servidores sin
 #                                    salida a GHCR (--image-source bundle:…)
+#   --own-images-only                paquete de ACTUALIZACIÓN ligero: solo horus, horus-web y
+#                                    horus-postgres (las de terceros deben estar ya cargadas)
 #   bootstrap-debian.sh              el comando único de docs/install-debian.md
 #   latest.json                      manifiesto de versiones (canal stable o beta) para espejos
 #   SHA256SUMS                       sumas de todo lo anterior (el workflow lo firma con cosign)
@@ -24,7 +26,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "$(readlink -f "$0")")/../.." && pwd)"
-version="" out="" archs="amd64,arm64" registry="ghcr.io/hcdestroyer" source=registry bundle=1 notes_url=""
+version="" out="" archs="amd64,arm64" registry="ghcr.io/hcdestroyer" source=registry bundle=1 notes_url="" own_only=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --version) version="${2#v}"; shift 2 ;;
@@ -33,6 +35,7 @@ while [ "$#" -gt 0 ]; do
     --registry) registry="$2"; shift 2 ;;
     --source) source="$2"; shift 2 ;;
     --no-bundle) bundle=0; shift ;;
+    --own-images-only) own_only=1; shift ;;
     --notes-url) notes_url="$2"; shift 2 ;;
     -h | --help) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "build-release.sh: opción desconocida $1" >&2; exit 2 ;;
@@ -86,7 +89,8 @@ printf '%s\n' "$version" >"$tree/VERSION"
 cp "$lock" "$tree/images.lock"
 sums_tree() { (cd "$tree" && find . -type f ! -name SHA256SUMS -printf '%P\n' | LC_ALL=C sort | xargs sha256sum) >"$tree/SHA256SUMS"; }
 sums_tree
-tar -C "$stage" -czf "$out/horus-$version-installer.tar.gz" "horus-$version"
+targz() { tar -C "$stage" -cf - "horus-$version" | gzip "-${HORUS_GZIP_LEVEL:-6}" >"$1"; }
+targz "$out/horus-$version-installer.tar.gz"
 log "horus-$version-installer.tar.gz"
 
 # --- Paquetes offline por arquitectura -------------------------------------------------------------
@@ -100,6 +104,7 @@ if [ "$bundle" = 1 ]; then
     tags=()
     while read -r var ref dig; do
       [[ "$var" =~ ^HORUS ]] || continue
+      if [ "$own_only" = 1 ] && [[ "$var" != HORUS_IMAGE && "$var" != HORUS_WEB_IMAGE && "$var" != HORUS_POSTGRES_IMAGE ]]; then continue; fi
       if [ "$source" = registry ] || [[ "$var" != HORUS_IMAGE && "$var" != HORUS_WEB_IMAGE && "$var" != HORUS_POSTGRES_IMAGE ]]; then
         if [ "$source" = local ] && docker image inspect "$ref" >/dev/null 2>&1; then
           :
@@ -117,7 +122,7 @@ if [ "$bundle" = 1 ]; then
       docker save -o "$tree/images/horus-images.tar" "${tags[@]}"
     fi
     sums_tree
-    tar -C "$stage" -czf "$out/horus-$version-linux-$arch.tar.gz" "horus-$version"
+    targz "$out/horus-$version-linux-$arch.tar.gz"
     rm -rf "$tree/images"
     sums_tree
     log "horus-$version-linux-$arch.tar.gz"
