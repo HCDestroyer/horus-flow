@@ -347,11 +347,11 @@ func rowsFromFixture(t *testing.T, f fixture, tenant, site, realm uuid.UUID, bas
 				}
 				rows = append(rows, flowRow{
 					tenant: tenant, site: site, router: router, realm: realm, service: service, batch: batch,
-					ts:         base.Add(time.Duration(i*f.DurationSeconds/n) * time.Second),
-					status:     "attributed", direction: dir, reputation: "none",
-					clientIP:   ip, remoteIP: remote, clientPort: uint16(40000 + i), remotePort: 443,
-					protocol:   6, tcpFlags: 0x1b, bytes: bs[i], packets: ps[i], samplingRate: 1, merged: 1,
-					remoteASN:  15169,
+					ts:     base.Add(time.Duration(i*f.DurationSeconds/n) * time.Second),
+					status: "attributed", direction: dir, reputation: "none",
+					clientIP: ip, remoteIP: remote, clientPort: uint16(40000 + i), remotePort: 443,
+					protocol: 6, tcpFlags: 0x1b, bytes: bs[i], packets: ps[i], samplingRate: 1, merged: 1,
+					remoteASN: 15169,
 				})
 			}
 		}

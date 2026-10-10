@@ -13,6 +13,8 @@ const (
 	DropBusUnavailable  = "bus_unavailable"
 	// DropSpoolFull: registros que el spool descartó (lleno o sin poder escribir).
 	DropSpoolFull = "spool_full"
+	// DropTenantSuspended: datagramas de un ISP suspendido con pause_ingest.
+	DropTenantSuspended = "tenant_suspended"
 )
 
 // Metrics del collector (docs/observability.md: prefijo horus_collector_).

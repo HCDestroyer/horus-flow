@@ -119,6 +119,11 @@ func (c *Consumer) Prepare(data []byte, headers nats.Header) (string, []Row, out
 	if err != nil {
 		return "", nil, outTerm, err
 	}
+	if c.Paused != nil && c.Paused(fb.TenantID) {
+		// ISP suspendido con pause_ingest: el lote se confirma sin guardar.
+		c.M.Batches.WithLabelValues("tenant_suspended").Inc()
+		return fb.BatchID, nil, outAck, nil
+	}
 	rows, err := c.Proc.Rows(fb, headers.Get(flowbus.HeaderTenant))
 	switch {
 	case errors.Is(err, ErrPermanent):

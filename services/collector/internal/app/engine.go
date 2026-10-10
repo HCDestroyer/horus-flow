@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/hcdestroyer/horus-flow/packages/go/flowinv"
+	"github.com/hcdestroyer/horus-flow/packages/go/flowpause"
 )
 
 // EngineOptions configura el motor del collector.
@@ -207,6 +208,13 @@ loop:
 	stopPub()
 	<-pubDone
 	return nil
+}
+
+// UsePause activa la pausa de ingesta por ISP (antes de Run).
+func (e *Engine) UsePause(s *flowpause.Set) {
+	for _, w := range e.workers {
+		w.paused = s
+	}
 }
 
 // persistAll guarda la última secuencia de cada dominio (al parar, con los

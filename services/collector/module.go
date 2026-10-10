@@ -24,6 +24,8 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/config"
 	"github.com/hcdestroyer/horus-flow/packages/go/flowbus"
 	"github.com/hcdestroyer/horus-flow/packages/go/flowinv"
+	"github.com/hcdestroyer/horus-flow/packages/go/flowpause"
+	"github.com/hcdestroyer/horus-flow/packages/go/flowstate"
 	"github.com/hcdestroyer/horus-flow/packages/go/health"
 	"github.com/hcdestroyer/horus-flow/packages/go/module"
 	"github.com/hcdestroyer/horus-flow/services/collector/internal/app"
@@ -74,6 +76,8 @@ type mod struct {
 	nc     *nats.Conn
 	js     jetstream.JetStream
 	engine *app.Engine
+	pause  *flowpause.Set
+	states flowstate.Store
 	// spoolErr: HORUS_COLLECTOR_SPOOL_DIR configurado pero no utilizable.
 	spoolErr error
 }
@@ -126,6 +130,11 @@ func (m *mod) Start(ctx context.Context) error {
 		}
 		m.engine.UsePersistence(skv)
 	}
+	m.pause = flowpause.New()
+	m.engine.UsePause(m.pause)
+	if os, err := flowstate.Open(ctx, js); err == nil {
+		m.states = os
+	}
 	if m.cfg.SpoolDir != "" {
 		sp, err := spool.Open(spool.Options{Dir: m.cfg.SpoolDir, MaxBytes: m.cfg.SpoolBytes, SegmentBytes: m.cfg.SpoolSegmentBytes,
 			Fsync: m.cfg.SpoolFsync, OnDrop: m.engine.Pub.SpoolDropped, Log: m.log})
@@ -166,6 +175,7 @@ func (m *mod) Start(ctx context.Context) error {
 // Run procesa datagramas y recarga el inventario hasta el apagado.
 func (m *mod) Run(ctx context.Context) error {
 	go flowinv.Keep(ctx, m.inv, m.cfg.InventoryFile, m.js, "flows-inventory-"+Role, m.log)
+	go m.pause.Run(ctx, m.js, m.states, "flows-pause-"+Role, m.log, nil)
 	return m.engine.Run(ctx)
 }
 

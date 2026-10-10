@@ -13,6 +13,7 @@ import (
 
 	"github.com/hcdestroyer/horus-flow/packages/go/flowbus"
 	"github.com/hcdestroyer/horus-flow/packages/go/flowinv"
+	"github.com/hcdestroyer/horus-flow/packages/go/flowpause"
 	"github.com/hcdestroyer/horus-flow/packages/go/flowpb"
 	"github.com/hcdestroyer/horus-flow/services/collector/internal/decode"
 )
@@ -35,6 +36,8 @@ type Worker struct {
 	batcher *Batcher
 	states  *States
 	m       *Metrics
+	// paused: ISP con la ingesta en pausa (nil = ninguno).
+	paused *flowpause.Set
 	// persist guarda plantillas y secuencias (nil = sin persistencia).
 	persist *workerPersist
 	// downtime informa de lo enviado mientras el collector estaba caído.
@@ -91,6 +94,11 @@ func (w *Worker) prepare(d Datagram) *dgram {
 	if !ok {
 		w.m.Dropped.WithLabelValues(DropUnknownExporter).Inc()
 		w.states.Unregistered(ip, d.At)
+		return nil
+	}
+	if w.paused != nil && w.paused.Paused(exp.TenantID) {
+		// ISP suspendido con pause_ingest: no se ingiere (se cuenta).
+		w.m.Dropped.WithLabelValues(DropTenantSuspended).Inc()
 		return nil
 	}
 	return &dgram{d: d, ip: ip, inv: inv, exp: exp, plan: w.dec.Prepare(ip.String(), d.Payload)}

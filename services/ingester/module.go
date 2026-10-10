@@ -27,6 +27,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/config"
 	"github.com/hcdestroyer/horus-flow/packages/go/flowbus"
 	"github.com/hcdestroyer/horus-flow/packages/go/flowinv"
+	"github.com/hcdestroyer/horus-flow/packages/go/flowpause"
 	"github.com/hcdestroyer/horus-flow/packages/go/flowstate"
 	"github.com/hcdestroyer/horus-flow/packages/go/health"
 	"github.com/hcdestroyer/horus-flow/packages/go/module"
@@ -115,6 +116,7 @@ type ingester struct {
 	cons     jetstream.Consumer
 	consumer *app.Consumer
 	loops    []func(ctx context.Context)
+	pause    *flowpause.Set
 	// snapshots guarda el estado reconstruible tras un reinicio (flows_state).
 	snapshots flowstate.Store
 }
@@ -180,7 +182,8 @@ func (m *ingester) Start(ctx context.Context) error {
 	if err := m.wire(ctx, proc); err != nil {
 		return err
 	}
-	m.consumer = &app.Consumer{Proc: proc, Ins: w, Workers: m.cfg.Workers, M: m.metrics, Log: m.log, Ledger: led,
+	m.pause = flowpause.New()
+	m.consumer = &app.Consumer{Paused: m.pause.PausedString, Proc: proc, Ins: w, Workers: m.cfg.Workers, M: m.metrics, Log: m.log, Ledger: led,
 		Group: app.GroupOptions{Rows: m.cfg.InsertRows, Wait: m.cfg.InsertWait, Flushers: m.cfg.InsertFlushers},
 		DLQ:   func(ctx context.Context, msg *nats.Msg) error { _, err := js.PublishMsg(ctx, msg); return err }}
 	buf := app.NewBufferMonitor(m.deps.Metrics, func(ctx context.Context) (app.BufferState, error) {
@@ -256,6 +259,7 @@ func (m *ingester) Run(ctx context.Context) error {
 		return nil
 	}
 	go flowinv.Keep(ctx, m.inv, m.cfg.InventoryFile, m.js, "flows-inventory-"+Role, m.log)
+	go m.pause.Run(ctx, m.js, m.snapshots, "flows-pause-"+Role, m.log, nil)
 	var wg sync.WaitGroup
 	for _, l := range m.loops {
 		wg.Add(1)
