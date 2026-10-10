@@ -21,7 +21,8 @@ import (
 // §6.1): orden por `seq`, `FOR UPDATE SKIP LOCKED`, un único relay activo por
 // esquema (`pg_try_advisory_xact_lock`), `Nats-Msg-Id` = id (JetStream
 // deduplica reenvíos en 20 min) y marca `published_at` tras el PubAck. Si NATS
-// no responde, reintenta con backoff hasta 30 s sin perder nada.
+// no responde, reintenta con backoff hasta 10 s sin perder nada (tras volver NATS,
+// lo pendiente sale en ≤ 10 s: medido en make chaos-restart-core).
 type Relay struct {
 	DB     *pgdb.DB
 	Schema string
@@ -69,7 +70,7 @@ func (r *Relay) Run(ctx context.Context) error {
 		case ctx.Err() != nil:
 			return nil
 		case err != nil:
-			backoff = min(max(2*backoff, time.Second), 30*time.Second)
+			backoff = min(max(2*backoff, time.Second), 10*time.Second)
 			wait = backoff
 			r.Logger.WarnContext(ctx, "outbox relay: publish failed", slog.String("schema", r.Schema), slog.Any("error", err),
 				slog.Duration("retry_in", wait))

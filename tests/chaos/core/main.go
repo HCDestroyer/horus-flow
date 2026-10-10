@@ -539,9 +539,23 @@ func (r *run) scenario(ctx context.Context, round int, sc string) scenarioResult
 	var err error
 	switch method {
 	case "kill":
-		var pid string
+		var pid, startedAt string
+		startedAt, _ = docker(ctx, "inspect", "-f", "{{.State.StartedAt}}", r.container(svc))
 		if pid, err = docker(ctx, "inspect", "-f", "{{.State.Pid}}", r.container(svc)); err == nil {
 			err = exec.CommandContext(ctx, "kill", "-9", pid).Run() //nolint:gosec // pid del contenedor
+		}
+		if err == nil {
+			// El proceso muere al instante, pero Docker tarda en verlo: se espera
+			// a que la política de reinicio lo haya arrancado de nuevo antes de
+			// medir (si no, la primera comprobación ve el contenedor "viejo").
+			err = eventually(ctx, 2*time.Minute, 200*time.Millisecond, func() error {
+				now, err := docker(ctx, "inspect", "-f", "{{.State.StartedAt}}", r.container(svc))
+				if err != nil || now == startedAt {
+					return fmt.Errorf("%s aún no se ha reiniciado tras kill -9", svc)
+				}
+				return nil
+			})
+			res.Recovery["restarted_by_docker"] = time.Since(t0).Round(100 * time.Millisecond).String()
 		}
 		r.kills[svc]++
 		if svc == "horus-app" {
