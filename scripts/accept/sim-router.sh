@@ -37,6 +37,10 @@ up() {
   ns="$(ns_of "$name")"
   [[ "$idx" =~ ^[0-9]+$ ]] && [ "$idx" -lt 60 ] || die "índice inválido: $idx"
   veth_h="hfsimh$idx" veth_n="hfsimn$idx"
+  # Nombre de interfaz único en el host: el socket UAPI de wireguard-go
+  # (/var/run/wireguard/<nombre>.sock) no está aislado por namespace.
+  local wgi="hfsimwg$idx"
+  echo "$wgi" >"$dir/$name.if"
   # Enlace host ↔ namespace por un /30 de 169.254.77.0/24 (el host es el servidor de Horus).
   base=$((idx * 4))
   host_ip="169.254.77.$((base + 1))" ns_ip="169.254.77.$((base + 2))"
@@ -58,26 +62,28 @@ up() {
   umask 077
   wg genkey >"$dir/$name.key"
   wg pubkey <"$dir/$name.key" >"$dir/$name.pub"
-  if ! ip -n "$ns" link add wg0 type wireguard 2>/dev/null; then
+  rm -f "/var/run/wireguard/$wgi.sock"
+  if ! ip -n "$ns" link add "$wgi" type wireguard 2>/dev/null; then
     command -v wireguard-go >/dev/null 2>&1 || die "sin módulo wireguard ni wireguard-go"
-    ip netns exec "$ns" setsid wireguard-go -f wg0 </dev/null >>"$dir/$name.wireguard-go.log" 2>&1 &
+    ip netns exec "$ns" env WG_I_PREFER_BUGGY_USERSPACE_TO_POLISHED_KMOD=1 setsid wireguard-go -f "$wgi" \
+      </dev/null >>"$dir/$name.wireguard-go.log" 2>&1 &
     local i=0
-    until ip -n "$ns" link show wg0 >/dev/null 2>&1; do
-      i=$((i + 1)); [ "$i" -lt 50 ] || die "wireguard-go no creó wg0 en $ns"; sleep 0.2
+    until ip -n "$ns" link show "$wgi" >/dev/null 2>&1; do
+      i=$((i + 1)); [ "$i" -lt 50 ] || die "wireguard-go no creó $wgi en $ns"; sleep 0.2
     done
   fi
-  ip netns exec "$ns" wg set wg0 private-key "$dir/$name.key" \
+  ip netns exec "$ns" wg set "$wgi" private-key "$dir/$name.key" \
     peer "$hub" endpoint "$ep:$port" allowed-ips "$svc" persistent-keepalive 5
-  ip -n "$ns" addr add "$tip/32" dev wg0
-  ip -n "$ns" link set wg0 mtu 1420 up
-  ip -n "$ns" route add "$svc" dev wg0
+  ip -n "$ns" addr add "$tip/32" dev "$wgi"
+  ip -n "$ns" link set "$wgi" mtu 1420 up
+  ip -n "$ns" route add "$svc" dev "$wgi"
   echo "PUBKEY=$(cat "$dir/$name.pub")"
 }
 
 handshake() {
   local ns t
   ns="$(ns_of "$1")"
-  t="$(ip netns exec "$ns" wg show wg0 latest-handshakes 2>/dev/null | awk '{ print $2 }' | head -1)"
+  t="$(ip netns exec "$ns" wg show "$(cat "$dir/$1.if" 2>/dev/null)" latest-handshakes 2>/dev/null | awk '{ print $2 }' | head -1)"
   if [ -z "$t" ] || [ "$t" = 0 ]; then echo never; else echo $(($(date +%s) - t)); fi
 }
 
@@ -90,7 +96,7 @@ down_all() {
   for l in $(ip -o link show 2>/dev/null | awk -F': ' '{ print $2 }' | cut -d@ -f1 | grep '^hfsimh' || true); do
     ip link del "$l" 2>/dev/null || true
   done
-  rm -f "$dir"/*.key
+  rm -f "$dir"/*.key "$dir"/*.if /var/run/wireguard/hfsimwg*.sock
 }
 
 cmd="${1:-}"

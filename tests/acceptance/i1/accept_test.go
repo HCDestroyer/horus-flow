@@ -275,7 +275,7 @@ func (w *world) onboarding() error {
 	for _, n := range w.nodes {
 		tok := w.token(n.ISP.ID)
 		r := w.expect("script de onboarding de "+n.Name, idem(post(tok, "/api/v1/routers/"+n.Router+"/provisioning-script",
-			map[string]any{"routeros_version": "7.12"})), 200)
+			map[string]any{"routeros_version": "7.12"})), 201)
 		n.Script = string(r.Raw)
 		if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/plain") {
 			failf("el script debe ser text/plain, es %q", ct)
@@ -322,14 +322,17 @@ func (w *world) onboarding() error {
 		if len(pub) != 44 {
 			return fmt.Errorf("%s: sim-router no devolvió la clave pública: %s", n.Name, out)
 		}
-		enr := w.expect("POST /enroll/wireguard ("+n.Name+")", post("", "/api/v1/enroll/wireguard",
-			map[string]string{"token": o.Token, "public_key": pub}), 202)
+		enr := w.enroll(o.Token, pub)
+		if enr.Status != http.StatusAccepted {
+			failf("POST /enroll/wireguard (%s): HTTP %d, se esperaba 202\n%s", n.Name, enr.Status, trunc(enr.Raw))
+		}
+		w.logf("ok  POST /enroll/wireguard (%s) (HTTP 202)", n.Name)
 		if enr.Str("peer_status") != "pending_handshake" {
 			failf("enroll: se esperaba peer_status=pending_handshake: %s", enr.Raw)
 		}
 		if n.Name == "normal" {
 			// Token de un uso (I1-01 criterio 3) y clave inválida.
-			again := w.do(post("", "/api/v1/enroll/wireguard", map[string]string{"token": o.Token, "public_key": pub}))
+			again := w.enroll(o.Token, pub)
 			if again.Status < 400 || again.Status >= 500 || again.Code() != "ENROLLMENT_TOKEN_INVALID" {
 				failf("token reutilizado: se esperaba ENROLLMENT_TOKEN_INVALID, HTTP %d %s", again.Status, again.Raw)
 			}
@@ -342,6 +345,25 @@ func (w *world) onboarding() error {
 		}
 	}
 	return nil
+}
+
+// enroll llama a POST /enroll/wireguard respetando el límite de 10/min por IP
+// (api.md §2.4): todos los routers simulados salen de la misma IP.
+func (w *world) enroll(token, pub string) acceptkit.Resp {
+	var r acceptkit.Resp
+	for i := 0; i < 8; i++ {
+		r = w.do(post("", "/api/v1/enroll/wireguard", map[string]string{"token": token, "public_key": pub}))
+		if r.Status != http.StatusTooManyRequests {
+			break
+		}
+		wait := 10 * time.Second
+		if s, err := strconv.Atoi(r.Header.Get("Retry-After")); err == nil && s > 0 && s <= 60 {
+			wait = time.Duration(s) * time.Second
+		}
+		w.logf("..  POST /enroll/wireguard: 429 (límite por IP); se reintenta en %s", wait)
+		time.Sleep(wait)
+	}
+	return r
 }
 
 // --- tunnel ----------------------------------------------------------------------------------
