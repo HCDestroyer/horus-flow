@@ -18,8 +18,7 @@ test('cambia a inglés y vuelve a español conservando la página', async ({ pag
 test('la portada en inglés', async ({ page }) => {
   await page.goto('/en')
   await expect(page.getByRole('heading', { level: 1 })).toContainText('botnet')
-  await expect(page.locator('#pricing').getByTestId('launch-price').first()).toHaveText(
-    'Launch pricing: request a quote',
-  )
+  await expect(page.locator('#pricing [data-plan="medium"]')).toContainText('$3,990')
+  await expect(page.locator('#pricing')).toContainText('24/7 technical support')
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', /\/en$/)
 })

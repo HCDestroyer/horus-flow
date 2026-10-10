@@ -1,28 +1,39 @@
 import { defineConfig, devices } from '@playwright/test'
+import { E2E_ADMIN } from './tests/e2e/admin-helpers'
 
 /**
  * E2E de la landing contra el servidor Nitro de producción (`pnpm build` + node), con el
- * SMTP simulado (MAIL_TRANSPORT=file → tests/e2e/.outbox). `@playwright/test` va fijado a la
- * versión cuyo Chromium está en PLAYWRIGHT_BROWSERS_PATH; no se ejecuta `playwright install`.
+ * SMTP simulado (MAIL_TRANSPORT=file → tests/e2e/.outbox), una base de datos nueva en cada
+ * ejecución (DATA_DIR=tests/e2e/.data), el primer administrador desde ADMIN_EMAIL +
+ * ADMIN_PASSWORD_FILE y un PayPal simulado (tests/support/fake-paypal-server.mjs, con
+ * PAYPAL_API_BASE). `@playwright/test` va fijado a la versión cuyo Chromium está en
+ * PLAYWRIGHT_BROWSERS_PATH; no se ejecuta `playwright install`.
  *
  * - `E2E_NO_BUILD=1` reutiliza `.output` (ya construido).
  * - `E2E_BASE_URL` apunta a un servidor ya levantado y no arranca ninguno.
  * - Las capturas solo con `pnpm screenshots` (escriben en docs/screenshots).
  */
 const port = Number(process.env.PORT ?? 4174)
+const paypalPort = Number(process.env.FAKE_PAYPAL_PORT ?? 4176)
 const baseURL = process.env.E2E_BASE_URL ?? `http://127.0.0.1:${port}`
 const OUTBOX = 'tests/e2e/.outbox'
+const DATA = 'tests/e2e/.data'
 
 const env = [
   `PORT=${port}`,
   'NITRO_HOST=127.0.0.1',
   'MAIL_TRANSPORT=file',
   `MAIL_OUTBOX_DIR=${OUTBOX}`,
+  `DATA_DIR=${DATA}`,
+  `ADMIN_EMAIL=${E2E_ADMIN.email}`,
+  `ADMIN_PASSWORD_FILE=${DATA}/admin-password`,
+  `PAYPAL_API_BASE=http://127.0.0.1:${paypalPort}`,
   'FORM_MIN_FILL_SECONDS=1',
   'RATE_LIMIT_MAX=100',
   `NUXT_PUBLIC_SITE_URL=https://horusflow.kns.gt`,
 ].join(' ')
-const serve = `rm -rf ${OUTBOX} && ${env} node .output/server/index.mjs`
+const prepare = `rm -rf ${OUTBOX} ${DATA} && mkdir -p ${DATA} && printf '%s' '${E2E_ADMIN.password}' > ${DATA}/admin-password`
+const serve = `${prepare} && ${env} node .output/server/index.mjs`
 
 export default defineConfig({
   testDir: 'tests/e2e',
@@ -40,12 +51,20 @@ export default defineConfig({
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: process.env.E2E_BASE_URL
     ? undefined
-    : {
-        command: process.env.E2E_NO_BUILD ? serve : `pnpm build && ${serve}`,
-        url: baseURL,
-        reuseExistingServer: !process.env.CI,
-        timeout: 300_000,
-        stdout: 'ignore',
-        stderr: 'pipe',
-      },
+    : [
+        {
+          command: `PORT=${paypalPort} node tests/support/fake-paypal-server.mjs`,
+          url: `http://127.0.0.1:${paypalPort}/__health`,
+          reuseExistingServer: !process.env.CI,
+          timeout: 30_000,
+        },
+        {
+          command: process.env.E2E_NO_BUILD ? serve : `pnpm build && ${serve}`,
+          url: baseURL,
+          reuseExistingServer: !process.env.CI,
+          timeout: 300_000,
+          stdout: 'ignore',
+          stderr: 'pipe',
+        },
+      ],
 })

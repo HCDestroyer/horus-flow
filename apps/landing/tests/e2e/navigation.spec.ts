@@ -24,14 +24,15 @@ test('la navegación lleva a las secciones', async ({ page }) => {
   await expect(page.locator('#pricing-title')).toBeInViewport()
 })
 
-test('precios sin confirmar: "solicita cotización" y ninguna cifra', async ({ page }) => {
+test('precios aprobados desde la base de datos (anual en USD por defecto)', async ({ page }) => {
   await page.goto('/')
   const pricing = page.locator('#pricing')
-  await expect(pricing.getByTestId('launch-price')).toHaveCount(3)
-  await expect(pricing.getByTestId('launch-price').first()).toHaveText(
-    'Precio de lanzamiento: solicita cotización',
-  )
-  await expect(pricing).not.toContainText(/(US\$|\$|Q)\s?\d/)
+  await expect(pricing.getByTestId('launch-price')).toHaveCount(0)
+  await expect(pricing.locator('[data-plan="small"]')).toContainText('1,490')
+  await expect(pricing.locator('[data-plan="medium"]')).toContainText('3,990')
+  await expect(pricing.locator('[data-plan="large"]')).toContainText('9,900')
+  await expect(pricing.locator('[data-plan="enterprise"]')).toContainText('A medida')
+  await expect(pricing).toContainText('Soporte técnico 24/7')
 })
 
 test('el selector mensual/anual cambia el periodo y se lleva a la compra', async ({ page }) => {
@@ -44,7 +45,7 @@ test('el selector mensual/anual cambia el periodo y se lleva a la compra', async
   await expect(pricing.locator('[data-plan="small"]')).toContainText('Pago anual')
   await pricing.getByText('Mensual', { exact: true }).click()
   await expect(pricing.locator('[data-plan="small"]')).toContainText('Pago mensual')
-  await pricing.getByRole('link', { name: 'Solicitar cotización: Grande' }).click()
+  await pricing.getByRole('link', { name: 'Comprar licencia: Grande' }).click()
   await expect(page).toHaveURL(/\/comprar\?plan=large&period=monthly/)
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Comprar una licencia')
 })
@@ -88,7 +89,7 @@ test('SEO: canonical, Open Graph, JSON-LD, sitemap y robots', async ({ page, req
   expect(types).toEqual(expect.arrayContaining(['Organization', 'SoftwareApplication', 'Product']))
   const product = ld['@graph'].find((n: { '@type': string }) => n['@type'] === 'Product')
   expect(product.offers.length).toBeGreaterThan(0)
-  expect(product.offers[0].price).toBeUndefined() // precios sin confirmar
+  expect(product.offers[0]).toMatchObject({ price: 1490, priceCurrency: 'USD' })
 
   const sitemap = await (await request.get('/sitemap.xml')).text()
   expect(sitemap).toContain('<loc>https://horusflow.kns.gt/en/buy</loc>')

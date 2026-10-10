@@ -48,7 +48,7 @@ test('compra: plan del enlace, datos de facturación y referencia', async ({ pag
   await hydrated(page)
   await expect(page.getByRole('radio', { name: /Grande/ })).toBeChecked()
   await expect(page.getByRole('radio', { name: 'Mensual' })).toBeChecked()
-  await expect(page.locator('aside')).toContainText('A cotizar')
+  await expect(page.locator('aside')).toContainText('USD 990')
 
   await page.getByRole('radio', { name: 'GTQ' }).check({ force: true })
   await page.getByLabel('Razón social').fill('Fibra Sur, Sociedad Anónima')
@@ -57,13 +57,12 @@ test('compra: plan del enlace, datos de facturación y referencia', async ({ pag
   await page.getByLabel('Correo').fill('compras@fibrasur.example')
   await page.locator('aside').getByRole('checkbox').check()
   await page.waitForTimeout(1100)
-  await page.getByRole('button', { name: 'Enviar solicitud de compra' }).click()
+  await page.locator('aside').getByRole('button').last().click()
 
   const success = page.getByTestId('purchase-success')
   await expect(success).toBeVisible()
   const reference = (await page.getByTestId('purchase-reference').textContent())!.trim()
   expect(reference).toMatch(/^HF-P-\d{8}-[0-9A-Z]{6}$/)
-  await expect(success).toContainText('transferencia')
 
   await expect.poll(async () => (await mailsFor(reference)).length).toBe(2)
   const sales = (await mailsFor(reference)).find((m) => m.to === 'info@kns.gt')!
@@ -71,7 +70,9 @@ test('compra: plan del enlace, datos de facturación y referencia', async ({ pag
   expect(sales.text).toContain('Mensual')
   expect(sales.text).toContain('GTQ')
   expect(sales.text).toContain('576937-K')
-  expect(sales.text).toContain('A cotizar')
+  // Importe calculado en el servidor: Grande, mensual, en GTQ (7 650, o 7 990 si el e2e del
+  // panel ya lo cambió).
+  expect(sales.text).toMatch(/Importe: Q\s?7,(650|990)/)
 })
 
 test('el honeypot existe y está fuera del alcance de las personas', async ({ page }) => {
