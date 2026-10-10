@@ -36,6 +36,12 @@ const statusOptions = [
   { value: 'all', label: 'Todos los estados' },
   ...Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label })),
 ]
+const PLAN_LABELS: Record<string, string> = {
+  small: 'Pequeño',
+  medium: 'Mediano',
+  large: 'Grande',
+  enterprise: 'Enterprise',
+}
 const KIND: Record<string, string> = { demo: 'Demo', contact: 'Contacto', purchase: 'Compra' }
 
 async function load() {
@@ -158,12 +164,12 @@ const pages = computed(() =>
               class="border-b border-default last:border-0 hover:bg-elevated"
             >
               <td class="px-4 py-2.5 whitespace-nowrap text-muted tabular">
-                {{ formatDate(r.createdAt) }}
+                {{ formatDate(r.createdAt, true) }}
               </td>
               <td class="px-4 py-2.5">
                 <NuxtLink
                   :to="`/admin/solicitudes/${r.id}`"
-                  class="inline-flex min-h-11 items-center font-mono font-medium text-primary underline-offset-4 hover:underline"
+                  class="inline-flex min-h-11 items-center font-mono text-sm whitespace-nowrap font-medium text-primary underline-offset-4 hover:underline"
                 >
                   {{ r.reference }}
                 </NuxtLink>
@@ -174,7 +180,11 @@ const pages = computed(() =>
                 <span class="block truncate text-sm text-muted">{{ r.name }} · {{ r.email }}</span>
               </td>
               <td class="px-4 py-2.5 whitespace-nowrap">
-                {{ r.plan ? `${r.plan} · ${r.period === 'annual' ? 'anual' : 'mensual'}` : '—' }}
+                {{
+                  r.plan
+                    ? `${PLAN_LABELS[r.plan] ?? r.plan} · ${r.period === 'annual' ? 'anual' : 'mensual'}`
+                    : '—'
+                }}
               </td>
               <td class="px-4 py-2.5 text-right whitespace-nowrap tabular">
                 {{ formatMoney(r.amount, r.currency) }}

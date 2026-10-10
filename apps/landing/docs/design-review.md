@@ -116,3 +116,32 @@ and video playback"`) y con `prefers-reduced-motion` o ahorro de datos solo se v
   en Safari/Firefox el vidrio se queda, con contraste suficiente gracias al relleno del 72 %.
 - Rendimiento medido con Lighthouse 12 (móvil, simulado) en un servidor de pruebas compartido:
   portada 90–95, compra 89–90, legales 94; accesibilidad, buenas prácticas y SEO 100.
+
+## Panel de administración y paso de pago (2026-10)
+
+Capturas: `admin-*` (1440 claro/oscuro y 390) y `comprar-pago-{paypal,neo,transfer}-*`.
+
+- **Herramienta de trabajo, no escaparate.** Densidad media: cuerpo a 15–17 px, filas de tabla de
+  44 px (objetivo táctil), cabeceras de columna con sustantivos cortos (`lists-and-tables.md ›
+Content`), cifras tabulares alineadas a la derecha. En móvil la tabla de solicitudes pasa a
+  lista (referencia, estado, empresa, importe) en lugar de desplazarse en horizontal.
+- **Vidrio solo en la capa flotante** (`liquid-glass.md › The two layers`): la barra lateral
+  (escritorio) y la barra superior (móvil) flotan con la variante regular; la barra de
+  publicación de Precios se vuelve vidrio solo cuando hay cambios sin publicar, para que destaque
+  sin un color nuevo. Tablas, formularios y la vista previa van en superficies sólidas; el menú
+  móvil se abre como panel sólido (no vidrio sobre vidrio).
+- **Estados con texto y color** (`color.md`): Nueva (lapislázuli), Pendiente de pago (ámbar),
+  Contactado (gris), Pagada (verde), Cancelada (anillo). El color nunca va solo.
+- **Precios:** borrador → vista previa con el mismo componente de la web → publicar. Historial con
+  "Ver" y "Restaurar"; las acciones irreversibles (restaurar, borrar credenciales, eliminar
+  administrador) piden confirmación (`alerts.md`).
+- **Acceso:** una sola columna con un paso por pantalla (contraseña → TOTP o alta por QR →
+  códigos de recuperación), foco al título de cada paso y mensajes de error que dicen cómo
+  seguir ("Espera 2 min antes de volver a intentarlo").
+- **Pago en la web:** tres tarjetas de método (radio nativo con etiqueta asociada, ≥ 44 px); la
+  referencia, el plan y el importe arriba, siempre visibles; PayPal avisa de que cobra en USD
+  cuando el cliente eligió GTQ.
+- **Accesibilidad verificada:** axe sin violaciones en login, solicitudes, detalle, precios,
+  pagos, ajustes y auditoría, en claro y oscuro (`tests/e2e/admin.spec.ts`).
+- **Pendiente (Low):** los diálogos de confirmación usan `window.confirm` (accesible y nativo,
+  pero sin el estilo del sistema); se pueden pasar a una hoja modal propia.

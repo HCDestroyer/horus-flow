@@ -134,9 +134,13 @@ test('cambiar un precio en el panel y verlo en la web sin redesplegar', async ({
   await hydrated(page)
   const pricing = page.locator('#pricing')
   await pricing.scrollIntoViewIfNeeded()
-  await pricing.getByText('Mensual', { exact: true }).click()
-  await pricing.getByText('GTQ', { exact: true }).click()
-  await expect(pricing.locator('[data-plan="large"]')).toContainText('7,990')
+  // La sección se hidrata al acercarse a la pantalla: se reintenta hasta que los selectores
+  // responden.
+  await expect(async () => {
+    await pricing.getByText('Mensual', { exact: true }).click()
+    await pricing.getByText('GTQ', { exact: true }).click()
+    await expect(pricing.locator('[data-plan="large"]')).toContainText('7,990', { timeout: 1000 })
+  }).toPass({ timeout: 15_000 })
 
   // La auditoría guarda quién y el antes/después.
   await admin.goto('/admin/auditoria')

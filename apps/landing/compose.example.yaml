@@ -1,10 +1,16 @@
 # Ejemplo de despliegue de la landing detrás de Nginx Proxy Manager (README.md › Despliegue).
 #
-#   cp .env.example .env   # y rellena SMTP, NUXT_PUBLIC_SITE_URL, TRUSTED_PROXIES…
+#   cp .env.example .env            # SMTP, TRUSTED_PROXIES…
+#   mkdir -p secrets
+#   openssl rand -base64 32 > secrets/data.key        # clave de cifrado de credenciales
+#   printf '%s' 'una-contraseña-larga' > secrets/admin_password
+#   chmod 600 secrets/*
 #   docker compose -f compose.example.yaml up -d --build
 #
 # La landing escucha solo en la red interna `proxy` (sin puerto publicado): Nginx Proxy Manager,
-# en la misma red, reenvía el dominio a http://horus-landing:3000.
+# en la misma red, reenvía el dominio a http://horus-landing:3000. La base de datos (precios,
+# solicitudes, administradores, configuración de pagos) vive en el volumen `landing-data`:
+# hazle copia de seguridad (README.md › Copia de seguridad).
 name: horus-landing
 
 services:
@@ -17,8 +23,18 @@ services:
     env_file: .env
     environment:
       NODE_ENV: production
+      NUXT_PUBLIC_SITE_URL: ${NUXT_PUBLIC_SITE_URL:-https://horusflow.kns.gt}
       # Red de Docker de NPM: sus peticiones llegan desde esta subred.
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.16.0.0/12}
+      DATA_DIR: /data
+      # Secretos como archivos (nunca en variables de entorno ni en el repositorio).
+      DATA_KEY_FILE: /run/secrets/data_key
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-info@kns.gt}
+      ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+      SMTP_PASS_FILE: /run/secrets/smtp_pass
+    secrets: [data_key, admin_password, smtp_pass]
+    volumes:
+      - landing-data:/data
     read_only: true
     cap_drop: [ALL]
     security_opt: ['no-new-privileges:true']
@@ -33,6 +49,18 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+
+secrets:
+  data_key:
+    file: ./secrets/data.key
+  admin_password:
+    file: ./secrets/admin_password
+  smtp_pass:
+    # Vacío mientras no se conozca el servidor SMTP de kns.gt.
+    file: ./secrets/smtp_pass
+
+volumes:
+  landing-data:
 
 networks:
   proxy:

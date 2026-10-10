@@ -1,6 +1,21 @@
 // Configuración del servidor de la landing, leída de variables de entorno (README.md ›
 // Variables). Se lee una vez por proceso; los tests construyen la suya con loadConfig(env).
 
+import { readFileSync } from 'node:fs'
+
+/** Valor de VAR o, si hay VAR_FILE, el contenido de ese archivo (secretos de Docker). */
+export function secretEnv(env: Record<string, string | undefined>, name: string): string {
+  const file = env[`${name}_FILE`]?.trim()
+  if (file) {
+    try {
+      return readFileSync(file, 'utf8').replace(/\r?\n$/, '')
+    } catch {
+      return ''
+    }
+  }
+  return env[name] ?? ''
+}
+
 export type MailMode = 'smtp' | 'file' | 'log'
 
 export interface ServerConfig {
@@ -66,7 +81,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
               port,
               secure: bool(env.SMTP_SECURE, port === 465),
               user: env.SMTP_USER ?? '',
-              pass: env.SMTP_PASS ?? '',
+              pass: secretEnv(env, 'SMTP_PASS'),
             }
           : null,
       from: env.MAIL_FROM?.trim() || `Horus Flow <${salesTo}>`,
@@ -74,7 +89,9 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       outboxDir: env.MAIL_OUTBOX_DIR?.trim() || '.outbox',
       confirmToCustomer: bool(env.MAIL_CONFIRM_CUSTOMER, true),
     },
-    webhook: webhookUrl ? { url: webhookUrl, secret: env.LEADS_WEBHOOK_SECRET ?? '' } : null,
+    webhook: webhookUrl
+      ? { url: webhookUrl, secret: secretEnv(env, 'LEADS_WEBHOOK_SECRET') }
+      : null,
     trustedProxies: (env.TRUSTED_PROXIES ?? '')
       .split(',')
       .map((s) => s.trim())

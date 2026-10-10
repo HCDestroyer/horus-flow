@@ -115,10 +115,10 @@ export const METHOD_LABELS: Record<string, string> = {
   transfer: 'Transferencia',
 }
 
-export function formatDate(iso: string | null | undefined): string {
+export function formatDate(iso: string | null | undefined, short = false): string {
   if (!iso) return '—'
   return new Intl.DateTimeFormat('es-GT', {
-    dateStyle: 'medium',
+    dateStyle: short ? 'short' : 'medium',
     timeStyle: 'short',
     timeZone: 'America/Guatemala',
   }).format(new Date(iso))

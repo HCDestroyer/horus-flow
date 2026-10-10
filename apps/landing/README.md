@@ -6,9 +6,15 @@ Página pública de venta de Horus Flow, de **Connection And Solutions Company, 
 
 - **Stack:** Nuxt 4 (SSR con servidor Nitro) + Nuxt UI v4 + Tailwind 4, pnpm.
 - **Idiomas:** español (`/`, principal, es-GT) e inglés (`/en`), con @nuxtjs/i18n.
-- **Páginas:** portada (`/`, `/en`), compra (`/comprar`, `/en/buy`) y legales
-  (`/legal/aviso-legal|privacidad|terminos`, `/en/legal/notice|privacy|terms`).
-- **Servidor:** `POST /api/lead` (demo y contacto), `POST /api/purchase` (solicitud de compra),
+- **Páginas:** portada (`/`, `/en`), compra (`/comprar`, `/en/buy`), legales
+  (`/legal/aviso-legal|privacidad|terminos`, `/en/legal/notice|privacy|terms`) y el **panel de
+  administración** en `/admin` (solo español, sin enlace público, `noindex`, fuera del sitemap).
+- **Datos:** SQLite (better-sqlite3) en `DATA_DIR`, con migraciones versionadas
+  ([`server/lib/migrations.ts`](server/lib/migrations.ts)): planes y precios, ajustes,
+  configuración de pagos, solicitudes, administradores, sesiones y auditoría.
+- **Servidor:** `GET /api/site` (catálogo, ajustes y métodos de pago públicos), `POST /api/lead`
+  (demo y contacto), `POST /api/purchase` (solicitud de compra), `/api/checkout/**` (PayPal, link
+  Neo, transferencia), `POST /api/payments/paypal/webhook`, `/api/admin/**` (panel),
   `/sitemap.xml` y `/robots.txt`.
 - **Diseño:** Apple HIG / Liquid Glass (`.claude/skills/apple-hig`); revisión en
   [`docs/design-review.md`](docs/design-review.md) y capturas en [`docs/screenshots/`](docs/screenshots/).
@@ -18,18 +24,23 @@ Página pública de venta de Horus Flow, de **Connection And Solutions Company, 
 ```bash
 cd apps/landing
 pnpm install
-MAIL_TRANSPORT=file pnpm dev        # http://localhost:3000, correos en .outbox/*.json
+MAIL_TRANSPORT=file DATA_DIR=.data pnpm dev   # http://localhost:3000, correos en .outbox/*.json
 ```
 
-| Orden                      | Qué hace                                                                                                                                                                                 |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm lint`                | ESLint + Prettier                                                                                                                                                                        |
-| `pnpm typecheck`           | `nuxt typecheck`                                                                                                                                                                         |
-| `pnpm test`                | Vitest: validación, honeypot, tiempo mínimo, rate limit, IP real detrás de proxy, envío simulado, webhook, precios y traducciones                                                        |
-| `pnpm build && pnpm start` | build de producción y servidor Node (`.output/server/index.mjs`)                                                                                                                         |
-| `pnpm e2e`                 | Playwright: navegación, cambio de idioma, demo y compra con SMTP simulado, SEO, axe (claro/oscuro y HTML del servidor), objetivos táctiles, 320 px. `E2E_NO_BUILD=1` reutiliza `.output` |
-| `pnpm screenshots`         | capturas a 1440, 768 y 390 px en claro y oscuro → `docs/screenshots/`                                                                                                                    |
-| `pnpm images`              | regenera las capturas optimizadas (AVIF/WebP, varios anchos) y la imagen Open Graph desde `apps/frontend/docs/screenshots/tour`                                                          |
+En desarrollo, sin `DATA_KEY_FILE`, se genera una clave de cifrado en `DATA_DIR/dev-data.key`.
+Para entrar al panel en local crea un administrador (ver [Panel](#panel-de-administración)) y
+abre `http://localhost:3000/admin`: Chromium y Firefox aceptan la cookie `__Host-` (Secure) en
+`localhost`.
+
+| Orden                      | Qué hace                                                                                                                                                                                                                                                                                                                                 |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm lint`                | ESLint + Prettier                                                                                                                                                                                                                                                                                                                        |
+| `pnpm typecheck`           | `nuxt typecheck`                                                                                                                                                                                                                                                                                                                         |
+| `pnpm test`                | Vitest: formularios, antispam, rate limit, IP real, correo simulado, webhook; migraciones, edición de precios y caché; TOTP, bloqueo, CSRF, sesión y permisos de `/api/admin`; cálculo del importe; PayPal simulado (crear, capturar, webhook verificado y no verificado); cifrado de credenciales                                       |
+| `pnpm build && pnpm start` | build de producción y servidor Node (`.output/server/index.mjs`)                                                                                                                                                                                                                                                                         |
+| `pnpm e2e`                 | Playwright: navegación, idioma, demo y compra con SMTP simulado, SEO, axe (claro/oscuro, HTML del servidor y todas las páginas del panel), objetivos táctiles, 320 px; login con TOTP, configurar pagos, cambiar un precio y verlo en la web, compra con PayPal simulado, link Neo y transferencia. `E2E_NO_BUILD=1` reutiliza `.output` |
+| `pnpm screenshots`         | capturas de la landing (1440/768/390, claro y oscuro), del panel y de la compra con los tres métodos → `docs/screenshots/`                                                                                                                                                                                                               |
+| `pnpm images`              | regenera las capturas optimizadas (AVIF/WebP, varios anchos) y la imagen Open Graph desde `apps/frontend/docs/screenshots/tour`                                                                                                                                                                                                          |
 
 Playwright usa el Chromium de `PLAYWRIGHT_BROWSERS_PATH` (en el contenedor de desarrollo,
 `/opt/pw-browsers`); no hace falta `playwright install` en local. En CI se instala.
@@ -39,25 +50,33 @@ Playwright usa el Chromium de `PLAYWRIGHT_BROWSERS_PATH` (en el contenedor de de
 Todas son de tiempo de ejecución (no hace falta reconstruir). Ejemplo completo en
 [`.env.example`](.env.example).
 
-| Variable                                                          | Por defecto                            | Para qué                                                                                 |
-| ----------------------------------------------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `NUXT_PUBLIC_SITE_URL`                                            | `https://horusflow.kns.gt`             | URL pública canónica, sin barra final: canonical, hreflang, Open Graph, JSON-LD, sitemap |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` | — / 587 / `false` (465 → `true`)       | SMTP para avisar a ventas y confirmar al cliente                                         |
-| `MAIL_FROM`                                                       | `Horus Flow <SALES_EMAIL>`             | remitente (debe pasar SPF/DKIM del dominio)                                              |
-| `SALES_EMAIL`                                                     | `info@kns.gt`                          | destino de las solicitudes                                                               |
-| `MAIL_CONFIRM_CUSTOMER`                                           | `true`                                 | correo de confirmación al cliente                                                        |
-| `MAIL_TRANSPORT`                                                  | `smtp` si hay `SMTP_HOST`, si no `log` | `file` = SMTP simulado (`MAIL_OUTBOX_DIR`, por defecto `.outbox`); `log` = solo registra |
-| `LEADS_WEBHOOK_URL`, `LEADS_WEBHOOK_SECRET`                       | —                                      | webhook opcional para un CRM: POST JSON con firma `X-Horus-Signature: sha256=<HMAC>`     |
-| `TRUSTED_PROXIES`                                                 | —                                      | IPs/CIDR de los proxies de confianza; solo de ellos se acepta `X-Forwarded-For`          |
-| `RATE_LIMIT_MAX`, `RATE_LIMIT_WINDOW_SECONDS`                     | 8 / 600                                | envíos por IP real y ventana                                                             |
-| `FORM_MIN_FILL_SECONDS`                                           | 3                                      | tiempo mínimo entre mostrar y enviar un formulario                                       |
-| `PAYMENT_PROVIDER`                                                | `manual`                               | proveedor de pago (ver abajo)                                                            |
-| `ROBOTS_DISALLOW_ALL`                                             | —                                      | `1` en entornos de pruebas: `robots.txt` lo bloquea todo                                 |
-| `PRICING_REQUIRE_CONFIRMED`                                       | —                                      | `1` hace fallar el build si los precios no están confirmados                             |
+| Variable                                         | Por defecto                            | Para qué                                                                                                       |
+| ------------------------------------------------ | -------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `NUXT_PUBLIC_SITE_URL`                           | `https://horusflow.kns.gt`             | URL pública canónica, sin barra final: canonical, hreflang, Open Graph, JSON-LD, sitemap, URL del webhook      |
+| `DATA_DIR`                                       | `.data` (imagen: `/data`)              | carpeta de la base de datos `horus-landing.sqlite` (volumen persistente)                                       |
+| `DATA_KEY_FILE`                                  | — (**obligatoria en producción**)      | archivo con la clave AES-256 (32 bytes en base64/hex) que cifra las credenciales de PayPal y los secretos TOTP |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD_FILE`             | —                                      | primer administrador, solo si la base de datos aún no tiene ninguno                                            |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`          | — / 587 / `false` (465 → `true`)       | SMTP para avisos y confirmaciones (servidor de kns.gt por definir)                                             |
+| `SMTP_USER`, `SMTP_PASS_FILE` (o `SMTP_PASS`)    | —                                      | credenciales SMTP; la contraseña, mejor como archivo                                                           |
+| `MAIL_FROM`                                      | `Horus Flow <info@kns.gt>`             | remitente (debe pasar SPF/DKIM de kns.gt, ver [Correo](#correo-spf-dkim-y-dmarc-de-knsgt))                     |
+| `SALES_EMAIL`                                    | `info@kns.gt`                          | destino de los avisos: solicitudes y pagos confirmados                                                         |
+| `MAIL_CONFIRM_CUSTOMER`                          | `true`                                 | correo de confirmación al cliente                                                                              |
+| `MAIL_TRANSPORT`                                 | `smtp` si hay `SMTP_HOST`, si no `log` | `file` = SMTP simulado (`MAIL_OUTBOX_DIR`, por defecto `.outbox`); `log` = solo registra                       |
+| `LEADS_WEBHOOK_URL`, `LEADS_WEBHOOK_SECRET_FILE` | —                                      | webhook opcional para un CRM: POST JSON con firma `X-Horus-Signature: sha256=<HMAC>`                           |
+| `TRUSTED_PROXIES`                                | —                                      | IPs/CIDR de los proxies de confianza; solo de ellos se acepta `X-Forwarded-For`                                |
+| `RATE_LIMIT_MAX`, `RATE_LIMIT_WINDOW_SECONDS`    | 8 / 600                                | envíos por IP real y ventana                                                                                   |
+| `FORM_MIN_FILL_SECONDS`                          | 3                                      | tiempo mínimo entre mostrar y enviar un formulario                                                             |
+| `ROBOTS_DISALLOW_ALL`                            | —                                      | `1` en entornos de pruebas: `robots.txt` lo bloquea todo                                                       |
+| `ADMIN_COOKIE_INSECURE`                          | —                                      | solo desarrollo por HTTP fuera de localhost: cookie sin `Secure` ni `__Host-` (ignorada en producción)         |
+| `PAYPAL_API_BASE`                                | —                                      | solo pruebas: API de un PayPal simulado (ignorada en producción)                                               |
 
-**Sin SMTP:** en desarrollo las solicitudes se registran (sin datos personales) y se responde OK.
-En producción (`NODE_ENV=production`) sin SMTP ni webhook las rutas responden **503** con el
-correo de ventas, para no perder solicitudes en silencio.
+Los secretos (`DATA_KEY_FILE`, `ADMIN_PASSWORD_FILE`, `SMTP_PASS_FILE`) se pasan como archivos;
+[`compose.example.yaml`](compose.example.yaml) los monta como _secrets_ de Docker. Las
+credenciales de PayPal no van en variables: se escriben en el panel y se guardan cifradas.
+
+**Sin SMTP:** las solicitudes se guardan en la base de datos y se ven en el panel; solo se
+registra que no se envió el correo. Sin base de datos, SMTP ni webhook (no es el caso de la
+imagen), en producción las rutas responderían **503** para no perder solicitudes en silencio.
 
 **Datos personales en logs:** solo la referencia, el plan, el país y el correo enmascarado
 (`a***@dominio`); nunca nombres, teléfonos ni mensajes. La IP se usa en memoria para el rate
@@ -73,12 +92,19 @@ réplicas cada una cuenta por separado.
 
    ```bash
    cd apps/landing
-   cp .env.example .env      # SMTP, NUXT_PUBLIC_SITE_URL=https://tu-dominio, TRUSTED_PROXIES…
+   cp .env.example .env      # SMTP, TRUSTED_PROXIES…
+   mkdir -p secrets && chmod 700 secrets
+   openssl rand -base64 32 > secrets/data.key          # ¡guárdala también fuera del servidor!
+   printf '%s' 'contraseña-larga-del-primer-admin' > secrets/admin_password
+   : > secrets/smtp_pass                               # o la contraseña SMTP
+   chmod 600 secrets/*
    docker compose -f compose.example.yaml up -d --build
    ```
 
    El compose une el contenedor a la red de NPM (`PROXY_NETWORK`, por defecto `npm_default`)
-   sin publicar puertos.
+   sin publicar puertos, monta el volumen de datos `landing-data` en `/data` y los secretos en
+   `/run/secrets/`. Tras el primer arranque puedes borrar `secrets/admin_password` (el hash ya
+   está en la base de datos).
 
 2. En NPM, **Proxy Host** → dominio → _Forward_ `http://horus-landing:3000`; pestaña SSL: Let's
    Encrypt, _Force SSL_ y _HTTP/2_. Activa _Block Common Exploits_.
@@ -97,19 +123,73 @@ réplicas cada una cuenta por separado.
 La salud del contenedor se comprueba con `/robots.txt`. El HTML se sirve comprimido (brotli o
 gzip) y los recursos estáticos precomprimidos; si NPM comprime también, no hay doble compresión.
 
+## Panel de administración
+
+`https://horusflow.kns.gt/admin` (no enlazado desde la web, `noindex`, `Disallow: /admin`, fuera
+del sitemap). Secciones: **Solicitudes** (lista con filtros, detalle, cambio de estado con nota,
+exportación CSV), **Precios y planes**, **Pagos**, **Ajustes** (contacto, soporte, banner,
+administradores, mi cuenta) y **Auditoría**.
+
+### Primer administrador
+
+- **Con variables:** `ADMIN_EMAIL` + `ADMIN_PASSWORD_FILE` (mínimo 12 caracteres). Al arrancar,
+  si la base de datos no tiene administradores, se crea ese. Si ya hay alguno, no hace nada.
+- **Con la línea de órdenes** (en el contenedor o en local tras `pnpm build`):
+
+  ```bash
+  # la contraseña se lee de la entrada estándar (o --password-file archivo)
+  docker exec -i horus-landing /nodejs/bin/node .output/server/index.mjs \
+    admin create --email info@kns.gt --name "C&S Company" < secrets/admin_password
+  docker exec horus-landing /nodejs/bin/node .output/server/index.mjs admin list
+  docker exec horus-landing /nodejs/bin/node .output/server/index.mjs admin reset-totp --email info@kns.gt
+  docker exec horus-landing /nodejs/bin/node .output/server/index.mjs admin disable --email ex@kns.gt
+  ```
+
+### Acceso
+
+1. Correo y contraseña (scrypt N=2¹⁵, r=8, p=1; mínimo 12 caracteres).
+2. **TOTP obligatorio.** La primera vez se da de alta escaneando el QR (o escribiendo la clave) con
+   Google Authenticator, Microsoft Authenticator, 1Password…, y se entregan **10 códigos de
+   recuperación** de un solo uso (se pueden regenerar en Ajustes). Después, cada acceso pide el
+   código de 6 dígitos o un código de recuperación. Un código TOTP no se acepta dos veces.
+3. Sesión en la cookie `__Host-hf_admin` (`HttpOnly`, `Secure`, `SameSite=Strict`, `Path=/`):
+   10 min para el segundo paso, 30 min de inactividad, 8 h como máximo; el identificador se
+   rota al subir de nivel y cada 10 min. Cambiar la contraseña, desactivar a alguien o
+   restablecer su TOTP cierra sus sesiones.
+4. **CSRF:** toda petición que cambia algo lleva `X-CSRF-Token` (token de la sesión; en el login,
+   doble envío con la cookie `__Host-hf_admin_csrf`) y se comprueba `Origin`/`Sec-Fetch-Site`.
+5. **Rate limit y bloqueo progresivo:** 10 intentos de login por IP cada 5 min; tras 5 fallos
+   por correo (o 20 por IP) bloqueo de 1, 2, 4… minutos, hasta 1 h. También para el TOTP.
+6. **Auditoría:** cada acceso, fallo y cambio queda con quién, cuándo, la IP truncada y el antes
+   y el después (nunca secretos).
+
+Toda ruta de `/api/admin/**` pasa por [`server/middleware/admin.ts`](server/middleware/admin.ts)
+(sesión completa salvo login/CSRF/estado); un test recorre todas las rutas del directorio y
+comprueba que ninguna responde sin sesión.
+
+**Si se pierde el acceso** (teléfono y códigos): `admin reset-totp --email …` desde la línea de
+órdenes y volver a dar de alta el TOTP.
+
 ## Editar precios
 
-Todo está en **un solo archivo**: [`app/config/pricing.ts`](app/config/pricing.ts) — planes,
-importes en USD y GTQ por periodo (mensual/anual), lo que incluye cada plan, el servidor
-recomendado, el texto del pago anual y lo que incluye toda licencia.
+En **/admin › Precios y planes**, sin tocar código ni redesplegar: importes por moneda (USD, GTQ)
+y periodo (mensual, anual) con hasta 2 decimales, nombre y descripción ES/EN, lo que incluye
+cada plan y toda licencia, plan destacado, visible/oculto, orden, moneda y periodo por defecto y
+"Mostrar importes" (si se desactiva, la web vuelve a "Precio de lanzamiento: solicita
+cotización" y no se puede pagar).
 
-- Hoy `confirmed: false`: los importes son una **propuesta** (comentada en el archivo) y la página
-  muestra **"Precio de lanzamiento: solicita cotización"**; el JSON-LD publica las ofertas sin
-  importe y `pnpm build` avisa (`[pricing] WARN Precios SIN CONFIRMAR…`).
-- Para publicar cifras: ajusta los importes y pon `confirmed: true`. Aparece el selector de
-  moneda, las cifras por periodo, los importes en el resumen de compra, en los correos y en el
-  JSON-LD. El test `tests/unit/pricing.test.ts` comprueba que no hay cifras mientras
-  `confirmed` sea false: actualízalo al confirmar.
+- **Vista previa** con el mismo componente de la web antes de **Publicar**.
+- Cada publicación es una **versión** con fecha, autor y nota; cualquiera se puede **ver** o
+  **restaurar** (se publica como versión nueva).
+- La web lee el catálogo de la base de datos con una caché de 30 s que se invalida al publicar:
+  el cambio se ve en la siguiente carga de la página (≤ 30 s si hubiera varios procesos).
+- El importe de una compra se fija en el servidor al crear la solicitud, desde la base de datos;
+  el navegador nunca envía importes.
+- [`app/config/pricing.ts`](app/config/pricing.ts) es solo la **semilla** de la primera
+  arrancada con la base de datos vacía (precios aprobados: Pequeño 149/1 490 USD, Mediano
+  399/3 990, Grande 990/9 900, Enterprise a medida, y sus equivalentes en GTQ). Los planes son
+  fijos (`small`, `medium`, `large`, `enterprise`, ligados a los tamaños del instalador); el panel
+  los edita y oculta, no crea planes nuevos.
 
 ## Editar textos
 
@@ -118,47 +198,96 @@ recomendado, el texto del pago anual y lo que incluye toda licencia.
   `}` y `|` son especiales: el correo va como parámetro `{email}`.
 - Datos del vendedor y rutas por idioma: [`app/config/site.ts`](app/config/site.ts).
 - Textos legales (**borradores en español pendientes de revisión legal**, con marcas
-  `[POR DEFINIR]`/`[POR CONFIRMAR]`): [`app/content/legal.ts`](app/content/legal.ts).
-- Correos a ventas y al cliente: [`server/utils/emails.ts`](server/utils/emails.ts).
+  `[POR CONFIRMAR]`: registro mercantil, NIT del titular, plazos de conservación, impuestos y
+  devoluciones): [`app/content/legal.ts`](app/content/legal.ts). Domicilio del titular: 2da
+  avenida, San Martín Jilotepeque, Chimaltenango, Guatemala.
+- Contacto, texto de soporte (24/7), tiempo de respuesta (vacío hasta que se acuerde) y banner:
+  en **/admin › Ajustes**.
+- Correos (solicitud, instrucciones de pago, pago confirmado):
+  [`server/utils/emails.ts`](server/utils/emails.ts).
 - Capturas: `pnpm images` (lista en `scripts/optimize-images.mjs` y `app/config/shots.ts`).
 
 Todas las cifras de fiabilidad salen de `tests/load/REPORT.md` y de `README.md` (raíz) y se
 presentan con la nota del servidor de pruebas. Si cambian allí, cámbialas aquí.
 
-## Añadir una pasarela de pago
+## Pagos
 
-Hoy solo existe **"solicitud manual / transferencia"**
-([`server/payments/manual.ts`](server/payments/manual.ts)): la compra genera una referencia
-(`HF-P-AAAAMMDD-XXXXXX`), se avisa a ventas y el cliente paga por transferencia tras recibir la
-cotización. La interfaz está en [`server/payments/types.ts`](server/payments/types.ts):
+Tras enviar la solicitud en `/comprar` (o `/en/buy`) el cliente recibe la referencia
+(`HF-P-AAAAMMDD-XXXXXX`) y elige entre los métodos **activos y completos** (se configuran en
+**/admin › Pagos**):
 
-```ts
-interface PaymentProvider {
-  readonly id: string
-  createPayment(
-    order: PurchaseOrder,
-  ): Promise<
-    { provider: string; kind: 'manual' } | { provider: string; kind: 'redirect'; url: string }
-  >
-}
+| Método               | Cómo funciona                                                                                                                                                                                                                                                                                                                                                                                         | Estado                                                     |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| **PayPal**           | Botón del JS SDK de PayPal (se carga solo en la compra y solo al elegirlo). El servidor crea la orden (Orders v2, `PayPal-Request-Id` = referencia: idempotente) por el **importe en USD** del plan y periodo guardado en la solicitud, y la captura al aprobarla; comprueba estado, moneda, importe y referencia. El webhook `PAYMENT.CAPTURE.COMPLETED` confirma también si el navegador no vuelve. | Pagada al confirmarse; correo al cliente y a `SALES_EMAIL` |
+| **Link de pago Neo** | Botón al link configurado para ese plan y periodo, con la referencia visible y en un correo. Neo se trata como un link externo (sin API).                                                                                                                                                                                                                                                             | Pendiente de pago; el administrador la marca como pagada   |
+| **Transferencia**    | Cuentas bancarias (banco, tipo ES/EN, número, titular, moneda) e instrucciones ES/EN, en pantalla y por correo, con la referencia.                                                                                                                                                                                                                                                                    | Pendiente de pago; el administrador la marca como pagada   |
+
+PayPal **no admite GTQ**: si el cliente eligió quetzales, PayPal cobra el precio en USD del mismo
+plan (se le avisa). Al marcar una compra como pagada en el panel se puede avisar por correo al
+cliente y a ventas. Las credenciales de PayPal (client id y secret) son de **solo escritura**: se
+cifran con AES-256-GCM con la clave de `DATA_KEY_FILE` y nunca se vuelven a mostrar.
+
+### PayPal: sandbox, webhook y paso a real
+
+1. En <https://developer.paypal.com> › _Apps & Credentials_ › **Sandbox**, crea una app (tipo
+   _Merchant_) y copia **Client ID** y **Secret**.
+2. En la app › **Webhooks** › _Add webhook_: URL `https://horusflow.kns.gt/api/payments/paypal/webhook`
+   (el panel la muestra), evento **Payment capture completed**. Copia el **Webhook ID**.
+3. En **/admin › Pagos › PayPal**: modo **Sandbox**, Client ID, Secret y Webhook ID; marca
+   "Ofrecer PayPal" y guarda.
+4. Prueba una compra en `/comprar` con una cuenta _Personal_ de sandbox
+   (_Testing Tools › Sandbox Accounts_). La solicitud pasa a **Pagada** en el panel y llegan los
+   correos. En _Webhooks Events_ de PayPal se ve la entrega (respuesta 200). Un webhook sin firma
+   válida (verificada con `POST /v1/notifications/verify-webhook-signature`) responde 400 y no
+   cambia nada.
+5. Para cobrar de verdad: crea la app en **Live**, repite el webhook en Live, y en el panel cambia
+   a modo **Live** con las credenciales y el Webhook ID de Live.
+
+En los tests, `PAYPAL_API_BASE` apunta a un PayPal simulado
+([`tests/support/fake-paypal.mjs`](tests/support/fake-paypal.mjs)) y el e2e sustituye el JS SDK
+por uno simulado; en producción esa variable se ignora.
+
+**CSP:** la de toda la web es `default-src 'self'` (sin terceros; `media-src 'self'` para los
+vídeos de `/motion`); la de `/comprar` y `/en/buy` añade los dominios de PayPal
+(`www.paypal.com`, `*.paypal.com`, `*.paypalobjects.com`) en `script-src`, `connect-src`,
+`frame-src` e `img-src`, y `Permissions-Policy: payment=(self "https://www.paypal.com")`.
+
+## Correo: SPF, DKIM y DMARC de kns.gt
+
+El remitente es `info@kns.gt` (`MAIL_FROM`) y los avisos llegan a `info@kns.gt` (`SALES_EMAIL`).
+El servidor SMTP aún no se conoce: cuando se sepa, pon `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER` y
+`SMTP_PASS_FILE`, y publica en el DNS de **kns.gt**:
+
+| Registro           | Nombre                         | Valor (ejemplo; ajústalo al proveedor)                                                                                                                      |
+| ------------------ | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SPF (TXT)          | `kns.gt`                       | `v=spf1 include:<dominio-spf-del-proveedor> -all` — un solo registro SPF; si ya existe, añade el `include:` al existente                                    |
+| DKIM (TXT o CNAME) | `<selector>._domainkey.kns.gt` | la clave pública que genere el proveedor SMTP (p. ej. `v=DKIM1; k=rsa; p=MIIB…`)                                                                            |
+| DMARC (TXT)        | `_dmarc.kns.gt`                | empieza con `v=DMARC1; p=none; rua=mailto:info@kns.gt; adkim=s; aspf=s` y, tras revisar los informes unas semanas, pasa a `p=quarantine` y luego `p=reject` |
+
+Comprueba con una solicitud de prueba que la cabecera `Authentication-Results` del correo
+recibido muestre `spf=pass`, `dkim=pass` y `dmarc=pass`.
+
+## Copia de seguridad
+
+Todo lo que no está en el código vive en el volumen de datos (`/data/horus-landing.sqlite`, en
+modo WAL) y en la clave de `DATA_KEY_FILE`. Sin la clave, las credenciales de PayPal y los
+secretos TOTP guardados no se pueden descifrar (habría que volver a escribirlas y restablecer el
+TOTP con `admin reset-totp`): **guarda la clave aparte**, no junto a la copia.
+
+```bash
+# copia en caliente y consistente (API de copia de SQLite), sin parar la landing
+docker run --rm -v horus-landing_landing-data:/data -v "$PWD":/backup alpine:3.20 \
+  sh -c 'apk add --no-cache sqlite >/dev/null && sqlite3 /data/horus-landing.sqlite ".backup /backup/horus-landing-$(date +%F).sqlite"'
+
+# restaurar: parar, sustituir el archivo (y borrar -wal/-shm), arrancar
+docker compose -f compose.example.yaml stop landing
+docker run --rm -v horus-landing_landing-data:/data -v "$PWD":/backup alpine:3.20 \
+  sh -c 'rm -f /data/horus-landing.sqlite-wal /data/horus-landing.sqlite-shm && cp /backup/horus-landing-AAAA-MM-DD.sqlite /data/horus-landing.sqlite && chown 65532:65532 /data/horus-landing.sqlite'
+docker compose -f compose.example.yaml start landing
 ```
 
-Para añadir Stripe, Recurrente (Guatemala) o PayPal:
-
-1. Crea `server/payments/<proveedor>.ts` que implemente `PaymentProvider`. En `createPayment`
-   crea la sesión de pago del proveedor (Stripe Checkout Session, Recurrente checkout, PayPal
-   Order) con `order.amount`, `order.currency`, la referencia como `metadata`/`custom_id` y las
-   URLs de vuelta (`NUXT_PUBLIC_SITE_URL` + `/comprar?ref=…`), y devuelve
-   `{ kind: 'redirect', url }`. El formulario ya redirige cuando recibe `redirect`.
-2. Regístralo en [`server/payments/index.ts`](server/payments/index.ts) y elige con
-   `PAYMENT_PROVIDER=<id>`. Las claves van en variables de entorno (nunca en el repositorio).
-3. Añade `server/api/payments/<proveedor>/webhook.post.ts` que **verifique la firma** del
-   proveedor (Stripe-Signature, cabecera de Recurrente, verificación de PayPal), marque la
-   referencia como pagada y avise a ventas. Sin webhook verificado no se da nada por pagado.
-4. Solo tiene sentido con precios confirmados (`confirmed: true`): con `amount: null` el
-   proveedor debe responder `manual`. Revisa los términos (§4) y la política de privacidad
-   (destinatarios) antes de activarlo, y amplía `Permissions-Policy` (`payment=()`) y la CSP
-   si el proveedor usa iframes o scripts propios.
+Programa la copia (cron diario) y guarda varias. Las migraciones se aplican solas al arrancar
+una versión nueva; haz una copia antes de actualizar.
 
 ## CI
 
