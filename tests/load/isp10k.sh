@@ -21,6 +21,8 @@ export SCENARIO=isp10k
 export LOAD_PROJECT="${LOAD_PROJECT:-horus-load-isp10k}"
 export LOAD_PORT_OFFSET="${LOAD_PORT_OFFSET:-24000}"
 export LOAD_IMAGE="${LOAD_IMAGE:-horus:load-isp10k}"
+# Búfer TLM_FLOWS de la prueba: 5 min a 20 000/s ≈ 6 M flujos × 185 B ≈ 1,1 GB (sin comprimir).
+export LOAD_TLM_MAX_BYTES="${LOAD_TLM_MAX_BYTES:-1610612736}"
 export LOAD_COMPOSE_EXTRA="${LOAD_COMPOSE_EXTRA:-tests/load/compose.isp10k.yaml}"
 rates="${ISP10K_RATES:-10000,20000,40000,60000}"
 first="${rates%%,*}"
