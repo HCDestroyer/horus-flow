@@ -33,6 +33,7 @@ import (
 	collectorapi "github.com/hcdestroyer/horus-flow/services/collector/api"
 	chadapter "github.com/hcdestroyer/horus-flow/services/ingester/internal/adapters/clickhouse"
 	"github.com/hcdestroyer/horus-flow/services/ingester/internal/adapters/httpapi"
+	"github.com/hcdestroyer/horus-flow/services/ingester/internal/adapters/ledger"
 	"github.com/hcdestroyer/horus-flow/services/ingester/internal/app"
 	modcfg "github.com/hcdestroyer/horus-flow/services/ingester/internal/config"
 )
@@ -161,11 +162,18 @@ func (m *ingester) Start(ctx context.Context) error {
 	} else {
 		m.log.WarnContext(ctx, "exporter state bucket unavailable", "error", err)
 	}
+	var led app.Ledger
+	if kv, err := js.CreateOrUpdateKeyValue(ctx, ledger.Config()); err == nil {
+		led = ledger.KV{KV: kv}
+	} else {
+		m.log.WarnContext(ctx, "ingester group ledger unavailable: retries after a crash may duplicate rows", "error", err)
+	}
 	proc := &app.Processor{Inv: m.inv}
 	if err := m.wire(ctx, proc); err != nil {
 		return err
 	}
-	m.consumer = &app.Consumer{Proc: proc, Ins: w, Workers: m.cfg.Workers, M: m.metrics, Log: m.log,
+	m.consumer = &app.Consumer{Proc: proc, Ins: w, Workers: m.cfg.Workers, M: m.metrics, Log: m.log, Ledger: led,
+		Group: app.GroupOptions{Rows: m.cfg.InsertRows, Wait: m.cfg.InsertWait, Flushers: m.cfg.InsertFlushers},
 		DLQ: func(ctx context.Context, msg *nats.Msg) error { _, err := js.PublishMsg(ctx, msg); return err }}
 	if h := m.deps.Health; h != nil {
 		h.AddCheck(health.Check{Name: "clickhouse", Critical: false, Probe: w.Ping})

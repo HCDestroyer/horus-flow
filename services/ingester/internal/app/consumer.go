@@ -2,11 +2,9 @@ package app
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -14,7 +12,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/hcdestroyer/horus-flow/packages/go/flowbus"
-	"github.com/hcdestroyer/horus-flow/packages/go/flowpb"
 )
 
 // Inserter escribe filas de un lote (flows_raw).
@@ -28,6 +25,10 @@ type Metrics struct {
 	Rows      *prometheus.CounterVec
 	InsertDur prometheus.Histogram
 	Lag       prometheus.Gauge
+	// InsertRows: filas por INSERT; Flushes: grupos escritos por motivo
+	// (rows, time, recovery).
+	InsertRows prometheus.Histogram
+	Flushes    *prometheus.CounterVec
 }
 
 // NewMetrics crea y registra las métricas (reg puede ser nil).
@@ -41,23 +42,33 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Help: "Duración de cada INSERT en flows_raw.", Buckets: prometheus.ExponentialBuckets(0.005, 2, 12)}),
 		Lag: prometheus.NewGauge(prometheus.GaugeOpts{Name: "horus_ingester_consumer_pending",
 			Help: "Mensajes pendientes del durable flows-ingester."}),
+		InsertRows: prometheus.NewHistogram(prometheus.HistogramOpts{Name: "horus_ingester_insert_rows",
+			Help: "Filas de cada INSERT agrupado en flows_raw.", Buckets: prometheus.ExponentialBuckets(500, 2, 10)}),
+		Flushes: prometheus.NewCounterVec(prometheus.CounterOpts{Name: "horus_ingester_insert_groups_total",
+			Help: "INSERT agrupados por motivo de cierre del grupo (rows, time, recovery)."}, []string{"reason"}),
 	}
 	if reg != nil {
-		for _, c := range []prometheus.Collector{m.Batches, m.Rows, m.InsertDur, m.Lag} {
+		for _, c := range []prometheus.Collector{m.Batches, m.Rows, m.InsertDur, m.Lag, m.InsertRows, m.Flushes} {
 			_ = reg.Register(c)
 		}
 	}
 	return m
 }
 
-// Consumer consume TLM_FLOWS con el durable flows-ingester y confirma cada
-// lote después del INSERT (at-least-once + token de deduplicación).
+// Consumer consume TLM_FLOWS con el durable flows-ingester, agrupa lotes en
+// INSERT grandes y confirma cada lote después del INSERT de su grupo
+// (at-least-once + token de deduplicación por grupo, ver group.go).
 type Consumer struct {
-	Proc    *Processor
-	Ins     Inserter
+	Proc *Processor
+	Ins  Inserter
+	// Workers decodifican y atribuyen lotes en paralelo.
 	Workers int
-	M       *Metrics
-	Log     *slog.Logger
+	// Group configura la escritura agrupada; Ledger hace idempotentes los
+	// reintentos tras una caída (nil: sin recuperación de grupos en curso).
+	Group  GroupOptions
+	Ledger Ledger
+	M      *Metrics
+	Log    *slog.Logger
 	// DLQ publica una copia de los lotes terminados (opcional).
 	DLQ func(ctx context.Context, m *nats.Msg) error
 }
@@ -70,19 +81,13 @@ const (
 	outTerm
 )
 
-// Process procesa un mensaje y devuelve qué hacer con él (testeable sin NATS).
-// stop corta los reintentos de INSERT (apagado); progress alarga ack_wait.
+// Process procesa un mensaje con un INSERT propio y devuelve qué hacer con él
+// (testeable sin NATS; el camino de producción es runGrouped). stop corta los
+// reintentos de INSERT (apagado); progress alarga ack_wait.
 func (c *Consumer) Process(ctx context.Context, stop <-chan struct{}, data []byte, headers nats.Header, progress func()) (outcome, error) {
-	fb, err := flowpb.UnmarshalFlowBatch(data)
-	if err != nil {
-		return outTerm, err
-	}
-	rows, err := c.Proc.Rows(fb, headers.Get(flowbus.HeaderTenant))
-	switch {
-	case errors.Is(err, ErrPermanent):
-		return outTerm, err
-	case err != nil:
-		return outNak, err
+	batchID, rows, out, err := c.Prepare(data, headers)
+	if out != outAck {
+		return out, err
 	}
 	start := time.Now()
 	// ClickHouse caído: se reintenta sin soltar el mensaje (InProgress alarga
@@ -90,7 +95,7 @@ func (c *Consumer) Process(ctx context.Context, stop <-chan struct{}, data []byt
 	// entregas (I1-04 criterio 6). Se sale solo al apagar.
 	backoff := 200 * time.Millisecond
 	for {
-		err := c.Ins.Insert(ctx, fb.BatchID, rows)
+		err := c.Ins.Insert(ctx, batchID, rows)
 		if err == nil {
 			break
 		}
@@ -98,7 +103,7 @@ func (c *Consumer) Process(ctx context.Context, stop <-chan struct{}, data []byt
 			progress()
 		}
 		c.M.Batches.WithLabelValues("insert_retry").Inc()
-		c.Log.Warn("flows_raw insert failed: retrying", "batch_id", fb.BatchID, "error", err)
+		c.Log.Warn("flows_raw insert failed: retrying", "batch_id", batchID, "error", err)
 		select {
 		case <-stop:
 			return outNak, err
@@ -113,26 +118,7 @@ func (c *Consumer) Process(ctx context.Context, stop <-chan struct{}, data []byt
 	return outAck, nil
 }
 
-func (c *Consumer) handle(ctx context.Context, stop <-chan struct{}, msg jetstream.Msg) {
-	out, err := c.Process(ctx, stop, msg.Data(), msg.Headers(), func() { _ = msg.InProgress() })
-	switch out {
-	case outAck:
-		c.M.Batches.WithLabelValues("ok").Inc()
-		_ = msg.Ack()
-	case outNak:
-		c.M.Batches.WithLabelValues("retry").Inc()
-		c.Log.Warn("flow batch will be retried", "subject", msg.Subject(), "error", err)
-		if md, mErr := msg.Metadata(); mErr == nil && md.NumDelivered >= 5 {
-			c.terminate(ctx, msg, err)
-			return
-		}
-		_ = msg.NakWithDelay(2 * time.Second)
-	case outTerm:
-		c.terminate(ctx, msg, err)
-	}
-}
-
-func (c *Consumer) terminate(ctx context.Context, msg jetstream.Msg, cause error) {
+func (c *Consumer) terminate(ctx context.Context, msg BusMsg, cause error) {
 	c.M.Batches.WithLabelValues("dlq").Inc()
 	c.Log.Error("flow batch sent to DLQ", "subject", msg.Subject(), "error", cause)
 	if c.DLQ != nil {
@@ -164,26 +150,14 @@ func (c *Consumer) terminate(ctx context.Context, msg jetstream.Msg, cause error
 
 // Run consume hasta que ctx se cancela.
 func (c *Consumer) Run(ctx context.Context, cons jetstream.Consumer) error {
-	workers := max(c.Workers, 1)
-	it, err := cons.Messages(jetstream.PullMaxMessages(workers * 4))
+	opts := c.Group.withDefaults()
+	// Mensajes en vuelo: los de los grupos que se escriben y el que se
+	// acumula (≈ 500 registros por lote), con margen.
+	inflight := max(c.Workers*4, (opts.Flushers+2)*opts.Rows/500)
+	it, err := cons.Messages(jetstream.PullMaxMessages(inflight))
 	if err != nil {
 		return err
 	}
-	ch := make(chan jetstream.Msg, workers)
-	var wg sync.WaitGroup
-	for range workers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for m := range ch {
-				c.handle(context.WithoutCancel(ctx), ctx.Done(), m)
-			}
-		}()
-	}
-	go func() {
-		<-ctx.Done()
-		it.Stop()
-	}()
 	go func() {
 		t := time.NewTicker(10 * time.Second)
 		defer t.Stop()
@@ -198,14 +172,5 @@ func (c *Consumer) Run(ctx context.Context, cons jetstream.Consumer) error {
 			}
 		}
 	}()
-	for {
-		m, err := it.Next()
-		if err != nil {
-			break
-		}
-		ch <- m
-	}
-	close(ch)
-	wg.Wait()
-	return nil
+	return c.runGrouped(ctx, func() (BusMsg, error) { return it.Next() }, it.Stop)
 }
