@@ -338,3 +338,28 @@ La ejecución anterior de esta ronda (08:19–08:27 UTC, imagen sin los últimos
 - **Lotes abiertos en memoria del collector:** un `kill -9` pierde ≤ 1 s de lo recibido, que se mide como parte de la caída. Evitarlo exige un diario de datagramas con lotes deterministas; no está hecho.
 - **Cola del collector con la CPU saturada:** a partir de 40 000/s descarta en esta máquina. Hay que repetir la rampa en el servidor recomendado (8 vCPU dedicadas) en el nocturno.
 - **Varios ingester sobre el mismo durable:** sigue el supuesto de un único proceso (§10.1).
+
+---
+
+# Nocturno: primera ejecución en GitHub (INT, 10/10/2026)
+
+Run [38042743182](https://github.com/HCDestroyer/horus-flow/actions/runs/38042743182) sobre `8843d4d`, job `load-i1 (I1-26)` en `ubuntu-24.04` (4 vCPU AMD EPYC 7763, 16 GiB), `DURATION=1h RAMP=1`:
+
+| Flujos/s | Duración | Enviados | Pérdida | ClickHouse | Lag máx. | Drenaje | p95 API | Resultado |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 5 000 | 1 h | 17 499 084 | 0 | 17 499 084 | 14 lotes / 1,4 s | 2 s | **747 ms** | KO: p95 |
+| 10 000 | 2 min | 1 114 368 | 0 | 1 114 368 | 6 lotes / 0,3 s | 2 s | 1 202 ms | KO: p95 |
+
+La ingesta cumplía todo. Lo único que fallaba era el p95 de la API de tráfico, que en las pruebas de 5 min rondaba los 120 ms. **El runner no tenía la culpa: era la consulta de atribución.**
+
+- **Causa:** `GET /analytics/traffic/attribution` (24 h por defecto; la sonda pide 1 h) sumaba `flows.flows_raw` filtrando solo por `ts`, que es la **última** columna del `ORDER BY (tenant_id, site_id, realm_id, client_ip, ts)`. Por eso leía todas las filas del ISP de cada partición diaria tocada. A 5 000 flujos/s son 18 M de filas por hora, y a última hora del día una ventana de 1 h habría leído el día entero. Las otras cuatro consultas de la sonda leen agregados.
+- **Cómo se vio:** la sonda guarda ahora el p95 **por consulta** (en el log y en `results.md`). En local (4 vCPU Xeon, 20 min a 5 000/s), la atribución daba **452 ms** y las demás, 25–35 ms. En ClickHouse, la consulta pasaba de 0,01 s a 0,41 s con 5 M de filas: crecía en línea con lo ingerido.
+- **Arreglo:** agregado nuevo `flows.attribution_5m` (nodo × 5 min × estado de atribución) y la consulta lee de ahí. La migración `20261010160000` es aditiva e incluye el relleno, los grants, las row policies y la ventana de deduplicación, como en `site_5m`. El test `TestAttributionFromAggregate` comprueba que salen las mismas proporciones por nodo, ISP y rango, que se mantiene el aislamiento entre ISP y que no se lee `flows_raw`.
+- **Después** (local, misma máquina, `DURATION=20m RAMP=1 RAMP_RATES=10000`):
+
+| Flujos/s | Duración | Enviados | Pérdida | ClickHouse | Lag máx. | Drenaje | p95 API | p95 atribución | Resultado |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 5 000 | 20 min | 5 663 804 | 0 | 5 663 804 | 14 lotes / 1,4 s | 5 s | **33 ms** (antes 326) | 31 ms (antes 452) | OK |
+| 10 000 | 2 min | 1 114 368 | 0 | 1 114 368 | 27 lotes / 1,3 s | 4 s | 38 ms | 44 ms | OK |
+
+- **El criterio se mantiene:** p95 < 500 ms, sin pérdida, lag acotado y drenaje < 90 s, también en el runner de 4 vCPU, que tras el arreglo lo cumple con mucho margen. La hora completa a 5 000/s solo se puede comprobar en el nocturno.
