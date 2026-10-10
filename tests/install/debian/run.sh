@@ -18,6 +18,9 @@
 #   6. horus-ctl upgrade --bundle B → 0.9.1 sano; horus-ctl upgrade --bundle C (rota) → vuelta
 #      atrás automática a 0.9.1 sana (código 3).
 #   7. horus-ctl uninstall (conserva datos) y reinstalación con los mismos secretos; uninstall --purge.
+#   8. --tls external detrás de un nginx con TLS autofirmado (nginx-proxy.conf): UI/API, e2e de
+#      humo (login, cookie Secure, TOTP) por el proxy, WebSocket, X-Forwarded-For falsificado
+#      ignorado (rate limit) e IP real en sesiones y auditoría (TEST_PROXY=0 lo salta).
 #
 # Variables: DEBIAN_VERSION (12), TEST_MODE (apt), TEST_KEEP=1 (no borra el contenedor),
 # TEST_IMAGE_MODE (prebuilt|dockerfile para la imagen horus; prebuilt por defecto en sandbox),
@@ -224,6 +227,83 @@ check "sana tras reinstalar" health
 check "horus-ctl uninstall --purge --yes" bash -c "docker exec $name horus-ctl uninstall --purge --yes >'$out/purge.log' 2>&1"
 check "purge: sin /etc/horus, /var/lib/horus ni /opt/horus" bash -c \
   "! docker exec $name test -e /etc/horus && ! docker exec $name test -e /var/lib/horus && ! docker exec $name test -e /opt/horus"
+
+# --- 8. Detrás de un proxy inverso (--tls external) -------------------------------------------------
+if [ "${TEST_PROXY:-1}" = 1 ]; then
+  step "8. --tls external detrás de nginx con TLS autofirmado"
+  nginx_img="${TEST_NGINX_IMAGE:-nginx:1.27.5-alpine}"
+  docker image inspect "$nginx_img" >/dev/null 2>&1 || docker pull -q "$nginx_img" >/dev/null
+  proxy_setup() {
+    docker save "$nginx_img" | docker exec -i "$name" docker load -q >/dev/null || return 1
+    docker exec "$name" mkdir -p /etc/horus-test-nginx/tls
+    docker cp "$here/nginx-proxy.conf" "$name:/etc/horus-test-nginx/default.conf"
+    docker exec "$name" openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 30 \
+      -subj "/CN=$ip" -addext "subjectAltName=IP:$ip" -keyout /etc/horus-test-nginx/tls/proxy.key \
+      -out /etc/horus-test-nginx/tls/proxy.crt 2>/dev/null || return 1
+    docker exec "$name" docker run -d --name horus-test-nginx --network host --restart unless-stopped \
+      -v /etc/horus-test-nginx/default.conf:/etc/nginx/conf.d/default.conf:ro \
+      -v /etc/horus-test-nginx/tls:/etc/nginx/tls:ro "$nginx_img" >/dev/null
+  }
+  ext=(bash /artifacts/dist-0.9.0/bootstrap-debian.sh --bundle /artifacts/dist-0.9.0/horus-0.9.0-linux-amd64.tar.gz
+    --yes --tls external --public-url "https://$ip" --trusted-proxies 127.0.0.1/32 --http-bind 127.0.0.1:8080
+    --admin-email admin@horus.test --admin-password-file /root/admin-pw --tunnel-cidr 10.230.0.0/16
+    --tlm-max-bytes 1073741824 --force)
+  [ "$mode" = apt ] || ext+=(--no-apt)
+  check "instalación --tls external (Traefik solo HTTP en 127.0.0.1:8080)" bash -c "docker exec $name ${ext[*]@Q} >'$out/install-proxy.log' 2>&1"
+  check "nginx de prueba con TLS autofirmado delante (proxy_pass a 127.0.0.1:8080)" proxy_setup
+  docker exec "$name" cat /etc/horus-test-nginx/tls/proxy.crt >"$work/proxy-$ver.crt"
+  pc="$work/proxy-$ver.crt"
+  proxy_http() { # proxy_http <ruta> <código esperado> [curl…]
+    local p="$1" want="$2"; shift 2
+    local got; got="$(curl -s -o /dev/null -w '%{http_code}' --cacert "$pc" "$@" "https://$ip$p")"
+    [ "$got" = "$want" ] || { echo "GET $p = $got (quiero $want)"; return 1; }
+  }
+  proxy_ok() {
+    for _ in $(seq 1 30); do proxy_http / 200 && proxy_http /api/v1/system/status 401 && return 0; sleep 2; done
+    return 1
+  }
+  check "por el proxy: UI 200 y API 401" proxy_ok
+  check "sin HSTS de Horus (solo el que pone el proxy) y CSP de la SPA" bash -c \
+    "h=\$(curl -sI --cacert '$pc' https://$ip/); echo \"\$h\" | grep -qi '^content-security-policy:' && [ \"\$(echo \"\$h\" | grep -ci '^strict-transport-security:')\" = 1 ]"
+  check "Traefik HTTP no escucha fuera de 127.0.0.1" bash -c "! curl -s -m 5 -o /dev/null http://$ip:8080/"
+  # Login, refresco con la cookie __Secure-…, cambio de contraseña y TOTP, ISP, sitios y routers
+  # (e2e de humo de I0) A TRAVÉS del proxy.
+  docker exec "$name" cat /root/admin-pw >"$work/admin-pw-$ver"
+  check "e2e de humo (login, cookie Secure de refresco, TOTP, ISP, sitios, routers) a través del proxy" env \
+    SSL_CERT_FILE="$pc" ACCEPT_BASE_URL="https://$ip" ACCEPT_ADMIN_EMAIL=admin@horus.test \
+    ACCEPT_ADMIN_PASSWORD_FILE="$work/admin-pw-$ver" "${GO:-go}" test -count=1 -tags acceptance "$repo_root/tests/acceptance/i0/"
+  # WebSocket: el Upgrade llega a horus-app (401/403 por el ticket falso, no 400/502 del proxy).
+  ws_ok() {
+    local c; c="$(curl -s -o /dev/null -w '%{http_code}' --cacert "$pc" --http1.1 -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
+      -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H "Origin: https://$ip" \
+      "https://$ip/api/v1/ws?ticket=falso")"
+    case "$c" in 401 | 403) return 0 ;; *) echo "ws = $c"; return 1 ;; esac
+  }
+  check "WebSocket por el proxy: el Upgrade llega a horus-app (ticket falso → 401/403)" ws_ok
+  # Rate limit por IP real: 20 logins por minuto; un X-Forwarded-For falsificado (y distinto cada
+  # vez) desde una IP no confiable no lo esquiva.
+  spoof_ok() {
+    local i c=""
+    for i in $(seq 1 22); do
+      c="$(curl -s -o /dev/null -w '%{http_code}' --cacert "$pc" -H 'Content-Type: application/json' -H 'X-Requested-With: horus' \
+        -H "X-Forwarded-For: 10.66.$i.$i" -d '{"email":"nadie@horus.test","password":"incorrecta-123"}' "https://$ip/api/v1/auth/login")"
+      [ "$c" != 429 ] || break
+    done
+    [ "$c" = 429 ] || { echo "sin 429 tras 22 logins con XFF falsificado (último $c)"; return 1; }
+  }
+  check "X-Forwarded-For falsificado desde IP no confiable se ignora (rate limit por IP real → 429)" spoof_ok
+  real_ip_ok() {
+    local gw ips
+    gw="$(docker network inspect bridge -f '{{(index .IPAM.Config 0).Gateway}}')"
+    ips="$(docker exec "$name" docker compose --project-directory /opt/horus -f /opt/horus/compose.yaml --env-file /opt/horus/.env \
+      exec -T postgres psql -U horus -d horus -XAtc "SELECT DISTINCT host(ip) FROM auth.session WHERE ip IS NOT NULL UNION SELECT DISTINCT host(ip) FROM auth.audit_log WHERE ip IS NOT NULL")"
+    echo "IPs registradas: $ips (cliente real: $gw)"
+    echo "$ips" | grep -qx "$gw" && ! echo "$ips" | grep -qE '^(127\.|172\.31\.250\.)'
+  }
+  check "sesiones y auditoría con la IP real del cliente (no la del proxy ni la de Traefik)" real_ip_ok
+  check "uninstall --purge del modo proxy" bash -c "docker exec $name horus-ctl uninstall --purge --yes >'$out/purge-proxy.log' 2>&1"
+  docker exec "$name" docker rm -f horus-test-nginx >/dev/null 2>&1 || true
+fi
 
 printf '\n\033[1mtest-install-debian %s (%s):\033[0m %d OK, %d FAIL (bin/test-install-debian/debian%s/)\n' "$ver" "$mode" "$pass" "$fail" "$ver"
 [ "$fail" = 0 ]
