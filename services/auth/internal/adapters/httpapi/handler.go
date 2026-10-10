@@ -6,7 +6,6 @@ package httpapi
 import (
 	"encoding/json"
 	"log/slog"
-	"net"
 	"net/http"
 	"time"
 
@@ -14,6 +13,7 @@ import (
 
 	"github.com/hcdestroyer/horus-flow/packages/go/apperr"
 	"github.com/hcdestroyer/horus-flow/packages/go/authz"
+	"github.com/hcdestroyer/horus-flow/packages/go/clientip"
 	"github.com/hcdestroyer/horus-flow/packages/go/httpx"
 	"github.com/hcdestroyer/horus-flow/packages/go/jsonapi"
 	"github.com/hcdestroyer/horus-flow/packages/go/pagination"
@@ -85,16 +85,9 @@ func (h *Handler) fail(w http.ResponseWriter, r *http.Request, err error) {
 	apperr.WriteHTTP(w, r, h.logger, err)
 }
 
-func clientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return ""
-	}
-	if net.ParseIP(host) == nil {
-		return ""
-	}
-	return host
-}
+// clientIP es la IP real del cliente tras los proxies de confianza
+// (packages/go/clientip); "" si no se puede determinar.
+func clientIP(r *http.Request) string { return clientip.String(r) }
 
 func loginInput(r *http.Request) app.LoginInput {
 	ua := r.UserAgent()
