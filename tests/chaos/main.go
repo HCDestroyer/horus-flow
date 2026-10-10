@@ -334,10 +334,11 @@ func (c *chaos) collector(ctx context.Context, down time.Duration) result {
 		}
 		mu.Lock()
 		defer mu.Unlock()
-		if env.Data.State != "" {
+		switch kind := strings.TrimPrefix(env.Type, "horus.flows.exporter."); kind {
+		case "state_changed":
 			r.States = append(r.States, env.Data.State)
-		} else {
-			r.States = append(r.States, strings.TrimPrefix(env.Type, "horus.flows.exporter."))
+		default: // silent | recovered
+			r.States = append(r.States, "evento:"+kind)
 		}
 	})
 	if err != nil {
@@ -354,11 +355,13 @@ func (c *chaos) collector(ctx context.Context, down time.Duration) result {
 		return r
 	}
 	sleep(ctx, pre)
-	stopAt := time.Now().UTC()
+	// La caída empieza cuando el contenedor ha parado (el apagado ordenado
+	// sigue recibiendo y vaciando lotes unos segundos tras el SIGTERM).
 	if _, err := c.env.ComposeCmd(ctx, "stop", "horus-collector"); err != nil {
 		r.Why = append(r.Why, err.Error())
 	}
-	sleep(ctx, down-time.Since(stopAt))
+	stopAt := time.Now().UTC()
+	sleep(ctx, down)
 	startAt := time.Now().UTC()
 	if _, err := c.env.ComposeCmd(ctx, "start", "horus-collector"); err != nil {
 		r.Why = append(r.Why, err.Error())
@@ -419,7 +422,7 @@ func (c *chaos) collector(ctx context.Context, down time.Duration) result {
 		mu.Lock()
 		got := strings.Join(r.States, ",")
 		mu.Unlock()
-		if strings.Contains(got, "silent") && strings.Contains(got, "recovered") {
+		if strings.Contains(got, "evento:silent") && strings.Contains(got, "evento:recovered") {
 			break
 		}
 		time.Sleep(time.Second)
@@ -427,13 +430,27 @@ func (c *chaos) collector(ctx context.Context, down time.Duration) result {
 	mu.Lock()
 	got := strings.Join(r.States, ",")
 	mu.Unlock()
-	if !strings.Contains(got, "silent") || !strings.Contains(got, "recovered") {
+	if !strings.Contains(got, "evento:silent") || !strings.Contains(got, "evento:recovered") || !silentThenBack(r.States) {
 		r.Why = append(r.Why, "el exportador no pasó por silent → recovered (eventos: "+got+")")
 	}
 	r.Pass = len(r.Why) == 0
 	log.Printf("   enviados %d, ClickHouse %d, perdidos %d (%.1f s), %s, estados %v → %v %s", r.Sent, r.Rows, r.Lost, r.LostSeconds,
 		r.GapBuckets, r.States, r.Pass, strings.Join(r.Why, "; "))
 	return r
+}
+
+// silentThenBack: un state_changed a silent seguido de otro a un estado activo.
+func silentThenBack(states []string) bool {
+	seen := false
+	for _, s := range states {
+		switch {
+		case s == "silent":
+			seen = true
+		case seen && (s == "exporting" || s == "lossy" || s == "clock_skew"):
+			return true
+		}
+	}
+	return false
 }
 
 func seriesCounts(body map[string]any) (zeros, nulls, vals int) {
@@ -487,11 +504,18 @@ func report(dir string, rate float64, rs []result) error {
 			res += ")"
 		}
 		fmt.Fprintf(&sb, "| %s | %s | %s | %d | %d | %d (%.1f) | %d | %.1f MB | %.1f MB | %s | %s | %s | %s |\n", r.Scenario, r.Down, r.Recovery,
-			r.Sent, r.Rows, r.Lost, r.LostSeconds, r.MaxLagBatches, r.MaxStreamMB, r.MaxBufferMB, r.Drain, r.KioskBack, r.EventLatency, res)
+			r.Sent, r.Rows, r.Lost, r.LostSeconds, r.MaxLagBatches, r.MaxStreamMB, r.MaxBufferMB, r.Drain, dash(r.KioskBack), dash(r.EventLatency), res)
 	}
 	md := sb.String()
 	fmt.Print("\n" + md)
 	return os.WriteFile(filepath.Join(dir, "chaos.md"), []byte(md), 0o644) //nolint:gosec // informe
+}
+
+func dash(s string) string {
+	if s == "" {
+		return "—"
+	}
+	return s
 }
 
 func sleep(ctx context.Context, d time.Duration) {

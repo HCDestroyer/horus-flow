@@ -66,6 +66,7 @@ type step struct {
 	Drain         string         `json:"drain"`
 	RecsPerBatch  float64        `json:"records_per_batch"`
 	MaxBuffer     float64        `json:"collector_max_buffer_bytes"`
+	NATSBytesFlow float64        `json:"nats_bytes_per_flow"`
 	Probe         loadkit.Stats  `json:"api"`
 	Pass          bool           `json:"pass"`
 	Why           []string       `json:"why,omitempty"`
@@ -146,6 +147,7 @@ type collectorSnap struct {
 	drops                  map[string]float64
 	udp                    uint64
 	rows                   uint64
+	streamBytes            uint64
 }
 
 func (r *runner) snap(ctx context.Context) collectorSnap {
@@ -159,6 +161,9 @@ func (r *runner) snap(ctx context.Context) collectorSnap {
 		s.drops[reason] = m.Sum("horus_collector_dropped_total", `reason="`+reason+`"`)
 	}
 	s.udp, _ = r.env.UDPDrops(ctx)
+	if lag, err := r.bus.IngesterLag(ctx); err == nil {
+		s.streamBytes = lag.StreamByte
+	}
 	s.rows, err = r.env.FlowRows(ctx, r.tenant)
 	if err != nil {
 		log.Printf("aviso: ClickHouse: %v", err)
@@ -254,6 +259,9 @@ loop:
 			s.Drops[k] = dv
 		}
 	}
+	if s.Received > 0 && after.streamBytes > before.streamBytes {
+		s.NATSBytesFlow = math.Round(float64(after.streamBytes-before.streamBytes) / float64(s.Received))
+	}
 	if b := after.batches - before.batches; b > 0 {
 		s.RecsPerBatch = math.Round(float64(s.Received)/b*10) / 10
 	}
@@ -347,6 +355,9 @@ func report(dir string, steps []step) error {
 			s.loss(), s.Rows, s.MaxLagBatches, s.MaxLagSeconds, s.LagSlope, s.Drain, loadkit.Fmt(s.Probe.P95), s.Probe.N, res)
 	}
 	fmt.Fprintf(&sb, "\nMáximo sostenible medido: **%.0f flujos/s**\n", best)
+	if len(steps) > 0 && steps[0].NATSBytesFlow > 0 {
+		fmt.Fprintf(&sb, "\nTamaño medido en TLM_FLOWS: %.0f B por flujo (%.1f registros por lote)\n", steps[0].NATSBytesFlow, steps[0].RecsPerBatch)
+	}
 	md := sb.String()
 	fmt.Print("\n" + md)
 	return os.WriteFile(filepath.Join(dir, "results.md"), []byte(md), 0o644) //nolint:gosec // informe
