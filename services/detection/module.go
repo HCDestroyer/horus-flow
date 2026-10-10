@@ -28,6 +28,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/health"
 	"github.com/hcdestroyer/horus-flow/packages/go/module"
 	"github.com/hcdestroyer/horus-flow/packages/go/natsx"
+	"github.com/hcdestroyer/horus-flow/packages/go/observability"
 	"github.com/hcdestroyer/horus-flow/packages/go/pagination"
 	"github.com/hcdestroyer/horus-flow/packages/go/pgdb"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
@@ -241,12 +242,15 @@ func (m *mod) tick(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		rep, err := m.engine.Evaluate(ctx, id, time.Now(), false)
+		// Una traza por evaluación: los hallazgos que abra llevan su
+		// trace_parent hasta alerts y el WebSocket (observability.md §11.4).
+		tctx := observability.WithTenant(observability.WithTrace(ctx, observability.NewTraceID(), observability.NewSpanID()), id.String())
+		rep, err := m.engine.Evaluate(tctx, id, time.Now(), false)
 		if err != nil {
-			m.logger.WarnContext(ctx, "detection: evaluate", "tenant", id.String(), "err", err)
+			m.logger.WarnContext(tctx, "detection: evaluate", "tenant", id.String(), "err", err)
 		}
 		if rep != nil && (rep.Applied.Opened > 0 || rep.Applied.Updated > 0 || rep.Expired > 0) {
-			m.logger.InfoContext(ctx, "detection: findings", "tenant", id.String(), "opened", rep.Applied.Opened,
+			m.logger.InfoContext(tctx, "detection: findings", "tenant", id.String(), "opened", rep.Applied.Opened,
 				"updated", rep.Applied.Updated, "expired", rep.Expired, "silenced", rep.Applied.Silenced)
 		}
 	}
