@@ -75,6 +75,8 @@ type Store interface {
 	CreateSession(ctx context.Context, s *domain.Session, rt *domain.RefreshToken) error
 	Session(ctx context.Context, id uuid.UUID) (*domain.Session, error)
 	SetSessionMFA(ctx context.Context, sid uuid.UUID, now time.Time, amr []string, rt *domain.RefreshToken) (bool, error)
+	// MFAFailure suma un fallo de 2FA a la sesión pendiente y devuelve el total.
+	MFAFailure(ctx context.Context, sid uuid.UUID) (int, error)
 	RevokeSession(ctx context.Context, sid uuid.UUID, reason string, now time.Time, ev *OutboxEvent) error
 	RefreshByHash(ctx context.Context, hash []byte) (*domain.RefreshToken, error)
 	RotateRefresh(ctx context.Context, oldID uuid.UUID, next *domain.RefreshToken, now time.Time) (bool, error)

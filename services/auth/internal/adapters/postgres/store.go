@@ -185,6 +185,15 @@ func (s *Store) SetSessionMFA(ctx context.Context, sid uuid.UUID, now time.Time,
 	return ok, err
 }
 
+// MFAFailure implementa app.Store.
+func (s *Store) MFAFailure(ctx context.Context, sid uuid.UUID) (int, error) {
+	var n int
+	err := s.db.AppTx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `UPDATE auth.session SET mfa_failures = mfa_failures + 1 WHERE id = $1 RETURNING mfa_failures`, sid).Scan(&n)
+	})
+	return n, err
+}
+
 // RevokeSession implementa app.Store.
 func (s *Store) RevokeSession(ctx context.Context, sid uuid.UUID, reason string, now time.Time, ev *app.OutboxEvent) error {
 	return s.db.AppTx(ctx, func(tx pgx.Tx) error {

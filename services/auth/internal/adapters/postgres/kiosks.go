@@ -21,12 +21,13 @@ var _ app.KioskStore = (*Store)(nil)
 const kioskCols = `id, tenant_id, name, status, playlist_id, dashboard_ids, allowed_cidrs, show_personal_data, show_personal_data_reason,
 	critical_finding_banner, credential_hash, credential_family_id, expires_at, last_seen_at, last_ip, created_at, updated_at, version`
 
-func scanKiosk(row pgx.Row) (*domain.Kiosk, error) {
+func scanKiosk(row pgx.Row, extra ...any) (*domain.Kiosk, error) {
 	var k domain.Kiosk
 	var cidrs []netip.Prefix
-	err := row.Scan(&k.ID, &k.TenantID, &k.Name, &k.Status, &k.PlaylistID, &k.DashboardIDs, &cidrs, &k.ShowPersonalData,
+	dst := append([]any{&k.ID, &k.TenantID, &k.Name, &k.Status, &k.PlaylistID, &k.DashboardIDs, &cidrs, &k.ShowPersonalData,
 		&k.ShowPersonalDataReason, &k.CriticalFindingBanner, &k.CredentialHash, &k.CredentialFamily, &k.ExpiresAt, &k.LastSeenAt,
-		&k.LastIP, &k.CreatedAt, &k.UpdatedAt, &k.Version)
+		&k.LastIP, &k.CreatedAt, &k.UpdatedAt, &k.Version}, extra...)
+	err := row.Scan(dst...)
 	if err != nil {
 		return nil, notFound(err)
 	}
@@ -228,9 +229,9 @@ func (s *Store) EnrollKiosk(ctx context.Context, codeID uuid.UUID, k *domain.Kio
 }
 
 // KioskByCredential implementa app.KioskStore.
-func (s *Store) KioskByCredential(ctx context.Context, hash []byte) (*domain.Kiosk, bool, error) {
+func (s *Store) KioskByCredential(ctx context.Context, hash []byte) (*domain.Kiosk, *app.RotatedCredential, error) {
 	var out *domain.Kiosk
-	rotated := false
+	var rotated *app.RotatedCredential
 	err := s.db.PlatformTx(ctx, func(tx pgx.Tx) error {
 		k, err := scanKiosk(tx.QueryRow(ctx, `SELECT `+kioskCols+` FROM auth.kiosk WHERE credential_hash = $1`, hash))
 		if err == nil {
@@ -240,12 +241,15 @@ func (s *Store) KioskByCredential(ctx context.Context, hash []byte) (*domain.Kio
 		if !errors.Is(err, domain.ErrNotFound) {
 			return err
 		}
-		k, err = scanKiosk(tx.QueryRow(ctx, `SELECT `+prefixed("k.")+` FROM auth.kiosk_credential_rotated r
-			JOIN auth.kiosk k ON k.tenant_id = r.tenant_id AND k.id = r.kiosk_id WHERE r.credential_hash = $1`, hash))
+		var rc app.RotatedCredential
+		k, err = scanKiosk(tx.QueryRow(ctx, `SELECT `+prefixed("k.")+`, r.successor_hash, r.rotated_by, r.rotated_at
+			FROM auth.kiosk_credential_rotated r
+			JOIN auth.kiosk k ON k.tenant_id = r.tenant_id AND k.id = r.kiosk_id WHERE r.credential_hash = $1`, hash),
+			&rc.SuccessorHash, &rc.RotatedBy, &rc.RotatedAt)
 		if err != nil {
 			return err
 		}
-		out, rotated = k, true
+		out, rotated = k, &rc
 		return nil
 	})
 	return out, rotated, err
@@ -258,7 +262,7 @@ func prefixed(p string) string {
 }
 
 // RotateKioskCredential implementa app.KioskStore (CAS sobre la credencial).
-func (s *Store) RotateKioskCredential(ctx context.Context, k *domain.Kiosk, oldHash, newHash []byte, ip string, now time.Time) (bool, error) {
+func (s *Store) RotateKioskCredential(ctx context.Context, k *domain.Kiosk, oldHash, newHash []byte, ip string, now time.Time, bootID uuid.UUID) (bool, error) {
 	ok := false
 	err := s.db.TenantTx(ctx, pgdb.TenantID(k.TenantID), func(tx pgx.Tx) error {
 		var lastIP any
@@ -273,8 +277,9 @@ func (s *Store) RotateKioskCredential(ctx context.Context, k *domain.Kiosk, oldH
 		if tag.RowsAffected() != 1 {
 			return nil
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO auth.kiosk_credential_rotated (credential_hash, tenant_id, kiosk_id, family_id)
-			VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`, oldHash, k.TenantID, k.ID, k.CredentialFamily); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO auth.kiosk_credential_rotated (credential_hash, tenant_id, kiosk_id, family_id,
+			successor_hash, rotated_by, rotated_at) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING`,
+			oldHash, k.TenantID, k.ID, k.CredentialFamily, newHash, bootID, now); err != nil {
 			return fmt.Errorf("auth: rotate kiosk credential: %w", err)
 		}
 		ok = true
