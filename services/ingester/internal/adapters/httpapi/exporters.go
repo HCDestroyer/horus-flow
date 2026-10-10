@@ -44,7 +44,11 @@ func New(guard *authz.Guard, inv *flowinv.Store, states States) *Handler {
 
 // Mount registra las rutas.
 func (h *Handler) Mount(r *httpx.ServiceMux) {
-	read := authz.Requirement{Scope: authz.ScopeTenant, Permission: PermFlowsRead, AllowKiosk: true}
+	// Como /customers/stats y /security/summary: el listado admite el JWT de
+	// kiosco, que no lleva permisos (lo limita la lista blanca de
+	// permissions.yaml §kiosk). Por eso el Requirement no exige permiso y
+	// visible() pide flows.read solo a los tokens de usuario.
+	read := authz.Requirement{Scope: authz.ScopeTenant, AllowKiosk: true}
 	r.Handle("GET /api/v1/flow-exporters", h.guard.Wrap(read, http.HandlerFunc(h.list)))
 	r.Handle("GET /api/v1/flow-exporters/{router_id}", h.guard.Tenant(PermFlowsRead, h.get))
 }
@@ -52,6 +56,13 @@ func (h *Handler) Mount(r *httpx.ServiceMux) {
 func (h *Handler) visible(r *http.Request) (uuid.UUID, []uuid.UUID, bool) {
 	p := authz.FromContext(r.Context())
 	if p == nil || p.TenantID == uuid.Nil {
+		return uuid.Nil, nil, false
+	}
+	if p.Type == authz.TypeKiosk {
+		// Kiosco de solo lectura: ve los exportadores de todo su ISP.
+		return p.TenantID, nil, true
+	}
+	if !p.Has(PermFlowsRead) {
 		return uuid.Nil, nil, false
 	}
 	return p.TenantID, p.SiteScopes(PermFlowsRead), true
