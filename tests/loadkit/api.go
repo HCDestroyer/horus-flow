@@ -343,7 +343,7 @@ func (a *API) TenantDo(ctx context.Context, c Call) (Resp, error) {
 
 // Setup da de alta (una vez por compose) el ISP de prueba con un nodo y el
 // prefijo de clientes del escenario `normal` del simulador.
-func (a *API) Setup(ctx context.Context, prefix string) (State, error) {
+func (a *API) Setup(ctx context.Context, prefixes ...string) (State, error) {
 	if st := a.State(); st.TenantID != "" && st.SiteID != "" {
 		return st, nil
 	}
@@ -367,9 +367,15 @@ func (a *API) Setup(ctx context.Context, prefix string) (State, error) {
 	if err != nil {
 		return State{}, err
 	}
-	if _, err := a.expect(ctx, true, Call{Method: http.MethodPost, Path: "/api/v1/sites/" + site.Str("id") + "/client-prefixes",
-		Body: map[string]any{"prefix": prefix, "role": "customers", "assignment_mode": "dynamic"}}, "alta del prefijo", 201); err != nil {
-		return State{}, err
+	for _, prefix := range prefixes {
+		body := map[string]any{"prefix": prefix, "role": "customers", "assignment_mode": "dynamic"}
+		if strings.Contains(prefix, ":") {
+			body["ipv6_client_len"] = 64 // /64 delegado por cliente (isp10k)
+		}
+		if _, err := a.expect(ctx, true, Call{Method: http.MethodPost, Path: "/api/v1/sites/" + site.Str("id") + "/client-prefixes",
+			Body: body}, "alta del prefijo "+prefix, 201); err != nil {
+			return State{}, err
+		}
 	}
 	// El router del simulador no se da de alta por la API: su IP de túnel la
 	// asignaría WireGuard; el inventario base lo registra con la IP de origen

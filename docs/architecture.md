@@ -539,9 +539,54 @@ Stream FLOWS con `max_bytes = 50 GB` en SSD (`discard: old`):
 **Medido en I1-26** ([`tests/load/REPORT.md`](../tests/load/REPORT.md)): un lote de TLM_FLOWS ocupa
 **184 B por flujo** (no 60), así que con `max_bytes = 50 GB` la autonomía real es un tercio de la
 tabla: **S ≈ 45 – 90 min en pico (≈ 1,9 – 3,8 h en media), M ≈ 15 – 30 min en pico (≈ 38 – 76 min
-en media), L ≈ 4,5 – 9 min en pico**. El objetivo de C-12 (≥ 6 h ante caída de ClickHouse) exige
-dimensionar `HORUS_TLM_FLOWS_MAX_BYTES` con 184 B/flujo (p. ej. M en media: ~160 GB) o reducir el
-tamaño del lote en el bus (pendiente de FLOW).
+en media), L ≈ 4,5 – 9 min en pico**.
+
+**Con compresión s2 (FLOW, isp10k).** TLM_FLOWS se declara con `compression: s2` en el contrato C4
+(NATS ≥ 2.10; la pila usa 2.14). Medido con el escenario isp10k: **185 B por flujo sin comprimir**
+(lo que cuenta `max_bytes` y lo que reserva `max_file_store`) y **50 B por flujo en disco** (×3,7).
+`max_bytes` sigue contando bytes sin comprimir, así que la autonomía por `max_bytes` no cambia; lo
+que cambia es el disco: un `max_bytes` de 100 GB ocupa ≈ 27 GB. Dimensionado (configurable con
+`HORUS_TLM_FLOWS_MAX_BYTES`; `max_file_store` de NATS ≥ suma de `max_bytes`):
+
+    max_bytes = tasa (flujos/s) × 3 600 × horas × 185 B      disco ≈ max_bytes × 0,27
+
+| ISP de 10 000 clientes | Tasa | GB/h sin comprimir | GB/h en disco | Autonomía con 50 GB | Con 100 GB (≈ 27 GB de disco) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Media del día (0,65 flujos/s por cliente medidos) | 6 500/s | 4,3 | 1,2 | 11,5 h | **23 h** |
+| Pico habitual | 15 000/s | 10,0 | 2,7 | 5 h | **10 h** |
+| Pico alto (vendors/mikrotik.md §2.5) | 60 000/s | 40,0 | 10,8 | 1,25 h | 2,5 h |
+
+Recomendación para 10 000 clientes: `HORUS_TLM_FLOWS_MAX_BYTES = 100 GB` (≈ 27 GB de disco), que
+cubre una noche entera de ClickHouse caído a la tasa media y el objetivo C-12 (≥ 6 h) en pico
+habitual. A partir del 70 % de ocupación `/readyz` del ingester marca `tlm_flows_buffer` degradado
+y se registra un aviso (`horus_ingester_tlm_buffer_ratio`, `HORUS_INGESTER_BUFFER_WARN_RATIO`);
+pasado `max_bytes` se descarta lo más antiguo. `natsx.EnsureStreams` (dev y pruebas) ya no deja
+TLM_FLOWS sin límite: expande `${HORUS_TLM_FLOWS_MAX_BYTES:-50GB}`.
+
+### 9.5 Perfil recomendado para un ISP de 10 000 clientes (FLOW, isp10k)
+
+Medido con `make load-isp10k` ([`tests/load/REPORT.md`](../tests/load/REPORT.md), sección isp10k) en
+4 vCPU compartidas: 10 000 flujos/s con todos los criterios, 20 000 flujos/s sin pérdida ni lag
+(API a 700 ms), techo de ClickHouse + ingester ≈ 33 000 filas/s y collector de un solo router ≈ 35 000
+registros/s. ClickHouse con 2 vCPU dedicadas escribe 49 000 filas/s con todas las vistas (INSERT
+agrupados de 50 000 filas, vistas de 1 h y 1 d en cascada).
+
+| Recurso | Recomendado | Motivo |
+| --- | --- | --- |
+| CPU | **8 vCPU** dedicadas | pico de 60 000/s ≈ 3,5 núcleos de ClickHouse + 1 de horus-app + 0,5 de collector, más consultas |
+| RAM | **32 GB** | ClickHouse 12–16 GB, horus-app 2 GB (`GOMEMLIMIT` 1,8 GiB), collector 512 MiB, NATS 1 GB, caché de página |
+| Disco | **500 GB NVMe** | ~250 GB usados: ClickHouse 76–94 GB (7–90 días, [`storage.md` §5.1](storage.md)), NATS 27 GB (`max_bytes` 100 GB con s2), margen de merges y backups |
+| Red/kernel | `net.core.rmem_max = 33554432`, `rmem_default = 1048576` | el collector pide 32 MiB de búfer UDP |
+| Collector | `HORUS_COLLECTOR_QUEUE_DATAGRAMS=32768` | absorbe segundos de CPU saturada (un router = un trabajador) |
+| NATS | `HORUS_TLM_FLOWS_MAX_BYTES = 100 GB` | 23 h de ClickHouse caído a la media, 10 h en pico habitual |
+
+**Cuándo un segundo host o una réplica de ClickHouse:** pico sostenido por encima de ~40 000 flujos/s
+(varios nodos grandes o más de ~30 000 clientes), p95 de la API > 500 ms en hora pico, 30 días de
+crudo (+300 GB) o paneles que deban seguir con ClickHouse caído. Primero ClickHouse en un host propio
+(16 vCPU, 64 GB); la réplica (ReplicatedMergeTree + Keeper) solo aporta alta disponibilidad de las
+consultas, porque la ingesta ya aguanta la caída de ClickHouse dentro de la autonomía de TLM_FLOWS.
+Antes de superar ~35 000 registros/s **por router** hay que decodificar un mismo exportador en
+paralelo en el collector (pendiente).
 
 ---
 
@@ -582,7 +627,16 @@ Todos los escenarios se ejercitan en el incremento de endurecimiento.
   `horus_clickhouse_up == 0`; lag del consumer del ingester creciendo; alerta "ClickHouse down > 2
   min" y "buffer FLOWS > 70 %".
 - **Recuperación:** reinicio automático; los consumers durables drenan el backlog (ingester ≥ 3×
-  la tasa de entrada); inserción idempotente con `insert_deduplication_token` = ID del lote.
+  la tasa de entrada). El ingester agrupa lotes en INSERT de hasta `HORUS_INGESTER_INSERT_ROWS`
+  (50 000) filas o `HORUS_INGESTER_INSERT_WAIT` (1 s) y confirma cada lote en JetStream solo tras el
+  INSERT de su grupo. Cada grupo lleva su `insert_deduplication_token` y su composición (token →
+  batch_id) se guarda antes del INSERT en el KV `flows_ingester_groups`: si el proceso muere entre
+  el INSERT y las confirmaciones, al arrancar los lotes reentregados se reagrupan con el token
+  original y ClickHouse descarta el reintento (`services/ingester/internal/app/group.go`). El durable
+  tiene `MaxDeliver` ilimitado (una caída de horas no agota las entregas; los lotes inválidos los
+  termina el ingester tras 5 intentos) y los grupos pendientes renuevan `ack_wait` (InProgress). Supone un
+  único proceso consumiendo el durable; con varios, un grupo en recuperación podría repartirse
+  entre ellos (el reparto por subject está pendiente para el clúster de L).
 - **Datos perdidos:** ninguno dentro de la autonomía del buffer (§9.4). Pasado el límite,
   JetStream descarta lo más antiguo; `horus_flows_dropped_total{reason="stream_full"}` y la tabla
   de cobertura marca el hueco por tenant.
@@ -760,6 +814,7 @@ Todos los routers de **todos los ISP** llegan por el hub; es el SPOF más import
 | ClickHouse parado 30 s | **0 flujos** | TLM_FLOWS (backlog máx. ~360 lotes ≈ 36 s de flujos) | healthy en 6 s, backlog drenado en ~20 s; kiosco de vuelta en 6 s |
 | NATS parado 30 s | **0 flujos** | búfer en memoria del collector (máx. 23,5 MB) | healthy en 6 s, drenado en ~12 s; kiosco (WebSocket) de vuelta en 6 s |
 | `horus-app` parado 30 s | **0 flujos** | TLM_FLOWS (backlog máx. ~270 lotes) | healthy en 6 s, drenado en ~14 s; kiosco de vuelta en 6 s |
+| ClickHouse parado **5 min a 20 000 flujos/s** (isp10k) | **0 flujos después del collector**; 123 381 (1,9 %) descartados por la cola del collector al drenar en 4 vCPU compartidas | TLM_FLOWS (backlog máx. 5,6 M de flujos, 1,03 GB lógicos; aviso de `/readyz` al 72 %) | healthy en 6 s, drenado en 2 min 22 s; kiosco de vuelta en 9 s |
 | Collector parado 1 min | **lo enviado durante la caída** (~53 s de flujos de 60 s) | ninguno: UDP sin reintento y sin spool | el hueco es ausencia de filas (la serie de la API da `null`, nunca 0); el exportador pasa por *Silencioso* y vuelve a *Exportando* |
 
 Límites que se derivan: la caída de ClickHouse, NATS o `horus-app` no pierde flujos mientras dure
@@ -772,8 +827,33 @@ usa 30 s).
 Pérdida sin fallo de ningún componente (prueba de carga, `make load-i1`): con la CPU del servidor
 saturada, el collector perdió datagramas por desbordamiento del búfer UDP del socket
 (`RcvbufErrors`; el collector pide 8 MiB pero el kernel lo limita a `net.core.rmem_max`, 4 MiB en el
-host de prueba). El instalador debería subir `net.core.rmem_max` (p. ej. 32 MiB) y el collector
-pedir ese tamaño (pendiente).
+host de prueba). Ahora el collector pide **32 MiB** (`HORUS_COLLECTOR_UDP_RCVBUF`), avisa en el log
+si el kernel le da menos y, con `CAP_NET_ADMIN`, usa `SO_RCVBUFFORCE`; el instalador debe fijar
+`net.core.rmem_max = 33554432` y `net.core.rmem_default = 1048576` (sysctl persistente).
+
+### 10.15 Spool a disco del collector (diseño, no implementado)
+
+Hoy el collector solo tiene el búfer en memoria (`HORUS_COLLECTOR_BUFFER_BYTES`, 256 MiB ≈ 6 min a
+5 000 flujos/s y ≈ 1 min a 20 000/s con ~150 B por flujo en memoria) para cuando NATS no responde;
+la caída de ClickHouse ya no le afecta (la absorbe TLM_FLOWS, §9.4). Un spool a disco solo
+alarga la autonomía ante una caída de **NATS** y no cubre la del propio collector (UDP sin
+reintento), así que no se implementa en esta ronda: no es pequeño (ficheros de segmento con
+fsync, recuperación tras corte, orden FIFO, límite de disco, limpieza) y un error en él perdería
+datos que hoy no se pierden. Diseño propuesto para cuando haga falta:
+
+- **Cuándo escribe:** solo con el bus caído y el búfer en memoria por encima del 50 %; con NATS
+  sano nunca toca el disco (sin coste en el camino caliente).
+- **Formato:** segmentos append-only de 64 MiB en `HORUS_COLLECTOR_SPOOL_DIR` (volumen propio,
+  `HORUS_COLLECTOR_SPOOL_BYTES`, p. ej. 8 GiB ≈ 45 min a 20 000/s); cada registro = longitud +
+  CRC32C + cabeceras NATS + cuerpo del lote; `fsync` por segmento cerrado y cada 1 s.
+- **Reenvío:** al volver el bus, primero el búfer en memoria y luego los segmentos en orden; un
+  segmento se borra cuando todos sus lotes tienen ack de JetStream. El `Nats-Msg-Id` (= batch_id)
+  hace idempotente un reenvío repetido dentro de la ventana de duplicados de TLM_FLOWS (2 min);
+  fuera de ella, el ingester deduplica por batch_id (grupos con token, ver §10.1).
+- **Arranque:** se leen los segmentos pendientes, se descartan registros con CRC inválido (corte
+  a mitad de escritura) y se reenvían; métricas `horus_collector_spool_bytes` y
+  `horus_collector_spool_dropped_total`.
+- **Lleno:** se descartan los lotes nuevos (como hoy el búfer) y se publica `data_gap`.
 
 ---
 

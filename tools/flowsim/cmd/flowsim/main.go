@@ -60,6 +60,7 @@ type config struct {
 	out         string
 	format      string
 	expected    string
+	flat        bool
 	allowUnmet  bool
 	fixturesDir string
 	maxDatagram int
@@ -97,6 +98,7 @@ func parseFlags(args []string, stderr io.Writer) (*config, error) {
 	fs.StringVar(&c.format, "format", "", "formato del fichero: hfsim, pcap o pcapng (por defecto, por extensión)")
 	fs.StringVar(&c.expected, "expected", "", "ruta del expected.json (por defecto <out>.expected.json o expected.json)")
 	fs.BoolVar(&c.allowUnmet, "allow-unmet", false, "no falla si las señales no cumplen lo declarado en el escenario")
+	fs.BoolVar(&c.flat, "flat", false, "ignora el perfil diario del escenario (daily): tasa fija = rate")
 	fs.StringVar(&c.fixturesDir, "fixtures-dir", "", "regenera los fixtures de todos los escenarios en este directorio y sale")
 	fs.IntVar(&c.maxDatagram, "max-datagram", 0, "tamaño máximo de datagrama en bytes (0 = escenario, 1392 por defecto)")
 	fs.BoolVar(&c.showVersion, "version", false, "muestra la versión")
@@ -172,7 +174,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 	}
 	opt := sim.Options{
 		Seed: c.seed, Protocol: proto, Rate: c.rate, Duration: c.duration, Fixture: c.fixture,
-		Profile: profile, NATFields: c.natFields, AllowUnmet: c.allowUnmet, MaxDatagram: c.maxDatagram,
+		Profile: profile, NATFields: c.natFields, AllowUnmet: c.allowUnmet, MaxDatagram: c.maxDatagram, Flat: c.flat,
 	}
 	if opt.NAT, err = optBool(c.nat, "nat"); err != nil {
 		return err
@@ -287,17 +289,7 @@ func toUDP(ctx context.Context, c *config, sc *sim.Scenario, opt sim.Options, st
 
 	wallStart := time.Now()
 	simStart := opt.Start
-	exp, err := sim.Run(ctx, sc, opt, func(d capture.Datagram, idx int) error {
-		if c.speed > 0 {
-			due := wallStart.Add(time.Duration(float64(d.Time.Sub(simStart)) / c.speed))
-			if wait := time.Until(due); wait > 0 {
-				select {
-				case <-time.After(wait):
-				case <-ctx.Done():
-					return fmt.Errorf("interrumpido: %w", ctx.Err())
-				}
-			}
-		}
+	send := func(d capture.Datagram, idx int) error {
 		if _, err := conns[idx].WriteToUDPAddrPort(d.Payload, dst); err != nil {
 			var ne net.Error
 			if errors.As(err, &ne) && ne.Timeout() {
@@ -306,7 +298,73 @@ func toUDP(ctx context.Context, c *config, sc *sim.Scenario, opt sim.Options, st
 			return fmt.Errorf("UDP: %w", err)
 		}
 		return nil
+	}
+	// El generador fecha todos los datagramas de un tick (1 s) en el mismo
+	// instante. Enviarlos de golpe es una ráfaga que un router real no hace
+	// (exporta según vencen los flujos) y que desborda el búfer UDP del
+	// collector a tasas altas: con -speed > 0 un emisor aparte reparte cada
+	// tick uniformemente a lo largo de su segundo mientras el generador
+	// calcula los siguientes.
+	type tickBatch struct {
+		at    time.Time
+		dgram []capture.Datagram
+		idx   []int
+	}
+	ticks := make(chan tickBatch, 8)
+	sendErr := make(chan error, 1)
+	go func() {
+		var err error
+		for tb := range ticks {
+			if err != nil {
+				continue // vaciar el canal tras un error
+			}
+			start := wallStart.Add(time.Duration(float64(tb.at.Sub(simStart)) / c.speed))
+			window := time.Duration(float64(time.Second) / c.speed)
+			for i := range tb.dgram {
+				due := start.Add(window * time.Duration(i) / time.Duration(len(tb.dgram)))
+				if wait := time.Until(due); wait > 0 {
+					select {
+					case <-time.After(wait):
+					case <-ctx.Done():
+						err = fmt.Errorf("interrumpido: %w", ctx.Err())
+					}
+				}
+				if err == nil {
+					err = send(tb.dgram[i], tb.idx[i])
+				}
+				if err != nil {
+					break
+				}
+			}
+		}
+		sendErr <- err
+	}()
+	var cur tickBatch
+	exp, err := sim.Run(ctx, sc, opt, func(d capture.Datagram, idx int) error {
+		if c.speed <= 0 {
+			return send(d, idx)
+		}
+		if len(cur.dgram) > 0 && !d.Time.Equal(cur.at) {
+			select {
+			case ticks <- cur:
+			case <-ctx.Done():
+				return fmt.Errorf("interrumpido: %w", ctx.Err())
+			}
+			cur = tickBatch{}
+		}
+		if len(cur.dgram) == 0 {
+			cur.at = d.Time
+		}
+		cur.dgram, cur.idx = append(cur.dgram, d), append(cur.idx, idx)
+		return nil
 	})
+	if err == nil && len(cur.dgram) > 0 {
+		ticks <- cur
+	}
+	close(ticks)
+	if serr := <-sendErr; err == nil {
+		err = serr
+	}
 	if err != nil {
 		return nil, err
 	}

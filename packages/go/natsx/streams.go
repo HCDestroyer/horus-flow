@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -21,6 +22,7 @@ type StreamDef struct {
 	MaxBytes        string   `yaml:"max_bytes"`
 	DuplicateWindow string   `yaml:"duplicate_window"`
 	MaxMsgSize      string   `yaml:"max_msg_size"`
+	Compression     string   `yaml:"compression"`
 }
 
 // LoadStreams lee las definiciones de streams del contrato C4.
@@ -40,8 +42,9 @@ func LoadStreams(path string) ([]StreamDef, error) {
 
 // EnsureStreams crea o actualiza los streams (lo usan los tests y el
 // aprovisionamiento de desarrollo; en despliegue los aplica infrastructure/nats).
-// max_bytes parametrizados (`${…}`) se dejan sin límite; capBytes > 0 limita
-// el max_bytes de cada stream (tests con poco disco).
+// max_bytes parametrizados (`${VAR:-defecto}`) toman el valor de ExpandStreams
+// o, si no se expandieron, el defecto: ningún stream queda sin límite.
+// capBytes > 0 limita el max_bytes de cada stream (tests con poco disco).
 func EnsureStreams(ctx context.Context, js jetstream.JetStream, defs []StreamDef, capBytes int64) error {
 	for _, d := range defs {
 		cfg := jetstream.StreamConfig{
@@ -62,11 +65,33 @@ func EnsureStreams(ctx context.Context, js jetstream.JetStream, defs []StreamDef
 		if n := parseBytes(d.MaxMsgSize); n > 0 {
 			cfg.MaxMsgSize = int32(n) //nolint:gosec // ≤ 1 MiB
 		}
+		if d.Compression == "s2" {
+			cfg.Compression = jetstream.S2Compression
+		}
 		if _, err := js.CreateOrUpdateStream(ctx, cfg); err != nil {
 			return fmt.Errorf("natsx: stream %s: %w", d.Name, err)
 		}
 	}
 	return nil
+}
+
+var envRef = regexp.MustCompile(`\$\{([A-Z0-9_]+)(:-([^}]*))?\}`)
+
+// ExpandStreams sustituye las referencias `${VAR:-defecto}` de max_bytes con
+// environ (KEY=VALUE), como `horus nats-provision`.
+func ExpandStreams(defs []StreamDef, environ []string) []StreamDef {
+	out := make([]StreamDef, len(defs))
+	for i, d := range defs {
+		d.MaxBytes = envRef.ReplaceAllStringFunc(d.MaxBytes, func(m string) string {
+			p := envRef.FindStringSubmatch(m)
+			if v := EnvValue(environ, p[1]); v != "" {
+				return v
+			}
+			return p[3]
+		})
+		out[i] = d
+	}
+	return out
 }
 
 func parseDur(s string) time.Duration {
@@ -82,6 +107,9 @@ func parseDur(s string) time.Duration {
 }
 
 func parseBytes(s string) int64 {
+	if m := envRef.FindStringSubmatch(s); m != nil {
+		s = m[3] // sin expandir: el defecto
+	}
 	if s == "" || strings.Contains(s, "$") {
 		return 0
 	}

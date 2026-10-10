@@ -119,7 +119,7 @@ func (g *gen) expected() (*Expected, error) {
 		e.Signals = []signals.Signal{}
 	}
 	if err := g.checkExpectations(e); err != nil {
-		if !g.opt.AllowUnmet {
+		if !g.opt.AllowUnmet && !g.sc.ReportOnly {
 			return nil, err
 		}
 		e.Warnings = append(e.Warnings, err.Error())

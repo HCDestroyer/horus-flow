@@ -59,3 +59,25 @@ func TestPublishTelemetryAndEvent(t *testing.T) {
 		t.Fatalf("envelope %v %+v", err, env)
 	}
 }
+
+// TestIngesterConsumerUnlimitedDeliveries: el durable del ingester acepta
+// MaxDeliver ilimitado con BackOff (NATS lo valida al crearlo).
+func TestIngesterConsumerUnlimitedDeliveries(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	nc, js, err := flowbus.Connect(flowbustest.URL(t), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer nc.Close()
+	if err := flowbus.EnsureStreams(ctx, js, 1<<20); err != nil {
+		t.Fatal(err)
+	}
+	c, err := js.CreateOrUpdateConsumer(ctx, flowbus.StreamTelemetry, flowbus.IngesterConsumerConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.CachedInfo().Config.MaxDeliver; got != -1 {
+		t.Fatalf("MaxDeliver = %d, want -1", got)
+	}
+}

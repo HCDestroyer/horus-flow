@@ -270,6 +270,14 @@ load-i1: ## Prueba de carga de I1: pérdida en el collector, lag del ingester y 
 chaos-i1: ## Pruebas de fallo de I1: reinicio de ClickHouse, NATS y horus-app; collector caído 1 min
 	@GO='$(GO)' bash tests/chaos/chaos.sh
 
+# Carga de un ISP de 10 000 clientes (FLOW; tests/load/REPORT.md, sección isp10k): escenario
+# isp10k del simulador, rampa ISP10K_RATES (10000,20000,40000,60000) de ISP10K_STEP (3m) y
+# ClickHouse caído ISP10K_CHAOS_DOWN (5m) a ISP10K_CHAOS_RATE (20000) flujos/s. Proyecto
+# horus-load-isp10k (+24000). LOAD_KEEP=1, LOAD_SKIP_IMAGE=1, ISP10K_SKIP_CHAOS=1.
+.PHONY: load-isp10k
+load-isp10k: ## Carga de un ISP de 10 000 clientes (rampa 10k→60k flujos/s) y ClickHouse caído 5 min a 20k/s
+	@GO='$(GO)' bash tests/load/isp10k.sh
+
 ##@ Aceptación
 
 # Batería de aceptación del incremento 0 (I0-19, tests/acceptance/README.md). Levanta su propio

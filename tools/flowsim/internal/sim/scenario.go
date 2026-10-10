@@ -75,13 +75,24 @@ type Scenario struct {
 	Fixture     FixtureSpec     `yaml:"fixture"`
 	Export      ExportSpec      `yaml:"export"`
 	Indicators  []IndicatorSpec `yaml:"indicators"`
-	Exporters   []ExporterSpec  `yaml:"-"`
+	// Daily es el perfil diario: 24 factores (hora UTC del instante simulado)
+	// que multiplican la tasa de fondo; rate es entonces el pico. Vacío = tasa
+	// fija. Options.Flat lo ignora.
+	Daily []float64 `yaml:"daily"`
+	// ReportOnly: las señales calculadas se informan en expected.json pero no
+	// se exigen (escenarios de carga cuya mezcla de señales depende de la
+	// duración y la tasa).
+	ReportOnly bool           `yaml:"report_only"`
+	Exporters  []ExporterSpec `yaml:"-"`
 }
 
 // FixtureSpec fija duración y tasa reducidas para grabar fixtures de CI.
 type FixtureSpec struct {
 	Duration Duration `yaml:"duration"`
 	Rate     float64  `yaml:"rate"`
+	// SkipFile: el escenario se verifica con estos parámetros (make
+	// sim-verify) pero no se versiona su captura (demasiado grande: isp10k).
+	SkipFile bool `yaml:"skip_file"`
 }
 
 // ExportSpec son los parámetros de Traffic Flow (docs/vendors/mikrotik.md §2.2).
@@ -323,6 +334,14 @@ func (sc *Scenario) validate() error {
 	}
 	if len(sc.Exporters) == 0 {
 		return errors.New("falta al menos un exportador")
+	}
+	if len(sc.Daily) != 0 && len(sc.Daily) != 24 {
+		return errors.New("daily necesita 24 factores (uno por hora)")
+	}
+	for _, f := range sc.Daily {
+		if f <= 0 || f > 2 {
+			return errors.New("daily: cada factor debe estar en (0, 2]")
+		}
 	}
 	e := sc.Export
 	if e.ActiveTimeout <= 0 || e.InactiveTimeout <= 0 || e.TemplateRefresh <= 0 || e.TemplateTimeout <= 0 {

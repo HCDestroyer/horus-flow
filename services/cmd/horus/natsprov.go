@@ -109,6 +109,7 @@ type streamSpec struct {
 	AllowDirect     *bool    `yaml:"allow_direct"`
 	Replicas        int      `yaml:"replicas"`
 	Since           string   `yaml:"since"`
+	Compression     string   `yaml:"compression"`
 }
 
 var envRef = regexp.MustCompile(`\$\{([A-Z0-9_]+)(:-([^}]*))?\}`)
@@ -274,6 +275,13 @@ func streamConfig(def, s streamSpec) (jetstream.StreamConfig, error) {
 		cfg.Discard = jetstream.DiscardNew
 	default:
 		return cfg, fmt.Errorf("discard %q", s.Discard)
+	}
+	switch pick(s.Compression, def.Compression) {
+	case "", "none":
+	case "s2":
+		cfg.Compression = jetstream.S2Compression
+	default:
+		return cfg, fmt.Errorf("compression %q", s.Compression)
 	}
 	if s.AllowDirect != nil {
 		cfg.AllowDirect = *s.AllowDirect

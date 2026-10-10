@@ -48,6 +48,12 @@ type result struct {
 	Lost          int64    `json:"lost_records"`
 	LostSeconds   float64  `json:"lost_seconds_of_flows"`
 	CollectorDrop float64  `json:"collector_drops"`
+	// Collector: registros recibidos y datagramas perdidos en el socket UDP
+	// durante el escenario; PipelineLost = recibidos − filas (lo que se pierde
+	// después del collector, que es lo que el búfer debe evitar).
+	CollectorRecs uint64 `json:"collector_records"`
+	UDPDrops      uint64 `json:"udp_rcvbuf_errors"`
+	PipelineLost  int64  `json:"pipeline_lost_records"`
 	MaxLagBatches uint64   `json:"max_lag_batches"`
 	MaxStreamMB   float64  `json:"max_tlm_flows_mb"`
 	MaxBufferMB   float64  `json:"collector_max_buffer_mb"`
@@ -75,7 +81,9 @@ func main() {
 	check(err)
 	api, err := loadkit.NewAPI(env.APIURL, env.AdminEmail, env.AdminPasswordFile, filepath.Join(env.Dir, "state.json"))
 	check(err)
-	st, err := api.Setup(ctx, loadkit.ClientPrefix)
+	simScen, err := loadkit.ScenarioFromEnv()
+	check(err)
+	st, err := api.Setup(ctx, simScen.Prefixes...)
 	check(err)
 	_, source, err := env.CollectorAddr(ctx)
 	check(err)
@@ -95,7 +103,7 @@ func main() {
 		log.Fatalf("sonda de tiempo real antes de empezar: %v", err)
 	}
 
-	c := &chaos{env: env, api: api, bus: bus, kiosk: kiosk, st: st, rate: rate, flowsim: flowsim}
+	c := &chaos{env: env, api: api, bus: bus, kiosk: kiosk, st: st, rate: rate, flowsim: flowsim, scen: simScen}
 	var results []result
 	ok := true
 	for _, s := range strings.Split(scen, ",") {
@@ -135,6 +143,7 @@ type chaos struct {
 	rate    float64
 	flowsim string
 	seed    int64
+	scen    loadkit.Scenario
 }
 
 // watch muestrea lag, tamaño de TLM_FLOWS y búfer del collector hasta que stop se cierra.
@@ -177,6 +186,17 @@ func (c *chaos) watch(ctx context.Context) (*watch, func()) {
 	return w, func() { cancel(); <-done }
 }
 
+// collectorCounts devuelve los registros recibidos por el collector y los
+// errores de recepción UDP de su socket.
+func (c *chaos) collectorCounts(ctx context.Context) (uint64, uint64) {
+	var recs uint64
+	if m, err := loadkit.Scrape(ctx, c.env.CollectorMetrics); err == nil {
+		recs = uint64(m.Sum("horus_collector_records_total"))
+	}
+	udp, _ := c.env.UDPDrops(ctx)
+	return recs, udp
+}
+
 // limit aplica el búfer documentado de la prueba a TLM_FLOWS.
 func (c *chaos) limit(ctx context.Context) {
 	for range 10 {
@@ -198,7 +218,7 @@ func (c *chaos) startSim(ctx context.Context, name string, d time.Duration) (*lo
 	if err != nil {
 		return nil, err
 	}
-	sim := &loadkit.Sim{Bin: c.flowsim, Target: target, Rate: c.rate, Duration: d, Seed: 100 + c.seed,
+	sim := &loadkit.Sim{Bin: c.flowsim, Target: target, Rate: c.rate, Duration: d, Seed: 100 + c.seed, Scenario: c.scen,
 		Expected: filepath.Join(c.env.Dir, "chaos-"+name+".expected.json"), Log: f}
 	return sim, sim.Start(ctx)
 }
@@ -283,6 +303,7 @@ func (c *chaos) restart(ctx context.Context, name, service string, down time.Dur
 	pre, post := 20*time.Second, 40*time.Second
 	rows0 := c.rows(ctx)
 	disc0 := c.kiosk.Status().Disconnects
+	recs0, udp0 := c.collectorCounts(ctx)
 	w, stopWatch := c.watch(ctx)
 	sim, err := c.startSim(ctx, name, pre+down+post)
 	if err != nil {
@@ -317,10 +338,14 @@ func (c *chaos) restart(ctx context.Context, name, service string, down time.Dur
 	r.Sent, _ = sim.Sent()
 	r.Lost = int64(r.Sent) - int64(r.Rows) //nolint:gosec // recuentos
 	r.LostSeconds = math.Round(float64(r.Lost)/c.rate*10) / 10
+	recs1, udp1 := c.collectorCounts(ctx)
+	r.CollectorRecs, r.UDPDrops = recs1-recs0, udp1-udp0
+	r.PipelineLost = int64(r.CollectorRecs) - int64(r.Rows) //nolint:gosec // recuentos
 	r.MaxLagBatches, r.MaxStreamMB, r.MaxBufferMB, r.CollectorDrop = w.maxLag, w.maxStream/1e6, w.maxBuff/1e6, w.drops
 	r.KioskDisc = c.kiosk.Status().Disconnects - disc0
 	if r.Lost != 0 {
-		r.Why = append(r.Why, fmt.Sprintf("pérdida: %d registros (%.1f s de flujos) dentro del búfer documentado", r.Lost, r.LostSeconds))
+		r.Why = append(r.Why, fmt.Sprintf("pérdida: %d registros (%.1f s de flujos) dentro del búfer documentado: %d después del collector, %d en el collector (%d datagramas UDP perdidos en el socket)",
+			r.Lost, r.LostSeconds, r.PipelineLost, int64(r.Sent)-int64(r.CollectorRecs), r.UDPDrops)) //nolint:gosec // recuentos
 	}
 	r.Pass = len(r.Why) == 0
 	log.Printf("   enviados %d, ClickHouse %d, pérdida %d, lag máx %d lotes, TLM_FLOWS máx %.1f MB, búfer collector máx %.1f MB, vuelta %s, kiosco %s → %v %s",
@@ -503,8 +528,8 @@ func report(dir string, rate float64, rs []result) error {
 	}
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "Pruebas de fallo I1-26 — %s — %.0f flujos/s\n\n", time.Now().UTC().Format(time.RFC3339), rate)
-	sb.WriteString("| Escenario | Caída | Vuelta a healthy | Enviados | ClickHouse | Perdidos (s) | Lag máx. (lotes) | TLM_FLOWS máx. | Búfer collector máx. | Drenaje | Kiosco de vuelta | Evento al kiosco | Resultado |\n")
-	sb.WriteString("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n")
+	sb.WriteString("| Escenario | Caída | Vuelta a healthy | Enviados | Collector (UDP perdidos) | ClickHouse | Perdidos (s) | Lag máx. (lotes) | TLM_FLOWS máx. | Búfer collector máx. | Drenaje | Kiosco de vuelta | Evento al kiosco | Resultado |\n")
+	sb.WriteString("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n")
 	for _, r := range rs {
 		res := "OK"
 		if !r.Pass {
@@ -517,8 +542,8 @@ func report(dir string, rate float64, rs []result) error {
 			}
 			res += ")"
 		}
-		fmt.Fprintf(&sb, "| %s | %s | %s | %d | %d | %d (%.1f) | %d | %.1f MB | %.1f MB | %s | %s | %s | %s |\n", r.Scenario, r.Down, r.Recovery,
-			r.Sent, r.Rows, r.Lost, r.LostSeconds, r.MaxLagBatches, r.MaxStreamMB, r.MaxBufferMB, r.Drain, dash(r.KioskBack), dash(r.EventLatency), res)
+		fmt.Fprintf(&sb, "| %s | %s | %s | %d | %d (%d) | %d | %d (%.1f) | %d | %.1f MB | %.1f MB | %s | %s | %s | %s |\n", r.Scenario, r.Down, r.Recovery,
+			r.Sent, r.CollectorRecs, r.UDPDrops, r.Rows, r.Lost, r.LostSeconds, r.MaxLagBatches, r.MaxStreamMB, r.MaxBufferMB, r.Drain, dash(r.KioskBack), dash(r.EventLatency), res)
 	}
 	md := sb.String()
 	fmt.Print("\n" + md)

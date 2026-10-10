@@ -11,3 +11,11 @@ kv:
     description: Estado de los exportadores de flujos (I1-09)
     history: 1
     storage: file
+  # Grupos de INSERT en curso del ingester (token → batch_id): hace idempotentes los reintentos
+  # tras una caída del proceso (services/ingester/internal/app/group.go). TTL = max_age de TLM_FLOWS.
+  - bucket: flows_ingester_groups
+    description: Grupos de INSERT en curso del ingester (FLOW)
+    history: 1
+    ttl: 24h
+    max_bytes: 64MiB
+    storage: file

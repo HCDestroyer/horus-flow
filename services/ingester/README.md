@@ -68,13 +68,17 @@ collector guarda en el bucket KV `flow_exporter_state`.
 | --- | --- | --- |
 | `HORUS_NATS_URL` | — | Activa la ingesta |
 | `HORUS_FLOWS_INVENTORY_FILE` | — | Inventario base (con NATS se completa con DEVICES_EVENTS) |
-| `HORUS_INGESTER_WORKERS` | 4 | Lotes en paralelo |
+| `HORUS_INGESTER_WORKERS` | 4 | Lotes que se decodifican y atribuyen en paralelo |
+| `HORUS_INGESTER_INSERT_ROWS` / `_INSERT_WAIT` / `_INSERT_FLUSHERS` | 50000 / 1s / 2 | Escritura agrupada: un INSERT por grupo de lotes (umbral de filas o de tiempo), INSERT en paralelo; ack de JetStream tras el INSERT y token por grupo guardado en el KV `flows_ingester_groups` (`internal/app/group.go`) |
+| `HORUS_INGESTER_BUFFER_WARN_RATIO` | 0.7 | Ocupación de TLM_FLOWS a partir de la cual `/readyz` marca `tlm_flows_buffer` degradado |
 | `HORUS_INGESTER_FIRST_SEEN_INTERVAL` / `_FIRST_SEEN_TTL` | 10s / 1h | Descubrimiento |
 | `HORUS_INGESTER_DISCOVERY_PER_MINUTE` / `_DISCOVERY_REALM_MAX` | 2000 / 1048576 | Anti-avalancha |
 | `HORUS_ASN_SNAPSHOT_DIR`, `HORUS_CATALOG_SNAPSHOT_DIR`, `HORUS_REPUTATION_SNAPSHOT_DIR` | — | Snapshots (catálogo semilla embebido si falta) |
 | `HORUS_JWT_PUBLIC_KEYS`, `HORUS_AUTH_ISSUER` | — | API si `auth` no es local |
 
 Métricas: `horus_ingester_{batches,rows}_total`, `horus_ingester_insert_seconds`,
+`horus_ingester_insert_rows`, `horus_ingester_insert_groups_total{reason}`,
+`horus_ingester_tlm_buffer_{bytes,ratio}`,
 `horus_ingester_consumer_pending`, `horus_customers_discovery_throttled_total`,
 `horus_ingester_remote_bytes{,_with_asn,_with_service}_total{tenant_id}` (cobertura de
 enriquecimiento por ISP), `horus_ingester_snapshot_reloads_total{kind,result}`.

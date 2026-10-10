@@ -236,22 +236,35 @@ func (p *Projector) publish() {
 	p.store.Swap(s)
 }
 
-// Run consume DEVICES_EVENTS con el durable dado (uno por rol: cada proceso
-// necesita todos los eventos) hasta que ctx se cancela. ready se cierra al
-// alcanzar el final del stream por primera vez. Si el stream no existe
-// (devices no desplegado) reintenta cada 30 s.
-func (p *Projector) Run(ctx context.Context, js jetstream.JetStream, durable string, ready chan<- struct{}) {
+// Run consume DEVICES_EVENTS desde el principio hasta que ctx se cancela.
+// ready se cierra al alcanzar el final del stream por primera vez. Si el
+// stream no existe (devices no desplegado) reintenta cada 30 s.
+//
+// La proyección vive en memoria, así que cada arranque del proceso debe
+// releer el stream entero: se usa un consumidor efímero sin acks con
+// DeliverAll (si se pierde, se recrea y se relee todo: Apply es idempotente
+// por versión). Antes era un durable por rol, que tras un reinicio solo
+// entregaba lo no confirmado y dejaba el inventario sin los routers y
+// prefijos dados de alta por la API (todos los flujos `unknown`). legacy es
+// el nombre de aquel durable: se borra si existe.
+func (p *Projector) Run(ctx context.Context, js jetstream.JetStream, legacy string, ready chan<- struct{}) {
 	var once sync.Once
 	markReady := func() {
 		if ready != nil {
 			once.Do(func() { close(ready) })
 		}
 	}
+	cleaned := false
 	for ctx.Err() == nil {
-		cons, err := js.CreateOrUpdateConsumer(ctx, "DEVICES_EVENTS", jetstream.ConsumerConfig{
-			Durable: durable, AckPolicy: jetstream.AckExplicitPolicy, DeliverPolicy: jetstream.DeliverAllPolicy,
-			FilterSubjects: []string{"horus.devices.router.>", "horus.devices.site.>", "horus.devices.realm.>", "horus.devices.client_prefix.>"},
-			AckWait:        30 * time.Second, MaxDeliver: 8, MaxAckPending: 256,
+		if !cleaned && legacy != "" {
+			if err := js.DeleteConsumer(ctx, "DEVICES_EVENTS", legacy); err == nil || errors.Is(err, jetstream.ErrConsumerNotFound) {
+				cleaned = true
+			}
+		}
+		cons, err := js.CreateConsumer(ctx, "DEVICES_EVENTS", jetstream.ConsumerConfig{
+			DeliverPolicy: jetstream.DeliverAllPolicy, AckPolicy: jetstream.AckNonePolicy,
+			FilterSubjects:    []string{"horus.devices.router.>", "horus.devices.site.>", "horus.devices.realm.>", "horus.devices.client_prefix.>"},
+			InactiveThreshold: 5 * time.Minute,
 		})
 		if err != nil {
 			markReady()
@@ -275,7 +288,6 @@ func (p *Projector) Run(ctx context.Context, js jetstream.JetStream, durable str
 				} else if c {
 					changed = true
 				}
-				_ = m.Ack()
 			}
 			if changed {
 				p.publish()
