@@ -74,4 +74,10 @@ describe('traducciones', () => {
   it('es.json y en.json tienen las mismas claves', () => {
     expect(keys(en).sort()).toEqual(keys(es).sort())
   })
+
+  it('ningún texto usa "@" sin escapar (en vue-i18n es un mensaje enlazado)', () => {
+    for (const json of [es, en]) {
+      expect(JSON.stringify(json).replaceAll("{'@'}", '')).not.toContain('@')
+    }
+  })
 })

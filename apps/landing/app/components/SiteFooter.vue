@@ -4,6 +4,7 @@ import { sellerAddressLine, site } from '~/config/site'
 const { t } = useI18n()
 const localePath = useLocalePath()
 const year = new Date().getFullYear()
+const email = computed(() => useSite().value.settings.contact.email || site.seller.email)
 const home = computed(() => localePath('/'))
 const href = (id: string) => `${home.value === '/' ? '/' : home.value}#${id}`
 </script>
@@ -19,10 +20,10 @@ const href = (id: string) => `${home.value === '/' ? '/' : home.value}#${id}`
         <p class="max-w-sm text-muted">{{ t('contact.seller') }}</p>
         <p>
           <a
-            :href="`mailto:${site.seller.email}`"
+            :href="`mailto:${email}`"
             class="inline-flex min-h-11 items-center font-medium text-primary underline underline-offset-4"
           >
-            {{ site.seller.email }}
+            {{ email }}
           </a>
         </p>
       </div>

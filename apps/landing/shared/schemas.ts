@@ -2,7 +2,7 @@
 // (validación autoritativa). Los mensajes de error son claves de i18n (`errors.<clave>`):
 // el cliente las traduce y el servidor las devuelve tal cual en `fields`.
 import { z } from 'zod'
-import { planIds } from '../app/config/pricing'
+import { PLAN_IDS } from './catalog'
 
 /** Países que se ofrecen en los formularios (ISO 3166-1 alfa-2; ZZ = otro país). */
 export const COUNTRY_CODES = [
@@ -73,7 +73,7 @@ export const leadSchema = z.object({
 })
 
 export const purchaseSchema = z.object({
-  plan: choice(planIds),
+  plan: choice(PLAN_IDS),
   period: z.enum(['monthly', 'annual'], { error: 'required' }),
   currency: z.enum(['USD', 'GTQ'], { error: 'required' }),
   legalName: required(160, 2),

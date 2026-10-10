@@ -1,8 +1,9 @@
 <script setup lang="ts">
-// Compra de licencia: genera una solicitud de compra/cotización con número de referencia y la
-// envía a ventas. El cobro lo resuelve el proveedor de pago del servidor (hoy, manual).
-import { COUNTRY_CODES, purchaseSchema } from '#shared/schemas'
-import type { Currency, Period, PlanId } from '~/config/pricing'
+// Compra de licencia: plan, periodo y datos de facturación → solicitud con referencia (y
+// aviso a ventas) → pago con PayPal, link Neo o transferencia (CheckoutPayment). El importe lo
+// calcula siempre el servidor desde la base de datos.
+import type { Currency, Period, PlanId } from '#shared/catalog'
+import { COUNTRY_CODES, purchaseSchema, type PurchaseOk } from '#shared/schemas'
 
 usePageSeo('buy', 'meta.buyTitle', 'meta.buyDescription')
 
@@ -10,22 +11,25 @@ const { t, locale } = useI18n()
 const localePath = useLocalePath()
 const route = useRoute()
 const countries = useCountryOptions()
-const { pricing, l, money } = usePricing()
+const { pricing, plans, l, money } = usePricing()
+const site = useSite()
 const { honeypot, submitting, error, result, validate, submit } = useFormSubmission(
   '/api/purchase',
   purchaseSchema,
 )
 
-const buyable = pricing.plans.filter((p) => p.prices)
+const buyable = computed(() => plans.value.filter((p) => p.prices))
 const qPlan = String(route.query.plan ?? '')
 const qPeriod = String(route.query.period ?? '')
 
 const state = reactive({
-  plan: (buyable.some((p) => p.id === qPlan) ? qPlan : 'medium') as PlanId,
+  plan: (buyable.value.some((p) => p.id === qPlan)
+    ? qPlan
+    : (buyable.value.find((p) => p.highlighted) ?? buyable.value[0])?.id) as PlanId,
   period: (qPeriod === 'monthly' || qPeriod === 'annual'
     ? qPeriod
-    : pricing.defaultPeriod) as Period,
-  currency: pricing.defaultCurrency as Currency,
+    : pricing.value.defaultPeriod) as Period,
+  currency: pricing.value.defaultCurrency as Currency,
   legalName: '',
   nit: '',
   country: 'GT' as (typeof COUNTRY_CODES)[number],
@@ -46,19 +50,34 @@ onMounted(() => {
 })
 
 const planItems = computed(() =>
-  buyable.map((p) => ({ value: p.id, label: l(p.name), description: l(p.summary) })),
+  buyable.value.map((p) => ({ value: p.id, label: l(p.name), description: l(p.summary) })),
 )
 const periodOptions = computed(() => [
   { value: 'monthly' as Period, label: t('pricing.monthly') },
   { value: 'annual' as Period, label: t('pricing.annual') },
 ])
-const currencyOptions = pricing.currencies.map((c) => ({ value: c as Currency, label: c }))
+const currencyOptions = computed(() =>
+  pricing.value.currencies.map((c) => ({ value: c as Currency, label: c })),
+)
 
-const selected = computed(() => pricing.plans.find((p) => p.id === state.plan)!)
+const selected = computed(() => plans.value.find((p) => p.id === state.plan) ?? buyable.value[0]!)
 const amount = computed(() =>
-  pricing.confirmed && selected.value.prices
+  pricing.value.confirmed && selected.value.prices
     ? selected.value.prices[state.currency][state.period]
     : null,
+)
+const purchase = computed(() => result.value as PurchaseOk | null)
+const canPay = computed(() => {
+  const m = purchase.value?.methods
+  return Boolean(m && (m.paypal || m.neo || m.transfer))
+})
+const paid = ref(false)
+const anyMethod = computed(() => {
+  const p = site.value.payments
+  return p.paypal.enabled || p.neo.enabled || p.transfer.enabled
+})
+const periodLabel = computed(() =>
+  state.period === 'annual' ? t('pricing.annual') : t('pricing.monthly'),
 )
 
 const done = ref<HTMLElement | null>(null)
@@ -66,6 +85,13 @@ async function onSubmit() {
   state.locale = locale.value === 'en' ? 'en' : 'es'
   const res = await submit({ ...state })
   if (!res) return
+  await nextTick()
+  done.value?.focus()
+  window.scrollTo({ top: 0 })
+}
+
+async function onPaid() {
+  paid.value = true
   await nextTick()
   done.value?.focus()
   window.scrollTo({ top: 0 })
@@ -86,8 +112,32 @@ async function copyRef() {
 
 <template>
   <div class="mx-auto max-w-6xl px-4 pt-10 pb-8 sm:px-6 md:pt-16">
+    <div v-if="result && canPay && !paid" class="mx-auto max-w-3xl">
+      <div
+        ref="done"
+        tabindex="-1"
+        role="status"
+        class="outline-none"
+        data-testid="purchase-success"
+      >
+        <p class="eyebrow">{{ t('buy.eyebrow') }}</p>
+        <h1 class="mt-2 text-3xl font-bold text-highlighted sm:text-4xl">
+          {{ t('checkout.created') }}
+        </h1>
+        <p class="mt-3 text-lg text-toned">{{ t('checkout.lead') }}</p>
+      </div>
+      <CheckoutPayment
+        class="mt-8"
+        :result="purchase!"
+        :plan-name="l(selected.name)"
+        :period-label="periodLabel"
+        :payments="site.payments"
+        @paid="onPaid"
+      />
+    </div>
+
     <div
-      v-if="result"
+      v-else-if="result"
       ref="done"
       tabindex="-1"
       role="status"
@@ -95,7 +145,9 @@ async function copyRef() {
       data-testid="purchase-success"
     >
       <UIcon name="i-lucide-circle-check" class="size-9 text-primary" aria-hidden="true" />
-      <h1 class="mt-3 text-3xl font-bold text-highlighted">{{ t('buy.successTitle') }}</h1>
+      <h1 class="mt-3 text-3xl font-bold text-highlighted" data-testid="purchase-title">
+        {{ paid ? t('checkout.paidTitle') : t('buy.successTitle') }}
+      </h1>
       <p class="mt-6 text-sm font-semibold text-muted">{{ t('buy.reference') }}</p>
       <div class="mt-1 flex flex-wrap items-center gap-3">
         <span
@@ -114,7 +166,7 @@ async function copyRef() {
           @click="copyRef"
         />
       </div>
-      <p class="mt-6 text-toned">{{ t('buy.manualSteps') }}</p>
+      <p class="mt-6 text-toned">{{ paid ? t('checkout.paidBody') : t('buy.manualSteps') }}</p>
       <UButton
         :to="localePath('/')"
         color="neutral"
@@ -324,7 +376,13 @@ async function copyRef() {
               block
               :loading="submitting"
               class="mt-5 min-h-12 rounded-xl"
-              :label="submitting ? t('form.sending') : t('buy.submit')"
+              :label="
+                submitting
+                  ? t('form.sending')
+                  : anyMethod && pricing.confirmed
+                    ? t('buy.submit')
+                    : t('buy.submitRequest')
+              "
             />
             <p class="mt-4 flex gap-2 text-sm text-muted">
               <UIcon

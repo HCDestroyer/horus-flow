@@ -237,7 +237,7 @@
       },
       "support": {
         "q": "What does support include?",
-        "a": "24/7 technical support on every plan while the license is active, by email at info@kns.gt and through the channels set out in the contract."
+        "a": "24/7 technical support on every plan while the license is active, by email and through the channels set out in the contract."
       },
       "updates": {
         "q": "Are updates included?",
@@ -251,7 +251,8 @@
         "q": "How can I pay?",
         "a": "With PayPal (in USD), a Neo payment link or a bank transfer in USD or GTQ. If you are in Guatemala, include your NIT (tax ID) for the invoice."
       }
-    }
+    },
+    "responseTime": "Response time: {time}"
   },
   "demo": {
     "eyebrow": "Demo",
@@ -299,7 +300,7 @@
   "buy": {
     "eyebrow": "Buy",
     "title": "Buy a license",
-    "lead": "Choose a plan and billing period and leave your billing details. You will get a purchase request with a reference number; payment happens once we confirm the quote.",
+    "lead": "Choose a plan and billing period and give us your billing details. You will get a reference number and can pay with PayPal, a Neo payment link or a bank transfer.",
     "stepPlan": "Plan and period",
     "stepBilling": "Billing details",
     "stepContact": "Contact",
@@ -316,14 +317,15 @@
     "summary": "Summary",
     "amount": "Amount",
     "toQuote": "To be quoted",
-    "submit": "Send purchase request",
+    "submit": "Continue to payment",
     "successTitle": "Purchase request sent",
     "reference": "Reference",
     "manualSteps": "Sales will review your request and send you the quote and bank transfer details. Use the reference as the payment description.",
     "copy": "Copy reference",
     "copied": "Reference copied",
     "backHome": "Back to home",
-    "noPayment": "Nothing is charged on this page: it is a request. We never ask for card details."
+    "noPayment": "Payment happens in the next step. We never ask for or store card details.",
+    "submitRequest": "Send purchase request"
   },
   "faq": {
     "eyebrow": "FAQ",
@@ -397,5 +399,46 @@
     "unavailable": "Sending is not available right now. Write to us at {email}.",
     "server": "Could not send. Try again or write to us at {email}.",
     "fixFields": "Check the highlighted fields."
+  },
+  "checkout": {
+    "created": "Request created: choose how to pay",
+    "lead": "We have emailed you a copy. Keep the reference: you will need it if you pay by Neo link or bank transfer.",
+    "title": "Payment",
+    "choose": "Payment method",
+    "methods": {
+      "paypal": {
+        "label": "PayPal",
+        "description": "Card or PayPal account. Confirmed instantly."
+      },
+      "neo": {
+        "label": "Neo payment link",
+        "description": "Pay on the Neo page and include the reference."
+      },
+      "transfer": {
+        "label": "Bank transfer",
+        "description": "To our account, with the reference as the description."
+      }
+    },
+    "paypalHint": "Use the PayPal button to pay. The amount is calculated by our server.",
+    "paypalUsd": "PayPal charges in US dollars: you will be charged {amount}, the USD price of this plan.",
+    "paypalError": "PayPal could not complete the payment. Try again or choose another method.",
+    "paypalCaptureError": "We could not confirm the payment with PayPal. If you were charged, write to us with your reference.",
+    "paypalLoadError": "PayPal could not be loaded. Check your connection or choose another method.",
+    "neoSteps": "Open the Neo payment link and include the reference {ref} when paying.",
+    "neoOpen": "Open Neo payment link",
+    "transferSteps": "Transfer the amount to one of these accounts and include the reference {ref} as the description.",
+    "accountType": "Type",
+    "accountNumber": "Number",
+    "accountHolder": "Holder",
+    "emailSent": "We have emailed you these details.",
+    "pendingNote": "We will confirm the payment once received and let you know by email.",
+    "loading": "Loading…",
+    "error": "The payment could not be prepared. Please try again.",
+    "paidTitle": "Payment received",
+    "paidBody": "Thank you. We have confirmed your PayPal payment and emailed you the receipt. We will contact you to finalize the license and help with the installation."
+  },
+  "banner": {
+    "label": "Notice",
+    "more": "Learn more"
   }
 }

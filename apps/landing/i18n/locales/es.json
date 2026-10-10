@@ -237,7 +237,7 @@
       },
       "support": {
         "q": "¿Qué incluye el soporte?",
-        "a": "Soporte técnico 24/7 en todos los planes mientras la licencia esté vigente, por correo a info@kns.gt y por los canales que se indican en el contrato."
+        "a": "Soporte técnico 24/7 en todos los planes mientras la licencia esté vigente, por correo y por los canales que se indican en el contrato."
       },
       "updates": {
         "q": "¿Las actualizaciones están incluidas?",
@@ -251,7 +251,8 @@
         "q": "¿Cómo puedo pagar?",
         "a": "Con PayPal (en USD), con un link de pago Neo o por transferencia bancaria en USD o GTQ. Si estás en Guatemala, indica tu NIT para la factura."
       }
-    }
+    },
+    "responseTime": "Tiempo de respuesta: {time}"
   },
   "demo": {
     "eyebrow": "Demo",
@@ -299,7 +300,7 @@
   "buy": {
     "eyebrow": "Comprar",
     "title": "Comprar una licencia",
-    "lead": "Elige plan y periodo y déjanos los datos de facturación. Recibirás una solicitud de compra con número de referencia; el pago se hace cuando confirmemos la cotización.",
+    "lead": "Elige plan y periodo y déjanos los datos de facturación. Recibirás un número de referencia y podrás pagar con PayPal, con link de pago Neo o por transferencia bancaria.",
     "stepPlan": "Plan y periodo",
     "stepBilling": "Datos de facturación",
     "stepContact": "Contacto",
@@ -316,14 +317,15 @@
     "summary": "Resumen",
     "amount": "Importe",
     "toQuote": "A cotizar",
-    "submit": "Enviar solicitud de compra",
+    "submit": "Continuar al pago",
     "successTitle": "Solicitud de compra enviada",
     "reference": "Referencia",
     "manualSteps": "Ventas revisará tu solicitud y te enviará la cotización y los datos para la transferencia bancaria. Usa la referencia en el concepto del pago.",
     "copy": "Copiar referencia",
     "copied": "Referencia copiada",
     "backHome": "Volver al inicio",
-    "noPayment": "Aún no se cobra nada en esta página: es una solicitud. No pedimos datos de tarjeta."
+    "noPayment": "El pago se hace en el siguiente paso. No pedimos ni guardamos datos de tarjeta.",
+    "submitRequest": "Enviar solicitud de compra"
   },
   "faq": {
     "eyebrow": "Preguntas",
@@ -397,5 +399,46 @@
     "unavailable": "El envío no está disponible ahora mismo. Escríbenos a {email}.",
     "server": "No se pudo enviar. Inténtalo de nuevo o escríbenos a {email}.",
     "fixFields": "Revisa los campos marcados."
+  },
+  "checkout": {
+    "created": "Solicitud creada: elige cómo pagar",
+    "lead": "Te enviamos una copia por correo. Guarda la referencia: la necesitarás si pagas con link Neo o por transferencia.",
+    "title": "Pago",
+    "choose": "Método de pago",
+    "methods": {
+      "paypal": {
+        "label": "PayPal",
+        "description": "Tarjeta o cuenta PayPal. Se confirma al momento."
+      },
+      "neo": {
+        "label": "Link de pago Neo",
+        "description": "Paga en la página de Neo e indica la referencia."
+      },
+      "transfer": {
+        "label": "Transferencia bancaria",
+        "description": "A nuestra cuenta, con la referencia en el concepto."
+      }
+    },
+    "paypalHint": "Pulsa el botón de PayPal para pagar. El importe lo calcula nuestro servidor.",
+    "paypalUsd": "PayPal cobra en dólares: se cobrarán {amount}, el precio en USD de este plan.",
+    "paypalError": "PayPal no pudo completar el pago. Inténtalo de nuevo o elige otro método.",
+    "paypalCaptureError": "No pudimos confirmar el pago con PayPal. Si se cobró, escríbenos con tu referencia.",
+    "paypalLoadError": "No se pudo cargar PayPal. Revisa tu conexión o elige otro método.",
+    "neoSteps": "Abre el link de pago Neo e indica la referencia {ref} al pagar.",
+    "neoOpen": "Abrir link de pago Neo",
+    "transferSteps": "Transfiere el importe a una de estas cuentas e indica la referencia {ref} en el concepto.",
+    "accountType": "Tipo",
+    "accountNumber": "Número",
+    "accountHolder": "Titular",
+    "emailSent": "Te enviamos estos datos por correo.",
+    "pendingNote": "Confirmaremos el pago al recibirlo y te avisaremos por correo.",
+    "loading": "Cargando…",
+    "error": "No se pudo preparar el pago. Inténtalo de nuevo.",
+    "paidTitle": "Pago recibido",
+    "paidBody": "Gracias. Hemos confirmado tu pago con PayPal y te enviamos el comprobante por correo. Te escribiremos para formalizar la licencia y ayudarte con la instalación."
+  },
+  "banner": {
+    "label": "Aviso",
+    "more": "Más información"
   }
 }

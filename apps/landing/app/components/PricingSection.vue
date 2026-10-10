@@ -1,20 +1,28 @@
 <script setup lang="ts">
-// Planes desde app/config/pricing.ts. Con `confirmed: false` no se muestra ninguna cifra.
-import type { Currency, Period, Plan } from '~/config/pricing'
+// Planes y precios desde la base de datos (editables en /admin › Precios). Con "Mostrar
+// importes" desactivado (confirmed: false) no se muestra ninguna cifra. El panel usa este mismo
+// componente para la vista previa (`catalog` = borrador, `preview` = sin enlaces).
+import type { Catalog, CatalogPlan, Currency, Period } from '#shared/catalog'
+
+const props = defineProps<{ catalog?: Catalog | null; preview?: boolean }>()
 
 const { t } = useI18n()
 const localePath = useLocalePath()
-const { pricing, period, currency, l, money, price } = usePricing()
+const { pricing, plans, period, currency, l, money, price } = usePricing(toRef(props, 'catalog'))
+const site = useSiteState()
+const responseTime = computed(() =>
+  props.preview || !site.value ? '' : l(site.value.settings.support.responseTime),
+)
 
 const periodOptions = computed(() => [
   { value: 'monthly' as Period, label: t('pricing.monthly') },
   { value: 'annual' as Period, label: t('pricing.annual') },
 ])
 const currencyOptions = computed(() =>
-  pricing.currencies.map((c) => ({ value: c as Currency, label: c })),
+  pricing.value.currencies.map((c) => ({ value: c as Currency, label: c })),
 )
 
-function buyLink(plan: Plan) {
+function buyLink(plan: CatalogPlan) {
   return localePath({ path: '/comprar', query: { plan: plan.id, period: period.value } })
 }
 
@@ -61,7 +69,7 @@ const faq = computed(() =>
 
     <ul class="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
       <li
-        v-for="plan in pricing.plans"
+        v-for="plan in plans"
         :key="plan.id"
         class="surface relative flex flex-col rounded-2xl p-6"
         :class="plan.highlighted ? 'ring-2 ring-(--ui-primary)' : ''"
@@ -126,7 +134,7 @@ const faq = computed(() =>
 
         <UButton
           v-if="plan.prices"
-          :to="buyLink(plan)"
+          :to="preview ? undefined : buyLink(plan)"
           :color="plan.highlighted ? 'primary' : 'neutral'"
           :variant="plan.highlighted ? 'solid' : 'outline'"
           size="xl"
@@ -137,7 +145,7 @@ const faq = computed(() =>
         />
         <UButton
           v-else
-          to="#demo"
+          :to="preview ? undefined : '#demo'"
           color="neutral"
           variant="outline"
           size="xl"
@@ -161,8 +169,11 @@ const faq = computed(() =>
             <span>{{ l(inc) }}</span>
           </li>
         </ul>
+        <p v-if="responseTime" class="mt-3 text-[0.95rem] text-muted">
+          {{ t('pricing.responseTime', { time: responseTime }) }}
+        </p>
       </div>
-      <div>
+      <div v-if="!preview">
         <h3 class="text-lg font-semibold text-highlighted">{{ t('pricing.faqTitle') }}</h3>
         <UAccordion
           :items="faq"

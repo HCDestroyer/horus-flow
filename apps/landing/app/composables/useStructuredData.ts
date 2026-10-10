@@ -1,6 +1,7 @@
 // Datos estructurados JSON-LD (schema.org): Organization, SoftwareApplication y Product con
-// Offers. Mientras los precios no estén confirmados, las ofertas no llevan importe.
-import { planPrice, pricing } from '~/config/pricing'
+// Offers. Precios y contacto salen de la base de datos (useSite); con "Mostrar importes"
+// desactivado, las ofertas no llevan importe.
+import { catalogPrice } from '#shared/catalog'
 import { site } from '~/config/site'
 
 export function useStructuredData() {
@@ -9,13 +10,15 @@ export function useStructuredData() {
   const loc = locale.value === 'en' ? 'en' : 'es'
   const pageUrl = base + (loc === 'en' ? '/en' : '/')
   const buyUrl = base + (loc === 'en' ? '/en/buy' : '/comprar')
+  const { catalog: pricing, settings } = useSite().value
+  const email = settings.contact.email || site.seller.email
 
   const organization = {
     '@type': 'Organization',
     '@id': `${base}/#organization`,
     name: site.seller.legalName,
     alternateName: site.seller.shortName,
-    email: site.seller.email,
+    email,
     url: base,
     address: {
       '@type': 'PostalAddress',
@@ -27,7 +30,9 @@ export function useStructuredData() {
     contactPoint: {
       '@type': 'ContactPoint',
       contactType: 'customer support',
-      email: site.seller.email,
+      email,
+      ...(settings.contact.phone ? { telephone: settings.contact.phone } : {}),
+      description: settings.support.text[loc],
       availableLanguage: ['es', 'en'],
       // Soporte 24/7 en todos los planes.
       hoursAvailable: {
@@ -40,10 +45,10 @@ export function useStructuredData() {
   }
 
   const offers = pricing.plans
-    .filter((p) => p.prices)
+    .filter((p) => p.prices && p.visible)
     .flatMap((plan) =>
       pricing.currencies.map((currency) => {
-        const amount = planPrice(plan, currency, 'annual')
+        const amount = catalogPrice(pricing, plan, currency, 'annual')
         return {
           '@type': 'Offer',
           name: `${site.product} ${plan.name[loc]}`,

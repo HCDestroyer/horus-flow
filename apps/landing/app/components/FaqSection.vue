@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { site } from '~/config/site'
-
-const { t } = useI18n()
+const { t, locale } = useI18n()
+const settings = computed(() => useSite().value.settings)
+const loc = computed<'es' | 'en'>(() => (locale.value === 'en' ? 'en' : 'es'))
 const keys = [
   'routers',
   'changes',
@@ -26,11 +26,25 @@ const items = computed(() =>
           <h3 class="text-lg font-semibold text-highlighted">{{ t('contact.title') }}</h3>
           <p class="mt-1 text-toned">{{ t('contact.body') }}</p>
           <a
-            :href="`mailto:${site.seller.email}`"
+            :href="`mailto:${settings.contact.email}`"
             class="mt-1 inline-flex min-h-11 items-center text-lg font-semibold text-primary underline underline-offset-4"
           >
-            {{ site.seller.email }}
+            {{ settings.contact.email }}
           </a>
+          <p v-if="settings.contact.phone" class="text-toned">
+            <a
+              :href="`tel:${settings.contact.phone.replace(/[^+0-9]/g, '')}`"
+              class="inline-flex min-h-11 items-center"
+            >
+              {{ settings.contact.phone }}
+            </a>
+          </p>
+          <p class="mt-2 text-toned" data-testid="support-text">
+            {{ settings.support.text[loc] }}
+            <template v-if="settings.support.responseTime[loc]">
+              {{ t('pricing.responseTime', { time: settings.support.responseTime[loc] }) }}
+            </template>
+          </p>
           <p class="mt-2 text-[0.95rem] text-muted">{{ t('contact.seller') }}</p>
         </div>
       </div>

@@ -1,10 +1,45 @@
 // Horus Flow — landing comercial (Nuxt 4 + Nuxt UI v4, SSR con servidor Nitro).
 // Separada del frontend del producto (apps/frontend): aquí no hay datos de ningún ISP.
 // Variables de entorno: ver README.md.
+// Content-Security-Policy. Nuxt incrusta scripts en línea (payload, modo de color), de ahí
+// 'unsafe-inline' en script-src; no se carga nada de terceros salvo PayPal en la compra.
+const CSP_COMMON = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+  "object-src 'none'",
+  "img-src 'self' data:",
+  "style-src 'self' 'unsafe-inline'",
+  "font-src 'self'",
+]
+const CSP_BASE = [...CSP_COMMON, "script-src 'self' 'unsafe-inline'", "connect-src 'self'"].join(
+  '; ',
+)
+// PayPal JS SDK: https://developer.paypal.com/sdk/js/ (dominios del SDK, sus iframes y su API).
+const PAYPAL = 'https://www.paypal.com https://*.paypal.com https://*.paypalobjects.com'
+const CSP_BUY = [
+  ...CSP_COMMON.filter((d) => !d.startsWith('img-src')),
+  `script-src 'self' 'unsafe-inline' ${PAYPAL}`,
+  `connect-src 'self' ${PAYPAL}`,
+  `frame-src ${PAYPAL}`,
+  `img-src 'self' data: ${PAYPAL}`,
+].join('; ')
+const BUY_HEADERS = {
+  'Content-Security-Policy': CSP_BUY,
+  'Permissions-Policy':
+    'camera=(), microphone=(), geolocation=(), payment=(self "https://www.paypal.com")',
+}
+const ADMIN_HEADERS = {
+  'Content-Security-Policy': CSP_BASE,
+  'X-Robots-Tag': 'noindex, nofollow',
+  'Cache-Control': 'no-store',
+}
+
 export default defineNuxtConfig({
   compatibilityDate: '2026-09-01',
 
-  modules: ['@nuxt/eslint', '@nuxt/ui', '@nuxtjs/i18n', '~~/modules/pricing-guard'],
+  modules: ['@nuxt/eslint', '@nuxt/ui', '@nuxtjs/i18n'],
 
   devtools: { enabled: false },
 
@@ -83,6 +118,15 @@ export default defineNuxtConfig({
       'legal-aviso-legal': { es: '/legal/aviso-legal', en: '/legal/notice' },
       'legal-privacidad': { es: '/legal/privacidad', en: '/legal/privacy' },
       'legal-terminos': { es: '/legal/terminos', en: '/legal/terms' },
+      // El panel no tiene versión por idioma (solo /admin, en español).
+      admin: false,
+      'admin-login': false,
+      'admin-solicitudes': false,
+      'admin-solicitudes-id': false,
+      'admin-precios': false,
+      'admin-pagos': false,
+      'admin-ajustes': false,
+      'admin-auditoria': false,
     },
   },
 
@@ -103,9 +147,16 @@ export default defineNuxtConfig({
         'Referrer-Policy': 'strict-origin-when-cross-origin',
         'X-Frame-Options': 'DENY',
         'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=()',
-        'Content-Security-Policy': "frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+        'Content-Security-Policy': CSP_BASE,
       },
     },
+    // Compra: el botón de PayPal (JS SDK) se carga solo aquí, y solo al elegir PayPal.
+    '/comprar': { headers: BUY_HEADERS },
+    '/en/buy': { headers: BUY_HEADERS },
+    // Panel: sin SSR (todo pasa por /api/admin con sesión), fuera de buscadores y con una CSP
+    // estricta sin terceros. El QR del TOTP es una imagen data:.
+    '/admin': { ssr: false, headers: ADMIN_HEADERS },
+    '/admin/**': { ssr: false, headers: ADMIN_HEADERS },
     '/img/**': { headers: { 'Cache-Control': 'public, max-age=2592000' } },
     '/api/**': { headers: { 'Cache-Control': 'no-store' } },
   },
