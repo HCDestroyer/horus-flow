@@ -59,8 +59,10 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 // INSERT grandes y confirma cada lote después del INSERT de su grupo
 // (at-least-once + token de deduplicación por grupo, ver group.go).
 type Consumer struct {
-	Proc *Processor
-	Ins  Inserter
+	// Paused dice si la ingesta de un ISP está en pausa (nil = ninguno).
+	Paused func(tenant string) bool
+	Proc   *Processor
+	Ins    Inserter
 	// Workers decodifican y atribuyen lotes en paralelo.
 	Workers int
 	// Group configura la escritura agrupada; Ledger hace idempotentes los
@@ -120,7 +122,7 @@ func (c *Consumer) Process(ctx context.Context, stop <-chan struct{}, data []byt
 
 func (c *Consumer) terminate(ctx context.Context, msg BusMsg, cause error) {
 	c.M.Batches.WithLabelValues("dlq").Inc()
-	c.Log.Error("flow batch sent to DLQ", "subject", msg.Subject(), "error", cause)
+	c.Log.ErrorContext(msgContext(ctx, msg), "flow batch sent to DLQ", "subject", msg.Subject(), "error", cause)
 	if c.DLQ != nil {
 		d := nats.NewMsg("horus.dlq.flows.flows-ingester")
 		d.Data = msg.Data()

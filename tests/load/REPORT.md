@@ -244,9 +244,97 @@ El 26,6 B/fila de I1 se midió con todas las filas `unknown` (sin servicio, orga
 
 ## Pendientes (isp10k)
 
-- **Collector: decodificar un mismo router en paralelo.** Hoy cada exportador va a un único trabajador (hash por IP de origen). Un router de 10 000 clientes satura su cola hacia 35 000 registros/s en esta máquina, y esa fue la única pérdida del caos de 5 min. Mientras tanto, `HORUS_COLLECTOR_QUEUE_DATAGRAMS=32768` en nodos grandes (≈ 45 MB de cola por exportador).
+- ~~**Collector: decodificar un mismo router en paralelo.**~~ Hecho en la ronda D23 (abajo). Antes: cada exportador iba a un único trabajador (hash por IP de origen). Un router de 10 000 clientes satura su cola hacia 35 000 registros/s en esta máquina, y esa fue la única pérdida del caos de 5 min. Mientras tanto, `HORUS_COLLECTOR_QUEUE_DATAGRAMS=32768` en nodos grandes (≈ 45 MB de cola por exportador).
 - **Repetir la rampa y el caos sin contención y con disco** (≥ 10 GB libres; aquí hubo entre 0,05 y 4 GB): escalones de 3 min, 60 000/s completo y el caos con las métricas nuevas del collector. El sitio natural es el nocturno de CI (4 vCPU dedicadas, `make load-isp10k`).
-- **Consumidor `ingester-known-clients`:** también es un durable con estado en memoria, el mismo patrón que el fallo de `flowinv`. Tras un reinicio se reenvían `first_seen` de clientes ya conocidos (acotado por el límite por minuto). Hay que revisarlo.
+- ~~**Consumidor `ingester-known-clients`**~~ (arreglado en la ronda D23): también era un durable con estado en memoria, el mismo patrón que el fallo de `flowinv`. Tras un reinicio se reenvían `first_seen` de clientes ya conocidos (acotado por el límite por minuto). Hay que revisarlo.
 - **Recompresión de `flows_raw`:** solo se conseguiría con un códec por defecto de servidor (regla `<compression>` de ClickHouse por tamaño de parte), que es configuración de despliegue (PLAT).
 - **Conversaciones por hora:** decidir en la próxima versión del contrato C3 ([`docs/database.md` §6.6](../../docs/database.md)).
-- **Spool a disco del collector:** solo está el diseño ([`docs/architecture.md` §10.15](../../docs/architecture.md)).
+- ~~**Spool a disco del collector**~~: implementado en la ronda D23 ([`docs/architecture.md` §10.15](../../docs/architecture.md)).
+
+---
+
+# Ronda D23 (FLOW): reinicios bruscos, spool a disco y decodificación multihilo
+
+Decisión del product owner [D23](../../docs/po-decisions.md): tras cualquier reinicio todo debe funcionar al 100 % y el multihilo solo entra si funciona al 100 %. Diseño y tabla de estado en [`docs/architecture.md`](../../docs/architecture.md) §10.15 (spool) y §10.16 (estado tras un reinicio).
+
+**Resumen**
+
+- **Matriz de reinicio brusco (`make chaos-restart-flows`) en verde:** collector, horus-app, NATS y ClickHouse, con `kill -9` y `docker restart`, 3 veces cada uno en momentos aleatorios a 10 000 flujos/s constantes (escenario isp10k). **0 pérdida** salvo lo enviado por UDP con el collector caído (medido aparte: 2,2–2,7 s de flujos por escenario de 3 reinicios), **0 duplicados** en `flows_raw` (por clave de flujo y por clave + `batch_id`), agregados por cliente y por nodo **iguales** a los recalculados desde `flows_raw`, inventario intacto (100 % de filas atribuidas antes y después, 0 descartes de exportador desconocido, 0 `first_seen` repetidos de clientes conocidos, clientes y prefijos sin cambios) y el exportador en *exporting*.
+- **Fallos que encontró la matriz, arreglados:** (1) un `kill -9` de horus-app a mitad de un INSERT duplicaba los agregados (ClickHouse había escrito las vistas sin confirmar `flows_raw` y el reintento con el mismo token volvía a empujarlas): ahora las vistas también se deduplican por el token; (2) un salto atrás de la secuencia del exportador (reinicio del router o secuencia restaurada) cegaba la medida de huecos hasta alcanzar la secuencia anterior.
+- **Estado tras un reinicio:** el inventario ya no se pierde cuando DEVICES_EVENTS caduca (30 días): instantánea + stream. `ingester-known-clients` tenía el mismo patrón que el fallo de flowinv (reenviaba `first_seen`) y está arreglado. La actividad horaria, los `first_seen` pendientes, las plantillas IPFIX y la secuencia de cada dominio sobreviven a un reinicio.
+- **Spool a disco del collector:** segmentos con CRC32C, `fsync` configurable, límite de tamaño que descarta lo más antiguo y lo cuenta, y reenvío en orden con el mismo `Nats-Msg-Id`. En la matriz, con NATS caído (`kill -9` y `docker restart`) se reenviaron 780 y 196 lotes desde el spool sin pérdida ni duplicados.
+- **Decodificación multihilo de un mismo router** (`HORUS_COLLECTOR_DECODE_WORKERS`, por defecto una por CPU): equivalencia N=1/N=8 demostrada (mismo multiconjunto y mismo orden de registros por router, mismos huecos y lotes) y test dorado con 1 y 8 hilos. Banco de un solo router (isp10k): de 444 000 a 705 000 registros/s.
+- **Caída de ClickHouse 5 min a 20 000/s con la imagen final: 0 pérdida en toda la cadena** (6 599 246 enviados = recibidos = filas), drenaje en 2 min 21 s y kiosco de vuelta en 13 s. Antes se perdía el 1,9 % en la cola del collector al drenar.
+- **Máximo sostenible en esta máquina (4 vCPU compartidas):** sigue en **10 000 flujos/s con todos los criterios**, porque el p95 de la API pasa de 500 ms a 20 000/s. La **ingesta aguanta 20 000 flujos/s sin pérdida**. A 40 000/s la cadena después del collector ya no pierde nada (ClickHouse = collector, drenaje en 18 s) y la cola del collector descarta el 0,6 % (antes, el 5,7 %). A 60 000/s descarta el 2,6 %, ClickHouse sigue igual al collector y el backlog drena en 66 s. El límite ya no es un hilo por router: es la CPU compartida entre ClickHouse, el ingester y el collector.
+
+## Máquina usada (D23)
+
+| | |
+| --- | --- |
+| CPU | 4 vCPU Intel Xeon @ 2,80 GHz (máquina virtual) |
+| Memoria | 16 GiB, sin swap |
+| Sistema | Linux 6.18, Docker 29.8.2 |
+| Versiones | ClickHouse 26.8.20.9, NATS 2.14.7, PostgreSQL 18.6, Valkey 8.1.10 |
+| Límites | ClickHouse 2 GiB, horus-app 1 GiB, collector 512 MiB, NATS 512 MiB (1 GiB en load-isp10k desde esta ronda) |
+
+**Contención:** la máquina la compartían otros dos agentes (la matriz de reinicios de CORE, pruebas con ClickHouse efímeros y el instalador de PLAT). La carga media fue de 7 a 10 sobre 4 vCPU durante la rampa y quedaban entre 6 y 14 GB de disco libre. Las cifras son un suelo.
+
+## Matriz de reinicio brusco (10/10/2026, 07:02–07:54 UTC; collector repetido 07:56–08:11 tras el arreglo de la secuencia)
+
+`make chaos-restart-flows` (CHAOS_RATE=10000, CHAOS_REPEAT=3, semillas 4711 y 815): proyecto `horus-chaos-flows`, escenario isp10k a tasa fija y `flowsim -sendlog` (cuándo se envió cada tick y cuántos registros terminan en cada segundo). Con eso se compara lo enviado con `flows_raw` **segundo a segundo de fin de flujo**. `kill -9` es un SIGKILL al proceso principal del contenedor desde el host; lo arranca la política de reinicio de Docker, como tras un fallo real. Resultados en `bin/load/chaos-restart.{md,json}`.
+
+| Escenario | Reinicios (caída → de vuelta) | Enviados | flows_raw | Faltan | De ellos, enviados por UDP con el collector caído | Faltan fuera de esa ventana | Sobran | Duplicados (clave / clave+lote) | Agregados distintos (5m, 1h, 1d, nodo) | Atribuidas antes → después | first_seen repetidos | Exportador | Resultado |
+| --- | --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- | --- | ---: | --- | --- |
+| collector / kill -9 | 0,9 s, 1,1 s, 1,3 s | 3 171 721 | 3 144 234 | 27 487 | 27 487 (2,7 s de flujos; el collector midió 17 827 con su secuencia) | 0 | 0 | 0 / 0 | 0, 0, 0, 0 | 1,000 → 1,000 | 0 | exporting | OK |
+| collector / docker restart | 6,0 s, 6,1 s, 5,9 s | 3 168 905 | 3 146 463 | 22 442 | 22 442 (2,2 s; el collector midió 15 318) | 0 | 0 | 0 / 0 | 0, 0, 0, 0 | 1,000 → 1,000 | 0 | exporting | OK |
+| horus-app / kill -9 | 7,0 s, 7,2 s, 6,6 s | 3 168 056 | 3 168 056 | 0 | — | 0 | 0 | 0 / 0 | 0, 0, 0, 0 | 1,000 → 1,000 | 0 | exporting | OK |
+| horus-app / docker restart | 13,5 s, 13,2 s, 12,9 s | 3 181 569 | 3 181 569 | 0 | — | 0 | 0 | 0 / 0 | 0, 0, 0, 0 | 1,000 → 1,000 | 0 | exporting | OK |
+| NATS / kill -9 | 16,0 s, 16,1 s, 17,1 s | 3 171 280 | 3 171 280 | 0 | — | 0 | 0 | 0 / 0 | 0, 0, 0, 0 | 1,000 → 1,000 | 0 | exporting | OK (780 lotes reenviados desde el spool) |
+| NATS / docker restart | 6,6 s, 6,6 s, 6,5 s | 3 177 844 | 3 177 844 | 0 | — | 0 | 0 | 0 / 0 | 0, 0, 0, 0 | 1,000 → 1,000 | 0 | exporting | OK (196 lotes desde el spool) |
+| ClickHouse / kill -9 | 7,1 s, 7,9 s, 7,2 s | 3 176 872 | 3 176 872 | 0 | — | 0 | 0 | 0 / 0 | 0, 0, 0, 0 | 1,000 → 1,000 | 0 | exporting | OK |
+| ClickHouse / docker restart | 15,4 s, 11,8 s, 9,9 s | 3 178 838 | 3 178 838 | 0 | — | 0 | 0 | 0 / 0 | 0, 0, 0, 0 | 1,000 → 1,000 | 0 | exporting | OK |
+
+- **Repetición con la imagen final** (10/10/2026, 09:19–10:10 UTC, semilla 9917, tras mezclar el trabajo de CORE y añadir la pausa por ISP y los eventos de plataforma del spool): **los 8 escenarios en OK** con los mismos criterios. collector / kill -9: faltan 40 114 registros, todos dentro de la caída (el collector midió 44 381 con su secuencia); collector / docker restart: faltan 20 424 (el collector midió 14 035); el resto, 0 faltan y 0 sobran; 0 duplicados y 0 agregados distintos en todos; NATS reenvió 681 y 170 lotes desde el spool.
+- **Lo recibido por el collector** se mide ahora (`horus_collector_received_records_total`, sumado entre reinicios). En los escenarios sin caída del collector coincide con lo enviado y con `flows_raw`. Si el collector se reinicia, el contador no ve el último segundo antes de un `kill -9`, así que esa pérdida se mide contra lo enviado.
+- **Pérdida con el collector caído:** solo es UDP y solo dentro de la ventana caída → escuchando, más ≤ 1 s de lotes abiertos en memoria con `kill -9`. Ningún registro falta fuera de esa ventana. El collector mide además, con la secuencia guardada, lo que el router envió mientras estaba caído (`horus_collector_downtime_lost_records_total` y `data_gap` con `collector_down`).
+- **Pendiente:** con `docker restart` faltan ≈ 0,24 s de flujos por reinicio más de los que mide la secuencia del collector (22 442 frente a 15 318 en 3 reinicios). O lo recibido justo antes del cierre ordenado no llega a `flows_raw`, o la secuencia guardada al parar va por delante. Cae dentro de la ventana de caída (cumple el criterio), pero hay que localizarlo.
+- **Primera ejecución (06:03–06:59 UTC, antes de los arreglos):** `horus-app / kill -9` dejó 9 606 grupos de `customer_5m/1h/1d` y 31 de `site_5m` por encima de `flows_raw`, por agregados duplicados en un INSERT interrumpido. Además, la medida de huecos del collector se quedó ciega desde el segundo escenario, porque la secuencia del simulador se reinició. Los dos fallos están arreglados; la tabla de arriba es la ejecución con los arreglos.
+
+## Rampa y caída de ClickHouse 5 min
+
+`make load-isp10k` con escalones de **3 min** (10/10/2026). La rampa se para en el primer escalón que no cumple (20 000/s, por el p95 de la API), así que 40 000 y 60 000/s se ejecutaron aparte con la imagen final.
+
+| Flujos/s | Duración | Enviados | Collector | Pérdida (collector) | ClickHouse | Lag máx. (lotes / s) | Drenaje | p95 API | Resultado |
+| ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: | --- |
+| 10 000 | 3 min | 1 766 341 | 1 766 341 | 0 | 1 766 341 | 35 / 1,7 | 2 s | 239 ms | OK (pila nueva, 08:12 UTC) |
+| 20 000 | 3 min | 3 407 688 | 3 407 688 | 0 | 3 407 688 | 79 / 2,0 | 5 s | 676 ms | KO: p95 de la API (ingesta OK) |
+| 40 000 | 3 min | 6 697 318 | 6 655 956 | 41 362 (0,6 %; 4 648 datagramas por cola llena, 0 en el socket) | 6 655 956 | 923 / 11,5 | 18 s | 3 287 ms | KO: cola del collector, p95 |
+| 60 000 | 3 min | 9 979 627 | 9 717 598 | 262 029 (2,6 %; 25 472 datagramas por cola llena, 0 en el socket) | 9 717 598 | 6 131 / 51 | 1 min 6 s | 1 356 ms | KO: cola del collector, lag, p95 |
+
+- **Después del collector no se pierde nada a ninguna tasa** (ClickHouse = collector). Antes, a 40 000/s, ClickHouse se quedaba en 33 000 filas/s y el lag crecía; ahora, con escalones de 3 min, drena en 18 s.
+- **Cola del collector:** a 40 000/s descarta el 0,6 % (antes, el 5,7 % en 90 s) y a 60 000/s el 2,6 %, con la CPU de la máquina saturada (carga 7–10 sobre 4 vCPU por ClickHouse, el ingester, el collector y las pilas de otros agentes). En el banco sin contención, un solo router se decodifica a 705 000 registros/s con 2 hilos: el límite aquí es la CPU compartida, no el reparto por router.
+- **Con la imagen final sobre la misma pila** (tras 40 000 y 60 000/s, con más de 16 M de filas ya en ClickHouse), 10 000 y 20 000/s ingieren sin pérdida (lag 1,9 s y 3,7 s, drenaje 5 s y 8 s), pero el p95 de la API sube a 2,6 s y 3,7 s: las consultas recorren más datos con la CPU saturada.
+- **NATS con 512 MiB moría por OOM a 40 000/s** con backlog en TLM_FLOWS (`kill` del cgroup, visto en `dmesg`). El compose de producción ya le da 1 GiB y la prueba usa ahora lo mismo. Con NATS caído, el collector pasó al spool y el ingester reintentó las confirmaciones sin perder nada, pero esa ejecución no cuenta.
+
+**ClickHouse caído 5 min a 20 000/s (imagen final, 09:08–09:17 UTC):**
+
+| Caída | Vuelta a healthy | Enviados | Collector | ClickHouse | Perdidos | Lag máx. | TLM_FLOWS máx. | Búfer collector máx. | Drenaje | Kiosco | Resultado |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 5 min | 6 s | 6 599 246 | 6 599 246 | 6 599 246 | 0 | 11 344 lotes | 1 610,6 MB (= max_bytes) | 23,8 MB | 2 min 21 s | 13 s | OK |
+
+La ejecución anterior de esta ronda (08:19–08:27 UTC, imagen sin los últimos cambios) dio lo mismo: 0 perdidos y drenaje en 1 min 55 s.
+
+## Equivalencia de la decodificación multihilo
+
+- `TestDecodeWorkersEquivalence` (`services/collector/internal/app`): captura real MikroTik, tres exportadores intercalados con la captura repetida (plantillas reanunciadas, datos antes que su plantilla, secuencias que se reinician) y, con `HORUS_BENCH_PCAP`, 839 293 registros isp10k. Con 1, 2 y 8 hilos salen **los mismos registros en el mismo orden por router** (luego el mismo multiconjunto), los mismos lotes en número y tamaño, `batch_id` en orden de emisión, los mismos huecos (23 saltos y 3 247 registros perdidos en la captura real), recibidos y descartes.
+- `make test-flows-golden` con 1 y 8 hilos, idéntico en ambos: 2 588 registros publicados, 23 saltos y 3 247 perdidos, subida/bajada/internos/desconocidos 783/730/1 072/3, 236 clientes con sus bytes y 236 `first_seen`.
+- `FuzzPrepareEquivalence` (60 s, 4 M de ejecuciones): `Decoder.Prepare` más los conjuntos de datos decodificados en goroutines en orden inverso más `Finish` dan exactamente lo mismo que `Decode`, incluidos errores, retenidos que caducan y muestreo. `go test -race` en verde.
+- Banco (`BenchmarkEngine`, un router isp10k, sin publicar): 443 686 registros/s con 1 hilo, 704 535 con 2 y 671 428 con 4. La etapa en serie (lotes y secuencia) es el siguiente límite, muy por encima de un router real.
+
+## Pendientes (D23)
+
+- **Directorio del spool en producción:** el compose monta `${HORUS_DATA_ROOT}/collector-spool` y el instalador (PLAT) debe crearlo con propietario 65532. Si falta o no se puede escribir, el collector sigue sin spool y `/readyz` marca `spool` degradado.
+- **`docker restart` del collector:** ≈ 0,24 s de flujos por reinicio sin explicar del todo (ver arriba).
+- **Lotes abiertos en memoria del collector:** un `kill -9` pierde ≤ 1 s de lo recibido, que se mide como parte de la caída. Evitarlo exige un diario de datagramas con lotes deterministas; no está hecho.
+- **Cola del collector con la CPU saturada:** a partir de 40 000/s descarta en esta máquina. Hay que repetir la rampa en el servidor recomendado (8 vCPU dedicadas) en el nocturno.
+- **Varios ingester sobre el mismo durable:** sigue el supuesto de un único proceso (§10.1).

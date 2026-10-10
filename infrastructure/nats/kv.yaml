@@ -11,6 +11,12 @@ kv:
     description: Estado de los exportadores de flujos (I1-09)
     history: 1
     storage: file
+  # Plantillas IPFIX/v9 y secuencias de cada exportador: el collector las reinstala tras un
+  # reinicio y mide lo enviado mientras estuvo caído (D23; services/collector/internal/app/persist.go).
+  - bucket: flow_collector_state
+    description: Plantillas y secuencias del collector para continuar tras un reinicio (D23)
+    history: 1
+    storage: file
   # Grupos de INSERT en curso del ingester (token → batch_id): hace idempotentes los reintentos
   # tras una caída del proceso (services/ingester/internal/app/group.go). TTL = max_age de TLM_FLOWS.
   - bucket: flows_ingester_groups

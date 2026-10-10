@@ -6,10 +6,12 @@ import (
 	"hash/maphash"
 	"log/slog"
 	"net"
+	"net/netip"
 	"sync"
 	"time"
 
 	"github.com/hcdestroyer/horus-flow/packages/go/flowinv"
+	"github.com/hcdestroyer/horus-flow/packages/go/flowpause"
 )
 
 // EngineOptions configura el motor del collector.
@@ -24,6 +26,9 @@ type EngineOptions struct {
 	State           StateOptions
 	// UDPReadBuffer es el búfer de recepción de cada socket (0 = DefaultUDPReadBuffer).
 	UDPReadBuffer int
+	// DecodeWorkers son los hilos que decodifican en paralelo los datagramas
+	// de un mismo exportador (parallel.go); 1 (o 0) = un hilo por carril.
+	DecodeWorkers int
 }
 
 // Engine recibe UDP, reparte por exportador entre trabajadores y publica.
@@ -38,6 +43,7 @@ type Engine struct {
 	workers []*Worker
 	queues  []chan Datagram
 	seed    maphash.Seed
+	persist *persister
 
 	mu    sync.Mutex
 	conns []*net.UDPConn
@@ -56,7 +62,9 @@ func NewEngine(o EngineOptions, inv *flowinv.Store, sink Sink, kv KV, m *Metrics
 	e.Batcher = NewBatcher(e.Pub, o.BatchMaxRecords, o.BatchMaxAge, o.CollectorID)
 	e.States = NewStates(o.State, inv, kv, sink, log)
 	for range o.Workers {
-		e.workers = append(e.workers, NewWorker(inv, e.Batcher, e.States, m, o.PendingTTL))
+		w := NewWorker(inv, e.Batcher, e.States, m, o.PendingTTL)
+		w.downtime = e.Pub.ReportDowntime
+		e.workers = append(e.workers, w)
 		e.queues = append(e.queues, make(chan Datagram, o.QueueDatagrams))
 	}
 	return e
@@ -112,10 +120,16 @@ func (e *Engine) Close() {
 	e.conns = nil
 }
 
+func (e *Engine) lane(a netip.Addr) int {
+	ip := a.Unmap().As16()
+	return int(maphash.Bytes(e.seed, ip[:]) % uint64(len(e.queues))) //nolint:gosec // índice acotado
+}
+
+func (e *Engine) workerFor(a netip.Addr) *Worker { return e.workers[e.lane(a)] }
+
 // Submit entrega un datagrama al trabajador de su exportador sin bloquear.
 func (e *Engine) Submit(d Datagram) {
-	ip := d.Src.Addr().Unmap().As16()
-	i := int(maphash.Bytes(e.seed, ip[:]) % uint64(len(e.queues))) //nolint:gosec // índice acotado
+	i := e.lane(d.Src.Addr())
 	select {
 	case e.queues[i] <- d:
 	default:
@@ -127,14 +141,20 @@ func (e *Engine) Submit(d Datagram) {
 // pueda durante 5 s.
 func (e *Engine) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
-	for i, w := range e.workers {
+	if e.opts.DecodeWorkers > 1 {
+		wait := e.runParallel()
 		wg.Add(1)
-		go func(q chan Datagram, w *Worker) {
-			defer wg.Done()
-			for d := range q {
-				w.Handle(d)
-			}
-		}(e.queues[i], w)
+		go func() { defer wg.Done(); wait() }()
+	} else {
+		for i, w := range e.workers {
+			wg.Add(1)
+			go func(q chan Datagram, w *Worker) {
+				defer wg.Done()
+				for d := range q {
+					w.Handle(d)
+				}
+			}(e.queues[i], w)
+		}
 	}
 	pubCtx, stopPub := context.WithCancel(context.Background())
 	pubDone := make(chan struct{})
@@ -144,6 +164,13 @@ func (e *Engine) Run(ctx context.Context) error {
 	}()
 	stCtx, stopStates := context.WithCancel(ctx)
 	go e.States.Run(stCtx)
+	persistDone := make(chan struct{})
+	persistCtx, stopPersist := context.WithCancel(context.Background())
+	if e.persist != nil {
+		go func() { defer close(persistDone); e.persist.run(persistCtx) }()
+	} else {
+		close(persistDone)
+	}
 
 	var rg sync.WaitGroup
 	e.mu.Lock()
@@ -174,10 +201,36 @@ loop:
 	}
 	wg.Wait()
 	e.Batcher.Flush(time.Now(), true)
+	e.persistAll()
+	stopPersist()
+	<-persistDone
 	stopStates()
 	stopPub()
 	<-pubDone
 	return nil
+}
+
+// UsePause activa la pausa de ingesta por ISP (antes de Run).
+func (e *Engine) UsePause(s *flowpause.Set) {
+	for _, w := range e.workers {
+		w.paused = s
+	}
+}
+
+// persistAll guarda la última secuencia de cada dominio (al parar, con los
+// trabajadores ya terminados).
+func (e *Engine) persistAll() {
+	if e.persist == nil {
+		return
+	}
+	for _, w := range e.workers {
+		for k, tr := range w.seq {
+			if w.persist != nil {
+				w.persist.seqAt[k] = time.Time{}
+				w.persist.seq(k, tr, time.Now())
+			}
+		}
+	}
 }
 
 func (e *Engine) read(c *net.UDPConn) {

@@ -7,18 +7,19 @@ import (
 	"log/slog"
 	"net/netip"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/hcdestroyer/horus-flow/packages/go/flowbus"
 	"github.com/hcdestroyer/horus-flow/packages/go/flowinv"
+	"github.com/hcdestroyer/horus-flow/packages/go/flowstate"
 )
 
-// KnownClientsConsumer es el durable ingester-known-clients (events.md §4.5):
-// mantiene el conjunto de claves conocidas con customer.discovered (y
-// reactivated/updated) y las olvida con customer.purged.
+// KnownClientsConsumer es el nombre de la instantánea del conjunto de claves
+// conocidas (y del antiguo durable ingester-known-clients, events.md §4.5):
+// se mantiene con customer.discovered (y reactivated) y se olvidan con
+// customer.purged.
 const KnownClientsConsumer = "ingester-known-clients"
 
 type customerData struct {
@@ -56,38 +57,69 @@ func (d *Discovery) HandleCustomerEvent(data []byte) error {
 	return nil
 }
 
-// RunKnownClients consume DEVICES_EVENTS si existe (devices puede no estar
-// desplegado: entonces el conjunto se nutre del inventario y del TTL).
-func (d *Discovery) RunKnownClients(ctx context.Context, js jetstream.JetStream, log *slog.Logger) {
-	for {
-		cons, err := js.CreateOrUpdateConsumer(ctx, flowbus.StreamDevices, jetstream.ConsumerConfig{
-			Durable: KnownClientsConsumer, AckPolicy: jetstream.AckExplicitPolicy, DeliverPolicy: jetstream.DeliverAllPolicy,
-			FilterSubjects: []string{"horus.devices.customer.discovered.>", "horus.devices.customer.reactivated.>",
-				"horus.devices.customer.purged.>"},
-			AckWait: 30 * time.Second, MaxDeliver: 8, MaxAckPending: 64,
-		})
-		if err == nil {
-			it, err := cons.Messages()
-			if err == nil {
-				go func() { <-ctx.Done(); it.Stop() }()
-				for {
-					m, err := it.Next()
-					if err != nil {
-						break
-					}
-					if err := d.HandleCustomerEvent(m.Data()); err != nil {
-						log.Warn("customer event ignored", "subject", m.Subject(), "error", err)
-						_ = m.Term()
-						continue
-					}
-					_ = m.Ack()
-				}
-			}
+type knownRealm struct {
+	Tenant uuid.UUID    `json:"tenant"`
+	Addrs  []netip.Addr `json:"addrs"`
+}
+
+// KnownSnapshot serializa el conjunto de claves conocidas por realm.
+func (d *Discovery) KnownSnapshot() (json.RawMessage, error) {
+	d.mu.Lock()
+	out := make(map[uuid.UUID]knownRealm, len(d.realms))
+	for id, r := range d.realms {
+		if len(r.known) == 0 {
+			continue
 		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(30 * time.Second): // el stream aún no existe: reintentar
+		kr := knownRealm{Tenant: r.tenant, Addrs: make([]netip.Addr, 0, len(r.known))}
+		for a := range r.known {
+			kr.Addrs = append(kr.Addrs, a)
+		}
+		out[id] = kr
+	}
+	d.mu.Unlock()
+	return json.Marshal(out)
+}
+
+// RestoreKnown añade las claves de una instantánea.
+func (d *Discovery) RestoreKnown(b json.RawMessage) error {
+	var in map[uuid.UUID]knownRealm
+	if err := json.Unmarshal(b, &in); err != nil {
+		return err
+	}
+	keys := make([]flowinv.CustomerKey, 0)
+	for realm, kr := range in {
+		for _, a := range kr.Addrs {
+			keys = append(keys, flowinv.CustomerKey{TenantID: kr.Tenant, RealmID: realm, Address: a})
 		}
 	}
+	d.LoadKnown(keys)
+	return nil
+}
+
+// KnownClientsSubjects son los eventos de clientes de DEVICES_EVENTS.
+var KnownClientsSubjects = []string{"horus.devices.customer.discovered.>", "horus.devices.customer.reactivated.>",
+	"horus.devices.customer.purged.>"}
+
+// RunKnownClients mantiene el conjunto de clientes conocidos con
+// DEVICES_EVENTS (devices puede no estar desplegado: entonces el conjunto se
+// nutre del inventario y del TTL). Antes era el durable
+// ingester-known-clients con el conjunto en memoria: tras un reinicio solo
+// llegaban los eventos no confirmados y se reenviaban first_seen de todos
+// los clientes ya conocidos. Ahora se reconstruye al arrancar
+// (packages/go/flowstate): instantánea en flows_state (states puede ser nil)
+// y lectura del stream desde la secuencia siguiente; el durable antiguo se
+// borra. ready (puede ser nil) se cierra al alcanzar el final del stream.
+func (d *Discovery) RunKnownClients(ctx context.Context, js jetstream.JetStream, states flowstate.Store, log *slog.Logger, ready chan<- struct{}) {
+	r := &flowstate.Replay{JS: js, Stream: flowbus.StreamDevices, Filters: KnownClientsSubjects, Name: KnownClientsConsumer,
+		Legacy: KnownClientsConsumer, Log: log, Snapshot: d.KnownSnapshot, Restore: d.RestoreKnown,
+		Apply: func(_ string, data []byte) (bool, error) {
+			if err := d.HandleCustomerEvent(data); err != nil {
+				return false, err
+			}
+			return true, nil
+		}}
+	if states != nil {
+		r.Store = states
+	}
+	r.Run(ctx, ready)
 }

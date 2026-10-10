@@ -5,6 +5,7 @@ package flows_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/netip"
 	"os"
 	"strings"
@@ -48,7 +49,16 @@ type goldenExpected struct {
 // cliente de ipfix-nat-20s.expected.json (regla de docs/traffic-model.md §4.4,
 // bajada por IE 226), los saltos de secuencia, first_seen de cada cliente una
 // vez y que un lote reentregado no duplica filas.
+//
+// Se ejecuta con 1 y con 8 hilos de decodificación en el collector
+// (HORUS_COLLECTOR_DECODE_WORKERS, D23 §4): el resultado debe ser idéntico.
 func TestGoldenRealMikroTik(t *testing.T) {
+	for _, n := range []int{1, 8} {
+		t.Run(fmt.Sprintf("decode-workers-%d", n), func(t *testing.T) { goldenRealMikroTik(t, n) })
+	}
+}
+
+func goldenRealMikroTik(t *testing.T, decodeWorkers int) {
 	var exp goldenExpected
 	b, err := os.ReadFile(repo("tests", "fixtures", "mikrotik-real", "ipfix-nat-20s.expected.json"))
 	if err != nil {
@@ -73,6 +83,7 @@ func TestGoldenRealMikroTik(t *testing.T) {
 			Prefix: netip.MustParsePrefix(p), Role: flowinv.RoleInfrastructure})
 	}
 	p := startPipeline(t, d, tenant, "HORUS_INGESTER_FIRST_SEEN_INTERVAL=500ms")
+	p.env = append(p.env, fmt.Sprintf("HORUS_COLLECTOR_DECODE_WORKERS=%d", decodeWorkers))
 	st := p.replay(repo("tests", "fixtures", "mikrotik-real", "ipfix-nat-20s.pcapng"), nil)
 
 	// Collector: 2 596 registros menos los 8 del túnel; saltos de secuencia medidos.

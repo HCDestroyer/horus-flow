@@ -84,7 +84,7 @@ func Replay(ctx context.Context, environ []string, datagrams []pcapread.Datagram
 	m := app.NewMetrics(nil)
 	eng := app.NewEngine(app.EngineOptions{Workers: cfg.Workers, QueueDatagrams: max(cfg.QueueDatagrams, len(datagrams)),
 		BatchMaxRecords: cfg.BatchMaxRecords, BatchMaxAge: cfg.BatchMaxAge, BufferBytes: cfg.BufferBytes,
-		PendingTTL: cfg.PendingTTL, CollectorID: cfg.CollectorID + "-replay",
+		PendingTTL: cfg.PendingTTL, CollectorID: cfg.CollectorID + "-replay", DecodeWorkers: cfg.EffectiveDecodeWorkers(),
 		State: app.StateOptions{SilentAfter: cfg.SilentAfter, LossThreshold: cfg.LossThreshold, LossWindow: cfg.LossWindow,
 			ClockSkew: cfg.ClockSkew, Interval: time.Hour}},
 		flowinv.NewStore(snap), replaySink{js: js, tr: o.Transform}, nil, m, log)

@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"log/slog"
 
-	chschema "github.com/hcdestroyer/horus-flow/services/ingester/migrations/clickhouse"
 	"github.com/hcdestroyer/horus-flow/packages/go/chmigrate"
 	"github.com/hcdestroyer/horus-flow/services/ingester/internal/config"
+	chschema "github.com/hcdestroyer/horus-flow/services/ingester/migrations/clickhouse"
 )
 
 // Usuarios ClickHouse por módulo y su rol (los roles los crea la migración

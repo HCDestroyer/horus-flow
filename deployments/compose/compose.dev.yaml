@@ -243,6 +243,12 @@ services:
       <<: *horus-env
       HORUS_ROLES: collector
       GOMEMLIMIT: 450MiB
+      # Spool a disco ante caídas de NATS (docs/architecture.md §10.15).
+      HORUS_COLLECTOR_SPOOL_DIR: /var/lib/horus/collector-spool
+      HORUS_COLLECTOR_SPOOL_BYTES: ${HORUS_COLLECTOR_SPOOL_BYTES:-2147483648}
+    # El volumen nombrado hereda el propietario de /var/lib/horus de la imagen (uid 65532).
+    volumes:
+      - collector-data:/var/lib/horus
     secrets: &horus-secrets
       - postgres_password
       - clickhouse_password
@@ -298,3 +304,4 @@ volumes:
   valkey-data:
   traefik-data:
   horus-data:
+  collector-data:

@@ -13,6 +13,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go/jetstream"
+
+	"github.com/hcdestroyer/horus-flow/packages/go/flowstate"
 )
 
 // Projector construye el inventario a partir de los eventos de dominio de
@@ -236,81 +238,121 @@ func (p *Projector) publish() {
 	p.store.Swap(s)
 }
 
-// Run consume DEVICES_EVENTS desde el principio hasta que ctx se cancela.
+// projectionState es la forma serializada de la proyección (instantánea).
+type projectionState struct {
+	Routers   []routerSnap              `json:"routers"`
+	SiteNames map[uuid.UUID]string      `json:"site_names"`
+	Realms    []realmSnap               `json:"realms"`
+	Prefixes  []prefixSnap              `json:"prefixes"`
+	Versions  map[uuid.UUID]int         `json:"versions"`
+}
+
+type routerSnap struct {
+	E       Exporter `json:"e"`
+	Deleted bool     `json:"deleted"`
+}
+
+type realmSnap struct {
+	V       Realm `json:"v"`
+	Deleted bool  `json:"deleted"`
+}
+
+type prefixSnap struct {
+	V       ClientPrefix `json:"v"`
+	Deleted bool         `json:"deleted"`
+}
+
+// Snapshot serializa la proyección (sin la base del fichero).
+func (p *Projector) Snapshot() (json.RawMessage, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	st := projectionState{SiteNames: p.siteNames, Versions: p.versions}
+	for _, r := range p.routers {
+		st.Routers = append(st.Routers, routerSnap{E: r.e, Deleted: r.deleted})
+	}
+	for _, r := range p.realms {
+		st.Realms = append(st.Realms, realmSnap{V: r.v, Deleted: r.deleted})
+	}
+	for _, c := range p.prefixes {
+		st.Prefixes = append(st.Prefixes, prefixSnap{V: c.v, Deleted: c.deleted})
+	}
+	return json.Marshal(st)
+}
+
+// Restore sustituye la proyección por una instantánea.
+func (p *Projector) Restore(b json.RawMessage) error {
+	var st projectionState
+	if err := json.Unmarshal(b, &st); err != nil {
+		return err
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.routers, p.realms = map[uuid.UUID]routerState{}, map[uuid.UUID]versioned[Realm]{}
+	p.prefixes, p.siteNames, p.versions = map[uuid.UUID]versioned[ClientPrefix]{}, map[uuid.UUID]string{}, map[uuid.UUID]int{}
+	for _, r := range st.Routers {
+		p.routers[r.E.RouterID] = routerState{e: r.E, deleted: r.Deleted}
+	}
+	for _, r := range st.Realms {
+		p.realms[r.V.ID] = versioned[Realm]{v: r.V, deleted: r.Deleted}
+	}
+	for _, c := range st.Prefixes {
+		p.prefixes[c.V.ID] = versioned[ClientPrefix]{v: c.V, deleted: c.Deleted}
+	}
+	for k, v := range st.SiteNames {
+		p.siteNames[k] = v
+	}
+	for k, v := range st.Versions {
+		p.versions[k] = v
+	}
+	return nil
+}
+
+// Subjects son los eventos de DEVICES_EVENTS que proyecta el inventario.
+var Subjects = []string{"horus.devices.router.>", "horus.devices.site.>", "horus.devices.realm.>", "horus.devices.client_prefix.>"}
+
+// Run mantiene la proyección de DEVICES_EVENTS hasta que ctx se cancela.
 // ready se cierra al alcanzar el final del stream por primera vez. Si el
 // stream no existe (devices no desplegado) reintenta cada 30 s.
 //
-// La proyección vive en memoria, así que cada arranque del proceso debe
-// releer el stream entero: se usa un consumidor efímero sin acks con
-// DeliverAll (si se pierde, se recrea y se relee todo: Apply es idempotente
-// por versión). Antes era un durable por rol, que tras un reinicio solo
+// La proyección vive en memoria y se reconstruye en cada arranque
+// (packages/go/flowstate): instantánea en el Object Store flows_state (si
+// states no es nil) y lectura del stream con un consumidor efímero sin acks
+// desde la secuencia siguiente. Así sobrevive a la retención de 30 días de
+// DEVICES_EVENTS. Antes era un durable por rol, que tras un reinicio solo
 // entregaba lo no confirmado y dejaba el inventario sin los routers y
-// prefijos dados de alta por la API (todos los flujos `unknown`). legacy es
-// el nombre de aquel durable: se borra si existe.
-func (p *Projector) Run(ctx context.Context, js jetstream.JetStream, legacy string, ready chan<- struct{}) {
-	var once sync.Once
-	markReady := func() {
-		if ready != nil {
-			once.Do(func() { close(ready) })
-		}
+// prefijos dados de alta por la API (todos los flujos `unknown`). name es el
+// nombre de la instantánea y el de aquel durable, que se borra si existe.
+func (p *Projector) Run(ctx context.Context, js jetstream.JetStream, name string, ready chan<- struct{}) {
+	p.RunWithStore(ctx, js, nil, name, ready)
+}
+
+// RunWithStore es Run con almacén de instantáneas.
+func (p *Projector) RunWithStore(ctx context.Context, js jetstream.JetStream, states flowstate.Store, name string, ready chan<- struct{}) {
+	r := &flowstate.Replay{JS: js, Stream: "DEVICES_EVENTS", Filters: Subjects, Name: name, Legacy: name, Log: p.log,
+		Apply:    func(_ string, data []byte) (bool, error) { return p.Apply(data) },
+		Snapshot: p.Snapshot, Restore: p.Restore, Changed: p.publish}
+	if states != nil {
+		r.Store = states
 	}
-	cleaned := false
-	for ctx.Err() == nil {
-		if !cleaned && legacy != "" {
-			if err := js.DeleteConsumer(ctx, "DEVICES_EVENTS", legacy); err == nil || errors.Is(err, jetstream.ErrConsumerNotFound) {
-				cleaned = true
-			}
-		}
-		cons, err := js.CreateConsumer(ctx, "DEVICES_EVENTS", jetstream.ConsumerConfig{
-			DeliverPolicy: jetstream.DeliverAllPolicy, AckPolicy: jetstream.AckNonePolicy,
-			FilterSubjects:    []string{"horus.devices.router.>", "horus.devices.site.>", "horus.devices.realm.>", "horus.devices.client_prefix.>"},
-			InactiveThreshold: 5 * time.Minute,
-		})
-		if err != nil {
-			markReady()
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(30 * time.Second):
-				continue
-			}
-		}
-		for ctx.Err() == nil {
-			batch, err := cons.FetchNoWait(256)
-			if err != nil {
-				break
-			}
-			changed, n := false, 0
-			for m := range batch.Messages() {
-				n++
-				if c, err := p.Apply(m.Data()); err != nil {
-					p.log.Warn("devices event ignored by flows inventory", "subject", m.Subject(), "error", err)
-				} else if c {
-					changed = true
-				}
-			}
-			if changed {
-				p.publish()
-			}
-			if n == 0 {
-				markReady()
-				select {
-				case <-ctx.Done():
-					return
-				case <-time.After(time.Second):
-				}
-			}
-		}
-	}
+	r.Run(ctx, ready)
 }
 
 // Keep mantiene vivo el inventario de un rol: con NATS, proyección de
-// DEVICES_EVENTS (durable propio del rol) sobre el contenido actual del
-// Store (fichero, si lo hay); sin NATS, recarga del fichero. Bloquea hasta
-// que ctx se cancela.
-func Keep(ctx context.Context, store *Store, file string, js jetstream.JetStream, durable string, log *slog.Logger) {
+// DEVICES_EVENTS (instantánea `name` en flows_state + stream) sobre el
+// contenido actual del Store (fichero, si lo hay); sin NATS, recarga del
+// fichero. Bloquea hasta que ctx se cancela.
+func Keep(ctx context.Context, store *Store, file string, js jetstream.JetStream, name string, log *slog.Logger) {
+	if log == nil {
+		log = slog.New(slog.DiscardHandler)
+	}
 	if js != nil {
-		NewProjector(store, store.Load().Data(), log).Run(ctx, js, durable, nil)
+		var states flowstate.Store
+		if os, err := flowstate.Open(ctx, js); err == nil {
+			states = os
+		} else {
+			log.Warn("flows inventory snapshot store unavailable: replaying DEVICES_EVENTS only", "error", err)
+		}
+		NewProjector(store, store.Load().Data(), log).RunWithStore(ctx, js, states, name, nil)
 		return
 	}
 	if file != "" {

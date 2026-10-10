@@ -577,7 +577,7 @@ agrupados de 50 000 filas, vistas de 1 h y 1 d en cascada).
 | RAM | **32 GB** | ClickHouse 12–16 GB, horus-app 2 GB (`GOMEMLIMIT` 1,8 GiB), collector 512 MiB, NATS 1 GB, caché de página |
 | Disco | **500 GB NVMe** | ~250 GB usados: ClickHouse 76–94 GB (7–90 días, [`storage.md` §5.1](storage.md)), NATS 27 GB (`max_bytes` 100 GB con s2), margen de merges y backups |
 | Red/kernel | `net.core.rmem_max = 33554432`, `rmem_default = 1048576` | el collector pide 32 MiB de búfer UDP |
-| Collector | `HORUS_COLLECTOR_QUEUE_DATAGRAMS=32768` | absorbe segundos de CPU saturada (un router = un trabajador) |
+| Collector | `HORUS_COLLECTOR_QUEUE_DATAGRAMS=32768`, `HORUS_COLLECTOR_DECODE_WORKERS` por defecto (una por CPU), spool de 8 GiB | absorbe segundos de CPU saturada; el spool, ≈ 38 min de NATS caído a 20 000/s |
 | NATS | `HORUS_TLM_FLOWS_MAX_BYTES = 100 GB` | 23 h de ClickHouse caído a la media, 10 h en pico habitual |
 
 **Cuándo un segundo host o una réplica de ClickHouse:** pico sostenido por encima de ~40 000 flujos/s
@@ -585,8 +585,11 @@ agrupados de 50 000 filas, vistas de 1 h y 1 d en cascada).
 crudo (+300 GB) o paneles que deban seguir con ClickHouse caído. Primero ClickHouse en un host propio
 (16 vCPU, 64 GB); la réplica (ReplicatedMergeTree + Keeper) solo aporta alta disponibilidad de las
 consultas, porque la ingesta ya aguanta la caída de ClickHouse dentro de la autonomía de TLM_FLOWS.
-Antes de superar ~35 000 registros/s **por router** hay que decodificar un mismo exportador en
-paralelo en el collector (pendiente).
+La decodificación de un mismo exportador ya va en paralelo (`HORUS_COLLECTOR_DECODE_WORKERS`, una por
+CPU; D23): en el banco, un router da 705 000 registros/s con 2 hilos. En 4 vCPU compartidas la cadena
+después del collector no pierde nada ni a 60 000/s; lo que descarta (0,6 % a 40 000/s y 2,6 % a
+60 000/s) es la cola del collector con la CPU saturada por ClickHouse ([`tests/load/REPORT.md`](../tests/load/REPORT.md),
+ronda D23). NATS necesita 1 GiB a partir de ~40 000/s con backlog (con 512 MiB murió por OOM).
 
 ---
 
@@ -666,9 +669,11 @@ volumen por delta salvo reinicio o *wrap*).
   y al volver el bus se publica `horus.flows.collector.data_gap`. **Medido en I1-26:** ~150 B por
   flujo en el búfer (23,5 MB tras 30 s de NATS caído a 5 000 flujos/s, sin pérdida), es decir
   **256 MiB ≈ 6 min a 5 000 flujos/s (nodo mediano), ≈ 35 s a 50 000 y ≈ 18 s a 100 000 (S en pico)
-  y ≈ 6 – 12 s en M en pico**. **No hay spool a disco** en I1: más autonomía exige subir el búfer
-  (memoria del contenedor) o implementar el spool (pendiente). Reiniciar el collector pierde su
-  búfer y lo que llega mientras está caído (UDP sin reintento).
+  y ≈ 6 – 12 s en M en pico**. **Spool a disco (D23, §10.15):** en cuanto una publicación falla, los
+  lotes (también los que esperaban en memoria) van a disco (`HORUS_COLLECTOR_SPOOL_BYTES`, 8 GiB) y
+  se reenvían en orden con el mismo `Nats-Msg-Id` al volver el bus; un apagado o un `kill -9` del
+  collector con NATS caído ya no pierde lo recibido. Lo que llega mientras el propio collector está
+  caído se sigue perdiendo (UDP sin reintento), pero se mide (§10.16).
 - **Recuperación:** automática; outbox drena; consumidores deduplican.
 - **Datos perdidos:** eventos de dominio ninguno; telemetría lo que exceda los buffers.
 
@@ -814,8 +819,9 @@ Todos los routers de **todos los ISP** llegan por el hub; es el SPOF más import
 | ClickHouse parado 30 s | **0 flujos** | TLM_FLOWS (backlog máx. ~360 lotes ≈ 36 s de flujos) | healthy en 6 s, backlog drenado en ~20 s; kiosco de vuelta en 6 s |
 | NATS parado 30 s | **0 flujos** | búfer en memoria del collector (máx. 23,5 MB) | healthy en 6 s, drenado en ~12 s; kiosco (WebSocket) de vuelta en 6 s |
 | `horus-app` parado 30 s | **0 flujos** | TLM_FLOWS (backlog máx. ~270 lotes) | healthy en 6 s, drenado en ~14 s; kiosco de vuelta en 6 s |
-| ClickHouse parado **5 min a 20 000 flujos/s** (isp10k) | **0 flujos después del collector**; 123 381 (1,9 %) descartados por la cola del collector al drenar en 4 vCPU compartidas | TLM_FLOWS (backlog máx. 5,6 M de flujos, 1,03 GB lógicos; aviso de `/readyz` al 72 %) | healthy en 6 s, drenado en 2 min 22 s; kiosco de vuelta en 9 s |
-| Collector parado 1 min | **lo enviado durante la caída** (~53 s de flujos de 60 s) | ninguno: UDP sin reintento y sin spool | el hueco es ausencia de filas (la serie de la API da `null`, nunca 0); el exportador pasa por *Silencioso* y vuelve a *Exportando* |
+| ClickHouse parado **5 min a 20 000 flujos/s** (isp10k) | **0 flujos** en toda la cadena con la decodificación multihilo (D23; antes, 123 381 = 1,9 % en la cola del collector al drenar) | TLM_FLOWS (backlog máx. 5,6 M de flujos, 1,03 GB lógicos; aviso de `/readyz` al 72 %) | healthy en 6 s, drenado en 2 min 22 s; kiosco de vuelta en 9 s |
+| Collector parado 1 min | **lo enviado durante la caída** (~53 s de flujos de 60 s) | ninguno: UDP sin reintento (el spool cubre NATS, no al propio collector) |
+| Matriz de reinicio brusco (D23, `make chaos-restart-flows`): collector, horus-app, NATS y ClickHouse × `kill -9` y `docker restart`, 3 veces cada uno a 10 000 flujos/s | **0 flujos y 0 duplicados** salvo con el collector caído: solo lo enviado por UDP en la ventana caída → escuchando (2,2–2,7 s de flujos por cada 3 reinicios, medido también por la secuencia del collector); agregados iguales a los recalculados desde `flows_raw` | TLM_FLOWS, spool del collector (NATS caído), ledger de grupos e instantáneas de §10.16 | todo healthy en 7–17 s; inventario, clientes conocidos y estado del exportador intactos | el hueco es ausencia de filas (la serie de la API da `null`, nunca 0); el exportador pasa por *Silencioso* y vuelve a *Exportando* |
 
 Límites que se derivan: la caída de ClickHouse, NATS o `horus-app` no pierde flujos mientras dure
 menos que su búfer (§9.4 con 184 B/flujo; §10.3: 256 MiB ≈ 6 min a 5 000 flujos/s); la caída del
@@ -831,29 +837,87 @@ host de prueba). Ahora el collector pide **32 MiB** (`HORUS_COLLECTOR_UDP_RCVBUF
 si el kernel le da menos y, con `CAP_NET_ADMIN`, usa `SO_RCVBUFFORCE`; el instalador debe fijar
 `net.core.rmem_max = 33554432` y `net.core.rmem_default = 1048576` (sysctl persistente).
 
-### 10.15 Spool a disco del collector (diseño, no implementado)
+### 10.15 Spool a disco del collector (D23, implementado)
 
-Hoy el collector solo tiene el búfer en memoria (`HORUS_COLLECTOR_BUFFER_BYTES`, 256 MiB ≈ 6 min a
-5 000 flujos/s y ≈ 1 min a 20 000/s con ~150 B por flujo en memoria) para cuando NATS no responde;
-la caída de ClickHouse ya no le afecta (la absorbe TLM_FLOWS, §9.4). Un spool a disco solo
-alarga la autonomía ante una caída de **NATS** y no cubre la del propio collector (UDP sin
-reintento), así que no se implementa en esta ronda: no es pequeño (ficheros de segmento con
-fsync, recuperación tras corte, orden FIFO, límite de disco, limpieza) y un error en él perdería
-datos que hoy no se pierden. Diseño propuesto para cuando haga falta:
+El collector tiene, además del búfer en memoria (`HORUS_COLLECTOR_BUFFER_BYTES`, 256 MiB), un
+**spool a disco** (`services/collector/internal/spool`) para cuando NATS no acepta lotes. La caída
+de ClickHouse no le afecta (la absorbe TLM_FLOWS, §9.4); el spool alarga la autonomía ante una
+caída de **NATS** y hace que un apagado o un `kill -9` con NATS caído no pierdan lo ya recibido.
+No cubre la caída del propio collector (UDP sin reintento, §10.16).
 
-- **Cuándo escribe:** solo con el bus caído y el búfer en memoria por encima del 50 %; con NATS
-  sano nunca toca el disco (sin coste en el camino caliente).
-- **Formato:** segmentos append-only de 64 MiB en `HORUS_COLLECTOR_SPOOL_DIR` (volumen propio,
-  `HORUS_COLLECTOR_SPOOL_BYTES`, p. ej. 8 GiB ≈ 45 min a 20 000/s); cada registro = longitud +
-  CRC32C + cabeceras NATS + cuerpo del lote; `fsync` por segmento cerrado y cada 1 s.
-- **Reenvío:** al volver el bus, primero el búfer en memoria y luego los segmentos en orden; un
-  segmento se borra cuando todos sus lotes tienen ack de JetStream. El `Nats-Msg-Id` (= batch_id)
-  hace idempotente un reenvío repetido dentro de la ventana de duplicados de TLM_FLOWS (2 min);
-  fuera de ella, el ingester deduplica por batch_id (grupos con token, ver §10.1).
-- **Arranque:** se leen los segmentos pendientes, se descartan registros con CRC inválido (corte
-  a mitad de escritura) y se reenvían; métricas `horus_collector_spool_bytes` y
-  `horus_collector_spool_dropped_total`.
-- **Lleno:** se descartan los lotes nuevos (como hoy el búfer) y se publica `data_gap`.
+- **Cuándo escribe:** en cuanto una publicación falla (bus caído) o cuando el búfer en memoria pasa
+  de `HORUS_COLLECTOR_SPOOL_AFTER_RATIO` (0,5) con el bus lento. Al entrar por fallo, los lotes que
+  esperaban en memoria pasan también al spool. Con NATS sano nunca toca el disco.
+- **Formato:** segmentos append-only de `HORUS_COLLECTOR_SPOOL_SEGMENT_BYTES` (64 MiB) en
+  `HORUS_COLLECTOR_SPOOL_DIR` (volumen propio; compose: `/var/lib/horus/collector-spool`); cada
+  registro = magia `HSP1` + longitud + CRC32C + (registros, instante, asunto, cabeceras NATS,
+  cuerpo). La magia permite resincronizar tras una zona dañada: el registro corrupto se salta y se
+  cuenta (`horus_collector_spool_dropped_total{reason="corrupt"}`), el resto se reenvía. `fsync`
+  configurable (`HORUS_COLLECTOR_SPOOL_FSYNC`: 1 s por defecto, `0` en cada escritura, negativo
+  solo al cerrar segmento); un `kill -9` no necesita `fsync` (la caché de página sobrevive al
+  proceso), un corte de luz sí.
+- **Reenvío:** al volver el bus, primero lo que quedara en memoria (siempre más antiguo) y luego el
+  spool en orden, con el **mismo `Nats-Msg-Id` (= batch_id)**: JetStream descarta lo que ya tenía.
+  El cursor de lectura se guarda tras cada PubAck, así que un reinicio a mitad del reenvío repite
+  como mucho el último lote. Al vaciarse vuelve al búfer en memoria. Un segmento leído se borra.
+- **Arranque:** se leen el cursor y los segmentos; un registro a medio escribir al final del último
+  segmento (corte durante la escritura) se trunca; lo pendiente se reenvía antes que lo nuevo.
+- **Lleno** (`HORUS_COLLECTOR_SPOOL_BYTES`, 8 GiB ≈ 38 min a 20 000 flujos/s o ≈ 2 h a la media de
+  un ISP de 10 000 clientes, con 185 B por flujo): se **descarta el segmento más antiguo** y se
+  cuenta (`reason="full"`); con el disco lleno (`ENOSPC`) igual y se reintenta una vez; si aun así
+  no cabe, se descarta el lote nuevo (`reason="write_error"`). Los descartes salen en
+  `horus.flows.collector.data_gap` (`reason=spool_full`) al volver el bus.
+- **Métricas:** `horus_collector_spooling`, `horus_collector_spool_{bytes,batches,records,oldest_age_seconds}`,
+  `horus_collector_spool_{written,replayed,dropped,dropped_records}_total`,
+  `horus_collector_ingress_bytes_per_second` y **`horus_collector_autonomy_seconds{buffer="memory|spool"}`**:
+  cuánto tiempo más aguanta cada búfer sin bus al ritmo de entrada actual. `/readyz` marca `spool`
+  degradado mientras los lotes van a disco o si el directorio no se puede usar (el collector sigue
+  con el búfer en memoria).
+- **Registro de eventos de plataforma** (§10.18, observability.md §11.2): `spool_active` al pasar a
+  disco, `spool_drained` al vaciarse y `spool_active` con severidad error cuando el spool lleno
+  descarta (como mucho uno por minuto).
+- **Pruebas:** corrupción de un segmento, disco lleno, cola cortada y `kill -9` real de un proceso
+  escritor (`internal/spool`), reenvío en orden tras la caída del bus y tras un reinicio, y spool
+  lleno con `data_gap` (`internal/app/spool_test.go`); en la pila, `make chaos-restart-flows`
+  (NATS con `kill -9` y `docker restart`).
+
+### 10.16 Estado tras un reinicio en la cadena de flujos (D23)
+
+Regla de D23: ningún estado vive solo en memoria. Todo lo que un rol de flujos deriva de un stream
+se reconstruye al arrancar con **instantánea + stream** (`packages/go/flowstate`): la instantánea
+(con la secuencia del último evento aplicado) se guarda en el Object Store `flows_state` de JetStream
+y, al arrancar, se restaura y se lee el stream con un consumidor efímero desde la secuencia
+siguiente. Así sobrevive a la retención de DEVICES_EVENTS (30 días): releer el stream entero, como
+hacía el arreglo anterior de `flowinv`, perdía los routers y prefijos de más de 30 días. El patrón
+«durable con el estado en memoria» (tras un reinicio solo llega lo no confirmado) se buscó en todos
+los consumidores: lo tenían `flows-inventory-<rol>` (ya arreglado, ahora con instantánea) e
+`ingester-known-clients` (arreglado); los demás durables de la cadena guardan su estado fuera del
+proceso (`flows-ingester` → ClickHouse con ledger; los de devices → PostgreSQL).
+
+| Componente | Estado | Dónde se guarda | Cómo se reconstruye al arrancar |
+| --- | --- | --- | --- |
+| collector, ingester, detection | Inventario de flujos (exportadores, realms, prefijos) | Instantánea `flows-inventory-<rol>` en `flows_state` + DEVICES_EVENTS (+ fichero base) | Se restaura la instantánea (inventario disponible antes de leer el stream) y se aplica DEVICES_EVENTS desde la secuencia siguiente; el durable antiguo se borra |
+| collector, ingester | ISP con la ingesta en pausa (`POST /platform/tenants/{id}/suspend` con `pause_ingest`) | Instantánea `flows-pause-<rol>` en `flows_state` + AUTH_EVENTS (`tenant.suspended` / `tenant.resumed`) | Se restaura y se aplica el stream; el collector descarta y cuenta (`horus_collector_dropped_total{reason="tenant_suspended"}`) y el ingester confirma sin guardar lo que ya estaba en TLM_FLOWS (`horus_ingester_batches_total{result="tenant_suspended"}`); al reactivar, vuelve a ingerir |
+| collector | Plantillas IPFIX / NetFlow v9 por exportador y dominio | KV `flow_collector_state` (`tpl.*`), al cambiar o cada 10 min | Se reinstalan si no superan `HORUS_COLLECTOR_TEMPLATE_TTL` (30 min); los datos que llegan antes de que el router las reenvíe se decodifican en vez de retenerse |
+| collector | Secuencia esperada por dominio de observación | KV `flow_collector_state` (`seq.*`), cada 1 s y al parar | Se restaura; el primer datagrama mide lo enviado con el collector caído (`horus_collector_downtime_lost_records_total`, `data_gap` `collector_down`; cota superior: incluye hasta 1 s anterior a un `kill -9`) sin contarlo como pérdida del exportador |
+| collector | Estado del exportador (estado, versión, último flujo, huecos y pérdidas acumulados) | KV `flow_exporter_state` | Se continúa; si la caída superó `SilentAfter` se registra la transición a `silent` y luego `recovered`. La ventana de pérdida de 5 min empieza vacía |
+| collector | Lotes pendientes de publicar | Memoria y, con el bus caído o lento, spool a disco (§10.15) | El spool se reenvía en orden con el mismo `Nats-Msg-Id`; el apagado ordenado publica lo de memoria o lo pasa al spool |
+| collector | Lotes abiertos (≤ 1 s) y colas de datagramas | Memoria | `docker restart` (SIGTERM) los publica; `kill -9` pierde lo recibido en el último segundo, que se mide junto con lo enviado durante la caída (§10.14) |
+| collector | Exportadores no registrados, descartes en curso | Memoria | Se recalculan (evento `unregistered` cada 10 min) |
+| ingester | Posición de consumo de TLM_FLOWS | Durable `flows-ingester` (JetStream) | Reentrega lo no confirmado |
+| ingester | Grupos de INSERT en curso (token → batch_id) | KV `flows_ingester_groups` | Los lotes reentregados se reagrupan con su token: ClickHouse descarta el reintento (§10.1) |
+| ingester | Clientes conocidos por realm | Instantánea `ingester-known-clients` en `flows_state` + DEVICES_EVENTS (`customer.discovered/reactivated/purged`) | Se restaura y se aplica el stream desde la secuencia siguiente; antes era un durable y tras un reinicio se reenviaban `first_seen` de todos los clientes ya conocidos |
+| ingester | `first_seen` pendientes y emitidos (TTL 1 h), actividad de la hora para `activity_summary` | Instantánea `ingester-discovery` en `flows_state`, cada 10 s y al parar | Se fusiona con lo que llega (los lotes reentregados se vuelven a observar; `last_seen` es un máximo). Un `kill -9` puede perder hasta 10 s de actividad acumulada, dentro de la resolución de 1 h de `last_seen` |
+| ingester | Límite anti-avalancha por realm y minuto | Memoria | Empieza de cero (ventana de 1 min) |
+| ingester | Enriquecimiento: ASN, catálogo de servicios, reputación | Snapshots versionados en disco (`HORUS_*_SNAPSHOT_DIR`, `$HORUS_DATA_DIR/catalog/…`) | Se recargan al arrancar y cada 30 s |
+| ingester | Ocupación de TLM_FLOWS (`/readyz`) | JetStream | Se vuelve a medir |
+| traffic (ASN y catálogo) | Snapshots `asn/v<N>`, catálogo | Disco (`horus-asn`, `horus-catalog`) | Sin estado en memoria: el rol es un esqueleto y los snapshots los lee el ingester |
+| API de tráfico (analytics) y `/flow-exporters` | Consultas y estado de exportadores | ClickHouse, KV `flow_exporter_state`, inventario del ingester | Sin estado propio que se pierda; las cachés se rellenan |
+
+Pruebas de reinicio: `TestProjectorSurvivesStreamRetention` (`flowinv`), `TestKnownClientsAfterRestart`
+y `TestDiscoveryStateAfterRestart` (ingester), `TestCollectorStateAcrossRestart` y
+`TestExporterStateAfterCollectorRestart` (collector), `TestSpoolAcrossRestart` y en la pila
+`make chaos-restart-flows`.
 
 ### 10.18 Estado tras un reinicio: módulos de plataforma (CORE, D23)
 

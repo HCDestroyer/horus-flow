@@ -45,6 +45,9 @@ type Options struct {
 	// AllowUnmet no falla si las señales calculadas no coinciden con las
 	// declaradas por el escenario (solo avisa en Expected.Warnings).
 	AllowUnmet bool
+	// OnRecords, si no es nil, recibe los registros de cada exportador y tick
+	// justo antes de codificarlos (contabilidad de las pruebas de fallo).
+	OnRecords func(tick time.Time, exporter int, recs []flow.Record)
 }
 
 // Emit recibe cada datagrama generado, en orden cronológico.
@@ -611,6 +614,9 @@ func (g *gen) flushTick(es *expState, tick int64, now time.Time, emit Emit) erro
 		recs[i] = ordered[i].rec
 		es.tally.Add(&ordered[i].rec, ordered[i].at)
 		g.acc.Add(es.spec.Name, &ordered[i].rec, ordered[i].at)
+	}
+	if g.opt.OnRecords != nil && len(recs) > 0 {
+		g.opt.OnRecords(now, es.idx, recs)
 	}
 	src := netip.AddrPortFrom(es.spec.ExporterIP, es.srcPort)
 	dst := netip.AddrPortFrom(es.spec.CollectorIP, g.collPort)

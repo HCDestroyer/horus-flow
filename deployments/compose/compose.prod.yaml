@@ -386,6 +386,13 @@ services:
       HORUS_COLLECTOR_UDP_RCVBUF: ${HORUS_COLLECTOR_UDP_RCVBUF:-33554432}
       HORUS_COLLECTOR_QUEUE_DATAGRAMS: ${HORUS_COLLECTOR_QUEUE_DATAGRAMS:-8192}
       GOMEMLIMIT: 900MiB
+      # Spool a disco ante caídas de NATS (docs/architecture.md §10.15). El directorio del host
+      # debe existir con propietario 65532; si no se puede usar, el collector sigue sin spool y
+      # /readyz marca `spool` degradado.
+      HORUS_COLLECTOR_SPOOL_DIR: /var/lib/horus/collector-spool
+      HORUS_COLLECTOR_SPOOL_BYTES: ${HORUS_COLLECTOR_SPOOL_BYTES:-8589934592}
+    volumes:
+      - ${HORUS_DATA_ROOT}/collector-spool:/var/lib/horus/collector-spool
     secrets: [postgres_password, clickhouse_password, valkey_password, nats_url, grpc_ca]
     ports:
       # IPFIX y NetFlow v9 SOLO en la IP del hub (wg0): nunca en la interfaz pública.

@@ -19,8 +19,8 @@ import (
 
 	"github.com/google/uuid"
 
-	chschema "github.com/hcdestroyer/horus-flow/services/ingester/migrations/clickhouse"
 	"github.com/hcdestroyer/horus-flow/packages/go/chmigrate"
+	chschema "github.com/hcdestroyer/horus-flow/services/ingester/migrations/clickhouse"
 )
 
 func TestSchemaV0(t *testing.T) {

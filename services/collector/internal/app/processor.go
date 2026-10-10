@@ -13,6 +13,7 @@ import (
 
 	"github.com/hcdestroyer/horus-flow/packages/go/flowbus"
 	"github.com/hcdestroyer/horus-flow/packages/go/flowinv"
+	"github.com/hcdestroyer/horus-flow/packages/go/flowpause"
 	"github.com/hcdestroyer/horus-flow/packages/go/flowpb"
 	"github.com/hcdestroyer/horus-flow/services/collector/internal/decode"
 )
@@ -35,6 +36,12 @@ type Worker struct {
 	batcher *Batcher
 	states  *States
 	m       *Metrics
+	// paused: ISP con la ingesta en pausa (nil = ninguno).
+	paused *flowpause.Set
+	// persist guarda plantillas y secuencias (nil = sin persistencia).
+	persist *workerPersist
+	// downtime informa de lo enviado mientras el collector estaba caído.
+	downtime func(exp *flowinv.Exporter, from, to time.Time, records uint64)
 }
 
 type seqKey struct {
@@ -49,18 +56,88 @@ func NewWorker(inv *flowinv.Store, b *Batcher, st *States, m *Metrics, pendingTT
 		seq: map[seqKey]*seqTracker{}, batcher: b, states: st, m: m}
 }
 
-// Handle procesa un datagrama.
+// Handle procesa un datagrama: las tres etapas seguidas en este hilo
+// (HORUS_COLLECTOR_DECODE_WORKERS=1). Con más hilos, el motor ejecuta prepare
+// y post en serie por carril y decode en el pool (parallel.go).
 func (w *Worker) Handle(d Datagram) {
+	j := w.prepare(d)
+	if j == nil {
+		return
+	}
+	j.decode(w.m)
+	w.post(j)
+}
+
+// dgram es un datagrama en curso entre etapas.
+type dgram struct {
+	d    Datagram
+	ip   netip.Addr
+	inv  *flowinv.Snapshot
+	exp  *flowinv.Exporter
+	plan *decode.Plan
+	res  decode.Result
+	err  error
+	// total son los registros decodificados (antes de filtrar); recs los que
+	// pasan los filtros de túnel y excluded.
+	total int
+	recs  []flowpb.FlowRecord
+	done  chan struct{}
+}
+
+// prepare (serie, por exportador): identifica el exportador y hace la parte
+// de la decodificación que toca estado (plantillas, retenidos, opciones).
+// Devuelve nil si el datagrama no sigue (exportador desconocido).
+func (w *Worker) prepare(d Datagram) *dgram {
 	inv := w.inv.Load()
 	ip := d.Src.Addr().Unmap()
 	exp, ok := inv.Exporter(ip)
 	if !ok {
 		w.m.Dropped.WithLabelValues(DropUnknownExporter).Inc()
 		w.states.Unregistered(ip, d.At)
-		return
+		return nil
 	}
-	src := ip.String()
-	res, err := w.dec.Decode(src, d.Payload)
+	if w.paused != nil && w.paused.Paused(exp.TenantID) {
+		// ISP suspendido con pause_ingest: no se ingiere (se cuenta).
+		w.m.Dropped.WithLabelValues(DropTenantSuspended).Inc()
+		return nil
+	}
+	return &dgram{d: d, ip: ip, inv: inv, exp: exp, plan: w.dec.Prepare(ip.String(), d.Payload)}
+}
+
+// decode (cualquier hilo): decodifica los conjuntos de datos y filtra
+// registros del túnel y de prefijos excluded. Solo lee datos inmutables (la
+// plantilla, el datagrama, la instantánea del inventario).
+func (j *dgram) decode(m *Metrics) {
+	for _, job := range j.plan.Jobs {
+		job.Run()
+	}
+	j.res, j.err = j.plan.Finish()
+	j.total = len(j.res.Records)
+	sampling := j.plan.Sampling
+	recs := j.res.Records[:0]
+	for i := range j.res.Records {
+		r := &j.res.Records[i]
+		if r.SrcIP == j.ip || r.DstIP == j.ip {
+			m.Dropped.WithLabelValues(DropTunnel).Inc()
+			continue
+		}
+		if j.inv.ExcludedFor(j.exp.SiteID, r.SrcIP) || j.inv.ExcludedFor(j.exp.SiteID, r.DstIP) {
+			m.Dropped.WithLabelValues(DropExcluded).Inc()
+			continue
+		}
+		r.ExporterIP = j.ip
+		if r.SamplingRate == 0 && sampling > 1 {
+			r.SamplingRate = sampling
+		}
+		recs = append(recs, *r)
+	}
+	j.recs = recs
+}
+
+// post (serie, en orden de llegada por exportador): secuencia y huecos por
+// dominio de observación, estado del exportador y lotes.
+func (w *Worker) post(j *dgram) {
+	res, err, exp := j.res, j.err, j.exp
 	if err != nil {
 		w.m.Dropped.WithLabelValues(DropMalformed).Inc()
 		if res.Header.Version == 0 {
@@ -68,53 +145,45 @@ func (w *Worker) Handle(d Datagram) {
 		}
 	}
 	w.m.Datagrams.WithLabelValues(strconv.Itoa(int(res.Header.Version))).Inc()
+	w.m.ReceivedRecords.Add(float64(j.total))
 	if res.DroppedNoTemplate > 0 {
 		w.m.Dropped.WithLabelValues(DropNoTemplate).Add(float64(res.DroppedNoTemplate))
 	}
-	k := seqKey{ip: ip, odid: res.Header.ODID, ver: res.Header.Version}
+	k := seqKey{ip: j.ip, odid: res.Header.ODID, ver: res.Header.Version}
 	tr := w.seq[k]
 	if tr == nil {
 		tr = &seqTracker{}
 		w.seq[k] = tr
 	}
-	var lost uint64
+	var lost, downtime uint64
+	restoredAt := tr.restoredAt
 	if err == nil {
-		lost = tr.observe(res.Header.Version == decode.VersionIPFIX, res.Header.Sequence, res.DataRecords+res.OptionsRecords)
+		lost, downtime = tr.observe(res.Header.Version == decode.VersionIPFIX, res.Header.Sequence, res.DataRecords+res.OptionsRecords)
+		if w.persist != nil {
+			w.persist.seq(k, tr, j.d.At)
+		}
 	}
 	rid := exp.RouterID.String()
+	if downtime > 0 {
+		w.m.DowntimeLost.WithLabelValues(rid).Add(float64(downtime))
+		if w.downtime != nil {
+			w.downtime(exp, restoredAt, j.d.At, downtime)
+		}
+	}
 	if lost > 0 {
 		w.m.SeqGaps.WithLabelValues(rid).Inc()
 		w.m.LostRecords.WithLabelValues(rid).Add(float64(lost))
 	}
-	skew := res.Header.ExportTime.Sub(d.At)
+	skew := res.Header.ExportTime.Sub(j.d.At)
 	w.m.ClockSkew.WithLabelValues(rid).Set(skew.Seconds())
-
-	sampling := w.dec.Sampling(src)
-	recs := res.Records[:0]
-	for i := range res.Records {
-		r := &res.Records[i]
-		if r.SrcIP == ip || r.DstIP == ip {
-			w.m.Dropped.WithLabelValues(DropTunnel).Inc()
-			continue
-		}
-		if inv.ExcludedFor(exp.SiteID, r.SrcIP) || inv.ExcludedFor(exp.SiteID, r.DstIP) {
-			w.m.Dropped.WithLabelValues(DropExcluded).Inc()
-			continue
-		}
-		r.ExporterIP = ip
-		if r.SamplingRate == 0 && sampling > 1 {
-			r.SamplingRate = sampling
-		}
-		recs = append(recs, *r)
-	}
 	source := "ipfix"
 	if res.Header.Version == decode.VersionV9 {
 		source = "netflow_v9"
 	}
-	w.states.Observe(exp, Observation{At: d.At, Records: len(res.Records), Lost: lost, Skew: skew,
-		FlowSource: source, Sampling: sampling, Gap: lost > 0})
-	if len(recs) > 0 {
-		w.batcher.Add(exp, recs, d.At)
+	w.states.Observe(exp, Observation{At: j.d.At, Records: j.total, Lost: lost, Skew: skew,
+		FlowSource: source, Sampling: j.plan.Sampling, Gap: lost > 0})
+	if len(j.recs) > 0 {
+		w.batcher.Add(exp, j.recs, j.d.At)
 	}
 }
 

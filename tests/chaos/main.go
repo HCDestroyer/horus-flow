@@ -16,6 +16,8 @@
 //     vuelve a Exportando.
 //
 // CHAOS_SCENARIOS=clickhouse,nats,app,collector elige los escenarios.
+// CHAOS_SUITE=restart-flows ejecuta en su lugar la matriz de reinicio brusco
+// de la cadena de flujos (restart.go, `make chaos-restart-flows`).
 // Escribe bin/load/chaos.{json,md}; sale con 1 si algún escenario falla.
 package main
 
@@ -40,20 +42,20 @@ import (
 )
 
 type result struct {
-	Scenario      string   `json:"scenario"`
-	Down          string   `json:"down"`
-	Recovery      string   `json:"recovery"` // de arrancar a healthy
-	Sent          uint64   `json:"sent_records"`
-	Rows          uint64   `json:"clickhouse_rows"`
-	Lost          int64    `json:"lost_records"`
-	LostSeconds   float64  `json:"lost_seconds_of_flows"`
-	CollectorDrop float64  `json:"collector_drops"`
+	Scenario      string  `json:"scenario"`
+	Down          string  `json:"down"`
+	Recovery      string  `json:"recovery"` // de arrancar a healthy
+	Sent          uint64  `json:"sent_records"`
+	Rows          uint64  `json:"clickhouse_rows"`
+	Lost          int64   `json:"lost_records"`
+	LostSeconds   float64 `json:"lost_seconds_of_flows"`
+	CollectorDrop float64 `json:"collector_drops"`
 	// Collector: registros recibidos y datagramas perdidos en el socket UDP
 	// durante el escenario; PipelineLost = recibidos − filas (lo que se pierde
 	// después del collector, que es lo que el búfer debe evitar).
-	CollectorRecs uint64 `json:"collector_records"`
-	UDPDrops      uint64 `json:"udp_rcvbuf_errors"`
-	PipelineLost  int64  `json:"pipeline_lost_records"`
+	CollectorRecs uint64   `json:"collector_records"`
+	UDPDrops      uint64   `json:"udp_rcvbuf_errors"`
+	PipelineLost  int64    `json:"pipeline_lost_records"`
 	MaxLagBatches uint64   `json:"max_lag_batches"`
 	MaxStreamMB   float64  `json:"max_tlm_flows_mb"`
 	MaxBufferMB   float64  `json:"collector_max_buffer_mb"`
@@ -91,6 +93,17 @@ func main() {
 	bus, err := loadkit.ConnectBus(env.NATSURL)
 	check(err)
 	defer bus.NC.Close()
+	if os.Getenv("CHAOS_SUITE") == "restart-flows" {
+		c := &chaos{env: env, api: api, bus: bus, st: st, rate: rate, flowsim: flowsim, scen: simScen}
+		results, ok := restartMatrix(ctx, c)
+		check(restartReport(env.Dir, rate, results))
+		if !ok {
+			log.Print("chaos-restart-flows: KO")
+			os.Exit(1)
+		}
+		log.Print("chaos-restart-flows: OK")
+		return
+	}
 	kiosk, err := loadkit.NewKiosk(ctx, api)
 	check(err)
 	kctx, kstop := context.WithCancel(ctx)

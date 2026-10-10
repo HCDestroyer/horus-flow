@@ -214,6 +214,9 @@ func (s *States) Evaluate(ctx context.Context, onlyDirty bool) {
 			s.mu.Lock()
 			if prev != nil {
 				st.cur = *prev
+				// Contadores acumulados del exportador: siguen desde el KV.
+				st.gaps += prev.SequenceGaps
+				st.lost += prev.LostRecords
 				if w, ok := s.restore(st, now); ok {
 					writes = append(writes, w)
 				}

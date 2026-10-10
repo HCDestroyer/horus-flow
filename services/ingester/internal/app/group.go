@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 
 	"github.com/hcdestroyer/horus-flow/packages/go/flowbus"
 	"github.com/hcdestroyer/horus-flow/packages/go/flowpb"
+	"github.com/hcdestroyer/horus-flow/packages/go/observability"
 )
 
 // Escritura agrupada (FLOW, isp10k): varios lotes de TLM_FLOWS (≈ 500
@@ -118,6 +120,11 @@ func (c *Consumer) Prepare(data []byte, headers nats.Header) (string, []Row, out
 	fb, err := flowpb.UnmarshalFlowBatch(data)
 	if err != nil {
 		return "", nil, outTerm, err
+	}
+	if c.Paused != nil && c.Paused(fb.TenantID) {
+		// ISP suspendido con pause_ingest: el lote se confirma sin guardar.
+		c.M.Batches.WithLabelValues("tenant_suspended").Inc()
+		return fb.BatchID, nil, outAck, nil
 	}
 	rows, err := c.Proc.Rows(fb, headers.Get(flowbus.HeaderTenant))
 	switch {
@@ -396,11 +403,28 @@ func (c *Consumer) flush(ctx context.Context, stop <-chan struct{}, g *grouper, 
 	return true
 }
 
+// msgContext añade al contexto de log el lote (event_id = batch_id), el ISP y
+// el router del mensaje (docs/observability.md §3).
+func msgContext(ctx context.Context, m BusMsg) context.Context {
+	h := m.Headers()
+	if id := h.Get(flowbus.HeaderMsgID); id != "" {
+		ctx = observability.WithEventID(ctx, id)
+	}
+	if t := h.Get(flowbus.HeaderTenant); t != "" && t != flowbus.TenantPlatform {
+		ctx = observability.WithTenant(ctx, t)
+	}
+	if r, ok := strings.CutPrefix(m.Subject(), flowbus.SubjectBatchPrefix); ok {
+		ctx = observability.WithRouter(ctx, r)
+	}
+	return ctx
+}
+
 func (c *Consumer) reject(ctx context.Context, m BusMsg, out outcome, err error) {
+	ctx = msgContext(ctx, m)
 	switch out {
 	case outNak:
 		c.M.Batches.WithLabelValues("retry").Inc()
-		c.Log.Warn("flow batch will be retried", "subject", m.Subject(), "error", err)
+		c.Log.WarnContext(ctx, "flow batch will be retried", "subject", m.Subject(), "error", err)
 		if md, mErr := m.Metadata(); mErr == nil && md.NumDelivered >= 5 {
 			c.terminate(ctx, m, err)
 			return

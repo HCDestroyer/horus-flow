@@ -27,6 +27,8 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/config"
 	"github.com/hcdestroyer/horus-flow/packages/go/flowbus"
 	"github.com/hcdestroyer/horus-flow/packages/go/flowinv"
+	"github.com/hcdestroyer/horus-flow/packages/go/flowpause"
+	"github.com/hcdestroyer/horus-flow/packages/go/flowstate"
 	"github.com/hcdestroyer/horus-flow/packages/go/health"
 	"github.com/hcdestroyer/horus-flow/packages/go/module"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
@@ -114,6 +116,9 @@ type ingester struct {
 	cons     jetstream.Consumer
 	consumer *app.Consumer
 	loops    []func(ctx context.Context)
+	pause    *flowpause.Set
+	// snapshots guarda el estado reconstruible tras un reinicio (flows_state).
+	snapshots flowstate.Store
 }
 
 // Start implementa module.Starter: migra ClickHouse y prepara la ingesta
@@ -162,6 +167,11 @@ func (m *ingester) Start(ctx context.Context) error {
 	} else {
 		m.log.WarnContext(ctx, "exporter state bucket unavailable", "error", err)
 	}
+	if os, err := flowstate.Open(ctx, js); err == nil {
+		m.snapshots = os
+	} else {
+		m.log.WarnContext(ctx, "flows state snapshots unavailable: known clients rebuilt from DEVICES_EVENTS only", "error", err)
+	}
 	var led app.Ledger
 	if kv, err := js.CreateOrUpdateKeyValue(ctx, ledger.Config()); err == nil {
 		led = ledger.KV{KV: kv}
@@ -172,9 +182,10 @@ func (m *ingester) Start(ctx context.Context) error {
 	if err := m.wire(ctx, proc); err != nil {
 		return err
 	}
-	m.consumer = &app.Consumer{Proc: proc, Ins: w, Workers: m.cfg.Workers, M: m.metrics, Log: m.log, Ledger: led,
+	m.pause = flowpause.New()
+	m.consumer = &app.Consumer{Paused: m.pause.PausedString, Proc: proc, Ins: w, Workers: m.cfg.Workers, M: m.metrics, Log: m.log, Ledger: led,
 		Group: app.GroupOptions{Rows: m.cfg.InsertRows, Wait: m.cfg.InsertWait, Flushers: m.cfg.InsertFlushers},
-		DLQ: func(ctx context.Context, msg *nats.Msg) error { _, err := js.PublishMsg(ctx, msg); return err }}
+		DLQ:   func(ctx context.Context, msg *nats.Msg) error { _, err := js.PublishMsg(ctx, msg); return err }}
 	buf := app.NewBufferMonitor(m.deps.Metrics, func(ctx context.Context) (app.BufferState, error) {
 		st, err := js.Stream(ctx, flowbus.StreamTelemetry)
 		if err != nil {
@@ -215,7 +226,7 @@ func (p jsPub) PublishMsg(ctx context.Context, msg *nats.Msg) error {
 }
 
 // wire añade enriquecimiento, descubrimiento y resúmenes al procesador.
-func (m *ingester) wire(_ context.Context, proc *app.Processor) error {
+func (m *ingester) wire(ctx context.Context, proc *app.Processor) error {
 	enr, err := app.NewEnrichment(m.deps.Metrics, m.log)
 	if err != nil {
 		return err
@@ -229,10 +240,14 @@ func (m *ingester) wire(_ context.Context, proc *app.Processor) error {
 	disc := app.NewDiscovery(app.DiscoveryOptions{TTL: m.cfg.FirstSeenTTL, PerMinute: m.cfg.DiscoveryPerMinute,
 		RealmMax: m.cfg.DiscoveryRealmMax}, pub, m.deps.Metrics, m.log)
 	disc.LoadKnown(m.inv.Load().Data().Customers)
+	if err := disc.LoadState(ctx, m.snapshots); err != nil {
+		m.log.WarnContext(ctx, "discovery state snapshot not restored", "error", err)
+	}
 	proc.Observers = append(proc.Observers, disc)
 	m.loops = append(m.loops,
 		func(ctx context.Context) { disc.Run(ctx, m.cfg.FirstSeenInterval, m.cfg.ActivityInterval) },
-		func(ctx context.Context) { disc.RunKnownClients(ctx, m.js, m.log) },
+		func(ctx context.Context) { disc.RunKnownClients(ctx, m.js, m.snapshots, m.log, nil) },
+		func(ctx context.Context) { disc.KeepState(ctx, m.snapshots, 10*time.Second, m.log) },
 	)
 	return nil
 }
@@ -244,6 +259,7 @@ func (m *ingester) Run(ctx context.Context) error {
 		return nil
 	}
 	go flowinv.Keep(ctx, m.inv, m.cfg.InventoryFile, m.js, "flows-inventory-"+Role, m.log)
+	go m.pause.Run(ctx, m.js, m.snapshots, "flows-pause-"+Role, m.log, nil)
 	var wg sync.WaitGroup
 	for _, l := range m.loops {
 		wg.Add(1)

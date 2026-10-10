@@ -95,13 +95,18 @@ type Template struct {
 	Scope   int // nº de campos de ámbito (plantillas de opciones)
 	Options bool
 	minLen  int
+	// hasVarLen: algún campo de longitud variable (un registro puede no caber
+	// y el conjunto fallar; ver Prepare).
+	hasVarLen bool
 }
 
 func (t *Template) computeMin() {
 	t.minLen = 0
+	t.hasVarLen = false
 	for _, f := range t.Fields {
 		if f.Length == varLen {
 			t.minLen++
+			t.hasVarLen = true
 		} else {
 			t.minLen += int(f.Length)
 		}
@@ -158,16 +163,25 @@ type Options struct {
 	PendingMaxSets int
 	// Now es el reloj (tests).
 	Now func() time.Time
+	// OnTemplate se llama al definir (o retirar) una plantilla, en el hilo de
+	// Decode/Prepare. El collector la usa para guardarlas y reinstalarlas tras
+	// un reinicio (Install). La plantilla es inmutable.
+	OnTemplate func(src string, odid uint32, version uint16, t *Template, withdrawn bool)
 }
 
 // Decoder mantiene las plantillas por exportador. No es seguro para uso
-// concurrente: el collector usa un decodificador por trabajador y reparte
-// los datagramas por exportador.
+// concurrente: el collector usa un decodificador por trabajador (o por
+// carril) y reparte los datagramas por exportador. Para decodificar un mismo
+// exportador en varios hilos, Prepare hace en serie todo lo que toca estado
+// (cabecera, plantillas, conjuntos retenidos, opciones) y devuelve los
+// conjuntos de datos como Job independientes.
 type Decoder struct {
 	opts      Options
 	templates map[tkey]*Template
 	pending   map[string][]pendingSet
 	sampling  map[string]uint32
+	// plan no es nil durante Prepare: los conjuntos de datos se aplazan.
+	plan *Plan
 }
 
 // New crea un decodificador.
@@ -182,6 +196,26 @@ func New(o Options) *Decoder {
 		o.Now = time.Now
 	}
 	return &Decoder{opts: o, templates: map[tkey]*Template{}, pending: map[string][]pendingSet{}, sampling: map[string]uint32{}}
+}
+
+// SetOnTemplate cambia Options.OnTemplate (antes de usar el decodificador).
+func (d *Decoder) SetOnTemplate(fn func(src string, odid uint32, version uint16, t *Template, withdrawn bool)) {
+	d.opts.OnTemplate = fn
+}
+
+// Install reinstala una plantilla guardada (reinicio del collector) sin
+// esperar a que el exportador la reenvíe.
+func (d *Decoder) Install(src string, odid uint32, version uint16, t Template) error {
+	if t.ID < 256 || len(t.Fields) == 0 || len(t.Fields) > maxFieldsPerTemplate || (version != VersionIPFIX && version != VersionV9) {
+		return fmt.Errorf("%w: template %d", ErrMalformed, t.ID)
+	}
+	t.computeMin()
+	if t.minLen == 0 {
+		return fmt.Errorf("%w: template %d has zero length", ErrMalformed, t.ID)
+	}
+	t.Fields = append([]Field(nil), t.Fields...)
+	d.templates[tkey{src: src, odid: odid, version: version, id: t.ID}] = &t
+	return nil
 }
 
 // Sampling devuelve la tasa de muestreo anunciada por Options Template (0 si ninguna).
@@ -257,13 +291,7 @@ func (d *Decoder) Decode(src string, p []byte) (Result, error) {
 				d.hold(src, pendingSet{key: k, body: append([]byte(nil), set...), hdr: res.Header, arrived: d.opts.Now()}, &res)
 				continue
 			}
-			n, derr := d.dataSet(src, t, set, res.Header, &res.Records)
-			if t.Options {
-				res.OptionsRecords += n
-			} else {
-				res.DataRecords += n
-			}
-			err = derr
+			err = d.data(src, t, set, res.Header, &res, false)
 		default:
 			err = fmt.Errorf("%w: reserved set id %d", ErrMalformed, id)
 		}
@@ -326,16 +354,112 @@ func (d *Decoder) release(k tkey, t *Template, res *Result) {
 			kept = append(kept, ps)
 			continue
 		}
-		n, _ := d.dataSet(k.src, t, ps.body, ps.hdr, &res.Records)
-		if !t.Options {
-			res.DataRecords += n
-		}
+		_ = d.data(k.src, t, ps.body, ps.hdr, res, true)
 	}
 	if len(kept) == 0 {
 		delete(d.pending, k.src)
 	} else {
 		d.pending[k.src] = kept
 	}
+}
+
+// data decodifica un conjunto de datos de la plantilla t (released: era un
+// conjunto retenido que se libera al llegar su plantilla; sus errores se
+// ignoran). Durante Prepare los conjuntos de plantillas de datos de longitud
+// fija se aplazan como Job: no pueden fallar (cada registro ocupa minLen) y
+// no tocan el estado del decodificador. Los de opciones (muestreo) y los de
+// longitud variable (pueden fallar y cortar el datagrama) se decodifican en
+// serie igual que en Decode.
+func (d *Decoder) data(src string, t *Template, body []byte, h Header, res *Result, released bool) error {
+	if d.plan != nil && !t.Options {
+		j := &Job{t: t, body: body, hdr: h, dec: d}
+		var err error
+		if t.hasVarLen {
+			j.N, err = d.dataSet(src, t, body, h, &j.Records)
+			j.done = true
+		}
+		d.plan.Jobs = append(d.plan.Jobs, j)
+		if released {
+			return nil
+		}
+		return err
+	}
+	n, err := d.dataSet(src, t, body, h, &res.Records)
+	switch {
+	case released:
+		if !t.Options {
+			res.DataRecords += n
+		}
+		return nil
+	case t.Options:
+		res.OptionsRecords += n
+	default:
+		res.DataRecords += n
+	}
+	return err
+}
+
+// Job es un conjunto de datos aplazado por Prepare; Run lo decodifica y es
+// seguro en cualquier goroutine (la plantilla es inmutable y el cuerpo es
+// del datagrama o una copia retenida).
+type Job struct {
+	t       *Template
+	body    []byte
+	hdr     Header
+	dec     *Decoder
+	done    bool
+	Records []flowpb.FlowRecord
+	N       int
+}
+
+// Run decodifica el conjunto (idempotente).
+func (j *Job) Run() {
+	if j.done {
+		return
+	}
+	j.done = true
+	j.N, _ = j.dec.dataSet("", j.t, j.body, j.hdr, &j.Records) // longitud fija: no falla
+}
+
+// Plan es la parte serie de un datagrama (Prepare): cabecera, plantillas,
+// retenidos, opciones y la lista ordenada de conjuntos de datos.
+type Plan struct {
+	Result Result
+	Err    error
+	Jobs   []*Job
+	// Sampling es la tasa de muestreo del exportador tras el datagrama (lo
+	// que Sampling(src) devolvería después de Decode).
+	Sampling uint32
+}
+
+// Prepare hace la parte serie de Decode. Tras ejecutar (en cualquier orden y
+// goroutine) Run de cada Job, Finish devuelve exactamente lo mismo que
+// Decode: mismos registros en el mismo orden, mismos contadores y error.
+func (d *Decoder) Prepare(src string, p []byte) *Plan {
+	pl := &Plan{}
+	d.plan = pl
+	pl.Result, pl.Err = d.Decode(src, p)
+	d.plan = nil
+	pl.Sampling = d.sampling[src]
+	return pl
+}
+
+// Finish junta los registros de los Job en orden (todos deben haber
+// terminado).
+func (pl *Plan) Finish() (Result, error) {
+	res := pl.Result
+	n := 0
+	for _, j := range pl.Jobs {
+		n += len(j.Records)
+	}
+	if n > 0 {
+		res.Records = make([]flowpb.FlowRecord, 0, n)
+	}
+	for _, j := range pl.Jobs {
+		res.Records = append(res.Records, j.Records...)
+		res.DataRecords += j.N
+	}
+	return res, pl.Err
 }
 
 func (d *Decoder) templateSet(src string, res *Result, b []byte, options bool) error {
@@ -380,6 +504,9 @@ func (d *Decoder) templateSet(src string, res *Result, b []byte, options bool) e
 		if nfields == 0 && ver == VersionIPFIX { // retirada de plantilla (RFC 7011 §8.1)
 			delete(d.templates, k)
 			res.Templates++
+			if d.opts.OnTemplate != nil {
+				d.opts.OnTemplate(src, odid, ver, &Template{ID: t.ID, Options: options}, true)
+			}
 			continue
 		}
 		t.Fields = make([]Field, 0, nfields)
@@ -409,6 +536,9 @@ func (d *Decoder) templateSet(src string, res *Result, b []byte, options bool) e
 		tt := t
 		d.templates[k] = &tt
 		res.Templates++
+		if d.opts.OnTemplate != nil {
+			d.opts.OnTemplate(src, odid, ver, &tt, false)
+		}
 		d.release(k, &tt, res)
 		if options && ver == VersionV9 {
 			return nil // v9: el resto del conjunto de opciones es relleno

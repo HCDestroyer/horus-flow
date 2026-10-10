@@ -57,7 +57,10 @@ func (w *Writer) Insert(ctx context.Context, batchID string, rows []app.Row) err
 	if len(rows) == 0 {
 		return nil
 	}
-	ctx = ch.Context(ctx, ch.WithSettings(ch.Settings{"insert_deduplication_token": batchID, "insert_deduplicate": 1}))
+	ctx = ch.Context(ctx, ch.WithSettings(ch.Settings{"insert_deduplication_token": batchID, "insert_deduplicate": 1,
+		// Las vistas también se deduplican por el token: un INSERT interrumpido (kill -9) puede
+		// haber escrito ya sus bloques sin confirmar flows_raw (migración 20261010150000).
+		"deduplicate_blocks_in_dependent_materialized_views": 1}))
 	b, err := w.conn.PrepareBatch(ctx, w.stmt)
 	if err != nil {
 		return fmt.Errorf("prepare insert: %w", err)
