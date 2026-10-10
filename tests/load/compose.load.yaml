@@ -7,6 +7,8 @@
 # - Streams de flujos creados por los propios roles (HORUS_NATS_ENSURE_STREAMS, como en dev y en
 #   tests/flows) con TLM_FLOWS acotado a HORUS_LOAD_TLM_MAX_BYTES (1 GiB por defecto: el NATS de
 #   prueba usa tests/load/nats.load.conf). Es el búfer documentado de la prueba de fallo.
+# - Claves de auth fijas (firma de tokens y KEK de TOTP) generadas por stack.sh: en dev serían
+#   efímeras y el reinicio de horus-app de las pruebas de fallo invalidaría la sesión de prueba.
 # - /metrics del collector publicado en el host (horus-app ya publica su puerto de admin).
 # - Estado del exportador más rápido que en producción (silencioso a los 30 s en vez de 2 min)
 #   para que la prueba del colector caído 1 min quepa en el nocturno; el criterio no cambia.
@@ -23,8 +25,11 @@ services:
       HORUS_FLOWS_INVENTORY_FILE: /etc/horus-load/inventory.json
       HORUS_NATS_ENSURE_STREAMS: "true"
       HORUS_TLM_FLOWS_MAX_BYTES: ${HORUS_LOAD_TLM_MAX_BYTES:-1073741824}
+      HORUS_AUTH_SIGNING_KEY_FILE: /etc/horus-load-keys/auth_signing_key.pem
+      HORUS_AUTH_KEK_FILE: /etc/horus-load-keys/auth_kek.txt
     volumes:
       - ${HORUS_LOAD_INV_DIR:?falta HORUS_LOAD_INV_DIR}:/etc/horus-load:ro
+      - ${HORUS_LOAD_DIR:?falta HORUS_LOAD_DIR}/keys:/etc/horus-load-keys:ro
 
   horus-collector:
     environment:

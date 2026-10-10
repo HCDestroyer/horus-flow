@@ -71,6 +71,14 @@ case "${1:-}" in
     [ -f "$HORUS_LOAD_INV_DIR/inventory.json" ] || echo '{}' >"$HORUS_LOAD_INV_DIR/inventory.json"
     chmod 644 "$HORUS_LOAD_INV_DIR/inventory.json"
     bash scripts/dev-secrets.sh >/dev/null
+    # Claves de auth persistentes (en dev serían efímeras): las pruebas de fallo reinician
+    # horus-app y la sesión TOTP del superadministrador debe seguir valiendo. Solo de prueba.
+    keys="$HORUS_LOAD_DIR/keys"
+    mkdir -p "$keys"
+    chmod 755 "$keys"
+    [ -s "$keys/auth_signing_key.pem" ] || openssl genpkey -algorithm ed25519 -out "$keys/auth_signing_key.pem"
+    [ -s "$keys/auth_kek.txt" ] || openssl rand -hex 32 >"$keys/auth_kek.txt"
+    chmod 644 "$keys"/*
     if [ "${LOAD_SKIP_IMAGE:-0}" != 1 ] || ! docker image inspect "$HORUS_IMAGE" >/dev/null 2>&1; then
       ACCEPT_IMAGE="$HORUS_IMAGE" bash scripts/accept/image.sh
     fi
