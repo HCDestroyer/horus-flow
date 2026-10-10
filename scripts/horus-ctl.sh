@@ -19,6 +19,9 @@
 #   horus-ctl restore [--pg latest|ETIQUETA] [--ch latest|NOMBRE] [--yes]
 #                                    restaura PostgreSQL (pgBackRest) y/o ClickHouse en el sitio
 #   horus-ctl uninstall [--purge] [--yes]          desinstala (conserva datos salvo --purge)
+#   horus-ctl diagnose [--output FICHERO] [--since 24h] [ARGS…]
+#                                    paquete de diagnóstico (horus diagnose): logs, eventos de
+#                                    plataforma, versiones, NATS y salud, sin datos de clientes
 #   horus-ctl auto-update            (timer horus-autoupdate) aplica solo parches X.Y.Z del canal
 #   horus-ctl version | help
 #
@@ -223,6 +226,27 @@ do_logs() {
     case "$1" in -f | --follow) follow=(-f); shift ;; -n) n="$2"; shift 2 ;; *) svcs+=("$1"); shift ;; esac
   done
   exec "${compose[@]}" logs --tail "$n" "${follow[@]}" "${svcs[@]}"
+}
+
+# Paquete de diagnóstico: interfaz estable de `horus diagnose` (docs/observability.md §11.3).
+do_diagnose() {
+  local out="" args=()
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --output) out="$2"; shift 2 ;;
+      --output=*) out="${1#--output=}"; shift ;;
+      *) args+=("$1"); shift ;;
+    esac
+  done
+  [ -n "$out" ] || out="$PWD/horus-diagnose-$(date -u +%Y%m%dT%H%M%SZ).tar.gz"
+  local tmp="$out.partial"
+  if "${compose[@]}" run --rm --no-deps -T --user 0:0 -v /var/run/docker.sock:/var/run/docker.sock:ro \
+    horus-app diagnose --output=- "${args[@]}" >"$tmp"; then
+    mv "$tmp" "$out"; chmod 0600 "$out"
+    say "paquete de diagnóstico: $out (sin datos de clientes; revísalo antes de compartirlo)"
+  else
+    rm -f "$tmp"; die "horus diagnose no pudo generar el paquete"
+  fi
 }
 
 # --- Backups y restauración -----------------------------------------------------------------------
@@ -558,6 +582,7 @@ case "$cmd" in
   backup) do_backup "$@" ;;
   restore) take_lock; do_restore "$@" ;;
   uninstall) do_uninstall "$@" ;;
+  diagnose) do_diagnose "$@" ;;
   auto-update) do_auto_update ;;
   version) current_version; echo ;;
   *) echo "horus-ctl: orden desconocida: $cmd" >&2; usage 2 ;;

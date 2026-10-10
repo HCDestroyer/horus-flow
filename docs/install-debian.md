@@ -154,6 +154,7 @@ Todo se gestiona con una sola orden, `horus-ctl` (como root o con `sudo`):
 | `horus-ctl backup run` · `backup verify` · `backup status` | copias (apartado 9) |
 | `horus-ctl restore` | restaurar copias |
 | `horus-ctl uninstall` | desinstalar (apartado 10) |
+| `horus-ctl diagnose` | genera `horus-diagnose-<fecha>.tar.gz` para investigar un fallo: registros de todos los servicios, eventos de plataforma (arranques, caídas, migraciones, degradaciones), versiones y salud. Las IPs de clientes, correos y tokens salen enmascarados; revísalo antes de enviarlo a soporte. Detalle en [`observability.md`](observability.md) §11 |
 
 Horus arranca solo al encender el servidor (servicio `horus.service` de systemd).
 
