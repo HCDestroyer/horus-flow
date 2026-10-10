@@ -14,7 +14,7 @@ import (
 // runPlan decodifica un datagrama con Prepare y los Job en goroutines (en
 // orden inverso, para que el orden de ejecución no coincida con el de
 // llegada) y devuelve lo mismo que Decode.
-func runPlan(d *Decoder, src string, p []byte) (Result, error, uint32) {
+func runPlan(d *Decoder, src string, p []byte) (Result, uint32, error) {
 	pl := d.Prepare(src, p)
 	var wg sync.WaitGroup
 	for i := len(pl.Jobs) - 1; i >= 0; i-- {
@@ -23,7 +23,7 @@ func runPlan(d *Decoder, src string, p []byte) (Result, error, uint32) {
 	}
 	wg.Wait()
 	res, err := pl.Finish()
-	return res, err, pl.Sampling
+	return res, pl.Sampling, err
 }
 
 func errString(err error) string {
@@ -45,7 +45,7 @@ func equivalent(t *testing.T, srcs []string, ds [][]byte) {
 	for i, p := range ds {
 		src := srcs[i%len(srcs)]
 		want, werr := serial.Decode(src, p)
-		got, gerr, samp := runPlan(planned, src, p)
+		got, samp, gerr := runPlan(planned, src, p)
 		if errString(werr) != errString(gerr) {
 			t.Fatalf("datagram %d: error %q, Decode %q", i, gerr, werr)
 		}
@@ -90,7 +90,7 @@ func equivalentPerDatagram(t *testing.T, srcs []string, ds [][]byte) {
 	planned := New(Options{})
 	for i, p := range ds {
 		want, werr := serial.Decode(srcs[i], p)
-		got, gerr, _ := runPlan(planned, srcs[i], p)
+		got, _, gerr := runPlan(planned, srcs[i], p)
 		if errString(werr) != errString(gerr) || len(want.Records) != len(got.Records) || want.DataRecords != got.DataRecords ||
 			want.Templates != got.Templates || want.Pending != got.Pending || want.DroppedNoTemplate != got.DroppedNoTemplate {
 			t.Fatalf("datagram %d differs", i)
