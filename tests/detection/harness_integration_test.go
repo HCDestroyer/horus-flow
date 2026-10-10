@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/hcdestroyer/horus-flow/packages/go/authz"
 	"github.com/hcdestroyer/horus-flow/packages/go/chmigrate"
@@ -296,6 +297,47 @@ func (w *world) replay(path string, d time.Duration, want int) {
 	}
 	if int(n) != want {
 		w.t.Fatalf("flows_raw rows = %d, want %d", n, want)
+	}
+	w.waitIngested()
+}
+
+// waitIngested espera a que el ingester confirme todos los lotes. Las filas de
+// flows_raw se ven antes de que el mismo INSERT termine de escribir las vistas
+// materializadas (client_security_1m, client_port_1m…), y el ingester confirma
+// el lote en JetStream solo cuando el INSERT ha vuelto: evaluar con el recuento
+// de flows_raw completo pero sin confirmar daba hallazgos a medias (fallos
+// intermitentes de scan, fanout, spam y dos_out en go-integration).
+func (w *world) waitIngested() {
+	w.t.Helper()
+	var url string
+	for _, kv := range w.env {
+		if v, ok := strings.CutPrefix(kv, "HORUS_NATS_URL="); ok {
+			url = v
+		}
+	}
+	nc, err := nats.Connect(url)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	defer nc.Close()
+	js, err := jetstream.New(nc)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	for {
+		c, err := js.Consumer(ctx, flowbus.StreamTelemetry, flowbus.ConsumerIngester)
+		if err == nil {
+			if ci := c.CachedInfo(); ci.NumPending == 0 && ci.NumAckPending == 0 {
+				return
+			}
+		}
+		select {
+		case <-ctx.Done():
+			w.t.Fatalf("el ingester no confirmó los lotes: %v", err)
+		case <-time.After(100 * time.Millisecond):
+		}
 	}
 }
 
