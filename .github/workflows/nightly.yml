@@ -285,11 +285,13 @@ jobs:
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           package_json_file: apps/frontend/package.json
-      - name: Herramientas (golangci-lint, wireguard-tools, wireguard-go, shellcheck)
+      # shellcheck: lo pone accept-i1.sh (imagen koalaman/shellcheck fijada, la misma que en local);
+      # el de apt de Ubuntu 24.04 es otra versión con otras reglas (SC2015 en la run 38042743182).
+      - name: Herramientas (golangci-lint, wireguard-tools, wireguard-go)
         run: |
           go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}"
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-          sudo apt-get update -q && sudo apt-get install -yq wireguard-tools shellcheck
+          sudo apt-get update -q && sudo apt-get install -yq wireguard-tools
           sudo apt-get install -yq wireguard-go || true
       - name: Navegadores de Playwright
         working-directory: apps/frontend
@@ -303,6 +305,11 @@ jobs:
           ACCEPT_IMAGE_MODE: dockerfile
           ACCEPT_SKIP: lab-chr
         run: sudo -E env "PATH=$PATH" "HOME=$HOME" make accept-i1
+      # La batería corre como root y bin/accept-i1/sim es 0700 (claves de los routers simulados):
+      # sin esto upload-artifact (usuario runner) falla con EACCES y no sube ningún log.
+      - name: Logs legibles por el runner
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" bin/accept-i1 2>/dev/null || true
       - name: Logs de la batería
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

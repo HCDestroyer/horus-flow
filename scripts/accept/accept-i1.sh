@@ -142,11 +142,16 @@ s_lint() {
   local lint="${GOLANGCI_LINT:-golangci-lint}"
   command -v "$lint" >/dev/null 2>&1 || [ -x "$lint" ] || skip "sin golangci-lint (GOLANGCI_LINT)"
   "$lint" run --build-tags acceptance ./tests/acceptance/... || return 1
+  # shellcheck fijado (la misma versión en local y en el nocturno; SHELLCHECK=shellcheck usa el del
+  # PATH). Sin él el paso falla: no se da por bueno un lint que no se ha ejecutado.
   local sc="koalaman/shellcheck:v0.11.0"
-  if command -v shellcheck >/dev/null 2>&1; then
-    shellcheck scripts/accept/accept-i1.sh scripts/accept/sim-router.sh || return 1
-  elif docker image inspect "$sc" >/dev/null 2>&1; then
+  if [ -n "${SHELLCHECK:-}" ]; then
+    "$SHELLCHECK" scripts/accept/accept-i1.sh scripts/accept/sim-router.sh || return 1
+  elif docker image inspect "$sc" >/dev/null 2>&1 || docker pull -q "$sc" >/dev/null; then
     docker run --rm -v "$repo_root/scripts/accept:/s:ro" "$sc" /s/accept-i1.sh /s/sim-router.sh || return 1
+  else
+    echo "lint: sin shellcheck (imagen $sc o SHELLCHECK=ruta)" >&2
+    return 1
   fi
 }
 
