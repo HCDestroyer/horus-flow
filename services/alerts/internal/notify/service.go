@@ -16,9 +16,11 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/authz"
 	"github.com/hcdestroyer/horus-flow/packages/go/crypto/envelope"
 	"github.com/hcdestroyer/horus-flow/packages/go/natsx"
+	"github.com/hcdestroyer/horus-flow/packages/go/observability"
 	"github.com/hcdestroyer/horus-flow/packages/go/outbox"
 	"github.com/hcdestroyer/horus-flow/packages/go/pagination"
 	"github.com/hcdestroyer/horus-flow/packages/go/pgdb"
+	"github.com/hcdestroyer/horus-flow/packages/go/platformevents"
 	"github.com/hcdestroyer/horus-flow/packages/go/problem"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
 )
@@ -46,8 +48,12 @@ type Service struct {
 	baseURL string
 	now     func() time.Time
 	logger  *slog.Logger
-	// async ejecuta los envíos de prueba (en tests, síncrono).
-	async func(func())
+	// kick despierta al despachador de la cola al encolar.
+	kick chan struct{}
+	// Reintentos de la cola persistente.
+	maxAttempts int
+	backoff     []time.Duration
+	lease       time.Duration
 }
 
 // NewService crea el servicio.
@@ -61,7 +67,41 @@ func NewService(st *Store, sealer *envelope.Sealer, senders *Senders, cursor *pa
 		audit = func() (authapi.AuditRecorder, bool) { return nil, false }
 	}
 	return &Service{st: st, sealer: sealer, senders: senders, cursor: cursor, audit: audit, baseURL: strings.TrimRight(baseURL, "/"),
-		now: time.Now, logger: logger, async: func(f func()) { go f() }}
+		now: time.Now, logger: logger, kick: make(chan struct{}, 1), maxAttempts: DefaultMaxAttempts, backoff: DefaultBackoff,
+		lease: DefaultLease}
+}
+
+// Reintentos de la cola persistente de entregas (D23): 8 intentos en ~2 h
+// (30 s, 1, 2, 5, 10, 30 y 60 min). Un fallo definitivo emite
+// notification.failed y un evento de plataforma alert_delivery_failed.
+var (
+	DefaultMaxAttempts = 8
+	DefaultBackoff     = []time.Duration{30 * time.Second, time.Minute, 2 * time.Minute, 5 * time.Minute, 10 * time.Minute,
+		30 * time.Minute, time.Hour}
+	// DefaultLease es el plazo de una entrega reclamada (> timeout de envío):
+	// si el proceso muere enviando, al vencer otra pasada la retoma.
+	DefaultLease = 2 * time.Minute
+)
+
+// SetRetry ajusta los reintentos (tests y pruebas de caos).
+func (s *Service) SetRetry(maxAttempts int, backoff []time.Duration, lease time.Duration) {
+	if maxAttempts > 0 {
+		s.maxAttempts = maxAttempts
+	}
+	if len(backoff) > 0 {
+		s.backoff = backoff
+	}
+	if lease > 0 {
+		s.lease = lease
+	}
+}
+
+// Kick despierta al despachador.
+func (s *Service) Kick() {
+	select {
+	case s.kick <- struct{}{}:
+	default:
+	}
 }
 
 func (s *Service) ts() time.Time { return s.now().UTC() }
@@ -535,6 +575,7 @@ func (s *Service) HandleEvent(ctx context.Context, msg *natsx.Message) error {
 	}
 	resource := eventResource(env.Type, data)
 	var errs []error
+	queued := 0
 	for i := range channels {
 		c := &channels[i]
 		if !matches(c, eventType, sev, site) {
@@ -542,24 +583,107 @@ func (s *Service) HandleEvent(ctx context.Context, msg *natsx.Message) error {
 		}
 		evID := env.ID
 		srcType := env.Type
+		msgCopy, sevCopy := m, sev
 		d := &Delivery{ID: uuid.Must(uuid.NewV7()), TenantID: t.UUID(), ChannelID: c.ID, ChannelKind: c.Kind, Status: deliveryQueued,
-			EventType: &eventType, SourceEventType: &srcType, SourceEventID: &evID, ResourceID: &resource, CreatedAt: s.ts()}
+			EventType: &eventType, SourceEventType: &srcType, SourceEventID: &evID, ResourceID: &resource, CreatedAt: s.ts(),
+			Message: &msgCopy, Severity: &sevCopy, TraceParent: env.TraceParent}
 		inserted, err := s.st.queueDelivery(ctx, t, d, c.Subscription.Throttle())
 		if err != nil {
 			errs = append(errs, err)
 			continue
 		}
-		if !inserted || d.Status == deliveryThrottled {
-			continue
+		if inserted && d.Status == deliveryQueued {
+			queued++
 		}
-		s.deliver(ctx, t, c, d, m, sev)
 	}
+	if queued > 0 {
+		s.Kick()
+	}
+	// El mensaje NATS se confirma cuando las entregas están en la cola de
+	// PostgreSQL: el envío (con reintentos) es del despachador, así que un
+	// reinicio no pierde ni duplica avisos (events.md §7, D23).
 	return errors.Join(errs...)
 }
 
-// deliver envía y registra el resultado (notification.sent|failed).
+// RunDispatcher vacía la cola persistente de entregas hasta que ctx se
+// cancela: reclama las vencidas por lease, envía y registra el resultado o
+// reprograma con backoff. Tras un reinicio retoma las pendientes y las
+// reclamadas por el proceso anterior (al vencer su plazo).
+func (s *Service) RunDispatcher(ctx context.Context, every time.Duration) {
+	if every <= 0 {
+		every = 5 * time.Second
+	}
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		for ctx.Err() == nil {
+			n, err := s.DispatchOnce(ctx, 20)
+			if err != nil {
+				if ctx.Err() == nil {
+					s.logger.WarnContext(ctx, "alerts dispatcher: claim failed", slog.Any("error", err))
+				}
+				break
+			}
+			if n < 20 {
+				break
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		case <-s.kick:
+		}
+	}
+}
+
+// DispatchOnce reclama y envía hasta limit entregas vencidas; devuelve
+// cuántas reclamó.
+func (s *Service) DispatchOnce(ctx context.Context, limit int) (int, error) {
+	due, err := s.st.claimDue(ctx, limit, s.lease)
+	if err != nil {
+		return 0, err
+	}
+	for i := range due {
+		d := &due[i]
+		t := pgdb.TenantID(d.TenantID)
+		dctx := observability.WithTenant(ctx, d.TenantID.String())
+		if d.TraceParent != nil {
+			if tid, sid, ok := observability.ParseTraceParent(*d.TraceParent); ok {
+				dctx = observability.WithTrace(dctx, tid, sid)
+			}
+		}
+		c, err := s.st.getChannel(dctx, t, d.ChannelID)
+		if err != nil {
+			if errors.Is(err, errNotFound) {
+				continue // canal borrado: la entrega se borró en cascada
+			}
+			s.logger.WarnContext(dctx, "alerts dispatcher: channel unavailable", slog.String("delivery_id", d.ID.String()), slog.Any("error", err))
+			continue // el lease vence y se reintenta
+		}
+		m, sev := Message{Subject: "Horus"}, "info"
+		if d.Message != nil {
+			m = *d.Message
+		}
+		if d.Severity != nil {
+			sev = *d.Severity
+		}
+		s.deliver(dctx, t, c, d, m, sev)
+	}
+	return len(due), nil
+}
+
+// QueueStats devuelve el estado de la cola de entregas (diagnóstico).
+func (s *Service) QueueStats(ctx context.Context) (QueueStats, error) { return s.st.queueStats(ctx) }
+
+// deliver envía y registra el resultado (notification.sent|failed) o, si
+// quedan intentos, devuelve la entrega a la cola con backoff.
 func (s *Service) deliver(ctx context.Context, t pgdb.TenantID, c *Channel, d *Delivery, m Message, severity string) {
 	cr, err := s.credentials(c)
+	if err == nil && !c.Enabled && !d.IsTest {
+		err = errors.New("channel disabled")
+		d.Attempts = max(d.Attempts, s.maxAttempts) // no se reintenta
+	}
 	if err == nil {
 		sctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		switch c.Kind {
@@ -586,10 +710,34 @@ func (s *Service) deliver(ctx context.Context, t pgdb.TenantID, c *Channel, d *D
 	typ := "horus.alerts.notification.sent"
 	d.Status, d.SentAt = deliverySent, &now
 	status := statusOK
+	bg := context.WithoutCancel(ctx)
 	if err != nil {
-		typ, d.Status, d.SentAt, d.Error = "horus.alerts.notification.failed", deliveryFailed, nil, truncate(err.Error())
+		d.Error = truncate(err.Error())
+		errText := ""
+		if d.Error != nil {
+			errText = *d.Error
+		}
+		if d.Attempts < s.maxAttempts {
+			wait := s.backoff[min(max(d.Attempts-1, 0), len(s.backoff)-1)]
+			s.logger.WarnContext(ctx, "notification failed; retry scheduled", slog.String("delivery_id", d.ID.String()),
+				slog.String("channel_id", c.ID.String()), slog.String("kind", c.Kind), slog.Int("attempt", d.Attempts),
+				slog.Duration("retry_in", wait), slog.String("error", errText))
+			if rerr := s.st.retryDelivery(bg, t, d, now.Add(wait)); rerr != nil {
+				s.logger.ErrorContext(ctx, "delivery retry not recorded (lease expiry will retry)", slog.Any("error", rerr))
+			}
+			_ = s.st.recordStatus(bg, t, c.ID, statusFailing, d.Error, false)
+			return
+		}
+		typ, d.Status, d.SentAt = "horus.alerts.notification.failed", deliveryFailed, nil
 		status = statusFailing
-		s.logger.WarnContext(ctx, "notification failed", slog.String("channel_id", c.ID.String()), slog.String("kind", c.Kind))
+		s.logger.ErrorContext(ctx, "notification failed permanently", slog.String("delivery_id", d.ID.String()),
+			slog.String("channel_id", c.ID.String()), slog.String("kind", c.Kind), slog.Int("attempts", d.Attempts),
+			slog.String("error", errText))
+		tid := t.UUID()
+		platformevents.Emit(ctx, platformevents.Event{Kind: platformevents.KindAlertDeliveryFailed, Severity: platformevents.SeverityWarn,
+			Role: "alerts", TenantID: &tid, Message: "notification delivery failed after retries",
+			Details: map[string]any{"delivery_id": d.ID.String(), "channel_id": c.ID.String(), "channel_kind": c.Kind,
+				"attempts": d.Attempts, "error": errText}})
 	}
 	tid := t.UUID()
 	ev := outbox.Event{Type: typ, Source: notificationChannelEventSrc, TenantID: &tid, AggregateType: "notification", AggregateID: d.ID,
@@ -598,7 +746,6 @@ func (s *Service) deliver(ctx context.Context, t pgdb.TenantID, c *Channel, d *D
 			"source_event_type": d.SourceEventType, "source_event_id": d.SourceEventID, "is_test": d.IsTest, "error": d.Error,
 			"occurred_at": now.Format("2006-01-02T15:04:05.000Z"),
 		}}
-	bg := context.WithoutCancel(ctx)
 	if err := s.st.finishDelivery(bg, t, d, []outbox.Event{ev}); err != nil {
 		s.logger.ErrorContext(ctx, "delivery not recorded", slog.Any("error", err))
 	}
@@ -611,18 +758,17 @@ func (s *Service) Test(ctx context.Context, id uuid.UUID) (*Delivery, error) {
 	if err != nil {
 		return nil, err
 	}
-	d := &Delivery{ID: uuid.Must(uuid.NewV7()), TenantID: t.UUID(), ChannelID: c.ID, ChannelKind: c.Kind, Status: deliveryQueued,
-		IsTest: true, CreatedAt: s.ts()}
-	if _, err := s.st.queueDelivery(ctx, t, d, 0); err != nil {
-		return nil, err
-	}
 	m := Message{Subject: "Notificación de prueba", Text: "Este canal de Horus Flow está bien configurado."}
 	if s.baseURL != "" {
 		m.Link = s.baseURL
 	}
-	bg := context.WithoutCancel(ctx)
-	cp := *d
-	s.async(func() { s.deliver(bg, t, c, &cp, m, "info") })
+	info := "info"
+	d := &Delivery{ID: uuid.Must(uuid.NewV7()), TenantID: t.UUID(), ChannelID: c.ID, ChannelKind: c.Kind, Status: deliveryQueued,
+		IsTest: true, CreatedAt: s.ts(), Message: &m, Severity: &info}
+	if _, err := s.st.queueDelivery(ctx, t, d, 0); err != nil {
+		return nil, err
+	}
+	s.Kick() // lo envía el despachador (sobrevive a un reinicio entre el 202 y el envío)
 	return d, nil
 }
 

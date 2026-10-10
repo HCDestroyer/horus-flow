@@ -161,15 +161,17 @@ func (s *Store) recordStatus(ctx context.Context, t pgdb.TenantID, id uuid.UUID,
 }
 
 // queueDelivery registra una entrega de forma idempotente (canal, evento
-// origen). throttled = true si hubo otra del mismo (canal, tipo, recurso)
-// en la ventana. Devuelve false si ya existía.
+// origen) en la cola persistente (status queued, con el mensaje ya
+// renderizado). throttled = true si hubo otra del mismo (canal, tipo,
+// recurso) enviada o en cola dentro de la ventana. Devuelve false si ya
+// existía (reentrega del mismo evento: no se duplica el aviso).
 func (s *Store) queueDelivery(ctx context.Context, t pgdb.TenantID, d *Delivery, throttle time.Duration) (bool, error) {
 	inserted := false
 	err := s.db.TenantTx(ctx, t, func(tx pgx.Tx) error {
 		if throttle > 0 && d.ResourceID != nil && !d.IsTest {
 			var recent bool
 			if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM alerts.notification_delivery WHERE tenant_id = $1 AND channel_id = $2
-				AND event_type = $3 AND resource_id = $4 AND status = 'sent' AND created_at > now() - $5::interval)`,
+				AND event_type = $3 AND resource_id = $4 AND status IN ('sent', 'queued') AND created_at > now() - $5::interval)`,
 				t.UUID(), d.ChannelID, d.EventType, d.ResourceID, fmt.Sprintf("%d seconds", int(throttle.Seconds()))).Scan(&recent); err != nil {
 				return fmt.Errorf("alerts: throttle: %w", err)
 			}
@@ -177,10 +179,16 @@ func (s *Store) queueDelivery(ctx context.Context, t pgdb.TenantID, d *Delivery,
 				d.Status = deliveryThrottled
 			}
 		}
+		var msg []byte
+		if d.Message != nil {
+			msg, _ = json.Marshal(d.Message)
+		}
 		tag, err := tx.Exec(ctx, `INSERT INTO alerts.notification_delivery (id, tenant_id, channel_id, channel_kind, status, event_type,
-			source_event_type, source_event_id, resource_id, is_test, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			source_event_type, source_event_id, resource_id, is_test, created_at, message, severity, trace_parent, next_attempt_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $11)
 			ON CONFLICT (channel_id, source_event_id) WHERE source_event_id IS NOT NULL DO NOTHING`,
-			d.ID, t.UUID(), d.ChannelID, d.ChannelKind, d.Status, d.EventType, d.SourceEventType, d.SourceEventID, d.ResourceID, d.IsTest, d.CreatedAt)
+			d.ID, t.UUID(), d.ChannelID, d.ChannelKind, d.Status, d.EventType, d.SourceEventType, d.SourceEventID, d.ResourceID, d.IsTest,
+			d.CreatedAt, msg, d.Severity, d.TraceParent)
 		if err != nil {
 			return fmt.Errorf("alerts: queue delivery: %w", err)
 		}
@@ -190,15 +198,85 @@ func (s *Store) queueDelivery(ctx context.Context, t pgdb.TenantID, d *Delivery,
 	return inserted, err
 }
 
-// finishDelivery marca el resultado y emite notification.sent|failed.
+// claimDue reclama hasta limit entregas vencidas de la cola (todas las
+// tenants: rol de plataforma) por lease: attempts + 1 y claimed_until =
+// now + lease. Una entrega reclamada por un proceso que muere vuelve a
+// estar disponible al vencer el plazo. SKIP LOCKED permite varias réplicas.
+func (s *Store) claimDue(ctx context.Context, limit int, lease time.Duration) ([]Delivery, error) {
+	var out []Delivery
+	err := s.db.PlatformTx(ctx, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `UPDATE alerts.notification_delivery d SET attempts = d.attempts + 1,
+			claimed_until = now() + $2::interval
+			WHERE d.id IN (SELECT id FROM alerts.notification_delivery WHERE status = 'queued'
+				AND coalesce(next_attempt_at, created_at) <= now() AND (claimed_until IS NULL OR claimed_until < now())
+				ORDER BY coalesce(next_attempt_at, created_at), id LIMIT $1 FOR UPDATE SKIP LOCKED)
+			RETURNING d.id, d.tenant_id, d.channel_id, d.channel_kind, d.status, d.event_type, d.source_event_type, d.source_event_id,
+				d.resource_id, d.is_test, d.created_at, d.attempts, d.message, d.severity, d.trace_parent`,
+			limit, fmt.Sprintf("%d seconds", int(lease.Seconds())))
+		if err != nil {
+			return fmt.Errorf("alerts: claim deliveries: %w", err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var d Delivery
+			var msg []byte
+			if err := rows.Scan(&d.ID, &d.TenantID, &d.ChannelID, &d.ChannelKind, &d.Status, &d.EventType, &d.SourceEventType,
+				&d.SourceEventID, &d.ResourceID, &d.IsTest, &d.CreatedAt, &d.Attempts, &msg, &d.Severity, &d.TraceParent); err != nil {
+				return fmt.Errorf("alerts: scan claimed delivery: %w", err)
+			}
+			if len(msg) > 0 {
+				var m Message
+				if json.Unmarshal(msg, &m) == nil {
+					d.Message = &m
+				}
+			}
+			out = append(out, d)
+		}
+		return rows.Err()
+	})
+	return out, err
+}
+
+// retryDelivery devuelve la entrega a la cola para otro intento en next.
+func (s *Store) retryDelivery(ctx context.Context, t pgdb.TenantID, d *Delivery, next time.Time) error {
+	return s.db.TenantTx(ctx, t, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `UPDATE alerts.notification_delivery SET status = 'queued', error = $3, next_attempt_at = $4,
+			claimed_until = NULL WHERE tenant_id = $1 AND id = $2`, t.UUID(), d.ID, d.Error, next); err != nil {
+			return fmt.Errorf("alerts: retry delivery: %w", err)
+		}
+		return nil
+	})
+}
+
+// finishDelivery marca el resultado final y emite notification.sent|failed.
 func (s *Store) finishDelivery(ctx context.Context, t pgdb.TenantID, d *Delivery, ev []outbox.Event) error {
 	return s.db.TenantTx(ctx, t, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `UPDATE alerts.notification_delivery SET status = $3, error = $4, sent_at = $5 WHERE tenant_id = $1 AND id = $2`,
-			t.UUID(), d.ID, d.Status, d.Error, d.SentAt); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE alerts.notification_delivery SET status = $3, error = $4, sent_at = $5, claimed_until = NULL,
+			next_attempt_at = NULL WHERE tenant_id = $1 AND id = $2`, t.UUID(), d.ID, d.Status, d.Error, d.SentAt); err != nil {
 			return fmt.Errorf("alerts: finish delivery: %w", err)
 		}
 		return emit(ctx, tx, ev)
 	})
+}
+
+// QueueStats resume la cola (diagnóstico y métricas).
+type QueueStats struct {
+	Queued       int
+	OldestQueued *time.Time
+	Retrying     int
+}
+
+// queueStats devuelve el estado de la cola de todas las tenants.
+func (s *Store) queueStats(ctx context.Context) (QueueStats, error) {
+	var st QueueStats
+	err := s.db.PlatformTx(ctx, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx, `SELECT count(*), min(created_at), count(*) FILTER (WHERE attempts > 0)
+			FROM alerts.notification_delivery WHERE status = 'queued'`).Scan(&st.Queued, &st.OldestQueued, &st.Retrying); err != nil {
+			return fmt.Errorf("alerts: queue stats: %w", err)
+		}
+		return nil
+	})
+	return st, err
 }
 
 // DeliveryQuery filtra GET /notification-deliveries.

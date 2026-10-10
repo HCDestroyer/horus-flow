@@ -21,9 +21,9 @@ import (
 
 // Message es una notificación lista para enviar (sin secretos).
 type Message struct {
-	Subject string
-	Text    string
-	Link    string
+	Subject string `json:"subject"`
+	Text    string `json:"text"`
+	Link    string `json:"link,omitempty"`
 }
 
 // SMTPConfig es el SMTP de la instalación (HORUS_SMTP_*).
