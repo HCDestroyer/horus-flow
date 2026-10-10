@@ -36,6 +36,7 @@ dorado (`tests/flows`), laboratorio y fixtures del simulador.
 | `HORUS_FLOWS_INVENTORY_FILE` | — | Inventario base (YAML/JSON, `packages/go/flowinv`); con NATS se completa con DEVICES_EVENTS |
 | `HORUS_COLLECTOR_BATCH_MAX_RECORDS` / `_BATCH_MAX_AGE` | 500 / 1s | Corte de lotes |
 | `HORUS_COLLECTOR_BUFFER_BYTES` | 256 MiB | Búfer ante caída del bus |
+| `HORUS_COLLECTOR_UDP_RCVBUF` | 32 MiB | Búfer de recepción de cada socket UDP; el kernel lo limita a `net.core.rmem_max` (avisa en el log) salvo con `CAP_NET_ADMIN` |
 | `HORUS_COLLECTOR_PENDING_TTL` | 30s | Retención de datos sin plantilla |
 | `HORUS_COLLECTOR_SILENT_AFTER`, `_LOSS_THRESHOLD`, `_LOSS_WINDOW`, `_CLOCK_SKEW` | 2m, 0.01, 5m, 30s | Estado del exportador |
 | `HORUS_NATS_ENSURE_STREAMS` | false | Crea TLM_FLOWS/FLOWS_EVENTS si faltan (dev/tests) |
