@@ -86,7 +86,7 @@ func diagnose(ctx context.Context, args, environ []string, stdout, stderr io.Wri
 	o := diagOpts{}
 	fs.StringVar(&o.output, "output", "", `bundle path ("-" = stdout; default horus-diagnose-<UTC time>.tar.gz)`)
 	fs.DurationVar(&o.since, "since", 24*time.Hour, "logs and platform events of this period")
-	fs.StringVar(&o.project, "compose-project", "", "docker compose project (default $COMPOSE_PROJECT_NAME or horus)")
+	fs.StringVar(&o.project, "compose-project", "", "docker compose project (default $COMPOSE_PROJECT_NAME, the project of this container, or horus)")
 	fs.StringVar(&o.docker, "docker", "auto", "collect container logs and state through the docker socket: auto|on|off")
 	fs.StringVar(&o.dockerSocket, "docker-socket", "/var/run/docker.sock", "docker API unix socket")
 	fs.IntVar(&o.tail, "tail", 20000, "max log lines per container")
@@ -117,9 +117,6 @@ func diagnose(ctx context.Context, args, environ []string, stdout, stderr io.Wri
 	}
 	if o.project == "" {
 		o.project = cfg.ComposeProject
-	}
-	if o.project == "" {
-		o.project = "horus"
 	}
 	out := stdout
 	path := o.output
@@ -687,6 +684,18 @@ func diagDocker(ctx context.Context, b *bundle, o diagOpts) error {
 		return fmt.Errorf("docker socket: %w", err)
 	}
 	d := newDockerAPI(o.dockerSocket)
+	if o.project == "" {
+		// Dentro de un contenedor del compose (docker compose run/exec): el
+		// proyecto es la etiqueta del propio contenedor (hostname = id).
+		if h, err := os.Hostname(); err == nil {
+			if st, err := d.inspect(ctx, h); err == nil {
+				o.project, _ = st["compose_project"].(string)
+			}
+		}
+	}
+	if o.project == "" {
+		o.project = "horus"
+	}
 	cs, err := d.containers(ctx, o.project)
 	if err != nil {
 		return err

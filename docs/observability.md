@@ -556,7 +556,7 @@ cambios incompatibles suben `format_version` del `manifest.json`):
 
 ```text
 horus diagnose [--output=RUTA|-] [--since=24h] [--docker=auto|on|off] [--docker-socket=/var/run/docker.sock]
-               [--compose-project=horus] [--tail=20000] [--logs-dir=DIR] [--keep-cidr=CIDR,...]
+               [--compose-project=PROYECTO] [--tail=20000] [--logs-dir=DIR] [--keep-cidr=CIDR,...]
                [--admin-urls=http://horus-app:8081,http://horus-collector:8081] [--events=5000] [--timeout=2m]
 ```
 

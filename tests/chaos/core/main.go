@@ -209,7 +209,8 @@ func (r *run) setup(ctx context.Context) error {
 		return err
 	}
 	jar, _ := cookiejar.New(nil)
-	api.HTTP = &http.Client{Timeout: 30 * time.Second, Jar: jar}
+	// Como el navegador: Origin de la instalación en cada petición (kiosco, refresh y WebSocket lo exigen).
+	api.HTTP = &http.Client{Timeout: 30 * time.Second, Jar: jar, Transport: originTransport{origin: strings.TrimRight(r.c.base, "/")}}
 	r.api = api
 	b, err := os.ReadFile("tools/flowsim/fixtures/sim/scan/ipfix.expected.json")
 	if err != nil {
@@ -449,7 +450,8 @@ func (r *run) testNotifications(ctx context.Context) {
 		case <-t.C:
 		}
 		cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		resp, err := r.api.TenantDo(cctx, loadkit.Call{Method: http.MethodPost, Path: "/api/v1/notification-channels/" + r.channel + "/test"})
+		resp, err := r.api.TenantDo(cctx, loadkit.Call{Method: http.MethodPost, Path: "/api/v1/notification-channels/" + r.channel + "/test",
+			Header: map[string]string{"Idempotency-Key": uuid.NewString()}})
 		cancel()
 		if err == nil && resp.Status == http.StatusAccepted {
 			if id := resp.Str("id"); id != "" {
@@ -477,7 +479,8 @@ func (r *run) wsSession(ctx context.Context) error {
 	}
 	u := "ws" + strings.TrimPrefix(r.c.base, "http") + "/api/v1/ws?ticket=" + tk.Str("ticket")
 	dctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	c, _, err := websocket.Dial(dctx, u, &websocket.DialOptions{Subprotocols: []string{"horus.ws.v1"}})
+	c, _, err := websocket.Dial(dctx, u, &websocket.DialOptions{Subprotocols: []string{"horus.ws.v1"},
+		HTTPHeader: http.Header{"Origin": []string{strings.TrimRight(r.c.base, "/")}}})
 	cancel()
 	if err != nil {
 		return err
@@ -556,9 +559,9 @@ func (r *run) scenario(ctx context.Context, round int, sc string) scenarioResult
 	check("container_healthy", 4*time.Minute, func() error { return r.healthy(ctx, svc) })
 	check("app_healthy", 4*time.Minute, func() error { return r.healthy(ctx, "horus-app") })
 	check("api", 2*time.Minute, func() error {
-		resp, err := r.api.Do(ctx, loadkit.Call{Method: http.MethodGet, Path: "/api/v1/system/status"})
+		resp, err := r.api.TenantDo(ctx, loadkit.Call{Method: http.MethodGet, Path: "/api/v1/system/status"})
 		if err != nil || resp.Status != 200 {
-			return fmt.Errorf("system/status: %v %d", err, resp.Status)
+			return fmt.Errorf("system/status: %v %d %s", err, resp.Status, trunc(resp.Raw))
 		}
 		return nil
 	})
@@ -792,7 +795,20 @@ func (r *run) verify(ctx context.Context) bool {
 		}
 	}
 
-	// Hallazgos: los esperados del escenario scan, sin duplicados activos.
+	// Hallazgos: los esperados del escenario scan (el motor evalúa con 2 min de
+	// retraso ventanas de 5 min: se espera hasta 12 min), sin duplicados activos.
+	_ = eventually(ctx, 12*time.Minute, 15*time.Second, func() error {
+		got, err := r.psql(ctx, "SELECT host(address)||'|'||kind FROM detection.finding WHERE tenant_id='"+r.tenant+"'")
+		if err != nil {
+			return err
+		}
+		for _, f := range r.scanExp.Findings {
+			if !strings.Contains(got, clientHost(f.Client)+"|"+f.Kind) {
+				return fmt.Errorf("falta %s|%s", f.Client, f.Kind)
+			}
+		}
+		return nil
+	})
 	dups, err := r.psql(ctx, "SELECT count(*) FROM (SELECT customer_id, kind, target_type, target_value FROM detection.finding WHERE tenant_id='"+r.tenant+
 		"' AND state IN ('open','acknowledged') GROUP BY 1,2,3,4 HAVING count(*)>1) d")
 	if err != nil {
@@ -875,7 +891,8 @@ func (r *run) diagnose(ctx context.Context) error {
 	}
 	cmd := exec.CommandContext(ctx, "docker", "compose", "--project-directory", r.c.installDir, "-f", filepath.Join(r.c.installDir, "compose.yaml"), //nolint:gosec // prueba
 		"--env-file", filepath.Join(r.c.installDir, ".env"), "run", "--rm", "--no-deps", "-T", "--user", "0:0",
-		"-v", "/var/run/docker.sock:/var/run/docker.sock:ro", "horus-app", "diagnose", "--output=-", "--since=6h")
+		"-v", "/var/run/docker.sock:/var/run/docker.sock:ro", "horus-app", "diagnose", "--output=-", "--since=6h",
+		"--compose-project="+r.c.project)
 	var stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = f, &stderr
 	err = cmd.Run()
@@ -1001,6 +1018,17 @@ func (r *run) writeReport() {
 }
 
 // --- utilidades -------------------------------------------------------------------------------
+
+// originTransport añade la cabecera Origin si falta.
+type originTransport struct{ origin string }
+
+func (t originTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Header.Get("Origin") == "" {
+		req = req.Clone(req.Context())
+		req.Header.Set("Origin", t.origin)
+	}
+	return http.DefaultTransport.RoundTrip(req) //nolint:wrapcheck // transporte
+}
 
 func (r *run) sh(ctx context.Context, name string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // órdenes de la prueba

@@ -114,7 +114,7 @@ func (d *dockerAPI) inspect(ctx context.Context, id string) (map[string]any, err
 	return map[string]any{"name": strings.TrimPrefix(full.Name, "/"), "created": full.Created, "restart_count": full.RestartCount,
 		"image": full.Config.Image, "image_id": full.Image, "state": full.State, "restart_policy": full.HostConfig.RestartPolicy,
 		"log_config": full.HostConfig.LogConfig, "memory_limit": full.HostConfig.Memory, "log_path": full.LogPath,
-		"compose_service": full.Config.Labels["com.docker.compose.service"]}, nil
+		"compose_service": full.Config.Labels["com.docker.compose.service"], "compose_project": full.Config.Labels["com.docker.compose.project"]}, nil
 }
 
 // logs escribe en w las líneas de log del contenedor desde since (stdout y
