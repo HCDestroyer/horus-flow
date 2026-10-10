@@ -619,7 +619,13 @@ func (w *world) chQuery(user, password string, settings map[string]string, sql s
 func (w *world) realFlows() error {
 	n := w.byName[realFixture]
 	ex := n.Exp.Exporters[0]
-	want := ex.Totals.DataRecords - ex.ByStatus["tunnel"]
+	// La captura se exportó desde 10.255.3.17 y aquí llega desde la IP de túnel del router
+	// simulado: los registros del tráfico propio del exportador original (estado "tunnel" en el
+	// expected.json, que el test dorado descarta porque allí el inventario usa 10.255.3.17)
+	// ya no son del exportador y se atribuyen como cualquier otro (su otro extremo es un cliente).
+	want := ex.Totals.DataRecords
+	wantStatus := map[string]int{"attributed": ex.ByStatus["attributed"] + ex.ByStatus["tunnel"],
+		"internal": ex.ByStatus["internal"], "unknown": ex.ByStatus["unknown"]}
 	var byStatus map[string]int
 	err := eventually(3*time.Minute, 5*time.Second, func() error {
 		rows, err := w.chQuery("", "", nil, fmt.Sprintf(
@@ -636,7 +642,7 @@ func (w *world) realFlows() error {
 			total += v
 		}
 		if total != want {
-			return fmt.Errorf("flows_raw de la captura real: %d filas, se esperaban %d (registros − túnel, como el test dorado); por estado %v", total, want, byStatus)
+			return fmt.Errorf("flows_raw de la captura real: %d filas, se esperaban %d (todos los registros del expected.json); por estado %v", total, want, byStatus)
 		}
 		return nil
 	})
@@ -647,9 +653,9 @@ func (w *world) realFlows() error {
 	if err != nil {
 		return err
 	}
-	for _, k := range []string{"attributed", "internal", "unknown"} {
-		if byStatus[k] != ex.ByStatus[k] {
-			return fmt.Errorf("attribution_status %s = %d, se esperaba %d (expected.json); todo: %v", k, byStatus[k], ex.ByStatus[k], byStatus)
+	for k, v := range wantStatus {
+		if byStatus[k] != v {
+			return fmt.Errorf("attribution_status %s = %d, se esperaba %d (expected.json); todo: %v", k, byStatus[k], v, byStatus)
 		}
 	}
 	w.logf("ok  captura real en flows_raw: %d filas, por estado %v (= expected.json)", want, byStatus)
