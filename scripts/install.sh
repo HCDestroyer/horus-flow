@@ -1080,7 +1080,9 @@ EOF
     # NUEVAS en sentido original (--ctdir ORIGINAL): las respuestas y lo que reenvía docker-proxy desde
     # el propio servidor no se tocan.
     printf "      iptables -S \$chain 2>/dev/null | grep -- '--comment horus-proxy-only' | sed 's/^-A /-D /' | while read -r r; do eval \"iptables \$r\" 2>/dev/null || true; done\n"
-    printf '      iptables -I $chain -p tcp -m conntrack --ctstate NEW --ctdir ORIGINAL --ctorigdstport %s -m comment --comment horus-proxy-only -j DROP\n' "$http_port"
+    # ! -s red del compose: entre contenedores (Traefik → horus-app:8080) el tráfico también pasa por
+    # DOCKER-USER y podría coincidir en el puerto.
+    printf '      iptables -I $chain ! -s %s -p tcp -m conntrack --ctstate NEW --ctdir ORIGINAL --ctorigdstport %s -m comment --comment horus-proxy-only -j DROP\n' "$docker_subnet" "$http_port"
     IFS=, read -r -a _tp <<<"$trusted_proxies"
     for c in "${_tp[@]}" 127.0.0.0/8; do
       printf '      iptables -I $chain -s %s -p tcp -m conntrack --ctstate NEW --ctdir ORIGINAL --ctorigdstport %s -m comment --comment horus-proxy-only -j ACCEPT\n' "$c" "$http_port"
