@@ -54,6 +54,9 @@ check() {
   fi
 }
 in_ct() { docker exec "$name" "$@"; }
+# TEST_FROM=N retoma en el paso N (3–8) sobre el contenedor conservado con TEST_KEEP=1.
+from="${TEST_FROM:-1}"
+want() { [ "$1" -ge "$from" ]; }
 in_sh() { docker exec "$name" bash -c "$1"; }
 
 cleanup() {
@@ -140,16 +143,18 @@ else
   docker build -q -t "$ct_image" --build-arg "DEBIAN_VERSION=$ver" -f "$here/Dockerfile.apt" "$here" >"$out/ct-build.log" 2>&1 \
     || { tail -20 "$out/ct-build.log"; exit 1; }
 fi
+if [ "$from" -le 2 ] || [ -z "$(docker ps -q -f "name=^$name\$")" ]; then
 docker rm -f -v "$name" >/dev/null 2>&1 || true
 docker volume rm -f "$vol" >/dev/null 2>&1 || true
 cg=(-v /sys/fs/cgroup:/sys/fs/cgroup:rw --cgroupns=host)
 docker run -d --name "$name" --hostname "$name" --privileged "${cg[@]}" \
   --tmpfs /run --tmpfs /run/lock -v "$vol:/var/lib/docker" -v "$work:/artifacts:ro" \
   -e container=docker "$ct_image" >/dev/null
+fi
 for _ in $(seq 1 60); do in_ct systemctl is-system-running 2>/dev/null | grep -qE 'running|degraded' && break; sleep 1; done
 check "systemd como PID 1 ($(in_ct cat /etc/debian_version))" bash -c "docker exec $name systemctl is-system-running | grep -qE 'running|degraded'"
 ip="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$name")"
-in_sh "printf 'TestInstall-%s' \$(openssl rand -hex 8) >/root/admin-pw && chmod 600 /root/admin-pw"
+in_ct test -s /root/admin-pw || in_sh "printf 'TestInstall-%s' \$(openssl rand -hex 8) >/root/admin-pw && chmod 600 /root/admin-pw"
 
 # --- 3. Instalación -----------------------------------------------------------------------------
 step "3. bootstrap-debian.sh --bundle A --mode ip (IP $ip)"
@@ -157,10 +162,10 @@ boot=(bash /artifacts/dist-0.9.0/bootstrap-debian.sh --bundle /artifacts/dist-0.
   --yes --mode ip --public-ip "$ip" --admin-email admin@horus.test --admin-password-file /root/admin-pw
   --tunnel-cidr 10.230.0.0/16 --tlm-max-bytes 1073741824 --force)
 [ "$mode" = apt ] || boot+=(--no-apt)
-check "bootstrap + install.sh terminan sin error" bash -c "docker exec $name ${boot[*]@Q} >'$out/install.log' 2>&1"
+want 3 && check "bootstrap + install.sh terminan sin error" bash -c "docker exec $name ${boot[*]@Q} >'$out/install.log' 2>&1"
 [ "$mode" = sandbox ] || check "apt instaló Docker oficial, wireguard-tools, age, jq, iptables" \
   docker exec "$name" bash -c 'dpkg -s docker-ce docker-compose-plugin wireguard-tools age jq iptables >/dev/null && grep -q download.docker.com /etc/apt/sources.list.d/docker.sources'
-check "sysctl net.core.rmem_max/rmem_default = 32 MiB persistente (/etc/sysctl.d/90-horus.conf)" \
+want 3 && check "sysctl net.core.rmem_max/rmem_default = 32 MiB persistente (/etc/sysctl.d/90-horus.conf)" \
   docker exec "$name" grep -q 'net.core.rmem_max = 33554432' /etc/sysctl.d/90-horus.conf
 health() {
   docker exec "$name" horus-ctl status >"$out/status.log" 2>&1 || return 1
@@ -169,8 +174,8 @@ health() {
   [ "$(curl -s -o /dev/null -w '%{http_code}' --cacert "$fp_file.crt" "https://$ip/")" = 200 ] || return 1
   [ "$(curl -s -o /dev/null -w '%{http_code}' --cacert "$fp_file.crt" "https://$ip/api/v1/system/status")" = 401 ]
 }
-check "todos los servicios sanos; UI 200 y API 401 en https://$ip con el certificado autogenerado" health
-check "huella SHA-256 del certificado coincide con la mostrada" bash -c \
+want 3 && check "todos los servicios sanos; UI 200 y API 401 en https://$ip con el certificado autogenerado" health
+want 3 && check "huella SHA-256 del certificado coincide con la mostrada" bash -c \
   "[ \"\$(openssl x509 -in '$work/fp-$ver.crt' -noout -fingerprint -sha256 | cut -d= -f2)\" = \"\$(docker exec $name cat /etc/horus/tls/fingerprint-sha256.txt)\" ]"
 # --check falla también por disco ≥ 85 % del HOST (compartido en CI/sandbox): eso se tolera y se anota.
 install_check() {
@@ -178,20 +183,20 @@ install_check() {
   if grep FALLO "$out/check.log" | grep -qv ' al [0-9]* % '; then return 1; fi
   echo "  (install.sh --check: solo fallos de ocupación del disco del host; ver check.log)"
 }
-check "install.sh --check (horus-ctl check; se tolera solo el disco del host lleno)" install_check
-check "versión instalada 0.9.0" bash -c "[ \"\$(docker exec $name horus-ctl version)\" = 0.9.0 ]"
+want 3 && check "install.sh --check (horus-ctl check; se tolera solo el disco del host lleno)" install_check
+want 3 && check "versión instalada 0.9.0" bash -c "[ \"\$(docker exec $name horus-ctl version)\" = 0.9.0 ]"
 
 # --- 4. Idempotencia ----------------------------------------------------------------------------
 step "4. segunda ejecución (idempotente)"
 sums() { docker exec "$name" bash -c 'find /etc/horus/secrets -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum'; }
 before="$(sums)"
-check "bootstrap otra vez sin error" bash -c "docker exec $name ${boot[*]@Q} >'$out/install2.log' 2>&1"
-check "secretos idénticos" bash -c "[ '$before' = \"\$(docker exec $name bash -c 'find /etc/horus/secrets -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum')\" ]"
-check "sigue sano" health
+want 4 && check "bootstrap otra vez sin error" bash -c "docker exec $name ${boot[*]@Q} >'$out/install2.log' 2>&1"
+want 4 && check "secretos idénticos" bash -c "[ '$before' = \"\$(docker exec $name bash -c 'find /etc/horus/secrets -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum')\" ]"
+want 4 && check "sigue sano" health
 
 # --- 5. Reinicio ----------------------------------------------------------------------------------
 step "5. reinicio del contenedor (systemd levanta docker, horus-tunnel y horus)"
-docker restart -t 60 "$name" >/dev/null
+want 5 && docker restart -t 60 "$name" >/dev/null
 ip="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$name")"
 reboot_ok() {
   for _ in $(seq 1 90); do
@@ -200,38 +205,41 @@ reboot_ok() {
   done
   return 1
 }
-check "tras reiniciar: horus.service activo y todo sano" reboot_ok
+want 5 && check "tras reiniciar: horus.service activo y todo sano" reboot_ok
 
 # --- 6. Actualización y vuelta atrás --------------------------------------------------------------
 step "6. horus-ctl upgrade A→B y B→C (rota)"
-check "upgrade --bundle 0.9.1 (backup previo, SHA256SUMS, healthcheck)" bash -c \
+want 6 && check "upgrade --bundle 0.9.1 (backup previo, SHA256SUMS, healthcheck)" bash -c \
   "docker exec $name horus-ctl upgrade --bundle /artifacts/dist-0.9.1/horus-0.9.1-linux-amd64.tar.gz --yes --force >'$out/upgrade-b.log' 2>&1"
-check "versión 0.9.1 y sana" bash -c "[ \"\$(docker exec $name horus-ctl version)\" = 0.9.1 ]"
-check "horus-app corre la imagen de 0.9.1 (horus:test-install-b)" bash -c "[ \"\$(docker exec $name docker inspect -f '{{.Config.Image}}' horus-horus-app-1)\" = horus:test-install-b ]"
-check "sana tras actualizar" health
+want 6 && check "versión 0.9.1 y sana" bash -c "[ \"\$(docker exec $name horus-ctl version)\" = 0.9.1 ]"
+want 6 && check "horus-app corre la imagen de 0.9.1 (horus:test-install-b)" bash -c "[ \"\$(docker exec $name docker inspect -f '{{.Config.Image}}' horus-horus-app-1)\" = horus:test-install-b ]"
+want 6 && check "sana tras actualizar" health
 set +e
-docker exec "$name" horus-ctl upgrade --bundle /artifacts/dist-0.9.2/horus-0.9.2-linux-amd64.tar.gz --yes --force >"$out/upgrade-c.log" 2>&1
-rc=$?
+rc=3
+if want 6; then
+  docker exec "$name" horus-ctl upgrade --bundle /artifacts/dist-0.9.2/horus-0.9.2-linux-amd64.tar.gz --yes --force >"$out/upgrade-c.log" 2>&1
+  rc=$?
+fi
 set -e
-check "upgrade a 0.9.2 rota falla con código 3 (vuelta atrás)" test "$rc" = 3
-check "vuelta atrás: versión 0.9.1" bash -c "[ \"\$(docker exec $name horus-ctl version)\" = 0.9.1 ]"
-check "vuelta atrás: horus-app de nuevo con la imagen de 0.9.1" bash -c "[ \"\$(docker exec $name docker inspect -f '{{.Config.Image}}' horus-horus-app-1)\" = horus:test-install-b ]"
+want 6 && check "upgrade a 0.9.2 rota falla con código 3 (vuelta atrás)" test "$rc" = 3
+want 6 && check "vuelta atrás: versión 0.9.1" bash -c "[ \"\$(docker exec $name horus-ctl version)\" = 0.9.1 ]"
+want 6 && check "vuelta atrás: horus-app de nuevo con la imagen de 0.9.1" bash -c "[ \"\$(docker exec $name docker inspect -f '{{.Config.Image}}' horus-horus-app-1)\" = horus:test-install-b ]"
 # Restauración en el sitio de las copias (la ruta que usa la vuelta atrás cuando el esquema cambia).
-check "horus-ctl backup run + restore --yes (PostgreSQL y ClickHouse en el sitio) y sana" bash -c \
+want 6 && check "horus-ctl backup run + restore --yes (PostgreSQL y ClickHouse en el sitio) y sana" bash -c \
   "docker exec $name horus-ctl backup run >'$out/backup-restore.log' 2>&1 && docker exec $name horus-ctl restore --yes >>'$out/backup-restore.log' 2>&1"
-check "sana tras restaurar" health
-check "vuelta atrás: todo sano" health
+want 6 && check "sana tras restaurar" health
+want 6 && check "vuelta atrás: todo sano" health
 
 # --- 7. Desinstalación ----------------------------------------------------------------------------
 step "7. uninstall (conserva datos), reinstalación y uninstall --purge"
-check "horus-ctl uninstall --yes" bash -c "docker exec $name horus-ctl uninstall --yes >'$out/uninstall.log' 2>&1"
-check "sin contenedores y datos conservados" bash -c \
+want 7 && check "horus-ctl uninstall --yes" bash -c "docker exec $name horus-ctl uninstall --yes >'$out/uninstall.log' 2>&1"
+want 7 && check "sin contenedores y datos conservados" bash -c \
   "[ -z \"\$(docker exec $name docker ps -q)\" ] && docker exec $name test -s /etc/horus/secrets/postgres_password && docker exec $name test -d /var/lib/horus/postgres"
-check "reinstalación con los mismos secretos" bash -c \
+want 7 && check "reinstalación con los mismos secretos" bash -c \
   "docker exec $name ${boot[*]@Q} >'$out/install3.log' 2>&1 && [ '$before' = \"\$(docker exec $name bash -c 'find /etc/horus/secrets -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum')\" ]"
-check "sana tras reinstalar" health
-check "horus-ctl uninstall --purge --yes" bash -c "docker exec $name horus-ctl uninstall --purge --yes >'$out/purge.log' 2>&1"
-check "purge: sin /etc/horus, /var/lib/horus ni /opt/horus" bash -c \
+want 7 && check "sana tras reinstalar" health
+want 7 && check "horus-ctl uninstall --purge --yes" bash -c "docker exec $name horus-ctl uninstall --purge --yes >'$out/purge.log' 2>&1"
+want 7 && check "purge: sin /etc/horus, /var/lib/horus ni /opt/horus" bash -c \
   "! docker exec $name test -e /etc/horus && ! docker exec $name test -e /var/lib/horus && ! docker exec $name test -e /opt/horus"
 
 # --- 8. Detrás de un proxy inverso (--tls external) -------------------------------------------------

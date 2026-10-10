@@ -282,7 +282,7 @@ restore_ch() { # restore_ch latest|NOMBRE
     [ -n "$t" ] && echo "DROP TABLE IF EXISTS flows.\`$t\` SYNC;"
   done <"$state_dir/ch-tables.tmp" | ch_sql >/dev/null
   rm -f "$state_dir/ch-tables.tmp"
-  echo "RESTORE DATABASE flows EXCEPT TABLES flows.flows_raw, DATABASE dim FROM Disk('backups', '$name')" | ch_sql >/dev/null \
+  echo "RESTORE DATABASE dim, DATABASE flows EXCEPT TABLES flows.flows_raw FROM Disk('backups', '$name')" | ch_sql >/dev/null \
     || die "RESTORE de ClickHouse falló"
   ok "ClickHouse restaurado ($name)"
 }
