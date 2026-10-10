@@ -9,7 +9,7 @@
 #   horus-ctl logs [SERVICIO…] [-f] [-n LÍNEAS]   registros (todos o de horus-app, traefik…)
 #   horus-ctl check                  comprobación completa (install.sh --check)
 #   horus-ctl check-update           consulta si hay versión nueva en el canal (stable | beta)
-#   horus-ctl upgrade [--to X.Y.Z | --bundle FICHERO.tar.gz] [--yes] [--patch-only]
+#   horus-ctl upgrade [--to X.Y.Z | --bundle FICHERO.tar.gz] [--yes] [--patch-only] [--force]
 #                                    actualiza: backup previo OBLIGATORIO, descarga verificada
 #                                    (firma cosign + SHA256SUMS) o paquete offline (SHA256SUMS),
 #                                    migraciones al arrancar, healthcheck y VUELTA ATRÁS automática
@@ -260,9 +260,9 @@ restore_pg() { # restore_pg latest|ETIQUETA
   docker run --rm --network none --user 0:0 \
     -v "$HORUS_DATA_ROOT/postgres:/var/lib/postgresql" \
     -v "$HORUS_STORE_DIR/backups/postgres:/var/lib/pgbackrest" \
-    -v "$HORUS_SECRETS_DIR/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro" \
+    -v "$HORUS_SECRETS_DIR/pgbackrest.conf:/run/secrets/pgbackrest_conf:ro" \
     --entrypoint gosu "$HORUS_POSTGRES_IMAGE" postgres \
-    pgbackrest --config=/etc/pgbackrest/pgbackrest.conf --stanza=horus --log-level-console=warn "${args[@]}" restore \
+    pgbackrest --config=/run/secrets/pgbackrest_conf --stanza=horus --log-level-console=warn "${args[@]}" restore \
     || die "pgbackrest restore falló"
   "${compose[@]}" up -d --wait --wait-timeout 300 postgres >/dev/null || die "PostgreSQL no arrancó tras restaurar"
   ok "PostgreSQL restaurado ($set)"
@@ -364,7 +364,7 @@ prepare_bundle() {
     [ ! -f "$(dirname "$f")/SHA256SUMS.sigstore.json" ] || [ -z "$(cosign_bin)" ] || verify_sums_signature "$(dirname "$f")" >&2
     (cd "$(dirname "$f")" && grep " [*]\{0,1\}$(basename "$f")\$" SHA256SUMS | sha256sum -c --quiet -) \
       || die "SHA256 de $(basename "$f") no coincide con SHA256SUMS"
-    : >"$f.verified" 2>/dev/null || true
+    { : >"$f.verified"; } 2>/dev/null || true
     ok "SHA256 de $(basename "$f") verificado" >&2
   else
     warn "sin SHA256SUMS junto a $(basename "$f"): install.sh verifica su contenido" >&2
@@ -391,8 +391,10 @@ restore_snapshot() {
   local s="$state_dir/rollback"
   [ -d "$s/release" ] || die "no hay instantánea de la versión anterior en $s"
   cp -a "$s/.env" "$env_file"; cp -a "$s/compose.yaml" "$install_dir/compose.yaml"
-  rm -rf "$install_dir/config" "$install_dir/release"
-  cp -a "$s/config" "$install_dir/config"; cp -a "$s/release" "$install_dir/release"
+  # config/ en el sitio (mismos inodos): Traefik, NATS y ClickHouse montan archivos y directorios
+  # suyos; borrarlo dejaría a Traefik sin rutas (404) hasta recrearlo.
+  cp -a "$s/config/." "$install_dir/config/"
+  rm -rf "$install_dir/release"; cp -a "$s/release" "$install_dir/release"
   cp -a "$s/install.conf" "$conf_file"
   set -a; . "$env_file"; set +a
 }
@@ -405,6 +407,7 @@ rollback_now() {
   before="$(cat "$s/schema" 2>/dev/null || true)"
   after="$(schema_fingerprint 2>/dev/null || true)"
   restore_snapshot
+  "${compose[@]}" restart traefik >/dev/null 2>&1 || true
   ok "configuración e imágenes de $(current_version) repuestas"
   pg="$(cat "$s/pg_label" 2>/dev/null || true)"; ch="$(cat "$s/ch_name" 2>/dev/null || true)"
   if [ -n "$before" ] && [ "$before" != "$after" ]; then
@@ -485,7 +488,8 @@ do_upgrade() {
   say "Aplicando $target"
   local log
   log="$state_dir/upgrade-$target-$(date -u +%Y%m%dT%H%M%SZ).log"
-  if ! HORUS_INSTALL_WAIT="${HORUS_INSTALL_WAIT:-600}" bash "$tree/scripts/install.sh" --yes --image-source "$src" \
+  local force_opt=(); [ "$force" = 0 ] || force_opt=(--force)
+  if ! HORUS_INSTALL_WAIT="${HORUS_INSTALL_WAIT:-600}" bash "$tree/scripts/install.sh" --yes --image-source "$src" "${force_opt[@]}" \
     "${root_opt[@]}" --etc-dir "$etc_dir" >"$log" 2>&1 9>&-; then
     tail -25 "$log" >&2
     rollback_now "la instalación de $target falló (registro: $log)"

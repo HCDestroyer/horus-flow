@@ -205,11 +205,11 @@ check "tras reiniciar: horus.service activo y todo sano" reboot_ok
 # --- 6. Actualización y vuelta atrás --------------------------------------------------------------
 step "6. horus-ctl upgrade A→B y B→C (rota)"
 check "upgrade --bundle 0.9.1 (backup previo, SHA256SUMS, healthcheck)" bash -c \
-  "docker exec $name horus-ctl upgrade --bundle /artifacts/dist-0.9.1/horus-0.9.1-linux-amd64.tar.gz --yes >'$out/upgrade-b.log' 2>&1"
+  "docker exec $name horus-ctl upgrade --bundle /artifacts/dist-0.9.1/horus-0.9.1-linux-amd64.tar.gz --yes --force >'$out/upgrade-b.log' 2>&1"
 check "versión 0.9.1 y sana" bash -c "[ \"\$(docker exec $name horus-ctl version)\" = 0.9.1 ]"
 check "sana tras actualizar" health
 set +e
-docker exec "$name" horus-ctl upgrade --bundle /artifacts/dist-0.9.2/horus-0.9.2-linux-amd64.tar.gz --yes >"$out/upgrade-c.log" 2>&1
+docker exec "$name" horus-ctl upgrade --bundle /artifacts/dist-0.9.2/horus-0.9.2-linux-amd64.tar.gz --yes --force >"$out/upgrade-c.log" 2>&1
 rc=$?
 set -e
 check "upgrade a 0.9.2 rota falla con código 3 (vuelta atrás)" test "$rc" = 3

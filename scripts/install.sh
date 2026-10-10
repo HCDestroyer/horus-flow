@@ -399,7 +399,7 @@ bundle_tree() {
     if [ ! -f "$src.verified" ] || [ "$src" -nt "$src.verified" ]; then
       (cd "$(dirname "$src")" && grep " [*]\{0,1\}$(basename "$src")\$" SHA256SUMS | sha256sum -c --quiet -) \
         || die "el SHA256 de $(basename "$src") no coincide con SHA256SUMS: paquete dañado o manipulado"
-      : >"$src.verified" 2>/dev/null || true
+      { : >"$src.verified"; } 2>/dev/null || true
     fi
     bundle_sums_ok=1
     ok "SHA256 de $(basename "$src") verificado (SHA256SUMS)" >&2
