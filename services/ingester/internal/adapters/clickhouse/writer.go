@@ -62,10 +62,10 @@ func (w *Writer) Insert(ctx context.Context, batchID string, rows []app.Row) err
 	if err != nil {
 		return fmt.Errorf("prepare insert: %w", err)
 	}
-	for i := range rows {
-		if err := b.Append(rows[i].Values()...); err != nil {
+	for i, c := range app.ColumnSlices(rows) {
+		if err := b.Column(i).Append(c); err != nil {
 			_ = b.Abort()
-			return fmt.Errorf("append row: %w", err)
+			return fmt.Errorf("append column %s: %w", app.Columns[i], err)
 		}
 	}
 	if err := b.Send(); err != nil {
