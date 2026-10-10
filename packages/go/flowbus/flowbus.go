@@ -210,7 +210,8 @@ func EnsureStreams(ctx context.Context, js jetstream.JetStream, tlmMaxBytes int6
 	for _, cfg := range []jetstream.StreamConfig{
 		{Name: StreamTelemetry, Subjects: []string{"horus.telemetry.flows.>"}, Retention: jetstream.LimitsPolicy,
 			MaxAge: 24 * time.Hour, MaxBytes: tlmMaxBytes, Duplicates: 2 * time.Minute, MaxMsgSize: 1 << 20,
-			Storage: jetstream.FileStorage, Discard: jetstream.DiscardOld, AllowDirect: true},
+			Storage: jetstream.FileStorage, Discard: jetstream.DiscardOld, AllowDirect: true,
+			Compression: jetstream.S2Compression},
 		{Name: StreamEvents, Subjects: []string{"horus.flows.>"}, Retention: jetstream.LimitsPolicy,
 			MaxAge: 30 * 24 * time.Hour, MaxBytes: 1 << 30, Duplicates: 20 * time.Minute, MaxMsgSize: 64 << 10,
 			Storage: jetstream.FileStorage, Discard: jetstream.DiscardOld, AllowDirect: true},

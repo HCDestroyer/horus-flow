@@ -38,3 +38,31 @@ func TestPermanent(t *testing.T) {
 		t.Fatal("unwrap")
 	}
 }
+
+// TestStreamsMaxBytesAlwaysSet: TLM_FLOWS nunca queda sin límite (con o sin
+// HORUS_TLM_FLOWS_MAX_BYTES) y lleva compresión s2.
+func TestStreamsMaxBytesAlwaysSet(t *testing.T) {
+	defs, err := natsx.ContractStreams()
+	if err != nil {
+		t.Fatal(err)
+	}
+	find := func(defs []natsx.StreamDef) natsx.StreamDef {
+		for _, d := range defs {
+			if d.Name == "TLM_FLOWS" {
+				return d
+			}
+		}
+		t.Fatal("TLM_FLOWS not in contract")
+		return natsx.StreamDef{}
+	}
+	if got := natsx.ParseBytes(find(defs).MaxBytes); got != 50e9 {
+		t.Errorf("default max_bytes = %d, want 50GB", got)
+	}
+	exp := natsx.ExpandStreams(defs, []string{"HORUS_TLM_FLOWS_MAX_BYTES=268435456"})
+	if got := natsx.ParseBytes(find(exp).MaxBytes); got != 268435456 {
+		t.Errorf("expanded max_bytes = %d", got)
+	}
+	if find(defs).Compression != "s2" {
+		t.Error("TLM_FLOWS without s2 compression")
+	}
+}

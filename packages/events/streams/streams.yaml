@@ -27,7 +27,10 @@ streams:
     max_bytes: '${HORUS_TLM_FLOWS_MAX_BYTES:-50GB}'
     duplicate_window: 2m
     max_msg_size: 1MiB
-    note: max_bytes = tasa_pico × 6 h × 1,2 (C-12); objetivo ≥ 6 h de autonomía ante caída de ClickHouse.
+    compression: s2
+    note: >-
+      max_bytes = tasa_pico × horas × B/flujo (C-12; dimensionado en docs/architecture.md §9.4).
+      compression s2 (NATS ≥ 2.10) comprime los bloques en disco; max_bytes cuenta el tamaño sin comprimir.
   - { name: TLM_SNMP, subjects: ['horus.telemetry.snmp.>'], retention: limits, max_age: 72h, max_bytes: 5GiB, duplicate_window: 2m, max_msg_size: 1MiB, since: I2 }
   - { name: WORK, subjects: ['horus.work.>'], retention: workqueue, max_age: 7d, max_bytes: 256MiB, duplicate_window: 20m, max_msg_size: 64KiB, since: I3 }
   - { name: DLQ, subjects: ['horus.dlq.>'], retention: limits, max_age: 30d, max_bytes: 5GiB, duplicate_window: 2m, max_msg_size: 1MiB }
