@@ -67,6 +67,6 @@ export function requestClientIp(event: H3Event): string {
 
 export function sendResult(event: H3Event, result: SubmissionResult) {
   setResponseStatus(event, result.status)
-  if (result.retryAfterSec) setResponseHeader(event, 'Retry-After', String(result.retryAfterSec))
+  if (result.retryAfterSec) setResponseHeader(event, 'Retry-After', result.retryAfterSec)
   return result.body
 }

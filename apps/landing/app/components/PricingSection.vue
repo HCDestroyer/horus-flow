@@ -28,7 +28,11 @@ const faq = computed(() =>
 </script>
 
 <template>
-  <section id="pricing" aria-labelledby="pricing-title" class="mx-auto max-w-6xl px-4 py-16 sm:px-6">
+  <section
+    id="pricing"
+    aria-labelledby="pricing-title"
+    class="mx-auto max-w-6xl px-4 py-16 sm:px-6"
+  >
     <SectionHeading
       id="pricing-title"
       :eyebrow="t('pricing.eyebrow')"
@@ -90,7 +94,10 @@ const faq = computed(() =>
             </p>
           </template>
           <template v-else>
-            <p class="text-lg leading-snug font-semibold text-highlighted" data-testid="launch-price">
+            <p
+              class="text-lg leading-snug font-semibold text-highlighted"
+              data-testid="launch-price"
+            >
               {{ t('pricing.launch') }}
             </p>
             <p class="mt-1 text-sm text-muted">
@@ -100,8 +107,16 @@ const faq = computed(() =>
         </div>
 
         <ul class="mt-4 flex-1 space-y-2.5">
-          <li v-for="(inc, i) in plan.includes" :key="i" class="flex gap-2.5 text-[0.95rem] text-toned">
-            <UIcon name="i-lucide-check" class="mt-0.5 size-5 shrink-0 text-primary" aria-hidden="true" />
+          <li
+            v-for="(inc, i) in plan.includes"
+            :key="i"
+            class="flex gap-2.5 text-[0.95rem] text-toned"
+          >
+            <UIcon
+              name="i-lucide-check"
+              class="mt-0.5 size-5 shrink-0 text-primary"
+              aria-hidden="true"
+            />
             <span>{{ l(inc) }}</span>
           </li>
         </ul>
@@ -138,7 +153,11 @@ const faq = computed(() =>
         <h3 class="text-lg font-semibold text-highlighted">{{ t('pricing.allInclude') }}</h3>
         <ul class="mt-4 space-y-2.5">
           <li v-for="(inc, i) in pricing.allPlansInclude" :key="i" class="flex gap-2.5 text-toned">
-            <UIcon name="i-lucide-badge-check" class="mt-0.5 size-5 shrink-0 text-primary" aria-hidden="true" />
+            <UIcon
+              name="i-lucide-badge-check"
+              class="mt-0.5 size-5 shrink-0 text-primary"
+              aria-hidden="true"
+            />
             <span>{{ l(inc) }}</span>
           </li>
         </ul>

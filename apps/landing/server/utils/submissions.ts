@@ -65,7 +65,10 @@ function gate(form: string, raw: unknown, ip: string, deps: SubmissionDeps): Gat
     // Al bot se le responde como si todo hubiera ido bien, con una referencia que no existe.
     return {
       ok: false,
-      result: { status: 200, body: { ok: true, reference: newReference('D', new Date(deps.now())) } },
+      result: {
+        status: 200,
+        body: { ok: true, reference: newReference('D', new Date(deps.now())) },
+      },
     }
   }
 
@@ -128,7 +131,12 @@ export async function submitLead(
   await confirmCustomer(deps, reference, () =>
     deps.mailer.send(leadCustomerEmail(lead, reference, deps.config.mail.salesTo)),
   )
-  await notifyWebhook(deps, { type: 'lead', reference, receivedAt: new Date(deps.now()).toISOString(), ...lead })
+  await notifyWebhook(deps, {
+    type: 'lead',
+    reference,
+    receivedAt: new Date(deps.now()).toISOString(),
+    ...lead,
+  })
 
   deps.log('info', 'lead.received', {
     reference,

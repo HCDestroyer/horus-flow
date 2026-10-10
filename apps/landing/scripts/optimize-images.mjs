@@ -29,8 +29,14 @@ for (const shot of SHOTS) {
   const input = join(tour, shot.src)
   for (const w of shot.widths) {
     const base = sharp(input).resize({ width: w, withoutEnlargement: true })
-    await base.clone().avif({ quality: 55, effort: 6 }).toFile(join(out, `${shot.name}-${w}.avif`))
-    await base.clone().webp({ quality: 78, effort: 6 }).toFile(join(out, `${shot.name}-${w}.webp`))
+    await base
+      .clone()
+      .avif({ quality: 55, effort: 6 })
+      .toFile(join(out, `${shot.name}-${w}.avif`))
+    await base
+      .clone()
+      .webp({ quality: 78, effort: 6 })
+      .toFile(join(out, `${shot.name}-${w}.webp`))
   }
   const meta = await sharp(input).metadata()
   console.log(`${shot.name}: ${meta.width}×${meta.height} → ${shot.widths.join(', ')}`)

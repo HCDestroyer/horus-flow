@@ -2,7 +2,16 @@
 import { site } from '~/config/site'
 
 const { t } = useI18n()
-const keys = ['routers', 'changes', 'server', 'domain', 'nat', 'ipv6', 'offline', 'screenshots'] as const
+const keys = [
+  'routers',
+  'changes',
+  'server',
+  'domain',
+  'nat',
+  'ipv6',
+  'offline',
+  'screenshots',
+] as const
 const items = computed(() =>
   keys.map((k) => ({ label: t(`faq.items.${k}.q`), content: t(`faq.items.${k}.a`), value: k })),
 )
@@ -28,7 +37,10 @@ const items = computed(() =>
       <UAccordion
         :items="items"
         type="multiple"
-        :ui="{ trigger: 'min-h-12 text-base sm:text-lg text-highlighted', body: 'text-toned text-base' }"
+        :ui="{
+          trigger: 'min-h-12 text-base sm:text-lg text-highlighted',
+          body: 'text-toned text-base',
+        }"
       />
     </div>
   </section>

@@ -46,7 +46,11 @@ function oneLine(s: string, max = 80): string {
   return s.replace(/[\r\n]+/g, ' ').slice(0, max)
 }
 
-function render(title: string, rows: [string, string][], footer: string[]): { text: string; html: string } {
+function render(
+  title: string,
+  rows: [string, string][],
+  footer: string[],
+): { text: string; html: string } {
   const text = [title, '', ...rows.map(([k, v]) => `${k}: ${v || '—'}`), '', ...footer].join('\n')
   const html =
     `<!doctype html><html><body style="font-family:system-ui,sans-serif;color:#111;line-height:1.5">` +
@@ -101,7 +105,9 @@ export function leadSalesEmail(lead: Lead, reference: string, to: string): MailM
 export function leadCustomerEmail(lead: Lead, reference: string, salesEmail: string): MailMessage {
   const es = lead.locale === 'es'
   const { text, html } = render(
-    es ? `Hemos recibido tu solicitud (${reference})` : `We have received your request (${reference})`,
+    es
+      ? `Hemos recibido tu solicitud (${reference})`
+      : `We have received your request (${reference})`,
     [
       [es ? 'Referencia' : 'Reference', reference],
       [es ? 'Empresa / ISP' : 'Company / ISP', lead.company],

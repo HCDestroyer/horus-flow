@@ -6,7 +6,10 @@ const model = defineModel<string>({ required: true })
 </script>
 
 <template>
-  <div aria-hidden="true" class="pointer-events-none absolute -left-[10000px] h-px w-px overflow-hidden">
+  <div
+    aria-hidden="true"
+    class="pointer-events-none absolute -left-[10000px] h-px w-px overflow-hidden"
+  >
     <label>
       {{ t('form.honeypot') }}
       <input v-model="model" type="text" name="website" tabindex="-1" autocomplete="off" />

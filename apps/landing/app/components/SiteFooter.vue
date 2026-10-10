@@ -30,22 +30,34 @@ const href = (id: string) => `${home.value === '/' ? '/' : home.value}#${id}`
         <h2 class="mb-2 text-sm font-semibold text-highlighted">{{ t('footer.product') }}</h2>
         <ul class="space-y-0.5">
           <li>
-            <a :href="href('features')" class="inline-flex min-h-11 items-center text-muted hover:text-highlighted">
+            <a
+              :href="href('features')"
+              class="inline-flex min-h-11 items-center text-muted hover:text-highlighted"
+            >
               {{ t('nav.features') }}
             </a>
           </li>
           <li>
-            <a :href="href('pricing')" class="inline-flex min-h-11 items-center text-muted hover:text-highlighted">
+            <a
+              :href="href('pricing')"
+              class="inline-flex min-h-11 items-center text-muted hover:text-highlighted"
+            >
               {{ t('nav.pricing') }}
             </a>
           </li>
           <li>
-            <NuxtLink :to="localePath('/comprar')" class="inline-flex min-h-11 items-center text-muted hover:text-highlighted">
+            <NuxtLink
+              :to="localePath('/comprar')"
+              class="inline-flex min-h-11 items-center text-muted hover:text-highlighted"
+            >
               {{ t('pricing.ctaBuy') }}
             </NuxtLink>
           </li>
           <li>
-            <a :href="href('demo')" class="inline-flex min-h-11 items-center text-muted hover:text-highlighted">
+            <a
+              :href="href('demo')"
+              class="inline-flex min-h-11 items-center text-muted hover:text-highlighted"
+            >
               {{ t('nav.demo') }}
             </a>
           </li>
@@ -55,17 +67,26 @@ const href = (id: string) => `${home.value === '/' ? '/' : home.value}#${id}`
         <h2 class="mb-2 text-sm font-semibold text-highlighted">{{ t('footer.legal') }}</h2>
         <ul class="space-y-0.5">
           <li>
-            <NuxtLink :to="localePath('/legal/aviso-legal')" class="inline-flex min-h-11 items-center text-muted hover:text-highlighted">
+            <NuxtLink
+              :to="localePath('/legal/aviso-legal')"
+              class="inline-flex min-h-11 items-center text-muted hover:text-highlighted"
+            >
               {{ t('footer.notice') }}
             </NuxtLink>
           </li>
           <li>
-            <NuxtLink :to="localePath('/legal/privacidad')" class="inline-flex min-h-11 items-center text-muted hover:text-highlighted">
+            <NuxtLink
+              :to="localePath('/legal/privacidad')"
+              class="inline-flex min-h-11 items-center text-muted hover:text-highlighted"
+            >
               {{ t('footer.privacy') }}
             </NuxtLink>
           </li>
           <li>
-            <NuxtLink :to="localePath('/legal/terminos')" class="inline-flex min-h-11 items-center text-muted hover:text-highlighted">
+            <NuxtLink
+              :to="localePath('/legal/terminos')"
+              class="inline-flex min-h-11 items-center text-muted hover:text-highlighted"
+            >
               {{ t('footer.terms') }}
             </NuxtLink>
           </li>

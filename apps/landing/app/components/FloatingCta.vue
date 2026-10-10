@@ -36,7 +36,14 @@ onBeforeUnmount(() => observer?.disconnect())
       v-if="visible"
       class="glass fixed inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-40 rounded-2xl p-2 sm:hidden"
     >
-      <UButton to="#demo" color="primary" size="xl" block class="min-h-12 rounded-xl" :label="t('nav.demo')" />
+      <UButton
+        to="#demo"
+        color="primary"
+        size="xl"
+        block
+        class="min-h-12 rounded-xl"
+        :label="t('nav.demo')"
+      />
     </div>
   </Transition>
 </template>

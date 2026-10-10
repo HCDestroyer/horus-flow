@@ -13,5 +13,10 @@ export default withNuxt(
       'vue/multi-word-component-names': 'off',
     },
   },
+  {
+    // Scripts de línea de órdenes: informan por consola.
+    files: ['scripts/**'],
+    rules: { 'no-console': 'off' },
+  },
   prettier,
 )

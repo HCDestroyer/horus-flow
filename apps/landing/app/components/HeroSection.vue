@@ -3,7 +3,10 @@ const { t } = useI18n()
 </script>
 
 <template>
-  <section aria-labelledby="hero-title" class="mx-auto max-w-6xl px-4 pt-12 pb-16 sm:px-6 md:pt-20 lg:pb-24">
+  <section
+    aria-labelledby="hero-title"
+    class="mx-auto max-w-6xl px-4 pt-12 pb-16 sm:px-6 md:pt-20 lg:pb-24"
+  >
     <div class="grid items-center gap-12 lg:grid-cols-[1.25fr_1fr] lg:gap-16">
       <div>
         <p class="eyebrow">{{ t('hero.eyebrow') }}</p>

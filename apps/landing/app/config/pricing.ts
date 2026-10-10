@@ -119,7 +119,10 @@ export const pricing: PricingConfig = {
       includes: [
         { es: 'Hasta ~2 000 clientes (IPs)', en: 'Up to ~2,000 subscribers (IPs)' },
         { es: '1 ISP, routers MikroTik ilimitados', en: '1 ISP, unlimited MikroTik routers' },
-        { es: 'Alertas por correo, Telegram y LibreNMS', en: 'Email, Telegram and LibreNMS alerts' },
+        {
+          es: 'Alertas por correo, Telegram y LibreNMS',
+          en: 'Email, Telegram and LibreNMS alerts',
+        },
         { es: 'Pantallas de kiosco ilimitadas', en: 'Unlimited kiosk screens' },
         { es: 'Ayuda con la instalación', en: 'Installation assistance' },
       ],
@@ -137,7 +140,10 @@ export const pricing: PricingConfig = {
         es: 'Para un ISP de ~10 000 clientes.',
         en: 'For an ISP with ~10,000 subscribers.',
       },
-      server: { es: '8 núcleos · 32 GB RAM · 500 GB NVMe', en: '8 cores · 32 GB RAM · 500 GB NVMe' },
+      server: {
+        es: '8 núcleos · 32 GB RAM · 500 GB NVMe',
+        en: '8 cores · 32 GB RAM · 500 GB NVMe',
+      },
       includes: [
         { es: 'Hasta ~10 000 clientes (IPs)', en: 'Up to ~10,000 subscribers (IPs)' },
         { es: 'Todo lo del plan Mediano', en: 'Everything in Medium' },

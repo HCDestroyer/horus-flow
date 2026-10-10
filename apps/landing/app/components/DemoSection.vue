@@ -33,8 +33,12 @@ onMounted(() => {
   }
 })
 
-const clientItems = computed(() => CLIENT_RANGES.map((v) => ({ value: v, label: t(`form.clientsOptions.${v}`) })))
-const routerItems = computed(() => ROUTER_RANGES.map((v) => ({ value: v, label: t(`form.routersOptions.${v}`) })))
+const clientItems = computed(() =>
+  CLIENT_RANGES.map((v) => ({ value: v, label: t(`form.clientsOptions.${v}`) })),
+)
+const routerItems = computed(() =>
+  ROUTER_RANGES.map((v) => ({ value: v, label: t(`form.routersOptions.${v}`) })),
+)
 
 const done = ref<HTMLElement | null>(null)
 async function onSubmit() {
@@ -75,7 +79,14 @@ function again() {
           <UIcon name="i-lucide-circle-check" class="size-8 text-primary" aria-hidden="true" />
           <h3 class="text-xl font-semibold text-highlighted">{{ t('demo.successTitle') }}</h3>
           <p class="text-toned">{{ t('demo.successBody', { ref: result.reference }) }}</p>
-          <UButton color="neutral" variant="outline" size="lg" class="mt-2 min-h-11" :label="t('demo.another')" @click="again" />
+          <UButton
+            color="neutral"
+            variant="outline"
+            size="lg"
+            class="mt-2 min-h-11"
+            :label="t('demo.another')"
+            @click="again"
+          />
         </div>
 
         <UForm
@@ -94,10 +105,24 @@ function again() {
             <UInput v-model="state.company" autocomplete="organization" size="xl" class="w-full" />
           </UFormField>
           <UFormField :label="t('form.email')" name="email" required>
-            <UInput v-model="state.email" type="email" autocomplete="email" inputmode="email" size="xl" class="w-full" />
+            <UInput
+              v-model="state.email"
+              type="email"
+              autocomplete="email"
+              inputmode="email"
+              size="xl"
+              class="w-full"
+            />
           </UFormField>
           <UFormField :label="t('form.phone')" name="phone" :hint="t('form.optional')">
-            <UInput v-model="state.phone" type="tel" autocomplete="tel" inputmode="tel" size="xl" class="w-full" />
+            <UInput
+              v-model="state.phone"
+              type="tel"
+              autocomplete="tel"
+              inputmode="tel"
+              size="xl"
+              class="w-full"
+            />
           </UFormField>
           <UFormField :label="t('form.country')" name="country" required>
             <USelect
@@ -126,22 +151,44 @@ function again() {
               class="w-full"
             />
           </UFormField>
-          <UFormField :label="t('form.message')" name="message" :help="t('form.messageHint')" class="sm:col-span-2">
+          <UFormField
+            :label="t('form.message')"
+            name="message"
+            :help="t('form.messageHint')"
+            class="sm:col-span-2"
+          >
             <UTextarea v-model="state.message" :rows="4" autoresize size="xl" class="w-full" />
           </UFormField>
           <UFormField name="consent" class="sm:col-span-2">
-            <UCheckbox v-model="state.consent" size="lg" required :ui="{ root: 'items-start', container: 'mt-1' }">
+            <UCheckbox
+              v-model="state.consent"
+              size="lg"
+              required
+              :ui="{ root: 'items-start', container: 'mt-1' }"
+            >
               <template #label>
                 <span class="text-base font-normal text-toned">
                   {{ t('form.consentBefore') }}
-                  <NuxtLink :to="localePath('/legal/privacidad')" target="_blank" class="text-primary underline underline-offset-4">{{ t('form.privacyLink') }}</NuxtLink>.
+                  <NuxtLink
+                    :to="localePath('/legal/privacidad')"
+                    target="_blank"
+                    class="text-primary underline underline-offset-4"
+                    >{{ t('form.privacyLink') }}</NuxtLink
+                  >.
                 </span>
               </template>
             </UCheckbox>
           </UFormField>
 
           <div class="flex flex-col gap-3 sm:col-span-2">
-            <UAlert v-if="error" color="error" variant="subtle" :title="error" role="alert" icon="i-lucide-circle-alert" />
+            <UAlert
+              v-if="error"
+              color="error"
+              variant="subtle"
+              :title="error"
+              role="alert"
+              icon="i-lucide-circle-alert"
+            />
             <UButton
               type="submit"
               size="xl"

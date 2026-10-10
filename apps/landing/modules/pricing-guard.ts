@@ -2,7 +2,7 @@
 // Mientras `confirmed` sea false la página muestra "solicita cotización" en lugar de cifras;
 // este módulo lo recuerda en cada build de producción (no la bloquea: la landing es útil sin
 // cifras). Para que falle, PRICING_REQUIRE_CONFIRMED=1.
-import { defineNuxtModule, useLogger } from '@nuxt/kit'
+import { defineNuxtModule, useLogger } from 'nuxt/kit'
 import { pricing } from '../app/config/pricing'
 
 export default defineNuxtModule({

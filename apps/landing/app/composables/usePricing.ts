@@ -1,4 +1,11 @@
-import { planPrice, pricing, type Currency, type Localized, type Period, type Plan } from '~/config/pricing'
+import {
+  planPrice,
+  pricing,
+  type Currency,
+  type Localized,
+  type Period,
+  type Plan,
+} from '~/config/pricing'
 
 /** Estado compartido del selector de precios (periodo y moneda) y utilidades de formato. */
 export function usePricing() {

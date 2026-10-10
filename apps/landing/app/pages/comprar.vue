@@ -22,7 +22,9 @@ const qPeriod = String(route.query.period ?? '')
 
 const state = reactive({
   plan: (buyable.some((p) => p.id === qPlan) ? qPlan : 'medium') as PlanId,
-  period: (qPeriod === 'monthly' || qPeriod === 'annual' ? qPeriod : pricing.defaultPeriod) as Period,
+  period: (qPeriod === 'monthly' || qPeriod === 'annual'
+    ? qPeriod
+    : pricing.defaultPeriod) as Period,
   currency: pricing.defaultCurrency as Currency,
   legalName: '',
   nit: '',
@@ -100,7 +102,10 @@ async function copyRef() {
       <h1 class="mt-3 text-3xl font-bold text-highlighted">{{ t('buy.successTitle') }}</h1>
       <p class="mt-6 text-sm font-semibold text-muted">{{ t('buy.reference') }}</p>
       <div class="mt-1 flex flex-wrap items-center gap-3">
-        <span class="font-mono text-2xl font-semibold text-highlighted" data-testid="purchase-reference">
+        <span
+          class="font-mono text-2xl font-semibold text-highlighted"
+          data-testid="purchase-reference"
+        >
           {{ result.reference }}
         </span>
         <UButton
@@ -114,7 +119,15 @@ async function copyRef() {
         />
       </div>
       <p class="mt-6 text-toned">{{ t('buy.manualSteps') }}</p>
-      <UButton :to="localePath('/')" color="neutral" variant="ghost" size="lg" class="mt-6 min-h-11 px-0" :label="t('buy.backHome')" icon="i-lucide-arrow-left" />
+      <UButton
+        :to="localePath('/')"
+        color="neutral"
+        variant="ghost"
+        size="lg"
+        class="mt-6 min-h-11 px-0"
+        :label="t('buy.backHome')"
+        icon="i-lucide-arrow-left"
+      />
     </div>
 
     <template v-else>
@@ -134,7 +147,9 @@ async function copyRef() {
         <HoneypotField v-model="honeypot" />
         <div class="space-y-8">
           <section class="surface rounded-2xl p-5 sm:p-8" aria-labelledby="buy-plan">
-            <h2 id="buy-plan" class="text-xl font-semibold text-highlighted">{{ t('buy.stepPlan') }}</h2>
+            <h2 id="buy-plan" class="text-xl font-semibold text-highlighted">
+              {{ t('buy.stepPlan') }}
+            </h2>
             <UFormField name="plan" class="mt-5" :label="t('buy.plan')">
               <URadioGroup
                 v-model="state.plan"
@@ -145,16 +160,40 @@ async function copyRef() {
               />
             </UFormField>
             <div class="mt-6 flex flex-wrap gap-4">
-              <SegmentedControl v-model="state.period" solid name="buy-period" :legend="t('pricing.period')" :options="periodOptions" />
-              <SegmentedControl v-model="state.currency" solid name="buy-currency" :legend="t('pricing.currency')" :options="currencyOptions" />
+              <SegmentedControl
+                v-model="state.period"
+                solid
+                name="buy-period"
+                :legend="t('pricing.period')"
+                :options="periodOptions"
+              />
+              <SegmentedControl
+                v-model="state.currency"
+                solid
+                name="buy-currency"
+                :legend="t('pricing.currency')"
+                :options="currencyOptions"
+              />
             </div>
           </section>
 
           <section class="surface rounded-2xl p-5 sm:p-8" aria-labelledby="buy-billing">
-            <h2 id="buy-billing" class="text-xl font-semibold text-highlighted">{{ t('buy.stepBilling') }}</h2>
+            <h2 id="buy-billing" class="text-xl font-semibold text-highlighted">
+              {{ t('buy.stepBilling') }}
+            </h2>
             <div class="mt-5 grid gap-5 sm:grid-cols-2">
-              <UFormField :label="t('buy.legalName')" name="legalName" required class="sm:col-span-2">
-                <UInput v-model="state.legalName" autocomplete="organization" size="xl" class="w-full" />
+              <UFormField
+                :label="t('buy.legalName')"
+                name="legalName"
+                required
+                class="sm:col-span-2"
+              >
+                <UInput
+                  v-model="state.legalName"
+                  autocomplete="organization"
+                  size="xl"
+                  class="w-full"
+                />
               </UFormField>
               <UFormField :label="t('form.country')" name="country" required>
                 <USelect v-model="state.country" :items="countries" size="xl" class="w-full" />
@@ -162,25 +201,56 @@ async function copyRef() {
               <UFormField :label="t('buy.nit')" name="nit" :help="t('buy.nitHint')">
                 <UInput v-model="state.nit" autocomplete="off" size="xl" class="w-full" />
               </UFormField>
-              <UFormField :label="t('buy.address')" name="address" :hint="t('form.optional')" class="sm:col-span-2">
-                <UInput v-model="state.address" autocomplete="street-address" size="xl" class="w-full" />
+              <UFormField
+                :label="t('buy.address')"
+                name="address"
+                :hint="t('form.optional')"
+                class="sm:col-span-2"
+              >
+                <UInput
+                  v-model="state.address"
+                  autocomplete="street-address"
+                  size="xl"
+                  class="w-full"
+                />
               </UFormField>
             </div>
           </section>
 
           <section class="surface rounded-2xl p-5 sm:p-8" aria-labelledby="buy-contact">
-            <h2 id="buy-contact" class="text-xl font-semibold text-highlighted">{{ t('buy.stepContact') }}</h2>
+            <h2 id="buy-contact" class="text-xl font-semibold text-highlighted">
+              {{ t('buy.stepContact') }}
+            </h2>
             <div class="mt-5 grid gap-5 sm:grid-cols-2">
               <UFormField :label="t('buy.contactName')" name="contactName" required>
                 <UInput v-model="state.contactName" autocomplete="name" size="xl" class="w-full" />
               </UFormField>
               <UFormField :label="t('form.email')" name="email" required>
-                <UInput v-model="state.email" type="email" autocomplete="email" inputmode="email" size="xl" class="w-full" />
+                <UInput
+                  v-model="state.email"
+                  type="email"
+                  autocomplete="email"
+                  inputmode="email"
+                  size="xl"
+                  class="w-full"
+                />
               </UFormField>
               <UFormField :label="t('form.phone')" name="phone" :hint="t('form.optional')">
-                <UInput v-model="state.phone" type="tel" autocomplete="tel" inputmode="tel" size="xl" class="w-full" />
+                <UInput
+                  v-model="state.phone"
+                  type="tel"
+                  autocomplete="tel"
+                  inputmode="tel"
+                  size="xl"
+                  class="w-full"
+                />
               </UFormField>
-              <UFormField :label="t('buy.notes')" name="notes" :help="t('buy.notesHint')" class="sm:col-span-2">
+              <UFormField
+                :label="t('buy.notes')"
+                name="notes"
+                :help="t('buy.notesHint')"
+                class="sm:col-span-2"
+              >
                 <UTextarea v-model="state.notes" :rows="3" autoresize size="xl" class="w-full" />
               </UFormField>
             </div>
@@ -189,7 +259,9 @@ async function copyRef() {
 
         <aside class="lg:sticky lg:top-24 lg:self-start" aria-labelledby="buy-summary">
           <div class="surface rounded-2xl p-5 sm:p-6">
-            <h2 id="buy-summary" class="text-lg font-semibold text-highlighted">{{ t('buy.summary') }}</h2>
+            <h2 id="buy-summary" class="text-lg font-semibold text-highlighted">
+              {{ t('buy.summary') }}
+            </h2>
             <dl class="mt-4 space-y-3">
               <div class="flex justify-between gap-4">
                 <dt class="text-muted">{{ t('buy.plan') }}</dt>
@@ -208,22 +280,47 @@ async function copyRef() {
                 </dd>
               </div>
             </dl>
-            <p v-if="!pricing.confirmed" class="mt-3 text-sm text-muted">{{ t('pricing.launch') }}</p>
+            <p v-if="!pricing.confirmed" class="mt-3 text-sm text-muted">
+              {{ t('pricing.launch') }}
+            </p>
 
             <UFormField name="consent" class="mt-6">
-              <UCheckbox v-model="state.consent" size="lg" required :ui="{ root: 'items-start', container: 'mt-1' }">
+              <UCheckbox
+                v-model="state.consent"
+                size="lg"
+                required
+                :ui="{ root: 'items-start', container: 'mt-1' }"
+              >
                 <template #label>
                   <span class="text-[0.95rem] font-normal text-toned">
                     {{ t('buy.consentBefore') }}
-                    <NuxtLink :to="localePath('/legal/terminos')" target="_blank" class="text-primary underline underline-offset-4">{{ t('form.termsLink') }}</NuxtLink>
+                    <NuxtLink
+                      :to="localePath('/legal/terminos')"
+                      target="_blank"
+                      class="text-primary underline underline-offset-4"
+                      >{{ t('form.termsLink') }}</NuxtLink
+                    >
                     {{ t('buy.consentAnd') }}
-                    <NuxtLink :to="localePath('/legal/privacidad')" target="_blank" class="text-primary underline underline-offset-4">{{ t('form.privacyLink') }}</NuxtLink>.
+                    <NuxtLink
+                      :to="localePath('/legal/privacidad')"
+                      target="_blank"
+                      class="text-primary underline underline-offset-4"
+                      >{{ t('form.privacyLink') }}</NuxtLink
+                    >.
                   </span>
                 </template>
               </UCheckbox>
             </UFormField>
 
-            <UAlert v-if="error" class="mt-4" color="error" variant="subtle" :title="error" role="alert" icon="i-lucide-circle-alert" />
+            <UAlert
+              v-if="error"
+              class="mt-4"
+              color="error"
+              variant="subtle"
+              :title="error"
+              role="alert"
+              icon="i-lucide-circle-alert"
+            />
             <UButton
               type="submit"
               size="xl"
@@ -234,7 +331,11 @@ async function copyRef() {
               :label="submitting ? t('form.sending') : t('buy.submit')"
             />
             <p class="mt-4 flex gap-2 text-sm text-muted">
-              <UIcon name="i-lucide-shield-check" class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+              <UIcon
+                name="i-lucide-shield-check"
+                class="mt-0.5 size-4 shrink-0"
+                aria-hidden="true"
+              />
               {{ t('buy.noPayment') }}
             </p>
           </div>

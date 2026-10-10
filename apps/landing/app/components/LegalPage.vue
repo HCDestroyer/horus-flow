@@ -18,7 +18,9 @@ const updated = computed(() =>
         <UIcon name="i-lucide-file-pen-line" class="mt-0.5 size-5 shrink-0" aria-hidden="true" />
         {{ t('legal.draft') }}
       </p>
-      <p v-if="locale === 'en'" class="mt-1 pl-7 text-muted" :lang="locale">{{ t('legal.onlySpanish') }}</p>
+      <p v-if="locale === 'en'" class="mt-1 pl-7 text-muted" :lang="locale">
+        {{ t('legal.onlySpanish') }}
+      </p>
     </div>
     <h1 class="mt-8 text-4xl font-bold text-highlighted">{{ doc.title }}</h1>
     <p class="mt-2 text-muted" :lang="locale">{{ t('legal.updated', { date: updated }) }}</p>

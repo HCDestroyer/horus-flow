@@ -73,7 +73,11 @@ export function createMailer(config: ServerConfig['mail']): Mailer {
   return {
     mode: 'log',
     async send(m) {
-      log('info', 'mail.skipped', { reason: 'smtp_not_configured', tag: m.tag, to: maskEmail(m.to) })
+      log('info', 'mail.skipped', {
+        reason: 'smtp_not_configured',
+        tag: m.tag,
+        to: maskEmail(m.to),
+      })
     },
   }
 }

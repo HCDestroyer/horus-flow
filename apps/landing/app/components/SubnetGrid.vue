@@ -20,7 +20,8 @@ const dots = Array.from({ length: 256 }, (_, i) => ({
   i,
   x: PAD + (i % COLS) * STEP,
   y: PAD + Math.floor(i / COLS) * STEP,
-  kind: i === FLAGGED ? 'flagged' : i === 0 || i === 255 ? 'reserved' : active(i) ? 'active' : 'idle',
+  kind:
+    i === FLAGGED ? 'flagged' : i === 0 || i === 255 ? 'reserved' : active(i) ? 'active' : 'idle',
 }))
 const flagged = dots[FLAGGED]!
 const gridBottom = PAD + 15 * STEP
@@ -86,7 +87,8 @@ const gridBottom = PAD + 15 * STEP
         <span class="font-mono font-semibold text-highlighted">10.20.1.47</span>
       </div>
       <p class="mt-1 font-semibold text-(--infected)">
-        {{ t('hero.flagged') }} <span class="font-normal text-muted">· {{ t('hero.confidence') }}</span>
+        {{ t('hero.flagged') }}
+        <span class="font-normal text-muted">· {{ t('hero.confidence') }}</span>
       </p>
       <p class="mt-1 text-[0.95rem] text-toned">{{ t('hero.reason') }}</p>
     </div>
