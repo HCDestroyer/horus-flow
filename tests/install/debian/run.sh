@@ -169,15 +169,21 @@ health() {
 check "todos los servicios sanos; UI 200 y API 401 en https://$ip con el certificado autogenerado" health
 check "huella SHA-256 del certificado coincide con la mostrada" bash -c \
   "[ \"\$(openssl x509 -in '$work/fp-$ver.crt' -noout -fingerprint -sha256 | cut -d= -f2)\" = \"\$(docker exec $name cat /etc/horus/tls/fingerprint-sha256.txt)\" ]"
-check "install.sh --check (horus-ctl check)" docker exec "$name" horus-ctl check
+# --check falla también por disco ≥ 85 % del HOST (compartido en CI/sandbox): eso se tolera y se anota.
+install_check() {
+  docker exec "$name" horus-ctl check >"$out/check.log" 2>&1 && return 0
+  if grep FALLO "$out/check.log" | grep -qv ' al [0-9]* % '; then return 1; fi
+  echo "  (install.sh --check: solo fallos de ocupación del disco del host; ver check.log)"
+}
+check "install.sh --check (horus-ctl check; se tolera solo el disco del host lleno)" install_check
 check "versión instalada 0.9.0" bash -c "[ \"\$(docker exec $name horus-ctl version)\" = 0.9.0 ]"
 
 # --- 4. Idempotencia ----------------------------------------------------------------------------
 step "4. segunda ejecución (idempotente)"
-sums() { docker exec "$name" bash -c 'sha256sum /etc/horus/secrets/* /etc/horus/secrets/grpc/* | sha256sum'; }
+sums() { docker exec "$name" bash -c 'find /etc/horus/secrets -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum'; }
 before="$(sums)"
 check "bootstrap otra vez sin error" bash -c "docker exec $name ${boot[*]@Q} >'$out/install2.log' 2>&1"
-check "secretos idénticos" bash -c "[ '$before' = \"\$(docker exec $name bash -c 'sha256sum /etc/horus/secrets/* /etc/horus/secrets/grpc/* | sha256sum')\" ]"
+check "secretos idénticos" bash -c "[ '$before' = \"\$(docker exec $name bash -c 'find /etc/horus/secrets -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum')\" ]"
 check "sigue sano" health
 
 # --- 5. Reinicio ----------------------------------------------------------------------------------
@@ -213,7 +219,7 @@ check "horus-ctl uninstall --yes" bash -c "docker exec $name horus-ctl uninstall
 check "sin contenedores y datos conservados" bash -c \
   "[ -z \"\$(docker exec $name docker ps -q)\" ] && docker exec $name test -s /etc/horus/secrets/postgres_password && docker exec $name test -d /var/lib/horus/postgres"
 check "reinstalación con los mismos secretos" bash -c \
-  "docker exec $name ${boot[*]@Q} >'$out/install3.log' 2>&1 && [ '$before' = \"\$(docker exec $name bash -c 'sha256sum /etc/horus/secrets/* /etc/horus/secrets/grpc/* | sha256sum')\" ]"
+  "docker exec $name ${boot[*]@Q} >'$out/install3.log' 2>&1 && [ '$before' = \"\$(docker exec $name bash -c 'find /etc/horus/secrets -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum')\" ]"
 check "sana tras reinstalar" health
 check "horus-ctl uninstall --purge --yes" bash -c "docker exec $name horus-ctl uninstall --purge --yes >'$out/purge.log' 2>&1"
 check "purge: sin /etc/horus, /var/lib/horus ni /opt/horus" bash -c \

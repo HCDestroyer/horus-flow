@@ -486,7 +486,7 @@ do_upgrade() {
   local log
   log="$state_dir/upgrade-$target-$(date -u +%Y%m%dT%H%M%SZ).log"
   if ! HORUS_INSTALL_WAIT="${HORUS_INSTALL_WAIT:-600}" bash "$tree/scripts/install.sh" --yes --image-source "$src" \
-    "${root_opt[@]}" --etc-dir "$etc_dir" >"$log" 2>&1; then
+    "${root_opt[@]}" --etc-dir "$etc_dir" >"$log" 2>&1 9>&-; then
     tail -25 "$log" >&2
     rollback_now "la instalación de $target falló (registro: $log)"
     exit 3
@@ -538,7 +538,7 @@ do_uninstall() {
   fi
   local tmp; tmp="$(mktemp -d)"
   cp -a "$install_dir/release/scripts/install.sh" "$tmp/install.sh"
-  bash "$tmp/install.sh" "${args[@]}" "${root_opt[@]}" --etc-dir "$etc_dir"
+  bash "$tmp/install.sh" "${args[@]}" "${root_opt[@]}" --etc-dir "$etc_dir" 9>&-
   rm -rf "$tmp" "$state_dir"
 }
 

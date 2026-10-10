@@ -87,7 +87,8 @@ case "$os_id:$os_ver" in
 esac
 arch="$(dpkg --print-architecture)"
 case "$arch" in amd64 | arm64) ok "arquitectura $arch" ;; *) die "arquitectura no soportada: $arch (amd64 o arm64)" ;; esac
-exec 9>/run/lock/horus-bootstrap.lock 2>/dev/null || exec 9>/tmp/horus-bootstrap.lock
+lock=/run/lock/horus-bootstrap.lock; [ -d /run/lock ] || lock=/tmp/horus-bootstrap.lock
+exec 9>"$lock"
 flock -n 9 || die "ya hay otro bootstrap-debian.sh en marcha"
 
 # --- 2. Paquetes ----------------------------------------------------------------------------------
@@ -253,4 +254,5 @@ fi
 
 # --- 6. Instalador --------------------------------------------------------------------------------
 say "Instalador de Horus Flow ($tree)"
-exec bash "$tree/scripts/install.sh" "${pass[@]}"
+# Sin heredar el cerrojo (9): lo que arranque install.sh (wireguard-go) no debe retenerlo.
+bash "$tree/scripts/install.sh" "${pass[@]}" 9>&-

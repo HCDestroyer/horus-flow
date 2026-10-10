@@ -1006,7 +1006,7 @@ case "\${1:-up}" in
         # Sin módulo del kernel: wireguard-go en primer plano y desligado (su modo demonio no
         # sobrevive en algunos entornos); UAPI en /var/run/wireguard/$wg_if.sock.
         mkdir -p /var/run/wireguard
-        setsid wireguard-go -f $wg_if </dev/null >>/var/log/horus-wireguard-go.log 2>&1 &
+        setsid wireguard-go -f $wg_if </dev/null >>/var/log/horus-wireguard-go.log 2>&1 9>&- &
         i=0
         until [ -S /var/run/wireguard/$wg_if.sock ] && ip link show $wg_if >/dev/null 2>&1; do
           i=\$((i + 1)); [ \$i -lt 50 ] || { echo "horus-tunnel: wireguard-go no creó $wg_if" >&2; exit 1; }; sleep 0.2
