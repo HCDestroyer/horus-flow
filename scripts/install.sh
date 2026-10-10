@@ -581,6 +581,8 @@ make_dirs() {
   for d in nats valkey; do install -d -m 0750 "$data_dir/$d"; done
   install -d -m 0750 -o 101 -g 101 "$data_dir/clickhouse" "$data_dir/clickhouse-logs"
   install -d -m 0750 -o 65534 -g 65534 "$data_dir/traefik"
+  # Spool a disco del collector (D23, architecture.md §10.15): sin él, /readyz marca spool degradado.
+  install -d -m 0750 -o 65532 -g 65532 "$data_dir/collector-spool"
   install -d -m 0755 "$data_dir/metrics"
   install -d -m 0755 "$store_dir" "$store_dir/backups"
   install -d -m 0750 -o 70 -g 70 "$store_dir/backups/postgres"

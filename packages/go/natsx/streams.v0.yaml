@@ -43,8 +43,10 @@ consumers_i1:
   - { durable: wireguard-devices, stream: DEVICES_EVENTS, filter: ['horus.devices.router.created.>', 'horus.devices.router.deleted.>'], module: wireguard }
   - { durable: devices-wireguard, stream: WIREGUARD_EVENTS, filter: ['horus.wireguard.peer.enrolled.>', 'horus.wireguard.peer.activated.>'], module: devices, note: onboarding_state del router }
   - { durable: devices-exporter-state, stream: FLOWS_EVENTS, filter: ['horus.flows.exporter.state_changed.>'], module: devices, note: onboarding_state=exporting }
-  - { durable: flows-inventory, stream: DEVICES_EVENTS, filter: ['horus.devices.router.>', 'horus.devices.realm.>'], module: flows }
-  - { durable: ingester-known-clients, stream: DEVICES_EVENTS, filter: ['horus.devices.customer.>', 'horus.devices.client_prefix.>', 'horus.devices.realm.>'], module: flows }
+  # Proyecciones con instantánea en el Object Store flows_state + consumidor efímero desde la secuencia
+  # siguiente (D23, architecture.md §10.16): no son durables; sobreviven a la retención del stream.
+  - { ephemeral: flows-inventory-<rol>, stream: DEVICES_EVENTS, filter: ['horus.devices.router.>', 'horus.devices.realm.>'], module: flows, snapshot: flows_state }
+  - { ephemeral: ingester-known-clients, stream: DEVICES_EVENTS, filter: ['horus.devices.customer.>', 'horus.devices.client_prefix.>', 'horus.devices.realm.>'], module: flows, snapshot: flows_state }
   - { durable: devices-client-first-seen, stream: FLOWS_EVENTS, filter: ['horus.flows.client.first_seen.>'], module: devices }
   - { durable: devices-client-activity, stream: TLM_FLOWS, filter: ['horus.telemetry.flows.client_activity.>'], module: devices }
   - { durable: flows-snapshots, streams: [TRAFFIC_EVENTS, DETECTION_EVENTS], filter: ['horus.traffic.catalog.published.>', 'horus.detection.reputation.snapshot_published.>'], module: flows }
