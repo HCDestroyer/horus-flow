@@ -39,7 +39,9 @@ up() {
   local name="$1" idx="$2" tip="$3" hub="$4" ep="$5" port="$6" svc="$7"
   local ns veth_h veth_n base host_ip ns_ip
   ns="$(ns_of "$name")"
-  [[ "$idx" =~ ^[0-9]+$ ]] && [ "$idx" -lt 60 ] || die "índice inválido: $idx"
+  if ! [[ "$idx" =~ ^[0-9]+$ ]] || [ "$idx" -ge 60 ]; then
+    die "índice inválido: $idx"
+  fi
   veth_h="${ifp}h$idx" veth_n="${ifp}n$idx"
   # Nombre de interfaz único en el host: el socket UAPI de wireguard-go
   # (/var/run/wireguard/<nombre>.sock) no está aislado por namespace.
