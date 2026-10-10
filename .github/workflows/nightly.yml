@@ -9,6 +9,10 @@
 #                 (los secretos no cambian) y desinstalación con --purge.
 #   test-backup   I1-23: `make test-backup` (pgBackRest + ClickHouse BACKUP, restauración de
 #                 prueba en una base vacía y comparación de huellas, TTL del crudo, métricas).
+#   load-i1       I1-26: `make load-i1` a 5 000 flujos/s durante 1 h y rampa hasta el máximo
+#                 sostenible del runner; el informe (bin/load/results.md) va al resumen del job.
+#   chaos-i1      I1-26: `make chaos-i1` (reinicio de ClickHouse, NATS y horus-app durante la
+#                 ingesta; collector caído 1 min); informe bin/load/chaos.md en el resumen.
 #   accept-i1     I1-24: `make accept-i1` (TARGET=local): instala Horus con scripts/install.sh en un
 #                 raíz temporal, routers simulados por WireGuard real, seis escenarios y captura
 #                 real de MikroTik, clientes, tops, hallazgos, exportadores, aislamiento, WebSocket y
@@ -159,6 +163,71 @@ jobs:
           name: test-backup-logs
           path: bin/test-backup/
           retention-days: 14
+          if-no-files-found: ignore
+
+  # -------------------------------------------------------------------------------------------
+  load-i1:
+    name: load-i1 (I1-26)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 130
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      # La imagen sale del Dockerfile raíz; 1 h a la tasa del criterio y después la rampa.
+      - name: make load-i1 (1 h a 5 000 flujos/s y rampa)
+        env:
+          ACCEPT_IMAGE_MODE: dockerfile
+          DURATION: 1h
+          RAMP: "1"
+        run: make load-i1
+      - name: Informe en el resumen del job
+        if: always()
+        run: cat bin/load/results.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "sin informe" >> "$GITHUB_STEP_SUMMARY"
+      - name: Resultados y logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: load-i1
+          path: |
+            bin/load/results.*
+            bin/load/*.log
+            bin/load/compose-logs.txt
+          retention-days: 30
+          if-no-files-found: ignore
+
+  # -------------------------------------------------------------------------------------------
+  chaos-i1:
+    name: chaos-i1 (I1-26)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: make chaos-i1
+        env:
+          ACCEPT_IMAGE_MODE: dockerfile
+        run: make chaos-i1
+      - name: Informe en el resumen del job
+        if: always()
+        run: cat bin/load/chaos.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "sin informe" >> "$GITHUB_STEP_SUMMARY"
+      - name: Resultados y logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: chaos-i1
+          path: |
+            bin/load/chaos.*
+            bin/load/*.log
+            bin/load/compose-logs.txt
+          retention-days: 30
           if-no-files-found: ignore
 
   # -------------------------------------------------------------------------------------------

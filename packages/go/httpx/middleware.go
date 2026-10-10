@@ -170,13 +170,19 @@ func (w *statusWriter) status() int {
 // Unwrap permite a http.ResponseController llegar al writer original.
 func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
-// Hijack delega en el writer original. coder/websocket (Accept) exige que el
-// ResponseWriter implemente http.Hijacker sin desenvolverlo: sin esto el
-// WebSocket del gateway respondía 501 detrás de este middleware (I1-13).
+// Hijack delega en el writer original: las bibliotecas WebSocket (coder/websocket
+// en el hub del gateway) exigen http.Hijacker por aserción de tipo y no usan
+// http.ResponseController; sin él, GET /api/v1/ws respondía 501 detrás de este
+// middleware (I1-26).
 func (w *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	c, rw, err := http.NewResponseController(w.ResponseWriter).Hijack()
 	if err == nil && w.code == 0 {
 		w.code = http.StatusSwitchingProtocols
 	}
-	return c, rw, err //nolint:wrapcheck // passthrough
+	return c, rw, err //nolint:wrapcheck // passthrough de http.Hijacker
+}
+
+// Flush delega en el writer original (respuestas en streaming).
+func (w *statusWriter) Flush() {
+	_ = http.NewResponseController(w.ResponseWriter).Flush()
 }

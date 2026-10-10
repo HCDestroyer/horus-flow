@@ -66,9 +66,11 @@ type bucket struct {
 }
 
 type exporterState struct {
-	cur        api.FlowExporter
-	loaded     bool
-	lastFlow   time.Time
+	cur      api.FlowExporter
+	loaded   bool
+	lastFlow time.Time
+	// firstObs es el primer datagrama visto por este proceso (reinicio del collector).
+	firstObs   time.Time
 	lastSkew   time.Duration
 	hasSkew    bool
 	flowSource string
@@ -131,6 +133,9 @@ func (s *States) Observe(exp *flowinv.Exporter, o Observation) {
 	st := s.get(exp.RouterID)
 	if o.Records > 0 {
 		st.lastFlow = o.At
+	}
+	if st.firstObs.IsZero() {
+		st.firstObs = o.At
 	}
 	st.lastSkew, st.hasSkew = o.Skew, true
 	st.flowSource, st.sampling = o.FlowSource, o.Sampling
@@ -209,6 +214,9 @@ func (s *States) Evaluate(ctx context.Context, onlyDirty bool) {
 			s.mu.Lock()
 			if prev != nil {
 				st.cur = *prev
+				if w, ok := s.restore(st, now); ok {
+					writes = append(writes, w)
+				}
 			}
 		}
 		next := s.compute(&exp, st, now)
@@ -259,6 +267,43 @@ func (s *States) load(ctx context.Context, router uuid.UUID) *api.FlowExporter {
 		return nil
 	}
 	return &fe
+}
+
+// restore continúa el estado guardado en KV tras un reinicio del collector
+// (I1-26): sin él, el exportador volvía a pending_configuration si la
+// primera evaluación llegaba antes que su primer datagrama, y una caída del
+// propio collector más larga que SilentAfter no dejaba rastro de Silencioso.
+// Si el hueco entre el último flujo guardado y el primer datagrama de este
+// proceso (o ahora) supera SilentAfter, registra la transición a silent que
+// nadie pudo calcular mientras el collector estaba caído.
+func (s *States) restore(st *exporterState, now time.Time) (pendingWrite, bool) {
+	if st.cur.LastFlowAt == nil {
+		return pendingWrite{}, false
+	}
+	last := *st.cur.LastFlowAt
+	if st.lastFlow.IsZero() || st.lastFlow.Before(last) {
+		st.lastFlow = last
+	}
+	if st.cur.State == api.StateSilent || st.cur.State == api.StatePendingConfiguration {
+		return pendingWrite{}, false
+	}
+	end := now
+	if !st.firstObs.IsZero() {
+		end = st.firstObs
+	}
+	if end.Sub(last) <= s.opts.SilentAfter {
+		return pendingWrite{}, false
+	}
+	sil := st.cur
+	prev := sil.State
+	sil.State = api.StateSilent
+	sil.Version++
+	sil.StateSince = last.Add(s.opts.SilentAfter)
+	sil.UpdatedAt = now
+	sil.FlowsPerSecond, sil.LossRatio5m = nil, nil
+	sil.Hints = []string{api.HintCheckTunnel, api.HintCheckTrafficFlowTarget, api.HintCheckFirewall}
+	st.cur = sil
+	return pendingWrite{key: sil.RouterID.String(), value: sil, prev: prev, ev: true}, true
 }
 
 func f64(v float64) *float64 { return &v }
