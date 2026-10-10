@@ -177,6 +177,17 @@ func (c *chaos) watch(ctx context.Context) (*watch, func()) {
 	return w, func() { cancel(); <-done }
 }
 
+// limit aplica el búfer documentado de la prueba a TLM_FLOWS.
+func (c *chaos) limit(ctx context.Context) {
+	for range 10 {
+		if err := c.bus.LimitTelemetry(ctx, loadkit.TelemetryBufferBytes()); err == nil {
+			return
+		}
+		time.Sleep(time.Second)
+	}
+	log.Print("aviso: no se pudo fijar max_bytes de TLM_FLOWS")
+}
+
 func (c *chaos) startSim(ctx context.Context, name string, d time.Duration) (*loadkit.Sim, error) {
 	c.seed++
 	target, _, err := c.env.CollectorAddr(ctx)
@@ -268,6 +279,7 @@ func waitKiosk(ctx context.Context, k *loadkit.Kiosk, since time.Time, d time.Du
 func (c *chaos) restart(ctx context.Context, name, service string, down time.Duration) result {
 	r := result{Scenario: name, Down: down.String()}
 	log.Printf("== %s: caída de %s durante %s a %.0f flujos/s", name, service, down, c.rate)
+	c.limit(ctx)
 	pre, post := 20*time.Second, 40*time.Second
 	rows0 := c.rows(ctx)
 	disc0 := c.kiosk.Status().Disconnects
@@ -287,6 +299,7 @@ func (c *chaos) restart(ctx context.Context, name, service string, down time.Dur
 		r.Why = append(r.Why, err.Error())
 	}
 	started := time.Now()
+	defer c.limit(ctx) // horus-app recrea TLM_FLOWS sin límite al arrancar (dev)
 	// horus-app depende de los demás: tras reiniciar ClickHouse o NATS se comprueba todo.
 	if err := c.env.WaitHealthy(ctx, 3*time.Minute, service, "horus-app", "horus-collector"); err != nil {
 		r.Why = append(r.Why, err.Error())
@@ -320,6 +333,7 @@ func (c *chaos) restart(ctx context.Context, name, service string, down time.Dur
 func (c *chaos) collector(ctx context.Context, down time.Duration) result {
 	r := result{Scenario: "collector", Down: down.String()}
 	log.Printf("== collector: caída del collector durante %s a %.0f flujos/s", down, c.rate)
+	c.limit(ctx)
 	var mu sync.Mutex
 	sub, err := c.bus.NC.Subscribe("horus.flows.exporter.>", func(m *nats.Msg) {
 		var env struct {

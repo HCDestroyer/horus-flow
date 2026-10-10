@@ -268,6 +268,40 @@ func (b *Bus) IngesterLag(ctx context.Context) (Lag, error) {
 	return Lag{Pending: ci.NumPending, AckPending: ci.NumAckPending, StreamMsgs: si.State.Msgs, StreamByte: si.State.Bytes}, nil
 }
 
+// LimitTelemetry fija el max_bytes de TLM_FLOWS (el búfer ante caídas de
+// ClickHouse o del ingester). En dev los roles crean los streams del
+// contrato C4 con HORUS_NATS_ENSURE_STREAMS y dejan sin límite los max_bytes
+// parametrizados (`${HORUS_TLM_FLOWS_MAX_BYTES}`, natsx.EnsureStreams); en
+// producción los aplica `horus nats-provision`. Hay que repetirlo tras cada
+// reinicio de horus-app, que vuelve a crear los streams.
+func (b *Bus) LimitTelemetry(ctx context.Context, maxBytes int64) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	s, err := b.JS.Stream(ctx, IngesterStream)
+	if err != nil {
+		return err
+	}
+	info, err := s.Info(ctx)
+	if err != nil {
+		return err
+	}
+	if info.Config.MaxBytes == maxBytes {
+		return nil
+	}
+	cfg := info.Config
+	cfg.MaxBytes = maxBytes
+	_, err = b.JS.UpdateStream(ctx, cfg)
+	return err
+}
+
+// TelemetryBufferBytes es el búfer TLM_FLOWS de las pruebas (LOAD_TLM_MAX_BYTES, 2 GiB).
+func TelemetryBufferBytes() int64 {
+	if v, err := strconv.ParseInt(os.Getenv("LOAD_TLM_MAX_BYTES"), 10, 64); err == nil && v > 0 {
+		return v
+	}
+	return 2 << 30
+}
+
 // CHQuery ejecuta una consulta en ClickHouse por HTTP y devuelve la salida (TSV).
 func (e Env) CHQuery(ctx context.Context, q string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)

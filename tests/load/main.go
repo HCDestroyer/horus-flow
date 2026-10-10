@@ -175,6 +175,9 @@ func (r *runner) run(ctx context.Context, rate float64, d time.Duration) step {
 	r.seed++
 	s := step{Rate: rate, Duration: d.String(), Drops: map[string]int{}}
 	log.Printf("== %.0f flujos/s durante %s", rate, d)
+	if err := r.bus.LimitTelemetry(ctx, loadkit.TelemetryBufferBytes()); err != nil {
+		log.Printf("aviso: max_bytes de TLM_FLOWS: %v", err)
+	}
 	before := r.snap(ctx)
 	simLog, _ := os.Create(filepath.Join(r.env.Dir, fmt.Sprintf("flowsim-%.0f.log", rate)))
 	defer func() { _ = simLog.Close() }()
