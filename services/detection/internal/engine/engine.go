@@ -62,7 +62,21 @@ type Options struct {
 	// Lag: margen para flujos tardíos (active timeout 1 min + ingesta).
 	Lag    time.Duration
 	Logger *slog.Logger
+	// MaxCatchup acota cuánto hacia atrás recupera el motor las ventanas no
+	// evaluadas tras una parada (por defecto 24 h; más allá se registra el
+	// hueco y se empieza desde ahí).
+	MaxCatchup time.Duration
+	// CatchupSteps es el máximo de ventanas atrasadas por detector y pasada
+	// (por defecto 24): la recuperación avanza en varias pasadas sin
+	// bloquear al resto de tenants.
+	CatchupSteps int
 }
+
+// stateWindowPrefix es la clave de engine_state con el fin de la última
+// ventana evaluada (y aplicada) de cada detector: "window:<detector>" →
+// segundos Unix. Sobrevive a reinicios: el motor retoma desde ahí y evalúa
+// las ventanas perdidas mientras el rol estuvo parado (D23).
+const stateWindowPrefix = "window:"
 
 // Engine evalúa los detectores por tenant.
 type Engine struct {
@@ -72,7 +86,10 @@ type Engine struct {
 	lag  time.Duration
 	log  *slog.Logger
 	mu   sync.Mutex
-	last map[string]time.Time // tenant|detector → fin de la última ventana evaluada
+	last map[string]time.Time // tenant|detector → fin de la última ventana evaluada (caché de engine_state)
+
+	maxCatchup   time.Duration
+	catchupSteps int
 }
 
 // New crea el motor.
@@ -83,7 +100,69 @@ func New(sig Signals, sink Sink, rep Reputation, o Options) *Engine {
 	if o.Logger == nil {
 		o.Logger = slog.New(slog.DiscardHandler)
 	}
-	return &Engine{sig: sig, sink: sink, rep: rep, lag: o.Lag, log: o.Logger, last: map[string]time.Time{}}
+	if o.MaxCatchup <= 0 {
+		o.MaxCatchup = 24 * time.Hour
+	}
+	if o.CatchupSteps <= 0 {
+		o.CatchupSteps = 24
+	}
+	return &Engine{sig: sig, sink: sink, rep: rep, lag: o.Lag, log: o.Logger, last: map[string]time.Time{},
+		maxCatchup: o.MaxCatchup, catchupSteps: o.CatchupSteps}
+}
+
+// lastEnd devuelve el fin de la última ventana aplicada de un detector: de
+// la caché o, tras un arranque, de engine_state (cero si nunca se evaluó).
+func (en *Engine) lastEnd(ctx context.Context, tenant uuid.UUID, det string) (time.Time, error) {
+	key := tenant.String() + "|" + det
+	en.mu.Lock()
+	last, ok := en.last[key]
+	en.mu.Unlock()
+	if ok {
+		return last, nil
+	}
+	v, err := en.sink.State(ctx, tenant, stateWindowPrefix+det)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("window state: %w", err)
+	}
+	if v != "" {
+		if sec, err := strconv.ParseInt(v, 10, 64); err == nil && sec > 0 {
+			last = time.Unix(sec, 0).UTC()
+		}
+	}
+	en.mu.Lock()
+	en.last[key] = last
+	en.mu.Unlock()
+	return last, nil
+}
+
+// windowEnds decide qué ventanas evalúa un detector en esta pasada: ninguna
+// si no le toca por cadencia; la actual si la última evaluada la cubre; y,
+// tras una parada más larga que la ventana, las atrasadas paso a paso
+// (cadencia) hasta CatchupSteps, empezando como mucho MaxCatchup atrás.
+func (en *Engine) windowEnds(last, end time.Time, window, cadence time.Duration, force bool) (ends []time.Time, skipped time.Duration) {
+	switch {
+	case force || last.IsZero():
+		return []time.Time{end}, 0
+	case !end.After(last) || end.Sub(last) < cadence:
+		return nil, 0
+	case end.Sub(last) <= window:
+		return []time.Time{end}, 0
+	}
+	if cadence <= 0 {
+		cadence = window
+	}
+	start := last
+	if end.Sub(start) > en.maxCatchup {
+		skipped = end.Sub(start) - en.maxCatchup
+		start = end.Add(-en.maxCatchup)
+	}
+	for e := start.Add(cadence); e.Before(end) && len(ends) < en.catchupSteps; e = e.Add(cadence) {
+		ends = append(ends, e)
+	}
+	if len(ends) < en.catchupSteps {
+		ends = append(ends, end)
+	}
+	return ends, skipped
 }
 
 // Report es el resultado de evaluar un tenant.
@@ -183,35 +262,53 @@ func (en *Engine) Evaluate(ctx context.Context, tenant uuid.UUID, now time.Time,
 	}
 	rep := &Report{Skipped: map[string]int{}}
 	cache := map[ClientKey]Customer{}
+	// done: ventanas evaluadas en esta pasada; se guardan (memoria y
+	// engine_state) solo cuando sus candidatos ya están aplicados, para que
+	// un fallo o un kill -9 entre la evaluación y Apply no pierda hallazgos.
+	done := map[string]time.Time{}
 	for _, d := range detectors {
 		if !d.enabled(&p) {
 			continue
 		}
-		key := tenant.String() + "|" + d.name
-		en.mu.Lock()
-		last := en.last[key]
-		en.mu.Unlock()
-		if !force && !last.IsZero() && end.Sub(last) < d.cadence(&p) {
-			continue
-		}
-		e := &env{tenant: tenant, p: &p, from: end.Add(-d.window(&p)), to: end, sig: en.sig, rep: snap, sink: en.sink, cust: cache}
-		cands, err := d.run(ctx, e)
+		last, err := en.lastEnd(ctx, tenant, d.name)
 		if err != nil {
 			rep.Errors = append(rep.Errors, fmt.Errorf("%s: %w", d.name, err))
-			en.log.WarnContext(ctx, "detector failed", slog.String("detector", d.name), slog.String("tenant", tenant.String()), slog.Any("err", err))
 			continue
 		}
-		for i := range cands {
-			cands[i].Detector = d.name
+		ends, skipped := en.windowEnds(last, end, d.window(&p), d.cadence(&p), force)
+		if skipped > 0 {
+			en.log.WarnContext(ctx, "detection catch-up limited: older windows not evaluated", slog.String("detector", d.name),
+				slog.String("tenant", tenant.String()), slog.Duration("skipped", skipped))
 		}
-		rep.Candidates = append(rep.Candidates, cands...)
-		en.mu.Lock()
-		en.last[key] = end
-		en.mu.Unlock()
+		if len(ends) > 1 {
+			en.log.InfoContext(ctx, "detection catching up missed windows", slog.String("detector", d.name),
+				slog.String("tenant", tenant.String()), slog.Int("windows", len(ends)), slog.Time("from", last))
+		}
+		for _, wEnd := range ends {
+			e := &env{tenant: tenant, p: &p, from: wEnd.Add(-d.window(&p)), to: wEnd, sig: en.sig, rep: snap, sink: en.sink, cust: cache}
+			cands, err := d.run(ctx, e)
+			if err != nil {
+				rep.Errors = append(rep.Errors, fmt.Errorf("%s: %w", d.name, err))
+				en.log.WarnContext(ctx, "detector failed", slog.String("detector", d.name), slog.String("tenant", tenant.String()), slog.Any("err", err))
+				break
+			}
+			for i := range cands {
+				cands[i].Detector = d.name
+			}
+			rep.Candidates = append(rep.Candidates, cands...)
+			// Una evaluación forzada (tests, reevaluación manual en un
+			// instante arbitrario) no mueve el calendario; el avance nunca
+			// retrocede.
+			if !force && wEnd.After(last) {
+				done[d.name] = wEnd
+			}
+		}
 	}
+	var retroState string
 	// Barrido retroactivo de C2 (nuevo snapshot o cada retro_interval).
 	if p.C2.Enabled && snap != nil {
-		cands, err := en.retroSweep(ctx, tenant, &p, snap, end, force, cache)
+		cands, st, err := en.retroSweep(ctx, tenant, &p, snap, end, force, cache)
+		retroState = st
 		if err != nil {
 			rep.Errors = append(rep.Errors, fmt.Errorf("c2 retro: %w", err))
 		}
@@ -230,6 +327,9 @@ func (en *Engine) Evaluate(ctx context.Context, tenant uuid.UUID, now time.Time,
 		}
 		rep.Applied = res
 	}
+	if err := en.commitWindows(ctx, tenant, done, retroState); err != nil {
+		return rep, err
+	}
 	if p.AutoExpire.D() > 0 {
 		n, err := en.sink.Expire(ctx, tenant, p.AutoExpire.D(), now)
 		if err != nil {
@@ -238,6 +338,25 @@ func (en *Engine) Evaluate(ctx context.Context, tenant uuid.UUID, now time.Time,
 		rep.Expired = n
 	}
 	return rep, errors.Join(rep.Errors...)
+}
+
+// commitWindows guarda el avance de las ventanas aplicadas (y del barrido
+// retroactivo) en engine_state y en la caché.
+func (en *Engine) commitWindows(ctx context.Context, tenant uuid.UUID, done map[string]time.Time, retroState string) error {
+	for det, wEnd := range done {
+		if err := en.sink.SetState(ctx, tenant, stateWindowPrefix+det, strconv.FormatInt(wEnd.Unix(), 10)); err != nil {
+			return fmt.Errorf("window state: %w", err)
+		}
+		en.mu.Lock()
+		en.last[tenant.String()+"|"+det] = wEnd
+		en.mu.Unlock()
+	}
+	if retroState != "" {
+		if err := en.sink.SetState(ctx, tenant, retroStateKey, retroState); err != nil {
+			return fmt.Errorf("retro state: %w", err)
+		}
+	}
+	return nil
 }
 
 // complete resuelve cliente y router, aplica muestreo y la allowlist del ISP.
