@@ -62,6 +62,7 @@ case "$target" in local | installed) ;; *) echo "accept-i1: TARGET=$target desco
 
 offset="${ACCEPT_PORT_OFFSET:-21000}"
 image="${ACCEPT_IMAGE:-horus:accept-i1}"
+web_image="${ACCEPT_WEB_IMAGE:-horus-web:accept-i1}"
 project="${ACCEPT_PROJECT:-horus-accept-i1}"
 inst_root=""   # raíz de la instalación ("" = /)
 if [ "$target" = local ]; then
@@ -162,7 +163,7 @@ s_flows_golden() {
 
 s_image() {
   [ "$target" = local ] || skip "TARGET=installed: se usa la imagen de la instalación"
-  ACCEPT_IMAGE="$image" GO="$GO" bash scripts/accept/image.sh
+  ACCEPT_IMAGE="$image" ACCEPT_WEB_IMAGE="$web_image" GO="$GO" bash scripts/accept/image.sh
 }
 
 s_install() {
@@ -183,7 +184,7 @@ s_install() {
   touch "$out_dir/notes/.installed" # la limpieza desinstala solo lo que instaló esta ejecución
   bash scripts/install.sh --yes --force --root "$inst_root" --mode ip --public-ip 127.0.0.1 \
     --admin-email admin@horus.test --admin-password-file "$inst_root/admin-password" \
-    --tunnel-cidr "${ACCEPT_TUNNEL_CIDR:-10.241.0.0/16}" --image "$image" --project "$project" \
+    --tunnel-cidr "${ACCEPT_TUNNEL_CIDR:-10.241.0.0/16}" --image "$image" --web-image "$web_image" --project "$project" \
     --http-port $((offset + 80)) --https-port $((offset + 443)) --wg-port $((51820 + offset / 1000)) \
     --wg-interface "${ACCEPT_WG_INTERFACE:-hfwgacci1}" --docker-subnet "${ACCEPT_DOCKER_SUBNET:-172.31.241.0/24}" --tlm-max-bytes 1073741824 \
     --backup-metrics-port $((offset + 9109)) --skip-backup || return 1

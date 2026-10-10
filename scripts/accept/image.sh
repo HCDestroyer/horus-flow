@@ -94,3 +94,28 @@ if [ "$user" != "65532:65532" ]; then
 fi
 docker run --rm "$image" --version
 echo "image: OK — $image"
+
+# Imagen horus-web (opcional): ACCEPT_WEB_IMAGE. Mismo criterio de modo que `horus`: el Dockerfile
+# del frontend o, si no puede descargar dependencias (CA del proxy), la SPA generada en el host
+# sobre la misma base runtime (tests/install/debian/web-prebuilt.Dockerfile).
+[ -n "${ACCEPT_WEB_IMAGE:-}" ] || exit 0
+web="$ACCEPT_WEB_IMAGE"
+build_web_dockerfile() {
+  docker build -t "$web" --build-arg "VERSION=$version" -f apps/frontend/Dockerfile . >"$work/web-build.log" 2>&1
+}
+build_web_prebuilt() {
+  local ctx="$work/web-context" runtime
+  echo "image: generando la SPA en el host (pnpm build, sin API simulada)"
+  (cd apps/frontend && pnpm install --frozen-lockfile >/dev/null && pnpm build >"$work/web-generate.log" 2>&1)
+  runtime="$(sed -nE 's/^ARG RUNTIME_IMAGE=(.+)$/\1/p' apps/frontend/Dockerfile | head -1)"
+  rm -rf "$ctx"; mkdir -p "$ctx"
+  cp apps/frontend/scripts/serve-static.mjs "$ctx/"; cp -r apps/frontend/.output/public "$ctx/public"
+  docker build -t "$web" -f tests/install/debian/web-prebuilt.Dockerfile ${runtime:+--build-arg "RUNTIME_IMAGE=$runtime"} \
+    --build-arg "VERSION=$version" "$ctx" >"$work/web-build.log" 2>&1
+}
+case "$mode" in
+  dockerfile) build_web_dockerfile ;;
+  prebuilt) build_web_prebuilt ;;
+  *) build_web_dockerfile || { echo "image: AVISO — docker build de horus-web falló; SPA generada en el host" >&2; build_web_prebuilt; } ;;
+esac
+echo "image: OK — $web"
