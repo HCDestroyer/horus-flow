@@ -1181,7 +1181,15 @@ func (w *world) silent() error {
 	if err != nil {
 		return err
 	}
-	w.logf("ok  exportador de normal Silencioso %s después del último flujo: %v", time.Since(n.finished).Round(time.Second), compact(last))
+	// Cuándo pasó a Silencioso (state_since), no cuándo lo miramos.
+	since, perr := time.Parse(time.RFC3339Nano, fmt.Sprint(last["state_since"]))
+	if perr != nil {
+		return fmt.Errorf("exportador sin state_since válido: %v", compact(last))
+	}
+	if d := since.Sub(n.finished); d > 2*time.Minute+30*time.Second {
+		return fmt.Errorf("el exportador de normal pasó a Silencioso %s después del último flujo (máximo 2 min + intervalo de estado)", d.Round(time.Second))
+	}
+	w.logf("ok  exportador de normal Silencioso %s después del último flujo: %v", since.Sub(n.finished).Round(time.Second), compact(last))
 	return nil
 }
 

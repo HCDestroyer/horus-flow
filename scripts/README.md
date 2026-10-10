@@ -18,6 +18,8 @@
 | `ci/review_gates.py` | Checks `agent-review` y `persona-gate`. I0-03. |
 | `ci/observability-smoke.sh` | `make observability-smoke`: levanta el perfil `observability`, comprueba que Prometheus raspa la pila, que Grafana tiene datasources sanos y el dashboard con API e Ingesta, y que Loki recibe logs. `OBS_SMOKE_APP=1` incluye los `horus-*`. I0-18. |
 | `accept/accept-i0.sh` | `make accept-i0`: batería de aceptación del incremento 0 con resumen OK/FAIL/SKIP por paso ([`tests/acceptance/README.md`](../tests/acceptance/README.md)). I0-19. |
+| `accept/accept-i1.sh` | `make accept-i1`: aceptación del incremento 1 sobre una instalación real (`TARGET=local` en un raíz temporal o `TARGET=installed`), con resumen por paso y etapa con su criterio ([`tests/acceptance/README.md`](../tests/acceptance/README.md)). I1-24. |
+| `accept/sim-router.sh` | Routers simulados para `accept-i1`: un namespace de red con WireGuard configurado con el script de onboarding de Horus, desde el que se exportan los flujos. I1-24. |
 | `accept/image.sh` | `make accept-image`: imagen `horus:accept` con el Dockerfile raíz o, si `docker build` no puede descargar módulos (CA de un proxy), desde el binario del host. I0-19. |
 | `lab/lab.sh` | `make lab-up/lab-down/lab-status/lab-traffic/lab-console`: laboratorio MikroTik CHR en QEMU/KVM con clientes en netns, NAT, túnel WireGuard e IPFIX ([`infrastructure/lab/chr/README.md`](../infrastructure/lab/chr/README.md)). I0-11. |
 | `lab/selftest.sh` | `make lab-selftest`: validación §8.3 de `vendors/mikrotik.md` en un CHR limpio; salida en `.lab/selftest-<ROS>.log`. I0-11. |
