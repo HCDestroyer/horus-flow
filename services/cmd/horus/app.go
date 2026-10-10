@@ -35,6 +35,9 @@ func run(ctx context.Context, args, environ []string, stdout, stderr io.Writer, 
 	if len(args) > 0 && args[0] == "nats-provision" {
 		return natsProvision(ctx, args[1:], environ, stdout, stderr)
 	}
+	if len(args) > 0 && args[0] == "diagnose" {
+		return diagnose(ctx, args[1:], environ, stdout, stderr)
+	}
 	fs := flag.NewFlagSet("horus", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	rolesFlag := fs.String("roles", "", "comma-separated roles to run (overrides HORUS_ROLES); \"all\" = every public role")
