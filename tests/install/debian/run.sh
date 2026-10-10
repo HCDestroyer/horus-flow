@@ -292,9 +292,10 @@ if [ "${TEST_PROXY:-1}" = 1 ]; then
     local c; c="$(curl -s -m 20 -o /dev/null -w '%{http_code}' --cacert "$pc" --http1.1 -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
       -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H "Origin: https://$ip" \
       "https://$ip/api/v1/ws?ticket=falso")"
-    case "$c" in 401 | 403) return 0 ;; *) echo "ws = $c"; return 1 ;; esac
+    # 101: el hub acepta el Upgrade y cierra con 4401 (ticket inválido); 401/403 si lo rechaza antes.
+    case "$c" in 101 | 401 | 403) return 0 ;; *) echo "ws = $c"; return 1 ;; esac
   }
-  check "WebSocket por el proxy: el Upgrade llega a horus-app (ticket falso → 401/403)" ws_ok
+  check "WebSocket por el proxy: el Upgrade llega a horus-app (101 y cierre 4401 por ticket falso)" ws_ok
   # Rate limit por IP real: 20 logins por minuto; un X-Forwarded-For falsificado (y distinto cada
   # vez) desde una IP no confiable no lo esquiva.
   spoof_ok() {
