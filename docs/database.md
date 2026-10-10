@@ -718,6 +718,39 @@ flujos). Viven en ClickHouse desde el primer incremento con SNMP (D4).
 | `AggregatingMergeTree` | agregados de consumo y de seguridad |
 | `ReplacingMergeTree(version)` | `dim.*`, scores |
 
+### 6.6 Propuesta: conversaciones por hora (`flows.conversation_1h`) — cambia el contrato C3
+
+**No implementada**: añade una tabla y una vista al contrato v0
+(`packages/schemas/datastore/v0`), así que queda como propuesta para la siguiente versión del
+contrato. Motivo: el crudo vive 7 días y los agregados por cliente no guardan con quién habló
+(solo `uniq(remote_ip)` y ASN): investigar un hallazgo de hace 10–30 días (¿a qué prefijos y
+puertos hablaba el cliente?) no es posible hoy.
+
+```sql
+CREATE TABLE flows.conversation_1h
+(
+    tenant_id UUID, realm_id UUID, client_ip IPv6, bucket DateTime('UTC'),
+    direction Enum8('unknown' = 0, 'upload' = 1, 'download' = 2, 'internal' = 3),
+    protocol UInt8, remote_port UInt16,              -- puerto de servicio; efímeros (≥ 32768) → 0
+    remote_asn UInt32, remote_prefix IPv6, remote_prefix_len UInt8,
+    flows SimpleAggregateFunction(sum, UInt64), packets SimpleAggregateFunction(sum, UInt64),
+    bytes SimpleAggregateFunction(sum, UInt64), syn_only SimpleAggregateFunction(sum, UInt64),
+    remote_ips AggregateFunction(uniq, IPv6),
+    first_ts SimpleAggregateFunction(min, DateTime('UTC')), last_ts SimpleAggregateFunction(max, DateTime('UTC'))
+)
+ENGINE = AggregatingMergeTree PARTITION BY toYYYYMMDD(bucket)
+ORDER BY (tenant_id, realm_id, client_ip, bucket, remote_asn, remote_prefix, protocol, remote_port, direction)
+TTL bucket + INTERVAL 30 DAY DELETE;
+-- MV desde flows_raw con attribution_status IN ('attributed', 'internal'), agrupando por la clave.
+```
+
+- **Clave:** cliente × hora × (ASN, prefijo remoto enrutado de `dim.asn`) × protocolo × puerto de
+  servicio × dirección; el puerto efímero del lado remoto se colapsa a 0 para que una descarga no
+  genere una fila por conexión. `remote_ips` conserva la dispersión (escaneo) sin guardar cada IP.
+- **Coste:** una vista más sobre `flows_raw` (la 8.ª). Volumen medido abajo con datos isp10k.
+- **Alternativa sin cambiar el contrato:** subir la retención de `flows_raw` (7 → 30 días) solo en
+  la partición recomprimida (§6.7); cuesta ≈ 4× más disco que esta tabla.
+
 ---
 
 ## 7. Retención (resumen; política completa en [`storage.md` §5](storage.md))
