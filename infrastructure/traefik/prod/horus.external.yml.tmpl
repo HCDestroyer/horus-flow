@@ -1,0 +1,49 @@
+# Rutas de PRODUCCIÓN — modo TLS externo (D19, cuarto modo: detrás de un proxy inverso propio
+# como Nginx Proxy Manager, nginx, Caddy o HAProxy). El proxy termina TLS y reenvía en HTTP a
+# Traefik (entrypoint `web`, publicado en --http-bind y limitado en el cortafuegos a
+# --trusted-proxies). Sin ACME, sin certificado autogenerado, sin redirección a HTTPS y sin HSTS
+# (lo decide el proxy). Traefik solo acepta X-Forwarded-* de los proxies de confianza
+# (forwardedHeaders.trustedIPs en el compose). Plantilla de scripts/install.sh; @HORUS_HOST@ es el
+# host de --public-url (informativo: no se filtra por Host para admitir cualquier nombre del proxy).
+
+http:
+  routers:
+    horus-api:
+      entryPoints: [web]
+      rule: "PathPrefix(`/api`) || PathPrefix(`/ws`)"
+      middlewares: [security-headers, api-ratelimit]
+      service: horus-gateway
+    horus-web:
+      entryPoints: [web]
+      rule: "PathPrefix(`/`)"
+      priority: 1
+      service: horus-web
+
+  middlewares:
+    security-headers:
+      headers:
+        frameDeny: true
+        contentTypeNosniff: true
+        referrerPolicy: no-referrer
+        customResponseHeaders:
+          Server: ""
+    api-ratelimit:
+      rateLimit:
+        average: 50
+        burst: 100
+        # Por IP real del cliente: la que añade el proxy de confianza al final de X-Forwarded-For
+        # (Traefik descarta la cabecera si no viene de --trusted-proxies).
+        sourceCriterion:
+          ipStrategy:
+            depth: 1
+
+  services:
+    horus-gateway:
+      loadBalancer:
+        servers:
+          - url: "http://horus-app:8080"
+    # La SPA pone sus propias cabeceras de seguridad y CSP (apps/frontend/scripts/serve-static.mjs).
+    horus-web:
+      loadBalancer:
+        servers:
+          - url: "http://horus-web:8081"

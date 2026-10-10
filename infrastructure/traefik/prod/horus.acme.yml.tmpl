@@ -19,6 +19,18 @@ http:
         certResolver: le
         domains:
           - main: "@HORUS_HOST@"
+    # Interfaz web (horus-web): todo lo demás. Prioridad baja explícita para que /api y /ws
+    # vayan siempre a horus-app.
+    horus-web:
+      entryPoints: [websecure]
+      rule: "Host(`@HORUS_HOST@`)"
+      priority: 1
+      middlewares: [hsts]
+      service: horus-web
+      tls:
+        certResolver: le
+        domains:
+          - main: "@HORUS_HOST@"
 
   middlewares:
     https-redirect:
@@ -46,6 +58,11 @@ http:
       loadBalancer:
         servers:
           - url: "http://horus-app:8080"
+    # La SPA pone sus propias cabeceras de seguridad y CSP (apps/frontend/scripts/serve-static.mjs).
+    horus-web:
+      loadBalancer:
+        servers:
+          - url: "http://horus-web:8081"
 
 tls:
   options:

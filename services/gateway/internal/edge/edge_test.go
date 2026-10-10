@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
+	"github.com/hcdestroyer/horus-flow/packages/go/clientip"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -234,5 +235,35 @@ func TestRouteTableMatchesContract(t *testing.T) {
 	}
 	if !bytes.Equal(want, routes.TableYAML()) {
 		t.Fatal("services/gateway/internal/routes/gateway-routes.v0.yaml difiere del contrato: cópielo de packages/schemas/openapi/v0/gateway-routes.yaml")
+	}
+}
+
+// Detrás de Traefik (o del proxy inverso del modo TLS externo) el rate limit
+// cuenta por la IP REAL del cliente (X-Forwarded-For desde un proxy de
+// confianza) y una cabecera falsificada por el cliente no lo esquiva.
+func TestRateLimitRealClientIP(t *testing.T) {
+	prev := clientip.Default()
+	r, err := clientip.Parse("192.0.2.1") // RemoteAddr de httptest = el proxy de confianza
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientip.SetDefault(r)
+	t.Cleanup(func() { clientip.SetDefault(prev) })
+	e := newEnv(t)
+	login := func(xff string) int {
+		w, _ := e.do("POST", "/api/v1/auth/login", "", map[string]any{}, map[string]string{"X-Forwarded-For": xff})
+		return w.Code
+	}
+	for i := range 20 {
+		if c := login("198.51.100.7"); c == 429 {
+			t.Fatalf("login %d del cliente A limitado antes de tiempo", i+1)
+		}
+	}
+	// El cliente A falsifica X-Forwarded-For: el proxy añade su IP real a la derecha.
+	if c := login("203.0.113.99, 198.51.100.7"); c != 429 {
+		t.Fatalf("21.º login de A con XFF falsificado = %d, quiero 429", c)
+	}
+	if c := login("198.51.100.8"); c == 429 {
+		t.Fatal("el cliente B no debe heredar el límite de A (antes todos compartían la IP del proxy)")
 	}
 }

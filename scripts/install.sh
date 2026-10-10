@@ -19,6 +19,12 @@
 #                        resolver a este servidor y el puerto 80 ser accesible).
 #   ip                   (ip_only) sin dominio: certificado autogenerado para la IP; se muestra su
 #                        huella SHA-256 para verificarla en el navegador y RouterOS lo importa.
+#   --tls external       (cuarto modo, detrás de un proxy inverso propio: Nginx Proxy Manager,
+#   | --behind-proxy     nginx, Caddy, HAProxy…) el proxy termina TLS; Traefik sirve solo HTTP en
+#                        --http-bind (127.0.0.1:8080), sin ACME, sin certificado y sin HSTS, y solo
+#                        acepta X-Forwarded-* de --trusted-proxies (obligatoria), al que se limita
+#                        además ese puerto en el cortafuegos. --public-url https://… es la URL que
+#                        ve la gente. El UDP de WireGuard NO pasa por el proxy (--wg-endpoint).
 #
 # Qué hace: comprueba requisitos (CPU, RAM, disco, puertos, Docker, WireGuard), genera secretos
 # en <etc>/secrets (0700) y el PAQUETE DE SECRETOS OFFLINE cifrado (ADR-0029,
@@ -31,9 +37,34 @@
 # Opciones (también en --help):
 #   --mode domain|subdomain|ip   --domain FQDN   --acme-email EMAIL   --acme-staging
 #   --public-ip IP               IP pública (modo ip y endpoint WireGuard; por defecto la de la ruta por defecto)
+#   --tls auto|external          auto: Let's Encrypt (domain/subdomain) o autogenerado (ip); external: proxy propio
+#   --public-url URL             (external) URL pública https:// que sirve el proxy
+#   --trusted-proxies CIDR[,…]   (external) IP o red del proxy inverso; obligatoria
+#   --http-bind IP:PUERTO        (external) dónde escucha Traefik en HTTP (127.0.0.1:8080; la IP de la
+#                                LAN si el proxy está en otra máquina)
+#   --wg-endpoint HOST           nombre o IP a la que los routers envían el UDP de WireGuard
+#   --size small|medium|large    perfil (docs/install-debian.md §1): small ≤ 300 clientes (4 vCPU, 8 GB),
+#                                medium ≈ 2 000 (8 vCPU, 16 GB), large ≈ 10 000 (8 vCPU, 32 GB, 500 GB NVMe);
+#                                memoria de ClickHouse/PostgreSQL, cola del collector y reserva de NATS.
+#                                Por defecto según la RAM del servidor
 #   --tunnel-cidr CIDR           rango de IPs de túnel de los routers (10.255.0.0/16; nunca 100.64.0.0/10)
 #   --admin-email EMAIL          --admin-password-file FICHERO (si no, se pregunta o se genera)
-#   --image IMAGEN               imagen horus (por defecto horus:local, construida con el Dockerfile del repo)
+#   --image-source ghcr|bundle:RUTA|local   de dónde salen las imágenes (por defecto: bundle si
+#                                este árbol trae images/, ghcr si trae images.lock, si no local).
+#                                ghcr: descarga de GHCR fijada por digest y verifica la firma
+#                                cosign; bundle: paquete offline horus-<versión>-linux-<arch>.tar.gz
+#                                (o su directorio) verificado con SHA256SUMS; local: imágenes ya
+#                                presentes o construidas aquí (repo con Dockerfile)
+#   --registry PREFIJO (ghcr.io/hcdestroyer)  --registry-user USUARIO  --registry-token-file F
+#                                token de lectura (read:packages) si los paquetes son privados;
+#                                se guarda en <etc>/registry-token (0600)
+#   --channel stable|beta        canal de actualizaciones (stable)
+#   --auto-update on|off         parches automáticos (Z de X.Y.Z) en la ventana; off por defecto
+#   --update-window CALENDARIO   ventana de mantenimiento (OnCalendar de systemd; "Sun *-*-* 03:30:00")
+#   --update-source URL          fuente de versiones (API de releases de GitHub o latest.json)
+#   --no-update-check            no consulta versiones nuevas (servidores sin salida a Internet)
+#   --image IMAGEN               imagen horus en modo local (por defecto horus:local, construida con el Dockerfile del repo)
+#   --web-image IMAGEN (horus-web:local)  --postgres-image IMAGEN   (modo local)
 #   --store-dir DIR              almacén y backups (/var/lib/horus/store; mejor OTRO disco)
 #   --data-dir DIR               datos de PostgreSQL/ClickHouse/NATS (/var/lib/horus)
 #   --install-dir DIR (/opt/horus)   --etc-dir DIR (/etc/horus)
@@ -52,27 +83,38 @@
 # Códigos de salida: 0 bien, 1 fallo, 2 uso incorrecto.
 
 # ok/warn/fail siempre devuelven 0, así que `cond && ok … || fail …` es intencionado; los .env y
-# /etc/os-release se generan o existen solo en el servidor.
-# shellcheck disable=SC2015,SC1090,SC1091
+# /etc/os-release se generan o existen solo en el servidor; $chain va literal a horus-tunnel.
+# shellcheck disable=SC2015,SC1090,SC1091,SC2016
 set -euo pipefail
 umask 022
 
 repo_root="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 
+# Variables del .env heredadas del entorno (p. ej. de una versión anterior) tendrían prioridad sobre
+# --env-file en docker compose: se descartan todas salvo los ajustes del propio instalador.
+for _v in $(compgen -v | grep -E '^(HORUS_|COMPOSE_PROJECT_NAME$)' || true); do
+  case "$_v" in HORUS_INSTALL_WAIT | HORUS_UDP_RMEM_BYTES | HORUS_UDP_RMEM_DEFAULT | HORUS_SKIP_SIGNATURE | HORUS_REPO | HORUS_BACKUP_PG_KEEP_FULL | HORUS_FRESH_COMPOSE) ;; *) unset "$_v" ;; esac
+done
+unset _v
+
 # --- Opciones ------------------------------------------------------------------------------------
 action=install
 opt_yes=0 opt_force=0 opt_purge=0 skip_fw=0 skip_tunnel=0 skip_systemd=0 skip_backup=0 confirm_bundle=0
 declare -A opt=()
-usage() { sed -n '2,46p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,83p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 need_arg() { [ "$#" -ge 2 ] && [ -n "$2" ] || { echo "install.sh: $1 necesita un valor" >&2; exit 2; }; }
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --mode | --domain | --acme-email | --public-ip | --tunnel-cidr | --admin-email | --admin-password-file | \
       --image | --store-dir | --data-dir | --install-dir | --etc-dir | --root | --project | --http-port | \
       --https-port | --wg-port | --wg-interface | --docker-subnet | --tlm-max-bytes | --bundle-recipient | --bundle-out | \
-      --smtp-host | --smtp-port | --smtp-from | --smtp-user | --smtp-tls | --smtp-password-file | --backup-metrics-port)
+      --smtp-host | --smtp-port | --smtp-from | --smtp-user | --smtp-tls | --smtp-password-file | --backup-metrics-port | \
+      --image-source | --registry | --registry-user | --registry-token-file | --channel | --auto-update | --update-window | \
+      --update-source | --web-image | --postgres-image | --size | --tls | --public-url | --trusted-proxies | --http-bind | --wg-endpoint)
       need_arg "$@"; opt[${1#--}]="$2"; shift 2 ;;
     --acme-staging) opt[acme-staging]=1; shift ;;
+    --no-update-check) opt[update-check]=false; shift ;;
+    --behind-proxy) opt[tls]=external; shift ;;
     --check) action=check; shift ;;
     --uninstall) action=uninstall; shift ;;
     --purge) opt_purge=1; shift ;;
@@ -173,17 +215,18 @@ check_requirements() {
   fi
   local cpus mem_kb mem_gb
   cpus="$(nproc)"
-  if [ "$cpus" -ge 4 ]; then ok "CPU: $cpus núcleos"; elif [ "$cpus" -ge 2 ]; then warn "CPU: $cpus núcleos (recomendado ≥ 4)"; else fail "CPU: $cpus núcleo (mínimo 2)"; fi
+  ok "perfil $size: recomendado ≥ $rec_cpu vCPU, ≥ $rec_ram GiB de RAM y ≥ $rec_disk GiB de disco"
+  if [ "$cpus" -ge "$rec_cpu" ]; then ok "CPU: $cpus núcleos"; elif [ "$cpus" -ge 2 ]; then warn "CPU: $cpus núcleos (perfil $size: recomendado ≥ $rec_cpu)"; else fail "CPU: $cpus núcleo (mínimo 2)"; fi
   mem_kb="$(awk '/MemTotal/ { print $2 }' /proc/meminfo)"; mem_gb=$((mem_kb / 1024 / 1024))
-  if [ "$mem_kb" -ge $((7 * 1024 * 1024)) ]; then ok "RAM: ${mem_gb} GiB"
-  elif [ "$mem_kb" -ge $((3800 * 1024)) ]; then warn "RAM: ${mem_gb} GiB (recomendado ≥ 8 GiB)"
+  if [ "$mem_kb" -ge $(((rec_ram - 1) * 1024 * 1024)) ]; then ok "RAM: ${mem_gb} GiB"
+  elif [ "$mem_kb" -ge $((3800 * 1024)) ]; then warn "RAM: ${mem_gb} GiB (perfil $size: recomendado ≥ $rec_ram GiB)"
   else fail "RAM: ${mem_gb} GiB (mínimo 4 GiB)"; fi
   local d free_gb
   for d in "$data_dir" "$store_dir"; do
     local probe="$d"; while [ ! -e "$probe" ]; do probe="$(dirname "$probe")"; done
     free_gb=$(($(df -P -k "$probe" | awk 'NR == 2 { print $4 }') / 1024 / 1024))
-    if [ "$free_gb" -ge 100 ]; then ok "disco libre en $d: ${free_gb} GiB"
-    elif [ "$free_gb" -ge 20 ]; then warn "disco libre en $d: ${free_gb} GiB (recomendado ≥ 100 GiB; ajusta --tlm-max-bytes)"
+    if [ "$free_gb" -ge "$rec_disk" ]; then ok "disco libre en $d: ${free_gb} GiB"
+    elif [ "$free_gb" -ge 20 ]; then warn "disco libre en $d: ${free_gb} GiB (perfil $size: recomendado ≥ $rec_disk GiB; ajusta --tlm-max-bytes)"
     elif [ "$free_gb" -ge 5 ]; then warn "disco libre en $d: ${free_gb} GiB: solo para pruebas"
     else fail "disco libre en $d: ${free_gb} GiB (mínimo 5 GiB)"; fi
   done
@@ -216,7 +259,7 @@ check_requirements() {
   else
     local p
     # 18081/tcp: admin de horus-wg-agent (red del host, solo 127.0.0.1).
-    for p in "tcp:$(get http-port 80)" "tcp:$(get https-port 443)" "udp:$(get wg-port 51820)" "tcp:18081"; do
+    for p in "tcp:$http_port" "tcp:$https_port" "udp:$(get wg-port 51820)" "tcp:18081"; do
       if port_busy "${p%%:*}" "${p#*:}"; then fail "puerto ${p#*:}/${p%%:*} ocupado"; else ok "puerto ${p#*:}/${p%%:*} libre"; fi
     done
   fi
@@ -232,6 +275,47 @@ existing_parent() { local p="$1"; while [ ! -e "$p" ]; do p="$(dirname "$p")"; d
 # --- Configuración (preguntas) --------------------------------------------------------------------
 configure() {
   say "Configuración"
+  tls_choice="$(get tls auto)"
+  case "$tls_choice" in auto | external) ;; *) die "--tls inválido: $tls_choice (auto | external)" ;; esac
+  if [ "$tls_choice" = external ]; then configure_external; else configure_traefik_tls; fi
+  tunnel_cidr="$(get tunnel-cidr "")"
+  [ -n "$tunnel_cidr" ] || ask tunnel_cidr "rango de IPs de túnel de los routers" "10.255.0.0/16"
+  valid_cidr "$tunnel_cidr" || die "CIDR inválido: $tunnel_cidr"
+  tunnel_cidr="$(cidr_network "$tunnel_cidr")"
+  cidr_overlaps_cgnat "$tunnel_cidr" && die "el rango de túneles no puede solapar 100.64.0.0/10 (CGNAT de los ISP)"
+  [ "${tunnel_cidr#*/}" -le 24 ] || die "el rango de túneles debe ser /24 o mayor"
+  # Red de servicios del hub: la primera /24 del rango; el hub/colector usa su primera IP.
+  local base; base="$(ip2int "${tunnel_cidr%/*}")"
+  services_cidr="$(int2ip "$base")/24"
+  collector_ip="$(int2ip $((base + 1)))"
+  admin_email="$(get admin-email "")"
+  [ -n "$admin_email" ] || ask admin_email "email del superadministrador inicial" "admin@${domain:-horus.local}"
+  [[ "$admin_email" =~ ^[^@[:space:]]+@[^@[:space:]]+$ ]] || die "email inválido: $admin_email"
+  http_port="$(get http-port 80)"; https_port="$(get https-port 443)"
+  wg_port="$(get wg-port 51820)"; wg_if="$(get wg-interface wg0)"
+  docker_subnet="$(get docker-subnet 172.31.250.0/24)"
+  valid_cidr "$docker_subnet" || die "CIDR inválido: $docker_subnet"
+  grpc_bind="$(int2ip $(($(ip2int "${docker_subnet%/*}") + 1)))"
+  configure_size
+  configure_images
+  configure_updates
+  public_base_url="https://$public_host"
+  [ "$https_port" = 443 ] || public_base_url="$public_base_url:$https_port"
+  access_mode="$mode"; [ "$mode" = ip ] && access_mode=ip_only
+  tls_mode=acme; [ "$mode" = ip ] && tls_mode=self_signed
+  if [ "$tls_choice" = external ]; then
+    tls_mode=external; https_port="$(get https-port 8443)"
+    public_base_url="https://$public_host"; [ "$public_url_port" = 443 ] || public_base_url="$public_base_url:$public_url_port"
+    ok "detrás de proxy inverso: Traefik en http://$http_bind_addr:$http_port, X-Forwarded-* solo de $trusted_proxies"
+  fi
+  ok "acceso $access_mode → $public_base_url (TLS $tls_mode)"
+  ok "túneles $tunnel_cidr, hub/colector $collector_ip en $wg_if, WireGuard UDP $wg_port en $wg_endpoint"
+  ok "superadmin $admin_email; datos en $data_dir, backups en $store_dir"
+  ok "versión $horus_version; imágenes: $image_source_desc; canal $channel, actualización automática $auto_update"
+}
+
+# Modos de Traefik con TLS propio (D19): domain/subdomain (Let's Encrypt) o ip (autogenerado).
+configure_traefik_tls() {
   local default_ip
   default_ip="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{ for (i = 1; i < NF; i++) if ($i == "src") print $(i + 1) }' | head -1)"
   mode="$(get mode "")"
@@ -254,32 +338,214 @@ configure() {
     [ -n "$acme_email" ] || ask acme_email "email para Let's Encrypt (avisos de caducidad)" "admin@$domain"
     public_host="$domain"
   fi
-  tunnel_cidr="$(get tunnel-cidr "")"
-  [ -n "$tunnel_cidr" ] || ask tunnel_cidr "rango de IPs de túnel de los routers" "10.255.0.0/16"
-  valid_cidr "$tunnel_cidr" || die "CIDR inválido: $tunnel_cidr"
-  tunnel_cidr="$(cidr_network "$tunnel_cidr")"
-  cidr_overlaps_cgnat "$tunnel_cidr" && die "el rango de túneles no puede solapar 100.64.0.0/10 (CGNAT de los ISP)"
-  [ "${tunnel_cidr#*/}" -le 24 ] || die "el rango de túneles debe ser /24 o mayor"
-  # Red de servicios del hub: la primera /24 del rango; el hub/colector usa su primera IP.
-  local base; base="$(ip2int "${tunnel_cidr%/*}")"
-  services_cidr="$(int2ip "$base")/24"
-  collector_ip="$(int2ip $((base + 1)))"
-  admin_email="$(get admin-email "")"
-  [ -n "$admin_email" ] || ask admin_email "email del superadministrador inicial" "admin@${domain:-horus.local}"
-  [[ "$admin_email" =~ ^[^@[:space:]]+@[^@[:space:]]+$ ]] || die "email inválido: $admin_email"
-  http_port="$(get http-port 80)"; https_port="$(get https-port 443)"
-  wg_port="$(get wg-port 51820)"; wg_if="$(get wg-interface wg0)"
-  docker_subnet="$(get docker-subnet 172.31.250.0/24)"
-  valid_cidr "$docker_subnet" || die "CIDR inválido: $docker_subnet"
-  grpc_bind="$(int2ip $(($(ip2int "${docker_subnet%/*}") + 1)))"
-  image="$(get image horus:local)"
-  public_base_url="https://$public_host"
-  [ "$https_port" = 443 ] || public_base_url="$public_base_url:$https_port"
-  access_mode="$mode"; [ "$mode" = ip ] && access_mode=ip_only
-  tls_mode=acme; [ "$mode" = ip ] && tls_mode=self_signed
-  ok "acceso $access_mode → $public_base_url (TLS $tls_mode)"
-  ok "túneles $tunnel_cidr, hub/colector $collector_ip en $wg_if, WireGuard UDP $wg_port"
-  ok "superadmin $admin_email; datos en $data_dir, backups en $store_dir"
+  wg_endpoint="$(get wg-endpoint "$public_host")"
+  http_bind_addr="${HORUS_PUBLIC_BIND:-0.0.0.0}"; https_bind_addr="$http_bind_addr"
+  trusted_proxies=""
+}
+
+# Cuarto modo (D19, nota de interpretación): detrás de un proxy inverso que termina TLS.
+configure_external() {
+  local url hostport
+  url="$(get public-url "")"
+  [ -n "$url" ] || ask url "URL pública que sirve tu proxy inverso (https://…)" "https://horus.example.net"
+  [[ "$url" =~ ^https://([A-Za-z0-9.-]+)(:([0-9]{1,5}))?/?$ ]] || die "--public-url debe ser https://NOMBRE[:PUERTO] (el proxy termina TLS): $url"
+  public_host="${BASH_REMATCH[1]}"; public_url_port="${BASH_REMATCH[3]:-443}"
+  public_ip="$(get public-ip "")"
+  domain="" acme_email=""
+  if [[ "$public_host" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then mode=ip; [ -n "$public_ip" ] || public_ip="$public_host"
+  else
+    mode="$(get mode domain)"; case "$mode" in domain | subdomain) ;; *) mode=domain ;; esac
+    domain="$public_host"
+  fi
+  trusted_proxies="$(get trusted-proxies "")"
+  [ -n "$trusted_proxies" ] || ask trusted_proxies "IP o red (CIDR) de tu proxy inverso" "127.0.0.1/32"
+  [ -n "$trusted_proxies" ] || die "--trusted-proxies es obligatoria con --tls external"
+  local c norm=()
+  IFS=, read -r -a _tp <<<"$trusted_proxies"
+  for c in "${_tp[@]}"; do
+    c="${c// /}"; [ -n "$c" ] || continue
+    [[ "$c" == */* ]] || c="$c/32"
+    valid_cidr "$c" || die "CIDR inválido en --trusted-proxies: $c"
+    [ "$c" != 0.0.0.0/0 ] || die "--trusted-proxies 0.0.0.0/0 aceptaría cabeceras falsificadas de cualquiera"
+    norm+=("$(cidr_network "$c")")
+  done
+  trusted_proxies="$(IFS=,; echo "${norm[*]}")"
+  hostport="$(get http-bind 127.0.0.1:8080)"
+  [[ "$hostport" =~ ^([0-9]{1,3}(\.[0-9]{1,3}){3}):([0-9]{1,5})$ ]] || die "--http-bind debe ser IP:PUERTO: $hostport"
+  http_bind_addr="${BASH_REMATCH[1]}"; opt[http-port]="${BASH_REMATCH[3]}"
+  https_bind_addr=127.0.0.1
+  wg_endpoint="$(get wg-endpoint "${public_ip:-$public_host}")"
+}
+
+# Perfil de tamaño (docs/install-debian.md §1; perfil de 10 000 clientes medido por FLOW en
+# tests/load/REPORT.md): requisitos recomendados, memoria de ClickHouse/PostgreSQL, cola del
+# collector y disco reservado para NATS.
+configure_size() {
+  local mem_kb def=small
+  mem_kb="$(awk '/MemTotal/ { print $2 }' /proc/meminfo)"
+  [ "$mem_kb" -lt $((15 * 1024 * 1024)) ] || def=medium
+  [ "$mem_kb" -lt $((31 * 1024 * 1024)) ] || def=large
+  size="$(get size "$def")"
+  case "$size" in
+    small) rec_cpu=4 rec_ram=8 rec_disk=100 ch_mem=4g pg_mem=2g collector_queue=8192 nats_reserve_gb=20 ;;
+    medium) rec_cpu=8 rec_ram=16 rec_disk=500 ch_mem=8g pg_mem=3g collector_queue=32768 nats_reserve_gb=50 ;;
+    large) rec_cpu=8 rec_ram=32 rec_disk=500 ch_mem=14g pg_mem=4g collector_queue=32768 nats_reserve_gb=100 ;;
+    *) die "--size inválido: $size (small | medium | large)" ;;
+  esac
+}
+
+# --- Imágenes: origen (ghcr | bundle:RUTA | local) ------------------------------------------------
+# Árbol de esta versión: el repositorio clonado o un paquete de release (VERSION + images.lock;
+# el offline trae además images/horus-images.tar). images.lock: VARIABLE ETIQUETA DIGEST por
+# línea (HORUS_IMAGE ghcr.io/…/horus:1.2.3 sha256:…).
+img_vars=(HORUS_IMAGE HORUS_WEB_IMAGE HORUS_POSTGRES_IMAGE HORUS_CLICKHOUSE_IMAGE HORUS_NATS_IMAGE
+  HORUS_VALKEY_IMAGE HORUS_TRAEFIK_IMAGE HORUS_BUSYBOX_IMAGE)
+declare -A img=()
+tree_version() { if [ -s "$1/VERSION" ]; then tr -d ' \r\n' <"$1/VERSION"; else echo 0.0.0-dev; fi; }
+
+# bundle_tree <ruta>: directorio del paquete offline (extrae el .tar.gz si hace falta y verifica
+# SHA256SUMS del archivo y de su contenido).
+bundle_tree() {
+  local src="$1" dir sums top
+  bundle_archive="" bundle_sums_ok=0
+  if [ -d "$src" ]; then
+    dir="$(readlink -f "$src")"
+    [ -f "$dir/SHA256SUMS" ] || die "$dir no es un paquete de Horus (falta SHA256SUMS)"
+    if [ ! -f "$dir/.verified" ] || [ "$dir/SHA256SUMS" -nt "$dir/.verified" ]; then
+      if [ -f "$dir/images/horus-images.tar" ]; then
+        (cd "$dir" && sha256sum -c --quiet SHA256SUMS) || die "el contenido de $dir no coincide con su SHA256SUMS"
+      else
+        (cd "$dir" && grep -v ' [*]\{0,1\}images/horus-images.tar$' SHA256SUMS | sha256sum -c --quiet -) || die "el contenido de $dir no coincide con su SHA256SUMS"
+      fi
+      : >"$dir/.verified"
+    fi
+    bundle_dir="$dir"; return 0
+  fi
+  [ -f "$src" ] || die "no existe el paquete offline $src"
+  src="$(readlink -f "$src")"
+  bundle_archive="$src"
+  sums="$(dirname "$src")/SHA256SUMS"
+  if [ -f "$sums" ] && grep -q " [*]\{0,1\}$(basename "$src")\$" "$sums"; then
+    if [ ! -f "$src.verified" ] || [ "$src" -nt "$src.verified" ]; then
+      (cd "$(dirname "$src")" && grep " [*]\{0,1\}$(basename "$src")\$" SHA256SUMS | sha256sum -c --quiet -) \
+        || die "el SHA256 de $(basename "$src") no coincide con SHA256SUMS: paquete dañado o manipulado"
+      { : >"$src.verified"; } 2>/dev/null || true
+    fi
+    bundle_sums_ok=1
+    ok "SHA256 de $(basename "$src") verificado (SHA256SUMS)" >&2
+  else
+    warn "sin SHA256SUMS junto a $(basename "$src"): se verifica su contenido" >&2
+  fi
+  # Se extrae todo MENOS images/horus-images.tar (se carga en streaming desde el .tar.gz).
+  dir="$(get_bundle_cache)/$(basename "$src" .tar.gz)"
+  if [ ! -f "$dir/.extracted" ] || [ "$src" -nt "$dir/.extracted" ]; then
+    top="$({ tar -tzf "$src" 2>/dev/null || true; } | head -1)"; top="${top%%/*}"
+    rm -rf "$dir"; install -d -m 0755 "$dir"
+    tar -xzf "$src" -C "$dir" --strip-components=1 --exclude "$top/images/horus-images.tar" || die "no se pudo extraer $src"
+    (cd "$dir" && grep -v ' [*]\{0,1\}images/horus-images.tar$' SHA256SUMS | sha256sum -c --quiet -) \
+      || die "el contenido de $src no coincide con su SHA256SUMS"
+    printf '%s\n' "$top" >"$dir/.extracted"
+  fi
+  bundle_dir="$dir"
+}
+
+# load_bundle_images: docker load del paquete offline (directorio o streaming desde el .tar.gz,
+# comprobando el SHA256 de images/horus-images.tar contra el SHA256SUMS interno).
+load_bundle_images() {
+  local want got top tmp
+  want="$(awk '$2 ~ /^[*]?images\/horus-images.tar$/ { print $1 }' "$bundle_dir/SHA256SUMS")"
+  [ -n "$want" ] || die "el SHA256SUMS del paquete no lista images/horus-images.tar"
+  if [ -f "$bundle_dir/images/horus-images.tar" ]; then
+    docker load -q -i "$bundle_dir/images/horus-images.tar" >/dev/null || die "docker load falló"
+    return 0
+  fi
+  [ -n "$bundle_archive" ] && [ -f "$bundle_archive" ] || die "falta el paquete offline .tar.gz para cargar las imágenes"
+  top="$(head -1 "$bundle_dir/.extracted")"
+  if [ "$bundle_sums_ok" = 0 ]; then
+    got="$(tar -xzOf "$bundle_archive" "$top/images/horus-images.tar" | sha256sum | cut -d' ' -f1)"
+    [ "$got" = "$want" ] || die "SHA256 de images/horus-images.tar no coincide: paquete dañado"
+  fi
+  tmp="$(mktemp)"
+  tar -xzOf "$bundle_archive" "$top/images/horus-images.tar" | tee >(sha256sum | cut -d' ' -f1 >"$tmp") | docker load -q >/dev/null \
+    || { rm -f "$tmp"; die "docker load falló con $bundle_archive"; }
+  sleep 1
+  got="$(cat "$tmp")"; rm -f "$tmp"
+  [ "$got" = "$want" ] || die "SHA256 de images/horus-images.tar no coincide tras cargar: borra las imágenes cargadas y usa un paquete íntegro"
+}
+
+get_bundle_cache() { local d="${root:-}/var/cache/horus/bundles"; install -d -m 0700 "$d"; printf '%s' "$d"; }
+
+read_lock() { # read_lock <images.lock> <modo: digest|tag>
+  local var ref dig
+  while read -r var ref dig; do
+    [[ "$var" =~ ^HORUS_[A-Z_]+_IMAGE$|^HORUS_IMAGE$ ]] || continue
+    if [ "$2" = digest ] && [ -n "$dig" ]; then img[$var]="$ref@$dig"; else img[$var]="$ref"; fi
+  done <"$1"
+}
+
+configure_images() {
+  horus_version="$(tree_version "$repo_root")"
+  # Origen: opción > paquete offline que es este árbol > respuesta guardada (si es la copia
+  # instalada en <instalación>/release) > release con images.lock (GHCR) > local (repo clonado).
+  if [ -n "${opt[image-source]:-}" ]; then image_source="${opt[image-source]}"
+  elif [ -f "$repo_root/images/horus-images.tar" ]; then image_source="bundle:$repo_root"
+  elif [ -f "$repo_root/.installed-copy" ] && [ -n "${saved[image-source]:-}" ]; then image_source="${saved[image-source]}"
+  elif [ -f "$repo_root/images.lock" ]; then image_source=ghcr
+  else image_source=local; fi
+  registry="$(get registry ghcr.io/hcdestroyer)"
+  case "$image_source" in
+    ghcr)
+      [ -f "$repo_root/images.lock" ] || die "--image-source ghcr necesita images.lock (árbol de una release; usa bootstrap-debian.sh o horus-ctl upgrade)"
+      read_lock "$repo_root/images.lock" digest
+      image_source_desc="GHCR ($registry), fijadas por digest"
+      ;;
+    bundle:*)
+      local bsrc="${image_source#bundle:}"
+      bundle_archive="" bundle_sums_ok=0
+      if [ ! -e "$bsrc" ] && [ -f "$repo_root/.installed-copy" ] && [ -f "$repo_root/images.lock" ]; then
+        # Reejecución desde la copia instalada sin el paquete: las imágenes ya están cargadas.
+        bundle_dir="$repo_root"
+        warn "el paquete offline $bsrc ya no está: se usan las imágenes cargadas de $(tree_version "$repo_root")"
+      else
+        bundle_tree "$bsrc"
+      fi
+      [ -f "$bundle_dir/images.lock" ] || die "$bundle_dir no trae images.lock"
+      read_lock "$bundle_dir/images.lock" tag
+      horus_version="$(tree_version "$bundle_dir")"
+      # Compose, configuración y scripts de la MISMA versión que las imágenes.
+      repo_root="$bundle_dir"
+      image_source="bundle:$bsrc"
+      image_source_desc="paquete offline $bsrc ($horus_version)"
+      ;;
+    local)
+      img[HORUS_IMAGE]="$(get image horus:local)"
+      img[HORUS_WEB_IMAGE]="$(get web-image horus-web:local)"
+      img[HORUS_POSTGRES_IMAGE]="$(get postgres-image horus-postgres:18.6-pgbackrest2.59.3)"
+      image_source_desc="locales (${img[HORUS_IMAGE]}, ${img[HORUS_WEB_IMAGE]})"
+      ;;
+    *) die "--image-source inválido: $image_source (ghcr | bundle:RUTA | local)" ;;
+  esac
+  image="${img[HORUS_IMAGE]:?images.lock sin HORUS_IMAGE}"
+  [ -n "${img[HORUS_WEB_IMAGE]:-}" ] || die "falta la imagen horus-web (images.lock o --web-image)"
+  [ -n "${img[HORUS_POSTGRES_IMAGE]:-}" ] || img[HORUS_POSTGRES_IMAGE]=horus-postgres:18.6-pgbackrest2.59.3
+}
+
+configure_updates() {
+  channel="$(get channel stable)"
+  case "$channel" in stable | beta) ;; *) die "--channel inválido: $channel (stable | beta)" ;; esac
+  auto_update="$(get auto-update off)"
+  case "$auto_update" in on | off) ;; *) die "--auto-update inválido: $auto_update (on | off)" ;; esac
+  update_window="$(get update-window "Sun *-*-* 03:30:00")"
+  update_source="$(get update-source "https://api.github.com/repos/hcdestroyer/horus-flow/releases?per_page=50")"
+  update_check="$(get update-check true)"
+  registry_user="$(get registry-user "")"
+  if [ -n "${opt[registry-token-file]:-}" ]; then
+    [ -r "${opt[registry-token-file]}" ] || die "no puedo leer ${opt[registry-token-file]}"
+    install -d -m 0755 "$etc_dir"
+    (umask 077 && head -n1 "${opt[registry-token-file]}" | tr -d '\r\n' >"$etc_dir/registry-token")
+    chmod 0600 "$etc_dir/registry-token"
+    [ -n "$registry_user" ] || registry_user=token
+  fi
 }
 
 save_conf() {
@@ -292,7 +558,13 @@ save_conf() {
       https-port "$https_port" wg-port "$wg_port" wg-interface "$wg_if" docker-subnet "$docker_subnet" \
       tlm-max-bytes "$tlm_max_bytes" smtp-host "$(get smtp-host "")" smtp-port "$(get smtp-port 587)" \
       smtp-from "$(get smtp-from "")" smtp-user "$(get smtp-user "")" smtp-tls "$(get smtp-tls starttls)" \
-      backup-metrics-port "$(get backup-metrics-port 9109)" bundle-out "$(get bundle-out "${root:-}/root")"
+      backup-metrics-port "$(get backup-metrics-port 9109)" bundle-out "$(get bundle-out "${root:-}/root")" \
+      image-source "$image_source" registry "$registry" registry-user "$registry_user" channel "$channel" \
+      auto-update "$auto_update" update-window "$update_window" update-source "$update_source" \
+      update-check "$update_check" web-image "${img[HORUS_WEB_IMAGE]}" postgres-image "${img[HORUS_POSTGRES_IMAGE]}" \
+      version "$horus_version" tls "$tls_choice" public-url "$([ "$tls_choice" = external ] && echo "$public_base_url")" \
+      trusted-proxies "$trusted_proxies" http-bind "$([ "$tls_choice" = external ] && echo "$http_bind_addr:$http_port")" \
+      wg-endpoint "$(get wg-endpoint "")" size "$size"
     [ -z "${opt[acme-staging]:-${saved[acme-staging]:-}}" ] || echo "acme-staging=1"
   } >"$conf_file"
   chmod 0644 "$conf_file"
@@ -395,7 +667,7 @@ gen_public_tls() {
     openssl x509 -in "$tls_dir/public.crt" -noout -fingerprint -sha256 | cut -d= -f2 >"$tls_dir/fingerprint-sha256.txt"
     chmod 0644 "$tls_dir/fingerprint-sha256.txt"
   else
-    # ACME: Traefik obtiene el certificado. public.crt vacío (wireguard no lo necesita con ACME).
+    # ACME (Traefik obtiene el certificado) o external (lo pone el proxy): public.crt vacío.
     [ -e "$tls_dir/public.crt" ] || : >"$tls_dir/public.crt"
     rm -f "$tls_dir/fingerprint-sha256.txt"
   fi
@@ -507,12 +779,49 @@ EOF
 }
 
 # --- Archivos de la instalación -------------------------------------------------------------------
+# Lo que necesita una instalación de su árbol de versión (sin imágenes). Es también el contenido
+# de un paquete de release (scripts/release/build-release.sh lee esta lista).
+release_paths=(VERSION images.lock deployments/compose/compose.prod.yaml deployments/images/postgres/Dockerfile
+  infrastructure/traefik/prod/horus.acme.yml.tmpl infrastructure/traefik/prod/horus.ip.yml.tmpl
+  infrastructure/traefik/prod/horus.external.yml.tmpl
+  infrastructure/nats/nats.prod.conf infrastructure/nats/kv.yaml infrastructure/backup/clickhouse-backups.xml
+  infrastructure/backup/httpd.conf packages/events/streams/streams.yaml scripts/install.sh scripts/horus-ctl.sh
+  scripts/bootstrap-debian.sh scripts/backup/horus-backup.sh docs/install-debian.md)
+
+# copy_release: copia el árbol de esta versión a <instalación>/release (lo usan bin/install.sh,
+# bin/horus-ctl y la vuelta atrás de horus-ctl upgrade). En un repo sin VERSION se escribe la
+# versión de desarrollo.
+copy_release() {
+  local dst="$install_dir/release" p
+  [ "$(readlink -f "$repo_root")" = "$(readlink -f "$dst" 2>/dev/null || true)" ] && return 0
+  rm -rf "$dst.new"; install -d -m 0755 "$dst.new"
+  for p in "${release_paths[@]}"; do
+    [ -e "$repo_root/$p" ] || continue
+    install -d -m 0755 "$dst.new/$(dirname "$p")"
+    cp -p "$repo_root/$p" "$dst.new/$p"
+  done
+  [ -f "$dst.new/VERSION" ] || printf '%s\n' "$horus_version" >"$dst.new/VERSION"
+  : >"$dst.new/.installed-copy"
+  rm -rf "$dst"; mv "$dst.new" "$dst"
+}
+
+# IPs de las que Traefik acepta X-Forwarded-*: el proxy externo y, si escucha en loopback (proxy en
+# la misma máquina, conexión vía docker-proxy), la puerta de enlace de la red del compose. En los
+# modos con TLS propio, ninguna (127.0.0.1/32, que nunca es el origen real).
+forwarded_trusted_ips() {
+  if [ "$tls_mode" != external ]; then printf '127.0.0.1/32'; return; fi
+  local l="$trusted_proxies"
+  case "$http_bind_addr" in 127.*) l="$l,$grpc_bind/32" ;; esac
+  printf '%s' "$l"
+}
+
 render_files() {
   say "Archivos de la instalación ($install_dir)"
   install -m 0644 "$repo_root/deployments/compose/compose.prod.yaml" "$install_dir/compose.yaml"
   install -d -m 0755 "$config_dir/traefik/dynamic" "$config_dir/nats" "$config_dir/backup" "$config_dir/images/postgres"
   local tmpl="$repo_root/infrastructure/traefik/prod/horus.acme.yml.tmpl"
   [ "$tls_mode" = self_signed ] && tmpl="$repo_root/infrastructure/traefik/prod/horus.ip.yml.tmpl"
+  [ "$tls_mode" = external ] && tmpl="$repo_root/infrastructure/traefik/prod/horus.external.yml.tmpl"
   sed "s/@HORUS_HOST@/$public_host/g" "$tmpl" >"$config_dir/traefik/dynamic/horus.yml"
   install -m 0644 "$repo_root/infrastructure/nats/nats.prod.conf" "$config_dir/nats/nats.prod.conf"
   install -m 0644 "$repo_root/infrastructure/nats/kv.yaml" "$config_dir/nats/kv.yaml"
@@ -520,7 +829,10 @@ render_files() {
   install -m 0644 "$repo_root/infrastructure/backup/clickhouse-backups.xml" "$repo_root/infrastructure/backup/httpd.conf" "$config_dir/backup/"
   install -m 0644 "$repo_root/deployments/images/postgres/Dockerfile" "$config_dir/images/postgres/Dockerfile"
   install -m 0755 "$repo_root/scripts/backup/horus-backup.sh" "$install_dir/bin/horus-backup"
-  install -m 0755 "$repo_root/scripts/install.sh" "$install_dir/bin/install.sh"
+  copy_release
+  ln -sfn ../release/scripts/install.sh "$install_dir/bin/install.sh"
+  ln -sfn ../release/scripts/horus-ctl.sh "$install_dir/bin/horus-ctl"
+  [ -n "$root" ] || ln -sfn "$install_dir/bin/horus-ctl" /usr/local/sbin/horus-ctl
   # .env de compose: SIN secretos (los secretos son archivos en $secrets_dir).
   local acme_ca="https://acme-v02.api.letsencrypt.org/directory"
   [ -n "${opt[acme-staging]:-${saved[acme-staging]:-}}" ] && acme_ca="https://acme-staging-v02.api.letsencrypt.org/directory"
@@ -533,8 +845,11 @@ render_files() {
 # Generado por scripts/install.sh (I1-22) — $(date -u +%Y-%m-%dT%H:%M:%SZ). Sin secretos.
 # No lo edites: vuelve a ejecutar $install_dir/bin/install.sh con las opciones nuevas.
 COMPOSE_PROJECT_NAME=$project
-HORUS_IMAGE=$image
-HORUS_POSTGRES_IMAGE=horus-postgres:18.6-pgbackrest2.59.3
+$(for v in "${img_vars[@]}"; do [ -z "${img[$v]:-}" ] || printf '%s=%s\n' "$v" "${img[$v]}"; done)
+HORUS_VERSION=$horus_version
+HORUS_UPDATE_CHANNEL=$channel
+HORUS_UPDATE_SOURCE=$update_source
+HORUS_UPDATE_CHECK=$update_check
 HORUS_CONFIG_DIR=$config_dir
 HORUS_SECRETS_DIR=$secrets_dir
 HORUS_TLS_DIR=$tls_dir
@@ -551,11 +866,15 @@ HORUS_PUBLIC_BASE_URL=$public_base_url
 HORUS_ACME_EMAIL=$acme_email
 HORUS_ACME_CA_SERVER=$acme_ca
 HORUS_PUBLIC_BIND=0.0.0.0
+HORUS_HTTP_BIND_ADDR=$http_bind_addr
+HORUS_HTTPS_BIND_ADDR=$https_bind_addr
+HORUS_FORWARDED_TRUSTED_IPS=$(forwarded_trusted_ips)
+HORUS_TRUSTED_PROXIES=$(printf '%s' "$docker_subnet${trusted_proxies:+,$trusted_proxies}")
 HORUS_HTTP_PORT=$http_port
 HORUS_HTTPS_PORT=$https_port
 HORUS_SEED_ADMIN_EMAIL=$admin_email
 HORUS_WG_HUB_ID=$hub_id
-HORUS_WG_ENDPOINT=$public_host
+HORUS_WG_ENDPOINT=$wg_endpoint
 HORUS_WG_PORT=$wg_port
 HORUS_WG_INTERFACE=$wg_if
 HORUS_WG_HUB_PUBLIC_KEY=$(cat "$secrets_dir/wg_hub_public_key")
@@ -565,6 +884,11 @@ HORUS_COLLECTOR_IP=$collector_ip
 HORUS_DOCKER_SUBNET=$docker_subnet
 HORUS_GRPC_BIND=$grpc_bind
 HORUS_TLM_FLOWS_MAX_BYTES=$tlm_max_bytes
+HORUS_SIZE=$size
+HORUS_CH_MEM=$ch_mem
+HORUS_PG_MEM=$pg_mem
+HORUS_COLLECTOR_QUEUE_DATAGRAMS=$collector_queue
+HORUS_COLLECTOR_UDP_RCVBUF=33554432
 HORUS_NATS_MAX_FILE_STORE=$nats_max_store
 HORUS_BACKUP_METRICS_PORT=$(get backup-metrics-port 9109)
 HORUS_RAW_TTL_DAYS=7
@@ -578,7 +902,7 @@ EOF
   chmod 0644 "$env_file"
   # Primer metrics.prom (lo sirve backup-metrics desde el arranque).
   HORUS_ENV_FILE="$env_file" "$install_dir/bin/horus-backup" metrics >/dev/null 2>&1 || true
-  ok "compose.yaml, .env, config/, bin/horus-backup"
+  ok "compose.yaml, .env, config/, release/ ($horus_version), bin/{horus-backup,horus-ctl,install.sh}"
 }
 
 # Tamaños de NATS según el disco: telemetría = 50 GB por defecto (≥ 6 h de autonomía, C-12),
@@ -586,10 +910,14 @@ EOF
 # telemetría + margen.
 size_nats() {
   local free_b; free_b=$(($(df -P -k "$(existing_parent "$data_dir")" | awk 'NR == 2 { print $4 }') * 1024))
+  # TLM_FLOWS va comprimido con s2: max_bytes cuenta bytes SIN comprimir, que en disco ocupan ~27 %
+  # (FLOW, tests/load/REPORT.md). Se reserva para NATS el disco del perfil (≤ 30 % del libre) y
+  # max_bytes = 3 × esa reserva. max_file_store ≥ suma de los max_bytes (+ 20 GiB de eventos).
   tlm_max_bytes="$(get tlm-max-bytes "")"
   if [ -z "$tlm_max_bytes" ]; then
-    tlm_max_bytes=53687091200
-    [ "$tlm_max_bytes" -le $((free_b * 3 / 10)) ] || tlm_max_bytes=$((free_b * 3 / 10))
+    local reserve=$((nats_reserve_gb * 1073741824))
+    [ "$reserve" -le $((free_b * 3 / 10)) ] || reserve=$((free_b * 3 / 10))
+    tlm_max_bytes=$((reserve * 3))
     [ "$tlm_max_bytes" -ge 1073741824 ] || tlm_max_bytes=1073741824
   fi
   nats_max_store=$(((tlm_max_bytes + 20 * 1073741824) / 1048576))MB
@@ -604,24 +932,106 @@ size_nats() {
 
 # --- Imágenes ------------------------------------------------------------------------------------
 ensure_images() {
-  say "Imágenes"
-  if docker image inspect "$image" >/dev/null 2>&1; then
-    ok "imagen $image presente"
-  elif docker pull -q "$image" >/dev/null 2>&1; then
-    ok "imagen $image descargada"
-  else
-    [ -f "$repo_root/Dockerfile" ] || die "la imagen $image no existe ni se puede descargar"
-    say "construyendo $image con el Dockerfile del repositorio (puede tardar)"
-    docker build -q -t "$image" --build-arg "VERSION=$(git -C "$repo_root" describe --tags --always 2>/dev/null || echo local)" "$repo_root" >/dev/null \
-      || die "no se pudo construir $image (prueba --image con una imagen publicada)"
-    ok "imagen $image construida"
-  fi
-  if docker image inspect horus-postgres:18.6-pgbackrest2.59.3 >/dev/null 2>&1; then
-    ok "imagen horus-postgres presente"
-  else
-    docker build -q -t horus-postgres:18.6-pgbackrest2.59.3 "$config_dir/images/postgres" >/dev/null || die "no se pudo construir horus-postgres"
-    ok "imagen horus-postgres:18.6-pgbackrest2.59.3 construida (PostgreSQL 18.6 + pgBackRest 2.59.3)"
-  fi
+  say "Imágenes ($image_source_desc)"
+  local v ref
+  case "$image_source" in
+    ghcr)
+      registry_login
+      for v in HORUS_IMAGE HORUS_WEB_IMAGE HORUS_POSTGRES_IMAGE; do verify_signature "${img[$v]}"; done
+      for v in "${img_vars[@]}"; do
+        ref="${img[$v]:-}"; [ -n "$ref" ] || continue
+        if docker image inspect "$ref" >/dev/null 2>&1; then continue; fi
+        docker pull -q "$ref" >/dev/null || die "no se pudo descargar $ref (¿sin salida a $registry? usa el paquete offline: --image-source bundle:RUTA)"
+      done
+      ok "imágenes descargadas y fijadas por digest"
+      ;;
+    bundle:*)
+      local missing=0
+      for v in "${img_vars[@]}"; do
+        ref="${img[$v]:-}"; [ -n "$ref" ] || continue
+        docker image inspect "$ref" >/dev/null 2>&1 || missing=1
+      done
+      # Se carga si falta alguna imagen o si este paquete aún no se cargó (una etiqueta ya presente
+      # podría ser de otro paquete con el mismo nombre).
+      if [ "$missing" = 1 ] || { [ ! -f "$bundle_dir/.loaded" ] && [ ! -f "$bundle_dir/.installed-copy" ]; }; then
+        say "cargando las imágenes del paquete offline (docker load, puede tardar)"
+        load_bundle_images
+        : >"$bundle_dir/.loaded"
+      fi
+      for v in "${img_vars[@]}"; do
+        ref="${img[$v]:-}"; [ -n "$ref" ] || continue
+        docker image inspect "$ref" >/dev/null 2>&1 || die "el paquete offline no contiene $ref"
+      done
+      ok "imágenes del paquete offline cargadas (SHA256SUMS verificado)"
+      ;;
+    local)
+      image_local "$image" "$repo_root/Dockerfile" "$repo_root"
+      image_local "${img[HORUS_WEB_IMAGE]}" "$repo_root/apps/frontend/Dockerfile" "$repo_root"
+      image_local "${img[HORUS_POSTGRES_IMAGE]}" "$config_dir/images/postgres/Dockerfile" "$config_dir/images/postgres"
+      ;;
+  esac
+}
+
+# image_local <imagen> <Dockerfile> <contexto>: presente, descargable o construida aquí.
+image_local() {
+  if docker image inspect "$1" >/dev/null 2>&1; then ok "imagen $1 presente"; return 0; fi
+  if docker pull -q "$1" >/dev/null 2>&1; then ok "imagen $1 descargada"; return 0; fi
+  [ -f "$2" ] || die "la imagen $1 no existe ni se puede descargar (usa --image-source ghcr o bundle:RUTA)"
+  say "construyendo $1 con $2 (puede tardar)"
+  docker build -q -t "$1" -f "$2" --build-arg "VERSION=$horus_version" "$3" >/dev/null \
+    || die "no se pudo construir $1 (usa --image-source ghcr o bundle:RUTA)"
+  ok "imagen $1 construida"
+}
+
+# Credenciales de lectura del registro (paquetes privados): <etc>/registry-token (0600).
+registry_login() {
+  local tok="$etc_dir/registry-token"
+  [ -s "$tok" ] || return 0
+  docker login "${registry%%/*}" -u "${registry_user:-token}" --password-stdin <"$tok" >/dev/null 2>&1 \
+    || die "docker login en ${registry%%/*} falló con el token de $tok (¿caducado o sin read:packages?)"
+  ok "sesión de lectura en ${registry%%/*}"
+}
+
+# Firma cosign keyless (GitHub OIDC del workflow de release) de las imágenes propias.
+cosign_identity() { printf 'https://github.com/%s/.github/workflows/release.yml@refs/tags/v' "${HORUS_REPO:-hcdestroyer/horus-flow}"; }
+verify_signature() {
+  [ "${HORUS_SKIP_SIGNATURE:-0}" = 1 ] && { warn "HORUS_SKIP_SIGNATURE=1: no se verifica la firma de $1"; return 0; }
+  local cosign; cosign="$(command -v cosign || true)"
+  [ -n "$cosign" ] || [ ! -x "$install_dir/bin/cosign" ] || cosign="$install_dir/bin/cosign"
+  [ -n "$cosign" ] || die "falta cosign para verificar la firma de $1 (bootstrap-debian.sh lo instala; o HORUS_SKIP_SIGNATURE=1 bajo tu responsabilidad)"
+  "$cosign" verify --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+    --certificate-identity-regexp "^$(cosign_identity)" "$1" >/dev/null 2>&1 \
+    || die "la firma cosign de $1 no es válida: no se instala"
+  ok "firma cosign de ${1%@*} verificada"
+}
+
+# --- Parámetros del kernel ------------------------------------------------------------------------
+# net.core.rmem_max (32 MiB): techo del búfer UDP que pide el collector por socket
+# (HORUS_COLLECTOR_UDP_RCVBUF; tests/load/REPORT.md: con 4 MiB se perdían flujos en ráfagas);
+# rmem_default (1 MiB) para el resto de sockets. Son globales del host (no por espacio de red), así que valen
+# también dentro del contenedor del collector. ip_forward: el UDP que llega por wg0 se reenvía al
+# contenedor del collector (Docker también lo activa; aquí queda persistente). ClickHouse 26.8 no
+# exige vm.max_map_count.
+sysctl_file() { printf '%s' "${root:-}/etc/sysctl.d/90-horus.conf"; }
+setup_sysctl() {
+  say "Parámetros del kernel ($(sysctl_file))"
+  local rmem="${HORUS_UDP_RMEM_BYTES:-33554432}" rdef="${HORUS_UDP_RMEM_DEFAULT:-1048576}" kv k v cur
+  install -d -m 0755 "$(dirname "$(sysctl_file)")"
+  cat >"$(sysctl_file)" <<EOF
+# Horus Flow (scripts/install.sh). Búfer UDP del collector de IPFIX/NetFlow y reenvío del túnel.
+net.core.rmem_max = $rmem
+net.core.rmem_default = $rdef
+net.ipv4.ip_forward = 1
+EOF
+  chmod 0644 "$(sysctl_file)"
+  [ -z "$root" ] || { ok "escrito (raíz de pruebas: no se aplica)"; return 0; }
+  for kv in "net.core.rmem_max=$rmem" "net.core.rmem_default=$rdef" "net.ipv4.ip_forward=1"; do
+    k="${kv%%=*}"; v="${kv#*=}"
+    sysctl -q -w "$k=$v" >/dev/null 2>&1 || true
+    cur="$(sysctl -n "$k" 2>/dev/null || echo "?")"
+    if [ "$cur" = "$v" ]; then ok "$k = $v"
+    else warn "$k = $cur (no se pudo poner $v: ¿contenedor sin acceso al kernel del host?)"; fi
+  done
 }
 
 # --- Túnel WireGuard y cortafuegos ------------------------------------------------------------------
@@ -639,7 +1049,7 @@ case "\${1:-up}" in
         # Sin módulo del kernel: wireguard-go en primer plano y desligado (su modo demonio no
         # sobrevive en algunos entornos); UAPI en /var/run/wireguard/$wg_if.sock.
         mkdir -p /var/run/wireguard
-        setsid wireguard-go -f $wg_if </dev/null >>/var/log/horus-wireguard-go.log 2>&1 &
+        setsid wireguard-go -f $wg_if </dev/null >>/var/log/horus-wireguard-go.log 2>&1 9>&- &
         i=0
         until [ -S /var/run/wireguard/$wg_if.sock ] && ip link show $wg_if >/dev/null 2>&1; do
           i=\$((i + 1)); [ \$i -lt 50 ] || { echo "horus-tunnel: wireguard-go no creó $wg_if" >&2; exit 1; }; sleep 0.2
@@ -661,11 +1071,30 @@ EOF
     done
 EOF
   fi
+  if [ "$skip_fw" = 0 ] && [ "$tls_mode" = external ]; then
+    local c
+    printf '    # Modo proxy externo: el HTTP de Traefik (%s/tcp) solo desde --trusted-proxies.\n' "$http_port"
+    printf '    for chain in DOCKER-USER INPUT; do\n'
+    printf '      iptables -N $chain 2>/dev/null || true\n'
+    # Primero se quitan las reglas anteriores (cambie o no el puerto o la lista); solo las conexiones
+    # NUEVAS en sentido original (--ctdir ORIGINAL): las respuestas y lo que reenvía docker-proxy desde
+    # el propio servidor no se tocan.
+    printf "      iptables -S \$chain 2>/dev/null | grep -- '--comment horus-proxy-only' | sed 's/^-A /-D /' | while read -r r; do eval \"iptables \$r\" 2>/dev/null || true; done\n"
+    # ! -s red del compose: entre contenedores (Traefik → horus-app:8080) el tráfico también pasa por
+    # DOCKER-USER y podría coincidir en el puerto.
+    printf '      iptables -I $chain ! -s %s -p tcp -m conntrack --ctstate NEW --ctdir ORIGINAL --ctorigdstport %s -m comment --comment horus-proxy-only -j DROP\n' "$docker_subnet" "$http_port"
+    IFS=, read -r -a _tp <<<"$trusted_proxies"
+    for c in "${_tp[@]}" 127.0.0.0/8; do
+      printf '      iptables -I $chain -s %s -p tcp -m conntrack --ctstate NEW --ctdir ORIGINAL --ctorigdstport %s -m comment --comment horus-proxy-only -j ACCEPT\n' "$c" "$http_port"
+    done
+    printf '    done\n'
+  fi
   cat <<EOF
     ;;
   down)
     for chain in DOCKER-USER INPUT; do
       while iptables -D \$chain ! -i $wg_if -p udp -m multiport --dports 4739,2055 -m comment --comment horus-ipfix-only-wg -j DROP 2>/dev/null; do :; done
+      iptables -S \$chain 2>/dev/null | grep -- '--comment horus-proxy-only' | sed 's/^-A /-D /' | while read -r r; do eval "iptables \$r" 2>/dev/null || true; done
     done
     ip link del $wg_if 2>/dev/null || true
     pkill -f "wireguard-go $wg_if" 2>/dev/null || true
@@ -722,6 +1151,31 @@ TimeoutStartSec=900
 [Install]
 WantedBy=multi-user.target
 EOF
+  # Actualización automática de PARCHES (opcional, off por defecto): horus-ctl auto-update solo
+  # aplica X.Y.Z → X.Y.Z' del canal, con backup previo, healthcheck y vuelta atrás.
+  if [ "$auto_update" = on ]; then
+    cat >"$u/horus-autoupdate.service" <<EOF
+[Unit]
+Description=Horus Flow: actualización automática de parches (horus-ctl auto-update)
+After=horus.service
+[Service]
+Type=oneshot
+ExecStart=$install_dir/bin/horus-ctl auto-update
+TimeoutStartSec=3600
+EOF
+    cat >"$u/horus-autoupdate.timer" <<EOF
+[Unit]
+Description=Horus Flow: ventana de mantenimiento para parches
+[Timer]
+OnCalendar=$update_window
+Persistent=false
+RandomizedDelaySec=300
+[Install]
+WantedBy=timers.target
+EOF
+  else
+    rm -f "$u/horus-autoupdate.service" "$u/horus-autoupdate.timer"
+  fi
   local name cal args
   for spec in "run|*-*-* 02:15:00 UTC|run all" "verify|Sun *-*-* 06:00:00 UTC|verify all" \
     "ttl|*-*-* 05:10:00 UTC|check-ttl" "metrics|*:0/5|metrics"; do
@@ -756,6 +1210,12 @@ setup_schedules() {
     systemctl enable horus-tunnel.service horus.service >/dev/null 2>&1
     systemctl enable --now horus-backup-run.timer horus-backup-verify.timer horus-backup-ttl.timer horus-backup-metrics.timer >/dev/null 2>&1
     ok "systemd: horus-tunnel, horus y timers horus-backup-{run,verify,ttl,metrics}"
+    if [ "$auto_update" = on ]; then
+      systemctl enable --now horus-autoupdate.timer >/dev/null 2>&1
+      ok "actualización automática de parches: $update_window (horus-autoupdate.timer)"
+    else
+      systemctl disable --now horus-autoupdate.timer >/dev/null 2>&1 || true
+    fi
   elif [ -z "$root" ] && [ -d /etc/cron.d ] && [ "$skip_systemd" = 0 ]; then
     cat >/etc/cron.d/horus-backup <<EOF
 # Horus Flow — backups (I1-23). Sin systemd; generado por install.sh.
@@ -809,6 +1269,9 @@ summary() {
     echo "  Certificado:    autogenerado para $public_ip — huella SHA-256:"
     echo "                  $(cat "$tls_dir/fingerprint-sha256.txt")"
     echo "                  compruébala en el navegador antes de aceptar el aviso."
+  elif [ "$tls_mode" = external ]; then
+    echo "  Proxy inverso:  apunta tu proxy (esquema http) a $http_bind_addr:$http_port con WebSockets activado;"
+    echo "                  solo se aceptan X-Forwarded-* de $trusted_proxies (docs/install-debian.md)"
   else
     echo "  Certificado:    Let's Encrypt para $domain (se emite en la primera petición HTTPS)"
   fi
@@ -821,6 +1284,8 @@ summary() {
     echo "                  cópialo FUERA del servidor (2 sitios), bórralo de aquí y ejecuta: $install_dir/bin/install.sh --confirm-bundle"
   fi
   echo "  Backups:        $store_dir/backups (horus-backup status); métricas en 127.0.0.1:$(get backup-metrics-port 9109)/metrics.prom"
+  echo "  Versión:        $horus_version (canal $channel; actualización automática de parches: $auto_update)"
+  echo "  Gestión:        horus-ctl status | logs | upgrade | backup | restore | uninstall  (horus-ctl help)"
   echo "  Comprobar:      $install_dir/bin/install.sh --check"
   [ "$warnings" = 0 ] || echo "  Avisos:         $warnings (ver arriba)"
 }
@@ -835,6 +1300,7 @@ do_install() {
   render_files
   make_bundle
   ensure_images
+  setup_sysctl
   setup_tunnel
   compose_up
   first_backup
@@ -843,6 +1309,16 @@ do_install() {
 }
 
 # --- --check -------------------------------------------------------------------------------------
+# URL local de Traefik para las comprobaciones (HTTPS propio o, en modo externo, el HTTP del proxy).
+traefik_base() {
+  if [ "${HORUS_TLS_MODE:-}" = external ]; then
+    local a="${HORUS_HTTP_BIND_ADDR:-127.0.0.1}"; [ "$a" != 0.0.0.0 ] || a=127.0.0.1
+    printf 'http://%s:%s' "$a" "$HORUS_HTTP_PORT"
+  else
+    printf 'https://127.0.0.1:%s' "$HORUS_HTTPS_PORT"
+  fi
+}
+
 do_check() {
   [ -f "$env_file" ] || die "no hay instalación en $install_dir"
   set -a; . "$env_file"; set +a
@@ -858,11 +1334,20 @@ do_check() {
     [ "$ready" = ok ] && ok "horus-app /readyz (todos sus roles listos)" || fail "horus-app /readyz no responde 200"
   fi
   say "Puertos"
-  port_busy tcp "$HORUS_HTTPS_PORT" && ok "HTTPS $HORUS_HTTPS_PORT/tcp escuchando" || fail "HTTPS $HORUS_HTTPS_PORT/tcp no escucha"
-  port_busy tcp "$HORUS_HTTP_PORT" && ok "HTTP $HORUS_HTTP_PORT/tcp escuchando (redirección y ACME)" || fail "HTTP $HORUS_HTTP_PORT/tcp no escucha"
-  local code
-  code="$(curl -sk -o /dev/null -m 10 -w '%{http_code}' "https://127.0.0.1:$HORUS_HTTPS_PORT/api/v1/system/status" -H "Host: ${HORUS_PUBLIC_BASE_URL#https://}" || true)"
+  local code base host="${HORUS_PUBLIC_BASE_URL#https://}"
+  base="$(traefik_base)"
+  if [ "${HORUS_TLS_MODE:-}" = external ]; then
+    port_busy tcp "$HORUS_HTTP_PORT" && ok "HTTP $HORUS_HTTP_BIND_ADDR:$HORUS_HTTP_PORT/tcp escuchando (para el proxy inverso)" || fail "HTTP $HORUS_HTTP_PORT/tcp no escucha"
+    ok "TLS lo termina tu proxy inverso en $HORUS_PUBLIC_BASE_URL (X-Forwarded-* solo de $HORUS_FORWARDED_TRUSTED_IPS)"
+  else
+    port_busy tcp "$HORUS_HTTPS_PORT" && ok "HTTPS $HORUS_HTTPS_PORT/tcp escuchando" || fail "HTTPS $HORUS_HTTPS_PORT/tcp no escucha"
+    port_busy tcp "$HORUS_HTTP_PORT" && ok "HTTP $HORUS_HTTP_PORT/tcp escuchando (redirección y ACME)" || fail "HTTP $HORUS_HTTP_PORT/tcp no escucha"
+  fi
+  code="$(curl -sk -o /dev/null -m 10 -w '%{http_code}' "$base/api/v1/system/status" -H "Host: $host" || true)"
   [ "$code" = 401 ] && ok "API vía Traefik responde (401 sin token, esperado)" || fail "API vía Traefik: HTTP ${code:-sin respuesta} (se esperaba 401)"
+  code="$(curl -sk -o /dev/null -m 10 -w '%{http_code}' "$base/" -H "Host: $host" || true)"
+  [ "$code" = 200 ] && ok "interfaz web vía Traefik responde (200)" || fail "interfaz web vía Traefik: HTTP ${code:-sin respuesta} (se esperaba 200)"
+
   if ip link show "$HORUS_WG_INTERFACE" >/dev/null 2>&1; then
     ok "interfaz $HORUS_WG_INTERFACE presente ($(ip -4 -o addr show "$HORUS_WG_INTERFACE" | awk '{ print $4 }' | head -1))"
     if command -v wg >/dev/null 2>&1; then
@@ -880,6 +1365,8 @@ do_check() {
     ok "certificado autogenerado, caduca $end"
     ok "huella SHA-256 $(cat "$HORUS_TLS_DIR/fingerprint-sha256.txt")"
     openssl x509 -in "$HORUS_TLS_DIR/public.crt" -noout -checkend $((30 * 86400)) >/dev/null || warn "el certificado caduca en < 30 días: vuelve a ejecutar install.sh tras borrar $HORUS_TLS_DIR/public.crt"
+  elif [ "$HORUS_TLS_MODE" = external ]; then
+    ok "lo pone tu proxy inverso (sin HSTS en Horus: actívalo en el proxy si quieres)"
   else
     ok "Let's Encrypt (acme.json en $HORUS_DATA_ROOT/traefik)"
   fi
@@ -912,12 +1399,16 @@ do_uninstall() {
   fi
   local u; u="$(unit_dir)"
   if have_systemd; then
-    systemctl disable --now horus-backup-run.timer horus-backup-verify.timer horus-backup-ttl.timer horus-backup-metrics.timer horus.service >/dev/null 2>&1 || true
+    systemctl disable --now horus-backup-run.timer horus-backup-verify.timer horus-backup-ttl.timer horus-backup-metrics.timer horus-autoupdate.timer horus.service >/dev/null 2>&1 || true
   fi
   [ -x "$install_dir/bin/horus-tunnel" ] && "$install_dir/bin/horus-tunnel" down && ok "interfaz WireGuard y reglas de cortafuegos eliminadas"
   if have_systemd; then systemctl disable horus-tunnel.service >/dev/null 2>&1 || true; fi
-  rm -f "$u"/horus.service "$u"/horus-tunnel.service "$u"/horus-backup-*.service "$u"/horus-backup-*.timer
-  [ -z "$root" ] && rm -f /etc/cron.d/horus-backup
+  rm -f "$u"/horus.service "$u"/horus-tunnel.service "$u"/horus-backup-*.service "$u"/horus-backup-*.timer \
+    "$u"/horus-autoupdate.service "$u"/horus-autoupdate.timer "$(sysctl_file)"
+  if [ -z "$root" ]; then
+    rm -f /etc/cron.d/horus-backup
+    [ "$(readlink /usr/local/sbin/horus-ctl 2>/dev/null)" = "$install_dir/bin/horus-ctl" ] && rm -f /usr/local/sbin/horus-ctl
+  fi
   have_systemd && systemctl daemon-reload || true
   rm -rf "$install_dir"
   ok "units, cron y $install_dir eliminados"

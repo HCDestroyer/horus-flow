@@ -1,0 +1,152 @@
+# Release de Horus Flow (historia I1-22; docs/install-debian.md).
+#
+# En cada etiqueta v* (vX.Y.Z estable, vX.Y.Z-beta.N / -rc.N beta):
+#   1. Construye y publica en GHCR las imágenes horus, horus-web y horus-postgres para
+#      linux/amd64 y linux/arm64 (etiquetas X.Y.Z y, si es estable, X.Y y latest).
+#   2. Las firma con cosign keyless (OIDC de GitHub: la identidad es este workflow en la etiqueta).
+#   3. Genera con scripts/release/build-release.sh el instalador, los paquetes offline
+#      horus-<v>-linux-{amd64,arm64}.tar.gz (docker save de TODAS las imágenes fijadas por digest),
+#      bootstrap-debian.sh, latest.json y SHA256SUMS, y firma SHA256SUMS (SHA256SUMS.sigstore.json).
+#   4. Publica la release de GitHub (prerelease si la versión lleva sufijo).
+#
+# Nada se construye en los servidores: bootstrap-debian.sh y `horus-ctl upgrade` descargan estos
+# artefactos y verifican firma y sumas antes de aplicar nada.
+# Actions fijadas por SHA (comentario = versión), igual que ci.yml.
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io/${{ github.repository_owner }}
+  COSIGN_VERSION: v2.6.1
+  COSIGN_SHA256: 064954c5d8c7e3b28188eee5b1727b31c411550bc5fefd41aa672d3c761d103a
+
+jobs:
+  # -------------------------------------------------------------------------------------------
+  images:
+    name: imágenes (GHCR, amd64 + arm64, firmadas)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Versión (semver de la etiqueta)
+        id: v
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          v="${TAG#v}"
+          [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "etiqueta no semver: $TAG"; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          if [ "$v" = "${v%%-*}" ]; then echo "prerelease=false" >> "$GITHUB_OUTPUT"; else echo "prerelease=true" >> "$GITHUB_OUTPUT"; fi
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Sesión en GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+      - name: cosign
+        run: |
+          curl -fsSL -o /tmp/cosign "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-amd64"
+          echo "${COSIGN_SHA256}  /tmp/cosign" | sha256sum -c -
+          sudo install -m 0755 /tmp/cosign /usr/local/bin/cosign
+      - name: Construir, publicar y firmar
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+          PRERELEASE: ${{ steps.v.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          created="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          tags() { # tags <nombre>: -t por cada etiqueta
+            local n="$1" mm="${VERSION%.*}"
+            printf -- '-t %s ' "$REGISTRY/$n:$VERSION"
+            if [ "$PRERELEASE" = false ]; then printf -- '-t %s -t %s ' "$REGISTRY/$n:$mm" "$REGISTRY/$n:latest"; fi
+          }
+          build() { # build <nombre> <Dockerfile> <contexto>
+            local n="$1" f="$2" ctx="$3"
+            # shellcheck disable=SC2046
+            docker buildx build --platform linux/amd64,linux/arm64 --push --provenance=mode=max --sbom=true \
+              -f "$f" $(tags "$n") \
+              --build-arg "VERSION=$VERSION" --build-arg "REVISION=$GITHUB_SHA" --build-arg "CREATED=$created" \
+              --metadata-file "/tmp/$n.json" "$ctx"
+            digest="$(jq -r '."containerimage.digest"' "/tmp/$n.json")"
+            cosign sign --yes "$REGISTRY/$n@$digest"
+            echo "$n $REGISTRY/$n:$VERSION@$digest" | tee -a "$GITHUB_STEP_SUMMARY"
+          }
+          build horus Dockerfile .
+          build horus-web apps/frontend/Dockerfile .
+          build horus-postgres deployments/images/postgres/Dockerfile deployments/images/postgres
+
+  # -------------------------------------------------------------------------------------------
+  bundles:
+    name: instalador, paquetes offline y release
+    needs: images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: write
+      packages: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Sesión en GHCR (lectura)
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+      - name: cosign
+        run: |
+          curl -fsSL -o /tmp/cosign "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-amd64"
+          echo "${COSIGN_SHA256}  /tmp/cosign" | sha256sum -c -
+          sudo install -m 0755 /tmp/cosign /usr/local/bin/cosign
+      - name: Verificar las firmas recién publicadas
+        env:
+          VERSION: ${{ needs.images.outputs.version }}
+          REPO: ${{ github.repository }}
+        run: |
+          for n in horus horus-web horus-postgres; do
+            cosign verify --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              --certificate-identity-regexp "^https://github.com/$REPO/.github/workflows/release.yml@refs/tags/v" \
+              "$REGISTRY/$n:$VERSION" >/dev/null
+          done
+      - name: Artefactos (build-release.sh)
+        env:
+          VERSION: ${{ needs.images.outputs.version }}
+          REPO: ${{ github.repository }}
+        run: |
+          bash scripts/release/build-release.sh --version "$VERSION" --out dist --arch amd64,arm64 \
+            --registry "$REGISTRY" --source registry \
+            --notes-url "https://github.com/$REPO/releases/tag/v$VERSION"
+          cosign sign-blob --yes --bundle dist/SHA256SUMS.sigstore.json dist/SHA256SUMS
+      - name: Publicar la release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          PRERELEASE: ${{ needs.images.outputs.prerelease }}
+        run: |
+          flags=(--generate-notes --verify-tag)
+          [ "$PRERELEASE" = false ] || flags+=(--prerelease)
+          gh release create "$TAG" "${flags[@]}" --title "Horus Flow ${TAG}" dist/*

@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/netip"
 	"strconv"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/hcdestroyer/horus-flow/packages/go/apperr"
 	"github.com/hcdestroyer/horus-flow/packages/go/authz"
+	"github.com/hcdestroyer/horus-flow/packages/go/clientip"
 	"github.com/hcdestroyer/horus-flow/packages/go/httpx"
 	"github.com/hcdestroyer/horus-flow/packages/go/jsonapi"
 	"github.com/hcdestroyer/horus-flow/packages/go/pagination"
@@ -134,14 +134,9 @@ func (h *Handler) revokeToken(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func clientIP(r *http.Request) netip.Addr {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-	a, _ := netip.ParseAddr(host)
-	return a.Unmap()
-}
+// clientIP es la IP real del cliente tras los proxies de confianza
+// (packages/go/clientip).
+func clientIP(r *http.Request) netip.Addr { return clientip.Addr(r) }
 
 // enroll es público (sin sesión): el token del cuerpo es la credencial. El
 // rate limit por IP lo aplica el gateway (x-rate-limit: enroll, 10/min).

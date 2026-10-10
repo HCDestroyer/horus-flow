@@ -7,13 +7,13 @@ import (
 	"bytes"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 
 	"github.com/google/uuid"
 
 	"github.com/hcdestroyer/horus-flow/packages/go/apperr"
 	"github.com/hcdestroyer/horus-flow/packages/go/authz"
+	"github.com/hcdestroyer/horus-flow/packages/go/clientip"
 	"github.com/hcdestroyer/horus-flow/packages/go/httpx"
 	"github.com/hcdestroyer/horus-flow/packages/go/jsonapi"
 	"github.com/hcdestroyer/horus-flow/packages/go/problem"
@@ -135,13 +135,9 @@ func (h *Handler) transition(op string) http.HandlerFunc {
 	}
 }
 
-func clientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
-}
+// clientIP es la IP real del cliente tras los proxies de confianza
+// (packages/go/clientip).
+func clientIP(r *http.Request) string { return clientip.String(r) }
 
 func (h *Handler) evidence(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r, "finding_id", app.CodeFindingNotFound)

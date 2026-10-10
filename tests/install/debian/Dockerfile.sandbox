@@ -1,0 +1,24 @@
+# Debian con systemd como PID 1 para `make test-install-debian` en entornos SIN acceso a los
+# espejos de Debian (TEST_MODE=sandbox): base debian + systemd ya hecha (imágenes de prueba de
+# Molecule) y, en lugar de apt, binarios equivalentes de Docker Engine (estáticos), compose,
+# curl y jq (estáticos), wireguard-go e iptables (backend nft, copiado del host; glibc ≥ 2.34),
+# todo en cache/. bootstrap-debian.sh se ejecuta con --no-apt.
+ARG DEBIAN_VERSION=12
+FROM geerlingguy/docker-debian${DEBIAN_VERSION}-ansible:latest
+ENV container=docker
+COPY cache/docker/ /usr/bin/
+COPY cache/docker-compose /usr/libexec/docker/cli-plugins/docker-compose
+COPY cache/curl cache/jq cache/wireguard-go /usr/bin/
+COPY cache/iptables/lib/ /usr/local/lib/horus-iptables/
+COPY cache/iptables/xtables/ /usr/lib/x86_64-linux-gnu/xtables/
+COPY cache/iptables/xtables-nft-multi /usr/sbin/xtables-nft-multi
+COPY docker.service /etc/systemd/system/docker.service
+RUN chmod 0755 /usr/bin/curl /usr/bin/jq /usr/bin/wireguard-go /usr/libexec/docker/cli-plugins/docker-compose \
+    && echo /usr/local/lib/horus-iptables >/etc/ld.so.conf.d/horus-iptables.conf && ldconfig \
+    && for t in iptables iptables-save iptables-restore ip6tables ip6tables-save ip6tables-restore; do \
+         ln -sf xtables-nft-multi "/usr/sbin/$t"; done \
+    && iptables --version \
+    && groupadd -f docker \
+    && systemctl enable docker.service
+STOPSIGNAL SIGRTMIN+3
+CMD ["/lib/systemd/systemd"]

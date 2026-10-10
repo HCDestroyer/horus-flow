@@ -69,7 +69,14 @@ sudo /opt/horus/bin/install.sh --uninstall       # conserva datos y secretos (--
 
 - **Modos de acceso (D19):** `domain`/`subdomain` → router Traefik por `Host()`, reto HTTP-01 en
   :80, HSTS; `ip` (`ip_only`) → certificado autogenerado (EC P-256, SAN IP, 825 días) cuya huella
-  SHA-256 muestran el instalador y `--check`; `wireguard` lo incluye en el script RouterOS.
+  SHA-256 muestran el instalador y `--check`; `wireguard` lo incluye en el script RouterOS;
+  `--tls external` → detrás de un proxy inverso propio (Traefik solo HTTP en `--http-bind`, sin
+  HSTS, `X-Forwarded-*` solo de `--trusted-proxies`; [`../docs/install-debian.md`](../docs/install-debian.md) §11).
+- **Debian desde cero, sin compilar:** `scripts/bootstrap-debian.sh` (Docker oficial por apt,
+  WireGuard, NTP, cosign) + imágenes de GHCR firmadas o el paquete offline
+  `horus-<v>-linux-<arch>.tar.gz` (`--image-source ghcr|bundle:RUTA|local`), `horus-ctl` (status,
+  logs, upgrade con backup previo y vuelta atrás, backup/restore, uninstall) y
+  `.github/workflows/release.yml`. Guía: [`../docs/install-debian.md`](../docs/install-debian.md).
 - **Red:** solo Traefik (80/443) y el UDP de WireGuard del hub son públicos. `horus-wg-agent` va en
   la red del host con `NET_ADMIN` y gestiona `wg0` (creada por `bin/horus-tunnel` /
   `horus-tunnel.service`); el colector publica 4739/2055 UDP **solo en la IP del hub** y
