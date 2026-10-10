@@ -71,6 +71,22 @@ func TestProjectorFromDevicesEvents(t *testing.T) {
 	if m, ok := s.Lookup(tenant, site, netip.MustParseAddr("10.20.0.9")); !ok || m.Prefix.RealmID != realm {
 		t.Fatal("prefix not projected")
 	}
+	// Reinicio del proceso: un proyector nuevo (memoria vacía) con el mismo
+	// nombre relee todo el stream y recupera routers y prefijos.
+	store2 := NewStore(nil)
+	ready2 := make(chan struct{})
+	go NewProjector(store2, Data{}, nil).Run(ctx, js, "flows-inventory-test", ready2)
+	select {
+	case <-ready2:
+	case <-ctx.Done():
+		t.Fatal("restarted projector not ready")
+	}
+	if _, ok := store2.Load().Lookup(tenant, site, netip.MustParseAddr("10.20.0.9")); !ok {
+		t.Fatal("prefix lost after restart")
+	}
+	if _, ok := store2.Load().Exporter(netip.MustParseAddr("10.255.3.17")); !ok {
+		t.Fatal("exporter lost after restart")
+	}
 	// Borrado del prefijo: deja de atribuir.
 	pub("horus.devices.client_prefix.deleted."+prefix.String(), event(t, "horus.devices.client_prefix.deleted", tenant, 2,
 		map[string]any{"id": prefix, "site_id": site, "realm_id": realm, "prefix": "10.20.0.0/24", "role": "customers"}))
