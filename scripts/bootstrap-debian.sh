@@ -203,7 +203,7 @@ elif [ -n "$bundle" ]; then
   # Solo los scripts (install.sh verifica y extrae el resto y carga las imágenes en streaming).
   tree="$cache/bootstrap/$(basename "$f" .tar.gz)"
   install -d -m 0700 "$cache/bootstrap"; rm -rf "$tree"; install -d -m 0755 "$tree"
-  top="$(tar -tzf "$f" | head -1)"; top="${top%%/*}"
+  top="$({ tar -tzf "$f" 2>/dev/null || true; } | head -1)"; top="${top%%/*}"
   tar -xzf "$f" -C "$tree" --strip-components=1 "$top/scripts" "$top/VERSION" || die "$(basename "$f") no es un paquete de Horus"
   ok "paquete $(cat "$tree/VERSION")"
   pass=(--image-source "bundle:$f" "${pass[@]}")

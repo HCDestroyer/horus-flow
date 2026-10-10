@@ -365,7 +365,7 @@ prepare_bundle() {
   dir="$cache_dir/upgrade/$(basename "$f" .tar.gz)"
   install -d -m 0700 "$cache_dir/upgrade"
   rm -rf "$dir"; install -d -m 0755 "$dir"
-  top="$(tar -tzf "$f" | head -1)"; top="${top%%/*}"
+  top="$({ tar -tzf "$f" 2>/dev/null || true; } | head -1)"; top="${top%%/*}"
   tar -xzf "$f" -C "$dir" --strip-components=1 "$top/scripts" "$top/VERSION" || die "$(basename "$f") no es un paquete de Horus"
   printf '%s' "$dir"
 }

@@ -347,7 +347,7 @@ bundle_tree() {
   # Se extrae todo MENOS images/horus-images.tar (se carga en streaming desde el .tar.gz).
   dir="$(get_bundle_cache)/$(basename "$src" .tar.gz)"
   if [ ! -f "$dir/.extracted" ] || [ "$src" -nt "$dir/.extracted" ]; then
-    top="$(tar -tzf "$src" | head -1)"; top="${top%%/*}"
+    top="$({ tar -tzf "$src" 2>/dev/null || true; } | head -1)"; top="${top%%/*}"
     rm -rf "$dir"; install -d -m 0755 "$dir"
     tar -xzf "$src" -C "$dir" --strip-components=1 --exclude "$top/images/horus-images.tar" || die "no se pudo extraer $src"
     (cd "$dir" && grep -v ' [*]\{0,1\}images/horus-images.tar$' SHA256SUMS | sha256sum -c --quiet -) \
