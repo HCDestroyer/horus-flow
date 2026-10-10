@@ -78,6 +78,8 @@ echo "==> compilando horus, flowsim y el driver"
 "$GO" build -tags acceptance -o "$out/horus-chaos-core" ./tests/chaos/core || exit 1
 
 if [ "${CHAOS_REUSE:-0}" != 1 ]; then
+  # Instalación nueva: la contraseña cambiada y el TOTP de la anterior ya no valen.
+  rm -f "$out/admin-state.json" "$ACCEPT_OUT_DIR/admin-creds.json"
   echo "==> instalación de prueba en $root (pasos image, install e install-check de accept-i1)"
   ACCEPT_STEPS=image,install,install-check ACCEPT_KEEP=1 bash scripts/accept/accept-i1.sh >"$out/install.log" 2>&1
   rc=$?
