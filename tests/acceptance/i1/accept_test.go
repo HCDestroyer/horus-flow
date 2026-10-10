@@ -92,6 +92,8 @@ func TestAcceptI1(t *testing.T) {
 			(*world).isolation},
 		{"silent", "I1-09", "exportador Silencioso ≤ 2 min después de dejar de exportar", []string{"exporters"},
 			(*world).silent},
+		{"cleanup", "-", "TARGET=installed: suspender los ISP de prueba accept-i1-*", []string{"platform"},
+			(*world).cleanup},
 	})
 }
 
@@ -1175,5 +1177,25 @@ func (w *world) silent() error {
 		return err
 	}
 	w.logf("ok  exportador de normal Silencioso %s después del último flujo: %v", time.Since(n.finished).Round(time.Second), compact(last))
+	return nil
+}
+
+// --- cleanup ---------------------------------------------------------------------------------
+
+// cleanup suspende los ISP de prueba en una instalación que se queda en
+// servicio (TARGET=installed); la instalación temporal se borra entera.
+func (w *world) cleanup() error {
+	if os.Getenv("ACCEPT_SUSPEND_TENANTS") != "1" {
+		return skipErr{"instalación temporal (se desinstala con --purge)"}
+	}
+	_, _ = w.run(w.simrtr, "down-all")
+	if err := w.s.Reauth(); err != nil {
+		return err
+	}
+	plat := w.token("platform")
+	for k, i := range w.isps {
+		w.expect("suspender el ISP de prueba "+i.Slug, post(plat, "/api/v1/platform/tenants/"+i.ID+"/suspend",
+			map[string]any{"reason": "ISP de prueba de make accept-i1 (" + k + ")"}), 200)
+	}
 	return nil
 }

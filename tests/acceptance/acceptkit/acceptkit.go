@@ -345,6 +345,37 @@ func (s *Session) accessLocked() (string, error) {
 	return s.access, nil
 }
 
+// Reauth repite la autenticación (contraseña + TOTP) para las operaciones
+// sensibles (x-reauth) y renueva la sesión.
+func (s *Session) Reauth() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, err := s.accessLocked()
+	if err != nil {
+		return err
+	}
+	body := map[string]any{"password": s.Creds.Password}
+	if s.Creds.TOTPSecret != "" {
+		c, err := s.code()
+		if err != nil {
+			return err
+		}
+		body["code"] = c
+	}
+	r, err := s.post(a, "/api/v1/auth/reauth", body)
+	if err != nil {
+		return err
+	}
+	if r.Status != http.StatusOK {
+		return fmt.Errorf("POST /auth/reauth: HTTP %d %s", r.Status, r.Raw)
+	}
+	if t := r.Str("access_token"); t != "" {
+		s.access, s.expires = t, expiry(r)
+	}
+	s.tenant = map[string]tok{}
+	return nil
+}
+
 // Token devuelve un token de ámbito tenant (id de ISP) o "platform".
 func (s *Session) Token(scope string) (string, error) {
 	s.mu.Lock()
