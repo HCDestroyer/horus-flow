@@ -4,11 +4,27 @@ import es from '../../i18n/locales/es.json'
 import en from '../../i18n/locales/en.json'
 
 describe('app/config/pricing.ts', () => {
-  it('mientras confirmed sea false no hay ninguna cifra publicable', () => {
-    expect(pricing.confirmed).toBe(false)
+  it('precios aprobados por el cliente: confirmed true con las cifras acordadas', () => {
+    expect(pricing.confirmed).toBe(true)
+    const usd = Object.fromEntries(
+      pricing.plans.map((p) => [
+        p.id,
+        p.prices ? [p.prices.USD.monthly, p.prices.USD.annual] : null,
+      ]),
+    )
+    expect(usd).toEqual({
+      small: [149, 1490],
+      medium: [399, 3990],
+      large: [990, 9900],
+      enterprise: null,
+    })
+  })
+
+  it('con confirmed false no hay ninguna cifra publicable', () => {
+    const unconfirmed = { ...pricing, confirmed: false }
     for (const plan of pricing.plans) {
-      expect(planPrice(plan, 'USD', 'annual')).toBeNull()
-      expect(planPrice(plan, 'GTQ', 'monthly')).toBeNull()
+      expect(planPrice(plan, 'USD', 'annual', unconfirmed)).toBeNull()
+      expect(planPrice(plan, 'GTQ', 'monthly', unconfirmed)).toBeNull()
     }
   })
 

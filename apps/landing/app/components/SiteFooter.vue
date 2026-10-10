@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { site } from '~/config/site'
+import { sellerAddressLine, site } from '~/config/site'
 
 const { t } = useI18n()
 const localePath = useLocalePath()
@@ -99,6 +99,7 @@ const href = (id: string) => `${home.value === '/' ? '/' : home.value}#${id}`
           © {{ year }} {{ site.seller.legalName }} ({{ site.seller.shortName }}).
           {{ t('footer.rights') }}
         </p>
+        <p>{{ t('footer.address', { address: sellerAddressLine }) }}</p>
         <p>{{ t('footer.proprietary') }} {{ t('footer.simulated') }}</p>
       </div>
     </div>

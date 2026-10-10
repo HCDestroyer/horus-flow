@@ -1,10 +1,13 @@
 /**
- * PRECIOS Y PLANES DE HORUS FLOW — único archivo que hay que editar para cambiar precios,
- * monedas, periodos o lo que incluye cada plan (README.md › "Editar precios").
+ * SEMILLA DE PRECIOS Y PLANES DE HORUS FLOW. Precios aprobados por C&S Company (2026-10).
  *
- * ⚠️ `confirmed: false` → la página NO muestra cifras: enseña "Precio de lanzamiento:
- * solicita cotización", el JSON-LD no publica importes y `nuxt build` avisa en producción.
- * Cuando C&S Company apruebe los importes, cámbialos aquí y pon `confirmed: true`.
+ * Este archivo solo se usa la primera vez que arranca el servidor con una base de datos vacía
+ * (server/lib/db/seed.ts). Después, los precios, los planes y lo que incluye cada uno se editan
+ * en el panel de administración (/admin › Precios), sin tocar código ni redesplegar
+ * (README.md › "Editar precios").
+ *
+ * `confirmed: false` (o "Mostrar importes" desactivado en el panel) → la página no muestra
+ * cifras: enseña "Precio de lanzamiento: solicita cotización" y el JSON-LD no publica importes.
  *
  * Los tamaños coinciden con los del instalador (`install.sh --size small|medium|large`,
  * docs/install-debian.md §1): ~300, ~2 000 y ~10 000 clientes.
@@ -51,7 +54,7 @@ export interface PricingConfig {
 }
 
 export const pricing: PricingConfig = {
-  confirmed: false,
+  confirmed: true,
 
   currencies: ['USD', 'GTQ'],
   defaultCurrency: 'USD',
@@ -68,16 +71,14 @@ export const pricing: PricingConfig = {
       es: 'Actualizaciones firmadas mientras la licencia esté vigente',
       en: 'Signed updates while the license is active',
     },
-    { es: 'Soporte técnico por correo', en: 'Technical support by email' },
+    { es: 'Soporte técnico 24/7', en: '24/7 technical support' },
     {
       es: 'Instalador de un comando para Debian 12/13',
       en: 'One-command installer for Debian 12/13',
     },
   ],
 
-  // PROPUESTA (pendiente de aprobación de C&S Company; importes no publicados mientras
-  // confirmed=false). Lo que incluye cada plan también es propuesta comercial.
-  // Importes orientativos para un ISP de la región. GTQ redondeado a ~7,75 GTQ por USD.
+  // Importes aprobados por C&S Company. GTQ redondeado a ~7,75 GTQ por USD.
   // Anual = 10 × mensual.
   plans: [
     {
@@ -147,7 +148,7 @@ export const pricing: PricingConfig = {
       includes: [
         { es: 'Hasta ~10 000 clientes (IPs)', en: 'Up to ~10,000 subscribers (IPs)' },
         { es: 'Todo lo del plan Mediano', en: 'Everything in Medium' },
-        { es: 'Soporte prioritario', en: 'Priority support' },
+        { es: 'Atención prioritaria', en: 'Priority handling' },
         {
           es: 'Revisión del dimensionado del servidor',
           en: 'Server sizing review',

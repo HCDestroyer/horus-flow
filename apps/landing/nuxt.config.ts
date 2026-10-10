@@ -32,7 +32,7 @@ export default defineNuxtConfig({
     // en server/utils/config.ts.
     public: {
       // URL pública canónica (sin barra final). NUXT_PUBLIC_SITE_URL en tiempo de ejecución.
-      siteUrl: 'http://localhost:3000',
+      siteUrl: 'https://horusflow.kns.gt',
       // Correo de ventas que se muestra en la página.
       salesEmail: 'info@kns.gt',
       // Tiempo mínimo de llenado de un formulario (antispam), en segundos.

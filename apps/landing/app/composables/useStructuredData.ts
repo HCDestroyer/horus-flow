@@ -17,7 +17,26 @@ export function useStructuredData() {
     alternateName: site.seller.shortName,
     email: site.seller.email,
     url: base,
-    address: { '@type': 'PostalAddress', addressCountry: site.seller.country },
+    address: {
+      '@type': 'PostalAddress',
+      streetAddress: site.seller.address.street,
+      addressLocality: site.seller.address.locality,
+      addressRegion: site.seller.address.region,
+      addressCountry: site.seller.country,
+    },
+    contactPoint: {
+      '@type': 'ContactPoint',
+      contactType: 'customer support',
+      email: site.seller.email,
+      availableLanguage: ['es', 'en'],
+      // Soporte 24/7 en todos los planes.
+      hoursAvailable: {
+        '@type': 'OpeningHoursSpecification',
+        dayOfWeek: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
+        opens: '00:00',
+        closes: '23:59',
+      },
+    },
   }
 
   const offers = pricing.plans

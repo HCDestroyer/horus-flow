@@ -41,7 +41,7 @@ Todas son de tiempo de ejecución (no hace falta reconstruir). Ejemplo completo 
 
 | Variable                                                          | Por defecto                            | Para qué                                                                                 |
 | ----------------------------------------------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `NUXT_PUBLIC_SITE_URL`                                            | `http://localhost:3000`                | URL pública canónica, sin barra final: canonical, hreflang, Open Graph, JSON-LD, sitemap |
+| `NUXT_PUBLIC_SITE_URL`                                            | `https://horusflow.kns.gt`             | URL pública canónica, sin barra final: canonical, hreflang, Open Graph, JSON-LD, sitemap |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` | — / 587 / `false` (465 → `true`)       | SMTP para avisar a ventas y confirmar al cliente                                         |
 | `MAIL_FROM`                                                       | `Horus Flow <SALES_EMAIL>`             | remitente (debe pasar SPF/DKIM del dominio)                                              |
 | `SALES_EMAIL`                                                     | `info@kns.gt`                          | destino de las solicitudes                                                               |

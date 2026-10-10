@@ -20,7 +20,7 @@ const env = [
   `MAIL_OUTBOX_DIR=${OUTBOX}`,
   'FORM_MIN_FILL_SECONDS=1',
   'RATE_LIMIT_MAX=100',
-  `NUXT_PUBLIC_SITE_URL=https://horusflow.example`,
+  `NUXT_PUBLIC_SITE_URL=https://horusflow.kns.gt`,
 ].join(' ')
 const serve = `rm -rf ${OUTBOX} && ${env} node .output/server/index.mjs`
 

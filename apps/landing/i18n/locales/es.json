@@ -237,7 +237,7 @@
       },
       "support": {
         "q": "¿Qué incluye el soporte?",
-        "a": "Soporte técnico por correo mientras la licencia esté vigente. El alcance exacto, como horarios y tiempos de respuesta, se fija en el contrato."
+        "a": "Soporte técnico 24/7 en todos los planes mientras la licencia esté vigente, por correo a info@kns.gt y por los canales que se indican en el contrato."
       },
       "updates": {
         "q": "¿Las actualizaciones están incluidas?",
@@ -248,8 +248,8 @@
         "a": "Cambias al plan que corresponda. Ventas te indica las condiciones del cambio."
       },
       "currency": {
-        "q": "¿Puedo pagar en quetzales?",
-        "a": "Cotizamos en USD o en GTQ. Si estás en Guatemala, indica tu NIT para la factura."
+        "q": "¿Cómo puedo pagar?",
+        "a": "Con PayPal (en USD), con un link de pago Neo o por transferencia bancaria en USD o GTQ. Si estás en Guatemala, indica tu NIT para la factura."
       }
     }
   },
@@ -365,7 +365,7 @@
   },
   "contact": {
     "title": "Hablemos",
-    "body": "Ventas, licencias y soporte:",
+    "body": "Ventas, licencias y soporte 24/7:",
     "seller": "Horus Flow lo comercializa Connection And Solutions Company, Sociedad Anónima (C&S Company), Guatemala."
   },
   "footer": {
@@ -376,7 +376,8 @@
     "rights": "Todos los derechos reservados.",
     "proprietary": "Horus Flow es software propietario.",
     "simulated": "Las capturas usan datos simulados.",
-    "product": "Producto"
+    "product": "Producto",
+    "address": "Domicilio: {address}."
   },
   "legal": {
     "draft": "Borrador pendiente de revisión legal. Este texto no es definitivo.",

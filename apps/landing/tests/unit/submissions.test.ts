@@ -246,7 +246,7 @@ describe('POST /api/lead', () => {
 })
 
 describe('POST /api/purchase', () => {
-  it('genera la referencia, usa el proveedor manual y no publica importe sin confirmar', async () => {
+  it('genera la referencia, usa el proveedor manual y calcula el importe en el servidor', async () => {
     const c = makeDeps()
     const res = await submitPurchase(purchase(), IP, c.deps)
     expect(res.status).toBe(200)
@@ -254,11 +254,11 @@ describe('POST /api/purchase', () => {
     const ref = (res.body as { reference: string }).reference
     expect(ref).toMatch(/^HF-P-20261010-/)
     const [sales, customer] = c.sent
-    expect(sales!.text).toContain('A cotizar')
+    expect(sales!.text).toMatch(/Importe: Q\s?30,900/)
     expect(sales!.text).toContain('Mediano')
     expect(sales!.text).toContain('1234567-8')
     expect(customer!.subject).toBe(`Horus Flow: purchase request ${ref}`)
-    expect(customer!.text).toContain('To be quoted')
+    expect(customer!.text).toMatch(/GTQ\s?30,900/)
   })
 
   it('un proveedor desconocido cae en manual', async () => {

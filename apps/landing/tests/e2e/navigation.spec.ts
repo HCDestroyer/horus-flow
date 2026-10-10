@@ -67,15 +67,15 @@ test('SEO: canonical, Open Graph, JSON-LD, sitemap y robots', async ({ page, req
   await page.goto('/')
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
     'href',
-    'https://horusflow.example/',
+    'https://horusflow.kns.gt/',
   )
   await expect(page.locator('link[hreflang="en"]')).toHaveAttribute(
     'href',
-    'https://horusflow.example/en',
+    'https://horusflow.kns.gt/en',
   )
   await expect(page.locator('meta[property="og:image"]')).toHaveAttribute(
     'content',
-    'https://horusflow.example/img/og.png',
+    'https://horusflow.kns.gt/img/og.png',
   )
   await expect(page.locator('meta[name="twitter:card"]')).toHaveAttribute(
     'content',
@@ -91,7 +91,7 @@ test('SEO: canonical, Open Graph, JSON-LD, sitemap y robots', async ({ page, req
   expect(product.offers[0].price).toBeUndefined() // precios sin confirmar
 
   const sitemap = await (await request.get('/sitemap.xml')).text()
-  expect(sitemap).toContain('<loc>https://horusflow.example/en/buy</loc>')
+  expect(sitemap).toContain('<loc>https://horusflow.kns.gt/en/buy</loc>')
   const robots = await (await request.get('/robots.txt')).text()
-  expect(robots).toContain('Sitemap: https://horusflow.example/sitemap.xml')
+  expect(robots).toContain('Sitemap: https://horusflow.kns.gt/sitemap.xml')
 })

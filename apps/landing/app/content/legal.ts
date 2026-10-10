@@ -1,6 +1,6 @@
 // ⚠️ BORRADORES PENDIENTES DE REVISIÓN LEGAL. Redactados como punto de partida; un abogado
-// debe revisarlos (ley aplicable, plazos de conservación, datos del titular) antes de publicar
-// la landing en producción. Los textos marcados [POR DEFINIR] requieren un dato de C&S Company.
+// debe revisarlos (ley aplicable, plazos de conservación, datos registrales) antes de publicar
+// la landing en producción. Los textos marcados [POR CONFIRMAR] requieren un dato de C&S Company.
 // Solo en español mientras dure la revisión (la versión en inglés muestra este mismo texto).
 
 export interface LegalSection {
@@ -15,7 +15,7 @@ export interface LegalDoc {
 }
 
 const titular =
-  'Connection And Solutions Company, Sociedad Anónima ("C&S Company"), con domicilio en Guatemala [POR DEFINIR: dirección y datos registrales], correo info@kns.gt.'
+  'Connection And Solutions Company, Sociedad Anónima ("C&S Company"), con domicilio en 2da avenida, San Martín Jilotepeque, Chimaltenango, Guatemala; inscrita en el Registro Mercantil [POR CONFIRMAR: número de registro], NIT [POR CONFIRMAR]; correo info@kns.gt.'
 
 export const legalDocs: Record<'notice' | 'privacy' | 'terms', LegalDoc> = {
   notice: {
@@ -65,8 +65,9 @@ export const legalDocs: Record<'notice' | 'privacy' | 'terms', LegalDoc> = {
       {
         title: '2. Qué datos recogemos',
         paragraphs: [
-          'Solo los que nos das en los formularios: nombre, empresa o ISP, país, número aproximado de clientes y de routers, correo, teléfono o WhatsApp (opcional) y tu mensaje; en una solicitud de compra, además, razón social, NIT (opcional), dirección de facturación (opcional) y comentarios.',
-          'Para proteger los formularios frente al abuso, el servidor usa tu dirección IP en memoria durante unos minutos (límite de envíos). No la guarda en una base de datos y los registros técnicos solo conservan una versión parcial.',
+          'Solo los que nos das en los formularios: nombre, empresa o ISP, país, número aproximado de clientes y de routers, correo, teléfono o WhatsApp (opcional) y tu mensaje; en una solicitud de compra, además, razón social, NIT (opcional), dirección de facturación (opcional) y comentarios, y el estado del pago (método elegido, referencia e identificadores de la operación de PayPal si pagas con PayPal).',
+          'Las solicitudes se guardan en la base de datos del servidor del sitio, a la que solo accede personal autorizado de C&S Company con usuario, contraseña y segundo factor. No recibimos ni guardamos datos de tarjeta: si pagas con PayPal o con un link de pago Neo, los introduces en la página de ese proveedor.',
+          'Para proteger los formularios frente al abuso, el servidor usa tu dirección IP en memoria durante unos minutos (límite de envíos). No la guarda junto a tu solicitud y los registros técnicos solo conservan una versión parcial.',
         ],
       },
       {
@@ -85,12 +86,13 @@ export const legalDocs: Record<'notice' | 'privacy' | 'terms', LegalDoc> = {
         title: '5. Con quién los compartimos',
         paragraphs: [
           'Con el proveedor de correo electrónico que usamos para recibir y responder las solicitudes y, si C&S Company lo configura, con su herramienta de gestión de clientes (CRM). Ambos actúan por cuenta de C&S Company.',
+          'Si eliges pagar con PayPal, PayPal recibe el importe, la referencia de la solicitud y los datos que tú le des en su página. Si pagas con un link de pago Neo o por transferencia, la entidad que procesa el pago recibe los datos de la operación. Cada uno trata esos datos según su propia política de privacidad.',
         ],
       },
       {
         title: '6. Cuánto tiempo los guardamos',
         paragraphs: [
-          'Mientras dure la relación comercial y, después, durante los plazos que exija la ley [POR DEFINIR]. Si no llegamos a una relación comercial, los borramos a los [POR DEFINIR] meses.',
+          'Mientras dure la relación comercial y, después, durante los plazos que exija la ley [POR CONFIRMAR]. Si no llegamos a una relación comercial, los borramos a los [POR CONFIRMAR] meses.',
         ],
       },
       {
@@ -103,6 +105,7 @@ export const legalDocs: Record<'notice' | 'privacy' | 'terms', LegalDoc> = {
         title: '8. Cookies y almacenamiento local',
         paragraphs: [
           'El sitio no usa cookies de seguimiento ni herramientas de analítica de terceros. Puede guardar en tu navegador la preferencia de apariencia (clara u oscura) que sigue a la de tu sistema.',
+          'En la página de compra, si eliges PayPal, se carga el botón de PayPal, que puede usar sus propias cookies técnicas para completar el pago. El panel de administración, reservado al personal de C&S Company, usa una cookie de sesión estrictamente necesaria.',
         ],
       },
     ],
@@ -121,7 +124,7 @@ export const legalDocs: Record<'notice' | 'privacy' | 'terms', LegalDoc> = {
       {
         title: '2. Las solicitudes no son un contrato',
         paragraphs: [
-          'Enviar una solicitud de compra genera un número de referencia y no supone ningún cobro ni compromiso para ninguna de las partes. La licencia solo existe cuando ambas partes firman un contrato de licencia escrito, que prevalece sobre estos términos.',
+          'Enviar una solicitud de compra genera un número de referencia y no supone ningún cobro por sí misma. El pago se hace después, con el método que elijas. La licencia se formaliza con un contrato de licencia escrito, que prevalece sobre estos términos.',
         ],
       },
       {
@@ -133,13 +136,15 @@ export const legalDocs: Record<'notice' | 'privacy' | 'terms', LegalDoc> = {
       {
         title: '4. Precios y pago',
         paragraphs: [
-          'Los precios se comunican en la cotización, en USD o en GTQ. Mientras el sitio indique "Precio de lanzamiento: solicita cotización", las cifras no son públicas. El pago se hace por transferencia bancaria una vez aceptada la cotización, indicando la referencia de la solicitud [POR CONFIRMAR: impuestos, facturación y otros medios de pago].',
+          'Los precios publicados en el sitio están en USD y en GTQ, por periodo mensual o anual, y son los vigentes en el momento de la solicitud. El importe que se cobra es siempre el que calcula el servidor a partir de los precios publicados, nunca el que envíe el navegador.',
+          'Medios de pago: PayPal (en USD, el importe en dólares del plan elegido), link de pago Neo y transferencia bancaria a las cuentas que se indican en la página de compra y en el correo de instrucciones. En los pagos por link Neo o por transferencia hay que indicar la referencia de la solicitud; C&S Company confirma el pago al recibirlo.',
+          'Impuestos y facturación [POR CONFIRMAR: si los precios incluyen IVA y cómo se emite la factura electrónica (FEL)]. Política de devoluciones [POR CONFIRMAR].',
         ],
       },
       {
         title: '5. Soporte y actualizaciones',
         paragraphs: [
-          'La licencia vigente incluye soporte técnico por correo y las actualizaciones del producto. El alcance del soporte (horarios, tiempos de respuesta) se fija en el contrato.',
+          'La licencia vigente incluye soporte técnico 24/7 en todos los planes y las actualizaciones del producto. Los canales de soporte y, en su caso, los tiempos de respuesta son los que se indican en el sitio y en el contrato de licencia.',
         ],
       },
       {
