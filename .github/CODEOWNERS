@@ -110,6 +110,10 @@
 # Agente: UI
 /apps/                              @hcdestroyer
 
+# Agente: UI
+# Landing comercial (precios en apps/landing/app/config/pricing.ts y textos legales).
+/apps/landing/                      @hcdestroyer
+
 # ---------------------------------------------------------------------------------------------
 # Contratos y librerías compartidas
 # ---------------------------------------------------------------------------------------------

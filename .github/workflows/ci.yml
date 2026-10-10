@@ -47,6 +47,7 @@ jobs:
       go: ${{ steps.affected.outputs.go }}
       go_units: ${{ steps.affected.outputs.go_units }}
       frontend: ${{ steps.affected.outputs.frontend }}
+      landing: ${{ steps.affected.outputs.landing }}
       compose: ${{ steps.affected.outputs.compose }}
       docker: ${{ steps.affected.outputs.docker }}
       contracts: ${{ steps.affected.outputs.contracts }}
@@ -331,6 +332,51 @@ jobs:
       - run: pnpm run --if-present build
 
   # -------------------------------------------------------------------------------------------
+  # Landing comercial (apps/landing): solo si cambia esa carpeta (o una regla fija de affected.py).
+  landing:
+    name: landing
+    needs: changes
+    if: needs.changes.outputs.landing == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/landing
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          package_json_file: apps/landing/package.json
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: apps/landing/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - name: Navegador de Playwright
+        run: pnpm exec playwright install --with-deps chromium
+      - name: e2e y axe (SMTP simulado)
+        env:
+          E2E_NO_BUILD: "1"
+        run: pnpm e2e
+      - name: Informe de Playwright si falla
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: landing-playwright
+          path: |
+            apps/landing/playwright-report
+            apps/landing/test-results
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # -------------------------------------------------------------------------------------------
   compose-smoke:
     name: compose-smoke
     needs: changes
@@ -380,7 +426,7 @@ jobs:
   # -------------------------------------------------------------------------------------------
   dod:
     name: dod
-    needs: [changes, lint, unit, integration, contracts, security, build, frontend, compose-smoke, licenses]
+    needs: [changes, lint, unit, integration, contracts, security, build, frontend, landing, compose-smoke, licenses]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -401,7 +447,7 @@ jobs:
   # -------------------------------------------------------------------------------------------
   ci-ok:
     name: ci-ok
-    needs: [changes, lint, unit, integration, contracts, security, build, frontend, compose-smoke, licenses, dod]
+    needs: [changes, lint, unit, integration, contracts, security, build, frontend, landing, compose-smoke, licenses, dod]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 2

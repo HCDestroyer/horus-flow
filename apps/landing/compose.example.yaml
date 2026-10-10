@@ -1,0 +1,41 @@
+# Ejemplo de despliegue de la landing detrás de Nginx Proxy Manager (README.md › Despliegue).
+#
+#   cp .env.example .env   # y rellena SMTP, NUXT_PUBLIC_SITE_URL, TRUSTED_PROXIES…
+#   docker compose -f compose.example.yaml up -d --build
+#
+# La landing escucha solo en la red interna `proxy` (sin puerto publicado): Nginx Proxy Manager,
+# en la misma red, reenvía el dominio a http://horus-landing:3000.
+name: horus-landing
+
+services:
+  landing:
+    build:
+      context: .
+    image: horus-landing:latest
+    container_name: horus-landing
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      # Red de Docker de NPM: sus peticiones llegan desde esta subred.
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.16.0.0/12}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 256m
+    networks: [proxy]
+    healthcheck:
+      test:
+        - CMD
+        - /nodejs/bin/node
+        - -e
+        - "fetch('http://127.0.0.1:3000/robots.txt').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+networks:
+  proxy:
+    # Red creada por (o compartida con) Nginx Proxy Manager.
+    name: ${PROXY_NETWORK:-npm_default}
+    external: true

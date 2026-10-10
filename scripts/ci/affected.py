@@ -17,6 +17,7 @@ Salida (líneas clave=valor; en CI se añaden a $GITHUB_OUTPUT):
   go=true|false             hay unidades Go que probar
   go_units=[...]            JSON con las unidades Go afectadas (para strategy.matrix)
   frontend=true|false       apps/frontend/ cambió y existe package.json
+  landing=true|false        apps/landing/ cambió y existe package.json
   compose=true|false        compose, infraestructura o scripts del compose cambiaron
   docker=true|false         hay que construir la imagen (Go, Dockerfile o .dockerignore)
   contracts=true|false      packages/schemas|events|protobuf o infrastructure/clickhouse cambió
@@ -163,11 +164,13 @@ def main() -> int:
                 units.add(u)
 
     frontend_exists = (ROOT / "apps/frontend/package.json").exists()
+    landing_exists = (ROOT / "apps/landing/package.json").exists()
     result = {
         "all": everything,
         "go": bool(units),
         "go_units": sorted(units),
         "frontend": frontend_exists and (everything or any(f.startswith("apps/frontend/") for f in files)),
+        "landing": landing_exists and (everything or any(f.startswith("apps/landing/") for f in files)),
         "compose": everything or any(starts(f, COMPOSE_PREFIXES) for f in files),
         "docker": everything or any(starts(f, DOCKER_PREFIXES) for f in files),
         "contracts": everything or any(starts(f, CONTRACT_PREFIXES) for f in files),
