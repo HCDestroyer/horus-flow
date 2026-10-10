@@ -66,10 +66,6 @@ async function onSubmit() {
   state.locale = locale.value === 'en' ? 'en' : 'es'
   const res = await submit({ ...state })
   if (!res) return
-  if (res.payment?.kind === 'redirect' && res.payment.url) {
-    await navigateTo(res.payment.url, { external: true })
-    return
-  }
   await nextTick()
   done.value?.focus()
   window.scrollTo({ top: 0 })

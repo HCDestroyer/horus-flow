@@ -72,6 +72,7 @@ function makeDeps(env: Record<string, string> = {}, mailer?: Mailer) {
     log: (level, event, fields) => logs.push({ level, event, fields }),
     fetch,
     now: () => NOW,
+    store: null,
   }
   return { deps, sent: fm.sent, logs, fetch }
 }
@@ -246,25 +247,20 @@ describe('POST /api/lead', () => {
 })
 
 describe('POST /api/purchase', () => {
-  it('genera la referencia, usa el proveedor manual y calcula el importe en el servidor', async () => {
+  it('sin base de datos: genera la referencia y avisa, sin importe ni métodos de pago', async () => {
     const c = makeDeps()
     const res = await submitPurchase(purchase(), IP, c.deps)
     expect(res.status).toBe(200)
-    expect(res.body).toMatchObject({ ok: true, payment: { provider: 'manual', kind: 'manual' } })
+    expect(res.body).toMatchObject({
+      ok: true,
+      amount: null,
+      methods: { paypal: false, neo: false, transfer: false },
+    })
     const ref = (res.body as { reference: string }).reference
     expect(ref).toMatch(/^HF-P-20261010-/)
     const [sales, customer] = c.sent
-    expect(sales!.text).toMatch(/Importe: Q\s?30,900/)
-    expect(sales!.text).toContain('Mediano')
     expect(sales!.text).toContain('1234567-8')
     expect(customer!.subject).toBe(`Horus Flow: purchase request ${ref}`)
-    expect(customer!.text).toMatch(/GTQ\s?30,900/)
-  })
-
-  it('un proveedor desconocido cae en manual', async () => {
-    const c = makeDeps({ PAYMENT_PROVIDER: 'inexistente' })
-    const res = await submitPurchase(purchase(), IP, c.deps)
-    expect(res.body).toMatchObject({ payment: { provider: 'manual' } })
   })
 
   it('valida plan, NIT y consentimiento', async () => {

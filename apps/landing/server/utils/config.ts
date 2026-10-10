@@ -26,7 +26,10 @@ export interface ServerConfig {
   trustedProxies: string[]
   rateLimit: { max: number; windowMs: number }
   minFillMs: number
-  paymentProvider: string
+  /** Solo pruebas: base de un PayPal simulado (PAYPAL_API_BASE). Vacío = API real según el modo. */
+  paypalApiBase: string
+  /** Cookie de sesión del panel sin Secure ni prefijo __Host- (solo desarrollo por HTTP). */
+  adminCookieInsecure: boolean
 }
 
 function int(value: string | undefined, fallback: number, min = 0): number {
@@ -81,6 +84,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       windowMs: int(env.RATE_LIMIT_WINDOW_SECONDS, 600, 1) * 1000,
     },
     minFillMs: int(env.FORM_MIN_FILL_SECONDS, 3) * 1000,
-    paymentProvider: env.PAYMENT_PROVIDER?.trim() || 'manual',
+    // Nunca en producción: un PayPal simulado no puede confirmar pagos reales.
+    paypalApiBase: env.NODE_ENV === 'production' ? '' : (env.PAYPAL_API_BASE?.trim() ?? ''),
+    adminCookieInsecure: env.NODE_ENV !== 'production' && bool(env.ADMIN_COOKIE_INSECURE, false),
   }
 }

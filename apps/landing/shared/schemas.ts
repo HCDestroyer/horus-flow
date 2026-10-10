@@ -107,8 +107,17 @@ export type Purchase = z.output<typeof purchaseSchema>
 export interface SubmitOk {
   ok: true
   reference: string
-  /** Solo compras: lo que devuelve el proveedor de pago. */
-  payment?: { provider: string; kind: 'manual' | 'redirect'; url?: string }
+}
+
+/** Respuesta de POST /api/purchase: referencia, importe calculado en el servidor y métodos. */
+export interface PurchaseOk extends SubmitOk {
+  /** Token para pagar esta solicitud (solo lo tiene el navegador que la creó). */
+  accessToken: string
+  amount: number | null
+  currency: 'USD' | 'GTQ'
+  /** Importe en USD del mismo plan y periodo (PayPal cobra en USD). */
+  amountUsd: number | null
+  methods: { paypal: boolean; neo: boolean; transfer: boolean }
 }
 
 export interface SubmitError {

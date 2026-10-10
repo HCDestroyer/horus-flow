@@ -184,7 +184,7 @@ export function publishCatalog(
   const parsed = catalogSchema.parse(input) as Catalog
   const now = opts.now ?? Date.now()
   return db.transaction(() => {
-    let before: Catalog | null = null
+    let before: Catalog | null
     try {
       before = readCatalog(db)
     } catch {

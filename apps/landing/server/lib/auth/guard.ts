@@ -68,7 +68,7 @@ export function checkAdminRequest(req: AdminRequest, session: SessionInfo | null
       return { ok: false, status: 403, code: 'CROSS_SITE' }
     }
     if (req.origin) {
-      let host = ''
+      let host: string
       try {
         host = new URL(req.origin).host
       } catch {

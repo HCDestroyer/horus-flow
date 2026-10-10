@@ -1,8 +1,12 @@
-// Plantillas de correo: aviso a ventas (en español) y confirmación al cliente (en su idioma).
+// Plantillas de correo: aviso a ventas (en español) y confirmación al cliente (en su idioma),
+// instrucciones de pago (link Neo o transferencia) y aviso de pago confirmado.
 // Texto plano + HTML mínimo con todo escapado.
-import { pricing } from '../../app/config/pricing'
+import type { Catalog, Localized } from '../../shared/catalog'
 import type { Lead, Purchase } from '../../shared/schemas'
 import type { MailMessage } from './mailer'
+
+const SELLER_LINE =
+  'Connection And Solutions Company, Sociedad Anónima (C&S Company) · San Martín Jilotepeque, Chimaltenango, Guatemala'
 
 const CLIENTS: Record<Lead['clients'], { es: string; en: string }> = {
   lt300: { es: 'Hasta 300', en: 'Up to 300' },
@@ -69,8 +73,19 @@ function render(
   return { text, html }
 }
 
-function planName(id: Purchase['plan'], locale: 'es' | 'en'): string {
-  return pricing.plans.find((p) => p.id === id)?.name[locale] ?? id
+/** Nombre del plan en el catálogo vigente (o el id si no existe). */
+export function planName(catalog: Catalog | null, id: string, locale: 'es' | 'en'): string {
+  return catalog?.plans.find((p) => p.id === id)?.name[locale] ?? id
+}
+
+export function amountText(amount: number | null, currency: string, locale: 'es' | 'en'): string {
+  if (amount === null) return locale === 'es' ? 'A cotizar' : 'To be quoted'
+  return new Intl.NumberFormat(locale === 'es' ? 'es-GT' : 'en-US', {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(amount)
 }
 
 export function leadSalesEmail(lead: Lead, reference: string, to: string): MailMessage {
@@ -118,7 +133,7 @@ export function leadCustomerEmail(lead: Lead, reference: string, salesEmail: str
       es
         ? `Gracias, ${lead.name}. Te escribiremos pronto para agendar la demo. Si necesitas algo antes, responde a este correo o escribe a ${salesEmail}.`
         : `Thank you, ${lead.name}. We will be in touch soon to schedule the demo. If you need anything sooner, reply to this email or write to ${salesEmail}.`,
-      'Connection And Solutions Company, Sociedad Anónima (C&S Company) · Guatemala',
+      SELLER_LINE,
     ],
   )
   return {
@@ -133,32 +148,21 @@ export function leadCustomerEmail(lead: Lead, reference: string, salesEmail: str
   }
 }
 
-function amountText(amount: number | null, currency: string, locale: 'es' | 'en'): string {
-  if (amount === null) return locale === 'es' ? 'A cotizar' : 'To be quoted'
-  return new Intl.NumberFormat(locale === 'es' ? 'es-GT' : 'en-US', {
-    style: 'currency',
-    currency,
-    maximumFractionDigits: 0,
-  }).format(amount)
-}
-
 export function purchaseSalesEmail(
   p: Purchase,
   reference: string,
   amount: number | null,
-  provider: string,
+  plan: string,
   to: string,
 ): MailMessage {
   const { text, html } = render(
     `Solicitud de compra ${reference}`,
     [
       ['Referencia', reference],
-      ['Plan', planName(p.plan, 'es')],
+      ['Plan', plan],
       ['Periodo', PERIOD[p.period].es],
       ['Moneda', p.currency],
       ['Importe', amountText(amount, p.currency, 'es')],
-      ['Precios confirmados', pricing.confirmed ? 'Sí' : 'No (enviar cotización)'],
-      ['Proveedor de pago', provider],
       ['Razón social', p.legalName],
       ['NIT', p.nit],
       ['País', countryName(p.country, 'es')],
@@ -170,13 +174,15 @@ export function purchaseSalesEmail(
       ['Idioma de la página', p.locale],
       ['Acepta términos y privacidad', 'Sí'],
     ],
-    ['Solicitud enviada desde la landing de Horus Flow. No se ha cobrado nada.'],
+    [
+      'Solicitud enviada desde la landing de Horus Flow. El cliente elige ahora el método de pago; el estado se sigue en el panel (/admin › Solicitudes).',
+    ],
   )
   return {
     tag: 'sales',
     to,
     replyTo: p.email,
-    subject: `[Horus Flow] Compra · ${planName(p.plan, 'es')} · ${oneLine(p.legalName)} · ${reference}`,
+    subject: `[Horus Flow] Compra · ${oneLine(plan)} · ${oneLine(p.legalName)} · ${reference}`,
     text,
     html,
   }
@@ -186,24 +192,33 @@ export function purchaseCustomerEmail(
   p: Purchase,
   reference: string,
   amount: number | null,
+  plan: string,
   salesEmail: string,
 ): MailMessage {
   const es = p.locale === 'es'
+  let body: string
+  if (amount === null) {
+    body = es
+      ? `Gracias, ${p.contactName}. Ventas revisará tu solicitud y te enviará la cotización. No se ha cobrado nada.`
+      : `Thank you, ${p.contactName}. Sales will review your request and send you a quote. Nothing has been charged.`
+  } else {
+    body = es
+      ? `Gracias, ${p.contactName}. Puedes pagar con PayPal, con link de pago Neo o por transferencia desde la página de compra. Si pagas por link Neo o transferencia, indica la referencia ${reference}. No se ha cobrado nada hasta que confirmemos el pago.`
+      : `Thank you, ${p.contactName}. You can pay with PayPal, a Neo payment link or a bank transfer from the purchase page. If you pay by Neo link or transfer, include the reference ${reference}. Nothing has been charged until we confirm the payment.`
+  }
   const { text, html } = render(
     es ? `Solicitud de compra ${reference}` : `Purchase request ${reference}`,
     [
       [es ? 'Referencia' : 'Reference', reference],
-      ['Plan', planName(p.plan, p.locale)],
+      ['Plan', plan],
       [es ? 'Periodo' : 'Billing period', PERIOD[p.period][p.locale]],
       [es ? 'Importe' : 'Amount', amountText(amount, p.currency, p.locale)],
       [es ? 'Razón social' : 'Legal name', p.legalName],
     ],
     [
-      es
-        ? `Gracias, ${p.contactName}. Ventas revisará tu solicitud y te enviará la cotización y los datos para la transferencia. Usa la referencia ${reference} en el concepto del pago. No se ha cobrado nada.`
-        : `Thank you, ${p.contactName}. Sales will review your request and send you the quote and bank transfer details. Use the reference ${reference} as the payment description. Nothing has been charged.`,
+      body,
       es ? `¿Dudas? Escribe a ${salesEmail}.` : `Questions? Write to ${salesEmail}.`,
-      'Connection And Solutions Company, Sociedad Anónima (C&S Company) · Guatemala',
+      SELLER_LINE,
     ],
   )
   return {
@@ -213,6 +228,161 @@ export function purchaseCustomerEmail(
     subject: es
       ? `Horus Flow: solicitud de compra ${reference}`
       : `Horus Flow: purchase request ${reference}`,
+    text,
+    html,
+  }
+}
+
+// ---- Pagos ---------------------------------------------------------------------------------
+
+export interface PurchaseSummary {
+  reference: string
+  locale: 'es' | 'en'
+  contactName: string
+  email: string
+  company: string
+  plan: string
+  period: 'monthly' | 'annual'
+  currency: string
+  amount: number | null
+}
+
+export interface BankAccount {
+  bank: string
+  type: Localized
+  number: string
+  holder: string
+  currency: string
+}
+
+export type InstructionsMethod =
+  | { kind: 'transfer'; accounts: BankAccount[]; instructions: Localized }
+  | { kind: 'neo'; url: string }
+
+/** Instrucciones de pago al cliente: transferencia (cuentas) o link Neo. */
+export function paymentInstructionsEmail(
+  p: PurchaseSummary,
+  method: InstructionsMethod,
+  salesEmail: string,
+): MailMessage {
+  const es = p.locale === 'es'
+  const rows: [string, string][] = [
+    [es ? 'Referencia' : 'Reference', p.reference],
+    ['Plan', `${p.plan} · ${PERIOD[p.period][p.locale]}`],
+    [es ? 'Importe' : 'Amount', amountText(p.amount, p.currency, p.locale)],
+  ]
+  const footer: string[] = []
+  if (method.kind === 'transfer') {
+    method.accounts.forEach((a, i) => {
+      const n = method.accounts.length > 1 ? ` ${i + 1}` : ''
+      rows.push([
+        (es ? 'Cuenta' : 'Account') + n,
+        [
+          a.bank,
+          `${a.type[p.locale] || a.type.es} · ${a.currency}`,
+          `${es ? 'Número' : 'Number'}: ${a.number}`,
+          `${es ? 'Titular' : 'Holder'}: ${a.holder}`,
+        ].join('\n'),
+      ])
+    })
+    const extra = method.instructions[p.locale] || method.instructions.es
+    if (extra) footer.push(extra)
+    footer.push(
+      es
+        ? `Indica la referencia ${p.reference} en el concepto de la transferencia y envíanos el comprobante a ${salesEmail}. Confirmaremos el pago al recibirlo.`
+        : `Include the reference ${p.reference} as the transfer description and send the receipt to ${salesEmail}. We will confirm the payment once received.`,
+    )
+  } else {
+    rows.push([es ? 'Link de pago Neo' : 'Neo payment link', method.url])
+    footer.push(
+      es
+        ? `Abre el link de pago Neo e indica la referencia ${p.reference}. Confirmaremos el pago al recibirlo.`
+        : `Open the Neo payment link and include the reference ${p.reference}. We will confirm the payment once received.`,
+    )
+  }
+  footer.push(SELLER_LINE)
+  const { text, html } = render(
+    es ? `Instrucciones de pago (${p.reference})` : `Payment instructions (${p.reference})`,
+    rows,
+    footer,
+  )
+  return {
+    tag: 'customer',
+    to: p.email,
+    replyTo: salesEmail,
+    subject: es
+      ? `Horus Flow: instrucciones de pago ${p.reference}`
+      : `Horus Flow: payment instructions ${p.reference}`,
+    text,
+    html,
+  }
+}
+
+export interface PaidInfo {
+  amount: number
+  currency: string
+  method: string
+  transactionId: string
+}
+
+/** Pago confirmado: al cliente (en su idioma). */
+export function paymentConfirmedCustomerEmail(
+  p: PurchaseSummary,
+  paid: PaidInfo,
+  salesEmail: string,
+): MailMessage {
+  const es = p.locale === 'es'
+  const { text, html } = render(
+    es ? `Pago recibido (${p.reference})` : `Payment received (${p.reference})`,
+    [
+      [es ? 'Referencia' : 'Reference', p.reference],
+      ['Plan', `${p.plan} · ${PERIOD[p.period][p.locale]}`],
+      [es ? 'Importe pagado' : 'Amount paid', amountText(paid.amount, paid.currency, p.locale)],
+      [es ? 'Método' : 'Method', paid.method],
+    ],
+    [
+      es
+        ? `Gracias, ${p.contactName}. Hemos recibido tu pago. Te escribiremos para formalizar la licencia y ayudarte con la instalación. Soporte 24/7: ${salesEmail}.`
+        : `Thank you, ${p.contactName}. We have received your payment. We will contact you to finalize the license and help with the installation. 24/7 support: ${salesEmail}.`,
+      SELLER_LINE,
+    ],
+  )
+  return {
+    tag: 'customer',
+    to: p.email,
+    replyTo: salesEmail,
+    subject: es
+      ? `Horus Flow: pago recibido ${p.reference}`
+      : `Horus Flow: payment received ${p.reference}`,
+    text,
+    html,
+  }
+}
+
+/** Pago confirmado: aviso a ventas. */
+export function paymentConfirmedSalesEmail(
+  p: PurchaseSummary,
+  paid: PaidInfo,
+  to: string,
+): MailMessage {
+  const { text, html } = render(
+    `Pago confirmado ${p.reference}`,
+    [
+      ['Referencia', p.reference],
+      ['Empresa', p.company],
+      ['Plan', `${p.plan} · ${PERIOD[p.period].es}`],
+      ['Importe pagado', amountText(paid.amount, paid.currency, 'es')],
+      ['Método', paid.method],
+      ['Transacción', paid.transactionId],
+      ['Cliente', `${p.contactName} <${p.email}>`],
+    ],
+    ['La solicitud ya figura como "Pagada" en el panel (/admin › Solicitudes).'],
+  )
+  return {
+    tag: 'sales',
+    to,
+    replyTo: p.email,
+    subject: `[Horus Flow] Pago confirmado · ${oneLine(p.company)} · ${p.reference}`,
     text,
     html,
   }

@@ -1,6 +1,10 @@
 // Dependencias de los formularios para el proceso del servidor (una instancia por proceso) y
 // utilidades h3 comunes a las rutas.
 import type { H3Event } from 'h3'
+import type { CheckoutDeps } from '../lib/checkout'
+import { useApp } from '../lib/context'
+import { neoLink, readPayments } from '../lib/payment-config'
+import type { PaypalFetch } from '../lib/paypal'
 import { buildTrustList, resolveClientIp } from './client-ip'
 import { loadConfig } from './config'
 import { log } from './log'
@@ -22,15 +26,41 @@ export function useSubmissionDeps() {
       fetch: globalThis.fetch as unknown as FetchLike,
       now: () => Date.now(),
       trust: buildTrustList(config.trustedProxies),
+      store: {
+        db: useApp().db,
+        catalog: () => useApp().cache.get().catalog,
+        payments: () => useApp().cache.get().payments,
+        neoLink: (plan, period) => {
+          const app = useApp()
+          return neoLink(readPayments(app.db, app.key.box), plan as never, period)
+        },
+      },
     }
     log('info', 'landing.config', {
       mail: config.mail.mode,
       webhook: Boolean(config.webhook),
       trustedProxies: config.trustedProxies.length,
-      payment: config.paymentProvider,
+      paypalApi: config.paypalApiBase ? 'simulado' : 'real',
     })
   }
   return deps
+}
+
+/** Dependencias del pago (PayPal, Neo, transferencia) para las rutas de /api/checkout. */
+export function useCheckoutDeps(): CheckoutDeps {
+  const d = useSubmissionDeps()
+  const app = useApp()
+  return {
+    db: app.db,
+    box: app.key.box,
+    config: d.config,
+    mailer: d.mailer,
+    log: d.log,
+    now: () => Date.now(),
+    catalog: () => app.cache.get().catalog,
+    paypalFetch: globalThis.fetch as unknown as PaypalFetch,
+    onChange: () => app.cache.invalidate(),
+  }
 }
 
 const MAX_BODY_BYTES = 32 * 1024

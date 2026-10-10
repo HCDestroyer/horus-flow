@@ -1,6 +1,7 @@
 // Solicitudes de demo, contacto y compra guardadas en la base de datos, con su estado e
 // historial. Estados: new (nueva), pending_payment (pendiente de pago), contacted (contactado),
 // paid (pagada), cancelled (cancelada).
+import { z } from 'zod'
 import type { Currency, Period, PlanId } from '../../shared/catalog'
 import { randomToken, safeEqual, sha256 } from './auth/crypto'
 import { nowIso, type DB } from './db'
@@ -272,6 +273,16 @@ export interface RequestFilter {
   limit?: number
   offset?: number
 }
+
+export const requestQuerySchema = z.object({
+  kind: z.enum(['demo', 'purchase', 'all']).optional().default('all'),
+  status: z
+    .enum([...REQUEST_STATUSES, 'all'])
+    .optional()
+    .default('all'),
+  q: z.string().trim().max(100).optional().default(''),
+  page: z.coerce.number().int().min(1).max(10_000).optional().default(1),
+})
 
 function where(f: RequestFilter): { sql: string; params: unknown[] } {
   const parts: string[] = []
