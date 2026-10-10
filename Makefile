@@ -268,6 +268,15 @@ chaos-i1: ## Pruebas de fallo de I1: reinicio de ClickHouse, NATS y horus-app; c
 accept-i0: ## Ejecuta la batería de aceptación del incremento 0 (resumen OK/FAIL/SKIP por paso)
 	@GO='$(GO)' GOLANGCI_LINT='$(GOLANGCI_LINT)' bash scripts/accept/accept-i0.sh
 
+# Batería de aceptación del incremento 1 (I1-24, tests/acceptance/README.md): instala Horus con
+# scripts/install.sh en un raíz temporal (TARGET=local, por defecto) o usa la instalación del
+# servidor (TARGET=installed) y recorre la demostración de I1 con routers simulados por WireGuard.
+# Necesita root. Variables: TARGET, ACCEPT_STEPS / ACCEPT_SKIP, ACCEPT_E2E_STAGES, ACCEPT_KEEP=1,
+# ACCEPT_IMAGE_MODE, ACCEPT_PORT_OFFSET (21000), ACCEPT_ADMIN_PASSWORD_FILE (TARGET=installed).
+.PHONY: accept-i1
+accept-i1: ## Aceptación de I1: instalación real, routers simulados, seis escenarios y captura MikroTik (TARGET=local|installed)
+	@GO='$(GO)' GOLANGCI_LINT='$(GOLANGCI_LINT)' TARGET='$(TARGET)' bash scripts/accept/accept-i1.sh
+
 .PHONY: accept-image
 accept-image: ## Construye la imagen horus:accept (Dockerfile raíz o, si falla, desde el binario local)
 	@GO='$(GO)' bash scripts/accept/image.sh

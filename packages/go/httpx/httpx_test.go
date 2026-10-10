@@ -218,6 +218,44 @@ func TestMuxRoutesWithRoleAndMetrics(t *testing.T) {
 	}
 }
 
+// El middleware de métricas no debe ocultar http.Hijacker: coder/websocket
+// lo exige por aserción de tipo y el WebSocket del gateway daba 501.
+func TestMuxMetricsKeepsHijacker(t *testing.T) {
+	t.Parallel()
+	m, err := httpx.NewMetrics(prometheus.NewRegistry())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := httpx.NewMux(m, nil)
+	mux.ForService("gateway").HandleFunc("GET /ws", func(w http.ResponseWriter, _ *http.Request) {
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			w.WriteHeader(http.StatusNotImplemented)
+			return
+		}
+		c, rw, err := hj.Hijack()
+		if err != nil {
+			return
+		}
+		_, _ = rw.WriteString("HTTP/1.1 101 Switching Protocols\r\nConnection: close\r\n\r\n")
+		_ = rw.Flush()
+		_ = c.Close()
+	})
+	srv := httptest.NewServer(mux.Handler())
+	defer srv.Close()
+	res, err := http.Get(srv.URL + "/ws") //nolint:noctx // test
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusSwitchingProtocols {
+		t.Fatalf("status = %d, se esperaba 101 (Hijacker disponible tras el middleware)", res.StatusCode)
+	}
+	if got := testutil.ToFloat64(m.Requests().WithLabelValues("gateway", "GET", "GET /ws", "101")); got != 1 {
+		t.Fatalf("requests 101 = %v", got)
+	}
+}
+
 func TestMuxWithoutMetrics(t *testing.T) {
 	t.Parallel()
 	mux := httpx.NewMux(nil, nil)

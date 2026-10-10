@@ -85,10 +85,16 @@ func checkCommon(t *testing.T, s string) {
 	if strings.Contains(s, "check-certificate=no") || strings.Contains(s, "private-key=") {
 		t.Fatal("el script desactiva la verificación TLS o lleva una clave privada")
 	}
-	// Todo lo que crea lleva comment="horus".
+	// Todo lo que crea lleva comment="horus", salvo el destino de Traffic Flow:
+	// `/ip traffic-flow target add` no admite comment en el router real del PO
+	// (I1-27); el script inverso lo encuentra por destino, puerto y origen.
+	if strings.Contains(s, "/ip traffic-flow target add") && strings.Contains(s[strings.Index(s, "/ip traffic-flow target add"):strings.Index(s, "/ip traffic-flow ipfix set")], "comment=") {
+		t.Error("/ip traffic-flow target add no debe llevar comment (falla en RouterOS real)")
+	}
 	for _, l := range strings.Split(s, "\n") {
 		l = strings.TrimSpace(l)
-		if strings.HasPrefix(l, "/") && strings.Contains(l, " add ") && !strings.HasPrefix(l, "/file add") && !strings.HasPrefix(l, "/certificate add") {
+		if strings.HasPrefix(l, "/") && strings.Contains(l, " add ") && !strings.HasPrefix(l, "/file add") && !strings.HasPrefix(l, "/certificate add") &&
+			!strings.HasPrefix(l, "/ip traffic-flow target add") {
 			if !strings.Contains(l+continuation(s, l), `comment="horus`) {
 				t.Errorf("línea sin comment=\"horus\": %s", l)
 			}
@@ -160,7 +166,9 @@ func TestDeprovisioningGolden(t *testing.T) {
 		t.Fatal("placeholder sin resolver")
 	}
 	for _, l := range strings.Split(s, "\n") {
-		if strings.Contains(l, " remove ") && !strings.Contains(l, "horus") {
+		// El destino de Traffic Flow no lleva comment: se limita por destino, puerto y origen.
+		scoped := strings.Contains(l, "horus") || strings.Contains(l, "dst-address=10.255.0.1 && port=4739 && src-address=10.255.3.17")
+		if strings.Contains(l, " remove ") && !scoped {
 			t.Errorf("borrado que no se limita a lo de Horus: %s", l)
 		}
 	}

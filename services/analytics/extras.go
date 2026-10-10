@@ -18,6 +18,13 @@ import (
 // catálogo vigente y escribe sus dimensiones en ClickHouse (dim.*).
 func (m *mod) startExtras(ctx context.Context) error {
 	var cur atomic.Pointer[catalog.Catalog]
+	// dimsOK: las dim.* del catálogo vigente están escritas. En una
+	// instalación nueva analytics arranca antes de que la migración del
+	// ingester cree el usuario horus_analytics en ClickHouse; sin reintento
+	// las dimensiones (nombres de servicios, categorías y organizaciones) no
+	// se escribían nunca.
+	var dimsOK atomic.Bool
+	write := func(ctx context.Context, c *catalog.Catalog) { dimsOK.Store(m.writeDims(ctx, c)) }
 	if c, err := catalog.Seed(); err == nil {
 		cur.Store(c)
 	}
@@ -36,12 +43,12 @@ func (m *mod) startExtras(ctx context.Context) error {
 		defer func() { _ = f.Close() }()
 		if c, err := catalog.ReadSnapshot(f); err == nil && (cur.Load() == nil || c.Version() != cur.Load().Version()) {
 			cur.Store(c)
-			m.writeDims(ctx, c)
+			write(ctx, c)
 		}
 	}
 	load(ctx)
 	m.svc.Catalog = cur.Load
-	m.writeDims(ctx, cur.Load())
+	write(ctx, cur.Load())
 	m.loops = append(m.loops, func(ctx context.Context) {
 		t := time.NewTicker(time.Minute)
 		defer t.Stop()
@@ -51,6 +58,9 @@ func (m *mod) startExtras(ctx context.Context) error {
 				return
 			case <-t.C:
 				load(ctx)
+				if !dimsOK.Load() {
+					write(ctx, cur.Load())
+				}
 			}
 		}
 	})
@@ -74,10 +84,14 @@ func (m *mod) startExtras(ctx context.Context) error {
 
 // writeDims escribe dim.category, dim.service, dim.organization y dim.asn
 // del catálogo (analytics es el escritor único de dim.*, database.md §4).
-func (m *mod) writeDims(ctx context.Context, c *catalog.Catalog) {
+// Devuelve false si alguna tabla no se pudo escribir (se reintenta).
+func (m *mod) writeDims(ctx context.Context, c *catalog.Catalog) bool {
 	r := m.q.get()
-	if r == nil || c == nil {
-		return
+	if c == nil {
+		return true
+	}
+	if r == nil {
+		return false
 	}
 	v := c.Version()
 	var cats, svcs, orgs, asns [][]any
@@ -97,6 +111,7 @@ func (m *mod) writeDims(ctx context.Context, c *catalog.Catalog) {
 			asns = append(asns, []any{a, catalog.ID("org", o.Slug), o.Name, v})
 		}
 	}
+	ok := true
 	for table, rows := range map[string][][]any{
 		"dim.category (category_id, name, catalog_version)":            cats,
 		"dim.service (service_id, name, category_id, catalog_version)": svcs,
@@ -104,7 +119,9 @@ func (m *mod) writeDims(ctx context.Context, c *catalog.Catalog) {
 		"dim.asn (asn, org_id, name, catalog_version)":                 asns,
 	} {
 		if err := r.InsertDims(ctx, table, rows); err != nil {
-			m.log.WarnContext(ctx, "analytics: catalog dimensions not written", "table", table, "error", err)
+			m.log.WarnContext(ctx, "analytics: catalog dimensions not written (retry in 1 min)", "table", table, "error", err)
+			ok = false
 		}
 	}
+	return ok
 }

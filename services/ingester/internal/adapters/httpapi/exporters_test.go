@@ -114,3 +114,39 @@ func TestFlowExportersAPI(t *testing.T) {
 		t.Fatalf("no token = %d", w.Code)
 	}
 }
+
+func kioskToken(t *testing.T, s *authz.Signer, tenant uuid.UUID) string {
+	t.Helper()
+	kiosk := uuid.NewString()
+	tok, _, err := s.Sign(authz.Claims{RegisteredClaims: jwt.RegisteredClaims{Subject: "kiosk:" + kiosk},
+		Typ: authz.TypeKiosk, Scope: authz.ScopeKiosk, TID: tenant.String(), KioskID: kiosk})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tok
+}
+
+// El widget de exportadores del kiosco usa GET /flow-exporters con el JWT de
+// kiosco (sin permisos; lista blanca de permissions.yaml §kiosk).
+func TestFlowExportersKiosk(t *testing.T) {
+	h, s := setup(t)
+	w := do(h, "/api/v1/flow-exporters", kioskToken(t, s, tenantA))
+	if w.Code != http.StatusOK {
+		t.Fatalf("kiosk list = %d %s", w.Code, w.Body)
+	}
+	var body struct {
+		Data []map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || len(body.Data) != 1 || body.Data[0]["router_id"] != routerA.String() {
+		t.Fatalf("kiosk list body %s", w.Body)
+	}
+	// El detalle no está en la lista blanca del kiosco.
+	if w := do(h, "/api/v1/flow-exporters/"+routerA.String(), kioskToken(t, s, tenantA)); w.Code != http.StatusForbidden {
+		t.Fatalf("kiosk get = %d", w.Code)
+	}
+	// Un token de usuario sin flows.read sigue sin ver nada.
+	noRead := map[string][]string{"customers.read": {"*"}}
+	if w := do(h, "/api/v1/flow-exporters", token(t, s, tenantA, noRead)); w.Code != http.StatusForbidden {
+		t.Fatalf("user without flows.read = %d", w.Code)
+	}
+}

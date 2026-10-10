@@ -5,7 +5,7 @@
 # valores previos: revise active-flow-timeout y cache-entries si los cambió el alta).
 
 # 1) Destino de Traffic Flow de Horus (solo el suyo)
-/ip traffic-flow target remove [find where comment="horus" || (dst-address=10.255.0.1 && port=4739 && src-address=10.255.3.17)]
+/ip traffic-flow target remove [find where dst-address=10.255.0.1 && port=4739 && src-address=10.255.3.17]
 :if ([:len [/ip traffic-flow target find]] = 0) do={ /ip traffic-flow set enabled=no }
 
 # 2) SNMPv3 y usuario de solo lectura

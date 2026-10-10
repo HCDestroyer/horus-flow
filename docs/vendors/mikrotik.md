@@ -434,7 +434,10 @@ Conclusión: para D5 **los flujos sin muestrear son suficientes en v1**; la API 
 ## 7. Script de onboarding (ejemplo)
 
 Horus genera este script por router, sustituyendo los placeholders. Todo lo creado lleva
-`comment="horus"` para poder auditarlo y desinstalarlo. Probado conceptualmente; **validar línea a
+`comment="horus"` para poder auditarlo y desinstalarlo, **salvo el destino de Traffic Flow**:
+`/ip traffic-flow target add … comment=…` falló en el router real del PO (I1-27), así que el
+destino se crea sin `comment` y el script inverso lo quita por `dst-address`, `port` y
+`src-address`. Probado conceptualmente; **validar línea a
 línea en CHR con la versión mínima** antes de entregarlo (sintaxis de `ipfix` y de certificados en
 particular).
 

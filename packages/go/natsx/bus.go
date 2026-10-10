@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"gopkg.in/yaml.v3"
 
+	"github.com/hcdestroyer/horus-flow/packages/go/config"
 	"github.com/hcdestroyer/horus-flow/packages/go/module"
 	"github.com/hcdestroyer/horus-flow/packages/go/pgdb"
 )
@@ -52,15 +54,37 @@ func (b *Bus) Durable(name string) string { return b.DurablePrefix + name }
 
 var busMu sync.Mutex
 
-// EnvValue devuelve el último valor de key en environ.
+// EnvValue devuelve el último valor de key en environ. Como el resto de la
+// configuración (packages/go/config), HORUS_<CLAVE>_FILE tiene prioridad:
+// el compose de producción entrega HORUS_NATS_URL como secreto
+// (HORUS_NATS_URL_FILE=/run/secrets/nats_url) porque lleva la contraseña.
+// Un archivo ilegible cuenta como vacío (ver envValue para el error).
 func EnvValue(environ []string, key string) string {
-	v := ""
+	v, _ := envValue(environ, key)
+	return v
+}
+
+func envValue(environ []string, key string) (string, error) {
+	v, file := "", ""
 	for _, kv := range environ {
-		if k, val, ok := strings.Cut(kv, "="); ok && k == key {
+		k, val, ok := strings.Cut(kv, "=")
+		switch {
+		case !ok:
+		case k == key:
 			v = val
+		case k == key+config.FileSuffix:
+			file = val
 		}
 	}
-	return v
+	if file == "" || !strings.HasPrefix(key, config.Prefix) {
+		return v, nil
+	}
+	b, err := os.ReadFile(file) //nolint:gosec // ruta de configuración del operador
+	if err != nil {
+		// Se nombra la variable, nunca el contenido.
+		return "", fmt.Errorf("natsx: read %s%s: %w", key, config.FileSuffix, err)
+	}
+	return strings.TrimRight(string(b), "\r\n"), nil
 }
 
 // Shared devuelve el bus del proceso (una conexión compartida por todos los
@@ -73,7 +97,10 @@ func Shared(ctx context.Context, services *module.Services, environ []string, lo
 	if b, ok := module.Lookup[*Bus](services, ServiceBus); ok {
 		return b, nil
 	}
-	url := EnvValue(environ, "HORUS_NATS_URL")
+	url, err := envValue(environ, "HORUS_NATS_URL")
+	if err != nil {
+		return nil, err
+	}
 	if url == "" {
 		return nil, nil
 	}

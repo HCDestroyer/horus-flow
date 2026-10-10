@@ -766,7 +766,7 @@
     "noHandshake": "Túnel sin handshake",
     "fps": "{n} flujos/s",
     "uninstall": "Script de desinstalación",
-    "uninstallHint": "Quita del router todo lo que creó el script de alta (lo marcado con el comentario \"horus\"). Horus no lo ejecuta: pégalo tú.",
+    "uninstallHint": "Quita del router todo lo que creó el script de alta (lo marcado con el comentario \"horus\" y el destino de Traffic Flow hacia Horus). Horus no lo ejecuta: pégalo tú.",
     "trafficTitle": "Tráfico de este nodo",
     "trafficHint": "La vista de Tráfico, filtrada por el nodo de este router.",
     "openTraffic": "Abrir Tráfico del nodo",
