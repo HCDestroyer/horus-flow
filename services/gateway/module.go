@@ -28,6 +28,7 @@ import (
 	dashapi "github.com/hcdestroyer/horus-flow/services/analytics/api/dashboards"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
 	"github.com/hcdestroyer/horus-flow/services/gateway/internal/edge"
+	"github.com/hcdestroyer/horus-flow/services/gateway/internal/installation"
 	"github.com/hcdestroyer/horus-flow/services/gateway/internal/realtime"
 	"github.com/hcdestroyer/horus-flow/services/gateway/internal/routes"
 )
@@ -44,6 +45,11 @@ type Config struct {
 	// Orígenes permitidos del WebSocket (D14).
 	AllowedOrigins []string `env:"HORUS_ALLOWED_ORIGINS" envSeparator:","`
 	PublicBaseURL  string   `env:"HORUS_PUBLIC_BASE_URL"`
+	// Instalación (D19) para GET /platform/installation y el modo TLS externo.
+	AccessMode string `env:"HORUS_ACCESS_MODE"`
+	TLSMode    string `env:"HORUS_TLS_MODE"`
+	WGEndpoint string `env:"HORUS_WG_ENDPOINT"`
+	CertFile   string `env:"HORUS_PUBLIC_TLS_CERT_FILE"`
 }
 
 // Register construye el módulo del rol gateway (firma module.Factory).
@@ -85,10 +91,16 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 	e := edge.New(edge.Options{
 		Routes: table, Verifier: verifier, Sessions: sessions, Kiosks: kiosks, Audit: audit, Local: deps.Routes, Logger: logger,
 	})
-	if err := deps.Routes.SetEdge(e.Middleware); err != nil {
+	inst := installation.New(installation.Options{
+		AccessMode: cfg.AccessMode, PublicBaseURL: cfg.PublicBaseURL, AllowedOrigins: cfg.AllowedOrigins,
+		WGEndpoint: cfg.WGEndpoint, TLSMode: cfg.TLSMode, CertFile: cfg.CertFile, Logger: logger, Metrics: deps.Metrics,
+	})
+	// En modo TLS externo se vigilan las cabeceras del proxy antes del borde.
+	if err := deps.Routes.SetEdge(func(next http.Handler) http.Handler { return inst.Wrap(e.Middleware(next)) }); err != nil {
 		return nil, err
 	}
 	deps.Routes.HandleFunc("GET /api/v1/system/status", systemStatus(deps.Routes))
+	deps.Routes.HandleFunc("GET /api/v1/platform/installation", inst.Handle)
 	// Tiempo real (I1-13): tickets de un uso y hub WebSocket.
 	hub := realtime.New(realtime.Options{
 		Verifier: verifier, Sessions: sessions, Kiosks: kiosks, Origins: authz.ParseOrigins(cfg.AllowedOrigins, cfg.PublicBaseURL),
