@@ -176,7 +176,8 @@ Cifras de un servidor de pruebas de 4 vCPU compartido; los detalles y la metodol
   proxy (solo se confía en las cabeceras de los proxies declarados).
 - Los logs de plataforma y el paquete de diagnóstico enmascaran las IPs de clientes.
 
-Detalle en [`docs/security.md`](docs/security.md).
+Detalle en [`docs/security.md`](docs/security.md). Para reportar una vulnerabilidad, ver
+[`SECURITY.md`](SECURITY.md) (info@kns.gt).
 
 ## Desarrollo
 
@@ -236,6 +237,7 @@ Sociedad Anónima (C&S Company). Todos los derechos reservados.
 Su uso requiere un contrato de licencia escrito con el titular; sin él no se concede ningún
 derecho. Queda prohibido copiarlo, modificarlo, distribuirlo, ofrecerlo como servicio a terceros o
 aplicarle ingeniería inversa salvo autorización escrita. Texto completo en [`LICENSE`](LICENSE).
+Licencias y contacto comercial: **info@kns.gt**.
 
 Los componentes de terceros (ClickHouse, PostgreSQL, NATS, Valkey, Traefik, librerías Go y npm) se
 rigen por sus propias licencias, listadas en [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
