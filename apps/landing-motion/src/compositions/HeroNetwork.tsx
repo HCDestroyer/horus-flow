@@ -89,7 +89,13 @@ const T = {
   calmB: 284,
 }
 
-function Packet({ route, t, color, core, size = 1 }: {
+function Packet({
+  route,
+  t,
+  color,
+  core,
+  size = 1,
+}: {
   route: Pt[]
   t: number
   color: string
@@ -172,7 +178,15 @@ export function HeroNetwork() {
           if (i === FLAGGED) return null
           if (i === 0 || i === 255) {
             return (
-              <circle key={i} cx={x} cy={y} r={5} fill="none" stroke={NEON.dotStrong} strokeWidth={1.6} />
+              <circle
+                key={i}
+                cx={x}
+                cy={y}
+                r={5}
+                fill="none"
+                stroke={NEON.dotStrong}
+                strokeWidth={1.6}
+              />
             )
           }
           if (!active(i)) return <circle key={i} cx={x} cy={y} r={5.2} fill={NEON.dot} />
@@ -181,9 +195,21 @@ export function HeroNetwork() {
           return (
             <g key={i}>
               {e > 0.01 ? (
-                <circle cx={x} cy={y} r={14} fill={NEON.cyan} opacity={0.35 * e} filter="url(#blur6)" />
+                <circle
+                  cx={x}
+                  cy={y}
+                  r={14}
+                  fill={NEON.cyan}
+                  opacity={0.35 * e}
+                  filter="url(#blur6)"
+                />
               ) : null}
-              <circle cx={x} cy={y} r={5.4} fill={mix(NEON.dotStrong, NEON.lapis, 0.25 + 0.35 * tw + 0.4 * e)} />
+              <circle
+                cx={x}
+                cy={y}
+                r={5.4}
+                fill={mix(NEON.dotStrong, NEON.lapis, 0.25 + 0.35 * tw + 0.4 * e)}
+              />
             </g>
           )
         })}
@@ -202,32 +228,107 @@ export function HeroNetwork() {
 
       {/* Router MikroTik */}
       <Glow blur={6} halo={0.7}>
-        <rect x={ROUTER[0] - 46} y={ROUTER[1] - 46} width={92} height={92} rx={22} fill={NEON.bgPanel} stroke={NEON.lapisDeep} strokeWidth={2.5} />
+        <rect
+          x={ROUTER[0] - 46}
+          y={ROUTER[1] - 46}
+          width={92}
+          height={92}
+          rx={22}
+          fill={NEON.bgPanel}
+          stroke={NEON.lapisDeep}
+          strokeWidth={2.5}
+        />
         <RouterIcon x={ROUTER[0]} y={ROUTER[1]} size={48} color={NEON.lapis} />
       </Glow>
-      <text x={ROUTER[0]} y={ROUTER[1] + 84} textAnchor="middle" fontFamily={FONT_MONO} fontSize={26} fill={NEON.textMuted}>
+      <text
+        x={ROUTER[0]}
+        y={ROUTER[1] + 84}
+        textAnchor="middle"
+        fontFamily={FONT_MONO}
+        fontSize={26}
+        fill={NEON.textMuted}
+      >
         MikroTik
       </text>
 
       {/* Túnel WireGuard: dos carriles con un trazo cifrado que marcha y un candado */}
       <Glow blur={6} halo={0.8}>
-        <rect x={TUNNEL_A[0]} y={TUNNEL_A[1] - 26} width={TUNNEL_B[0] - TUNNEL_A[0]} height={52} rx={26} fill="none" stroke={NEON.lapisDeep} strokeWidth={2.5} />
-        <line x1={TUNNEL_A[0] + 30} y1={TUNNEL_A[1]} x2={TUNNEL_B[0] - 30} y2={TUNNEL_B[1]} stroke={NEON.cyan} strokeWidth={2} strokeDasharray="4 18" strokeDashoffset={tunnelDash} strokeLinecap="round" opacity={0.8} />
+        <rect
+          x={TUNNEL_A[0]}
+          y={TUNNEL_A[1] - 26}
+          width={TUNNEL_B[0] - TUNNEL_A[0]}
+          height={52}
+          rx={26}
+          fill="none"
+          stroke={NEON.lapisDeep}
+          strokeWidth={2.5}
+        />
+        <line
+          x1={TUNNEL_A[0] + 30}
+          y1={TUNNEL_A[1]}
+          x2={TUNNEL_B[0] - 30}
+          y2={TUNNEL_B[1]}
+          stroke={NEON.cyan}
+          strokeWidth={2}
+          strokeDasharray="4 18"
+          strokeDashoffset={tunnelDash}
+          strokeLinecap="round"
+          opacity={0.8}
+        />
       </Glow>
-      <rect x={(TUNNEL_A[0] + TUNNEL_B[0]) / 2 - 26} y={TUNNEL_A[1] - 26} width={52} height={52} rx={14} fill={NEON.bg} />
+      <rect
+        x={(TUNNEL_A[0] + TUNNEL_B[0]) / 2 - 26}
+        y={TUNNEL_A[1] - 26}
+        width={52}
+        height={52}
+        rx={14}
+        fill={NEON.bg}
+      />
       <Glow blur={3} halo={0.9}>
-        <LockIcon x={(TUNNEL_A[0] + TUNNEL_B[0]) / 2} y={TUNNEL_A[1]} size={34} color={NEON.lapis} />
+        <LockIcon
+          x={(TUNNEL_A[0] + TUNNEL_B[0]) / 2}
+          y={TUNNEL_A[1]}
+          size={34}
+          color={NEON.lapis}
+        />
       </Glow>
-      <text x={(TUNNEL_A[0] + TUNNEL_B[0]) / 2} y={TUNNEL_A[1] + 84} textAnchor="middle" fontFamily={FONT_MONO} fontSize={26} fill={NEON.textMuted}>
+      <text
+        x={(TUNNEL_A[0] + TUNNEL_B[0]) / 2}
+        y={TUNNEL_A[1] + 84}
+        textAnchor="middle"
+        fontFamily={FONT_MONO}
+        fontSize={26}
+        fill={NEON.textMuted}
+      >
         WireGuard
       </text>
 
       {/* Horus */}
       <Glow blur={12} halo={0.55 + 0.45 * detectGlow} wide>
-        <circle cx={HORUS[0]} cy={HORUS[1]} r={52 * (1 + 0.08 * detectGlow)} fill={NEON.bgPanel} stroke={mix(NEON.lapisDeep, NEON.cyan, detectGlow)} strokeWidth={3} />
-        <HorusEye x={HORUS[0]} y={HORUS[1]} size={60 * (1 + 0.06 * detect * detectGlow)} color={mix(NEON.lapis, NEON.cyanCore, detectGlow)} stroke={1.8} />
+        <circle
+          cx={HORUS[0]}
+          cy={HORUS[1]}
+          r={52 * (1 + 0.08 * detectGlow)}
+          fill={NEON.bgPanel}
+          stroke={mix(NEON.lapisDeep, NEON.cyan, detectGlow)}
+          strokeWidth={3}
+        />
+        <HorusEye
+          x={HORUS[0]}
+          y={HORUS[1]}
+          size={60 * (1 + 0.06 * detect * detectGlow)}
+          color={mix(NEON.lapis, NEON.cyanCore, detectGlow)}
+          stroke={1.8}
+        />
       </Glow>
-      <text x={HORUS[0]} y={HORUS[1] + 90} textAnchor="middle" fontFamily={FONT_MONO} fontSize={26} fill={NEON.textMuted}>
+      <text
+        x={HORUS[0]}
+        y={HORUS[1] + 90}
+        textAnchor="middle"
+        fontFamily={FONT_MONO}
+        fontSize={26}
+        fill={NEON.textMuted}
+      >
         Horus
       </text>
 
@@ -243,10 +344,25 @@ export function HeroNetwork() {
               strokeDashoffset={-phase(frame, 15) * 14}
               fill="none"
             />
-            <circle cx={C2[0]} cy={C2[1]} r={38} fill={NEON.bg} stroke={NEON.infected} strokeWidth={2.5} />
+            <circle
+              cx={C2[0]}
+              cy={C2[1]}
+              r={38}
+              fill={NEON.bg}
+              stroke={NEON.infected}
+              strokeWidth={2.5}
+            />
             <ServerIcon x={C2[0]} y={C2[1] - 2} size={36} color={NEON.infectedCore} />
           </Glow>
-          <text x={C2[0]} y={C2[1] + 68} textAnchor="middle" fontFamily={FONT_MONO} fontSize={24} fill={NEON.infectedCore} opacity={beacon}>
+          <text
+            x={C2[0]}
+            y={C2[1] + 68}
+            textAnchor="middle"
+            fontFamily={FONT_MONO}
+            fontSize={24}
+            fill={NEON.infectedCore}
+            opacity={beacon}
+          >
             C2
           </text>
           {T.beacons.map((b) => {
@@ -254,7 +370,12 @@ export function HeroNetwork() {
             if (t < 0 || t > 1) return null
             return (
               <Glow key={b} blur={6} halo={1}>
-                <Packet route={[flaggedXY, C2]} t={t} color={NEON.infected} core={NEON.infectedCore} />
+                <Packet
+                  route={[flaggedXY, C2]}
+                  t={t}
+                  color={NEON.infected}
+                  core={NEON.infectedCore}
+                />
               </Glow>
             )
           })}
@@ -264,7 +385,13 @@ export function HeroNetwork() {
       {/* Su flujo llega a Horus por el camino normal (los flujos de .47 son los que delatan) */}
       {flowOn ? (
         <Glow blur={6} halo={1}>
-          <Packet route={routeFrom(FLAGGED)} t={flowT} color={NEON.infected} core={NEON.infectedCore} size={1.15} />
+          <Packet
+            route={routeFrom(FLAGGED)}
+            t={flowT}
+            color={NEON.infected}
+            core={NEON.infectedCore}
+            size={1.15}
+          />
         </Glow>
       ) : null}
 
@@ -272,7 +399,10 @@ export function HeroNetwork() {
       {beam > 0.001 ? (
         <Glow blur={6} halo={1} opacity={beam}>
           <path
-            d={polyPath([[HORUS[0], HORUS[1] - 52], along([[HORUS[0], HORUS[1] - 52], flaggedXY], ramp(frame, T.detect, T.flag))])}
+            d={polyPath([
+              [HORUS[0], HORUS[1] - 52],
+              along([[HORUS[0], HORUS[1] - 52], flaggedXY], ramp(frame, T.detect, T.flag)),
+            ])}
             stroke={NEON.cyan}
             strokeWidth={2}
             fill="none"
@@ -286,11 +416,28 @@ export function HeroNetwork() {
         const k = ramp(frame, r, r + 34, (x) => 1 - Math.pow(1 - x, 3))
         if (frame < r || frame > r + 34 || flagged < 0.05) return null
         return (
-          <circle key={r} cx={flaggedXY[0]} cy={flaggedXY[1]} r={10 + 46 * k} fill="none" stroke={NEON.infected} strokeWidth={3 * (1 - k) + 0.5} opacity={(1 - k) * flagged} />
+          <circle
+            key={r}
+            cx={flaggedXY[0]}
+            cy={flaggedXY[1]}
+            r={10 + 46 * k}
+            fill="none"
+            stroke={NEON.infected}
+            strokeWidth={3 * (1 - k) + 0.5}
+            opacity={(1 - k) * flagged}
+          />
         )
       })}
       <Glow blur={6} halo={flagged} wide={flagged > 0.05}>
-        <circle cx={flaggedXY[0]} cy={flaggedXY[1]} r={15} fill="none" stroke={NEON.infected} strokeWidth={3} opacity={flagged} />
+        <circle
+          cx={flaggedXY[0]}
+          cy={flaggedXY[1]}
+          r={15}
+          fill="none"
+          stroke={NEON.infected}
+          strokeWidth={3}
+          opacity={flagged}
+        />
         <circle
           cx={flaggedXY[0]}
           cy={flaggedXY[1]}
@@ -300,8 +447,25 @@ export function HeroNetwork() {
       </Glow>
       {label > 0.001 ? (
         <g opacity={label} transform={`translate(${-12 * (1 - label)} 0)`}>
-          <rect x={flaggedXY[0] - 226} y={flaggedXY[1] + 24} width={196} height={48} rx={12} fill={NEON.bg} stroke={NEON.infected} strokeWidth={2} />
-          <text x={flaggedXY[0] - 128} y={flaggedXY[1] + 57} textAnchor="middle" fontFamily={FONT_MONO} fontSize={26} fontWeight={700} fill={NEON.text}>
+          <rect
+            x={flaggedXY[0] - 226}
+            y={flaggedXY[1] + 24}
+            width={196}
+            height={48}
+            rx={12}
+            fill={NEON.bg}
+            stroke={NEON.infected}
+            strokeWidth={2}
+          />
+          <text
+            x={flaggedXY[0] - 128}
+            y={flaggedXY[1] + 57}
+            textAnchor="middle"
+            fontFamily={FONT_MONO}
+            fontSize={26}
+            fontWeight={700}
+            fill={NEON.text}
+          >
             10.20.1.47
           </text>
         </g>

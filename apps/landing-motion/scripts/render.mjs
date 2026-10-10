@@ -56,37 +56,68 @@ if (!existsSync(BROWSER)) {
 }
 for (const d of [OUT, PUBLIC, FRAMES]) mkdirSync(d, { recursive: true })
 
-const ffmpeg = (argv) => execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...argv], { stdio: 'inherit', cwd: OUT })
+const ffmpeg = (argv) =>
+  execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...argv], {
+    stdio: 'inherit',
+    cwd: OUT,
+  })
 const kb = (f) => statSync(f).size / 1024
 
 console.log('Empaquetando composiciones…')
-const serveUrl = await bundle({ entryPoint: path.join(ROOT, 'src/index.ts'), outDir: path.join(ROOT, '.bundle') })
-const common = { serveUrl, browserExecutable: BROWSER, chromeMode: 'headless-shell', logLevel: 'warn' }
+const serveUrl = await bundle({
+  entryPoint: path.join(ROOT, 'src/index.ts'),
+  outDir: path.join(ROOT, '.bundle'),
+})
+const common = {
+  serveUrl,
+  browserExecutable: BROWSER,
+  chromeMode: 'headless-shell',
+  logLevel: 'warn',
+}
 
 for (const id of selected) {
   const meta = META[id]
   const composition = await selectComposition({ ...common, id })
   const seconds = composition.durationInFrames / composition.fps
-  console.log(`\n${id}: ${composition.width}×${composition.height}, ${seconds} s a ${composition.fps} fps`)
+  console.log(
+    `\n${id}: ${composition.width}×${composition.height}, ${seconds} s a ${composition.fps} fps`,
+  )
 
   // Frames clave (PNG a 960 px de ancho para no inflar el repo).
   for (const f of meta.keyFrames) {
     const png = path.join(OUT, `${id}-${f}.png`)
     await renderStill({ ...common, composition, frame: f, output: png, imageFormat: 'png' })
     const dest = path.join(FRAMES, `${meta.slug}-f${String(f).padStart(3, '0')}.png`)
-    await sharp(png).resize({ width: 960 }).png({ compressionLevel: 9, palette: false }).toFile(dest)
+    await sharp(png)
+      .resize({ width: 960 })
+      .png({ compressionLevel: 9, palette: false })
+      .toFile(dest)
     console.log(`  frame ${f} → ${path.relative(ROOT, dest)}`)
   }
   if (framesOnly) continue
 
   // Póster (frame más representativo).
   const posterPng = path.join(OUT, `${id}-poster.png`)
-  await renderStill({ ...common, composition, frame: meta.poster, output: posterPng, imageFormat: 'png' })
+  await renderStill({
+    ...common,
+    composition,
+    frame: meta.poster,
+    output: posterPng,
+    imageFormat: 'png',
+  })
   for (const w of SIZES) {
     const base = path.join(PUBLIC, `${meta.slug}-poster-${w}`)
-    await sharp(posterPng).resize({ width: w }).avif({ quality: 55, effort: 6 }).toFile(`${base}.avif`)
-    await sharp(posterPng).resize({ width: w }).webp({ quality: 78, effort: 6 }).toFile(`${base}.webp`)
-    console.log(`  póster ${w}: avif ${kb(`${base}.avif`).toFixed(0)} KB, webp ${kb(`${base}.webp`).toFixed(0)} KB`)
+    await sharp(posterPng)
+      .resize({ width: w })
+      .avif({ quality: 55, effort: 6 })
+      .toFile(`${base}.avif`)
+    await sharp(posterPng)
+      .resize({ width: w })
+      .webp({ quality: 78, effort: 6 })
+      .toFile(`${base}.webp`)
+    console.log(
+      `  póster ${w}: avif ${kb(`${base}.avif`).toFixed(0)} KB, webp ${kb(`${base}.webp`).toFixed(0)} KB`,
+    )
   }
 
   // Intermedio de alta calidad.
@@ -112,16 +143,75 @@ for (const id of selected) {
     const gop = String(composition.fps * 2)
     const webm = path.join(PUBLIC, `${meta.slug}-${w}.webm`)
     const mp4 = path.join(PUBLIC, `${meta.slug}-${w}.mp4`)
-    const vp9 = ['-i', master, '-vf', scale, '-an', '-c:v', 'libvpx-vp9', '-b:v', `${kbps}k`, '-maxrate', `${Math.floor(kbps * 1.4)}k`, '-bufsize', `${kbps * 2}k`, '-row-mt', '1', '-tile-columns', '2', '-g', gop, '-deadline', 'good', '-cpu-used', '2', '-pix_fmt', 'yuv420p']
+    const vp9 = [
+      '-i',
+      master,
+      '-vf',
+      scale,
+      '-an',
+      '-c:v',
+      'libvpx-vp9',
+      '-b:v',
+      `${kbps}k`,
+      '-maxrate',
+      `${Math.floor(kbps * 1.4)}k`,
+      '-bufsize',
+      `${kbps * 2}k`,
+      '-row-mt',
+      '1',
+      '-tile-columns',
+      '2',
+      '-g',
+      gop,
+      '-deadline',
+      'good',
+      '-cpu-used',
+      '2',
+      '-pix_fmt',
+      'yuv420p',
+    ]
     ffmpeg([...vp9, '-pass', '1', '-passlogfile', `${id}-${w}-vp9`, '-f', 'null', '/dev/null'])
     ffmpeg([...vp9, '-pass', '2', '-passlogfile', `${id}-${w}-vp9`, webm])
-    const x264 = ['-i', master, '-vf', scale, '-an', '-c:v', 'libx264', '-preset', 'slow', '-profile:v', 'high', '-b:v', `${kbps}k`, '-maxrate', `${Math.floor(kbps * 1.4)}k`, '-bufsize', `${kbps * 2}k`, '-g', gop, '-pix_fmt', 'yuv420p']
+    const x264 = [
+      '-i',
+      master,
+      '-vf',
+      scale,
+      '-an',
+      '-c:v',
+      'libx264',
+      '-preset',
+      'slow',
+      '-profile:v',
+      'high',
+      '-b:v',
+      `${kbps}k`,
+      '-maxrate',
+      `${Math.floor(kbps * 1.4)}k`,
+      '-bufsize',
+      `${kbps * 2}k`,
+      '-g',
+      gop,
+      '-pix_fmt',
+      'yuv420p',
+    ]
     ffmpeg([...x264, '-pass', '1', '-passlogfile', `${id}-${w}-x264`, '-f', 'mp4', '/dev/null'])
-    ffmpeg([...x264, '-pass', '2', '-passlogfile', `${id}-${w}-x264`, '-movflags', '+faststart', mp4])
+    ffmpeg([
+      ...x264,
+      '-pass',
+      '2',
+      '-passlogfile',
+      `${id}-${w}-x264`,
+      '-movflags',
+      '+faststart',
+      mp4,
+    ])
     for (const f of [webm, mp4]) {
       const size = kb(f)
       const ok = size * 1024 <= budget
-      console.log(`  ${path.basename(f)}: ${size.toFixed(0)} KB ${ok ? '' : `> presupuesto ${meta.budgetMB} MB`}`)
+      console.log(
+        `  ${path.basename(f)}: ${size.toFixed(0)} KB ${ok ? '' : `> presupuesto ${meta.budgetMB} MB`}`,
+      )
       if (!ok) process.exitCode = 1
     }
   }

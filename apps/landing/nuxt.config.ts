@@ -107,6 +107,7 @@ export default defineNuxtConfig({
       },
     },
     '/img/**': { headers: { 'Cache-Control': 'public, max-age=2592000' } },
+    '/motion/**': { headers: { 'Cache-Control': 'public, max-age=2592000' } },
     '/api/**': { headers: { 'Cache-Control': 'no-store' } },
   },
 

@@ -132,46 +132,142 @@ export function HowItWorks() {
 
       {/* 1 · Router */}
       <Glow blur={12} halo={base + 0.65 * L.router} wide>
-        <rect x={ROUTER[0] - 70} y={Y - 70} width={140} height={140} rx={32} fill={NEON.bgPanel} stroke={stroke(base + 0.65 * L.router)} strokeWidth={3} />
+        <rect
+          x={ROUTER[0] - 70}
+          y={Y - 70}
+          width={140}
+          height={140}
+          rx={32}
+          fill={NEON.bgPanel}
+          stroke={stroke(base + 0.65 * L.router)}
+          strokeWidth={3}
+        />
         <RouterIcon x={ROUTER[0]} y={Y} size={72} color={icon(L.router)} />
       </Glow>
 
       {/* 2 · Túnel WireGuard */}
       <Glow blur={6} halo={base + 0.65 * L.tunnel}>
-        <rect x={TUN_A} y={Y - 40} width={TUN_B - TUN_A} height={80} rx={40} fill="none" stroke={stroke(base + 0.65 * L.tunnel)} strokeWidth={3} />
-        <line x1={TUN_A + 40} y1={Y} x2={TUN_B - 40} y2={Y} stroke={NEON.cyan} strokeWidth={2.5} strokeDasharray="5 21" strokeDashoffset={tunnelDash} strokeLinecap="round" opacity={0.35 + 0.6 * L.tunnel} />
+        <rect
+          x={TUN_A}
+          y={Y - 40}
+          width={TUN_B - TUN_A}
+          height={80}
+          rx={40}
+          fill="none"
+          stroke={stroke(base + 0.65 * L.tunnel)}
+          strokeWidth={3}
+        />
+        <line
+          x1={TUN_A + 40}
+          y1={Y}
+          x2={TUN_B - 40}
+          y2={Y}
+          stroke={NEON.cyan}
+          strokeWidth={2.5}
+          strokeDasharray="5 21"
+          strokeDashoffset={tunnelDash}
+          strokeLinecap="round"
+          opacity={0.35 + 0.6 * L.tunnel}
+        />
       </Glow>
       <rect x={COL[1] - 40} y={Y - 40} width={80} height={80} rx={20} fill={NEON.bg} />
       <Glow blur={6} halo={0.5 + 0.5 * L.tunnel}>
-        <LockIcon x={COL[1]} y={Y} size={52 * (1 + 0.08 * L.tunnel)} color={icon(0.3 + 0.7 * L.tunnel)} />
+        <LockIcon
+          x={COL[1]}
+          y={Y}
+          size={52 * (1 + 0.08 * L.tunnel)}
+          color={icon(0.3 + 0.7 * L.tunnel)}
+        />
       </Glow>
 
       {/* 3 · Horus: collector → detección */}
       <Glow blur={6} halo={base + 0.4 * Math.max(L.collector, L.detect)}>
-        <rect x={PANEL.x} y={PANEL.y} width={PANEL.w} height={PANEL.h} rx={28} fill={NEON.bgPanel} stroke={stroke(base + 0.5 * Math.max(L.collector, L.detect))} strokeWidth={3} />
+        <rect
+          x={PANEL.x}
+          y={PANEL.y}
+          width={PANEL.w}
+          height={PANEL.h}
+          rx={28}
+          fill={NEON.bgPanel}
+          stroke={stroke(base + 0.5 * Math.max(L.collector, L.detect))}
+          strokeWidth={3}
+        />
       </Glow>
-      <HorusEye x={COL[2]} y={PANEL.y + 52} size={44} color={mix(NEON.dotStrong, NEON.lapis, 0.5 + 0.5 * Math.max(L.collector, L.detect))} />
+      <HorusEye
+        x={COL[2]}
+        y={PANEL.y + 52}
+        size={44}
+        color={mix(NEON.dotStrong, NEON.lapis, 0.5 + 0.5 * Math.max(L.collector, L.detect))}
+      />
       <Glow blur={6} halo={base + 0.65 * L.collector}>
-        <rect x={COLLECTOR[0] - 48} y={COLLECTOR[1] - 48} width={96} height={96} rx={22} fill={NEON.bgRaised} stroke={stroke(base + 0.65 * L.collector)} strokeWidth={2.5} />
+        <rect
+          x={COLLECTOR[0] - 48}
+          y={COLLECTOR[1] - 48}
+          width={96}
+          height={96}
+          rx={22}
+          fill={NEON.bgRaised}
+          stroke={stroke(base + 0.65 * L.collector)}
+          strokeWidth={2.5}
+        />
         <ServerIcon x={COLLECTOR[0]} y={COLLECTOR[1]} size={48} color={icon(L.collector)} />
       </Glow>
       <Glow blur={6} halo={base + 0.65 * L.detect}>
-        <rect x={DETECT[0] - 48} y={DETECT[1] - 48} width={96} height={96} rx={22} fill={NEON.bgRaised} stroke={stroke(base + 0.65 * L.detect)} strokeWidth={2.5} />
+        <rect
+          x={DETECT[0] - 48}
+          y={DETECT[1] - 48}
+          width={96}
+          height={96}
+          rx={22}
+          fill={NEON.bgRaised}
+          stroke={stroke(base + 0.65 * L.detect)}
+          strokeWidth={2.5}
+        />
         <ScanIcon x={DETECT[0]} y={DETECT[1]} size={48} color={icon(L.detect)} />
       </Glow>
       {L.detect > 0.01 ? (
-        <line x1={DETECT[0] - 40} x2={DETECT[0] + 40} y1={DETECT[1] - 40 + 80 * sweep} y2={DETECT[1] - 40 + 80 * sweep} stroke={NEON.cyan} strokeWidth={2} opacity={0.6 * L.detect} />
+        <line
+          x1={DETECT[0] - 40}
+          x2={DETECT[0] + 40}
+          y1={DETECT[1] - 40 + 80 * sweep}
+          y2={DETECT[1] - 40 + 80 * sweep}
+          stroke={NEON.cyan}
+          strokeWidth={2}
+          opacity={0.6 * L.detect}
+        />
       ) : null}
       {found > 0.01 ? (
         <Glow blur={6} halo={1}>
-          <circle cx={DETECT[0] + 40} cy={DETECT[1] - 40} r={9 * found} fill={NEON.infectedCore} stroke={NEON.infected} strokeWidth={2} />
+          <circle
+            cx={DETECT[0] + 40}
+            cy={DETECT[1] - 40}
+            r={9 * found}
+            fill={NEON.infectedCore}
+            stroke={NEON.infected}
+            strokeWidth={2}
+          />
         </Glow>
       ) : null}
 
       {/* 4 · NOC / kiosco y alertas */}
       <Glow blur={12} halo={base + 0.65 * L.noc} wide>
-        <rect x={MONITOR[0] - 96} y={MONITOR[1] - 70} width={192} height={130} rx={18} fill={NEON.bgPanel} stroke={stroke(base + 0.65 * L.noc)} strokeWidth={3} />
-        <path d={`M${MONITOR[0] - 30} ${MONITOR[1] + 96} H${MONITOR[0] + 30} M${MONITOR[0]} ${MONITOR[1] + 60} V${MONITOR[1] + 96}`} stroke={stroke(base + 0.65 * L.noc)} strokeWidth={3} strokeLinecap="round" fill="none" />
+        <rect
+          x={MONITOR[0] - 96}
+          y={MONITOR[1] - 70}
+          width={192}
+          height={130}
+          rx={18}
+          fill={NEON.bgPanel}
+          stroke={stroke(base + 0.65 * L.noc)}
+          strokeWidth={3}
+        />
+        <path
+          d={`M${MONITOR[0] - 30} ${MONITOR[1] + 96} H${MONITOR[0] + 30} M${MONITOR[0]} ${MONITOR[1] + 60} V${MONITOR[1] + 96}`}
+          stroke={stroke(base + 0.65 * L.noc)}
+          strokeWidth={3}
+          strokeLinecap="round"
+          fill="none"
+        />
       </Glow>
       {/* Mini cuadrícula del kiosco: 10 × 5 clientes, uno señalado */}
       {Array.from({ length: 50 }, (_, i) => {
@@ -184,12 +280,23 @@ export function HowItWorks() {
             cx={cx}
             cy={cy}
             r={isFound ? 3.4 + 2.4 * found : 3.4}
-            fill={isFound ? mix(NEON.dotStrong, NEON.infectedCore, found) : mix(NEON.dot, NEON.dotStrong, 0.4 + 0.6 * L.noc)}
+            fill={
+              isFound
+                ? mix(NEON.dotStrong, NEON.infectedCore, found)
+                : mix(NEON.dot, NEON.dotStrong, 0.4 + 0.6 * L.noc)
+            }
           />
         )
       })}
       {found > 0.01 ? (
-        <circle cx={MONITOR[0] - 72 + 7 * 16} cy={MONITOR[1] - 44 + 18} r={11} fill={NEON.infected} opacity={0.45 * found * L.noc} filter="url(#blur6)" />
+        <circle
+          cx={MONITOR[0] - 72 + 7 * 16}
+          cy={MONITOR[1] - 44 + 18}
+          r={11}
+          fill={NEON.infected}
+          opacity={0.45 * found * L.noc}
+          filter="url(#blur6)"
+        />
       ) : null}
       {[MailIcon, SendIcon, ActivityIcon].map((Icon, k) => {
         const a = alertOn(k)
@@ -197,10 +304,19 @@ export function HowItWorks() {
         return (
           <g key={k}>
             <Glow blur={6} halo={base + 0.65 * a}>
-              <circle cx={x} cy={y} r={34} fill={NEON.bgPanel} stroke={stroke(base + 0.65 * a)} strokeWidth={2.5} />
+              <circle
+                cx={x}
+                cy={y}
+                r={34}
+                fill={NEON.bgPanel}
+                stroke={stroke(base + 0.65 * a)}
+                strokeWidth={2.5}
+              />
               <Icon x={x} y={y} size={34} color={icon(a)} />
             </Glow>
-            {a > 0.01 ? <circle cx={x + 24} cy={y - 24} r={7 * a} fill={NEON.infectedCore} /> : null}
+            {a > 0.01 ? (
+              <circle cx={x + 24} cy={y - 24} r={7 * a} fill={NEON.infectedCore} />
+            ) : null}
           </g>
         )
       })}
@@ -215,19 +331,45 @@ export function HowItWorks() {
       {/* Paquete protagonista que enciende cada etapa */}
       <Glow blur={6} halo={1}>
         {frame >= HERO.main[0] && frame <= HERO.main[1] ? (
-          <Dot p={along(MAIN, ramp(frame, HERO.main[0], HERO.main[1], (x) => x))} r={7} color={NEON.cyan} core={NEON.cyanCore} />
+          <Dot
+            p={along(
+              MAIN,
+              ramp(frame, HERO.main[0], HERO.main[1], (x) => x),
+            )}
+            r={7}
+            color={NEON.cyan}
+            core={NEON.cyanCore}
+          />
         ) : null}
         {frame >= HERO.inner[0] && frame <= HERO.inner[1] ? (
-          <Dot p={along(INNER, ramp(frame, HERO.inner[0], HERO.inner[1]))} r={7} color={NEON.cyan} core={NEON.cyanCore} />
+          <Dot
+            p={along(INNER, ramp(frame, HERO.inner[0], HERO.inner[1]))}
+            r={7}
+            color={NEON.cyan}
+            core={NEON.cyanCore}
+          />
         ) : null}
         {frame >= HERO.noc[0] && frame <= HERO.noc[1] ? (
-          <Dot p={along(TO_NOC, ramp(frame, HERO.noc[0], HERO.noc[1]))} r={6} color={NEON.cyan} core={NEON.cyanCore} />
+          <Dot
+            p={along(TO_NOC, ramp(frame, HERO.noc[0], HERO.noc[1]))}
+            r={6}
+            color={NEON.cyan}
+            core={NEON.cyanCore}
+          />
         ) : null}
         {ALERTS.map((_, k) => {
           const a = HERO.alert[0] + k * 12
           const b = HERO.alert[1] + k * 12
           if (frame < a || frame > b) return null
-          return <Dot key={k} p={along(TO_ALERT(k), ramp(frame, a, b))} r={5} color={NEON.cyan} core={NEON.cyanCore} />
+          return (
+            <Dot
+              key={k}
+              p={along(TO_ALERT(k), ramp(frame, a, b))}
+              r={5}
+              color={NEON.cyan}
+              core={NEON.cyanCore}
+            />
+          )
         })}
       </Glow>
     </Stage>

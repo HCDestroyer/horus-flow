@@ -2,7 +2,7 @@
 // pintarlos con glow. Todos aceptan centro, tamaño y color.
 import type { ReactNode } from 'react'
 
-type IconProps ={ x: number; y: number; size: number; color: string; stroke?: number }
+type IconProps = { x: number; y: number; size: number; color: string; stroke?: number }
 
 function Frame({ x, y, size, color, stroke = 2, children }: IconProps & { children: ReactNode }) {
   const s = size / 24

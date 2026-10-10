@@ -3,8 +3,9 @@
 import { Config } from '@remotion/cli/config'
 
 // Chromium ya instalado en la máquina (Playwright): nunca se descarga otro.
-const browser = process.env.REMOTION_BROWSER_EXECUTABLE
-  ?? '/opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell'
+const browser =
+  process.env.REMOTION_BROWSER_EXECUTABLE ??
+  '/opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell'
 
 Config.setBrowserExecutable(browser)
 Config.setVideoImageFormat('png')

@@ -9,7 +9,17 @@
 //   significa Infectado), el búfer se llena; ClickHouse vuelve, el búfer se vacía.
 import { useCurrentFrame, useVideoConfig } from 'remotion'
 import { DatabaseIcon, ServerIcon } from '../lib/icons'
-import { along, envelope, interpolateClamp, mix, phase, polyPath, ramp, springAt, type Pt } from '../lib/motion'
+import {
+  along,
+  envelope,
+  interpolateClamp,
+  mix,
+  phase,
+  polyPath,
+  ramp,
+  springAt,
+  type Pt,
+} from '../lib/motion'
 import { Glow, Stage } from '../lib/Neon'
 import { NEON } from '../lib/theme'
 
@@ -61,18 +71,40 @@ export function Resilience() {
     <Stage width={W} height={H}>
       <g fill="none" strokeWidth={2.5} strokeLinecap="round">
         <path d={polyPath(IN)} stroke={NEON.border} />
-        <path d={polyPath(OUT)} stroke={NEON.border} strokeDasharray={off > 0.5 ? '6 10' : undefined} />
+        <path
+          d={polyPath(OUT)}
+          stroke={NEON.border}
+          strokeDasharray={off > 0.5 ? '6 10' : undefined}
+        />
       </g>
 
       {/* Collector */}
       <Glow blur={6} halo={0.6}>
-        <rect x={SRC[0] - 80} y={Y - 80} width={160} height={160} rx={34} fill={NEON.bgPanel} stroke={NEON.lapisDeep} strokeWidth={3} />
+        <rect
+          x={SRC[0] - 80}
+          y={Y - 80}
+          width={160}
+          height={160}
+          rx={34}
+          fill={NEON.bgPanel}
+          stroke={NEON.lapisDeep}
+          strokeWidth={3}
+        />
         <ServerIcon x={SRC[0]} y={Y} size={76} color={NEON.lapis} />
       </Glow>
 
       {/* Búfer: los registros se apilan desde abajo */}
       <Glow blur={6} halo={0.45 + 0.4 * level}>
-        <rect x={BUF.x} y={BUF.y} width={BUF.w} height={BUF.h} rx={30} fill={NEON.bgPanel} stroke={mix(NEON.lapisDeep, NEON.cyan, level)} strokeWidth={3} />
+        <rect
+          x={BUF.x}
+          y={BUF.y}
+          width={BUF.w}
+          height={BUF.h}
+          rx={30}
+          fill={NEON.bgPanel}
+          stroke={mix(NEON.lapisDeep, NEON.cyan, level)}
+          strokeWidth={3}
+        />
       </Glow>
       <Glow blur={3} halo={0.9}>
         {Array.from({ length: rows }, (_, r) => (
@@ -108,12 +140,30 @@ export function Resilience() {
       <Glow blur={6} halo={1}>
         {inPackets.map((t, k) => {
           const [x, y] = along(IN, t)
-          return <circle key={`i${k}`} cx={x} cy={y} r={6} fill={NEON.cyanCore} opacity={ramp(t, 0, 0.1) * (1 - ramp(t, 0.9, 1))} />
+          return (
+            <circle
+              key={`i${k}`}
+              cx={x}
+              cy={y}
+              r={6}
+              fill={NEON.cyanCore}
+              opacity={ramp(t, 0, 0.1) * (1 - ramp(t, 0.9, 1))}
+            />
+          )
         })}
         {off < 0.5
           ? outPackets.map((t, k) => {
               const [x, y] = along(OUT, t)
-              return <circle key={`o${k}`} cx={x} cy={y} r={6} fill={NEON.cyanCore} opacity={ramp(t, 0, 0.1) * (1 - ramp(t, 0.9, 1)) * (1 - off * 2)} />
+              return (
+                <circle
+                  key={`o${k}`}
+                  cx={x}
+                  cy={y}
+                  r={6}
+                  fill={NEON.cyanCore}
+                  opacity={ramp(t, 0, 0.1) * (1 - ramp(t, 0.9, 1)) * (1 - off * 2)}
+                />
+              )
             })
           : null}
       </Glow>
