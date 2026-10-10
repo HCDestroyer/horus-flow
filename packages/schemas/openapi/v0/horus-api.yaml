@@ -176,6 +176,8 @@ paths:
     $ref: ./alerts.yaml#/paths/~1notification-deliveries
   /permissions:
     $ref: ./auth.yaml#/paths/~1permissions
+  /platform/events:
+    $ref: ./platform.yaml#/paths/~1platform~1events
   /platform/exporters/unregistered:
     $ref: ./platform.yaml#/paths/~1platform~1exporters~1unregistered
   /platform/installation:

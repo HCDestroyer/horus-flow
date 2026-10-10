@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"regexp"
+	"sync/atomic"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
@@ -89,6 +90,22 @@ func (m *Migrator) Close() error {
 	return nil
 }
 
+// MigrationObserver recibe cada aplicación de migraciones con cambios
+// (esquema, cuántas, versión resultante, error). El proceso `horus` lo usa
+// para el registro de eventos de plataforma (D23).
+type MigrationObserver func(ctx context.Context, schema string, applied int, version int64, err error)
+
+var observer atomic.Pointer[MigrationObserver]
+
+// SetMigrationObserver fija el observador de migraciones del proceso (nil lo quita).
+func SetMigrationObserver(o MigrationObserver) {
+	if o == nil {
+		observer.Store(nil)
+		return
+	}
+	observer.Store(&o)
+}
+
 // Migrate es atajo de NewMigrator + Up + Close.
 func Migrate(ctx context.Context, d *DB, schema string, fsys fs.FS, logger *slog.Logger) (int, error) {
 	m, err := NewMigrator(ctx, d, schema, fsys, logger)
@@ -96,5 +113,10 @@ func Migrate(ctx context.Context, d *DB, schema string, fsys fs.FS, logger *slog
 		return 0, err
 	}
 	defer func() { _ = m.Close() }()
-	return m.Up(ctx)
+	n, err := m.Up(ctx)
+	if o := observer.Load(); o != nil && (n > 0 || err != nil) {
+		v, _ := m.Version(ctx)
+		(*o)(ctx, schema, n, v, err)
+	}
+	return n, err
 }
