@@ -88,6 +88,13 @@ export default defineNuxtConfig({
   },
 
   nitro: {
+    // Windows: Nuxt 4.6.0 dejaba el renderer fuera del bundle de Nitro por las rutas con `\` y
+    // el servidor respondía 500 "Either manifest or precomputed data must be provided"
+    // (nuxt/nuxt#36467). 4.6.1 trae el arreglo; esta regla, independiente del separador, lo
+    // garantiza en cualquier sistema.
+    externals: {
+      inline: [/[\\/]node_modules[\\/]nuxt[\\/]dist[\\/]/],
+    },
     prerender: {
       // SPA pura: solo se genera el shell (index.html + 200.html/404.html).
       crawlLinks: false,

@@ -1140,6 +1140,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/platform/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Registro de eventos de plataforma (arranques, caídas, migraciones, degradaciones; D23)
+         * @description Eventos de la instalación, más recientes primero: arranque y parada de cada proceso y rol con su versión,
+         *     paradas no limpias detectadas al arrancar (`unclean_shutdown`), dependencias caídas o recuperadas según el
+         *     healthcheck de cada rol, migraciones aplicadas, búfer de telemetría por encima del 70 %, spool activo,
+         *     reinicios del agente WireGuard, fallos definitivos de envío de alertas y cambios de la configuración
+         *     efectiva entre arranques. Sin datos de clientes; `tenant_id` solo en eventos de un ISP (p. ej.
+         *     `alert_delivery_failed`). Retención `HORUS_PLATFORM_EVENTS_RETENTION` (90 días). La UI de la consola de
+         *     plataforma queda pendiente.
+         */
+        get: operations["platformListEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/platform/exporters/unregistered": {
         parameters: {
             query?: never;
@@ -1356,6 +1382,30 @@ export interface paths {
         put?: never;
         /** Suspende un ISP (sus tokens dejan de emitirse; los vigentes reciben 403 TENANT_SUSPENDED) */
         post: operations["platformSuspendTenant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/updates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Aviso de versión nueva de Horus (canal stable o beta) con notas y comando de actualización
+         * @description Lo calcula el rol `jobs` cada 6 h consultando la fuente de versiones de la instalación
+         *     (`HORUS_UPDATE_SOURCE`: API de releases de GitHub o un `latest.json` publicado con cada release).
+         *     Sin salida a Internet la comprobación falla en silencio y `status` = `unchecked`. Solo lectura: la
+         *     actualización la aplica la persona en el servidor (`sudo horus-ctl upgrade`) o, si está activada, la
+         *     actualización automática de parches (Z de X.Y.Z) en la ventana de mantenimiento.
+         */
+        get: operations["platformGetUpdates"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2367,7 +2417,7 @@ export interface components {
             };
             /** @description Avisos para la consola de plataforma (enum abierto de `code`). */
             warnings: {
-                code: ("ip_only_access" | "self_signed_certificate" | "certificate_expiring" | "acme_renewal_failed") | string;
+                code: ("ip_only_access" | "self_signed_certificate" | "certificate_expiring" | "acme_renewal_failed" | "proxy_forwarded_proto_http" | "proxy_untrusted_source") | string;
                 message: string;
                 /** @enum {string} */
                 severity: "info" | "warning" | "critical";
@@ -2656,6 +2706,29 @@ export interface components {
             roles: components["schemas"]["Role"][];
             /** @example v0 */
             version: string;
+        };
+        PlatformEvent: {
+            /** @description Datos del evento sin secretos ni datos de clientes (p. ej. dependency, error, schema, changed_keys). */
+            details?: {
+                [key: string]: unknown;
+            };
+            /** Format: uuid */
+            id: string;
+            /** @description Hostname del contenedor (o HORUS_INSTANCE). */
+            instance: string;
+            /** @enum {string} */
+            kind: "process_started" | "process_stopped" | "unclean_shutdown" | "role_started" | "role_stopped" | "role_failed" | "dependency_down" | "dependency_recovered" | "migration_applied" | "buffer_high" | "buffer_recovered" | "spool_active" | "spool_drained" | "alert_delivery_failed" | "config_changed" | "agent_restarted" | "container_restarted";
+            message: string;
+            occurred_at: components["schemas"]["Timestamp"];
+            /** @example horus-app */
+            process: string;
+            role?: string;
+            /** @enum {string} */
+            severity: "info" | "warn" | "error";
+            /** Format: uuid */
+            tenant_id?: string | null;
+            trace_id?: string;
+            version?: string;
         };
         PlatformUser: {
             display_name: string;
@@ -3252,9 +3325,11 @@ export interface components {
          *     `acme_ip`: certificado para IP si el emisor ACME lo soporta (solo `ip_only`, opcional).
          *     `self_signed`: certificado autogenerado en la instalación con SAN = IP (por defecto en `ip_only`).
          *     `provided`: certificado aportado por el operador (CA interna del ISP), en cualquier modo.
+         *     `external`: TLS terminado por un proxy inverso de la persona (Nginx Proxy Manager, nginx, Caddy…) delante
+         *     de Horus; Traefik sirve HTTP solo a `--trusted-proxies` y Horus no emite HSTS (cuarto modo de D19).
          * @enum {string}
          */
-        TlsMode: "acme" | "acme_ip" | "self_signed" | "provided";
+        TlsMode: "acme" | "acme_ip" | "self_signed" | "provided" | "external";
         TopResult: {
             dimension: string;
             others: {
@@ -3286,6 +3361,38 @@ export interface components {
         };
         /** @description Contador que puede superar 2^53, serializado como string decimal. */
         Uint64String: string;
+        UpdateStatus: {
+            /** @enum {string} */
+            channel: "stable" | "beta";
+            checked_at: components["schemas"]["Timestamp"] | null;
+            /**
+             * @description Versión instalada (HORUS_VERSION, semver).
+             * @example 1.2.3
+             */
+            current_version: string;
+            /** @description Motivo de `unchecked` (texto para la consola; sin secretos). */
+            error?: string | null;
+            latest?: null | {
+                /** @description Notas del cambio (Markdown de la release), recortadas a 8 KiB. */
+                notes?: string | null;
+                /** Format: uri */
+                notes_url: string;
+                /** @description true si solo cambia Z (X.Y iguales): la actualización automática, si está activada, la aplicará en la ventana. */
+                patch_only: boolean;
+                published_at?: components["schemas"]["Timestamp"] | null;
+                /** @example sudo horus-ctl upgrade --to 1.2.4 */
+                upgrade_command: string;
+                /** @example 1.2.4 */
+                version: string;
+            };
+            /**
+             * @description `up_to_date`: no hay versión mayor en el canal. `available`: hay una (ver `latest`). `unchecked`: no se
+             *     pudo consultar la fuente (sin Internet, fuente caída) o la comprobación está desactivada.
+             * @enum {string}
+             */
+            status: "up_to_date" | "available" | "unchecked";
+            update_available: boolean;
+        };
         /**
          * Format: uuid
          * @description UUIDv7 canónico.
@@ -5711,6 +5818,45 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
         };
     };
+    platformListEvents: {
+        parameters: {
+            query?: {
+                /** @description Cursor opaco (`page.next_cursor`); ligado a filtros, orden y `tid`. Ajeno → `400 INVALID_CURSOR`. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Tipos separados por comas. */
+                kind?: string;
+                /** @description Tamaño de página (1–200, por defecto 50). Fuera de rango → 400. */
+                limit?: components["parameters"]["Limit"];
+                process?: string;
+                role?: string;
+                /** @description Severidad mínima. */
+                severity?: "info" | "warn" | "error";
+                since?: components["schemas"]["Timestamp"];
+                until?: components["schemas"]["Timestamp"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Página de eventos. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["PlatformEvent"][];
+                        page: components["schemas"]["PageInfo"];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
     platformListUnregisteredExporters: {
         parameters: {
             query?: {
@@ -6173,6 +6319,28 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             409: components["responses"]["Conflict"];
+        };
+    };
+    platformGetUpdates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Estado de la última comprobación. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateStatus"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     platformListUsers: {
