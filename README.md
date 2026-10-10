@@ -32,6 +32,7 @@ sí en datos, API, eventos y permisos.
 - [Seguridad y privacidad](#seguridad-y-privacidad)
 - [Desarrollo](#desarrollo)
 - [Documentación](#documentación)
+- [Licencia](#licencia)
 
 ## Funciones
 
@@ -226,3 +227,16 @@ Convenciones de código, flujo de trabajo y Definición de Terminado:
 | [`docs/security.md`](docs/security.md) | Aislamiento, autenticación, privacidad |
 | [`docs/po-decisions.md`](docs/po-decisions.md) | Decisiones del product owner (D1–D23) |
 | [`docs/README.md`](docs/README.md) | Índice completo del diseño |
+
+## Licencia
+
+Horus Flow es **software propietario**. Copyright © 2026 [TITULAR]. Todos los derechos reservados.
+
+Su uso requiere un contrato de licencia escrito con el titular; sin él no se concede ningún
+derecho. Queda prohibido copiarlo, modificarlo, distribuirlo, ofrecerlo como servicio a terceros o
+aplicarle ingeniería inversa salvo autorización escrita. Texto completo en [`LICENSE`](LICENSE).
+
+Los componentes de terceros (ClickHouse, PostgreSQL, NATS, Valkey, Traefik, librerías Go y npm) se
+rigen por sus propias licencias, listadas en [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+`make licenses-check` comprueba en cada cambio que ninguna dependencia nueva sea incompatible con
+una licencia propietaria (GPL, AGPL, LGPL o desconocida).

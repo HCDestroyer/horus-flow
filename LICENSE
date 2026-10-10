@@ -1,0 +1,80 @@
+LICENCIA DE SOFTWARE PROPIETARIO — HORUS FLOW
+
+Copyright (c) 2026 [TITULAR]. Todos los derechos reservados.
+
+1. Titularidad
+
+   Horus Flow, incluido su código fuente y objeto, binarios, imágenes de contenedor, scripts,
+   esquemas, contratos, interfaz, documentación y demás materiales de este repositorio (el
+   "Software"), es propiedad exclusiva de [TITULAR] (el "Titular") y está protegido por las leyes
+   de derechos de autor y los tratados internacionales aplicables. Esta licencia no transfiere
+   ninguna titularidad.
+
+2. Uso solo con licencia escrita
+
+   El Software solo puede instalarse, ejecutarse o usarse en virtud de un contrato de licencia
+   escrito y vigente firmado con el Titular (el "Contrato"), y únicamente dentro del alcance, el
+   plazo, el número de instalaciones y las demás condiciones que fije ese Contrato. Sin Contrato
+   no se concede ningún derecho de uso. El acceso al repositorio o la posesión de una copia del
+   Software no constituyen una licencia.
+
+3. Restricciones
+
+   Salvo autorización expresa y por escrito del Titular, o en la medida en que la ley aplicable
+   lo permita de forma imperativa, queda prohibido:
+
+   a) copiar, reproducir, modificar, traducir o crear obras derivadas del Software;
+   b) distribuir, sublicenciar, vender, arrendar, prestar, publicar o poner el Software a
+      disposición de terceros, incluido su uso como servicio para terceros;
+   c) descompilar, desensamblar o aplicar ingeniería inversa al Software;
+   d) eliminar o alterar avisos de copyright, marcas o identificaciones del Software;
+   e) eludir medidas técnicas de licencia, firma o verificación del Software.
+
+4. Componentes de terceros
+
+   El Software incluye o utiliza componentes de terceros que se rigen por sus propias licencias,
+   indicadas en el archivo THIRD_PARTY_NOTICES.md. Esta licencia no limita los derechos que esas
+   licencias conceden sobre dichos componentes.
+
+5. Confidencialidad
+
+   El código fuente, la arquitectura y la documentación no pública del Software son información
+   confidencial del Titular. Quien acceda a ellos deberá protegerlos con al menos el mismo cuidado
+   que su propia información confidencial y no revelarlos a terceros.
+
+6. Ausencia de garantías
+
+   Salvo que el Contrato disponga otra cosa, el Software se proporciona "TAL CUAL", sin garantías
+   de ningún tipo, expresas o implícitas, incluidas las de comerciabilidad, idoneidad para un fin
+   determinado y no infracción.
+
+7. Limitación de responsabilidad
+
+   Salvo que el Contrato disponga otra cosa y en la máxima medida permitida por la ley, el Titular
+   no será responsable de daños indirectos, incidentales, especiales o consecuentes, ni de la
+   pérdida de datos, beneficios o actividad, derivados del uso o de la imposibilidad de uso del
+   Software.
+
+8. Terminación
+
+   Cualquier derecho de uso termina automáticamente si se incumple esta licencia o el Contrato. Al
+   terminar, deberán cesar todos los usos y destruirse todas las copias del Software.
+
+9. Contacto
+
+   Para obtener una licencia o consultar sus condiciones, contacte con el Titular.
+
+----------------------------------------------------------------------------------------------------
+
+PROPRIETARY SOFTWARE LICENSE — HORUS FLOW (English summary)
+
+Copyright (c) 2026 [TITULAR]. All rights reserved.
+
+This software is proprietary and confidential. It may only be installed, run or used under a
+written license agreement in force with the copyright holder, and only within its terms. No right
+is granted without such an agreement. Copying, modification, distribution, sublicensing, providing
+it as a service to third parties, and reverse engineering are prohibited except as expressly
+authorized in writing or as mandatorily permitted by applicable law. Third-party components are
+governed by their own licenses, listed in THIRD_PARTY_NOTICES.md. Unless the license agreement
+states otherwise, the software is provided "AS IS", without warranty of any kind. The Spanish text
+above prevails.

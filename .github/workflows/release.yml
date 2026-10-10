@@ -48,6 +48,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Licencia con titular
+        run: |
+          if grep -q '\[TITULAR\]' LICENSE; then
+            echo "LICENSE aún tiene el marcador [TITULAR]: pon la razón social antes de publicar"; exit 1
+          fi
       - name: Versión (semver de la etiqueta)
         id: v
         env:

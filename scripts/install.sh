@@ -788,7 +788,8 @@ release_paths=(VERSION images.lock deployments/compose/compose.prod.yaml deploym
   infrastructure/traefik/prod/horus.external.yml.tmpl
   infrastructure/nats/nats.prod.conf infrastructure/nats/kv.yaml infrastructure/backup/clickhouse-backups.xml
   infrastructure/backup/httpd.conf packages/events/streams/streams.yaml scripts/install.sh scripts/horus-ctl.sh
-  scripts/bootstrap-debian.sh scripts/backup/horus-backup.sh docs/install-debian.md)
+  scripts/bootstrap-debian.sh scripts/backup/horus-backup.sh docs/install-debian.md
+  LICENSE THIRD_PARTY_NOTICES.md)
 
 # copy_release: copia el árbol de esta versión a <instalación>/release (lo usan bin/install.sh,
 # bin/horus-ctl y la vuelta atrás de horus-ctl upgrade). En un repo sin VERSION se escribe la

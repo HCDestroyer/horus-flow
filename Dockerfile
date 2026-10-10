@@ -41,6 +41,7 @@ ARG VERSION=dev
 ARG REVISION=unknown
 ARG CREATED=unknown
 LABEL org.opencontainers.image.title="horus" \
+      org.opencontainers.image.licenses="LicenseRef-Proprietary" \
       org.opencontainers.image.description="Horus Flow: binario modular con roles (HORUS_ROLES)" \
       org.opencontainers.image.source="https://github.com/hcdestroyer/horus-flow" \
       org.opencontainers.image.version="${VERSION}" \

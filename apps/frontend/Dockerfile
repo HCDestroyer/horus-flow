@@ -33,6 +33,7 @@ RUN pnpm exec nuxt prepare && pnpm build
 FROM ${RUNTIME_IMAGE}
 ARG VERSION=dev
 LABEL org.opencontainers.image.title="horus-web" \
+      org.opencontainers.image.licenses="LicenseRef-Proprietary" \
       org.opencontainers.image.description="Horus Flow: interfaz web (SPA estática)" \
       org.opencontainers.image.version="${VERSION}"
 WORKDIR /app

@@ -351,9 +351,36 @@ jobs:
           make reset
 
   # -------------------------------------------------------------------------------------------
+  licenses:
+    name: licenses
+    needs: changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          package_json_file: apps/frontend/package.json
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: lts/*
+          cache: pnpm
+          cache-dependency-path: apps/frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: apps/frontend
+      - name: make licenses-check (licencia propietaria y avisos de terceros)
+        run: make licenses-check
+
+  # -------------------------------------------------------------------------------------------
   dod:
     name: dod
-    needs: [changes, lint, unit, integration, contracts, security, build, frontend, compose-smoke]
+    needs: [changes, lint, unit, integration, contracts, security, build, frontend, compose-smoke, licenses]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -374,7 +401,7 @@ jobs:
   # -------------------------------------------------------------------------------------------
   ci-ok:
     name: ci-ok
-    needs: [changes, lint, unit, integration, contracts, security, build, frontend, compose-smoke, dod]
+    needs: [changes, lint, unit, integration, contracts, security, build, frontend, compose-smoke, licenses, dod]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 2

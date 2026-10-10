@@ -31,5 +31,6 @@ RUN pgbackrest version \
 # --user 0:0 explícitamente para preparar su directorio efímero.
 USER 70:70
 LABEL org.opencontainers.image.title="horus-postgres" \
+      org.opencontainers.image.licenses="PostgreSQL AND MIT" \
       org.opencontainers.image.description="PostgreSQL 18.6 con pgBackRest 2.59.3 (Horus Flow, I1-23)" \
       org.opencontainers.image.source="https://github.com/hcdestroyer/horus-flow"
