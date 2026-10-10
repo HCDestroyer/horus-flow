@@ -9,6 +9,8 @@
 #
 #   docker compose --project-directory /opt/horus -f /opt/horus/compose.yaml --env-file /opt/horus/.env ps
 #
+# Imágenes de terceros: versión fija y digest por defecto; con el paquete offline
+# (--image-source bundle:...) el instalador usa la misma etiqueta cargada y verificada.
 # Reglas (además de las del compose de desarrollo): imágenes con versión fija y digest, nada
 # escucha en Internet salvo Traefik (HTTP/HTTPS) y el puerto UDP de WireGuard del host; el UDP
 # de IPFIX/NetFlow solo se publica en la IP del hub en la interfaz del túnel (wg0) y el
@@ -108,7 +110,7 @@ services:
   # ------------------------------------------------------------------------------------------
   clickhouse:
     <<: *hardening
-    image: clickhouse/clickhouse-server:26.8.20.9@sha256:9b61e3c635c04ad5bb521eb4f6e61ce7585b5580814e51c25bb9e8292ce43364
+    image: ${HORUS_CLICKHOUSE_IMAGE:-clickhouse/clickhouse-server:26.8.20.9@sha256:9b61e3c635c04ad5bb521eb4f6e61ce7585b5580814e51c25bb9e8292ce43364}
     environment:
       CLICKHOUSE_DB: ${HORUS_CH_DB:-horus}
       CLICKHOUSE_USER: ${HORUS_CH_USER:-horus}
@@ -139,7 +141,7 @@ services:
   # ------------------------------------------------------------------------------------------
   nats:
     <<: *hardening
-    image: nats:2.14.7-alpine@sha256:4063edae0717ba5f7501bfde75f97fd9b57f5b93597b92c70b6a6fbbf6a74e06
+    image: ${HORUS_NATS_IMAGE:-nats:2.14.7-alpine@sha256:4063edae0717ba5f7501bfde75f97fd9b57f5b93597b92c70b6a6fbbf6a74e06}
     command: ["nats-server", "--config", "/etc/nats/nats.conf"]
     environment:
       HORUS_NATS_MAX_FILE_STORE: ${HORUS_NATS_MAX_FILE_STORE:-60GB}
@@ -183,7 +185,7 @@ services:
   # ------------------------------------------------------------------------------------------
   valkey:
     <<: *hardening
-    image: valkey/valkey:8.1.10-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
+    image: ${HORUS_VALKEY_IMAGE:-valkey/valkey:8.1.10-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507}
     command: ["valkey-server", "--appendonly", "yes", "--aclfile", "/run/secrets/valkey_acl",
               "--maxmemory", "384mb", "--maxmemory-policy", "volatile-lru"]
     secrets:
@@ -207,7 +209,7 @@ services:
   # ------------------------------------------------------------------------------------------
   traefik:
     <<: *hardening
-    image: traefik:v3.7.14@sha256:e849695bc5c317da0cec22bfee4794fd9e15871fe554f864d31b625983e883ff
+    image: ${HORUS_TRAEFIK_IMAGE:-traefik:v3.7.14@sha256:e849695bc5c317da0cec22bfee4794fd9e15871fe554f864d31b625983e883ff}
     user: "65534:65534"
     read_only: true
     command:
@@ -442,7 +444,7 @@ services:
   # ------------------------------------------------------------------------------------------
   backup-metrics:
     <<: *hardening
-    image: busybox:1.37.0-musl@sha256:5cec3fc171c87218698e85a52af7087de727372aae264a787b8112901a5b0092
+    image: ${HORUS_BUSYBOX_IMAGE:-busybox:1.37.0-musl@sha256:5cec3fc171c87218698e85a52af7087de727372aae264a787b8112901a5b0092}
     user: "65534:65534"
     read_only: true
     command: ["httpd", "-f", "-p", "9109", "-h", "/www", "-c", "/etc/httpd.conf"]
