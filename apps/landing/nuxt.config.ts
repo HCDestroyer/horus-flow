@@ -167,4 +167,14 @@ export default defineNuxtConfig({
   nitro: {
     compressPublicAssets: true,
   },
+
+  // `nuxt dev`: el escaneo automático de dependencias de Vite falla con los componentes de
+  // Nuxt UI que importan `#components` ("Missing #components specifier in @nuxtjs/i18n"). En
+  // Windows ese fallo deja al servidor de desarrollo sin manifiesto del cliente y cualquier página
+  // de error (p. ej. /sw.js de otra app en localhost) da 500 "Either manifest or precomputed data
+  // must be provided". Sin descubrimiento automático no hay escaneo; Vite pre-empaqueta bajo
+  // demanda. No afecta al build de producción.
+  $development: {
+    vite: { optimizeDeps: { noDiscovery: true } },
+  },
 })
