@@ -141,11 +141,16 @@ s_go_integration() {
   fi
   # Los tests del esquema ClickHouse (I0-13) usan un servidor real: el del compose de
   # aceptación (BORRAN las bases flows/dim y los usuarios horus_*; por eso va tras e2e-api).
+  # Todos los paquetes con chtest comparten ese servidor y sus bases fijas (flows, dim) y usuarios
+  # horus_*: TestSchemaV0 los borra y los demás los reprovisionan con su contraseña. En paralelo
+  # (-p 4) se pisaban: "horus_detection: Authentication failed" y hallazgos que no aparecían en
+  # tests/detection. Se compila en paralelo (-run '^$') y los binarios corren de uno en uno (-p 1).
   local ch_user ch_db
   ch_user="$(env_value HORUS_CH_USER)"; ch_db="$(env_value HORUS_CH_DB)"
+  $GO test -tags=integration -race -count=1 -run '^$' ./... >/dev/null || return 1
   HORUS_CH_TEST_DSN="clickhouse://${ch_user}@127.0.0.1:${HORUS_CH_NATIVE_PORT}/${ch_db}" \
     HORUS_CH_TEST_PASSWORD_FILE="$compose_dir/secrets/clickhouse_password.txt" \
-    $GO test -tags=integration -race -shuffle=on -count=1 ./...
+    $GO test -tags=integration -race -shuffle=on -count=1 -p 1 ./...
 }
 
 s_lint() {
