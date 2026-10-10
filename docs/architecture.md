@@ -666,9 +666,11 @@ volumen por delta salvo reinicio o *wrap*).
   y al volver el bus se publica `horus.flows.collector.data_gap`. **Medido en I1-26:** ~150 B por
   flujo en el búfer (23,5 MB tras 30 s de NATS caído a 5 000 flujos/s, sin pérdida), es decir
   **256 MiB ≈ 6 min a 5 000 flujos/s (nodo mediano), ≈ 35 s a 50 000 y ≈ 18 s a 100 000 (S en pico)
-  y ≈ 6 – 12 s en M en pico**. **No hay spool a disco** en I1: más autonomía exige subir el búfer
-  (memoria del contenedor) o implementar el spool (pendiente). Reiniciar el collector pierde su
-  búfer y lo que llega mientras está caído (UDP sin reintento).
+  y ≈ 6 – 12 s en M en pico**. **Spool a disco (D23, §10.15):** en cuanto una publicación falla, los
+  lotes (también los que esperaban en memoria) van a disco (`HORUS_COLLECTOR_SPOOL_BYTES`, 8 GiB) y
+  se reenvían en orden con el mismo `Nats-Msg-Id` al volver el bus; un apagado o un `kill -9` del
+  collector con NATS caído ya no pierde lo recibido. Lo que llega mientras el propio collector está
+  caído se sigue perdiendo (UDP sin reintento), pero se mide (§10.16).
 - **Recuperación:** automática; outbox drena; consumidores deduplican.
 - **Datos perdidos:** eventos de dominio ninguno; telemetría lo que exceda los buffers.
 
