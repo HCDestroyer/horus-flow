@@ -137,7 +137,7 @@ colector, con la IP de túnel como origen: el mismo camino que un MikroTik.
 | Paso | Historias | Qué comprueba |
 | --- | --- | --- |
 | `go-build` | I0-04 | `make build`, `flowsim` y `pcapreplay` |
-| `lint` | I1-24 | golangci-lint con `--build-tags acceptance` sobre `tests/acceptance` y shellcheck de los scripts |
+| `lint` | I1-24 | golangci-lint con `--build-tags acceptance` sobre `tests/acceptance` y shellcheck de los scripts (imagen `koalaman/shellcheck:v0.11.0`, la misma en local y en el nocturno; `SHELLCHECK=ruta` para otro; sin shellcheck el paso falla) |
 | `sim-verify` | I0-10, I0-12 | los seis escenarios sin router y la captura real con su `expected.json` |
 | `flows-golden` | I1-04, I1-24 | `make test-flows-golden`: la captura real por collector + ingester contra ClickHouse (testcontainers) |
 | `image` | I0-04 | imagen `horus:accept-i1` (solo `TARGET=local`) |
