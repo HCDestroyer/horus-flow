@@ -112,12 +112,12 @@ export const pricing: PricingConfig = {
         GTQ: { monthly: 3090, annual: 30900 },
       },
       summary: {
-        es: 'Para un ISP con varios nodos y ~2 000 clientes.',
+        es: 'Para un ISP con varios nodos y ~2 000 clientes.',
         en: 'For an ISP with several nodes and ~2,000 subscribers.',
       },
       server: { es: '8 núcleos · 16 GB RAM · 500 GB SSD', en: '8 cores · 16 GB RAM · 500 GB SSD' },
       includes: [
-        { es: 'Hasta ~2 000 clientes (IPs)', en: 'Up to ~2,000 subscribers (IPs)' },
+        { es: 'Hasta ~2 000 clientes (IPs)', en: 'Up to ~2,000 subscribers (IPs)' },
         { es: '1 ISP, routers MikroTik ilimitados', en: '1 ISP, unlimited MikroTik routers' },
         {
           es: 'Alertas por correo, Telegram y LibreNMS',
@@ -137,7 +137,7 @@ export const pricing: PricingConfig = {
         GTQ: { monthly: 7650, annual: 76500 },
       },
       summary: {
-        es: 'Para un ISP de ~10 000 clientes.',
+        es: 'Para un ISP de ~10 000 clientes.',
         en: 'For an ISP with ~10,000 subscribers.',
       },
       server: {
@@ -145,7 +145,7 @@ export const pricing: PricingConfig = {
         en: '8 cores · 32 GB RAM · 500 GB NVMe',
       },
       includes: [
-        { es: 'Hasta ~10 000 clientes (IPs)', en: 'Up to ~10,000 subscribers (IPs)' },
+        { es: 'Hasta ~10 000 clientes (IPs)', en: 'Up to ~10,000 subscribers (IPs)' },
         { es: 'Todo lo del plan Mediano', en: 'Everything in Medium' },
         { es: 'Soporte prioritario', en: 'Priority support' },
         {
@@ -161,7 +161,7 @@ export const pricing: PricingConfig = {
       clients: null,
       prices: null,
       summary: {
-        es: 'Varios ISP aislados en una instalación, o más de 10 000 clientes.',
+        es: 'Varios ISP aislados en una instalación, o más de 10 000 clientes.',
         en: 'Several isolated ISPs on one installation, or more than 10,000 subscribers.',
       },
       server: null,

@@ -158,12 +158,12 @@
     "colResult": "Resultado",
     "rows": {
       "restart": {
-        "test": "Reinicios bruscos (kill -9 y restart) del collector, horus-app, NATS y ClickHouse, tres veces cada uno, a 10 000 flujos/s",
+        "test": "Reinicios bruscos (kill -9 y restart) del collector, horus-app, NATS y ClickHouse, tres veces cada uno, a 10 000 flujos/s",
         "result": "0 flujos perdidos, 0 duplicados y agregados idénticos",
         "note": "La única pérdida es lo que llega por UDP mientras el collector está apagado; se mide y se muestra."
       },
       "clickhouse": {
-        "test": "ClickHouse caído 5 minutos a 20 000 flujos/s",
+        "test": "ClickHouse caído 5 minutos a 20 000 flujos/s",
         "result": "0 pérdida; la cola se vacía en unos 2,5 minutos"
       },
       "platform": {
@@ -172,11 +172,11 @@
       },
       "capacity": {
         "test": "Capacidad sostenida",
-        "result": "10 000 flujos/s con todos los criterios en 4 vCPU compartidas"
+        "result": "10 000 flujos/s con todos los criterios en 4 vCPU compartidas"
       }
     },
     "conditions": "Servidor de pruebas: máquina virtual de 4 vCPU compartidas y 16 GiB, con otras cargas en paralelo. Las cifras son un suelo, no un máximo.",
-    "projection": "Proyección para un ISP de 10 000 clientes: servidor de 8 vCPU y 32 GB, y unos 11 GB al día de flujos crudos (7 días de crudo; agregados hasta 25 meses por cliente y 5 años por nodo)."
+    "projection": "Proyección para un ISP de 10 000 clientes: servidor de 8 vCPU y 32 GB, y unos 11 GB al día de flujos crudos (7 días de crudo; agregados hasta 25 meses por cliente y 5 años por nodo)."
   },
   "security": {
     "eyebrow": "Seguridad y privacidad",
@@ -284,9 +284,9 @@
     "required": "Obligatorio",
     "clientsOptions": {
       "lt300": "Hasta 300",
-      "300to2000": "De 300 a 2 000",
-      "2000to10000": "De 2 000 a 10 000",
-      "gt10000": "Más de 10 000"
+      "300to2000": "De 300 a 2 000",
+      "2000to10000": "De 2 000 a 10 000",
+      "gt10000": "Más de 10 000"
     },
     "routersOptions": {
       "1": "1",
@@ -339,7 +339,7 @@
       },
       "server": {
         "q": "¿Qué servidor necesito?",
-        "a": "Un Debian 12 o 13 limpio (amd64). Desde 4 núcleos, 8 GB de RAM y 100 GB SSD para unos 300 clientes, hasta 8 núcleos, 32 GB y 500 GB NVMe para unos 10 000."
+        "a": "Un Debian 12 o 13 limpio (amd64). Desde 4 núcleos, 8 GB de RAM y 100 GB SSD para unos 300 clientes, hasta 8 núcleos, 32 GB y 500 GB NVMe para unos 10 000."
       },
       "domain": {
         "q": "¿Necesito un dominio?",
