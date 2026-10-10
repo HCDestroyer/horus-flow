@@ -553,6 +553,28 @@ func (s *Store) CreateTenant(ctx context.Context, nt app.NewTenant) error {
 }
 
 // UpdateTenant implementa app.Store (bloqueo optimista por version).
+// SetTenantStatus implementa app.Store.
+func (s *Store) SetTenantStatus(ctx context.Context, id uuid.UUID, from, to string, at time.Time, ev func(domain.Tenant) app.OutboxEvent) (bool, error) {
+	ok := false
+	err := s.db.TenantTx(ctx, pgdb.TenantID(id), func(tx pgx.Tx) error {
+		var v int
+		err := tx.QueryRow(ctx, `UPDATE auth.tenant SET status = $3, updated_at = $4, version = version + 1
+			WHERE id = $1 AND status = $2 AND deleted_at IS NULL RETURNING version`, id, from, to, at).Scan(&v)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		ok = true
+		if ev != nil {
+			return insertOutbox(ctx, tx, ev(domain.Tenant{ID: id, Status: to, Version: v}))
+		}
+		return nil
+	})
+	return ok, err
+}
+
 func (s *Store) UpdateTenant(ctx context.Context, t *domain.Tenant, expect int, ev func(domain.Tenant) app.OutboxEvent) (bool, error) {
 	ok := false
 	err := s.db.TenantTx(ctx, pgdb.TenantID(t.ID), func(tx pgx.Tx) error {

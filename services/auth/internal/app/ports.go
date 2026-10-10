@@ -96,6 +96,8 @@ type Store interface {
 	Tenant(ctx context.Context, id uuid.UUID) (*domain.Tenant, error)
 	CreateTenant(ctx context.Context, nt NewTenant) error
 	UpdateTenant(ctx context.Context, t *domain.Tenant, expectVersion int, ev func(domain.Tenant) OutboxEvent) (bool, error)
+	// SetTenantStatus cambia el estado de from a to (CAS) y emite el evento.
+	SetTenantStatus(ctx context.Context, id uuid.UUID, from, to string, at time.Time, ev func(domain.Tenant) OutboxEvent) (bool, error)
 
 	SyncCatalog(ctx context.Context, c *domain.Catalog) error
 	EnsureSeedAdmin(ctx context.Context, u *domain.User) (bool, error)
