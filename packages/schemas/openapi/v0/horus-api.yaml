@@ -198,6 +198,8 @@ paths:
     $ref: ./platform.yaml#/paths/~1platform~1tenants~1{tenant_id}~1resume
   /platform/tenants/{tenant_id}/suspend:
     $ref: ./platform.yaml#/paths/~1platform~1tenants~1{tenant_id}~1suspend
+  /platform/updates:
+    $ref: ./platform.yaml#/paths/~1platform~1updates
   /platform/users:
     $ref: ./platform.yaml#/paths/~1platform~1users
   /platform/wireguard/hubs:

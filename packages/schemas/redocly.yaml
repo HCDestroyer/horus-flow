@@ -38,7 +38,7 @@ rules:
       property: x-module
     assertions:
       defined: true
-      enum: [gateway, auth, devices, wireguard, flows, analytics, detection, alerts]
+      enum: [gateway, auth, devices, wireguard, flows, analytics, detection, alerts, jobs]
     severity: error
   rule/operation-x-increment:
     subject:

@@ -511,6 +511,11 @@ modules:
         - user
         - api_token
         - kiosk
+  jobs:
+    - prefix: /api/v1/platform/updates
+      scope: platform
+      methods:
+        GET: platform.updates.read
   wireguard:
     - prefix: /api/v1/enroll/wireguard
       scope: public
