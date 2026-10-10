@@ -1,0 +1,38 @@
+# Override del compose de desarrollo para las pruebas de carga y de fallo (historia I1-26).
+#
+# - Inventario base de flujos (packages/go/flowinv) montado en collector y horus-app: el driver
+#   registra ahí el exportador del simulador con la IP de origen que ve el collector (la puerta
+#   de enlace de la red del compose, por el proxy UDP de Docker) y el ISP/nodo dados de alta por
+#   la API. En producción el exportador llega por DEVICES_EVENTS con su IP de túnel WireGuard.
+# - Streams de flujos creados por los propios roles (HORUS_NATS_ENSURE_STREAMS, como en dev y en
+#   tests/flows) con TLM_FLOWS acotado a HORUS_LOAD_TLM_MAX_BYTES (1 GiB por defecto: el NATS de
+#   prueba usa tests/load/nats.load.conf). Es el búfer documentado de la prueba de fallo.
+# - /metrics del collector publicado en el host (horus-app ya publica su puerto de admin).
+# - Estado del exportador más rápido que en producción (silencioso a los 30 s en vez de 2 min)
+#   para que la prueba del colector caído 1 min quepa en el nocturno; el criterio no cambia.
+#
+# Lo usa tests/load/stack.sh; nunca se combina con el compose de producción.
+
+services:
+  nats:
+    volumes:
+      - ${HORUS_LOAD_REPO:?falta HORUS_LOAD_REPO}/tests/load/nats.load.conf:/etc/nats/nats.conf:ro
+
+  horus-app:
+    environment:
+      HORUS_FLOWS_INVENTORY_FILE: /etc/horus-load/inventory.json
+      HORUS_NATS_ENSURE_STREAMS: "true"
+      HORUS_TLM_FLOWS_MAX_BYTES: ${HORUS_LOAD_TLM_MAX_BYTES:-1073741824}
+    volumes:
+      - ${HORUS_LOAD_INV_DIR:?falta HORUS_LOAD_INV_DIR}:/etc/horus-load:ro
+
+  horus-collector:
+    environment:
+      HORUS_FLOWS_INVENTORY_FILE: /etc/horus-load/inventory.json
+      HORUS_NATS_ENSURE_STREAMS: "true"
+      HORUS_TLM_FLOWS_MAX_BYTES: ${HORUS_LOAD_TLM_MAX_BYTES:-1073741824}
+      HORUS_COLLECTOR_SILENT_AFTER: ${HORUS_LOAD_SILENT_AFTER:-30s}
+    volumes:
+      - ${HORUS_LOAD_INV_DIR:?falta HORUS_LOAD_INV_DIR}:/etc/horus-load:ro
+    ports:
+      - "${HORUS_BIND_ADDR:-127.0.0.1}:${HORUS_LOAD_COLLECTOR_ADMIN_PORT:-8083}:8081"
