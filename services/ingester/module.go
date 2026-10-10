@@ -186,22 +186,9 @@ func (m *ingester) Start(ctx context.Context) error {
 	m.consumer = &app.Consumer{Paused: m.pause.PausedString, Proc: proc, Ins: w, Workers: m.cfg.Workers, M: m.metrics, Log: m.log, Ledger: led,
 		Group: app.GroupOptions{Rows: m.cfg.InsertRows, Wait: m.cfg.InsertWait, Flushers: m.cfg.InsertFlushers},
 		DLQ:   func(ctx context.Context, msg *nats.Msg) error { _, err := js.PublishMsg(ctx, msg); return err }}
+	consName := cons.CachedInfo().Name
 	buf := app.NewBufferMonitor(m.deps.Metrics, func(ctx context.Context) (app.BufferState, error) {
-		st, err := js.Stream(ctx, flowbus.StreamTelemetry)
-		if err != nil {
-			return app.BufferState{}, err
-		}
-		info := st.CachedInfo()
-		ci, err := cons.Info(ctx)
-		if err != nil {
-			return app.BufferState{}, err
-		}
-		var maxBytes uint64
-		if info.Config.MaxBytes > 0 {
-			maxBytes = uint64(info.Config.MaxBytes)
-		}
-		return app.BufferState{Bytes: info.State.Bytes, MaxBytes: maxBytes, Msgs: info.State.Msgs,
-			Pending: ci.NumPending + uint64(ci.NumAckPending)}, nil //nolint:gosec // contador
+		return telemetryBufferState(ctx, js, consName)
 	}, m.cfg.BufferWarnRatio, m.log)
 	m.loops = append(m.loops, func(ctx context.Context) { buf.Run(ctx, 10*time.Second) })
 	if h := m.deps.Health; h != nil {
@@ -297,4 +284,28 @@ func MigrateClickHouse(ctx context.Context, environ []string, log *slog.Logger) 
 		return err
 	}
 	return chadapter.Migrate(ctx, cfg, log)
+}
+
+// telemetryBufferState lee la ocupación de TLM_FLOWS y los lotes pendientes
+// del durable consName. Pide la info del consumidor con un objeto propio
+// (Stream.Consumer) y NO con el jetstream.Consumer que consume: su Info()
+// guarda la respuesta sin cerrojo y app.Consumer.Run ya la llama en otra
+// goroutine para la métrica de lag (carrera detectada con -race).
+func telemetryBufferState(ctx context.Context, js jetstream.JetStream, consName string) (app.BufferState, error) {
+	st, err := js.Stream(ctx, flowbus.StreamTelemetry)
+	if err != nil {
+		return app.BufferState{}, err
+	}
+	info := st.CachedInfo()
+	c, err := st.Consumer(ctx, consName)
+	if err != nil {
+		return app.BufferState{}, err
+	}
+	ci := c.CachedInfo()
+	var maxBytes uint64
+	if info.Config.MaxBytes > 0 {
+		maxBytes = uint64(info.Config.MaxBytes)
+	}
+	return app.BufferState{Bytes: info.State.Bytes, MaxBytes: maxBytes, Msgs: info.State.Msgs,
+		Pending: ci.NumPending + uint64(ci.NumAckPending)}, nil //nolint:gosec // contador
 }
