@@ -66,9 +66,9 @@ type bucket struct {
 }
 
 type exporterState struct {
-	cur        api.FlowExporter
-	loaded     bool
-	lastFlow   time.Time
+	cur      api.FlowExporter
+	loaded   bool
+	lastFlow time.Time
 	// firstObs es el primer datagrama visto por este proceso (reinicio del collector).
 	firstObs   time.Time
 	lastSkew   time.Duration
