@@ -6,7 +6,8 @@
 #   la API. En producción el exportador llega por DEVICES_EVENTS con su IP de túnel WireGuard.
 # - Streams creados por los propios roles (HORUS_NATS_ENSURE_STREAMS, como en dev y en tests/flows).
 #   En ese camino natsx deja TLM_FLOWS sin max_bytes (el valor parametrizado no se expande); el
-#   driver lo fija a LOAD_TLM_MAX_BYTES (2 GiB) antes de cada paso: es el búfer de la prueba.
+#   driver lo fija a LOAD_TLM_MAX_BYTES (2 GiB) antes de cada paso: es el búfer de la prueba. Si el
+#   collector llega antes, flowbus lo crea ya con ese límite (HORUS_TLM_FLOWS_MAX_BYTES).
 # - Claves de auth fijas (firma de tokens y KEK de TOTP) generadas por stack.sh: en dev serían
 #   efímeras y el reinicio de horus-app de las pruebas de fallo invalidaría la sesión de prueba.
 # - /metrics del collector publicado en el host (horus-app ya publica su puerto de admin).
@@ -24,6 +25,7 @@ services:
     environment:
       HORUS_FLOWS_INVENTORY_FILE: /etc/horus-load/inventory.json
       HORUS_NATS_ENSURE_STREAMS: "true"
+      HORUS_TLM_FLOWS_MAX_BYTES: ${LOAD_TLM_MAX_BYTES:-2147483648}
       HORUS_AUTH_SIGNING_KEY_FILE: /etc/horus-load-keys/auth_signing_key.pem
       HORUS_AUTH_KEK_FILE: /etc/horus-load-keys/auth_kek.txt
     volumes:
@@ -34,6 +36,7 @@ services:
     environment:
       HORUS_FLOWS_INVENTORY_FILE: /etc/horus-load/inventory.json
       HORUS_NATS_ENSURE_STREAMS: "true"
+      HORUS_TLM_FLOWS_MAX_BYTES: ${LOAD_TLM_MAX_BYTES:-2147483648}
       HORUS_COLLECTOR_SILENT_AFTER: ${HORUS_LOAD_SILENT_AFTER:-30s}
       # Registros por lote (500 por defecto, máximo 2000): cada lote es un INSERT en flows_raw.
       HORUS_COLLECTOR_BATCH_MAX_RECORDS: ${HORUS_LOAD_BATCH_MAX_RECORDS:-500}

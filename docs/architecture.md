@@ -486,7 +486,7 @@ un nodo agrega a todos los clientes del nodo (cientos a miles).
 | Relación media/pico | 0,4 | |
 | Tamaño en el cable | ~50 B/registro | IPFIX. |
 | Tamaño en ClickHouse | ~20 B/fila | A medir en el incremento de tráfico. |
-| Tamaño en NATS | ~60 B/flujo | Protobuf en lotes. |
+| Tamaño en NATS | ~60 B/flujo (supuesto) · **184 B/flujo medido** | Protobuf en lotes de ~500 registros; medido en TLM_FLOWS con el simulador (I1-26, [`tests/load/REPORT.md`](../tests/load/REPORT.md)). La columna "NATS pico" de §9.2 y la autonomía de §9.4 usan el supuesto: con lo medido, ×3. |
 | SNMP | ~170 valores/ciclo por router, 60 s | Sin interfaces PPPoE dinámicas. |
 | Agregados de 1 min para detección | ~1 fila por IP activa × puerto/proto relevante × minuto | Retención corta (7 días). |
 | Operadores concurrentes | 20–50 por instalación + pantallas de kiosco | |
@@ -535,6 +535,13 @@ Stream FLOWS con `max_bytes = 50 GB` en SSD (`discard: old`):
 | S | 3 – 6 MB/s | ~2,3 – 4,6 h → ~6 – 12 h |
 | M | 9 – 18 MB/s | ~46 – 93 min → ~2 – 4 h |
 | L | 30 – 60 MB/s | ~14 – 28 min → ~35 – 70 min |
+
+**Medido en I1-26** ([`tests/load/REPORT.md`](../tests/load/REPORT.md)): un lote de TLM_FLOWS ocupa
+**184 B por flujo** (no 60), así que con `max_bytes = 50 GB` la autonomía real es un tercio de la
+tabla: **S ≈ 45 – 90 min en pico (≈ 1,9 – 3,8 h en media), M ≈ 15 – 30 min en pico (≈ 38 – 76 min
+en media), L ≈ 4,5 – 9 min en pico**. El objetivo de C-12 (≥ 6 h ante caída de ClickHouse) exige
+dimensionar `HORUS_TLM_FLOWS_MAX_BYTES` con 184 B/flujo (p. ej. M en media: ~160 GB) o reducir el
+tamaño del lote en el bus (pendiente de FLOW).
 
 ---
 
@@ -600,8 +607,14 @@ volumen por delta salvo reinicio o *wrap*).
 - **Se degrada:** WebSocket sin eventos (frontend en *polling* 30 s; el kiosco muestra el
   indicador "tiempo real degradado"), propagación entre módulos (incluido el descubrimiento de
   clientes y la recarga de snapshots), alertas nuevas, ingesta.
-- **Colectores:** buffer propio acotado (p. ej. 256 MB en el collector ≈ 40–85 s en S y ≈ 15–30 s
-  en M en pico; configurable, o en disco local si se necesita más autonomía); al llenarse, `horus_flows_dropped_total{reason="bus_unavailable"}`.
+- **Colectores:** buffer propio **en memoria** acotado (`HORUS_COLLECTOR_BUFFER_BYTES`, 256 MiB por
+  defecto); al llenarse se descarta lo nuevo (`horus_collector_dropped_total{reason="bus_unavailable"}`)
+  y al volver el bus se publica `horus.flows.collector.data_gap`. **Medido en I1-26:** ~150 B por
+  flujo en el búfer (23,5 MB tras 30 s de NATS caído a 5 000 flujos/s, sin pérdida), es decir
+  **256 MiB ≈ 6 min a 5 000 flujos/s (nodo mediano), ≈ 35 s a 50 000 y ≈ 18 s a 100 000 (S en pico)
+  y ≈ 6 – 12 s en M en pico**. **No hay spool a disco** en I1: más autonomía exige subir el búfer
+  (memoria del contenedor) o implementar el spool (pendiente). Reiniciar el collector pierde su
+  búfer y lo que llega mientras está caído (UDP sin reintento).
 - **Recuperación:** automática; outbox drena; consumidores deduplican.
 - **Datos perdidos:** eventos de dominio ninguno; telemetría lo que exceda los buffers.
 
@@ -735,6 +748,32 @@ Todos los routers de **todos los ISP** llegan por el hub; es el SPOF más import
   minuto, y `devices` limita las altas por realm. El exceso se cuenta y genera una alerta de
   plataforma; los flujos se siguen guardando (atribuidos por IP aunque el cliente aún no exista en
   PostgreSQL).
+
+### 10.14 Límites medidos en las pruebas de fallo (I1-26)
+
+`make chaos-i1` ([`tests/chaos/`](../tests/chaos/), informe en
+[`tests/load/REPORT.md`](../tests/load/REPORT.md)) los ejercita con el simulador a 5 000 flujos/s
+(nodo mediano) sobre el compose de un servidor:
+
+| Fallo | Pérdida medida | Búfer que la absorbe | Recuperación |
+| --- | --- | --- | --- |
+| ClickHouse parado 30 s | **0 flujos** | TLM_FLOWS (backlog máx. ~360 lotes ≈ 36 s de flujos) | healthy en 6 s, backlog drenado en ~20 s; kiosco de vuelta en 6 s |
+| NATS parado 30 s | **0 flujos** | búfer en memoria del collector (máx. 23,5 MB) | healthy en 6 s, drenado en ~12 s; kiosco (WebSocket) de vuelta en 6 s |
+| `horus-app` parado 30 s | **0 flujos** | TLM_FLOWS (backlog máx. ~270 lotes) | healthy en 6 s, drenado en ~14 s; kiosco de vuelta en 6 s |
+| Collector parado 1 min | **lo enviado durante la caída** (~53 s de flujos de 60 s) | ninguno: UDP sin reintento y sin spool | el hueco es ausencia de filas (la serie de la API da `null`, nunca 0); el exportador pasa por *Silencioso* y vuelve a *Exportando* |
+
+Límites que se derivan: la caída de ClickHouse, NATS o `horus-app` no pierde flujos mientras dure
+menos que su búfer (§9.4 con 184 B/flujo; §10.3: 256 MiB ≈ 6 min a 5 000 flujos/s); la caída del
+**collector** siempre pierde lo no recibido, como la de un router (§10.4). El estado *Silencioso*
+se calcula al volver el collector a partir del último flujo guardado en `flow_exporter_state`
+(con `HORUS_COLLECTOR_SILENT_AFTER` de 2 min, una caída de 1 min no llega a *Silencioso*; la prueba
+usa 30 s).
+
+Pérdida sin fallo de ningún componente (prueba de carga, `make load-i1`): con la CPU del servidor
+saturada, el collector perdió datagramas por desbordamiento del búfer UDP del socket
+(`RcvbufErrors`; el collector pide 8 MiB pero el kernel lo limita a `net.core.rmem_max`, 4 MiB en el
+host de prueba). El instalador debería subir `net.core.rmem_max` (p. ej. 32 MiB) y el collector
+pedir ese tamaño (pendiente).
 
 ---
 
