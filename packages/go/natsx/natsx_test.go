@@ -38,3 +38,23 @@ func TestPermanent(t *testing.T) {
 		t.Fatal("unwrap")
 	}
 }
+
+// El compose de producción pasa la URL de NATS (con contraseña) como secreto:
+// HORUS_NATS_URL_FILE. Sin resolverlo, el relay del outbox, el descubrimiento
+// de clientes y el WebSocket quedaban inactivos en una instalación real.
+func TestEnvValueFile(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "nats_url")
+	if err := os.WriteFile(f, []byte("nats://u:p@nats:4222\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := []string{"HORUS_NATS_URL=nats://old:4222", "HORUS_NATS_URL_FILE=" + f, "HORUS_PROCESS=x"}
+	if got := natsx.EnvValue(env, "HORUS_NATS_URL"); got != "nats://u:p@nats:4222" {
+		t.Fatalf("EnvValue = %q", got)
+	}
+	if got := natsx.EnvValue(env, "HORUS_PROCESS"); got != "x" {
+		t.Fatalf("EnvValue sin _FILE = %q", got)
+	}
+	if got := natsx.EnvValue([]string{"HORUS_NATS_URL_FILE=/no/existe"}, "HORUS_NATS_URL"); got != "" {
+		t.Fatalf("archivo ilegible = %q", got)
+	}
+}
