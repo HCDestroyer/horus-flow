@@ -42,6 +42,11 @@ export HORUS_LOAD_INV_DIR="$HORUS_LOAD_DIR/inventory"
 export HORUS_LOAD_REPO="$repo_root"
 compose=(docker compose --project-directory "$compose_dir" --env-file "$compose_dir/.env.example"
   -f "$compose_dir/compose.dev.yaml" -f "$repo_root/tests/load/compose.load.yaml")
+# LOAD_COMPOSE_EXTRA: overrides adicionales separados por comas (p. ej. tests/load/compose.isp10k.yaml).
+if [ -n "${LOAD_COMPOSE_EXTRA:-}" ]; then
+  IFS=, read -r -a extra <<<"$LOAD_COMPOSE_EXTRA"
+  for f in "${extra[@]}"; do compose+=(-f "$repo_root/$f"); done
+fi
 
 print_env() {
   cat <<EOF

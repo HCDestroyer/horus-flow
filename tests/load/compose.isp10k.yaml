@@ -1,0 +1,11 @@
+# Override de `make load-isp10k` (tests/load/isp10k.sh) sobre tests/load/compose.load.yaml.
+#
+# - El collector pide 32 MiB de búfer UDP (HORUS_COLLECTOR_UDP_RCVBUF). En producción el instalador
+#   sube net.core.rmem_max; la máquina de prueba es compartida y no se toca su sysctl, así que se da
+#   CAP_NET_ADMIN al contenedor para que el collector use SO_RCVBUFFORCE (mismo efecto, solo en su
+#   socket). Es también la alternativa si no se puede cambiar el sysctl del host.
+services:
+  horus-collector:
+    cap_add: [NET_ADMIN]
+    environment:
+      HORUS_COLLECTOR_UDP_RCVBUF: "33554432"

@@ -21,6 +21,7 @@ export SCENARIO=isp10k
 export LOAD_PROJECT="${LOAD_PROJECT:-horus-load-isp10k}"
 export LOAD_PORT_OFFSET="${LOAD_PORT_OFFSET:-24000}"
 export LOAD_IMAGE="${LOAD_IMAGE:-horus:load-isp10k}"
+export LOAD_COMPOSE_EXTRA="${LOAD_COMPOSE_EXTRA:-tests/load/compose.isp10k.yaml}"
 rates="${ISP10K_RATES:-10000,20000,40000,60000}"
 first="${rates%%,*}"
 rest="${rates#*,}"
