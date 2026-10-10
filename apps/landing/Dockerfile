@@ -4,9 +4,8 @@
 # formularios, panel /admin y pagos). Servidor Node sin root y raíz de solo lectura: lo único
 # que escribe es la base de datos SQLite en DATA_DIR=/data (un volumen).
 #
-# better-sqlite3 trae binarios precompilados (glibc) dentro del paquete; Nitro los copia a
-# .output/server/node_modules y funcionan en la imagen distroless (Debian 12, glibc), sin
-# compilador ni Python: no hace falta cambiar la base de la imagen.
+# La base de datos usa el módulo integrado `node:sqlite` (Node ≥ 22.13): sin dependencias nativas,
+# sin compilador ni Python, y funciona en la imagen distroless sin cambiar su base.
 #
 #   docker build -t horus-landing:dev apps/landing
 #

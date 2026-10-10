@@ -9,7 +9,7 @@ Página pública de venta de Horus Flow, de **Connection And Solutions Company, 
 - **Páginas:** portada (`/`, `/en`), compra (`/comprar`, `/en/buy`), legales
   (`/legal/aviso-legal|privacidad|terminos`, `/en/legal/notice|privacy|terms`) y el **panel de
   administración** en `/admin` (solo español, sin enlace público, `noindex`, fuera del sitemap).
-- **Datos:** SQLite (better-sqlite3) en `DATA_DIR`, con migraciones versionadas
+- **Datos:** SQLite (`node:sqlite`, integrado en Node ≥ 22.13; sin compilar nada) en `DATA_DIR`, con migraciones versionadas
   ([`server/lib/migrations.ts`](server/lib/migrations.ts)): planes y precios, ajustes,
   configuración de pagos, solicitudes, administradores, sesiones y auditoría.
 - **Servidor:** `GET /api/site` (catálogo, ajustes y métodos de pago públicos), `POST /api/lead`
