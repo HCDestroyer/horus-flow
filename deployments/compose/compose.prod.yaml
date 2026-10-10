@@ -1,6 +1,7 @@
 # Horus Flow — compose de PRODUCCIÓN de un servidor (historias I1-22 y I1-23).
 #
-# Perfil mínimo de ADR-0025: horus-app, horus-collector y horus-wg-agent (una sola imagen) +
+# Perfil mínimo de ADR-0025: horus-app, horus-collector y horus-wg-agent (una sola imagen),
+# horus-web (interfaz) +
 # PostgreSQL (con pgBackRest), ClickHouse, NATS JetStream, Valkey y Traefik. Lo instala y lo
 # mantiene scripts/install.sh: copia este archivo a <instalación>/compose.yaml, genera
 # <instalación>/.env (sin secretos) y los secretos en HORUS_SECRETS_DIR (/etc/horus/secrets).
@@ -280,6 +281,12 @@ services:
       HORUS_CLICKHOUSE_DETECTION_PASSWORD_FILE: /run/secrets/ch_detection_password
       HORUS_CLICKHOUSE_ALERTS_PASSWORD_FILE: /run/secrets/ch_alerts_password
       HORUS_CLICKHOUSE_JOBS_PASSWORD_FILE: /run/secrets/ch_jobs_password
+      # Aviso de versión nueva (rol jobs): versión instalada, canal y fuente de versiones.
+      # HORUS_UPDATE_CHECK=false lo desactiva (servidores sin salida a Internet: "no comprobado").
+      HORUS_VERSION: ${HORUS_VERSION:-dev}
+      HORUS_UPDATE_CHANNEL: ${HORUS_UPDATE_CHANNEL:-stable}
+      HORUS_UPDATE_SOURCE: ${HORUS_UPDATE_SOURCE:-}
+      HORUS_UPDATE_CHECK: ${HORUS_UPDATE_CHECK:-true}
       # Superadministrador inicial (I0-06): se crea al primer arranque si no existe; el primer
       # login exige cambiar la contraseña y activar TOTP.
       HORUS_SEED_ADMIN_EMAIL: ${HORUS_SEED_ADMIN_EMAIL:?falta HORUS_SEED_ADMIN_EMAIL}
@@ -409,6 +416,25 @@ services:
         condition: service_started
     mem_limit: 128m
     healthcheck: *horus-healthcheck
+
+  # ------------------------------------------------------------------------------------------
+  # Interfaz web (SPA estática, apps/frontend/Dockerfile): Traefik le envía todo lo que no es
+  # /api ni /ws. Sin root, solo lectura, sin secretos ni acceso a las bases.
+  # ------------------------------------------------------------------------------------------
+  horus-web:
+    <<: *hardening
+    image: ${HORUS_WEB_IMAGE:?falta HORUS_WEB_IMAGE}
+    read_only: true
+    environment:
+      HORUS_WEB_PORT: "8081"
+    mem_limit: 128m
+    networks: [horus]
+    healthcheck:
+      test: ["CMD", "/nodejs/bin/node", "-e", "fetch('http://127.0.0.1:8081/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
 
   # ------------------------------------------------------------------------------------------
   # Métricas horus_backup_* y horus_store_* (I1-23): las escribe /opt/horus/bin/horus-backup en
