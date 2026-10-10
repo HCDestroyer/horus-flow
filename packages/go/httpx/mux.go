@@ -44,7 +44,7 @@ func (m *Mux) ForService(service string) *ServiceMux {
 // levantar el servidor de API).
 func (m *Mux) Routes() int { return int(m.routes.Load()) }
 
-// Handler devuelve el handler raíz con request_id, recuperación de pánicos y,
+// Handler devuelve el handler raíz con request_id, traza W3C (Trace), recuperación de pánicos y,
 // si el rol gateway lo instaló, su middleware de borde (autenticación,
 // permiso grueso por ruta, rate limit) delante de todas las rutas.
 func (m *Mux) Handler() http.Handler {
@@ -55,7 +55,7 @@ func (m *Mux) Handler() http.Handler {
 	if edge != nil {
 		h = edge(h)
 	}
-	return RequestID(Recover(m.logger)(h))
+	return RequestID(Trace(Recover(m.logger)(h)))
 }
 
 // Matches indica si alguna ruta registrada atiende r (método y ruta).

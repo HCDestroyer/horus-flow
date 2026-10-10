@@ -33,6 +33,20 @@ func RequestID(next http.Handler) http.Handler {
 	})
 }
 
+// Trace abre el span de la petición (docs/observability.md §4.2): continúa
+// la traza de un `traceparent` W3C válido (la SPA lo envía para unir trazas;
+// solo sirve para correlación, nunca para autorizar) o empieza una nueva.
+// trace_id y span_id quedan en el contexto (logs, outbox → NATS) y la
+// respuesta devuelve el traceparent del span del servidor para que soporte
+// pueda buscar la traza a partir de una respuesta.
+func Trace(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := observability.ContinueTrace(r.Context(), r.Header.Get(observability.HeaderTraceParent))
+		w.Header().Set(observability.HeaderTraceParent, observability.TraceParentFrom(ctx))
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
 func validRequestID(id string) bool {
 	if id == "" || len(id) > maxRequestIDLen {
 		return false

@@ -13,6 +13,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/hcdestroyer/horus-flow/packages/go/observability"
 	"github.com/hcdestroyer/horus-flow/packages/go/pgdb"
 )
 
@@ -171,7 +172,13 @@ func (r *Relay) publish(ctx context.Context, o outboxRow) error {
 	pctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	if _, err := r.JS.PublishMsg(pctx, m, jetstream.WithMsgID(o.id.String())); err != nil {
-		return fmt.Errorf("natsx: publish %s: %w", o.subject, err)
+		lctx := observability.WithEventID(ctx, o.id.String())
+		if tp := m.Header.Get(observability.HeaderTraceParent); tp != "" {
+			lctx = observability.ContinueTrace(lctx, tp)
+		}
+		r.Logger.DebugContext(lctx, "outbox relay: publish attempt failed", slog.String("schema", r.Schema),
+			slog.String("subject", o.subject), slog.Any("error", err))
+		return fmt.Errorf("natsx: publish %s (event %s): %w", o.subject, o.id, err)
 	}
 	return nil
 }
