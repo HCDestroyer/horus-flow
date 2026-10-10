@@ -125,12 +125,15 @@ func (s *Service) Timeseries(ctx context.Context, sc Scope, metrics []string, r 
 }
 
 // Attribution devuelve las proporciones de bytes atribuidos, de
-// infraestructura y fuera de prefijos (flows_raw, ≤ retención cruda).
+// infraestructura y fuera de prefijos. Lee el agregado de 5 min por nodo y
+// estado (flows.attribution_5m, 90 días): sobre flows_raw el filtro por ts no
+// usa el ORDER BY y la consulta leía todas las filas del ISP del día (a 5 000
+// flujos/s, 18 M por hora; tests/load/REPORT.md, nocturno).
 func (s *Service) Attribution(ctx context.Context, sc Scope, r Range) (attributed, infra, unattributed float64, err error) {
 	args := []any{sc.Tenant, r.From, r.To}
 	sql := `SELECT sumIf(bytes, attribution_status IN ('attributed', 'internal')), sumIf(bytes, attribution_status = 'infrastructure'),
 		sumIf(bytes, attribution_status IN ('unknown', 'transit')), sum(bytes)
-		FROM flows.flows_raw WHERE tenant_id = ? AND ts >= ? AND ts < ?` + siteFilter(sc.Sites, &args)
+		FROM flows.attribution_5m WHERE tenant_id = ? AND bucket >= toStartOfFiveMinutes(?) AND bucket < ?` + siteFilter(sc.Sites, &args)
 	rows, cancel, err := s.Q.Query(ctx, sc.Tenant, sql, args...)
 	if err != nil {
 		return 0, 0, 0, err

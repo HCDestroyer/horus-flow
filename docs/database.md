@@ -618,6 +618,7 @@ donde hace falta.
 | `flows.site_1h` | 1 h | igual que `site_5m` | idem | idem | 13 meses |
 | `flows.site_1d` | 1 día | `(tenant_id, site_id, bucket, service_id, remote_asn, direction)` | idem | idem | 5 años |
 | `flows.unattributed_1h` | 1 h | `(tenant_id, site_id, bucket, client_ip)` | bytes, packets | `attribution_status = 'unknown'` (IPs que parecen de clientes pero no están en ningún prefijo: detecta prefijos sin configurar) | 30 d |
+| `flows.attribution_5m` | 5 min | `(tenant_id, site_id, bucket, attribution_status)` | bytes, flows | todo (proporciones de `GET /analytics/traffic/attribution` sin leer `flows_raw`, cuyo ORDER BY no empieza por `ts`) | 90 d |
 | `flows.client_security_1m` | **1 min** | `(tenant_id, site_id, realm_id, client_ip, bucket)` | ver §6.2.1 | `attribution_status IN ('attributed','internal')` | **7 d** |
 | `flows.client_port_1m` | **1 min** | `(tenant_id, realm_id, client_ip, bucket, direction, protocol, remote_port)` | flows, packets, bytes, `syn_only`, `uniqState(remote_ip)` | idem, **solo** puertos de `dim.watch_port` o de amplificación UDP; el resto se agrupa en `remote_port = 0` | **7 d** |
 | `flows.reputation_hit` | evento (MV) | `(tenant_id, realm_id, client_ip, remote_ip, bucket_1h)` | flows, bytes, packets, `syn_only`, `min(ts)`, `max(ts)`, `reputation_category`, `reputation_source_id`, `max(reputation_confidence)`, `reputation_version` | `reputation_category != 'none'` | 13 meses |

@@ -173,6 +173,24 @@ SELECT tenant_id, site_id, toStartOfHour(ts) AS bucket, client_ip, sum(bytes) AS
 FROM flows.flows_raw WHERE attribution_status = 'unknown'
 GROUP BY tenant_id, site_id, bucket, client_ip;
 
+-- Bytes y flujos por nodo y estado de atribución (GET /analytics/traffic/attribution). Añadida tras el
+-- congelado (aditiva, migración 20261010160000): sobre flows_raw el filtro por ts no usa el ORDER BY.
+CREATE TABLE flows.attribution_5m
+(
+    tenant_id UUID, site_id UUID, bucket DateTime('UTC'),
+    attribution_status Enum8('unknown' = 0, 'attributed' = 1, 'infrastructure' = 2, 'transit' = 3, 'internal' = 4),
+    bytes SimpleAggregateFunction(sum, UInt64), flows SimpleAggregateFunction(sum, UInt64)
+)
+ENGINE = AggregatingMergeTree PARTITION BY toYYYYMM(bucket)
+ORDER BY (tenant_id, site_id, bucket, attribution_status)
+TTL bucket + INTERVAL 90 DAY DELETE;
+
+CREATE MATERIALIZED VIEW flows.mv_attribution_5m TO flows.attribution_5m AS
+SELECT tenant_id, site_id, toStartOfFiveMinutes(ts) AS bucket, attribution_status,
+       sum(bytes) AS bytes, sum(toUInt64(merged_flows)) AS flows
+FROM flows.flows_raw
+GROUP BY tenant_id, site_id, bucket, attribution_status;
+
 -- ---------------------------------------------------------------- señales de detección (D5, ADR-0024)
 CREATE TABLE flows.client_security_1m
 (
