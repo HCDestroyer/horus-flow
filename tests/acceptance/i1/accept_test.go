@@ -183,9 +183,8 @@ func (w *world) inventory() error {
 	// La IP de túnel la asigna wireguard al consumir el alta del router (I1-01 criterio 1).
 	seen := map[string]string{}
 	for _, n := range w.nodes {
-		tok := w.token(n.ISP.ID)
 		err := eventually(60*time.Second, time.Second, func() error {
-			r := w.do(get(tok, "/api/v1/routers/"+n.Router))
+			r := w.do(get(w.token(n.ISP.ID), "/api/v1/routers/"+n.Router))
 			n.TunnelIP = r.Str("tunnel_address")
 			if n.TunnelIP == "" {
 				return fmt.Errorf("router %s sin tunnel_address tras 60 s: %s", n.Name, trunc(r.Raw))
@@ -389,9 +388,8 @@ func (w *world) tunnel() error {
 	w.logf("ok  handshake WireGuard de los %d routers simulados", len(w.nodes))
 	// Estado del peer observado por wg-agent (I1-01 criterio 5).
 	n := w.byName["normal"]
-	tok := w.token(n.ISP.ID)
 	return eventually(60*time.Second, 3*time.Second, func() error {
-		r := w.do(get(tok, "/api/v1/wireguard/peers?router_id="+n.Router))
+		r := w.do(get(w.token(n.ISP.ID), "/api/v1/wireguard/peers?router_id="+n.Router))
 		peers := r.Data()
 		if len(peers) != 1 {
 			return fmt.Errorf("GET /wireguard/peers?router_id: se esperaba 1 peer: %s", trunc(r.Raw))
@@ -469,8 +467,8 @@ func (w *world) waitSenders() error {
 
 // --- exporters -------------------------------------------------------------------------------
 
-func (w *world) exporterStates(n *node, tok string) (map[string]any, error) {
-	r := w.do(get(tok, "/api/v1/flow-exporters?site_id="+n.Site))
+func (w *world) exporterStates(n *node) (map[string]any, error) {
+	r := w.do(get(w.token(n.ISP.ID), "/api/v1/flow-exporters?site_id="+n.Site))
 	if r.Status != 200 {
 		return nil, fmt.Errorf("GET /flow-exporters (%s): HTTP %d %s", n.Name, r.Status, trunc(r.Raw))
 	}
@@ -484,7 +482,6 @@ func (w *world) exporterStates(n *node, tok string) (map[string]any, error) {
 
 func (w *world) exporters() error {
 	for _, n := range w.nodes {
-		tok := w.token(n.ISP.ID)
 		want := []string{"exporting"}
 		if n.Fixture != "" {
 			// Captura de 2026-10-09 con saltos de secuencia: su exportTime está desfasado y hay pérdidas.
@@ -492,7 +489,7 @@ func (w *world) exporters() error {
 		}
 		var last map[string]any
 		err := eventually(45*time.Second, 2*time.Second, func() error {
-			e, err := w.exporterStates(n, tok)
+			e, err := w.exporterStates(n)
 			if err != nil {
 				return err
 			}
@@ -520,11 +517,10 @@ func (w *world) customers() error {
 		return err
 	}
 	for _, n := range w.nodes {
-		tok := w.token(n.ISP.ID)
 		want := len(n.Exp.Exporters[0].Clients)
 		var got float64
 		err := eventually(4*time.Minute, 5*time.Second, func() error {
-			r := w.do(get(tok, "/api/v1/customers/stats?site_id="+n.Site))
+			r := w.do(get(w.token(n.ISP.ID), "/api/v1/customers/stats?site_id="+n.Site))
 			if r.Status != 200 {
 				return fmt.Errorf("GET /customers/stats: HTTP %d %s", r.Status, trunc(r.Raw))
 			}
@@ -545,7 +541,7 @@ func (w *world) customers() error {
 			if cursor != "" {
 				path += "&cursor=" + cursor
 			}
-			r := w.expect("GET /customers ("+n.Name+")", get(tok, path), 200)
+			r := w.expect("GET /customers ("+n.Name+")", get(w.token(n.ISP.ID), path), 200)
 			for _, c := range r.Data() {
 				a, _ := c["address"].(string)
 				keys[strings.TrimSuffix(a, "/32")] = true
@@ -599,8 +595,14 @@ func (w *world) chQuery(user, password string, settings map[string]string, sql s
 		password = readSecret(filepath.Join(os.Getenv("ACCEPT_SECRETS_DIR"), "clickhouse_password"))
 	}
 	args := []string{"exec", "-i", ctr, "clickhouse-client", "--user", user, "--password", password, "--format", "TSV"}
-	for k, v := range settings {
-		args = append(args, "--"+k+"="+v)
+	if len(settings) > 0 {
+		// Ajustes personalizados (SQL_*): en la cláusula SETTINGS, no como opción del cliente.
+		var kv []string
+		for k, v := range settings {
+			kv = append(kv, k+" = '"+v+"'")
+		}
+		sort.Strings(kv)
+		sql += " SETTINGS " + strings.Join(kv, ", ")
 	}
 	args = append(args, "-q", sql)
 	out, err := w.run("docker", args...)
@@ -666,13 +668,12 @@ func (w *world) realFlows() error {
 
 func (w *world) traffic() error {
 	n := w.byName["normal"]
-	tok := w.token(n.ISP.ID)
 	from := n.started.Add(-5 * time.Minute).UTC().Format(time.RFC3339)
 	to := time.Now().Add(5 * time.Minute).UTC().Format(time.RFC3339)
 	for _, dim := range []string{"customers", "services", "categories", "organizations", "asns"} {
 		var r acceptkit.Resp
 		err := eventually(3*time.Minute, 10*time.Second, func() error {
-			r = w.do(get(tok, "/api/v1/analytics/traffic/top?dimension="+dim+"&site_id="+n.Site+"&n=10&from="+from+"&to="+to))
+			r = w.do(get(w.token(n.ISP.ID), "/api/v1/analytics/traffic/top?dimension="+dim+"&site_id="+n.Site+"&n=10&from="+from+"&to="+to))
 			if r.Status != 200 {
 				return fmt.Errorf("top %s: HTTP %d %s", dim, r.Status, trunc(r.Raw))
 			}
@@ -710,8 +711,8 @@ type gotFinding struct {
 	Raw                                 map[string]any
 }
 
-func (w *world) listFindings(n *node, tok string) ([]gotFinding, error) {
-	r := w.do(get(tok, "/api/v1/findings?limit=100&site_id="+n.Site))
+func (w *world) listFindings(n *node) ([]gotFinding, error) {
+	r := w.do(get(w.token(n.ISP.ID), "/api/v1/findings?limit=100&site_id="+n.Site))
 	if r.Status != 200 {
 		return nil, fmt.Errorf("GET /findings (%s): HTTP %d %s", n.Name, r.Status, trunc(r.Raw))
 	}
@@ -747,7 +748,6 @@ func (w *world) findings() error {
 		if n.Fixture != "" {
 			continue // captura de un día anterior: fuera de las ventanas del motor
 		}
-		tok := w.token(n.ISP.ID)
 		want := map[string]bool{}
 		for _, f := range n.Exp.Findings {
 			want[f.Client+"|"+f.Kind+"|"+f.Severity] = true
@@ -755,7 +755,7 @@ func (w *world) findings() error {
 		var got []gotFinding
 		check := func() error {
 			var err error
-			if got, err = w.listFindings(n, tok); err != nil {
+			if got, err = w.listFindings(n); err != nil {
 				return err
 			}
 			have := map[string]bool{}
@@ -937,7 +937,7 @@ func (w *world) websocket() error {
 		}
 	}
 	w.logf("ok  WebSocket abierto (ticket de un uso) para el ISP del escenario scan y para el ISP otro; suscritos a security")
-	got, err := w.listFindings(n, tokA)
+	got, err := w.listFindings(n)
 	if err != nil || len(got) == 0 {
 		return fmt.Errorf("no hay hallazgo que reconocer en scan: %v", err)
 	}
@@ -989,7 +989,8 @@ func (w *world) kiosk() error {
 	kid := k.Str("id")
 	code := w.expect("código de enrolamiento", idem(post(tok, "/api/v1/kiosks/"+kid+"/enrollment-codes", nil)), 201)
 	tv := w.c.Fork() // la pantalla: otro navegador
-	xrw := map[string]string{"X-Requested-With": "horus"}
+	// Rutas con cookie de dispositivo: X-Requested-With y Origin de la propia instalación (CSRF).
+	xrw := map[string]string{"X-Requested-With": "horus", "Origin": w.c.Base}
 	en, err := tv.Do(acceptkit.Call{Method: http.MethodPost, Path: "/api/v1/kiosk/enroll", Header: xrw, Body: map[string]string{"code": code.Str("code")}})
 	if err != nil {
 		return err
@@ -1085,8 +1086,7 @@ func (w *world) isolation() error {
 	// Lo de A por id → 404; listados de B vacíos.
 	w.expect("ISP otro: GET /routers/{router de demo} → 404", get(b, "/api/v1/routers/"+demo.Router), 404)
 	w.expect("ISP otro: GET /flow-exporters/{router de demo} → 404", get(b, "/api/v1/flow-exporters/"+demo.Router), 404)
-	tokScan := w.token(scan.ISP.ID)
-	if got, err := w.listFindings(scan, tokScan); err == nil && len(got) > 0 {
+	if got, err := w.listFindings(scan); err == nil && len(got) > 0 {
 		w.expect("ISP otro: GET /findings/{hallazgo de scan} → 404", get(b, "/api/v1/findings/"+got[0].ID), 404)
 	}
 	cs := w.expect("ISP demo: GET /customers", get(w.token(demo.ISP.ID), "/api/v1/customers?limit=1&site_id="+demo.Site), 200)
@@ -1165,11 +1165,10 @@ func (w *world) silent() error {
 		return err
 	}
 	n := w.byName["normal"]
-	tok := w.token(n.ISP.ID)
 	limit := n.finished.Add(2*time.Minute + 30*time.Second) // 2 min + intervalo de estado del colector
 	var last map[string]any
 	err := eventually(time.Until(limit), 5*time.Second, func() error {
-		e, err := w.exporterStates(n, tok)
+		e, err := w.exporterStates(n)
 		if err != nil {
 			return err
 		}

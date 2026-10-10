@@ -333,7 +333,8 @@ func (s *Session) accessLocked() (string, error) {
 	if s.access != "" && time.Until(s.expires) > 90*time.Second {
 		return s.access, nil
 	}
-	r, err := s.C.Do(Call{Method: http.MethodPost, Path: "/api/v1/auth/refresh", Header: map[string]string{"X-Requested-With": "horus"}})
+	r, err := s.C.Do(Call{Method: http.MethodPost, Path: "/api/v1/auth/refresh",
+		Header: map[string]string{"X-Requested-With": "horus", "Origin": s.C.Base}})
 	if err == nil && r.Status == http.StatusOK && r.Str("access_token") != "" {
 		s.access, s.expires = r.Str("access_token"), expiry(r)
 		s.tenant = map[string]tok{}
