@@ -19,6 +19,19 @@ type seqTracker struct {
 	restored   bool
 	restoredAt time.Time
 	Downtime   uint64
+	// Resets cuenta los reinicios de secuencia del exportador.
+	Resets uint64
+}
+
+// reorderDatagrams es cuántos datagramas puede llegar atrasado uno
+// reordenado antes de considerar que la secuencia se reinició.
+const reorderDatagrams = 256
+
+func (s *seqTracker) reorderWindow(ipfix bool) int64 {
+	if !ipfix {
+		return reorderDatagrams
+	}
+	return int64(reorderDatagrams * max(s.avgRecs, 1))
 }
 
 // maxJump separa una pérdida de un reinicio del exportador o un reordenado.
@@ -60,9 +73,16 @@ func (s *seqTracker) observeSeq(ipfix bool, seq uint32, records int) (lost uint6
 			}
 			s.Lost += lost
 		}
-		if diff < 0 && diff > -maxJump {
+		if diff < 0 && diff > -maxJump && -diff <= s.reorderWindow(ipfix) {
 			// Datagrama atrasado (reordenado): no mueve la secuencia esperada.
 			return 0
+		}
+		if diff < 0 {
+			// Salto atrás mayor que cualquier reordenado: el exportador reinició
+			// su secuencia (reinicio del router o del proceso exportador). Sin
+			// esto, todos los datagramas siguientes parecían atrasados hasta
+			// alcanzar la secuencia anterior y los huecos no se medían.
+			s.Resets++
 		}
 	}
 	s.init = true
