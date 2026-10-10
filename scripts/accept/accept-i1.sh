@@ -142,7 +142,7 @@ s_lint() {
   local lint="${GOLANGCI_LINT:-golangci-lint}"
   command -v "$lint" >/dev/null 2>&1 || [ -x "$lint" ] || skip "sin golangci-lint (GOLANGCI_LINT)"
   "$lint" run --build-tags acceptance ./tests/acceptance/... || return 1
-  # shellcheck fijado (la misma versión en local y en el nocturno; SHELLCHECK=shellcheck usa el del
+  # Versión fijada de shellcheck (la misma en local y en el nocturno; SHELLCHECK=shellcheck usa el del
   # PATH). Sin él el paso falla: no se da por bueno un lint que no se ha ejecutado.
   local sc="koalaman/shellcheck:v0.11.0"
   if [ -n "${SHELLCHECK:-}" ]; then
