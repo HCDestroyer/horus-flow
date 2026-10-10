@@ -12,6 +12,8 @@ const CSP_COMMON = [
   "img-src 'self' data:",
   "style-src 'self' 'unsafe-inline'",
   "font-src 'self'",
+  // Vídeos propios (animaciones de /motion).
+  "media-src 'self'",
 ]
 const CSP_BASE = [...CSP_COMMON, "script-src 'self' 'unsafe-inline'", "connect-src 'self'"].join(
   '; ',
