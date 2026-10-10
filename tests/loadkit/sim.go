@@ -26,18 +26,25 @@ type Sim struct {
 	Seed     int64
 	Expected string // ruta del expected.json
 	Log      io.Writer
+	// Scenario es el escenario de flowsim (vacío = normal sin NAT ni IPv6).
+	Scenario Scenario
 
 	cmd  *exec.Cmd
 	done chan error
 }
 
-// Start lanza el simulador. Escenario `normal` sin NAT ni IPv6: 250 hogares
-// en 10.20.0.0/24 con atribución directa (la carga no depende del NAT).
+// Start lanza el simulador. Por defecto, escenario `normal` sin NAT ni IPv6:
+// 250 hogares en 10.20.0.0/24 con atribución directa; SCENARIO=isp10k usa
+// 10 000 clientes con NAT e IPv6 (Scenarios).
 func (s *Sim) Start(ctx context.Context) error {
-	args := []string{"-scenario", "normal", "-seed", strconv.FormatInt(s.Seed, 10), "-proto", "ipfix",
+	sc := s.Scenario
+	if sc.Name == "" {
+		sc = Scenarios["normal"]
+	}
+	args := []string{"-scenario", sc.Name, "-seed", strconv.FormatInt(s.Seed, 10), "-proto", "ipfix",
 		"-rate", strconv.FormatFloat(s.Rate, 'f', 0, 64), "-duration", s.Duration.String(),
-		"-nat=false", "-ipv6=false", "-target", s.Target, "-src", "any", "-speed", "1",
-		"-expected", s.Expected, "-allow-unmet"}
+		"-target", s.Target, "-src", "any", "-speed", "1", "-expected", s.Expected, "-allow-unmet"}
+	args = append(args, sc.SimArgs...)
 	s.cmd = exec.CommandContext(ctx, s.Bin, args...) //nolint:gosec // binario de la prueba
 	s.cmd.Stdout, s.cmd.Stderr = s.Log, s.Log
 	if err := s.cmd.Start(); err != nil {

@@ -75,7 +75,9 @@ func main() {
 	check(err)
 	api, err := loadkit.NewAPI(env.APIURL, env.AdminEmail, env.AdminPasswordFile, filepath.Join(env.Dir, "state.json"))
 	check(err)
-	st, err := api.Setup(ctx, loadkit.ClientPrefix)
+	simScen, err := loadkit.ScenarioFromEnv()
+	check(err)
+	st, err := api.Setup(ctx, simScen.Prefixes...)
 	check(err)
 	_, source, err := env.CollectorAddr(ctx)
 	check(err)
@@ -95,7 +97,7 @@ func main() {
 		log.Fatalf("sonda de tiempo real antes de empezar: %v", err)
 	}
 
-	c := &chaos{env: env, api: api, bus: bus, kiosk: kiosk, st: st, rate: rate, flowsim: flowsim}
+	c := &chaos{env: env, api: api, bus: bus, kiosk: kiosk, st: st, rate: rate, flowsim: flowsim, scen: simScen}
 	var results []result
 	ok := true
 	for _, s := range strings.Split(scen, ",") {
@@ -135,6 +137,7 @@ type chaos struct {
 	rate    float64
 	flowsim string
 	seed    int64
+	scen    loadkit.Scenario
 }
 
 // watch muestrea lag, tamaño de TLM_FLOWS y búfer del collector hasta que stop se cierra.
@@ -198,7 +201,7 @@ func (c *chaos) startSim(ctx context.Context, name string, d time.Duration) (*lo
 	if err != nil {
 		return nil, err
 	}
-	sim := &loadkit.Sim{Bin: c.flowsim, Target: target, Rate: c.rate, Duration: d, Seed: 100 + c.seed,
+	sim := &loadkit.Sim{Bin: c.flowsim, Target: target, Rate: c.rate, Duration: d, Seed: 100 + c.seed, Scenario: c.scen,
 		Expected: filepath.Join(c.env.Dir, "chaos-"+name+".expected.json"), Log: f}
 	return sim, sim.Start(ctx)
 }
