@@ -987,6 +987,11 @@ func (w *world) kiosk() error {
 	}
 	k := w.expect("POST /kiosks", post(tok, "/api/v1/kiosks", map[string]any{"name": "TV NOC aceptación", "dashboard_ids": []string{noc}}), 201)
 	kid := k.Str("id")
+	// El código de enrolamiento es una operación sensible (x-reauth): se repite la autenticación.
+	if err := w.s.Reauth(); err != nil {
+		return err
+	}
+	tok = w.token(n.ISP.ID)
 	code := w.expect("código de enrolamiento", idem(post(tok, "/api/v1/kiosks/"+kid+"/enrollment-codes", nil)), 201)
 	tv := w.c.Fork() // la pantalla: otro navegador
 	// Rutas con cookie de dispositivo: X-Requested-With y Origin de la propia instalación (CSRF).
@@ -1146,7 +1151,9 @@ func (w *world) isolation() error {
 		out, err := w.run("docker", "exec", "-i", ctr, "psql", "-v", "ON_ERROR_STOP=1", "-U", env("ACCEPT_PG_USER", "horus"), "-d", env("ACCEPT_PG_DB", "horus"), "-Atc",
 			`SELECT n.nspname || '.' || c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace JOIN pg_attribute a ON a.attrelid = c.oid
 			 WHERE c.relkind IN ('r','p') AND NOT c.relispartition AND a.attname = 'tenant_id' AND NOT c.relrowsecurity
-			   AND c.relname <> 'outbox' AND n.nspname NOT IN ('pg_catalog','information_schema')`)
+			   AND c.relname <> 'outbox' AND n.nspname NOT IN ('pg_catalog','information_schema')
+			   -- Registro de tenants del planificador de detection: solo ids, lo lee el rol de plataforma.
+			   AND n.nspname || '.' || c.relname <> 'detection.tenant_registry'`)
 		if err != nil {
 			return err
 		}
