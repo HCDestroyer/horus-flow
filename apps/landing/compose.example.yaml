@@ -4,7 +4,7 @@
 #   mkdir -p secrets
 #   openssl rand -base64 32 > secrets/data.key        # clave de cifrado de credenciales
 #   printf '%s' 'una-contraseña-larga' > secrets/admin_password
-#   chmod 600 secrets/*
+#   chown 65532:65532 secrets/* && chmod 400 secrets/*   # solo los lee el usuario del contenedor
 #   docker compose -f compose.example.yaml up -d --build
 #
 # La landing escucha solo en la red interna `proxy` (sin puerto publicado): Nginx Proxy Manager,

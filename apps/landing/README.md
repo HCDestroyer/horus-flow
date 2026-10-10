@@ -86,7 +86,48 @@ limit y en los logs va truncada.
 enviar nada), tiempo mínimo de llenado, y rate limit en memoria por IP real. Con varias
 réplicas cada una cuenta por separado.
 
-## Despliegue detrás de Nginx Proxy Manager
+## Instalación automática (Debian/Ubuntu)
+
+`scripts/install-landing.sh` hace todo lo de la sección siguiente: instala Docker (repositorio
+oficial) si falta, genera los secretos con los permisos correctos, construye la imagen, arranca la
+landing detrás de Nginx Proxy Manager (o en un puerto), crea el primer administrador y muestra los
+pasos que faltan en NPM.
+
+```bash
+git clone https://github.com/hcdestroyer/horus-flow.git && cd horus-flow
+git checkout claude/horus-landing
+sudo bash apps/landing/scripts/install-landing.sh            # pregunta dominio y correo
+# o sin preguntas:
+sudo bash apps/landing/scripts/install-landing.sh install --yes \
+  --domain horusflow.kns.gt --admin-email info@kns.gt \
+  --smtp-host smtp.kns.gt --smtp-user info@kns.gt --smtp-pass-file /root/smtp_pass --backup-cron
+```
+
+- **Modo** `--mode npm` (por defecto si detecta Nginx Proxy Manager): se une a su red de Docker
+  sin publicar puertos y calcula `TRUSTED_PROXIES` con la subred de esa red. `--mode port --port
+127.0.0.1:3000`: publica un puerto para otro proxy.
+- **Contraseña del panel:** con `--admin-password-file` (≥ 12 caracteres) o, si no, la genera y la
+  muestra **una sola vez** al terminar. En el primer acceso a `/admin` se registra el TOTP.
+- **Todo queda en** `/opt/horus-landing` (`--install-dir`): `compose.yaml`, `.env` sin secretos,
+  `secrets/` (propietario 65532, modo 0400), `backups/` y una copia del propio script.
+  **Copia `secrets/data.key` fuera del servidor.**
+- **Repositorio privado:** si no ejecutas el script desde una copia del repositorio, lo clona con
+  `--repo`/`--branch` y `--token-file` (token de solo lectura; no se guarda en `.git/config`).
+
+Mantenimiento (con `sudo bash /opt/horus-landing/install-landing.sh …`):
+
+| Orden                                                                  | Qué hace                                                                                                             |
+| ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `status`                                                               | estado, salud y última copia                                                                                         |
+| `logs [-f]`                                                            | registros del contenedor                                                                                             |
+| `update`                                                               | copia de la base de datos, nueva versión del código, reconstrucción y arranque (migraciones automáticas)             |
+| `backup`                                                               | copia consistente en caliente de la base de datos a `backups/` (se guardan 14; `--backup-cron` la programa a diario) |
+| `restore ARCHIVO`                                                      | comprueba la copia, guarda la actual y restaura; si falla, la landing sigue con la base anterior                     |
+| `admin list` · `admin reset-totp --email c` · `admin create --email c` | administradores del panel                                                                                            |
+| `install --smtp-host …`                                                | cambia opciones (SMTP, dominio…) conservando secretos y datos                                                        |
+| `uninstall` · `uninstall --purge`                                      | quita el contenedor (conserva datos y secretos) · lo borra todo                                                      |
+
+## Despliegue manual detrás de Nginx Proxy Manager
 
 1. Construye y arranca (imagen Node distroless, usuario `nonroot`, raíz de solo lectura):
 
@@ -97,7 +138,7 @@ réplicas cada una cuenta por separado.
    openssl rand -base64 32 > secrets/data.key          # ¡guárdala también fuera del servidor!
    printf '%s' 'contraseña-larga-del-primer-admin' > secrets/admin_password
    : > secrets/smtp_pass                               # o la contraseña SMTP
-   chmod 600 secrets/*
+   chown 65532:65532 secrets/* && chmod 400 secrets/*   # solo los lee el usuario del contenedor
    docker compose -f compose.example.yaml up -d --build
    ```
 
