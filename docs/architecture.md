@@ -869,6 +869,9 @@ No cubre la caída del propio collector (UDP sin reintento, §10.16).
   cuánto tiempo más aguanta cada búfer sin bus al ritmo de entrada actual. `/readyz` marca `spool`
   degradado mientras los lotes van a disco o si el directorio no se puede usar (el collector sigue
   con el búfer en memoria).
+- **Registro de eventos de plataforma** (§10.18, observability.md §11.2): `spool_active` al pasar a
+  disco, `spool_drained` al vaciarse y `spool_active` con severidad error cuando el spool lleno
+  descarta (como mucho uno por minuto).
 - **Pruebas:** corrupción de un segmento, disco lleno, cola cortada y `kill -9` real de un proceso
   escritor (`internal/spool`), reenvío en orden tras la caída del bus y tras un reinicio, y spool
   lleno con `data_gap` (`internal/app/spool_test.go`); en la pila, `make chaos-restart-flows`
@@ -890,6 +893,7 @@ proceso (`flows-ingester` → ClickHouse con ledger; los de devices → PostgreS
 | Componente | Estado | Dónde se guarda | Cómo se reconstruye al arrancar |
 | --- | --- | --- | --- |
 | collector, ingester, detection | Inventario de flujos (exportadores, realms, prefijos) | Instantánea `flows-inventory-<rol>` en `flows_state` + DEVICES_EVENTS (+ fichero base) | Se restaura la instantánea (inventario disponible antes de leer el stream) y se aplica DEVICES_EVENTS desde la secuencia siguiente; el durable antiguo se borra |
+| collector, ingester | ISP con la ingesta en pausa (`POST /platform/tenants/{id}/suspend` con `pause_ingest`) | Instantánea `flows-pause-<rol>` en `flows_state` + AUTH_EVENTS (`tenant.suspended` / `tenant.resumed`) | Se restaura y se aplica el stream; el collector descarta y cuenta (`horus_collector_dropped_total{reason="tenant_suspended"}`) y el ingester confirma sin guardar lo que ya estaba en TLM_FLOWS (`horus_ingester_batches_total{result="tenant_suspended"}`); al reactivar, vuelve a ingerir |
 | collector | Plantillas IPFIX / NetFlow v9 por exportador y dominio | KV `flow_collector_state` (`tpl.*`), al cambiar o cada 10 min | Se reinstalan si no superan `HORUS_COLLECTOR_TEMPLATE_TTL` (30 min); los datos que llegan antes de que el router las reenvíe se decodifican en vez de retenerse |
 | collector | Secuencia esperada por dominio de observación | KV `flow_collector_state` (`seq.*`), cada 1 s y al parar | Se restaura; el primer datagrama mide lo enviado con el collector caído (`horus_collector_downtime_lost_records_total`, `data_gap` `collector_down`; cota superior: incluye hasta 1 s anterior a un `kill -9`) sin contarlo como pérdida del exportador |
 | collector | Estado del exportador (estado, versión, último flujo, huecos y pérdidas acumulados) | KV `flow_exporter_state` | Se continúa; si la caída superó `SilentAfter` se registra la transición a `silent` y luego `recovered`. La ventana de pérdida de 5 min empieza vacía |
