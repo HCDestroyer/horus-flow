@@ -143,3 +143,29 @@ func TestEngineDoesNotAdvanceOnApplyFailure(t *testing.T) {
 		t.Fatal("candidates of the failed window were lost")
 	}
 }
+
+// Con el ingester atrasado (búfer de TLM_FLOWS tras una caída), el motor no
+// da por evaluadas ventanas posteriores a lo ingerido: las evalúa cuando
+// llegan los flujos.
+func TestEngineWaitsForIngestionWatermark(t *testing.T) {
+	tenant := uuid.New()
+	sink := &statefulSink{fakeSink: fakeSink{params: smtpOnly()}, state: map[string]string{}}
+	t0 := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
+	wm := t0.Add(-30 * time.Minute)
+	sig := &windowSignals{}
+	en := New(sig, sink, nil, Options{Lag: time.Minute, Watermark: func(context.Context) (time.Time, bool) { return wm, true }})
+	if _, err := en.Evaluate(context.Background(), tenant, t0, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := sig.windows[len(sig.windows)-1][1]; !got.Equal(wm.Add(-time.Minute)) {
+		t.Fatalf("window end %v, want %v (watermark - lag)", got, wm.Add(-time.Minute))
+	}
+	wm = t0 // el ingester se pone al día
+	sig.windows = nil
+	if _, err := en.Evaluate(context.Background(), tenant, t0.Add(time.Minute), false); err != nil {
+		t.Fatal(err)
+	}
+	if len(sig.windows) == 0 || sig.windows[0][0].After(t0.Add(-31*time.Minute)) {
+		t.Fatalf("held windows not evaluated after catching up: %v", sig.windows)
+	}
+}

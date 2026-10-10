@@ -17,13 +17,16 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/hcdestroyer/horus-flow/packages/go/authz"
 	"github.com/hcdestroyer/horus-flow/packages/go/config"
 	"github.com/hcdestroyer/horus-flow/packages/go/datasets"
+	"github.com/hcdestroyer/horus-flow/packages/go/flowbus"
 	"github.com/hcdestroyer/horus-flow/packages/go/flowinv"
 	"github.com/hcdestroyer/horus-flow/packages/go/health"
 	"github.com/hcdestroyer/horus-flow/packages/go/module"
@@ -61,6 +64,8 @@ type mod struct {
 	// evalúa aunque nadie haya abierto aún su pantalla de Seguridad.
 	inv  *flowinv.Store
 	deps module.Deps
+	// js es el JetStream del proceso (marca de agua de la ingesta).
+	js atomic.Pointer[jetstream.JetStream]
 }
 
 // Register construye el módulo del rol detection (firma module.Factory).
@@ -129,7 +134,8 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		snapDir = m.feeds.SnapshotDir()
 	}
 	if m.ch != nil && cfg.Engine {
-		m.engine = engine.New(m.ch, svc, repsnap.New(snapDir, time.Minute, logger), engine.Options{Lag: cfg.Lag, Logger: logger})
+		m.engine = engine.New(m.ch, svc, repsnap.New(snapDir, time.Minute, logger), engine.Options{Lag: cfg.Lag, Logger: logger,
+			Watermark: m.ingestWatermark})
 	}
 	if deps.Health != nil {
 		deps.Health.AddCheck(health.Check{Name: "postgres", Critical: true, Probe: db.Ping})
@@ -192,6 +198,8 @@ func (m *mod) Run(ctx context.Context) error {
 	if bus, err := natsx.Shared(ctx, m.deps.Services, m.deps.Environ, m.logger); err != nil {
 		m.logger.WarnContext(ctx, "detection: NATS unavailable: only tenants registered by the API are evaluated", "err", err)
 	} else if bus != nil {
+		js := bus.JS
+		m.js.Store(&js)
 		go flowinv.Keep(ctx, m.inv, "", bus.JS, bus.Durable("flows-inventory-"+Role), m.logger)
 	}
 	t := time.NewTicker(m.cfg.Interval)
@@ -204,6 +212,44 @@ func (m *mod) Run(ctx context.Context) error {
 		case <-t.C:
 		}
 	}
+}
+
+// ingestWatermark devuelve la hora de publicación del primer lote de
+// TLM_FLOWS que el ingester aún no ha confirmado (todo lo anterior está en
+// ClickHouse), o ahora si no tiene pendientes. ok = false si no se puede
+// saber (sin NATS, sin el durable): el motor no se limita.
+func (m *mod) ingestWatermark(ctx context.Context) (time.Time, bool) {
+	p := m.js.Load()
+	if p == nil {
+		return time.Time{}, false
+	}
+	js := *p
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	cons, err := js.Consumer(ctx, flowbus.StreamTelemetry, flowbus.ConsumerIngester)
+	if err != nil {
+		return time.Time{}, false
+	}
+	info, err := cons.Info(ctx)
+	if err != nil {
+		return time.Time{}, false
+	}
+	if info.NumPending == 0 && info.NumAckPending == 0 {
+		return time.Now(), true
+	}
+	st, err := js.Stream(ctx, flowbus.StreamTelemetry)
+	if err != nil {
+		return time.Time{}, false
+	}
+	seq := info.AckFloor.Stream + 1
+	if first := st.CachedInfo().State.FirstSeq; seq < first {
+		seq = first
+	}
+	msg, err := st.GetMsg(ctx, seq)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return msg.Time, true
 }
 
 func (m *mod) syncFeeds(ctx context.Context) {

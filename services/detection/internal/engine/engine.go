@@ -70,6 +70,12 @@ type Options struct {
 	// (por defecto 24): la recuperación avanza en varias pasadas sin
 	// bloquear al resto de tenants.
 	CatchupSteps int
+	// Watermark devuelve hasta qué hora están ingeridos los flujos (el
+	// ingester ha confirmado todo lo publicado antes). Tras una caída, el
+	// ingester tarda en vaciar el búfer de TLM_FLOWS: sin esto el motor
+	// daba por evaluadas ventanas cuyos flujos aún no estaban en ClickHouse
+	// y esos hallazgos se perdían. nil o ok=false: sin límite.
+	Watermark func(ctx context.Context) (time.Time, bool)
 }
 
 // stateWindowPrefix es la clave de engine_state con el fin de la última
@@ -90,6 +96,7 @@ type Engine struct {
 
 	maxCatchup   time.Duration
 	catchupSteps int
+	watermark    func(ctx context.Context) (time.Time, bool)
 }
 
 // New crea el motor.
@@ -107,7 +114,7 @@ func New(sig Signals, sink Sink, rep Reputation, o Options) *Engine {
 		o.CatchupSteps = 24
 	}
 	return &Engine{sig: sig, sink: sink, rep: rep, lag: o.Lag, log: o.Logger, last: map[string]time.Time{},
-		maxCatchup: o.MaxCatchup, catchupSteps: o.CatchupSteps}
+		maxCatchup: o.MaxCatchup, catchupSteps: o.CatchupSteps, watermark: o.Watermark}
 }
 
 // lastEnd devuelve el fin de la última ventana aplicada de un detector: de
@@ -256,6 +263,15 @@ func (en *Engine) Evaluate(ctx context.Context, tenant uuid.UUID, now time.Time,
 		return nil, fmt.Errorf("params: %w", err)
 	}
 	end := now.UTC().Add(-en.lag).Truncate(time.Minute)
+	if en.watermark != nil && !force {
+		if wm, ok := en.watermark(ctx); ok {
+			if w := wm.UTC().Add(-en.lag).Truncate(time.Minute); w.Before(end) {
+				en.log.InfoContext(ctx, "detection waits for ingestion backlog", slog.String("tenant", tenant.String()),
+					slog.Time("ingested_until", wm), slog.Time("window_end", w))
+				end = w
+			}
+		}
+	}
 	var snap *reputation.Snapshot
 	if en.rep != nil {
 		snap = en.rep.Current()
