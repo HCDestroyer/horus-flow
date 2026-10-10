@@ -895,6 +895,20 @@ Cómo se verifica: tests unitarios y de integración del motor (`TestEngineCatch
 `make chaos-restart-core` (`kill -9` y `docker restart` de horus-app, horus-wg-agent, PostgreSQL, NATS y Valkey en
 orden y momento aleatorios, repetida, y `accept-i1` después; resultados en `bin/chaos-core/report.md`).
 
+**Resultado (2026-10-10, 2 vueltas × 10 escenarios + caída larga, instalación real con 2 routers simulados por
+WireGuard):** los 21 escenarios en verde. Tiempo desde el fallo hasta que todo vuelve (contenedor sano, `horus-app`
+listo, API, sesión renovada con su cookie, túneles con handshake reciente, WebSocket de usuario con un evento nuevo
+recibido y kiosco reconectado): `kill -9` de cualquier componente 7–9 s (Docker lo reinicia en ≈ 1 s), `docker
+restart` de PostgreSQL 10–11 s, de `horus-wg-agent` 12 s y de `horus-app` 13–15 s (un kiosco tardó 23 s en una
+ocasión tras `kill -9` de Valkey, por su reconexión cada 2 s más el refresco del JWT). Los túneles nunca cayeron
+(la interfaz del hub vive fuera del contenedor del agente). Caída larga de `horus-app` (9 min, con flujos del
+escenario `dos_out` durante la caída): el hallazgo esperado se abrió 68 s después del arranque, cuando el ingester
+vació el búfer. Al final: outbox con 0 eventos pendientes en todos los esquemas; 51 alertas enviadas (48 pruebas
+aceptadas durante el caos y 3 de hallazgos) sin ninguna perdida ni duplicada; hallazgos esperados presentes y 0
+duplicados activos; un `unclean_shutdown` por cada `kill -9` de `horus-app`; paquete `horus diagnose` sin ninguna
+IP de cliente; y `accept-i1` contra la misma instalación en verde (25 OK, 0 FAIL; se omiten `image`, por ser
+TARGET=installed, y `lab-chr`, sin KVM).
+
 ---
 
 ## 11. Riesgos arquitectónicos principales
