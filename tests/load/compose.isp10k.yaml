@@ -13,5 +13,9 @@ services:
     environment:
       HORUS_COLLECTOR_UDP_RCVBUF: "33554432"
       # Perfil recomendado para nodos grandes (docs/architecture.md §9.5): cola de 32 768 datagramas
-      # por trabajador; un router entero va a un solo trabajador.
+      # por carril (la decodificación de un mismo router va en paralelo, HORUS_COLLECTOR_DECODE_WORKERS).
       HORUS_COLLECTOR_QUEUE_DATAGRAMS: "32768"
+  # NATS con la memoria del compose de producción (1 GiB): con 512 MiB (desarrollo) el núcleo de NATS
+  # murió por OOM a 40 000 flujos/s con backlog en TLM_FLOWS (FLOW, D23).
+  nats:
+    mem_limit: 1g
