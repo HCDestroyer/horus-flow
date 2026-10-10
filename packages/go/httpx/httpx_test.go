@@ -251,7 +251,15 @@ func TestMuxMetricsKeepsHijacker(t *testing.T) {
 	if res.StatusCode != http.StatusSwitchingProtocols {
 		t.Fatalf("status = %d, se esperaba 101 (Hijacker disponible tras el middleware)", res.StatusCode)
 	}
-	if got := testutil.ToFloat64(m.Requests().WithLabelValues("gateway", "GET", "GET /ws", "101")); got != 1 {
+	// El cliente recibe el 101 antes de que el handler vuelva y el middleware cuente la petición:
+	// se espera un poco (con la CPU cargada fallaba de forma intermitente en go-integration).
+	var got float64
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if got = testutil.ToFloat64(m.Requests().WithLabelValues("gateway", "GET", "GET /ws", "101")); got == 1 {
+			break
+		}
+	}
+	if got != 1 {
 		t.Fatalf("requests 101 = %v", got)
 	}
 }
