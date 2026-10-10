@@ -1,0 +1,46 @@
+# Override del compose de desarrollo para las pruebas de carga y de fallo (historia I1-26).
+#
+# - Inventario base de flujos (packages/go/flowinv) montado en collector y horus-app: el driver
+#   registra ahí el exportador del simulador con la IP de origen que ve el collector (la puerta
+#   de enlace de la red del compose, por el proxy UDP de Docker) y el ISP/nodo dados de alta por
+#   la API. En producción el exportador llega por DEVICES_EVENTS con su IP de túnel WireGuard.
+# - Streams creados por los propios roles (HORUS_NATS_ENSURE_STREAMS, como en dev y en tests/flows).
+#   En ese camino natsx deja TLM_FLOWS sin max_bytes (el valor parametrizado no se expande); el
+#   driver lo fija a LOAD_TLM_MAX_BYTES (2 GiB) antes de cada paso: es el búfer de la prueba. Si el
+#   collector llega antes, flowbus lo crea ya con ese límite (HORUS_TLM_FLOWS_MAX_BYTES).
+# - Claves de auth fijas (firma de tokens y KEK de TOTP) generadas por stack.sh: en dev serían
+#   efímeras y el reinicio de horus-app de las pruebas de fallo invalidaría la sesión de prueba.
+# - /metrics del collector publicado en el host (horus-app ya publica su puerto de admin).
+# - Estado del exportador más rápido que en producción (silencioso a los 30 s en vez de 2 min)
+#   para que la prueba del colector caído 1 min quepa en el nocturno; el criterio no cambia.
+#
+# Lo usa tests/load/stack.sh; nunca se combina con el compose de producción.
+
+services:
+  nats:
+    volumes:
+      - ${HORUS_LOAD_REPO:?falta HORUS_LOAD_REPO}/tests/load/nats.load.conf:/etc/nats/nats.conf:ro
+
+  horus-app:
+    environment:
+      HORUS_FLOWS_INVENTORY_FILE: /etc/horus-load/inventory.json
+      HORUS_NATS_ENSURE_STREAMS: "true"
+      HORUS_TLM_FLOWS_MAX_BYTES: ${LOAD_TLM_MAX_BYTES:-2147483648}
+      HORUS_AUTH_SIGNING_KEY_FILE: /etc/horus-load-keys/auth_signing_key.pem
+      HORUS_AUTH_KEK_FILE: /etc/horus-load-keys/auth_kek.txt
+    volumes:
+      - ${HORUS_LOAD_INV_DIR:?falta HORUS_LOAD_INV_DIR}:/etc/horus-load:ro
+      - ${HORUS_LOAD_DIR:?falta HORUS_LOAD_DIR}/keys:/etc/horus-load-keys:ro
+
+  horus-collector:
+    environment:
+      HORUS_FLOWS_INVENTORY_FILE: /etc/horus-load/inventory.json
+      HORUS_NATS_ENSURE_STREAMS: "true"
+      HORUS_TLM_FLOWS_MAX_BYTES: ${LOAD_TLM_MAX_BYTES:-2147483648}
+      HORUS_COLLECTOR_SILENT_AFTER: ${HORUS_LOAD_SILENT_AFTER:-30s}
+      # Registros por lote (500 por defecto, máximo 2000): cada lote es un INSERT en flows_raw.
+      HORUS_COLLECTOR_BATCH_MAX_RECORDS: ${HORUS_LOAD_BATCH_MAX_RECORDS:-500}
+    volumes:
+      - ${HORUS_LOAD_INV_DIR:?falta HORUS_LOAD_INV_DIR}:/etc/horus-load:ro
+    ports:
+      - "${HORUS_BIND_ADDR:-127.0.0.1}:${HORUS_LOAD_COLLECTOR_ADMIN_PORT:-8083}:8081"

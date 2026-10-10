@@ -241,6 +241,22 @@ backup-status: ## Estado de backups, restauraciones de prueba y disco
 test-backup: ## Prueba de I1-23: instala en un raíz temporal, backups, restauración verificada y alertas (sudo)
 	@GO='$(GO)' bash scripts/backup/test-backup.sh
 
+##@ Carga y fallo
+
+# Prueba de carga y pruebas de fallo de I1 (I1-26, tests/load/REPORT.md). Levantan su propio
+# compose (proyecto horus-load, puertos +23000, volúmenes nuevos; tests/load/stack.sh) y lo
+# destruyen al terminar. Imagen horus:load como en accept-i0 (ACCEPT_IMAGE_MODE).
+# load-i1: RATE (5000) DURATION (5m; nocturno 1h) RAMP=1 RAMP_RATES RAMP_DURATION (2m).
+# chaos-i1: CHAOS_SCENARIOS (clickhouse,nats,app,collector) CHAOS_RATE (5000) CHAOS_DOWN (30s)
+# CHAOS_COLLECTOR_DOWN (1m). Ambas: LOAD_KEEP=1, LOAD_REUSE=1, LOAD_SKIP_IMAGE=1.
+.PHONY: load-i1
+load-i1: ## Prueba de carga de I1: pérdida en el collector, lag del ingester y p95 de la API (RATE, DURATION, RAMP=1)
+	@GO='$(GO)' bash tests/load/load.sh
+
+.PHONY: chaos-i1
+chaos-i1: ## Pruebas de fallo de I1: reinicio de ClickHouse, NATS y horus-app; collector caído 1 min
+	@GO='$(GO)' bash tests/chaos/chaos.sh
+
 ##@ Aceptación
 
 # Batería de aceptación del incremento 0 (I0-19, tests/acceptance/README.md). Levanta su propio
