@@ -153,6 +153,28 @@ func newGrouper(c *Consumer, opts GroupOptions, recovered map[string][]string) *
 	return g
 }
 
+// skip resuelve antes de decodificar las reentregas de un batch_id ya
+// insertado (se confirman) o ya en un grupo pendiente (se ignoran).
+func (g *grouper) skip(batchID string, m BusMsg, now time.Time) bool {
+	if batchID == "" {
+		return false
+	}
+	g.mu.Lock()
+	at, seen := g.seen[batchID]
+	_, pending := g.pending[batchID]
+	g.mu.Unlock()
+	switch {
+	case seen && now.Sub(at) < g.opts.SeenTTL:
+		g.c.M.Batches.WithLabelValues("duplicate").Inc()
+		_ = m.DoubleAck(context.Background())
+		return true
+	case pending:
+		g.c.M.Batches.WithLabelValues("duplicate").Inc()
+		return true
+	}
+	return false
+}
+
 // add incorpora un mensaje preparado; devuelve los grupos listos para escribir.
 func (g *grouper) add(p prepared, now time.Time) []*group {
 	g.mu.Lock()
@@ -163,10 +185,12 @@ func (g *grouper) add(p prepared, now time.Time) []*group {
 		_ = p.msg.DoubleAck(context.Background())
 		return nil
 	}
-	if gr, ok := g.pending[p.batchID]; ok {
-		// Reentrega de un lote que ya está en un grupo sin confirmar.
+	if _, ok := g.pending[p.batchID]; ok {
+		// Reentrega de un lote que ya está en un grupo sin confirmar (ClickHouse
+		// lento o caído): no se guarda la copia (memoria) ni se confirma; la
+		// confirmación del original cubre la secuencia y una copia posterior
+		// cae en seen.
 		g.c.M.Batches.WithLabelValues("duplicate").Inc()
-		gr.msgs = append(gr.msgs, p.msg)
 		return nil
 	}
 	if token, ok := g.recover[p.batchID]; ok {
@@ -413,6 +437,10 @@ func (c *Consumer) runGrouped(ctx context.Context, next func() (BusMsg, error), 
 		go func() {
 			defer prepWG.Done()
 			for m := range in {
+				// Nats-Msg-Id = batch_id: las reentregas se descartan sin decodificar.
+				if g.skip(m.Headers().Get(flowbus.HeaderMsgID), m, time.Now()) {
+					continue
+				}
 				id, rows, out, err := c.Prepare(m.Data(), m.Headers())
 				if out != outAck {
 					c.reject(bg, m, out, err)
@@ -439,11 +467,10 @@ func (c *Consumer) runGrouped(ctx context.Context, next func() (BusMsg, error), 
 			}
 		}()
 	}
-	tickDone := make(chan struct{})
+	// InProgress de los grupos sin confirmar en su propia goroutine: el bucle
+	// de abajo puede quedarse esperando a un flusher mientras ClickHouse no
+	// responde.
 	go func() {
-		defer close(tickDone)
-		t := time.NewTicker(min(opts.Wait/4, 250*time.Millisecond))
-		defer t.Stop()
 		keep := time.NewTicker(15 * time.Second)
 		defer keep.Stop()
 		for {
@@ -452,6 +479,18 @@ func (c *Consumer) runGrouped(ctx context.Context, next func() (BusMsg, error), 
 				return
 			case <-keep.C:
 				g.keepAlive()
+			}
+		}
+	}()
+	tickDone := make(chan struct{})
+	go func() {
+		defer close(tickDone)
+		t := time.NewTicker(min(opts.Wait/4, 250*time.Millisecond))
+		defer t.Stop()
+		for {
+			select {
+			case <-stop:
+				return
 			case now := <-t.C:
 				for _, gr := range g.tick(now) {
 					select {

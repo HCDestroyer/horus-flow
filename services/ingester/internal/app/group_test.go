@@ -274,17 +274,32 @@ func TestGroupedNoAckBeforeInsert(t *testing.T) {
 }
 
 // TestGroupedDuplicateDelivery: una reentrega del mismo lote mientras su
-// grupo está pendiente no duplica filas y confirma ambas entregas.
+// grupo está pendiente no duplica filas ni se guarda; la del lote ya insertado
+// se confirma sin insertar.
 func TestGroupedDuplicateDelivery(t *testing.T) {
 	ch := newDedupCH()
 	c := newTestConsumer(t, ch, nil, GroupOptions{Rows: 1 << 20, Wait: 100 * time.Millisecond})
 	id := uuid.NewString()
 	first, again := batchMsg(t, id, 50), batchMsg(t, id, 50)
+	first.hdr.Set(flowbus.HeaderMsgID, id)
+	again.hdr.Set(flowbus.HeaderMsgID, id)
 	again.delivered = 2
-	msgs := []*fakeMsg{first, again}
-	feed(t, c, msgs, allAcked(msgs))
+	// Con varios trabajadores cualquiera de las dos entregas puede llegar antes:
+	// se inserta una y la otra se descarta sin confirmar.
+	feed(t, c, []*fakeMsg{first, again}, func() bool { return first.isAcked() || again.isAcked() })
 	if ch.total() != 50 {
 		t.Fatalf("rows = %d, want 50", ch.total())
+	}
+	if first.isAcked() == again.isAcked() {
+		t.Fatal("exactly one delivery must be acked; the pending duplicate is dropped")
+	}
+	// Tercera entrega tras el INSERT: se confirma sin insertar.
+	late := batchMsg(t, id, 50)
+	late.hdr.Set(flowbus.HeaderMsgID, id)
+	g := newGrouper(c, c.Group, nil)
+	g.seen[id] = time.Now()
+	if !g.skip(id, late, time.Now()) || !late.isAcked() {
+		t.Fatal("late duplicate not acked")
 	}
 }
 

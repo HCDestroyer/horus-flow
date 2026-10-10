@@ -36,7 +36,7 @@ streams:
   - { name: DLQ, subjects: ['horus.dlq.>'], retention: limits, max_age: 30d, max_bytes: 5GiB, duplicate_window: 2m, max_msg_size: 1MiB }
 provisioned_consumers:
   # Durables que se crean con el stream (el resto los crea cada módulo al arrancar, events.md §4.1).
-  - { stream: TLM_FLOWS, durable: flows-ingester, filter_subjects: ['horus.telemetry.flows.batch.>'], ack_policy: explicit, ack_wait: 60s, max_deliver: 5, max_ack_pending: 5000 }
+  - { stream: TLM_FLOWS, durable: flows-ingester, filter_subjects: ['horus.telemetry.flows.batch.>'], ack_policy: explicit, ack_wait: 60s, max_deliver: -1, max_ack_pending: 5000 }
 consumers_i1:
   # Referencia (los crea cada módulo): <módulo>-<propósito>.
   - { durable: auth-audit-<dominio>, streams: '<DOMINIO>_EVENTS', filter: 'horus.<dominio>.audit.recorded.>', module: auth, max_ack_pending: 1 }

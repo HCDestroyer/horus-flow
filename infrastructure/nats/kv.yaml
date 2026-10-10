@@ -17,5 +17,5 @@ kv:
     description: Grupos de INSERT en curso del ingester (FLOW)
     history: 1
     ttl: 24h
-    max_bytes: 256MiB
+    max_bytes: 64MiB
     storage: file

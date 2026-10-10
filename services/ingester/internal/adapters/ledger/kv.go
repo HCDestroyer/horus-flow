@@ -17,11 +17,12 @@ const Bucket = "flows_ingester_groups"
 
 // Config es la del bucket (la misma que provisiona infrastructure/nats/kv.yaml).
 // TTL = max_age de TLM_FLOWS: pasado ese tiempo el stream ya no reentrega.
-// Cada grupo cerrado deja una marca de borrado (~150 B) hasta el TTL: a un
-// grupo por segundo, ~15 MB/día; 256 MiB dejan margen de sobra.
+// Cada grupo cerrado deja una marca de borrado (~150 B) hasta el TTL: a uno o
+// dos grupos por segundo, ~15–25 MB; 64 MiB dejan margen y, si se llenara, el
+// ingester sigue insertando sin ledger (group.go).
 func Config() jetstream.KeyValueConfig {
 	return jetstream.KeyValueConfig{Bucket: Bucket, Description: "Grupos de INSERT en curso del ingester (FLOW)",
-		History: 1, TTL: 24 * time.Hour, MaxBytes: 256 << 20, Storage: jetstream.FileStorage}
+		History: 1, TTL: 24 * time.Hour, MaxBytes: 64 << 20, Storage: jetstream.FileStorage}
 }
 
 // KV implementa app.Ledger.
