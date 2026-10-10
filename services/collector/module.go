@@ -28,6 +28,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/module"
 	"github.com/hcdestroyer/horus-flow/services/collector/internal/app"
 	modcfg "github.com/hcdestroyer/horus-flow/services/collector/internal/config"
+	"github.com/hcdestroyer/horus-flow/services/collector/internal/spool"
 )
 
 // Role es el nombre del rol en HORUS_ROLES: receptor UDP NetFlow/IPFIX/sFlow.
@@ -109,6 +110,19 @@ func (m *mod) Start(ctx context.Context) error {
 		State: app.StateOptions{SilentAfter: m.cfg.SilentAfter, LossThreshold: m.cfg.LossThreshold,
 			LossWindow: m.cfg.LossWindow, ClockSkew: m.cfg.ClockSkew, Interval: m.cfg.StateInterval},
 	}, m.inv, jsSink{js: js}, kv, m.m, m.log)
+	if m.cfg.SpoolDir != "" {
+		sp, err := spool.Open(spool.Options{Dir: m.cfg.SpoolDir, MaxBytes: m.cfg.SpoolBytes, SegmentBytes: m.cfg.SpoolSegmentBytes,
+			Fsync: m.cfg.SpoolFsync, OnDrop: m.engine.Pub.SpoolDropped, Log: m.log})
+		if err != nil {
+			return fmt.Errorf("collector: spool: %w", err)
+		}
+		m.engine.Pub.UseSpool(sp, m.cfg.SpoolAfterRatio)
+		st := sp.Stats()
+		m.log.InfoContext(ctx, "collector spool ready", "dir", m.cfg.SpoolDir, "max_bytes", m.cfg.SpoolBytes,
+			"pending_batches", st.Batches, "pending_records", st.Records)
+	} else {
+		m.log.WarnContext(ctx, "collector spool disabled (HORUS_COLLECTOR_SPOOL_DIR not set): a NATS outage longer than the memory buffer loses flows")
+	}
 	if err := m.engine.Listen(m.cfg.Listen); err != nil {
 		return fmt.Errorf("collector: listen: %w", err)
 	}

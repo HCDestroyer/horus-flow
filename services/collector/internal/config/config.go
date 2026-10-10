@@ -34,6 +34,14 @@ type Config struct {
 	BatchMaxAge     time.Duration `env:"HORUS_COLLECTOR_BATCH_MAX_AGE" envDefault:"1s"`
 	// BufferBytes es el búfer en memoria ante caídas del bus (events.md §9.3).
 	BufferBytes int64 `env:"HORUS_COLLECTOR_BUFFER_BYTES" envDefault:"268435456"`
+	// Spool a disco (docs/architecture.md §10.15): vacío = sin spool. Con el
+	// bus caído (o el búfer en memoria por encima de SpoolAfterRatio) los
+	// lotes van a segmentos en SpoolDir y se reenvían en orden al volver.
+	SpoolDir          string        `env:"HORUS_COLLECTOR_SPOOL_DIR"`
+	SpoolBytes        int64         `env:"HORUS_COLLECTOR_SPOOL_BYTES" envDefault:"8589934592"`
+	SpoolSegmentBytes int64         `env:"HORUS_COLLECTOR_SPOOL_SEGMENT_BYTES" envDefault:"67108864"`
+	SpoolFsync        time.Duration `env:"HORUS_COLLECTOR_SPOOL_FSYNC" envDefault:"1s"`
+	SpoolAfterRatio   float64       `env:"HORUS_COLLECTOR_SPOOL_AFTER_RATIO" envDefault:"0.5"`
 	// UDPReadBuffer es el búfer de recepción de cada socket UDP; el kernel lo
 	// limita a net.core.rmem_max (el instalador lo sube a 32 MiB).
 	UDPReadBuffer int `env:"HORUS_COLLECTOR_UDP_RCVBUF" envDefault:"33554432"`
@@ -72,6 +80,12 @@ func (c *Config) Validate() error {
 	}
 	if c.BatchMaxAge <= 0 || c.SilentAfter <= 0 || c.LossWindow <= 0 || c.StateInterval <= 0 {
 		errs = append(errs, errors.New("collector durations must be positive"))
+	}
+	if c.SpoolDir != "" && (c.SpoolBytes < 1<<20 || c.SpoolSegmentBytes < 1<<16) {
+		errs = append(errs, errors.New("HORUS_COLLECTOR_SPOOL_BYTES must be >= 1 MiB and HORUS_COLLECTOR_SPOOL_SEGMENT_BYTES >= 64 KiB"))
+	}
+	if c.SpoolAfterRatio < 0 || c.SpoolAfterRatio > 1 {
+		errs = append(errs, errors.New("HORUS_COLLECTOR_SPOOL_AFTER_RATIO must be in 0..1"))
 	}
 	return errors.Join(errs...)
 }
