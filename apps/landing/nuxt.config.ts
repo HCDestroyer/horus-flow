@@ -166,6 +166,13 @@ export default defineNuxtConfig({
 
   nitro: {
     compressPublicAssets: true,
+    // Windows: Nuxt 4.6.0 dejaba el renderer fuera del bundle por un fallo de Nitro con las rutas
+    // `\` y toda página SSR daba 500 "Either manifest or precomputed data must be provided"
+    // (nuxt/nuxt#36467). 4.6.1 trae el arreglo; esta regla, independiente del separador, lo
+    // garantiza en cualquier sistema.
+    externals: {
+      inline: [/[\\/]node_modules[\\/]nuxt[\\/]dist[\\/]/],
+    },
   },
 
   // `nuxt dev`: el escaneo automático de dependencias de Vite falla con los componentes de
