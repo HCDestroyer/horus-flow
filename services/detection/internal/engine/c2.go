@@ -252,7 +252,7 @@ func c2Candidate(snap *reputation.Snapshot, f RepPair, known *reputation.Indicat
 		c.Reasons = append(c.Reasons, domain.Reason{Code: "c2_responded", Detail: fmt.Sprintf("El servidor respondió (%d flujos de vuelta): hay sesión activa", f.Responded),
 			Weight: domain.W(0.2), Data: map[string]any{"responded_flows": f.Responded}})
 	} else {
-		c.Reasons = append(c.Reasons, domain.Reason{Code: "c2_syn_only", Detail: "Solo intentos SYN sin respuesta: el C2 está caído o en sinkhole, pero el equipo sigue infectado",
+		c.Reasons = append(c.Reasons, domain.Reason{Code: "c2_syn_only", Detail: "Solo intentos SYN sin respuesta: el C2 está caído o en sinkhole, pero el equipo sigue intentando contactarlo (señal compatible con un equipo comprometido)",
 			Weight: domain.W(0.2), Data: map[string]any{"syn_only": f.SynOnly}})
 	}
 	c.Summary = domain.Summary{Code: "c2_contact", Text: fmt.Sprintf("Contacto con %s conocido %s:%s (%s)", strings.SplitN(label, " de ", 2)[0], remote, port, ind.Source),
