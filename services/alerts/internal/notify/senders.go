@@ -21,10 +21,17 @@ import (
 
 // Message es una notificación lista para enviar (sin secretos).
 type Message struct {
-	Subject string
-	Text    string
-	Link    string
+	Subject string `json:"subject"`
+	Text    string `json:"text"`
+	Link    string `json:"link,omitempty"`
+	// DeliveryID identifica la entrega (no se guarda con el mensaje): los
+	// canales HTTP la envían en X-Horus-Delivery-Id para que el receptor
+	// descarte el duplicado de un reintento tras un reinicio (D23).
+	DeliveryID string `json:"-"`
 }
+
+// HeaderDeliveryID es la cabecera con el id de la entrega (LibreNMS).
+const HeaderDeliveryID = "X-Horus-Delivery-Id"
 
 // SMTPConfig es el SMTP de la instalación (HORUS_SMTP_*).
 type SMTPConfig struct {
@@ -339,6 +346,9 @@ func (s *Senders) sendLibreNMS(ctx context.Context, cfg LibreNMSConfig, cr Crede
 		return fmt.Errorf("librenms: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if m.DeliveryID != "" {
+		req.Header.Set(HeaderDeliveryID, m.DeliveryID)
+	}
 	librenmsAuth(req, cfg, cr)
 	resp, err := s.client(cfg.TLSVerify == nil || *cfg.TLSVerify, time.Duration(cfg.TimeoutSeconds)*time.Second).Do(req)
 	if err != nil {

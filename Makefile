@@ -278,6 +278,17 @@ chaos-i1: ## Pruebas de fallo de I1: reinicio de ClickHouse, NATS y horus-app; c
 load-isp10k: ## Carga de un ISP de 10 000 clientes (rampa 10k→60k flujos/s) y ClickHouse caído 5 min a 20k/s
 	@GO='$(GO)' bash tests/load/isp10k.sh
 
+# Matriz de reinicio brusco de los módulos no de flujos (CORE, D23; tests/chaos/core/run.sh):
+# instalación real en /tmp/horus-chaos-core (proyecto horus-chaos-core, puertos +22000), kill -9 y
+# docker restart de horus-app, horus-wg-agent, PostgreSQL, NATS y Valkey en orden y momento
+# aleatorios, caída larga de horus-app con flujos durante la caída y accept-i1 contra la misma
+# instalación al terminar. Necesita root. Variables: CHAOS_ROUNDS (2), CHAOS_SCENARIOS, CHAOS_SEED,
+# CHAOS_SKIP_ACCEPT=1, CHAOS_SKIP_OUTAGE=1, CHAOS_KEEP=1, CHAOS_REUSE=1,
+# ACCEPT_IMAGE_MODE. Resultados: bin/chaos-core/report.{md,json} y diagnose.tar.gz.
+.PHONY: chaos-restart-core
+chaos-restart-core: ## Matriz de reinicio brusco (kill -9 y restart) de app, wg-agent, PostgreSQL, NATS y Valkey + accept-i1
+	@GO='$(GO)' GOLANGCI_LINT='$(GOLANGCI_LINT)' bash tests/chaos/core/run.sh
+
 ##@ Aceptación
 
 # Batería de aceptación del incremento 0 (I0-19, tests/acceptance/README.md). Levanta su propio

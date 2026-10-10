@@ -61,3 +61,31 @@ func TraceFrom(ctx context.Context) (traceID, spanID string) {
 	v, _ := ctx.Value(keyTrace).(traceIDs)
 	return v.traceID, v.spanID
 }
+
+const (
+	keyEventID ctxKey = iota + 100
+	keyRouter
+)
+
+// WithEventID marca el contexto con el id del evento NATS (sobre C4) que se
+// está procesando: los logs del consumidor llevan event_id.
+func WithEventID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, keyEventID, id)
+}
+
+// EventIDFrom devuelve el event_id del contexto o "".
+func EventIDFrom(ctx context.Context) string {
+	v, _ := ctx.Value(keyEventID).(string)
+	return v
+}
+
+// WithRouter marca el contexto con el router (UUID) de la operación en curso.
+func WithRouter(ctx context.Context, routerID string) context.Context {
+	return context.WithValue(ctx, keyRouter, routerID)
+}
+
+// RouterFrom devuelve el router_id del contexto o "".
+func RouterFrom(ctx context.Context) string {
+	v, _ := ctx.Value(keyRouter).(string)
+	return v
+}

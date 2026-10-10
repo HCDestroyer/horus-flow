@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/hcdestroyer/horus-flow/packages/go/authz"
+	"github.com/hcdestroyer/horus-flow/packages/go/observability"
 )
 
 // Actor del sobre (sin datos personales ni secretos).
@@ -72,6 +73,13 @@ func Insert(ctx context.Context, tx pgx.Tx, schema string, ev Event) error {
 	if ev.OccurredAt.IsZero() {
 		ev.OccurredAt = time.Now()
 	}
+	// trace_parent (docs/observability.md §4.2): el de la petición o trabajo
+	// que crea el evento; el relay lo publica tal cual (sobre y cabecera) y
+	// el consumidor continúa la traza.
+	var traceParent *string
+	if tp := observability.TraceParentFrom(ctx); tp != "" {
+		traceParent = &tp
+	}
 	var tenant *string
 	if ev.TenantID != nil {
 		s := ev.TenantID.String()
@@ -81,11 +89,14 @@ func Insert(ctx context.Context, tx pgx.Tx, schema string, ev Event) error {
 		"id": ev.ID.String(), "type": ev.Type, "source": ev.Source, "subject": ev.AggregateID.String(),
 		"time": ev.OccurredAt.UTC().Format(TimeFormat), "schema_version": 1, "tenant_id": tenant,
 		"aggregate_type": ev.AggregateType, "aggregate_version": ev.AggregateVersion, "actor": ev.Actor,
-		"trace_parent": nil, "correlation_id": nil, "causation_id": nil, "data": ev.Data,
+		"trace_parent": traceParent, "correlation_id": nil, "causation_id": nil, "data": ev.Data,
 	}
 	headers := map[string]string{"Nats-Msg-Id": ev.ID.String(), "Horus-Type": ev.Type}
 	if tenant != nil {
 		headers["Horus-Tenant"] = *tenant
+	}
+	if traceParent != nil {
+		headers[observability.HeaderTraceParent] = *traceParent
 	}
 	_, err := tx.Exec(ctx, `INSERT INTO `+pgx.Identifier{schema, "outbox"}.Sanitize()+`
 		(id, tenant_id, subject, aggregate_id, headers, payload, occurred_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`,

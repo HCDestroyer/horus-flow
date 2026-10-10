@@ -478,6 +478,10 @@ modules:
       methods:
         GET: platform.tenants.read
   gateway:
+    - prefix: /api/v1/platform/events
+      scope: platform
+      methods:
+        GET: platform.status.read
     - prefix: /api/v1/platform/installation
       scope: platform
       methods:

@@ -54,6 +54,10 @@ type Config struct {
 	SMTPTLS          string               `env:"HORUS_SMTP_TLS" envDefault:"starttls"`
 	TelegramAPI      string               `env:"HORUS_TELEGRAM_API_URL" envDefault:"https://api.telegram.org"`
 	TelegramToken    observability.Secret `env:"HORUS_TELEGRAM_BOT_TOKEN"`
+	// Cola de entregas (D23): periodo del despachador, intentos y backoff.
+	DispatchEvery time.Duration   `env:"HORUS_ALERTS_DISPATCH_INTERVAL" envDefault:"5s"`
+	MaxAttempts   int             `env:"HORUS_ALERTS_MAX_ATTEMPTS" envDefault:"8"`
+	RetryBackoff  []time.Duration `env:"HORUS_ALERTS_RETRY_BACKOFF" envSeparator:","`
 }
 
 type mod struct {
@@ -63,6 +67,8 @@ type mod struct {
 	migrate bool
 	logger  *slog.Logger
 	relay   module.Module
+	// dispatchEvery es el periodo del despachador de la cola de entregas.
+	dispatchEvery time.Duration
 }
 
 // Register construye el módulo del rol alerts (firma module.Factory).
@@ -125,6 +131,7 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 			return module.Lookup[authapi.AuditRecorder](deps.Services, authapi.ServiceAudit)
 		},
 		cfg.PublicBaseURL, logger)
+	svc.SetRetry(cfg.MaxAttempts, cfg.RetryBackoff, 0)
 	if deps.Health != nil {
 		deps.Health.AddCheck(health.Check{Name: "postgres", Critical: true, Probe: db.Ping})
 	}
@@ -141,7 +148,7 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		db.Close()
 		return nil, err
 	}
-	return &mod{db: db, svc: svc, bus: bus, migrate: cfg.Migrate, logger: logger, relay: relay}, nil
+	return &mod{db: db, svc: svc, bus: bus, migrate: cfg.Migrate, logger: logger, relay: relay, dispatchEvery: cfg.DispatchEvery}, nil
 }
 
 func (m *mod) Start(ctx context.Context) error {
@@ -181,6 +188,9 @@ func (m *mod) Run(ctx context.Context) error {
 	} else {
 		m.logger.WarnContext(ctx, "alerts-notify inactive: HORUS_NATS_URL not set")
 	}
+	// Cola persistente de entregas (D23): retoma tras un reinicio lo que
+	// quedó pendiente o a medio enviar.
+	go m.svc.RunDispatcher(ctx, m.dispatchEvery)
 	return m.relay.Run(ctx)
 }
 

@@ -20,11 +20,18 @@
 
 name: ${COMPOSE_PROJECT_NAME:-horus}
 
+# Logs (D23, docs/observability.md §3.5): json-file con rotación (5 × 20 MiB comprimidos por contenedor) en
+# /var/lib/docker/containers/<id>/<id>-json.log. Sobreviven a `docker restart`, a un reinicio del contenedor por
+# su política y al reinicio del host; se pierden al RECREAR el contenedor (actualización, `compose up` con
+# cambios): antes de actualizar, `horus diagnose` o horus-ctl guardan un paquete. El rastro largo (90 días) es
+# el registro de eventos de plataforma en PostgreSQL y, si se despliega, Loki (compose.observability.yaml).
 x-logging: &logging
   driver: json-file
   options:
     max-size: "20m"
     max-file: "5"
+    compress: "true"
+    labels: "com.docker.compose.service"
 
 x-hardening: &hardening
   security_opt:
@@ -51,6 +58,10 @@ x-horus-env: &horus-env
   HORUS_VALKEY_URL: redis://default@valkey:6379/0
   HORUS_VALKEY_PASSWORD_FILE: /run/secrets/valkey_password
   HORUS_TLM_FLOWS_MAX_BYTES: ${HORUS_TLM_FLOWS_MAX_BYTES:-53687091200}
+  # Registro de eventos de plataforma (D23): una instancia por servicio en este compose, así una parada no
+  # limpia se detecta también tras recrear el contenedor. Retención 90 días.
+  HORUS_INSTANCE: main
+  HORUS_PLATFORM_EVENTS_RETENTION: ${HORUS_PLATFORM_EVENTS_RETENTION:-2160h}
   # Acceso público (D14, D19): modo domain | subdomain | ip_only y URL base https.
   HORUS_ACCESS_MODE: ${HORUS_ACCESS_MODE:?falta HORUS_ACCESS_MODE}
   HORUS_PUBLIC_BASE_URL: ${HORUS_PUBLIC_BASE_URL:?falta HORUS_PUBLIC_BASE_URL}
@@ -287,6 +298,7 @@ services:
       HORUS_DEVICES_CURSOR_KEY_FILE: /run/secrets/cursor_key
       HORUS_WIREGUARD_CURSOR_KEY_FILE: /run/secrets/cursor_key
       HORUS_DETECTION_CURSOR_KEY_FILE: /run/secrets/cursor_key
+      HORUS_PLATFORM_CURSOR_KEY_FILE: /run/secrets/cursor_key
       HORUS_CLICKHOUSE_INGESTER_PASSWORD_FILE: /run/secrets/ch_ingester_password
       HORUS_CLICKHOUSE_ANALYTICS_PASSWORD_FILE: /run/secrets/ch_analytics_password
       HORUS_CLICKHOUSE_DETECTION_PASSWORD_FILE: /run/secrets/ch_detection_password

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -68,10 +69,34 @@ type KioskStore interface {
 	KioskCodeFailure(ctx context.Context, codeID uuid.UUID, max int) error
 	// EnrollKiosk consume el código y fija la credencial (falla si ya se usó).
 	EnrollKiosk(ctx context.Context, codeID uuid.UUID, k *domain.Kiosk, credHash []byte, ev KioskEvents) error
-	// KioskByCredential busca el kiosco de una credencial vigente o rotada.
-	KioskByCredential(ctx context.Context, hash []byte) (k *domain.Kiosk, rotated bool, err error)
-	// RotateKioskCredential sustituye la credencial (CAS sobre la anterior).
-	RotateKioskCredential(ctx context.Context, k *domain.Kiosk, oldHash, newHash []byte, ip string, now time.Time) (bool, error)
+	// KioskByCredential busca el kiosco de una credencial vigente (rotated
+	// nil) o ya rotada (con los datos de su rotación).
+	KioskByCredential(ctx context.Context, hash []byte) (k *domain.Kiosk, rotated *RotatedCredential, err error)
+	// RotateKioskCredential sustituye la credencial (CAS sobre la anterior)
+	// y registra la rotación con el arranque del proceso que la hace.
+	RotateKioskCredential(ctx context.Context, k *domain.Kiosk, oldHash, newHash []byte, ip string, now time.Time, bootID uuid.UUID) (bool, error)
+}
+
+// RotatedCredential describe la rotación de una credencial de kiosco ya
+// usada: su sucesora, qué arranque del proceso la rotó y cuándo.
+type RotatedCredential struct {
+	SuccessorHash []byte
+	RotatedBy     *uuid.UUID
+	RotatedAt     time.Time
+}
+
+// KioskRotationGrace es el plazo durante el que una rotación interrumpida
+// por un reinicio puede reanudarse (D23).
+const KioskRotationGrace = 30 * time.Minute
+
+// resumable indica si presentar una credencial ya rotada es la respuesta
+// perdida de una rotación que hizo otro arranque del proceso (murió tras
+// confirmarla en PostgreSQL y antes de entregar la cookie nueva): la
+// sucesora sigue siendo la vigente (nunca se usó) y no ha vencido la gracia.
+// Dentro del mismo arranque, o si la sucesora ya se usó, es reutilización.
+func (s *Kiosks) resumable(k *domain.Kiosk, r *RotatedCredential, now time.Time) bool {
+	return r != nil && r.RotatedBy != nil && *r.RotatedBy != s.bootID && len(r.SuccessorHash) > 0 &&
+		bytes.Equal(r.SuccessorHash, k.CredentialHash) && now.Sub(r.RotatedAt) < KioskRotationGrace
 }
 
 // Kiosks implementa los casos de uso de kioscos (I1-14).
@@ -86,6 +111,8 @@ type Kiosks struct {
 
 	mu    sync.Mutex
 	cache map[uuid.UUID]cachedKiosk
+	// bootID identifica este arranque del proceso en las rotaciones.
+	bootID uuid.UUID
 }
 
 type cachedKiosk struct {
@@ -107,7 +134,7 @@ func NewKiosks(store KioskStore, signer *authz.Signer, audit api.AuditRecorder, 
 		cursor = pagination.NewCodec(nil)
 	}
 	return &Kiosks{store: store, signer: signer, audit: audit, cursor: cursor, baseURL: strings.TrimRight(baseURL, "/"),
-		now: now, logger: logger, cache: map[uuid.UUID]cachedKiosk{}}
+		now: now, logger: logger, cache: map[uuid.UUID]cachedKiosk{}, bootID: uuid.Must(uuid.NewV7())}
 }
 
 func (s *Kiosks) ts() time.Time { return s.now().UTC() }
@@ -499,7 +526,12 @@ func (s *Kiosks) Token(ctx context.Context, cred, ip string) (*KioskToken, error
 		return nil, err
 	}
 	t := pgdb.TenantID(k.TenantID)
-	if rotated {
+	if s.resumable(k, rotated, s.ts()) {
+		s.logger.InfoContext(ctx, "kiosk credential: resuming a rotation interrupted by a restart", slog.String("kiosk_id", k.ID.String()))
+		s.record(ctx, k.TenantID, "kiosk", k.ID.String(), "kiosks.credential.rotation_resumed", k.ID, "success", ip, nil)
+		hash, rotated = rotated.SuccessorHash, nil
+	}
+	if rotated != nil {
 		if k.Status != domain.KioskRevoked {
 			s.logger.WarnContext(ctx, "kiosk credential reuse: revoking", slog.String("kiosk_id", k.ID.String()))
 			if err := s.revoke(ctx, t, k, outbox.Actor{Type: "system", ID: "system:auth"}, kioskReasonCredentialReused); err != nil {
@@ -518,7 +550,7 @@ func (s *Kiosks) Token(ctx context.Context, cred, ip string) (*KioskToken, error
 		return nil, apperr.Forbidden(problem.CodeKioskForbidden, "")
 	}
 	next := domain.NewKioskCredential()
-	ok, err := s.store.RotateKioskCredential(ctx, k, hash, domain.HashSecret(next), ip, now)
+	ok, err := s.store.RotateKioskCredential(ctx, k, hash, domain.HashSecret(next), ip, now, s.bootID)
 	if err != nil {
 		return nil, err
 	}

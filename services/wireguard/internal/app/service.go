@@ -54,6 +54,9 @@ type Service struct {
 	kick     chan struct{}
 	mu       sync.Mutex
 	lastPush int64
+	// agentZeroNoted evita repetir el evento de plataforma mientras el
+	// agente siga sin estado aplicado.
+	agentZeroNoted bool
 }
 
 // New crea el servicio.

@@ -13,6 +13,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/hcdestroyer/horus-flow/packages/go/observability"
 	"github.com/hcdestroyer/horus-flow/packages/go/pgdb"
 )
 
@@ -20,7 +21,8 @@ import (
 // §6.1): orden por `seq`, `FOR UPDATE SKIP LOCKED`, un único relay activo por
 // esquema (`pg_try_advisory_xact_lock`), `Nats-Msg-Id` = id (JetStream
 // deduplica reenvíos en 20 min) y marca `published_at` tras el PubAck. Si NATS
-// no responde, reintenta con backoff hasta 30 s sin perder nada.
+// no responde, reintenta con backoff hasta 10 s sin perder nada (tras volver NATS,
+// lo pendiente sale en ≤ 10 s: medido en make chaos-restart-core).
 type Relay struct {
 	DB     *pgdb.DB
 	Schema string
@@ -68,7 +70,7 @@ func (r *Relay) Run(ctx context.Context) error {
 		case ctx.Err() != nil:
 			return nil
 		case err != nil:
-			backoff = min(max(2*backoff, time.Second), 30*time.Second)
+			backoff = min(max(2*backoff, time.Second), 10*time.Second)
 			wait = backoff
 			r.Logger.WarnContext(ctx, "outbox relay: publish failed", slog.String("schema", r.Schema), slog.Any("error", err),
 				slog.Duration("retry_in", wait))
@@ -171,7 +173,13 @@ func (r *Relay) publish(ctx context.Context, o outboxRow) error {
 	pctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	if _, err := r.JS.PublishMsg(pctx, m, jetstream.WithMsgID(o.id.String())); err != nil {
-		return fmt.Errorf("natsx: publish %s: %w", o.subject, err)
+		lctx := observability.WithEventID(ctx, o.id.String())
+		if tp := m.Header.Get(observability.HeaderTraceParent); tp != "" {
+			lctx = observability.ContinueTrace(lctx, tp)
+		}
+		r.Logger.DebugContext(lctx, "outbox relay: publish attempt failed", slog.String("schema", r.Schema),
+			slog.String("subject", o.subject), slog.Any("error", err))
+		return fmt.Errorf("natsx: publish %s (event %s): %w", o.subject, o.id, err)
 	}
 	return nil
 }

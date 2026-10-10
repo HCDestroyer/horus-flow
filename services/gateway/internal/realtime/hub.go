@@ -149,8 +149,23 @@ func (h *Hub) Subscribe(nc *nats.Conn) ([]*nats.Subscription, error) {
 		subs = append(subs, sub)
 	}
 	h.SetBusStatus(nc.IsConnected())
-	nc.SetDisconnectErrHandler(func(*nats.Conn, error) { h.SetBusStatus(false) })
-	nc.SetReconnectHandler(func(*nats.Conn) { h.SetBusStatus(true) })
+	// La conexión es compartida por todos los módulos del proceso: se
+	// encadenan los manejadores existentes (los logs de natsx.Connect) en vez
+	// de sustituirlos, para que la caída y la reconexión de NATS sigan
+	// quedando en los logs.
+	prevDisconnect, prevReconnect := nc.Opts.DisconnectedErrCB, nc.Opts.ReconnectedCB
+	nc.SetDisconnectErrHandler(func(c *nats.Conn, err error) {
+		if prevDisconnect != nil {
+			prevDisconnect(c, err)
+		}
+		h.SetBusStatus(false)
+	})
+	nc.SetReconnectHandler(func(c *nats.Conn) {
+		if prevReconnect != nil {
+			prevReconnect(c)
+		}
+		h.SetBusStatus(true)
+	})
 	return subs, nil
 }
 

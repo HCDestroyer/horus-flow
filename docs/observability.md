@@ -213,6 +213,12 @@ tenant; vacío en acciones de plataforma). Campos recomendados: `version`, `env`
 `actor_id` (UUID de usuario, no email), `event_id`, `subject`, `router_id`, `site_id`,
 `duration_ms`, `error` (mensaje), `error_kind`. Claves en `snake_case`.
 
+Implementado en `packages/go/observability` (D23): el *handler* añade `event_id` (sobre del mensaje NATS que se
+procesa) y `router_id` cuando el contexto los trae (`WithEventID`, `WithRouter`); homogeneiza `err` → `error` y
+`tenant` → `tenant_id`; y, si `error` es un error envuelto, añade `error_cause` y `error_type` con la **causa raíz**
+(p. ej. `pgdb: begin: dial tcp …: connection refused` → `error_cause: "dial tcp …: connection refused"`), para
+agrupar fallos por causa. Todos los roles usan el mismo logger, así que los campos son homogéneos en todo proceso.
+
 Ejemplo:
 
 ```json
@@ -259,6 +265,16 @@ prohíbe pasar campos con nombres sensibles; Alloy aplica un *stage* de redacci�
 - Retención 30 días (`debug` 14 días si se activa); límites por *tenant* de ingesta
   (p. ej. 10 MB/s) para que un bucle de logs no tumbe Loki.
 
+### 3.5 Persistencia y rotación (D23)
+
+El compose de producción usa el driver `json-file` con rotación (`max-size: 20m`, `max-file: 5`, `compress: true`) y
+la etiqueta del servicio en cada línea. Los logs quedan en `/var/lib/docker/containers/<id>/<id>-json.log` (y
+`.gz` rotados): sobreviven a `docker restart`, a los reinicios por la política `unless-stopped` y al reinicio del
+host; se borran al **recrear** el contenedor (actualización o `compose up` con cambios), así que antes de actualizar
+se guarda un paquete de diagnóstico (§11.3). El rastro de largo plazo es el registro de eventos de plataforma en
+PostgreSQL (90 días, §11.2) y, si se despliega el perfil de observabilidad, Loki (30 días). `docker compose logs
+--since 2h <servicio>` lee los mismos archivos.
+
 ## 4. Trazas (OpenTelemetry)
 
 ### 4.1 SDK
@@ -287,6 +303,14 @@ prohíbe pasar campos con nombres sensibles; Alloy aplica un *stage* de redacci�
 | gRPC | Metadata `traceparent` vía `otelgrpc`. |
 | NATS (JetStream) | Cabeceras NATS `traceparent`/`tracestate` (NATS soporta headers) **y** campo `trace_parent` del envelope (Agente 3). El campo del envelope es la fuente de verdad (sobrevive a re-procesos y a herramientas que no copian headers); el header es para instrumentación genérica. Si difieren, prevalece el envelope. |
 | Outbox | Se guarda `trace_parent` en la fila del outbox al crear el evento; el *relay* lo publica tal cual. |
+
+**Implementado (D23):** `httpx.Trace` abre el span de cada petición (continúa un `traceparent` válido o empieza
+traza) y devuelve `traceparent` en la respuesta; `outbox.Insert` guarda el `trace_parent` del contexto en el sobre
+y en la cabecera `traceparent` de la fila; el relay lo publica tal cual; `natsx.Process` continúa la traza (sobre
+primero, cabecera si no) con un span propio y marca `tenant_id` y `event_id` en el contexto del handler; la cola de
+alertas guarda el `trace_parent` del evento y el despachador lo retoma. Test de extremo a extremo con PostgreSQL y
+NATS reales: `TestTracePropagatesHTTPToOutboxToNATSToConsumer` (`packages/go/natsx`). Los spans se exportarán
+cuando llegue el SDK de OpenTelemetry (I0-18); hasta entonces los identificadores viajan y se registran igual.
 
 Semántica de spans en NATS: productor crea span `PRODUCER` (`messaging.system=nats`,
 `messaging.destination.name=<subject>`); consumidor crea span `CONSUMER`:
@@ -488,3 +512,110 @@ Grafana Mimir (más pesado de operar; solo si se adopta el stack LGTM completo a
 - [ ] `/healthz` y `/readyz` implementados según §7, con dependencias clasificadas.
 - [ ] Alertas y panel de dashboard añadidos o actualizados si la funcionalidad crea un nuevo
       modo de fallo; runbook enlazado.
+
+## 11. Cómo investigar un fallo
+
+D23: tras cualquier reinicio todo debe volver solo y quedar rastro para investigar. Esta sección dice dónde
+está ese rastro y cómo seguirlo. Ninguna de estas fuentes lleva datos de clientes (§3.3): IPs de clientes,
+alias y destinos de flujos no se registran y el paquete de diagnóstico enmascara cualquier IP que se cuele.
+
+### 11.1 Dónde queda el rastro
+
+| Fuente | Qué contiene | Dónde | Cuánto dura |
+| --- | --- | --- | --- |
+| Logs de cada contenedor | JSON por línea (§3.1) con `level`, `service`/`role`, `process`, `version`, `trace_id`/`span_id`, `request_id`, `tenant_id`, `event_id` y `router_id` cuando aplican, y `error` con `error_cause`/`error_type` (causa raíz) | `docker compose logs <servicio>`; en disco, `/var/lib/docker/containers/<id>/<id>-json.log` (§3.5) | 5 × 20 MiB comprimidos por contenedor; sobreviven a `docker restart` y al reinicio del host, **no** a recrear el contenedor |
+| Registro de eventos de plataforma | Arranques/paradas, caídas detectadas, migraciones, degradaciones, fallos de alertas, cambios de configuración (§11.2) | PostgreSQL `platform_events.event`; API `GET /api/v1/platform/events` (superadmin, `platform.status.read`); también como líneas `platform event` en los logs | 90 días (`HORUS_PLATFORM_EVENTS_RETENTION`) |
+| Auditoría | Cambios de configuración y acciones de usuarios por ISP | `auth.audit_log` (security.md §7) | Según security.md |
+| Métricas | Salud, colas, outbox, búferes (§2) | `/metrics` en `HORUS_ADMIN_ADDR`; Prometheus si se despliega | 30 días en Prometheus |
+| Loki/Tempo (opcional) | Logs y trazas centralizados | `compose.observability.yaml` | 30 / 7 días |
+| Paquete de diagnóstico | Todo lo anterior del periodo, enmascarado (§11.3) | `horus diagnose` → `.tar.gz` | Lo que se guarde |
+
+### 11.2 Registro de eventos de plataforma
+
+Lo escribe cada proceso `horus` (paquete `packages/go/platformevents`), con su proceso, instancia, rol, versión y
+`trace_id`. Si PostgreSQL no responde, los eventos esperan en memoria (acotado) y, en `horus-app`, en un spool en
+`$HORUS_DATA_DIR/platform-events/`, y se vuelcan al recuperarse; siempre quedan además en el log.
+
+| `kind` | Severidad | Cuándo |
+| --- | --- | --- |
+| `process_started` / `process_stopped` | info | Arranque (versión, commit, roles, configuración efectiva sin secretos y su hash) y parada limpia (tiempo en marcha) |
+| `unclean_shutdown` | error | Al arrancar, si el arranque anterior del mismo proceso e instancia no registró su parada: `kill -9`, OOM, pánico, corte de luz o reinicio del host. Lleva la versión y la hora de ese arranque |
+| `role_started` / `role_stopped` / `role_failed` | info / error | Cada rol del proceso; `role_failed` con el error si `Start` o `Run` fallan |
+| `dependency_down` / `dependency_recovered` | warn (error si crítica) / info | Cambio de estado de un chequeo de `/readyz` (PostgreSQL, ClickHouse, NATS, Valkey…) confirmado en dos muestras (`HORUS_PLATFORM_MONITOR_INTERVAL`, 15 s): p. ej. "ClickHouse inaccesible" es `dependency_down` del rol `analytics`/`detection` con `dependency=clickhouse` |
+| `migration_applied` | info (error si falla) | Migraciones aplicadas por esquema, con la versión resultante |
+| `buffer_high` / `buffer_recovered` | warn / info | El proceso con el rol `gateway` vigila `TLM_FLOWS` y `TLM_SNMP`: ≥ 70 % de `max_bytes` (`HORUS_PLATFORM_BUFFER_HIGH_RATIO`) y vuelta por debajo del 60 % |
+| `spool_active` / `spool_drained` | warn / info | Reservado para el spool a disco del collector (architecture.md §10.15) cuando exista |
+| `alert_delivery_failed` | warn | Una notificación agotó sus reintentos (8 en ≈ 2 h); lleva `tenant_id`, canal, intentos y error, sin destinatarios |
+| `config_changed` | info | La configuración efectiva o la versión cambió respecto del arranque anterior (claves cambiadas, sin valores secretos). Los cambios hechos por la API están además en la auditoría |
+| `agent_restarted` | warn | `wg-agent` reporta `applied_version = 0` (arrancó o se reinició sin estado): el control le reenvía todo |
+
+### 11.3 `horus diagnose` (interfaz estable)
+
+`horus diagnose` genera un `.tar.gz` para adjuntar a una incidencia. Interfaz estable (la usa `horus-ctl`;
+cambios incompatibles suben `format_version` del `manifest.json`):
+
+```text
+horus diagnose [--output=RUTA|-] [--since=24h] [--docker=auto|on|off] [--docker-socket=/var/run/docker.sock]
+               [--compose-project=PROYECTO] [--tail=20000] [--logs-dir=DIR] [--keep-cidr=CIDR,...]
+               [--admin-urls=http://horus-app:8081,http://horus-collector:8081] [--events=5000] [--timeout=2m]
+```
+
+- Salida: `--output=-` escribe el paquete en stdout; por defecto `horus-diagnose-<hora UTC>.tar.gz`.
+- Código de salida: `0` si escribió el paquete (aunque alguna sección fallara: `manifest.json` lista cada sección con
+  `ok` o su error), `1` si no pudo escribirlo, `2` error de uso.
+- Usa las mismas variables que los roles (`HORUS_POSTGRES_DSN`, `HORUS_NATS_URL_FILE`, `HORUS_CLICKHOUSE_DSN`,
+  `HORUS_VALKEY_URL`…), así que se ejecuta con el entorno de `horus-app`. Los logs y el estado de los contenedores se
+  leen de la API de Docker por su socket (solo lectura); sin socket, el paquete sale sin ellos y lo dice.
+
+En el servidor (lo que hace `horus-ctl`):
+
+```bash
+docker compose --project-directory /opt/horus -f /opt/horus/compose.yaml --env-file /opt/horus/.env \
+  run --rm --no-deps -T --user 0:0 -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  horus-app diagnose --output=- --since=24h > horus-diagnose-$(date -u +%Y%m%dT%H%M%SZ).tar.gz
+```
+
+Contenido: `README.txt`, `manifest.json`, `versions.json` (horus, PostgreSQL, ClickHouse, NATS, Valkey),
+`config.json` (configuración efectiva sin secretos: los `*_FILE` muestran la ruta, las URL sin contraseña),
+`health/*.json` (dependencias y `/readyz` de cada proceso), `metrics/*.prom` (familias `horus_*`, HTTP, Go),
+`platform-events.json`, `postgres/{migrations,outbox,alerts-queue}.json`, `nats/streams.json` (streams y
+consumidores con pendientes, ack pendientes y reentregas), `clickhouse/tables.json`, `docker/*.json` (reinicios,
+OOM, salud, política de logs de cada contenedor) y `logs/*.log`.
+
+**Sin datos de clientes:** todo el texto pasa por un enmascarador: cualquier IP que no sea de la infraestructura
+(loopback, redes de los contenedores, rangos de túnel y servicios WireGuard, IP del colector, `--keep-cidr` o
+`HORUS_DIAGNOSE_KEEP_CIDRS`) se sustituye por `[ip:xxxxxxxx]`, un seudónimo HMAC con una clave aleatoria que no se
+guarda (la misma IP da el mismo valor dentro del paquete, para correlacionar líneas, pero no se puede revertir);
+correos, tokens `Bearer` y parámetros secretos se redactan. Lo verifican `TestDiagnoseBundleHasNoClientData` y la
+matriz `make chaos-restart-core` (el paquete no contiene ninguna IP de cliente del escenario).
+
+### 11.4 Paso a paso
+
+1. **¿Qué ve el usuario y desde cuándo?** Anota la hora (UTC) y, si hay respuesta de error, su `trace_id`
+   (Problem Details, §8) o la cabecera `traceparent` de la respuesta (`00-<trace_id>-<span_id>-01`).
+2. **¿Se reinició algo?** `GET /api/v1/platform/events?severity=warn&since=<hora-1h>` (o
+   `platform-events.json` del paquete): busca `unclean_shutdown` (caída sin parada limpia), `process_started`
+   repetidos (bucle de reinicios), `role_failed`, `migration_applied` con error y `agent_restarted`.
+   `docker/*.json` del paquete da `restart_count`, `OOMKilled` y el último healthcheck de cada contenedor.
+3. **¿Qué dependencia falló?** `dependency_down`/`dependency_recovered` dicen qué chequeo, de qué rol y cuánto
+   duró; `health/*.json` da el estado en el momento del paquete. ClickHouse caído degrada analytics/detection pero
+   no tumba el login (architecture.md §10.1); PostgreSQL caído sí.
+4. **¿Se está acumulando algo?** `postgres/outbox.json`: pendientes y antigüedad del más viejo por esquema (un
+   `oldest_pending_age_seconds` que crece = relay atascado, normalmente NATS); `nats/streams.json`: `num_pending` y
+   `num_ack_pending` de cada consumidor (consumidor parado o mensaje venenoso; mira también el stream `DLQ`);
+   `buffer_high` y `used_ratio` de `TLM_FLOWS` (autonomía ante ClickHouse, architecture.md §9.4);
+   `postgres/alerts-queue.json`: entregas en cola o reintentándose.
+5. **Sigue el rastro por `trace_id`.** El mismo `trace_id` aparece en la línea de la petición HTTP, en el evento
+   del outbox (`trace_parent` del sobre y cabecera `traceparent` en NATS) y en los logs de cada consumidor que lo
+   procesó (cada uno con su `span_id` y el `event_id` del sobre). En el paquete:
+   `zgrep -h '"trace_id":"<id>"' logs/*.log | jq -s 'sort_by(.ts)'`; con Loki, `{service=~".+"} | json | trace_id="<id>"`.
+   Para un ISP concreto filtra por `tenant_id`; para un router, por `router_id`; para un evento, por `event_id`.
+6. **Lee la causa, no el síntoma.** Las líneas de error llevan `error` (cadena completa) y `error_cause` /
+   `error_type` (causa raíz): agrupa por `error_cause` para ver si cien errores distintos son la misma conexión
+   rechazada.
+7. **¿Cambió algo?** `config_changed` lista las claves de configuración que cambiaron entre arranques y la
+   versión anterior; la auditoría (`auth.audit_log`) dice quién cambió qué por la API.
+8. **Alertas que no llegaron.** `GET /api/v1/notification-deliveries?status=failed` del ISP y los eventos
+   `alert_delivery_failed`; una entrega `queued` con `attempts` > 0 se está reintentando (backoff hasta ≈ 2 h).
+9. **Adjunta el paquete.** `horus diagnose` (§11.3) recoge todo lo anterior sin datos de clientes; añade la hora y el
+   `trace_id` del paso 1 a la incidencia.

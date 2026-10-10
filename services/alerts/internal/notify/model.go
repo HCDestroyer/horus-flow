@@ -147,6 +147,12 @@ type Delivery struct {
 	Error           *string
 	CreatedAt       time.Time
 	SentAt          *time.Time
+	// Cola persistente (D23): intentos hechos, mensaje renderizado (sin
+	// datos personales), severidad y traza del evento de origen.
+	Attempts    int
+	Message     *Message
+	Severity    *string
+	TraceParent *string
 }
 
 var (

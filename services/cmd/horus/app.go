@@ -15,7 +15,9 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/httpx"
 	"github.com/hcdestroyer/horus-flow/packages/go/lifecycle"
 	"github.com/hcdestroyer/horus-flow/packages/go/module"
+	"github.com/hcdestroyer/horus-flow/packages/go/natsx"
 	"github.com/hcdestroyer/horus-flow/packages/go/observability"
+	"github.com/hcdestroyer/horus-flow/packages/go/platformevents"
 )
 
 const (
@@ -32,6 +34,9 @@ func run(ctx context.Context, args, environ []string, stdout, stderr io.Writer, 
 	}
 	if len(args) > 0 && args[0] == "nats-provision" {
 		return natsProvision(ctx, args[1:], environ, stdout, stderr)
+	}
+	if len(args) > 0 && args[0] == "diagnose" {
+		return diagnose(ctx, args[1:], environ, stdout, stderr)
 	}
 	fs := flag.NewFlagSet("horus", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -115,8 +120,21 @@ func build(ctx context.Context, cfg config.Common, roles []roleSpec, environ []s
 	}), logger, httpx.ServerOptions{})
 	mgr.Append(admin.Hook())
 
+	// Registro de eventos de plataforma (D23): arranca antes que los roles
+	// (registra sus migraciones y arranques) y para después de ellos.
+	plat, err := newPlatform(cfg, environ, logger)
+	if err != nil {
+		return nil, err
+	}
+	plat.hreg = hreg
+	mgr.Append(plat.hook(), plat.monitorHook())
+
 	// Contratos entre módulos con implementación en proceso (ADR-0025 §1).
 	services := module.NewServices()
+	plat.bus = func() *natsx.Bus {
+		b, _ := module.Lookup[*natsx.Bus](services, natsx.ServiceBus)
+		return b
+	}
 	for _, spec := range roles {
 		rlog := observability.ForRole(logger, spec.name)
 		hrole := hreg.Role(spec.name)
@@ -137,6 +155,9 @@ func build(ctx context.Context, cfg config.Common, roles []roleSpec, environ []s
 		mgr.Append(roleHook(spec.name, mod, hrole, rlog))
 	}
 
+	// Registro de eventos de plataforma por la API (superadministrador).
+	plat.mountAPI(api, services)
+
 	// La API arranca la última (cuando los roles están listos) y para la
 	// primera, drenando las peticiones en curso antes de parar los módulos.
 	if api.Routes() > 0 {
@@ -154,15 +175,22 @@ func roleHook(name string, mod module.Module, hrole *health.Role, logger *slog.L
 			ctx = observability.WithRole(ctx, name)
 			if s, ok := mod.(module.Starter); ok {
 				if err := s.Start(ctx); err != nil {
+					roleEvent(ctx, platformevents.KindRoleFailed, name, err)
 					return err //nolint:wrapcheck // lifecycle añade "start role:<rol>"
 				}
 			}
 			hrole.SetState(health.StateRunning)
 			logger.InfoContext(ctx, "role started")
+			roleEvent(ctx, platformevents.KindRoleStarted, name, nil)
 			return nil
 		},
 		Run: func(ctx context.Context) error {
-			return mod.Run(observability.WithRole(ctx, name))
+			ctx = observability.WithRole(ctx, name)
+			err := mod.Run(ctx)
+			if err != nil {
+				roleEvent(context.WithoutCancel(ctx), platformevents.KindRoleFailed, name, err)
+			}
+			return err //nolint:wrapcheck // lifecycle añade "run role:<rol>"
 		},
 		Stop: func(ctx context.Context) error {
 			ctx = observability.WithRole(ctx, name)
@@ -173,6 +201,7 @@ func roleHook(name string, mod module.Module, hrole *health.Role, logger *slog.L
 				}
 			}
 			logger.InfoContext(ctx, "role stopped")
+			roleEvent(ctx, platformevents.KindRoleStopped, name, nil)
 			return nil
 		},
 	}

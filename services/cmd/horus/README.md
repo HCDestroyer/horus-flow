@@ -22,6 +22,8 @@ go run ./services/cmd/horus --version        # versión y roles disponibles
 | `main.go` | Señales (`SIGINT`/`SIGTERM`; una segunda señal termina de inmediato) y `os.Exit` |
 | `app.go` | `run` (flags, configuración, logger) y `build` (cableado manual: admin, roles, API) |
 | `roles.go` | Catálogo de roles en orden de arranque; `scripts/new-module.sh` añade aquí los nuevos |
+| `diagnose.go`, `mask.go`, `dockerapi.go` | Subcomando `horus diagnose`: paquete `.tar.gz` para investigar un fallo (logs de los contenedores, registro de eventos de plataforma, versiones, NATS, salud, outbox, configuración sin secretos, métricas) con las IPs de clientes enmascaradas. Interfaz estable para `horus-ctl` en [`docs/observability.md`](../../../docs/observability.md) §11.3 |
+| `platform.go`, `platformapi.go`, `effective.go` | Registro de eventos de plataforma del proceso (arranque/parada, roles, paradas no limpias, migraciones, dependencias, búfer de telemetría, cambios de configuración; `packages/go/platformevents`) y `GET /api/v1/platform/events` en el proceso con el rol `gateway` |
 | `natsprov.go` | Subcomando `horus nats-provision`: aplica de forma idempotente los streams y durables de `packages/events/streams/streams.yaml` (C4, omite los de `since` posterior a `--increment`) y los buckets KV de `infrastructure/nats/kv.yaml` (p. ej. `flow_exporter_state`). Lo ejecuta el servicio one-shot `nats-init` del compose de producción (I1-22) |
 
 ## Roles

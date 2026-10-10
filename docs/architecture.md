@@ -855,6 +855,60 @@ datos que hoy no se pierden. Diseño propuesto para cuando haga falta:
   `horus_collector_spool_dropped_total`.
 - **Lleno:** se descartan los lotes nuevos (como hoy el búfer) y se publica `data_gap`.
 
+### 10.18 Estado tras un reinicio: módulos de plataforma (CORE, D23)
+
+D23 exige que, tras cualquier reinicio (`kill -9`, `docker restart`, reinicio del host), todo funcione al 100 %
+sin pérdidas ni duplicados. Auditoría de los módulos que no son de flujos (los de flujos — collector,
+ingester, `flowinv`, descubrimiento de clientes — tienen su propia subsección de FLOW). "Antes" marca lo que
+vivía solo en memoria o se perdía y se corrigió en esta ronda; el patrón buscado es el del fallo de `flowinv`
+(estado en memoria alimentado por un durable que, tras reiniciar, solo entrega lo no confirmado).
+
+| Componente | Estado | Persistencia | Reconstrucción tras reinicio |
+| --- | --- | --- | --- |
+| `detection` · motor | Fin de la última ventana evaluada por detector y tenant | `detection.engine_state` (`window:<detector>`), escrito **después** de aplicar los candidatos. **Antes:** mapa en memoria y avance guardado antes de `Apply` | Al arrancar lee el avance y evalúa las ventanas atrasadas por cadencia (máx. 24 h hacia atrás y 24 ventanas por pasada; el hueco más antiguo se registra en el log). Un `kill -9` entre la evaluación y `Apply` repite la ventana; reevaluar no duplica (ver hallazgos). El fin de ventana se limita a la **marca de agua de la ingesta** (publicación del primer lote de TLM_FLOWS que el ingester no ha confirmado): tras una caída no se dan por evaluadas ventanas cuyos flujos siguen en el búfer |
+| `detection` · barrido retroactivo C2 | Versión de snapshot y fin del último barrido | `detection.engine_state` (`c2_retro`), ahora también después de `Apply` | Retoma; si murió a mitad, repite el barrido (ventana de 7 días) |
+| `detection` · tenants a evaluar | ISP registrados por la API, `HORUS_DETECTION_TENANTS` e inventario de exportadores | `detection.tenant_registry`; el inventario es la proyección `flowinv` de `DEVICES_EVENTS` | Lee la tabla; `flowinv` relee el stream entero en cada arranque (consumidor efímero, arreglo de FLOW) |
+| `detection` · hallazgos | Hallazgo, ciclo de vida, estado de seguridad del cliente | `detection.finding`, `customer_security` y outbox en la misma transacción | Idempotente: `Apply` deduplica por (cliente, kind, objetivo) y `last_seen`; una ocurrencia ya aplicada es `Unchanged` |
+| `detection` · reputación y feeds | Snapshot vigente; estado de cada fuente | Disco (`$HORUS_DATA_DIR/catalog/reputation`, `datasets/<fuente>/state.json`, escritura atómica tmp+rename) | `repsnap` recarga cada minuto; `feedsync` reanuda por `LastAttempt` + frecuencia (no re-descarga en cada arranque). Pendiente menor: un `kill -9` a mitad de escritura deja un `.tmp-*` huérfano |
+| `alerts` · consumidor `alerts-notify-*` | Posición en DETECTION/FLOWS/WIREGUARD_EVENTS | Durables JetStream (`DeliverNew` solo al crearse) | Tras reiniciar entrega lo no confirmado; el mensaje se confirma cuando las entregas están **en la cola de PostgreSQL** |
+| `alerts` · cola de entregas | Entrega por canal y evento, intentos, próximo intento, mensaje ya renderizado (sin datos personales) | `alerts.notification_delivery` (`queued`, `attempts`, `next_attempt_at`, `claimed_until`, `message`). **Antes:** se registraba `queued` y se enviaba en el mismo handler: un `kill -9` entre ambos dejaba la fila y la reentrega no avisaba nunca; sin reintentos | Un despachador reclama las vencidas por lease (`FOR UPDATE SKIP LOCKED`, 2 min) y reintenta con backoff (8 intentos ≈ 2 h). Sin duplicados: única por (canal, evento origen). **Deduplicación documentada:** un `kill -9` entre la aceptación remota y el registro reenvía esa entrega una vez al vencer el lease; LibreNMS recibe `X-Horus-Delivery-Id` para descartarla. El fallo definitivo emite `notification.failed` y un evento de plataforma |
+| Outbox → relay (todos los módulos) | Eventos pendientes de publicar | `<esquema>.outbox` en la transacción del cambio | El relay publica `published_at IS NULL` por orden de `seq`. Si muere tras el PubAck y antes de confirmar, republica con el mismo `Nats-Msg-Id` (JetStream deduplica 20 min) y los consumidores son idempotentes por id de evento. Con NATS caído, reintenta con backoff sin perder nada |
+| `gateway` · tickets de WebSocket | Ticket de un uso (30 s) | Memoria (una réplica; con varias, Valkey) | Se pierden: el cliente pide otro ticket y reconecta (contrato C6). No es estado de negocio |
+| `gateway` · reanudación y último estado por topic | Últimos eventos por tenant (5 min) | Memoria | Tras reiniciar, `resume` no encuentra el id y el cliente pide el snapshot REST (contrato C6). Comprobado: kiosco y WebSocket de usuario se recuperan solos |
+| `gateway` · suscripciones NATS core | — | — | `nats.go` reconecta sin límite y resuscribe; `realtime_status` pasa a `degraded` y vuelve a `ok`. **Antes:** el hub sustituía los manejadores de desconexión de la conexión compartida y las caídas de NATS dejaban de verse en los logs |
+| `auth` · sesiones y refresh | Sesión, refresh rotativo con detección de reutilización | `auth.session`, `auth.refresh_token` | Siguen válidas (verificado tras cada escenario de la matriz) |
+| `auth` · claves de firma y KEK | Clave Ed25519 de los JWT, KEK de los secretos TOTP | Secretos en archivo (`HORUS_AUTH_SIGNING_KEY_FILE`, `HORUS_AUTH_KEK_FILE`; efímeras solo en dev, con aviso) | Los tokens emitidos antes del reinicio siguen siendo válidos |
+| `auth` · TOTP | Secreto cifrado y último paso usado (anti-reutilización) | `auth.totp_credential`, `auth.recovery_code` | — |
+| `auth` · fallos de 2FA de un login pendiente | Contador por sesión pendiente | `auth.session.mfa_failures`. **Antes:** mapa en memoria: un reinicio regalaba intentos | — |
+| `auth` · kiosco | Credencial rotativa del dispositivo y su JWT (10 min) | `auth.kiosk`, `auth.kiosk_credential_rotated` (sucesora y arranque que rotó). **Antes:** si el proceso moría tras confirmar la rotación y antes de entregar la cookie, el kiosco volvía con la anterior y se **revocaba** por "reutilización" | Si la rotó otro arranque, la sucesora nunca se usó y no han pasado 30 min, se reanuda la rotación (auditado `kiosks.credential.rotation_resumed`); dentro del mismo arranque la reutilización sigue revocando (security.md §5.5) |
+| `auth` · cachés (estado de sesión y de kiosco) | Revocación cacheada 2 s | Memoria | Caché pura; se rellena desde PostgreSQL |
+| `wireguard` (control) | Peers, versión deseada, versión aplicada reportada | `wireguard.peer`, `wireguard.server` | Recalcula; `lastPush` en memoria es solo una optimización: si el agente reporta `applied_version` < deseada se le reenvía todo |
+| `wg-agent` (hub) | Interfaz y peers del kernel; versión aplicada | Kernel: la interfaz la crea `horus-tunnel` fuera del contenedor, así que los peers sobreviven al reinicio del contenedor | Arranca con `applied_version = 0` y no borra nada (fail-static) hasta recibir el estado completo, que el control reenvía; queda `agent_restarted` en el registro de plataforma. Túneles de los routers simulados restablecidos solos en la matriz |
+| `devices` · inventario | Routers, nodos, prefijos, credenciales cifradas | PostgreSQL + outbox | — (los consumidores de descubrimiento son de FLOW) |
+| `devices` · ciclo de vida de clientes | Inactivación y purga diarias | Calculado desde PostgreSQL | Se ejecuta al arrancar y cada 24 h (idempotente) |
+| Registro de eventos de plataforma | Arranques, paradas, caídas, migraciones, degradaciones | `platform_events.event`; si PostgreSQL no responde, cola acotada en memoria y spool en `$HORUS_DATA_DIR/platform-events/` (horus-app) | Vuelca el spool al recuperarse; los eventos están además en los logs (`platform event`) |
+| Salud y métricas | `/readyz`, contadores | Memoria | Se recalculan (los contadores vuelven a 0, como en cualquier exporter Prometheus) |
+
+Cómo se verifica: tests unitarios y de integración del motor (`TestEngineCatchesUpAfterRestart`,
+`TestEngineDoesNotAdvanceOnApplyFailure`, `TestEngineWaitsForIngestionWatermark`), de la cola de alertas (`TestQueueResumesClaimedDeliveryAfterCrash`,
+`TestQueueRetriesWithoutDuplicates`), del kiosco (`TestKioskRotationSurvivesRestart`) y la matriz
+`make chaos-restart-core` (`kill -9` y `docker restart` de horus-app, horus-wg-agent, PostgreSQL, NATS y Valkey en
+orden y momento aleatorios, repetida, y `accept-i1` después; resultados en `bin/chaos-core/report.md`).
+
+**Resultado (2026-10-10, 2 vueltas × 10 escenarios + caída larga, instalación real con 2 routers simulados por
+WireGuard):** los 21 escenarios en verde. Tiempo desde el fallo hasta que todo vuelve (contenedor sano, `horus-app`
+listo, API, sesión renovada con su cookie, túneles con handshake reciente, WebSocket de usuario con un evento nuevo
+recibido y kiosco reconectado): `kill -9` de cualquier componente 7–9 s (Docker lo reinicia en ≈ 1 s), `docker
+restart` de PostgreSQL 10–11 s, de `horus-wg-agent` 12 s y de `horus-app` 13–15 s (un kiosco tardó 23 s en una
+ocasión tras `kill -9` de Valkey, por su reconexión cada 2 s más el refresco del JWT). Los túneles nunca cayeron
+(la interfaz del hub vive fuera del contenedor del agente). Caída larga de `horus-app` (9 min, con flujos del
+escenario `dos_out` durante la caída): el hallazgo esperado se abrió 68 s después del arranque, cuando el ingester
+vació el búfer. Al final: outbox con 0 eventos pendientes en todos los esquemas; 51 alertas enviadas (48 pruebas
+aceptadas durante el caos y 3 de hallazgos) sin ninguna perdida ni duplicada; hallazgos esperados presentes y 0
+duplicados activos; un `unclean_shutdown` por cada `kill -9` de `horus-app`; paquete `horus diagnose` sin ninguna
+IP de cliente; y `accept-i1` contra la misma instalación en verde (25 OK, 0 FAIL; se omiten `image`, por ser
+TARGET=installed, y `lab-chr`, sin KVM).
+
 ---
 
 ## 11. Riesgos arquitectónicos principales

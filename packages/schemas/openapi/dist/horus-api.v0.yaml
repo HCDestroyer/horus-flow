@@ -2895,6 +2895,88 @@ paths:
                 $ref: '#/components/schemas/PermissionCatalog'
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /platform/events:
+    get:
+      tags:
+        - platform
+      operationId: platformListEvents
+      summary: Registro de eventos de plataforma (arranques, caídas, migraciones, degradaciones; D23)
+      description: |
+        Eventos de la instalación, más recientes primero: arranque y parada de cada proceso y rol con su versión,
+        paradas no limpias detectadas al arrancar (`unclean_shutdown`), dependencias caídas o recuperadas según el
+        healthcheck de cada rol, migraciones aplicadas, búfer de telemetría por encima del 70 %, spool activo,
+        reinicios del agente WireGuard, fallos definitivos de envío de alertas y cambios de la configuración
+        efectiva entre arranques. Sin datos de clientes; `tenant_id` solo en eventos de un ISP (p. ej.
+        `alert_delivery_failed`). Retención `HORUS_PLATFORM_EVENTS_RETENTION` (90 días). La UI de la consola de
+        plataforma queda pendiente.
+      x-module: gateway
+      x-scope: platform
+      x-permission: platform.status.read
+      x-increment: I1
+      security:
+        - platformBearer: []
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: kind
+          in: query
+          description: Tipos separados por comas.
+          schema:
+            type: string
+            examples:
+              - unclean_shutdown,dependency_down
+        - name: severity
+          in: query
+          description: Severidad mínima.
+          schema:
+            type: string
+            enum:
+              - info
+              - warn
+              - error
+        - name: process
+          in: query
+          schema:
+            type: string
+            examples:
+              - horus-app
+        - name: role
+          in: query
+          schema:
+            type: string
+            examples:
+              - alerts
+        - name: since
+          in: query
+          schema:
+            $ref: '#/components/schemas/Timestamp'
+        - name: until
+          in: query
+          schema:
+            $ref: '#/components/schemas/Timestamp'
+      responses:
+        '200':
+          description: Página de eventos.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - page
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PlatformEvent'
+                  page:
+                    $ref: '#/components/schemas/PageInfo'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /platform/exporters/unregistered:
     get:
       tags:
@@ -8314,6 +8396,72 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Role'
+    PlatformEvent:
+      type: object
+      required:
+        - id
+        - occurred_at
+        - kind
+        - severity
+        - process
+        - instance
+        - message
+      properties:
+        id:
+          type: string
+          format: uuid
+        occurred_at:
+          $ref: '#/components/schemas/Timestamp'
+        kind:
+          type: string
+          enum:
+            - process_started
+            - process_stopped
+            - unclean_shutdown
+            - role_started
+            - role_stopped
+            - role_failed
+            - dependency_down
+            - dependency_recovered
+            - migration_applied
+            - buffer_high
+            - buffer_recovered
+            - spool_active
+            - spool_drained
+            - alert_delivery_failed
+            - config_changed
+            - agent_restarted
+            - container_restarted
+        severity:
+          type: string
+          enum:
+            - info
+            - warn
+            - error
+        process:
+          type: string
+          examples:
+            - horus-app
+        instance:
+          type: string
+          description: Hostname del contenedor (o HORUS_INSTANCE).
+        role:
+          type: string
+        version:
+          type: string
+        tenant_id:
+          type:
+            - string
+            - 'null'
+          format: uuid
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+          description: Datos del evento sin secretos ni datos de clientes (p. ej. dependency, error, schema, changed_keys).
+        trace_id:
+          type: string
     AccessMode:
       type: string
       description: |

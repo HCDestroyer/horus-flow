@@ -24,6 +24,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+
+	"github.com/hcdestroyer/horus-flow/packages/go/observability"
 )
 
 // Cabeceras del contrato (docs/events.md §5.2).
@@ -118,6 +120,11 @@ func Publish(ctx context.Context, js jetstream.JetStream, env *Envelope) error {
 	if env.Time.IsZero() {
 		env.Time = time.Now()
 	}
+	if env.TraceParent == nil {
+		if tp := observability.TraceParentFrom(ctx); tp != "" {
+			env.TraceParent = &tp
+		}
+	}
 	body, err := json.Marshal(env)
 	if err != nil {
 		return fmt.Errorf("natsx: marshal: %w", err)
@@ -132,6 +139,9 @@ func Publish(ctx context.Context, js jetstream.JetStream, env *Envelope) error {
 		m.Header.Set(HeaderTenant, env.TenantID.String())
 	} else {
 		m.Header.Set(HeaderTenant, TenantPlatform)
+	}
+	if env.TraceParent != nil {
+		m.Header.Set(observability.HeaderTraceParent, *env.TraceParent)
 	}
 	if _, err := js.PublishMsg(ctx, m); err != nil {
 		return fmt.Errorf("natsx: publish %s: %w", env.Type, err)

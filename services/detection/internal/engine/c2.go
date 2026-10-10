@@ -90,16 +90,19 @@ func detectC2(ctx context.Context, e *env) ([]domain.Candidate, error) {
 // indicadores del snapshot vigente que la ingesta no pudo marcar porque
 // entraron en el feed después (I1-10 criterio 2): la ventana del hallazgo es
 // la del tráfico real.
-func (en *Engine) retroSweep(ctx context.Context, tenant uuid.UUID, p *domain.Params, snap *reputation.Snapshot, end time.Time, force bool, cache map[ClientKey]Customer) ([]domain.Candidate, error) {
-	const key = "c2_retro"
-	state, err := en.sink.State(ctx, tenant, key)
+//
+// Devuelve además el estado a guardar en engine_state (retroStateKey) una
+// vez aplicados los candidatos: guardarlo antes perdería los hallazgos si el
+// proceso muere entre el barrido y Apply.
+func (en *Engine) retroSweep(ctx context.Context, tenant uuid.UUID, p *domain.Params, snap *reputation.Snapshot, end time.Time, force bool, cache map[ClientKey]Customer) ([]domain.Candidate, string, error) {
+	state, err := en.sink.State(ctx, tenant, retroStateKey)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	ver, at, _ := strings.Cut(state, "|")
 	lastAt, _ := strconv.ParseInt(at, 10, 64)
 	if !force && ver == snap.Meta.Version && end.Sub(time.Unix(lastAt, 0)) < p.C2.RetroInterval.D() {
-		return nil, nil
+		return nil, "", nil
 	}
 	want := map[string]bool{"botnet_cc": true}
 	if p.C2.Mining {
@@ -128,7 +131,7 @@ func (en *Engine) retroSweep(ctx context.Context, tenant uuid.UUID, p *domain.Pa
 		batch := ips[i:min(i+5000, len(ips))]
 		flows, err := en.sig.IndicatorFlows(ctx, tenant, from, end, batch)
 		if err != nil {
-			return out, err
+			return out, "", err
 		}
 		for _, f := range flows {
 			ind := inds[f.Remote.Unmap()]
@@ -143,8 +146,11 @@ func (en *Engine) retroSweep(ctx context.Context, tenant uuid.UUID, p *domain.Pa
 		}
 	}
 	_ = cache
-	return out, en.sink.SetState(ctx, tenant, key, snap.Meta.Version+"|"+strconv.FormatInt(end.Unix(), 10))
+	return out, snap.Meta.Version + "|" + strconv.FormatInt(end.Unix(), 10), nil
 }
+
+// retroStateKey es la clave de engine_state del barrido retroactivo de C2.
+const retroStateKey = "c2_retro"
 
 func snapVersion(s *reputation.Snapshot) int {
 	if s == nil {
