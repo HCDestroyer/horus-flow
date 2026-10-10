@@ -865,7 +865,7 @@ vivía solo en memoria o se perdía y se corrigió en esta ronda; el patrón bus
 
 | Componente | Estado | Persistencia | Reconstrucción tras reinicio |
 | --- | --- | --- | --- |
-| `detection` · motor | Fin de la última ventana evaluada por detector y tenant | `detection.engine_state` (`window:<detector>`), escrito **después** de aplicar los candidatos. **Antes:** mapa en memoria y avance guardado antes de `Apply` | Al arrancar lee el avance y evalúa las ventanas atrasadas por cadencia (máx. 24 h hacia atrás y 24 ventanas por pasada; el hueco más antiguo se registra en el log). Un `kill -9` entre la evaluación y `Apply` repite la ventana; reevaluar no duplica (ver hallazgos) |
+| `detection` · motor | Fin de la última ventana evaluada por detector y tenant | `detection.engine_state` (`window:<detector>`), escrito **después** de aplicar los candidatos. **Antes:** mapa en memoria y avance guardado antes de `Apply` | Al arrancar lee el avance y evalúa las ventanas atrasadas por cadencia (máx. 24 h hacia atrás y 24 ventanas por pasada; el hueco más antiguo se registra en el log). Un `kill -9` entre la evaluación y `Apply` repite la ventana; reevaluar no duplica (ver hallazgos). El fin de ventana se limita a la **marca de agua de la ingesta** (publicación del primer lote de TLM_FLOWS que el ingester no ha confirmado): tras una caída no se dan por evaluadas ventanas cuyos flujos siguen en el búfer |
 | `detection` · barrido retroactivo C2 | Versión de snapshot y fin del último barrido | `detection.engine_state` (`c2_retro`), ahora también después de `Apply` | Retoma; si murió a mitad, repite el barrido (ventana de 7 días) |
 | `detection` · tenants a evaluar | ISP registrados por la API, `HORUS_DETECTION_TENANTS` e inventario de exportadores | `detection.tenant_registry`; el inventario es la proyección `flowinv` de `DEVICES_EVENTS` | Lee la tabla; `flowinv` relee el stream entero en cada arranque (consumidor efímero, arreglo de FLOW) |
 | `detection` · hallazgos | Hallazgo, ciclo de vida, estado de seguridad del cliente | `detection.finding`, `customer_security` y outbox en la misma transacción | Idempotente: `Apply` deduplica por (cliente, kind, objetivo) y `last_seen`; una ocurrencia ya aplicada es `Unchanged` |
@@ -890,7 +890,7 @@ vivía solo en memoria o se perdía y se corrigió en esta ronda; el patrón bus
 | Salud y métricas | `/readyz`, contadores | Memoria | Se recalculan (los contadores vuelven a 0, como en cualquier exporter Prometheus) |
 
 Cómo se verifica: tests unitarios y de integración del motor (`TestEngineCatchesUpAfterRestart`,
-`TestEngineDoesNotAdvanceOnApplyFailure`), de la cola de alertas (`TestQueueResumesClaimedDeliveryAfterCrash`,
+`TestEngineDoesNotAdvanceOnApplyFailure`, `TestEngineWaitsForIngestionWatermark`), de la cola de alertas (`TestQueueResumesClaimedDeliveryAfterCrash`,
 `TestQueueRetriesWithoutDuplicates`), del kiosco (`TestKioskRotationSurvivesRestart`) y la matriz
 `make chaos-restart-core` (`kill -9` y `docker restart` de horus-app, horus-wg-agent, PostgreSQL, NATS y Valkey en
 orden y momento aleatorios, repetida, y `accept-i1` después; resultados en `bin/chaos-core/report.md`).
