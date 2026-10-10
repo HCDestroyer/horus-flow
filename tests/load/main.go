@@ -43,6 +43,9 @@ const (
 	// maxLagSeconds: backlog máximo tolerado durante la carga, en segundos de
 	// flujo. Por encima, el ingester no da abasto y el lag crecería sin límite.
 	maxLagSeconds = 30.0
+	// maxLagGrowth: crecimiento máximo del backlog (segundos de flujo por
+	// minuto) en la segunda mitad de la carga; por encima "el lag crece".
+	maxLagGrowth = 2.0
 	// maxDrain: tras parar el simulador el backlog debe vaciarse en este plazo.
 	maxDrain = 90 * time.Second
 )
@@ -260,7 +263,10 @@ loop:
 	if s.Sent == 0 {
 		s.Why = append(s.Why, "el simulador no envió nada")
 	}
-	if s.loss() != 0 || s.LostSeq > 0 || s.UDPDrops > 0 || len(s.Drops) > 0 {
+	// LostSeq es informativo: cada ejecución del simulador es un exportador
+	// "reiniciado" y su primera secuencia cuenta como salto; la pérdida real es
+	// enviados − recibidos.
+	if s.loss() != 0 || s.UDPDrops > 0 || len(s.Drops) > 0 {
 		s.Why = append(s.Why, fmt.Sprintf("pérdida en el collector: %d registros (secuencia %d, UDP %d, descartes %v)",
 			s.loss(), s.LostSeq, s.UDPDrops, s.Drops))
 	}
@@ -269,6 +275,9 @@ loop:
 	}
 	if s.MaxLagSeconds > maxLagSeconds {
 		s.Why = append(s.Why, fmt.Sprintf("lag máximo %.1f s > %.0f s", s.MaxLagSeconds, maxLagSeconds))
+	}
+	if growth := s.LagSlope * s.RecsPerBatch / rate; growth > maxLagGrowth {
+		s.Why = append(s.Why, fmt.Sprintf("el lag crece %.1f s/min", growth))
 	}
 	if drain > maxDrain {
 		s.Why = append(s.Why, "drenaje "+s.Drain+" > "+maxDrain.String())

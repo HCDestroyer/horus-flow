@@ -37,6 +37,8 @@ services:
       HORUS_NATS_ENSURE_STREAMS: "true"
       HORUS_TLM_FLOWS_MAX_BYTES: ${HORUS_LOAD_TLM_MAX_BYTES:-1073741824}
       HORUS_COLLECTOR_SILENT_AFTER: ${HORUS_LOAD_SILENT_AFTER:-30s}
+      # Registros por lote (500 por defecto, máximo 2000): cada lote es un INSERT en flows_raw.
+      HORUS_COLLECTOR_BATCH_MAX_RECORDS: ${HORUS_LOAD_BATCH_MAX_RECORDS:-500}
     volumes:
       - ${HORUS_LOAD_INV_DIR:?falta HORUS_LOAD_INV_DIR}:/etc/horus-load:ro
     ports:
