@@ -98,8 +98,8 @@ func main() {
 
 type router struct {
 	name, site, id, tunnelIP string
-	idx                             int
-	onb                             onboarding
+	idx                      int
+	onb                      onboarding
 }
 
 type onboarding struct{ tunnelIP, hubKey, endpoint, port, services, collector, token string }
@@ -145,7 +145,9 @@ func (r *run) main() int {
 	defer cancel()
 	r.ctx = ctx
 	r.kills, r.restarts, r.wsEvents, r.final = map[string]int{}, map[string]int{}, map[string]time.Time{}, map[string]string{}
-	r.logf = func(f string, a ...any) { fmt.Printf("%s  %s\n", time.Now().UTC().Format("15:04:05"), fmt.Sprintf(f, a...)) }
+	r.logf = func(f string, a ...any) {
+		fmt.Printf("%s  %s\n", time.Now().UTC().Format("15:04:05"), fmt.Sprintf(f, a...))
+	}
 	r.logf("semilla %d, %d vueltas, escenarios %v", r.c.seed, r.c.rounds, r.c.scenarios)
 	if err := r.setup(ctx); err != nil {
 		r.logf("PREPARACIÓN FALLIDA: %v", err)
@@ -421,7 +423,7 @@ func (r *run) alertsChannel(ctx context.Context) error {
 func (r *run) flowsLoop(ctx context.Context) {
 	rt := r.routers[0]
 	for i := 0; ctx.Err() == nil; i++ {
-		logf, _ := os.Create(filepath.Join(r.c.state, "flowsim.log")) //nolint:gosec // log de la prueba
+		logf, _ := os.Create(filepath.Join(r.c.state, "flowsim.log"))                                                                   //nolint:gosec // log de la prueba
 		cmd := exec.CommandContext(ctx, r.c.simRouter, "exec", rt.name, r.c.flowsim, "-scenario", "scan", "-seed", strconv.Itoa(1+i%3), //nolint:gosec // prueba
 			"-proto", "ipfix", "-fixture", "-target", rt.onb.collector+":4739", "-src", rt.tunnelIP, "-speed", "1",
 			"-expected", filepath.Join(r.c.state, "scan.expected.json"))
@@ -685,8 +687,15 @@ func (r *run) psql(ctx context.Context, q string) (string, error) {
 
 func (r *run) verify(ctx context.Context) bool {
 	ok := true
-	fail := func(k, f string, a ...any) { ok = false; r.final[k] = "FAIL: " + fmt.Sprintf(f, a...); r.logf("FAIL %s: %s", k, r.final[k]) }
-	pass := func(k, f string, a ...any) { r.final[k] = "OK: " + fmt.Sprintf(f, a...); r.logf("ok  %s: %s", k, r.final[k]) }
+	fail := func(k, f string, a ...any) {
+		ok = false
+		r.final[k] = "FAIL: " + fmt.Sprintf(f, a...)
+		r.logf("FAIL %s: %s", k, r.final[k])
+	}
+	pass := func(k, f string, a ...any) {
+		r.final[k] = "OK: " + fmt.Sprintf(f, a...)
+		r.logf("ok  %s: %s", k, r.final[k])
+	}
 
 	// Outbox sin eventos colgados (todo publicado en ≤ 5 min).
 	var pending string
