@@ -1,0 +1,222 @@
+@import 'tailwindcss';
+@import '@nuxt/ui';
+
+/*
+ * Tokens de la landing de Horus Flow.
+ *
+ * Paleta: superficies neutras frías y un único acento, lapislázuli (el azul de los amuletos del
+ * ojo de Horus), reservado para la acción principal, los enlaces y el foco. El rojo solo
+ * significa "Infectado" (HIG color.md › "Avoid using the same color to mean different
+ * things"). Nada de crema + terracota ni negro + verde ácido (plantillas de apple-hig).
+ *
+ * Contraste calculado (WCAG 2.x, luminancia relativa) — texto normal exige ≥ 4,5:1:
+ *
+ *   CLARO                                   OSCURO
+ *   texto  #0f1729 / superficie #fff 17,87  texto  #e8ecf4 / superficie #151c2e 14,33
+ *   texto  #0f1729 / fondo #f6f7f9   16,67  texto  #e8ecf4 / fondo #0d1220      15,77
+ *   tenue  #4a5568 / superficie       7,53  tenue  #a4aec4 / superficie          7,62
+ *   tenue  #4a5568 / fondo            7,02  tenue  #a4aec4 / fondo               8,39
+ *   lapis  #1d3fa8 / superficie       9,02  lapis  #93b1ff / superficie          8,06
+ *   lapis  #1d3fa8 / fondo            8,41  lapis  #93b1ff / fondo               8,87
+ *   blanco sobre botón #1d3fa8        9,02  #0d1220 sobre botón #93b1ff          8,87
+ *   rojo   #b42318 / superficie       6,57  rojo   #ff8b7e / superficie          7,47
+ *   rojo   #b42318 / fondo            6,13  rojo   #ff8b7e / fondo               8,22
+ *
+ * Los puntos neutros de la cuadrícula del hero son decorativos (1,6–1,8:1); el punto
+ * "Infectado" (rojo) supera 3:1 como objeto gráfico (WCAG 1.4.11) y siempre va con texto.
+ */
+@theme static {
+  --font-sans:
+    system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', 'Noto Sans',
+    'Liberation Sans', Arial, sans-serif;
+  --font-mono:
+    ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+
+  --color-lapis-50: #eef3ff;
+  --color-lapis-100: #dce6ff;
+  --color-lapis-200: #bccfff;
+  --color-lapis-300: #93b1ff;
+  --color-lapis-400: #6a8ef5;
+  --color-lapis-500: #4a6de0;
+  --color-lapis-600: #3352c6;
+  --color-lapis-700: #1d3fa8;
+  --color-lapis-800: #1a3488;
+  --color-lapis-900: #1a2f6c;
+  --color-lapis-950: #121d42;
+}
+
+:root,
+.light {
+  --ui-primary: #1d3fa8;
+  --ui-error: #b42318;
+  --ui-text: #0f1729;
+  --ui-text-highlighted: #0f1729;
+  --ui-text-toned: #2d3748;
+  --ui-text-muted: #4a5568;
+  --ui-text-dimmed: #4a5568;
+  --ui-bg: #f6f7f9;
+  --ui-bg-muted: #eef0f4;
+  --ui-bg-elevated: #ffffff;
+  --ui-bg-accented: #e4e8ef;
+  --ui-border: #dde2ea;
+  --ui-border-accented: #b8c1cf;
+  --ui-radius: 0.5rem;
+
+  /* Superficie del contenido: sólida, nunca vidrio (HIG liquid-glass › The two layers). */
+  --surface: #ffffff;
+  --infected: #b42318;
+  --dot: #c3cbd8;
+  --dot-strong: #8d98ab;
+
+  /* Vidrio de la capa funcional (variante "regular": blur 24px, relleno 72 %, saturación 1,4). */
+  --glass-bg: rgb(255 255 255 / 0.72);
+  --glass-border: rgb(255 255 255 / 0.6);
+  --glass-edge: rgb(15 23 41 / 0.08);
+  --glass-shadow: 0 8px 24px rgb(15 23 41 / 0.1);
+}
+
+.dark {
+  --ui-primary: #93b1ff;
+  --ui-error: #ff8b7e;
+  --ui-text: #e8ecf4;
+  --ui-text-highlighted: #ffffff;
+  --ui-text-toned: #cfd6e3;
+  --ui-text-muted: #a4aec4;
+  --ui-text-dimmed: #a4aec4;
+  --ui-bg: #0d1220;
+  --ui-bg-muted: #111829;
+  --ui-bg-elevated: #151c2e;
+  --ui-bg-accented: #1e2740;
+  --ui-border: #263049;
+  --ui-border-accented: #3a4766;
+
+  --surface: #151c2e;
+  --infected: #ff8b7e;
+  --dot: #2f3a55;
+  --dot-strong: #4d5b7d;
+
+  --glass-bg: rgb(21 28 46 / 0.72);
+  --glass-border: rgb(255 255 255 / 0.1);
+  --glass-edge: rgb(0 0 0 / 0.4);
+  --glass-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+    /* Las anclas no quedan debajo de la barra flotante. */
+    scroll-padding-top: 6rem;
+  }
+
+  body {
+    @apply bg-default text-default antialiased;
+    font-size: 1.0625rem; /* 17 px: tamaño por defecto de HIG (typography.md › Ensuring legibility) */
+    line-height: 1.55;
+  }
+
+  /* Tracking según el tamaño (apple-design §15): negativo en titulares, ~0 en el cuerpo. */
+  h1 {
+    letter-spacing: -0.022em;
+    line-height: 1.08;
+  }
+  h2 {
+    letter-spacing: -0.015em;
+    line-height: 1.15;
+  }
+  h3 {
+    letter-spacing: -0.005em;
+  }
+
+  /* Foco siempre visible (WCAG 2.4.7) con el acento y separación del control. */
+  :focus-visible {
+    outline: 2px solid var(--ui-primary);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+
+  [data-numeric],
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  /*
+   * Vidrio: SOLO en la capa funcional flotante (barra de navegación, selector de periodo,
+   * CTA flotante en móvil). Nunca en tarjetas ni fondos de contenido, y nunca vidrio sobre
+   * vidrio (HIG liquid-glass › Review checklist 1–2).
+   */
+  .glass {
+    background: var(--glass-bg);
+    -webkit-backdrop-filter: blur(24px) saturate(1.4);
+    backdrop-filter: blur(24px) saturate(1.4);
+    border: 1px solid var(--glass-border);
+    box-shadow:
+      0 0 0 1px var(--glass-edge),
+      var(--glass-shadow);
+  }
+
+  /* Superficie sólida para el contenido. */
+  .surface {
+    background: var(--surface);
+    border: 1px solid var(--ui-border);
+  }
+
+  .eyebrow {
+    @apply text-sm font-semibold text-primary;
+    letter-spacing: 0.01em;
+  }
+}
+
+/* Transparencia reducida: el vidrio pasa a un sólido (apple-design §14). */
+@media (prefers-reduced-transparency: reduce) {
+  .glass {
+    background: var(--surface);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* Más contraste: rellenos sólidos y bordes definidos. */
+@media (prefers-contrast: more) {
+  .glass {
+    background: var(--surface);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    border-color: var(--ui-text);
+  }
+  .surface {
+    border-color: var(--ui-text-muted);
+  }
+  :root,
+  .light {
+    --ui-text-muted: #2d3748;
+    --ui-border: #8d98ab;
+  }
+  .dark {
+    --ui-text-muted: #cfd6e3;
+    --ui-border: #6a7796;
+  }
+}
+
+/* Movimiento reducido: sin desplazamientos ni animaciones, solo cambios instantáneos. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Navegador sin backdrop-filter: sólido. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass {
+    background: var(--surface);
+  }
+}

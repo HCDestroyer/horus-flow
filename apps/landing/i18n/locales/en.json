@@ -1,0 +1,400 @@
+{
+  "meta": {
+    "homeTitle": "Horus Flow · Botnet detection and traffic visibility for ISPs",
+    "homeDescription": "Find out which of your ISP's subscribers are in a botnet before your network ends up on a blocklist. MikroTik IPFIX over WireGuard, explainable findings and RouterOS commands.",
+    "buyTitle": "Buy a license · Horus Flow",
+    "buyDescription": "Request a Horus Flow license: pick a plan and billing period and get your reference number and quote.",
+    "noticeTitle": "Legal notice · Horus Flow",
+    "privacyTitle": "Privacy policy · Horus Flow",
+    "termsTitle": "Terms and conditions · Horus Flow",
+    "ogAlt": "Horus Flow NOC wall showing traffic, active subscribers and open findings (simulated data)"
+  },
+  "nav": {
+    "skip": "Skip to content",
+    "home": "Horus Flow, home",
+    "features": "Features",
+    "how": "How it works",
+    "reliability": "Reliability",
+    "pricing": "Pricing",
+    "faq": "FAQ",
+    "demo": "Request a demo",
+    "menu": "Menu",
+    "closeMenu": "Close menu",
+    "language": "Language",
+    "switchTo": "Español",
+    "primary": "Main"
+  },
+  "hero": {
+    "eyebrow": "For ISPs running MikroTik routers",
+    "title": "Find out which subscribers are in a botnet before your network ends up on a blocklist.",
+    "lead": "Horus Flow reads IPFIX flows from your MikroTik routers, recognizes each subscriber by IP and tells you which one is talking to command-and-control servers, scanning, joining a DDoS or sending spam. With its reasons and the RouterOS commands to act on it.",
+    "ctaPrimary": "Request a demo",
+    "ctaSecondary": "See pricing",
+    "note": "Horus only reads and alerts: it never writes to your router.",
+    "gridTitle": "The 256 addresses of a /24 network",
+    "gridDesc": "Illustration: each dot is a subscriber in 10.20.1.0/24. One of them, 10.20.1.47, is flagged as infected with 94% confidence.",
+    "gridCaption": "10.20.1.0/24 · 256 subscribers",
+    "flagged": "Infected",
+    "confidence": "94% confidence",
+    "reason": "Talks to a command-and-control server listed on Feodo Tracker"
+  },
+  "problem": {
+    "eyebrow": "The problem",
+    "title": "One infected subscriber costs the whole ISP",
+    "items": {
+      "blacklist": {
+        "title": "Blocklists",
+        "body": "When an IP on your network sends spam or attacks, reputation lists can block your addresses, and the trouble reaches subscribers who did nothing wrong."
+      },
+      "abuse": {
+        "title": "Abuse reports without context",
+        "body": "They arrive late, with an IP and a timestamp. Finding the subscriber, and knowing whether they are really compromised, is up to you."
+      },
+      "link": {
+        "title": "Traffic nobody asked for",
+        "body": "Outbound scans and attacks eat your uplink and fill your tickets before anyone in the NOC sees them coming."
+      }
+    },
+    "solutionEyebrow": "The solution",
+    "solutionTitle": "Horus Flow tells you who, why and what to do",
+    "solution": {
+      "who": {
+        "title": "Who",
+        "body": "Every IP seen in the flows is a subscriber, discovered automatically. Even behind the router's NAT, thanks to IPFIX post-NAT fields."
+      },
+      "why": {
+        "title": "Why",
+        "body": "Nine detectors and reputation lists such as abuse.ch and Spamhaus DROP. Every finding explains its reasons and its confidence."
+      },
+      "what": {
+        "title": "What to do",
+        "body": "RouterOS commands to isolate, rate-limit or notify, each with its undo command. You decide and apply them."
+      }
+    }
+  },
+  "features": {
+    "eyebrow": "Features",
+    "title": "What your NOC sees",
+    "lead": "Real Horus Flow screenshots. The data is simulated: it belongs to no real ISP or subscriber.",
+    "simulated": "Simulated data",
+    "items": {
+      "mural": {
+        "title": "NOC wall",
+        "body": "Modular dashboards with configurable widgets and a scalable wall view for the screens in the room.",
+        "alt": "NOC wall: current traffic, active subscribers, open findings by severity, 24-hour traffic, top subscribers and recent findings"
+      },
+      "infected": {
+        "title": "Infected subscriber, with reasons",
+        "body": "The Infected status never comes alone: it shows the confidence and why, from the reputation list to the spam pattern.",
+        "alt": "Subscriber 10.20.1.47 flagged as Infected with 94% confidence and the list of reasons"
+      },
+      "finding": {
+        "title": "Findings with commands to act",
+        "body": "What happened, the evidence and what to do: RouterOS commands ready to copy, each with its undo command. Horus runs nothing on your routers.",
+        "alt": "Detail of a port 23 scanning finding with evidence and recommended actions"
+      },
+      "router": {
+        "title": "Router onboarding in minutes",
+        "body": "Horus generates the RouterOS script: a router-initiated WireGuard tunnel, a one-time token and a read-only user. In under 2 minutes the router shows as Exporting.",
+        "alt": "Router connection step with the RouterOS onboarding script generated by Horus"
+      },
+      "kiosk": {
+        "title": "Kiosk for wall screens",
+        "body": "Each screen is enrolled as a device with a one-time code, read-only and, if you want, with subscriber IPs hidden.",
+        "alt": "One-time code to enroll a kiosk screen, valid for 10 minutes"
+      },
+      "mobile": {
+        "title": "On your phone too",
+        "body": "The same console on small screens, to check a finding wherever you are.",
+        "alt": "Scanning finding on a phone, in light mode"
+      }
+    },
+    "moreTitle": "Also",
+    "more": {
+      "alerts": "Email, Telegram and LibreNMS alerts, configured per ISP. Email and Telegram carry no subscriber IPs by default.",
+      "ipv6": "IPv4 and IPv6 as separate subscribers; IPv6 grouped by delegated prefix (/64 by default).",
+      "multi": "Multi-ISP by design: each provider isolated in data, API, events and permissions.",
+      "reputation": "Reputation lists: abuse.ch Feodo and ThreatFox, Spamhaus DROP, Tor and any your superadmin adds."
+    }
+  },
+  "how": {
+    "eyebrow": "How it works",
+    "title": "From the router to your NOC, without touching subscribers",
+    "lead": "All you need is the main router of each node. Nothing to install on your subscribers' devices.",
+    "diagramTitle": "How data flows through Horus Flow",
+    "diagramDesc": "The MikroTik router exports IPFIX through a WireGuard tunnel to the Horus Flow server, which discovers subscribers, stores flows and detects botnets; results reach the NOC as dashboards, kiosk screens and alerts.",
+    "steps": {
+      "router": {
+        "title": "MikroTik",
+        "sub": "RouterOS 7.12+",
+        "body": "The node's main router exports IPFIX with NAT fields."
+      },
+      "tunnel": {
+        "title": "WireGuard",
+        "sub": "Router-initiated",
+        "body": "Flows and the read-only API travel encrypted to Horus."
+      },
+      "horus": {
+        "title": "Horus Flow",
+        "sub": "Your Debian server",
+        "body": "Discovers subscribers, stores flows and aggregates, and runs detection."
+      },
+      "noc": {
+        "title": "Your NOC",
+        "sub": "Web, kiosk, alerts",
+        "body": "Dashboards, wall screens and alerts by email, Telegram and LibreNMS."
+      }
+    },
+    "install": {
+      "title": "One-command install",
+      "body": "On a clean Debian 12 or 13, one script installs everything and starts Horus with the system. Updates are signed, with a mandatory backup first and automatic rollback if anything fails."
+    }
+  },
+  "reliability": {
+    "eyebrow": "Reliability",
+    "title": "Reliability measured, not promised",
+    "lead": "We tested the whole pipeline by killing components on purpose under constant traffic. These are the results and their conditions.",
+    "colTest": "Test",
+    "colResult": "Result",
+    "rows": {
+      "restart": {
+        "test": "Hard restarts (kill -9 and restart) of the collector, horus-app, NATS and ClickHouse, three times each, at 10,000 flows/s",
+        "result": "0 flows lost, 0 duplicates and identical aggregates",
+        "note": "The only loss is what arrives over UDP while the collector is down; it is measured and shown."
+      },
+      "clickhouse": {
+        "test": "ClickHouse down for 5 minutes at 20,000 flows/s",
+        "result": "0 loss; the backlog drains in about 2.5 minutes"
+      },
+      "platform": {
+        "test": "Platform recovery after an outage",
+        "result": "Alerts, findings, sessions, tunnels and kiosk come back on their own in 7–15 s"
+      },
+      "capacity": {
+        "test": "Sustained capacity",
+        "result": "10,000 flows/s meeting every criterion on 4 shared vCPUs"
+      }
+    },
+    "conditions": "Test server: a virtual machine with 4 shared vCPUs and 16 GiB, running other workloads at the same time. The figures are a floor, not a ceiling.",
+    "projection": "Projection for a 10,000-subscriber ISP: an 8 vCPU / 32 GB server and about 11 GB per day of raw flows (7 days of raw data; aggregates up to 25 months per subscriber and 5 years per node)."
+  },
+  "security": {
+    "eyebrow": "Security and privacy",
+    "title": "Built to see without touching",
+    "items": {
+      "readonly": {
+        "title": "Never writes to the router",
+        "body": "Its RouterOS user is read-only. You apply the recommended commands, if you want to."
+      },
+      "isolation": {
+        "title": "Every ISP isolated",
+        "body": "At every layer: row policies in PostgreSQL and ClickHouse, tenant-scoped events and ISP-scoped tokens."
+      },
+      "access": {
+        "title": "Protected access",
+        "body": "TOTP 2FA for administrators and rate limiting on the real client IP, also behind a proxy."
+      },
+      "secrets": {
+        "title": "Encrypted credentials",
+        "body": "Integration credentials are stored encrypted and are write-only."
+      },
+      "pii": {
+        "title": "Less personal data",
+        "body": "Logs and the diagnostic bundle mask subscriber IPs."
+      },
+      "local": {
+        "title": "On your server",
+        "body": "Data stays in your installation. Off-site copies over SFTP are optional."
+      }
+    }
+  },
+  "pricing": {
+    "eyebrow": "Pricing",
+    "title": "A license sized to your network",
+    "lead": "One license per installation. Plans match the installer sizes.",
+    "period": "Billing period",
+    "monthly": "Monthly",
+    "annual": "Annual",
+    "currency": "Currency",
+    "launch": "Launch pricing: request a quote",
+    "perMonth": "per month",
+    "perYear": "per year",
+    "billedMonthly": "Billed monthly",
+    "billedAnnual": "Billed annually",
+    "custom": "Custom",
+    "recommended": "Recommended",
+    "server": "Server: {spec}",
+    "ctaQuote": "Request a quote",
+    "ctaBuy": "Buy a license",
+    "ctaContact": "Talk to sales",
+    "allInclude": "Every license includes",
+    "unconfirmedNote": "Pricing under review. We send quotes in USD or GTQ.",
+    "faqTitle": "Licensing",
+    "faq": {
+      "license": {
+        "q": "How is Horus Flow licensed?",
+        "a": "It is proprietary software by C&S Company. The license is per installation (one server running Horus Flow) and is formalized with a written license agreement, on the plan that matches the size of your network."
+      },
+      "support": {
+        "q": "What does support include?",
+        "a": "Technical support by email while the license is active. The exact scope, such as hours and response times, is set in the agreement."
+      },
+      "updates": {
+        "q": "Are updates included?",
+        "a": "Yes, while the license is active. They are signed: the upgrade takes a backup first, verifies the signature and rolls back on its own if anything fails."
+      },
+      "grow": {
+        "q": "What if my network grows?",
+        "a": "You move to the matching plan. Sales will tell you the terms of the change."
+      },
+      "currency": {
+        "q": "Can I pay in quetzales?",
+        "a": "We quote in USD or GTQ. If you are in Guatemala, add your NIT for the invoice."
+      }
+    }
+  },
+  "demo": {
+    "eyebrow": "Demo",
+    "title": "Request a demo",
+    "lead": "We show you Horus Flow with simulated data and look at how to connect it to your network. We will reply from {email}.",
+    "submit": "Send request",
+    "successTitle": "Request sent",
+    "successBody": "Your reference is {ref}. We will be in touch soon; we also emailed you a copy.",
+    "another": "Send another request"
+  },
+  "form": {
+    "name": "Name",
+    "company": "Company or ISP",
+    "country": "Country",
+    "countryPlaceholder": "Choose a country",
+    "clients": "Number of subscribers",
+    "clientsPlaceholder": "Choose a range",
+    "routers": "MikroTik routers",
+    "routersPlaceholder": "Choose a range",
+    "email": "Email",
+    "phone": "Phone or WhatsApp",
+    "optional": "Optional",
+    "message": "Message",
+    "messageHint": "Optional. Tell us about your network or what worries you.",
+    "consentBefore": "I agree that C&S Company may use this data to answer my request, as described in the",
+    "privacyLink": "privacy policy",
+    "termsLink": "terms and conditions",
+    "sending": "Sending…",
+    "honeypot": "Do not fill in this field",
+    "required": "Required",
+    "clientsOptions": {
+      "lt300": "Up to 300",
+      "300to2000": "300 to 2,000",
+      "2000to10000": "2,000 to 10,000",
+      "gt10000": "More than 10,000"
+    },
+    "routersOptions": {
+      "1": "1",
+      "2to5": "2 to 5",
+      "6to20": "6 to 20",
+      "gt20": "More than 20"
+    },
+    "otherCountry": "Other country"
+  },
+  "buy": {
+    "eyebrow": "Buy",
+    "title": "Buy a license",
+    "lead": "Choose a plan and billing period and leave your billing details. You will get a purchase request with a reference number; payment happens once we confirm the quote.",
+    "stepPlan": "Plan and period",
+    "stepBilling": "Billing details",
+    "stepContact": "Contact",
+    "plan": "Plan",
+    "legalName": "Legal name",
+    "nit": "NIT (Guatemalan tax ID)",
+    "nitHint": "Optional. For invoices in Guatemala.",
+    "address": "Billing address",
+    "contactName": "Contact name",
+    "notes": "Comments",
+    "notesHint": "Optional. Number of nodes, target date, questions…",
+    "consentBefore": "I accept the",
+    "consentAnd": "and the",
+    "summary": "Summary",
+    "amount": "Amount",
+    "toQuote": "To be quoted",
+    "submit": "Send purchase request",
+    "successTitle": "Purchase request sent",
+    "reference": "Reference",
+    "manualSteps": "Sales will review your request and send you the quote and bank transfer details. Use the reference as the payment description.",
+    "copy": "Copy reference",
+    "copied": "Reference copied",
+    "backHome": "Back to home",
+    "noPayment": "Nothing is charged on this page: it is a request. We never ask for card details."
+  },
+  "faq": {
+    "eyebrow": "FAQ",
+    "title": "Frequently asked questions",
+    "items": {
+      "routers": {
+        "q": "Which routers are supported?",
+        "a": "MikroTik with RouterOS 7.12 or later. RouterOS 6 is not supported."
+      },
+      "changes": {
+        "q": "Does Horus change anything on my router?",
+        "a": "No. You paste the onboarding script yourself: it creates the WireGuard tunnel, enables flow export and a read-only user. Horus never writes to the router, and the guide explains how to undo everything."
+      },
+      "server": {
+        "q": "What server do I need?",
+        "a": "A clean Debian 12 or 13 (amd64). From 4 cores, 8 GB RAM and 100 GB SSD for about 300 subscribers, up to 8 cores, 32 GB and 500 GB NVMe for about 10,000."
+      },
+      "domain": {
+        "q": "Do I need a domain?",
+        "a": "No. You can use just the server IP, a domain or subdomain with an automatic certificate, or put it behind your own proxy, such as Nginx Proxy Manager."
+      },
+      "nat": {
+        "q": "Does it work with NAT on the router?",
+        "a": "Yes. With NAT on the main router, Horus uses IPFIX post-NAT fields to tell which subscriber each flow belongs to. It has been verified with a real MikroTik."
+      },
+      "ipv6": {
+        "q": "And with IPv6?",
+        "a": "Yes. IPv4 and IPv6 are treated as separate subscribers, and IPv6 is grouped by delegated prefix (/64 by default)."
+      },
+      "offline": {
+        "q": "Can it be installed without Internet access?",
+        "a": "Yes, with the offline installation package."
+      },
+      "screenshots": {
+        "q": "Are the screenshots from real subscribers?",
+        "a": "No. Every screenshot on this page uses simulated data."
+      }
+    }
+  },
+  "contact": {
+    "title": "Let's talk",
+    "body": "Sales, licensing and support:",
+    "seller": "Horus Flow is sold by Connection And Solutions Company, Sociedad Anónima (C&S Company), Guatemala."
+  },
+  "footer": {
+    "legal": "Legal",
+    "notice": "Legal notice",
+    "privacy": "Privacy",
+    "terms": "Terms",
+    "rights": "All rights reserved.",
+    "proprietary": "Horus Flow is proprietary software.",
+    "simulated": "Screenshots use simulated data.",
+    "product": "Product"
+  },
+  "legal": {
+    "draft": "Draft pending legal review. This text is not final.",
+    "onlySpanish": "Legal texts are available in Spanish only while they are under legal review.",
+    "updated": "Last updated: {date}"
+  },
+  "errors": {
+    "required": "This field is required.",
+    "email": "Enter a valid email, for example name{'@'}company.com.",
+    "tooLong": "This is too long.",
+    "tooShort": "This is too short.",
+    "consent": "We need your consent to reply.",
+    "phone": "Use only digits, spaces and + ( ) -.",
+    "invalid": "Check this value.",
+    "tooFast": "The form was sent very quickly. Check your details and send it again.",
+    "rateLimited": "You have sent several requests in a row. Wait a few minutes and try again.",
+    "unavailable": "Sending is not available right now. Write to us at {email}.",
+    "server": "Could not send. Try again or write to us at {email}.",
+    "fixFields": "Check the highlighted fields."
+  }
+}

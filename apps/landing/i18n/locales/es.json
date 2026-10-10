@@ -1,0 +1,400 @@
+{
+  "meta": {
+    "homeTitle": "Horus Flow · Detección de botnets y visibilidad de tráfico para ISP",
+    "homeDescription": "Descubre qué clientes de tu ISP están en una botnet antes de que tu red termine en una lista negra. IPFIX de MikroTik por WireGuard, hallazgos explicables y comandos RouterOS.",
+    "buyTitle": "Comprar licencia · Horus Flow",
+    "buyDescription": "Solicita la compra de una licencia de Horus Flow: elige plan y periodo y recibe tu número de referencia y la cotización.",
+    "noticeTitle": "Aviso legal · Horus Flow",
+    "privacyTitle": "Política de privacidad · Horus Flow",
+    "termsTitle": "Términos y condiciones · Horus Flow",
+    "ogAlt": "Mural del NOC de Horus Flow con tráfico, clientes activos y hallazgos abiertos (datos simulados)"
+  },
+  "nav": {
+    "skip": "Saltar al contenido",
+    "home": "Horus Flow, inicio",
+    "features": "Funciones",
+    "how": "Cómo funciona",
+    "reliability": "Fiabilidad",
+    "pricing": "Precios",
+    "faq": "Preguntas",
+    "demo": "Solicitar demo",
+    "menu": "Menú",
+    "closeMenu": "Cerrar menú",
+    "language": "Idioma",
+    "switchTo": "English",
+    "primary": "Principal"
+  },
+  "hero": {
+    "eyebrow": "Para ISP con routers MikroTik",
+    "title": "Descubre qué clientes están en una botnet antes de que tu red termine en una lista negra.",
+    "lead": "Horus Flow lee los flujos IPFIX de tus MikroTik, reconoce a cada cliente por su IP y te dice cuál contacta servidores de mando y control, escanea, participa en un DDoS o envía spam. Con sus razones y los comandos RouterOS para actuar.",
+    "ctaPrimary": "Solicitar demo",
+    "ctaSecondary": "Ver precios",
+    "note": "Horus solo lee y avisa: nunca escribe en tu router.",
+    "gridTitle": "Las 256 direcciones de una red /24",
+    "gridDesc": "Ilustración: cada punto es un cliente de la red 10.20.1.0/24. Uno, 10.20.1.47, está marcado como infectado con una confianza del 94 %.",
+    "gridCaption": "10.20.1.0/24 · 256 clientes",
+    "flagged": "Infectado",
+    "confidence": "confianza 94 %",
+    "reason": "Contacta un servidor de mando y control listado en Feodo Tracker"
+  },
+  "problem": {
+    "eyebrow": "El problema",
+    "title": "Un cliente infectado lo paga todo el ISP",
+    "items": {
+      "blacklist": {
+        "title": "Listas negras",
+        "body": "Cuando una IP de tu red envía spam o ataca, las listas de reputación pueden bloquear tus direcciones, y el problema les llega a clientes que no hicieron nada."
+      },
+      "abuse": {
+        "title": "Reportes de abuso sin contexto",
+        "body": "Llegan tarde y con una IP y una hora. Encontrar al cliente, y saber si de verdad está comprometido, te toca a ti."
+      },
+      "link": {
+        "title": "Tráfico que nadie pidió",
+        "body": "Los escaneos y ataques salientes consumen tu enlace y llenan tus tickets sin que nadie en el NOC los vea venir."
+      }
+    },
+    "solutionEyebrow": "La solución",
+    "solutionTitle": "Horus Flow te dice quién, por qué y qué hacer",
+    "solution": {
+      "who": {
+        "title": "Quién",
+        "body": "Cada IP vista en los flujos es un cliente, descubierto solo. También detrás del NAT del router, gracias a los campos post-NAT de IPFIX."
+      },
+      "why": {
+        "title": "Por qué",
+        "body": "Nueve detectores y listas de reputación como abuse.ch y Spamhaus DROP. Cada hallazgo explica sus razones y su nivel de confianza."
+      },
+      "what": {
+        "title": "Qué hacer",
+        "body": "Comandos RouterOS para aislar, limitar o avisar, cada uno con su comando para deshacer. Tú decides y los aplicas."
+      }
+    }
+  },
+  "features": {
+    "eyebrow": "Funciones",
+    "title": "Lo que ve tu NOC",
+    "lead": "Capturas reales de Horus Flow. Los datos son simulados: no corresponden a ningún ISP ni cliente real.",
+    "simulated": "Datos simulados",
+    "items": {
+      "mural": {
+        "title": "Mural del NOC",
+        "body": "Dashboards modulares con widgets configurables y una vista mural escalable para las pantallas de la sala.",
+        "alt": "Mural del NOC: tráfico ahora, clientes activos, hallazgos abiertos por severidad, tráfico de 24 horas, top de clientes y hallazgos recientes"
+      },
+      "infected": {
+        "title": "Cliente infectado, con sus razones",
+        "body": "El estado Infectado nunca llega solo: muestra la confianza y por qué, desde la lista de reputación hasta el patrón de spam.",
+        "alt": "Ficha del cliente 10.20.1.47 marcado como Infectado con confianza del 94 % y la lista de razones"
+      },
+      "finding": {
+        "title": "Hallazgos con comandos para actuar",
+        "body": "Qué pasó, la evidencia y qué hacer: comandos RouterOS listos para copiar, con su comando para deshacer. Horus no ejecuta nada en tus routers.",
+        "alt": "Detalle de un hallazgo de escaneo del puerto 23 con la evidencia y las acciones recomendadas"
+      },
+      "router": {
+        "title": "Alta del router en minutos",
+        "body": "Horus genera el script RouterOS: túnel WireGuard iniciado por el router, token de un solo uso y usuario de solo lectura. En menos de 2 minutos el router aparece como Exportando.",
+        "alt": "Paso de conexión de un router con el script de alta de RouterOS generado por Horus"
+      },
+      "kiosk": {
+        "title": "Kiosco para las pantallas",
+        "body": "Cada pantalla se registra como dispositivo con un código de un solo uso, en solo lectura y, si quieres, con las IP de clientes ocultas.",
+        "alt": "Código de un solo uso para registrar una pantalla de kiosco, válido 10 minutos"
+      },
+      "mobile": {
+        "title": "También en el móvil",
+        "body": "La misma consola en pantallas pequeñas, para revisar un hallazgo desde donde estés.",
+        "alt": "Hallazgo de escaneo visto en un teléfono, en modo claro"
+      }
+    },
+    "moreTitle": "Y además",
+    "more": {
+      "alerts": "Alertas por correo, Telegram y LibreNMS, configuradas por ISP. Correo y Telegram no llevan IP de clientes por defecto.",
+      "ipv6": "IPv4 e IPv6 como clientes distintos; IPv6 agrupado por prefijo delegado (/64 por defecto).",
+      "multi": "Multi-ISP desde el diseño: cada proveedor aislado en datos, API, eventos y permisos.",
+      "reputation": "Listas de reputación abuse.ch Feodo y ThreatFox, Spamhaus DROP, Tor y las que añada tu superadmin."
+    }
+  },
+  "how": {
+    "eyebrow": "Cómo funciona",
+    "title": "Del router a tu NOC, sin tocar a tus clientes",
+    "lead": "Solo necesitas el router principal de cada nodo. Nada que instalar en los equipos de tus clientes.",
+    "diagramTitle": "Recorrido de los datos en Horus Flow",
+    "diagramDesc": "El router MikroTik exporta IPFIX por un túnel WireGuard hacia el servidor de Horus Flow, que descubre clientes, guarda los flujos y detecta botnets; los resultados llegan al NOC como dashboards, kiosco y alertas.",
+    "steps": {
+      "router": {
+        "title": "MikroTik",
+        "sub": "RouterOS 7.12+",
+        "body": "El router principal del nodo exporta IPFIX con los campos de NAT."
+      },
+      "tunnel": {
+        "title": "WireGuard",
+        "sub": "Iniciado por el router",
+        "body": "Los flujos y la API de solo lectura viajan cifrados hasta Horus."
+      },
+      "horus": {
+        "title": "Horus Flow",
+        "sub": "Tu servidor Debian",
+        "body": "Descubre clientes, guarda flujos y agregados, y ejecuta la detección."
+      },
+      "noc": {
+        "title": "Tu NOC",
+        "sub": "Web, kiosco, alertas",
+        "body": "Dashboards, pantallas murales y avisos por correo, Telegram y LibreNMS."
+      }
+    },
+    "install": {
+      "title": "Instalación de un comando",
+      "body": "En un Debian 12 o 13 limpio, un script instala todo y deja Horus arrancando con el sistema. Las actualizaciones llegan firmadas, con copia previa obligatoria y vuelta atrás automática si algo falla."
+    }
+  },
+  "reliability": {
+    "eyebrow": "Fiabilidad",
+    "title": "Fiabilidad medida, no prometida",
+    "lead": "Probamos la cadena completa tirando componentes a propósito, con tráfico constante. Estos son los resultados y sus condiciones.",
+    "colTest": "Prueba",
+    "colResult": "Resultado",
+    "rows": {
+      "restart": {
+        "test": "Reinicios bruscos (kill -9 y restart) del collector, horus-app, NATS y ClickHouse, tres veces cada uno, a 10 000 flujos/s",
+        "result": "0 flujos perdidos, 0 duplicados y agregados idénticos",
+        "note": "La única pérdida es lo que llega por UDP mientras el collector está apagado; se mide y se muestra."
+      },
+      "clickhouse": {
+        "test": "ClickHouse caído 5 minutos a 20 000 flujos/s",
+        "result": "0 pérdida; la cola se vacía en unos 2,5 minutos"
+      },
+      "platform": {
+        "test": "Recuperación de la plataforma tras una caída",
+        "result": "Alertas, hallazgos, sesiones, túneles y kiosco vuelven solos en 7–15 s"
+      },
+      "capacity": {
+        "test": "Capacidad sostenida",
+        "result": "10 000 flujos/s con todos los criterios en 4 vCPU compartidas"
+      }
+    },
+    "conditions": "Servidor de pruebas: máquina virtual de 4 vCPU compartidas y 16 GiB, con otras cargas en paralelo. Las cifras son un suelo, no un máximo.",
+    "projection": "Proyección para un ISP de 10 000 clientes: servidor de 8 vCPU y 32 GB, y unos 11 GB al día de flujos crudos (7 días de crudo; agregados hasta 25 meses por cliente y 5 años por nodo)."
+  },
+  "security": {
+    "eyebrow": "Seguridad y privacidad",
+    "title": "Diseñado para ver sin tocar",
+    "items": {
+      "readonly": {
+        "title": "Nunca escribe en el router",
+        "body": "Su usuario en RouterOS es de solo lectura. Los comandos recomendados los aplicas tú, si quieres."
+      },
+      "isolation": {
+        "title": "Cada ISP, aislado",
+        "body": "En todas las capas: políticas de fila en PostgreSQL y ClickHouse, eventos con tenant y tokens con alcance por ISP."
+      },
+      "access": {
+        "title": "Acceso protegido",
+        "body": "2FA (TOTP) para administradores y rate limit con la IP real del cliente, también detrás de un proxy."
+      },
+      "secrets": {
+        "title": "Credenciales cifradas",
+        "body": "Las credenciales de las integraciones se guardan cifradas y son de solo escritura."
+      },
+      "pii": {
+        "title": "Menos datos personales",
+        "body": "Los logs y el paquete de diagnóstico enmascaran las IP de clientes."
+      },
+      "local": {
+        "title": "En tu servidor",
+        "body": "Los datos se guardan en tu instalación. La copia externa por SFTP es opcional."
+      }
+    }
+  },
+  "pricing": {
+    "eyebrow": "Precios",
+    "title": "Una licencia del tamaño de tu red",
+    "lead": "Licencia por instalación. Los planes coinciden con los tamaños del instalador.",
+    "period": "Periodo de pago",
+    "monthly": "Mensual",
+    "annual": "Anual",
+    "currency": "Moneda",
+    "launch": "Precio de lanzamiento: solicita cotización",
+    "perMonth": "al mes",
+    "perYear": "al año",
+    "billedMonthly": "Pago mensual",
+    "billedAnnual": "Pago anual",
+    "custom": "A medida",
+    "recommended": "Recomendado",
+    "server": "Servidor: {spec}",
+    "ctaQuote": "Solicitar cotización",
+    "ctaBuy": "Comprar licencia",
+    "ctaContact": "Hablar con ventas",
+    "allInclude": "Todas las licencias incluyen",
+    "unconfirmedNote": "Precios en revisión. Te enviamos la cotización en USD o GTQ.",
+    "faqTitle": "Licencias",
+    "faq": {
+      "license": {
+        "q": "¿Cómo se licencia Horus Flow?",
+        "a": "Es software propietario de C&S Company. La licencia es por instalación (un servidor con Horus Flow) y se formaliza con un contrato de licencia escrito, en el plan que corresponda al tamaño de tu red."
+      },
+      "support": {
+        "q": "¿Qué incluye el soporte?",
+        "a": "Soporte técnico por correo mientras la licencia esté vigente. El alcance exacto, como horarios y tiempos de respuesta, se fija en el contrato."
+      },
+      "updates": {
+        "q": "¿Las actualizaciones están incluidas?",
+        "a": "Sí, mientras la licencia esté vigente. Llegan firmadas: la actualización hace una copia previa, verifica la firma y vuelve atrás sola si algo falla."
+      },
+      "grow": {
+        "q": "¿Y si mi red crece?",
+        "a": "Cambias al plan que corresponda. Ventas te indica las condiciones del cambio."
+      },
+      "currency": {
+        "q": "¿Puedo pagar en quetzales?",
+        "a": "Cotizamos en USD o en GTQ. Si estás en Guatemala, indica tu NIT para la factura."
+      }
+    }
+  },
+  "demo": {
+    "eyebrow": "Demo",
+    "title": "Solicita una demo",
+    "lead": "Te mostramos Horus Flow con datos simulados y vemos cómo conectarlo a tu red. Te responderemos desde {email}.",
+    "submit": "Enviar solicitud",
+    "successTitle": "Solicitud enviada",
+    "successBody": "Tu referencia es {ref}. Te escribiremos pronto; también te enviamos una copia por correo.",
+    "another": "Enviar otra solicitud"
+  },
+  "form": {
+    "name": "Nombre",
+    "company": "Empresa o ISP",
+    "country": "País",
+    "countryPlaceholder": "Elige un país",
+    "clients": "Número de clientes",
+    "clientsPlaceholder": "Elige un rango",
+    "routers": "Routers MikroTik",
+    "routersPlaceholder": "Elige un rango",
+    "email": "Correo",
+    "phone": "Teléfono o WhatsApp",
+    "optional": "Opcional",
+    "message": "Mensaje",
+    "messageHint": "Opcional. Cuéntanos sobre tu red o qué te preocupa.",
+    "consentBefore": "Acepto que C&S Company use estos datos para responder a mi solicitud, según la",
+    "privacyLink": "política de privacidad",
+    "termsLink": "términos y condiciones",
+    "sending": "Enviando…",
+    "honeypot": "No completes este campo",
+    "required": "Obligatorio",
+    "clientsOptions": {
+      "lt300": "Hasta 300",
+      "300to2000": "De 300 a 2 000",
+      "2000to10000": "De 2 000 a 10 000",
+      "gt10000": "Más de 10 000"
+    },
+    "routersOptions": {
+      "1": "1",
+      "2to5": "De 2 a 5",
+      "6to20": "De 6 a 20",
+      "gt20": "Más de 20"
+    },
+    "otherCountry": "Otro país"
+  },
+  "buy": {
+    "eyebrow": "Comprar",
+    "title": "Comprar una licencia",
+    "lead": "Elige plan y periodo y déjanos los datos de facturación. Recibirás una solicitud de compra con número de referencia; el pago se hace cuando confirmemos la cotización.",
+    "stepPlan": "Plan y periodo",
+    "stepBilling": "Datos de facturación",
+    "stepContact": "Contacto",
+    "plan": "Plan",
+    "legalName": "Razón social",
+    "nit": "NIT",
+    "nitHint": "Opcional. Para facturar en Guatemala.",
+    "address": "Dirección de facturación",
+    "contactName": "Nombre de contacto",
+    "notes": "Comentarios",
+    "notesHint": "Opcional. Número de nodos, fecha prevista, dudas…",
+    "consentBefore": "Acepto los",
+    "consentAnd": "y la",
+    "summary": "Resumen",
+    "amount": "Importe",
+    "toQuote": "A cotizar",
+    "submit": "Enviar solicitud de compra",
+    "successTitle": "Solicitud de compra enviada",
+    "reference": "Referencia",
+    "manualSteps": "Ventas revisará tu solicitud y te enviará la cotización y los datos para la transferencia bancaria. Usa la referencia en el concepto del pago.",
+    "copy": "Copiar referencia",
+    "copied": "Referencia copiada",
+    "backHome": "Volver al inicio",
+    "noPayment": "Aún no se cobra nada en esta página: es una solicitud. No pedimos datos de tarjeta."
+  },
+  "faq": {
+    "eyebrow": "Preguntas",
+    "title": "Preguntas frecuentes",
+    "items": {
+      "routers": {
+        "q": "¿Qué routers son compatibles?",
+        "a": "MikroTik con RouterOS 7.12 o superior. RouterOS 6 no está soportado."
+      },
+      "changes": {
+        "q": "¿Horus cambia algo en mi router?",
+        "a": "No. El script de alta lo pegas tú: crea el túnel WireGuard, activa la exportación de flujos y un usuario de solo lectura. Horus nunca escribe en el router, y la guía explica cómo deshacerlo todo."
+      },
+      "server": {
+        "q": "¿Qué servidor necesito?",
+        "a": "Un Debian 12 o 13 limpio (amd64). Desde 4 núcleos, 8 GB de RAM y 100 GB SSD para unos 300 clientes, hasta 8 núcleos, 32 GB y 500 GB NVMe para unos 10 000."
+      },
+      "domain": {
+        "q": "¿Necesito un dominio?",
+        "a": "No. Puedes usar solo la IP del servidor, un dominio o subdominio con certificado automático, o ponerlo detrás de tu propio proxy, como Nginx Proxy Manager."
+      },
+      "nat": {
+        "q": "¿Funciona con NAT en el router?",
+        "a": "Sí. Con el NAT en el router principal, Horus usa los campos post-NAT de IPFIX para saber de qué cliente es cada flujo. Está verificado con un MikroTik real."
+      },
+      "ipv6": {
+        "q": "¿Y con IPv6?",
+        "a": "Sí. IPv4 e IPv6 se tratan como clientes distintos, e IPv6 se agrupa por prefijo delegado (/64 por defecto)."
+      },
+      "offline": {
+        "q": "¿Se puede instalar sin Internet?",
+        "a": "Sí, con el paquete de instalación offline."
+      },
+      "screenshots": {
+        "q": "¿Las capturas son de clientes reales?",
+        "a": "No. Todas las capturas de esta página usan datos simulados."
+      }
+    }
+  },
+  "contact": {
+    "title": "Hablemos",
+    "body": "Ventas, licencias y soporte:",
+    "seller": "Horus Flow lo comercializa Connection And Solutions Company, Sociedad Anónima (C&S Company), Guatemala."
+  },
+  "footer": {
+    "legal": "Legal",
+    "notice": "Aviso legal",
+    "privacy": "Privacidad",
+    "terms": "Términos",
+    "rights": "Todos los derechos reservados.",
+    "proprietary": "Horus Flow es software propietario.",
+    "simulated": "Las capturas usan datos simulados.",
+    "product": "Producto"
+  },
+  "legal": {
+    "draft": "Borrador pendiente de revisión legal. Este texto no es definitivo.",
+    "onlySpanish": "Los textos legales solo están en español mientras dura su revisión.",
+    "updated": "Última actualización: {date}"
+  },
+  "errors": {
+    "required": "Este campo es obligatorio.",
+    "email": "Escribe un correo válido, por ejemplo nombre{'@'}empresa.com.",
+    "tooLong": "Es demasiado largo.",
+    "tooShort": "Es demasiado corto.",
+    "consent": "Necesitamos tu consentimiento para responderte.",
+    "phone": "Usa solo números, espacios y + ( ) -.",
+    "invalid": "Revisa este valor.",
+    "tooFast": "Has enviado el formulario muy rápido. Revisa los datos y vuelve a enviarlo.",
+    "rateLimited": "Has enviado varias solicitudes seguidas. Espera unos minutos y vuelve a intentarlo.",
+    "unavailable": "El envío no está disponible ahora mismo. Escríbenos a {email}.",
+    "server": "No se pudo enviar. Inténtalo de nuevo o escríbenos a {email}.",
+    "fixFields": "Revisa los campos marcados."
+  }
+}

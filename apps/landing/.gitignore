@@ -1,0 +1,12 @@
+node_modules
+.nuxt
+.output
+.data
+.nitro
+.cache
+dist
+playwright-report
+test-results
+blob-report
+.outbox
+.env
