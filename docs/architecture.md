@@ -577,7 +577,7 @@ agrupados de 50 000 filas, vistas de 1 h y 1 d en cascada).
 | RAM | **32 GB** | ClickHouse 12–16 GB, horus-app 2 GB (`GOMEMLIMIT` 1,8 GiB), collector 512 MiB, NATS 1 GB, caché de página |
 | Disco | **500 GB NVMe** | ~250 GB usados: ClickHouse 76–94 GB (7–90 días, [`storage.md` §5.1](storage.md)), NATS 27 GB (`max_bytes` 100 GB con s2), margen de merges y backups |
 | Red/kernel | `net.core.rmem_max = 33554432`, `rmem_default = 1048576` | el collector pide 32 MiB de búfer UDP |
-| Collector | `HORUS_COLLECTOR_QUEUE_DATAGRAMS=32768` | absorbe segundos de CPU saturada (un router = un trabajador) |
+| Collector | `HORUS_COLLECTOR_QUEUE_DATAGRAMS=32768`, `HORUS_COLLECTOR_DECODE_WORKERS` por defecto (una por CPU), spool de 8 GiB | absorbe segundos de CPU saturada; el spool, ≈ 38 min de NATS caído a 20 000/s |
 | NATS | `HORUS_TLM_FLOWS_MAX_BYTES = 100 GB` | 23 h de ClickHouse caído a la media, 10 h en pico habitual |
 
 **Cuándo un segundo host o una réplica de ClickHouse:** pico sostenido por encima de ~40 000 flujos/s
@@ -585,8 +585,11 @@ agrupados de 50 000 filas, vistas de 1 h y 1 d en cascada).
 crudo (+300 GB) o paneles que deban seguir con ClickHouse caído. Primero ClickHouse en un host propio
 (16 vCPU, 64 GB); la réplica (ReplicatedMergeTree + Keeper) solo aporta alta disponibilidad de las
 consultas, porque la ingesta ya aguanta la caída de ClickHouse dentro de la autonomía de TLM_FLOWS.
-Antes de superar ~35 000 registros/s **por router** hay que decodificar un mismo exportador en
-paralelo en el collector (pendiente).
+La decodificación de un mismo exportador ya va en paralelo (`HORUS_COLLECTOR_DECODE_WORKERS`, una por
+CPU; D23): en el banco, un router da 705 000 registros/s con 2 hilos. En 4 vCPU compartidas la cadena
+después del collector no pierde nada ni a 60 000/s; lo que descarta (0,6 % a 40 000/s y 2,6 % a
+60 000/s) es la cola del collector con la CPU saturada por ClickHouse ([`tests/load/REPORT.md`](../tests/load/REPORT.md),
+ronda D23). NATS necesita 1 GiB a partir de ~40 000/s con backlog (con 512 MiB murió por OOM).
 
 ---
 
@@ -816,8 +819,9 @@ Todos los routers de **todos los ISP** llegan por el hub; es el SPOF más import
 | ClickHouse parado 30 s | **0 flujos** | TLM_FLOWS (backlog máx. ~360 lotes ≈ 36 s de flujos) | healthy en 6 s, backlog drenado en ~20 s; kiosco de vuelta en 6 s |
 | NATS parado 30 s | **0 flujos** | búfer en memoria del collector (máx. 23,5 MB) | healthy en 6 s, drenado en ~12 s; kiosco (WebSocket) de vuelta en 6 s |
 | `horus-app` parado 30 s | **0 flujos** | TLM_FLOWS (backlog máx. ~270 lotes) | healthy en 6 s, drenado en ~14 s; kiosco de vuelta en 6 s |
-| ClickHouse parado **5 min a 20 000 flujos/s** (isp10k) | **0 flujos después del collector**; 123 381 (1,9 %) descartados por la cola del collector al drenar en 4 vCPU compartidas | TLM_FLOWS (backlog máx. 5,6 M de flujos, 1,03 GB lógicos; aviso de `/readyz` al 72 %) | healthy en 6 s, drenado en 2 min 22 s; kiosco de vuelta en 9 s |
-| Collector parado 1 min | **lo enviado durante la caída** (~53 s de flujos de 60 s) | ninguno: UDP sin reintento y sin spool | el hueco es ausencia de filas (la serie de la API da `null`, nunca 0); el exportador pasa por *Silencioso* y vuelve a *Exportando* |
+| ClickHouse parado **5 min a 20 000 flujos/s** (isp10k) | **0 flujos** en toda la cadena con la decodificación multihilo (D23; antes, 123 381 = 1,9 % en la cola del collector al drenar) | TLM_FLOWS (backlog máx. 5,6 M de flujos, 1,03 GB lógicos; aviso de `/readyz` al 72 %) | healthy en 6 s, drenado en 2 min 22 s; kiosco de vuelta en 9 s |
+| Collector parado 1 min | **lo enviado durante la caída** (~53 s de flujos de 60 s) | ninguno: UDP sin reintento (el spool cubre NATS, no al propio collector) |
+| Matriz de reinicio brusco (D23, `make chaos-restart-flows`): collector, horus-app, NATS y ClickHouse × `kill -9` y `docker restart`, 3 veces cada uno a 10 000 flujos/s | **0 flujos y 0 duplicados** salvo con el collector caído: solo lo enviado por UDP en la ventana caída → escuchando (2,2–2,7 s de flujos por cada 3 reinicios, medido también por la secuencia del collector); agregados iguales a los recalculados desde `flows_raw` | TLM_FLOWS, spool del collector (NATS caído), ledger de grupos e instantáneas de §10.16 | todo healthy en 7–17 s; inventario, clientes conocidos y estado del exportador intactos | el hueco es ausencia de filas (la serie de la API da `null`, nunca 0); el exportador pasa por *Silencioso* y vuelve a *Exportando* |
 
 Límites que se derivan: la caída de ClickHouse, NATS o `horus-app` no pierde flujos mientras dure
 menos que su búfer (§9.4 con 184 B/flujo; §10.3: 256 MiB ≈ 6 min a 5 000 flujos/s); la caída del
