@@ -679,6 +679,7 @@ func (s *Service) QueueStats(ctx context.Context) (QueueStats, error) { return s
 // deliver envía y registra el resultado (notification.sent|failed) o, si
 // quedan intentos, devuelve la entrega a la cola con backoff.
 func (s *Service) deliver(ctx context.Context, t pgdb.TenantID, c *Channel, d *Delivery, m Message, severity string) {
+	m.DeliveryID = d.ID.String()
 	cr, err := s.credentials(c)
 	if err == nil && !c.Enabled && !d.IsTest {
 		err = errors.New("channel disabled")

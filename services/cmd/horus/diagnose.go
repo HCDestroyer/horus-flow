@@ -121,7 +121,7 @@ func diagnose(ctx context.Context, args, environ []string, stdout, stderr io.Wri
 	if o.project == "" {
 		o.project = "horus"
 	}
-	var out io.Writer = stdout
+	out := stdout
 	path := o.output
 	if path != "-" {
 		if path == "" {
