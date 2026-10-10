@@ -775,6 +775,30 @@ saturada, el collector perdió datagramas por desbordamiento del búfer UDP del 
 host de prueba). El instalador debería subir `net.core.rmem_max` (p. ej. 32 MiB) y el collector
 pedir ese tamaño (pendiente).
 
+### 10.15 Spool a disco del collector (diseño, no implementado)
+
+Hoy el collector solo tiene el búfer en memoria (`HORUS_COLLECTOR_BUFFER_BYTES`, 256 MiB ≈ 6 min a
+5 000 flujos/s y ≈ 1 min a 20 000/s con ~150 B por flujo en memoria) para cuando NATS no responde;
+la caída de ClickHouse ya no le afecta (la absorbe TLM_FLOWS, §9.4). Un spool a disco solo
+alarga la autonomía ante una caída de **NATS** y no cubre la del propio collector (UDP sin
+reintento), así que no se implementa en esta ronda: no es pequeño (ficheros de segmento con
+fsync, recuperación tras corte, orden FIFO, límite de disco, limpieza) y un error en él perdería
+datos que hoy no se pierden. Diseño propuesto para cuando haga falta:
+
+- **Cuándo escribe:** solo con el bus caído y el búfer en memoria por encima del 50 %; con NATS
+  sano nunca toca el disco (sin coste en el camino caliente).
+- **Formato:** segmentos append-only de 64 MiB en `HORUS_COLLECTOR_SPOOL_DIR` (volumen propio,
+  `HORUS_COLLECTOR_SPOOL_BYTES`, p. ej. 8 GiB ≈ 45 min a 20 000/s); cada registro = longitud +
+  CRC32C + cabeceras NATS + cuerpo del lote; `fsync` por segmento cerrado y cada 1 s.
+- **Reenvío:** al volver el bus, primero el búfer en memoria y luego los segmentos en orden; un
+  segmento se borra cuando todos sus lotes tienen ack de JetStream. El `Nats-Msg-Id` (= batch_id)
+  hace idempotente un reenvío repetido dentro de la ventana de duplicados de TLM_FLOWS (2 min);
+  fuera de ella, el ingester deduplica por batch_id (grupos con token, ver §10.1).
+- **Arranque:** se leen los segmentos pendientes, se descartan registros con CRC inválido (corte
+  a mitad de escritura) y se reenvían; métricas `horus_collector_spool_bytes` y
+  `horus_collector_spool_dropped_total`.
+- **Lleno:** se descartan los lotes nuevos (como hoy el búfer) y se publica `data_gap`.
+
 ---
 
 ## 11. Riesgos arquitectónicos principales
