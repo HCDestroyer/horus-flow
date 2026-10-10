@@ -84,3 +84,19 @@ test('sin desbordamiento horizontal a 320 px', async ({ page }) => {
     expect(overflow, path).toBeLessThanOrEqual(0)
   }
 })
+
+// El HTML del servidor también debe pasar axe: las secciones se hidratan en diferido y
+// Lighthouse audita antes de que eso ocurra.
+test.describe('sin los scripts de la app (HTML del servidor)', () => {
+  for (const path of ['/', '/comprar']) {
+    test(`axe sin violaciones: ${path}`, async ({ page }) => {
+      // Sin los scripts de la app (axe sí necesita JavaScript en la página).
+      await page.route(/\/_nuxt\/.*\.js$/, (r) => r.abort())
+      await page.goto(path)
+      const results = await new AxeBuilder({ page })
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+        .analyze()
+      expect(results.violations.map((v) => `${v.id}: ${v.nodes[0]?.target.join(' ')}`)).toEqual([])
+    })
+  }
+})

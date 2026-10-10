@@ -21,7 +21,7 @@ services:
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.16.0.0/12}
     read_only: true
     cap_drop: [ALL]
-    security_opt: ["no-new-privileges:true"]
+    security_opt: ['no-new-privileges:true']
     mem_limit: 256m
     networks: [proxy]
     healthcheck:

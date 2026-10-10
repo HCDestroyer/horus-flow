@@ -38,6 +38,9 @@ test('el selector mensual/anual cambia el periodo y se lleva a la compra', async
   await page.goto('/')
   await hydrated(page)
   const pricing = page.locator('#pricing')
+  // Precios se hidrata al acercarse a la pantalla: se desplaza antes de interactuar.
+  await pricing.scrollIntoViewIfNeeded()
+  await page.waitForTimeout(500)
   await expect(pricing.locator('[data-plan="small"]')).toContainText('Pago anual')
   await pricing.getByText('Mensual', { exact: true }).click()
   await expect(pricing.locator('[data-plan="small"]')).toContainText('Pago mensual')

@@ -43,6 +43,10 @@ export default defineNuxtConfig({
   ui: {
     // Fuente del sistema: sin descargas a terceros ni CLS por fuentes web.
     fonts: false,
+    // Rendimiento: solo los colores que usa la página y solo los temas de los componentes
+    // usados (el CSS pasa de ~200 KB a una fracción; Lighthouse móvil ≥ 90).
+    theme: { colors: ['primary', 'neutral', 'error'] },
+    experimental: { componentDetection: true },
   },
 
   colorMode: {

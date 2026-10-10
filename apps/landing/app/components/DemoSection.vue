@@ -98,14 +98,27 @@ function again() {
           @submit="onSubmit"
         >
           <HoneypotField v-model="honeypot" />
-          <UFormField :label="t('form.name')" name="name" required>
-            <UInput v-model="state.name" autocomplete="name" size="xl" class="w-full" />
-          </UFormField>
-          <UFormField :label="t('form.company')" name="company" required>
-            <UInput v-model="state.company" autocomplete="organization" size="xl" class="w-full" />
-          </UFormField>
-          <UFormField :label="t('form.email')" name="email" required>
+          <LabeledField id="demo-name" :label="t('form.name')" name="name" required>
             <UInput
+              id="demo-name"
+              v-model="state.name"
+              autocomplete="name"
+              size="xl"
+              class="w-full"
+            />
+          </LabeledField>
+          <LabeledField id="demo-company" :label="t('form.company')" name="company" required>
+            <UInput
+              id="demo-company"
+              v-model="state.company"
+              autocomplete="organization"
+              size="xl"
+              class="w-full"
+            />
+          </LabeledField>
+          <LabeledField id="demo-email" :label="t('form.email')" name="email" required>
+            <UInput
+              id="demo-email"
               v-model="state.email"
               type="email"
               autocomplete="email"
@@ -113,9 +126,15 @@ function again() {
               size="xl"
               class="w-full"
             />
-          </UFormField>
-          <UFormField :label="t('form.phone')" name="phone" :hint="t('form.optional')">
+          </LabeledField>
+          <LabeledField
+            id="demo-phone"
+            :label="t('form.phone')"
+            name="phone"
+            :hint="t('form.optional')"
+          >
             <UInput
+              id="demo-phone"
               v-model="state.phone"
               type="tel"
               autocomplete="tel"
@@ -123,44 +142,56 @@ function again() {
               size="xl"
               class="w-full"
             />
-          </UFormField>
-          <UFormField :label="t('form.country')" name="country" required>
+          </LabeledField>
+          <LabeledField id="demo-country" :label="t('form.country')" name="country" required>
             <USelect
+              id="demo-country"
               v-model="state.country"
               :items="countries"
               :placeholder="t('form.countryPlaceholder')"
               size="xl"
               class="w-full"
             />
-          </UFormField>
-          <UFormField :label="t('form.clients')" name="clients" required>
+          </LabeledField>
+          <LabeledField id="demo-clients" :label="t('form.clients')" name="clients" required>
             <USelect
+              id="demo-clients"
               v-model="state.clients"
               :items="clientItems"
               :placeholder="t('form.clientsPlaceholder')"
               size="xl"
               class="w-full"
             />
-          </UFormField>
-          <UFormField :label="t('form.routers')" name="routers" required>
+          </LabeledField>
+          <LabeledField id="demo-routers" :label="t('form.routers')" name="routers" required>
             <USelect
+              id="demo-routers"
               v-model="state.routers"
               :items="routerItems"
               :placeholder="t('form.routersPlaceholder')"
               size="xl"
               class="w-full"
             />
-          </UFormField>
-          <UFormField
+          </LabeledField>
+          <LabeledField
+            id="demo-message"
             :label="t('form.message')"
             name="message"
             :help="t('form.messageHint')"
             class="sm:col-span-2"
           >
-            <UTextarea v-model="state.message" :rows="4" autoresize size="xl" class="w-full" />
-          </UFormField>
+            <UTextarea
+              id="demo-message"
+              v-model="state.message"
+              :rows="4"
+              autoresize
+              size="xl"
+              class="w-full"
+            />
+          </LabeledField>
           <UFormField name="consent" class="sm:col-span-2">
             <UCheckbox
+              id="demo-consent"
               v-model="state.consent"
               size="lg"
               required
