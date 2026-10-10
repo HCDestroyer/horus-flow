@@ -3,6 +3,7 @@ package sim
 import (
 	"bytes"
 	"context"
+	"math"
 	"net/netip"
 	"strings"
 	"testing"
@@ -170,4 +171,59 @@ func TestRateScaling(t *testing.T) {
 	if rh < 4*rl || rh < 300 || rh > 500 {
 		t.Errorf("la tasa no escala: %.0f reg/s con rate=50, %.0f reg/s con rate=400", rl, rh)
 	}
+}
+
+// TestISP10kAndDailyProfile: el escenario isp10k tiene 10 000 clientes IPv4
+// tras NAT (≈30 % con /64) y el perfil diario escala la tasa de fondo.
+func TestISP10kAndDailyProfile(t *testing.T) {
+	sc, err := Load("isp10k")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, err := newGen(sc, Options{Seed: 1, Duration: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v4, v6 := 0, 0
+	for _, c := range g.exps[0].clients {
+		if c.v4.IsValid() {
+			v4++
+		}
+		if c.keyV6 != "" {
+			v6++
+		}
+	}
+	if v4 != 10000 || v6 < 2500 || v6 > 3500 {
+		t.Fatalf("clients v4=%d v6=%d", v4, v6)
+	}
+	// Arranque a las 18:00 UTC: factor 0,82; a las 21:00, 1.
+	if f := g.dailyFactor(0); math.Abs(f-0.82) > 1e-9 {
+		t.Fatalf("factor 18:00 = %v", f)
+	}
+	if f := g.dailyFactor(3 * 3600 * 1000); math.Abs(f-1) > 1e-9 {
+		t.Fatalf("factor 21:00 = %v", f)
+	}
+	if f := g.dailyFactor(30 * 60 * 1000); math.Abs(f-0.87) > 1e-9 {
+		t.Fatalf("factor 18:30 = %v (interpolado)", f)
+	}
+	flat, err := newGen(sc, Options{Seed: 1, Duration: time.Second, Flat: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flat.dailyFactor(0) != 1 {
+		t.Fatal("-flat must ignore the daily profile")
+	}
+	bad := strings.Replace(string(mustRead(t, "isp10k")), "daily: [0.30,", "daily: [", 1)
+	if _, err := Parse([]byte(bad)); err == nil {
+		t.Fatal("daily with 23 factors must fail")
+	}
+}
+
+func mustRead(t *testing.T, name string) []byte {
+	t.Helper()
+	b, err := scenarios.FS.ReadFile(name + ".yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
 }

@@ -199,9 +199,22 @@ func FixturePaths(dir, scenario string, p flow.Protocol) (capturePath, expectedP
 	return base + ".hfsim.gz", base + ".expected.json"
 }
 
+// fileScenarios son los escenarios con captura versionada (fixture.skip_file
+// los excluye).
+func fileScenarios() []string {
+	var out []string
+	for _, n := range scenarios.Names() {
+		if sc, err := sim.Load(n); err == nil && sc.Fixture.SkipFile {
+			continue
+		}
+		out = append(out, n)
+	}
+	return out
+}
+
 // WriteFixtures regenera los fixtures de todos los escenarios en dir.
 func WriteFixtures(ctx context.Context, dir string, w io.Writer) error {
-	for _, n := range scenarios.Names() {
+	for _, n := range fileScenarios() {
 		if err := os.MkdirAll(filepath.Join(dir, n), 0o750); err != nil {
 			return fmt.Errorf("fixtures: %w", err)
 		}
@@ -280,7 +293,7 @@ func readGzip(path string) ([]byte, error) {
 func CheckFixtures(ctx context.Context, dir string, w io.Writer, verbose bool) (bool, error) {
 	ok := true
 	found := 0
-	names := scenarios.Names()
+	names := fileScenarios()
 	sort.Strings(names)
 	for _, n := range names {
 		for _, p := range []flow.Protocol{flow.IPFIX, flow.V9} {

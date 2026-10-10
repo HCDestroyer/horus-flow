@@ -526,7 +526,7 @@ func (b *background) emit(g *gen, c *client, t int64) {
 			g.shapeConnFamily(c, dnsShape(c.rng), c.rng.Int64N(window), true)
 		}
 	}
-	n := poisson(c.rng, c.lambda)
+	n := poisson(c.rng, c.lambda*g.dailyFactor(t))
 	for i := 0; i < n; i++ {
 		start := t + c.rng.Int64N(tickMs)
 		if b.kind == "commercial" {

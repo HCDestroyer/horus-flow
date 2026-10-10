@@ -60,6 +60,7 @@ type config struct {
 	out         string
 	format      string
 	expected    string
+	flat        bool
 	allowUnmet  bool
 	fixturesDir string
 	maxDatagram int
@@ -97,6 +98,7 @@ func parseFlags(args []string, stderr io.Writer) (*config, error) {
 	fs.StringVar(&c.format, "format", "", "formato del fichero: hfsim, pcap o pcapng (por defecto, por extensión)")
 	fs.StringVar(&c.expected, "expected", "", "ruta del expected.json (por defecto <out>.expected.json o expected.json)")
 	fs.BoolVar(&c.allowUnmet, "allow-unmet", false, "no falla si las señales no cumplen lo declarado en el escenario")
+	fs.BoolVar(&c.flat, "flat", false, "ignora el perfil diario del escenario (daily): tasa fija = rate")
 	fs.StringVar(&c.fixturesDir, "fixtures-dir", "", "regenera los fixtures de todos los escenarios en este directorio y sale")
 	fs.IntVar(&c.maxDatagram, "max-datagram", 0, "tamaño máximo de datagrama en bytes (0 = escenario, 1392 por defecto)")
 	fs.BoolVar(&c.showVersion, "version", false, "muestra la versión")
@@ -172,7 +174,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 	}
 	opt := sim.Options{
 		Seed: c.seed, Protocol: proto, Rate: c.rate, Duration: c.duration, Fixture: c.fixture,
-		Profile: profile, NATFields: c.natFields, AllowUnmet: c.allowUnmet, MaxDatagram: c.maxDatagram,
+		Profile: profile, NATFields: c.natFields, AllowUnmet: c.allowUnmet, MaxDatagram: c.maxDatagram, Flat: c.flat,
 	}
 	if opt.NAT, err = optBool(c.nat, "nat"); err != nil {
 		return err

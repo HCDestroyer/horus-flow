@@ -87,6 +87,7 @@ make sim SCENARIO=normal RATE=2000 DURATION=1m
 | `dos_out` | inundación UDP de 20 000 pps a un destino durante 3 min | `ddos_participation` |
 | `beacon` | beacon cada 5 min ± 5 % durante 7 h | `beaconing` |
 | `sustained_out` | subida sostenida de 12 Mbit/s durante 40 min | `open_proxy_abuse` |
+| `isp10k` | Nodo grande de un ISP: 10 000 IPv4 privadas en 10.64.0.0/18 tras NAT (IE 225-228, 16 IPs públicas), 30 % de hogares y 50 % de empresas con /64 delegado, 400 empresas, 1 % de infectados (Mirai, C2, beacon caído, P2P, spam); pico 15 000 registros/s con perfil diario | señales informadas, no exigidas (`report_only`); carga de `make load-isp10k` |
 | `out_of_prefix` | 2 nodos con el mismo 10.20.0.0/24; IPs fuera de prefijos, rango excluido, tránsito IPv6, tráfico interno, PPPoE | atribución (`unknown`, `excluded`, `transit`, `internal`, `infrastructure`, `tunnel`) |
 
 Los `kind` de hallazgo siguen I1-10/I1-11/I1-30 y son provisionales hasta que se congele C8.
@@ -119,6 +120,16 @@ exporters:
         expect:
           signals: [scan_horizontal, fanout, watch_ports]
           findings: [{kind: outbound_scanning, severity: high, signals: [scan_horizontal]}]
+```
+
+Campos de carga: `daily` (24 factores por hora UTC del instante simulado que multiplican la tasa de
+fondo; `rate` es el pico; `-flat` lo ignora y da tasa fija), `report_only: true` (las señales
+calculadas van a expected.json sin exigirse) y `fixture.skip_file: true` (sim-verify lo genera y
+verifica con los parámetros de `fixture`, pero no se versiona la captura).
+
+```sh
+make sim SCENARIO=isp10k                                  # 10 min con el perfil diario de la hora actual
+go run ./tools/flowsim/cmd/flowsim -scenario isp10k -flat -rate 40000 -duration 5m -target 10.0.0.5:4739
 ```
 
 Comportamientos: `residential`, `commercial`, `c2`, `beacon`, `scan`, `fanout`, `smtp`, `ddos`,
