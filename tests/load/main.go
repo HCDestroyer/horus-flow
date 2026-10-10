@@ -312,7 +312,21 @@ loop:
 	}
 	log.Printf("   enviados %d, collector %d, ClickHouse %d, lag máx %d lotes (%.1f s), drenaje %s, p95 %s (%d peticiones) → %s",
 		s.Sent, s.Received, s.Rows, s.MaxLagBatches, s.MaxLagSeconds, s.Drain, loadkit.Fmt(s.Probe.P95), s.Probe.N, verdict)
+	if len(s.Probe.ByPath) > 0 {
+		log.Printf("   p95 por consulta: %s", byPath(s.Probe))
+	}
 	return s
+}
+
+// byPath resume el p95 de cada consulta de la sonda en el orden de TrafficPaths.
+func byPath(st loadkit.Stats) string {
+	var parts []string
+	for _, p := range loadkit.TrafficPaths {
+		if d, ok := st.ByPath[p]; ok {
+			parts = append(parts, fmt.Sprintf("%s %s", strings.TrimPrefix(p, "/api/v1/analytics/traffic/"), loadkit.Fmt(d)))
+		}
+	}
+	return strings.Join(parts, " · ")
 }
 
 func samplesXY[T any](xs []T, f func(T) (float64, float64)) (x, y []float64) {
@@ -367,6 +381,11 @@ func report(dir, scenario string, steps []step) error {
 			s.loss(), s.Rows, s.MaxLagBatches, s.MaxLagSeconds, s.LagSlope, s.Drain, loadkit.Fmt(s.Probe.P95), s.Probe.N, res)
 	}
 	fmt.Fprintf(&sb, "\nMáximo sostenible medido: **%.0f flujos/s**\n", best)
+	for _, s := range steps {
+		if len(s.Probe.ByPath) > 0 {
+			fmt.Fprintf(&sb, "\np95 por consulta a %.0f flujos/s: %s\n", s.Rate, byPath(s.Probe))
+		}
+	}
 	if len(steps) > 0 && steps[0].NATSBytesFlow > 0 {
 		fmt.Fprintf(&sb, "\nTamaño medido en TLM_FLOWS: %.0f B por flujo (%.1f registros por lote)\n", steps[0].NATSBytesFlow, steps[0].RecsPerBatch)
 	}

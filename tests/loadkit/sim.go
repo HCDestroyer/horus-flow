@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"sort"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -85,11 +85,15 @@ func (s *Sim) Sent() (uint64, error) {
 type Latencies struct {
 	mu     sync.Mutex
 	ok     []time.Duration
+	byPath map[string][]time.Duration
 	errors map[string]int
 }
 
 // Add registra una muestra (status 0 = error de red).
-func (l *Latencies) Add(d time.Duration, status int) {
+func (l *Latencies) Add(d time.Duration, status int) { l.AddPath("", d, status) }
+
+// AddPath registra una muestra de la consulta path (para el p95 por consulta).
+func (l *Latencies) AddPath(path string, d time.Duration, status int) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.errors == nil {
@@ -97,6 +101,12 @@ func (l *Latencies) Add(d time.Duration, status int) {
 	}
 	if status == http.StatusOK {
 		l.ok = append(l.ok, d)
+		if path != "" {
+			if l.byPath == nil {
+				l.byPath = map[string][]time.Duration{}
+			}
+			l.byPath[path] = append(l.byPath[path], d)
+		}
 		return
 	}
 	l.errors[strconv.Itoa(status)]++
@@ -107,6 +117,13 @@ type Stats struct {
 	N, Errors     int
 	P50, P95, Max time.Duration
 	ByStatus      map[string]int
+	// ByPath: p95 de cada consulta (diagnóstico: cuál se degrada con el volumen).
+	ByPath map[string]time.Duration `json:",omitempty"`
+}
+
+// percentile devuelve el percentil p de d ordenado (d no vacío).
+func percentile(d []time.Duration, p float64) time.Duration {
+	return d[min(len(d)-1, int(p*float64(len(d))))]
 }
 
 // Stats devuelve percentiles de las respuestas 200.
@@ -122,9 +139,16 @@ func (l *Latencies) Stats() Stats {
 		return st
 	}
 	d := append([]time.Duration(nil), l.ok...)
-	sort.Slice(d, func(i, j int) bool { return d[i] < d[j] })
-	pct := func(p float64) time.Duration { return d[min(len(d)-1, int(p*float64(len(d))))] }
-	st.P50, st.P95, st.Max = pct(0.50), pct(0.95), d[len(d)-1]
+	slices.Sort(d)
+	st.P50, st.P95, st.Max = percentile(d, 0.50), percentile(d, 0.95), d[len(d)-1]
+	for path, v := range l.byPath {
+		v = slices.Clone(v)
+		slices.Sort(v)
+		if st.ByPath == nil {
+			st.ByPath = map[string]time.Duration{}
+		}
+		st.ByPath[path] = percentile(v, 0.95)
+	}
 	return st
 }
 
@@ -155,7 +179,7 @@ func ProbeTraffic(ctx context.Context, a *API, workers int, every time.Duration,
 				if err != nil {
 					status = 0
 				}
-				l.Add(time.Since(start), status)
+				l.AddPath(TrafficPaths[i%len(TrafficPaths)], time.Since(start), status)
 				select {
 				case <-ctx.Done():
 					return
