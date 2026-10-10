@@ -33,12 +33,17 @@ compila en el servidor y no hace falta git ni Go.
 Un servidor (físico o virtual) para Horus solo. Cifras orientativas para un ISP con routers
 MikroTik que exportan IPFIX:
 
-| Tamaño | Clientes del ISP | CPU | RAM | Disco |
+| Tamaño (`--size`) | Clientes del ISP | CPU | RAM | Disco |
 | --- | --- | --- | --- | --- |
-| Pequeño | hasta unos 300 | 4 núcleos | 8 GB | 100 GB SSD |
-| Mediano | unos 2 000 | 8 núcleos | 16 GB | 500 GB SSD + un segundo disco para copias |
-| Grande | 10 000 o más | ver las mediciones de [`tests/load/REPORT.md`](../tests/load/REPORT.md) | | |
+| Pequeño (`small`) | hasta unos 300 | 4 núcleos | 8 GB | 100 GB SSD |
+| Mediano (`medium`) | unos 2 000 | 8 núcleos | 16 GB | 500 GB SSD + un segundo disco para copias |
+| Grande (`large`) | unos 10 000 | 8 núcleos | 32 GB | 500 GB **NVMe** + un segundo disco para copias |
 
+- El instalador elige el tamaño según la RAM del servidor; puedes forzarlo con `--size small`,
+  `--size medium` o `--size large`. Ajusta la memoria de ClickHouse (4, 8 o 14 GB), la cola del
+  colector de flujos y el disco que se reserva para el búfer de flujos (NATS).
+- Para más de 10 000 clientes, o para ver de dónde salen estas cifras, mira las mediciones de
+  [`tests/load/REPORT.md`](../tests/load/REPORT.md).
 - **Mínimo absoluto:** 2 núcleos, 4 GB de RAM y 20 GB libres (solo para pruebas).
 - **Mejor un segundo disco para las copias** (`--store-dir /mnt/copias/horus`): si se rompe el disco
   principal, las copias siguen ahí.
@@ -75,8 +80,8 @@ Qué hace, por orden (puedes repetir el comando cuando quieras: no rompe nada ni
 1. Comprueba que es Debian 12 o 13 y que eres root.
 2. Instala Docker **desde el repositorio oficial de Docker** (con su clave verificada), WireGuard,
    `age`, `jq`, el cortafuegos (`iptables`) y la **hora automática** (NTP: los flujos llevan hora).
-3. Ajusta el kernel para que no se pierdan flujos en ráfagas (búfer UDP de 32 MiB) y permite el
-   reenvío del túnel (`/etc/sysctl.d/90-horus.conf`).
+3. Ajusta el kernel para que no se pierdan flujos en ráfagas (búfer UDP de hasta 32 MiB para el
+   colector) y permite el reenvío del túnel (`/etc/sysctl.d/90-horus.conf`).
 4. Comprueba que el kernel tiene WireGuard.
 5. Descarga la versión de Horus, **comprueba su firma y sus sumas SHA-256** y la instala.
 6. Arranca todo y espera a que cada servicio esté sano. Al final verás un resumen con la URL, la
@@ -89,6 +94,7 @@ Opciones útiles (se añaden al final de `bash bootstrap-debian.sh`):
 | `--mode ip` / `--mode domain --domain horus.miisp.net --acme-email noc@miisp.net` | responder sin preguntas |
 | `--yes --admin-email noc@miisp.net --admin-password-file /root/clave.txt` | instalación desatendida |
 | `--store-dir /mnt/copias/horus` | copias en otro disco |
+| `--size medium` | tamaño del servidor (apartado 1) |
 | `--channel beta` | recibir versiones beta (por defecto `stable`) |
 | `--auto-update on --update-window "Sun *-*-* 03:30:00"` | parches automáticos (apartado 8) |
 | `--unattended-upgrades` | actualizaciones de seguridad automáticas de Debian |
