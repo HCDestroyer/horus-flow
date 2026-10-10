@@ -164,7 +164,7 @@ function again() {
               v-model="state.consent"
               size="lg"
               required
-              :ui="{ root: 'items-start', container: 'mt-1' }"
+              :ui="{ root: 'items-start', container: 'mt-1', label: 'min-h-11' }"
             >
               <template #label>
                 <span class="text-base font-normal text-toned">
