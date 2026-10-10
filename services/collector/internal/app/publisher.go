@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -109,6 +110,20 @@ func (p *Publisher) SpoolDropped(reason string, batches, records int) {
 	p.sgReason = "spool_" + reason
 	p.sgBatches += uint64(batches) //nolint:gosec // >= 0
 	p.sgRecords += uint64(records) //nolint:gosec // >= 0
+}
+
+// SpoolHealth es la sonda de /readyz: degradado mientras los lotes van al
+// spool (bus caído o lento), con lo pendiente.
+func (p *Publisher) SpoolHealth() error {
+	p.mu.Lock()
+	s, spooling := p.spool, p.spooling
+	p.mu.Unlock()
+	if s == nil || !spooling {
+		return nil
+	}
+	st := s.Stats()
+	return fmt.Errorf("batches going to the disk spool: %d batches (%d records, %d bytes of %d) pending", st.Batches, st.Records,
+		st.Bytes, st.MaxBytes)
 }
 
 // Enqueue encola un mensaje con n registros. Devuelve false si se descartó.

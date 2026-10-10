@@ -74,6 +74,8 @@ type mod struct {
 	nc     *nats.Conn
 	js     jetstream.JetStream
 	engine *app.Engine
+	// spoolErr: HORUS_COLLECTOR_SPOOL_DIR configurado pero no utilizable.
+	spoolErr error
 }
 
 type jsSink struct{ js jetstream.JetStream }
@@ -114,12 +116,15 @@ func (m *mod) Start(ctx context.Context) error {
 		sp, err := spool.Open(spool.Options{Dir: m.cfg.SpoolDir, MaxBytes: m.cfg.SpoolBytes, SegmentBytes: m.cfg.SpoolSegmentBytes,
 			Fsync: m.cfg.SpoolFsync, OnDrop: m.engine.Pub.SpoolDropped, Log: m.log})
 		if err != nil {
-			return fmt.Errorf("collector: spool: %w", err)
+			// Sin spool el collector sigue (búfer en memoria) y /readyz lo marca.
+			m.spoolErr = err
+			m.log.ErrorContext(ctx, "collector spool unavailable: running with the memory buffer only", "dir", m.cfg.SpoolDir, "error", err)
+		} else {
+			m.engine.Pub.UseSpool(sp, m.cfg.SpoolAfterRatio)
+			st := sp.Stats()
+			m.log.InfoContext(ctx, "collector spool ready", "dir", m.cfg.SpoolDir, "max_bytes", m.cfg.SpoolBytes,
+				"pending_batches", st.Batches, "pending_records", st.Records)
 		}
-		m.engine.Pub.UseSpool(sp, m.cfg.SpoolAfterRatio)
-		st := sp.Stats()
-		m.log.InfoContext(ctx, "collector spool ready", "dir", m.cfg.SpoolDir, "max_bytes", m.cfg.SpoolBytes,
-			"pending_batches", st.Batches, "pending_records", st.Records)
 	} else {
 		m.log.WarnContext(ctx, "collector spool disabled (HORUS_COLLECTOR_SPOOL_DIR not set): a NATS outage longer than the memory buffer loses flows")
 	}
@@ -127,6 +132,12 @@ func (m *mod) Start(ctx context.Context) error {
 		return fmt.Errorf("collector: listen: %w", err)
 	}
 	if m.health != nil {
+		m.health.AddCheck(health.Check{Name: "spool", Critical: false, Probe: func(context.Context) error {
+			if m.spoolErr != nil {
+				return fmt.Errorf("spool unavailable: %w", m.spoolErr)
+			}
+			return m.engine.Pub.SpoolHealth()
+		}})
 		m.health.AddCheck(health.Check{Name: "nats", Critical: false, Probe: func(context.Context) error {
 			if !nc.IsConnected() {
 				return errors.New("nats disconnected")
