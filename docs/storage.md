@@ -243,6 +243,41 @@ stateDiagram-v2
 | Backups PostgreSQL | `store/backups/postgres` | **mínimo garantizado: 7 d de PITR** (ADR-0019) | — | 35 d + 12 mensuales |
 | Backups ClickHouse | `store/backups/clickhouse` | **mínimo garantizado: 2 completos** + incrementales de 7 d | — | 35 d + 12 mensuales |
 
+### 5.1 Dimensionado de ClickHouse para un ISP de 10 000 clientes (FLOW, isp10k)
+
+Medido con filas reales del escenario `isp10k` ([`tests/load/REPORT.md`](../tests/load/REPORT.md),
+«Compresión») y la tasa media del router real (~0,65 flujos/s por cliente ⇒ **6 500 flujos/s, 562 M de
+filas crudas al día**). Agregados con el modelo de [`database.md` §8.1](database.md) (50 % de clientes
+activos; 8 / 30 / 80 claves por cliente en 5 min / 1 h / 1 d; 1 fila por cliente activo y minuto en
+`client_security_1m`, ~3 en `client_port_1m`). «Antes» son los códecs de I0-13; «después», las
+migraciones `20261010130000_flows_raw_codecs` (ZSTD en `flows_raw`) y
+`20261010140000_aggregates_recompress` (TTL RECOMPRESS ZSTD(6) de los agregados a 1–3 días).
+
+| Tabla | B/fila antes → después | GB/día antes → después | Retención |
+| --- | ---: | ---: | --- |
+| `flows_raw` | 32,1 → **17,6** | 18,0 → **9,9** | 7 d |
+| `client_security_1m` | 105 → 79 | 0,76 → 0,57 | 7 d |
+| `client_port_1m` | 18,5 → 11,2 | 0,40 → 0,24 | 7 d |
+| `customer_5m` | 19,6 → 11,7 | 0,23 → 0,14 | 90 d |
+| `customer_1h` | 19,9 → 11,8 | 0,07 → 0,04 | 13 meses |
+| `customer_1d` | 20,2 → 11,9 | 0,02 → 0,01 | 25 meses |
+| `client_security_1h` | 241 → 210 | 0,03 → 0,03 | 13 meses |
+| **Total** | | **19,5 → 10,9** | |
+
+| Horizonte | Disco antes | Disco después |
+| --- | ---: | ---: |
+| 7 días | 137 GB | **76 GB** |
+| 30 días | 145 GB | **81 GB** |
+| 90 días | 165 GB | **94 GB** |
+| 13 meses (régimen estable) | 201 GB | **118 GB** |
+
+Más NATS (TLM_FLOWS con s2: ~27 GB para 100 GB de `max_bytes`, [`architecture.md` §9.4](architecture.md)),
+×1,5 de margen para merges y el almacén local de backups (§2): **≈ 250 GB de NVMe** para ClickHouse +
+NATS en un ISP de 10 000 clientes con 7 días de crudo. El crudo es el 90 % del disco de la primera
+semana; alargarlo a 30 días (máximo de la política) cuesta ~300 GB más. La propuesta de
+«conversaciones» por hora ([`database.md` §6.6](database.md)) daría 30 días de investigación por
+~7 GB. Cifras de agregados con el modelo, no medidas en un mes real: recalibrar con el primer nodo.
+
 Sin destino remoto, la retención local de backups sube por defecto a 14 d de PITR + 3 completos
 mensuales de ClickHouse para compensar parcialmente; el disco se dimensiona con eso. Todos los
 valores son defectos configurables por instalación y, más cortos, por tenant; las obligaciones

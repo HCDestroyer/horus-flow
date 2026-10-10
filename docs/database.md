@@ -739,17 +739,24 @@ CREATE TABLE flows.conversation_1h
     first_ts SimpleAggregateFunction(min, DateTime('UTC')), last_ts SimpleAggregateFunction(max, DateTime('UTC'))
 )
 ENGINE = AggregatingMergeTree PARTITION BY toYYYYMMDD(bucket)
-ORDER BY (tenant_id, realm_id, client_ip, bucket, remote_asn, remote_prefix, protocol, remote_port, direction)
-TTL bucket + INTERVAL 30 DAY DELETE;
+ORDER BY (tenant_id, realm_id, client_ip, bucket, remote_asn, remote_prefix, remote_prefix_len, protocol, remote_port, direction)
+TTL bucket + INTERVAL 2 DAY RECOMPRESS CODEC(ZSTD(6)), bucket + INTERVAL 30 DAY DELETE;
 -- MV desde flows_raw con attribution_status IN ('attributed', 'internal'), agrupando por la clave.
 ```
 
 - **Clave:** cliente × hora × (ASN, prefijo remoto enrutado de `dim.asn`) × protocolo × puerto de
   servicio × dirección; el puerto efímero del lado remoto se colapsa a 0 para que una descarga no
   genere una fila por conexión. `remote_ips` conserva la dispersión (escaneo) sin guardar cada IP.
-- **Coste:** una vista más sobre `flows_raw` (la 8.ª). Volumen medido abajo con datos isp10k.
-- **Alternativa sin cambiar el contrato:** subir la retención de `flows_raw` (7 → 30 días) solo en
-  la partición recomprimida (§6.7); cuesta ≈ 4× más disco que esta tabla.
+- **Coste:** una vista más sobre `flows_raw` (la 8.ª).
+- **Volumen medido** (2 M de filas reales de isp10k, 3 min de 10 000 clientes): 413 000 filas de
+  conversación (≈ 32 por cliente en 3 min) a 20,3 B/fila sin recomprimir. En una hora las claves se
+  repiten (mismos ASN, prefijos y puertos); suponiendo ~100 conversaciones por cliente activo y hora
+  y un 50 % de clientes activos, un ISP de 10 000 clientes generaría ~12 M de filas/día, **~0,25
+  GB/día y ~7 GB en 30 días** (~4,5 GB con la recompresión ZSTD(6) de los agregados), frente a
+  ~300 GB que costaría guardar 30 días de crudo (9,9 GB/día con los códecs de
+  `20261010130000_flows_raw_codecs`). Hay que confirmarlo con una hora real de un router.
+- **Alternativa sin cambiar el contrato:** alargar `flows_raw` a 30 días (permitido por la
+  política, 7–30 d): unas 40× más disco que esta tabla.
 
 ---
 
