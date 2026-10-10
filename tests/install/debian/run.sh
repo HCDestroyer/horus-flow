@@ -36,6 +36,12 @@ out="$repo_root/bin/test-install-debian/debian$ver"
 work="$repo_root/bin/test-install-debian/work"
 name="horus-test-debian$ver"
 vol="horus-test-debian$ver-docker"
+# Docker ≥ 29 de los paquetes oficiales (TEST_MODE=apt) usa el almacén de imágenes de containerd
+# (/var/lib/containerd, snapshotter overlayfs): como /var/lib/docker, tiene que estar en un volumen
+# y no en la capa overlay del contenedor (overlay sobre overlay no monta y ningún contenedor
+# arranca; en un servidor real es un sistema de archivos normal). Con los binarios estáticos de
+# TEST_MODE=sandbox containerd vive en /var/lib/docker/containerd.
+vol_ctd="horus-test-debian$ver-containerd"
 pass=0 fail=0
 mkdir -p "$out" "$work"
 : >"$out/summary.txt"
@@ -62,7 +68,7 @@ in_sh() { docker exec "$name" bash -c "$1"; }
 cleanup() {
   if [ "${TEST_KEEP:-0}" = 1 ]; then echo "test-install-debian: se conserva $name (TEST_KEEP=1)"; return; fi
   docker rm -f -v "$name" >/dev/null 2>&1 || true
-  docker volume rm -f "$vol" >/dev/null 2>&1 || true
+  docker volume rm -f "$vol" "$vol_ctd" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -145,16 +151,21 @@ else
 fi
 if [ "$from" -le 2 ] || [ -z "$(docker ps -q -f "name=^$name\$")" ]; then
 docker rm -f -v "$name" >/dev/null 2>&1 || true
-docker volume rm -f "$vol" >/dev/null 2>&1 || true
+docker volume rm -f "$vol" "$vol_ctd" >/dev/null 2>&1 || true
 cg=(-v /sys/fs/cgroup:/sys/fs/cgroup:rw --cgroupns=host)
 docker run -d --name "$name" --hostname "$name" --privileged "${cg[@]}" \
-  --tmpfs /run --tmpfs /run/lock -v "$vol:/var/lib/docker" -v "$work:/artifacts:ro" \
+  --tmpfs /run --tmpfs /run/lock -v "$vol:/var/lib/docker" -v "$vol_ctd:/var/lib/containerd" -v "$work:/artifacts:ro" \
   -e container=docker "$ct_image" >/dev/null
 fi
 for _ in $(seq 1 60); do in_ct systemctl is-system-running 2>/dev/null | grep -qE 'running|degraded' && break; sleep 1; done
 check "systemd como PID 1 ($(in_ct cat /etc/debian_version))" bash -c "docker exec $name systemctl is-system-running | grep -qE 'running|degraded'"
 ip="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$name")"
-in_ct test -s /root/admin-pw || in_sh "printf 'TestInstall-%s' \$(openssl rand -hex 8) >/root/admin-pw && chmod 600 /root/admin-pw"
+# La contraseña se genera en el host: el Debian de TEST_MODE=apt aún no tiene openssl (lo instala
+# bootstrap-debian.sh) y antes quedaba "TestInstall-" a secas.
+if ! in_ct test -s /root/admin-pw; then
+  printf 'TestInstall-%s' "$(openssl rand -hex 8)" | docker exec -i "$name" sh -c 'umask 077 && cat >/root/admin-pw'
+  [ "$(in_ct sh -c 'wc -c </root/admin-pw')" -eq 28 ] || { echo "test-install-debian: /root/admin-pw no se generó" >&2; exit 1; }
+fi
 
 # --- 3. Instalación -----------------------------------------------------------------------------
 step "3. bootstrap-debian.sh --bundle A --mode ip (IP $ip)"
@@ -162,7 +173,21 @@ boot=(bash /artifacts/dist-0.9.0/bootstrap-debian.sh --bundle /artifacts/dist-0.
   --yes --mode ip --public-ip "$ip" --admin-email admin@horus.test --admin-password-file /root/admin-pw
   --tunnel-cidr 10.230.0.0/16 --tlm-max-bytes 1073741824 --force)
 [ "$mode" = apt ] || boot+=(--no-apt)
+# Diagnóstico en la salida del job si la instalación falla (los artefactos no siempre se pueden
+# descargar): cola del log, contenedores de Horus, unidades caídas y journal de Docker del Debian.
+diag() { # diag <log>
+  echo "  --- diagnóstico: últimas líneas de ${1#"$repo_root"/} ---"
+  tail -n 40 "$1" 2>/dev/null | sed 's/^/  | /'
+  echo "  --- docker ps -a / systemctl --failed / journalctl -u docker (en $name) ---"
+  # (en la run 38042743182 fallaban hasta el `docker run` del nginx de prueba: Docker anidado)
+  in_sh 'docker info 2>&1 | grep -iE "cgroup|security|apparmor|storage driver|server version"
+    docker ps -a --format "{{.Names}} {{.Status}}"; systemctl --failed --no-legend
+    journalctl -u docker -u containerd --no-pager -n 30' 2>&1 \
+    | tee "$out/diag.log" | sed 's/^/  | /' || true
+}
+before_fail=$fail
 want 3 && check "bootstrap + install.sh terminan sin error" bash -c "docker exec $name ${boot[*]@Q} >'$out/install.log' 2>&1"
+[ "$fail" = "$before_fail" ] || diag "$out/install.log"
 [ "$mode" = sandbox ] || check "apt instaló Docker oficial, wireguard-tools, age, jq, iptables" \
   docker exec "$name" bash -c 'dpkg -s docker-ce docker-compose-plugin wireguard-tools age jq iptables >/dev/null && grep -q download.docker.com /etc/apt/sources.list.d/docker.sources'
 want 3 && check "sysctl net.core.rmem_max = 32 MiB y rmem_default = 1 MiB persistentes (/etc/sysctl.d/90-horus.conf)" \
