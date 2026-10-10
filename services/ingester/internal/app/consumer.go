@@ -122,7 +122,7 @@ func (c *Consumer) Process(ctx context.Context, stop <-chan struct{}, data []byt
 
 func (c *Consumer) terminate(ctx context.Context, msg BusMsg, cause error) {
 	c.M.Batches.WithLabelValues("dlq").Inc()
-	c.Log.Error("flow batch sent to DLQ", "subject", msg.Subject(), "error", cause)
+	c.Log.ErrorContext(msgContext(ctx, msg), "flow batch sent to DLQ", "subject", msg.Subject(), "error", cause)
 	if c.DLQ != nil {
 		d := nats.NewMsg("horus.dlq.flows.flows-ingester")
 		d.Data = msg.Data()

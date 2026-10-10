@@ -12,6 +12,8 @@ import (
 
 	"github.com/hcdestroyer/horus-flow/packages/go/flowbus"
 	"github.com/hcdestroyer/horus-flow/packages/go/flowinv"
+	"github.com/hcdestroyer/horus-flow/packages/go/observability"
+	"github.com/hcdestroyer/horus-flow/packages/go/platformevents"
 	"github.com/hcdestroyer/horus-flow/services/collector/internal/spool"
 )
 
@@ -73,6 +75,10 @@ type Publisher struct {
 	sgBatches uint64
 	sgRecords uint64
 	sgReason  string
+
+	// registro de eventos de plataforma (spool_active / spool_drained)
+	spoolSince   time.Time
+	lastFullEmit time.Time
 }
 
 // NewPublisher crea el publicador.
@@ -91,7 +97,10 @@ func (p *Publisher) UseSpool(s Spooler, afterRatio float64) {
 		afterRatio = 0.5
 	}
 	p.spoolAt = int64(float64(p.maxBytes) * afterRatio)
-	p.spooling = !s.Empty()
+	if !s.Empty() {
+		p.spooling, p.spoolSince = true, time.Now()
+		go p.emitSpoolActive("pending_from_previous_run")
+	}
 }
 
 // SpoolDropped registra lotes que el spool ha descartado (lleno, corrupto o
@@ -105,6 +114,12 @@ func (p *Publisher) SpoolDropped(reason string, batches, records int) {
 	p.m.Dropped.WithLabelValues(DropSpoolFull).Add(float64(records))
 	p.sgMu.Lock()
 	defer p.sgMu.Unlock()
+	if time.Since(p.lastFullEmit) >= time.Minute {
+		p.lastFullEmit = time.Now()
+		go p.platform(platformevents.KindSpoolActive, platformevents.SeverityError,
+			"Spool del collector lleno: se descarta lo más antiguo ("+reason+")",
+			map[string]any{"reason": "spool_" + reason, "dropped_batches": batches, "dropped_records": records})
+	}
 	if p.sgFrom.IsZero() {
 		p.sgFrom = time.Now()
 	}
@@ -117,8 +132,8 @@ func (p *Publisher) SpoolDropped(reason string, batches, records int) {
 // collector_down: lo que el exportador envió mientras el collector estaba
 // caído (medido con la secuencia guardada). No bloquea a quien lo llama.
 func (p *Publisher) ReportDowntime(exp *flowinv.Exporter, from, to time.Time, records uint64) {
-	p.log.Warn("flows sent while the collector was down (UDP, lost)", "router_id", exp.RouterID, "tenant_id", exp.TenantID,
-		"from", from.UTC(), "to", to.UTC(), "records", records)
+	lctx := observability.WithRouter(observability.WithTenant(context.Background(), exp.TenantID.String()), exp.RouterID.String())
+	p.log.WarnContext(lctx, "flows sent while the collector was down (UDP, lost)", "from", from.UTC(), "to", to.UTC(), "records", records)
 	collector := uuid.NewSHA1(uuid.NameSpaceOID, []byte("horus-collector:"+p.collectorID))
 	ev := flowbus.Event{Type: flowbus.TypeCollectorDataGap, Source: "horus/flows/collector",
 		Entity: collector.String(), AggregateType: "collector", AggregateVersion: 1,
@@ -138,6 +153,35 @@ func (p *Publisher) ReportDowntime(exp *flowinv.Exporter, from, to time.Time, re
 			p.log.Warn("data_gap (collector_down) not published", "error", err)
 		}
 	}()
+}
+
+// platform registra un evento de plataforma del spool (docs/observability.md
+// §11.2); sin registrador del proceso es un no-op. Nunca con p.mu tomado.
+func (p *Publisher) platform(kind, severity, msg string, details map[string]any) {
+	if details == nil {
+		details = map[string]any{}
+	}
+	details["collector_id"] = p.collectorID
+	platformevents.Emit(context.Background(), platformevents.Event{Kind: kind, Severity: severity, Role: "collector",
+		Message: msg, Details: details})
+}
+
+// startSpoolingLocked pasa a modo spool; devuelve si es una activación nueva.
+func (p *Publisher) startSpoolingLocked() bool {
+	if p.spooling {
+		return false
+	}
+	p.spooling = true
+	p.spoolSince = time.Now()
+	return true
+}
+
+func (p *Publisher) emitSpoolActive(reason string) {
+	st := p.spool.Stats()
+	p.log.Warn("collector spool active: batches go to disk", "reason", reason, "pending_batches", st.Batches)
+	p.platform(platformevents.KindSpoolActive, platformevents.SeverityWarn,
+		"Spool del collector activo: los lotes van a disco ("+reason+")",
+		map[string]any{"reason": reason, "pending_batches": st.Batches, "pending_records": st.Records, "max_bytes": st.MaxBytes})
 }
 
 // SpoolHealth es la sonda de /readyz: degradado mientras los lotes van al
@@ -160,9 +204,12 @@ func (p *Publisher) Enqueue(msg *nats.Msg, n int) bool {
 	p.mu.Lock()
 	p.inBytes += size
 	if p.spool != nil && (p.spooling || p.bytes+size > p.spoolAt) {
-		p.spooling = true
+		started := p.startSpoolingLocked()
 		err := p.spool.Append(msg, n)
 		p.mu.Unlock()
+		if started {
+			p.emitSpoolActive("bus_slow")
+		}
 		if err != nil {
 			return false // contado por SpoolDropped (write_error)
 		}
@@ -224,7 +271,10 @@ func (p *Publisher) next() (msg *nats.Msg, n int, fromSpool bool) {
 		return m, n, true
 	}
 	p.spooling = false
-	p.log.Info("collector spool drained: back to the memory buffer")
+	since := p.spoolSince
+	p.log.Info("collector spool drained: back to the memory buffer", "spooling_for", time.Since(since).Round(time.Second))
+	go p.platform(platformevents.KindSpoolDrained, platformevents.SeverityInfo, "Spool del collector vaciado: de vuelta al búfer en memoria",
+		map[string]any{"active_since": since.UTC().Format(time.RFC3339), "duration_seconds": int(time.Since(since).Seconds())})
 	return nil, 0, false
 }
 
@@ -354,12 +404,15 @@ func (p *Publisher) markDown(err error) {
 	p.mu.Lock()
 	first := !p.down
 	p.down = true
-	moved := 0
+	moved, started := 0, false
 	if p.spool != nil {
 		moved = p.moveToSpoolLocked(false)
-		p.spooling = true
+		started = p.startSpoolingLocked()
 	}
 	p.mu.Unlock()
+	if started {
+		p.emitSpoolActive("bus_unavailable")
+	}
 	p.m.BusConnected.Set(0)
 	if first {
 		p.log.Warn("flows bus unavailable: buffering batches", "error", err, "spool", p.spool != nil, "moved_to_spool", moved)
