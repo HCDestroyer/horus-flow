@@ -5,7 +5,9 @@
 // Al arrancar aplica las migraciones del esquema `detection`. Las rutas
 // revalidan el access JWT con el validador de auth (module.Services) o con
 // HORUS_JWT_PUBLIC_KEYS. Con HORUS_CLICKHOUSE_DSN el motor evalúa cada
-// HORUS_DETECTION_INTERVAL a los tenants registrados (y HORUS_DETECTION_TENANTS).
+// HORUS_DETECTION_INTERVAL a los tenants con algún router en el inventario de
+// flujos (proyección de DEVICES_EVENTS), a los registrados por la API y a
+// HORUS_DETECTION_TENANTS.
 // Sin HORUS_POSTGRES_DSN, en desarrollo el rol queda inactivo con un aviso.
 package detection
 
@@ -22,6 +24,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/authz"
 	"github.com/hcdestroyer/horus-flow/packages/go/config"
 	"github.com/hcdestroyer/horus-flow/packages/go/datasets"
+	"github.com/hcdestroyer/horus-flow/packages/go/flowinv"
 	"github.com/hcdestroyer/horus-flow/packages/go/health"
 	"github.com/hcdestroyer/horus-flow/packages/go/module"
 	"github.com/hcdestroyer/horus-flow/packages/go/natsx"
@@ -53,6 +56,10 @@ type mod struct {
 	engine  *engine.Engine
 	tenants []uuid.UUID
 	logger  *slog.Logger
+	// inv es el inventario de exportadores (flowinv): un ISP con routers se
+	// evalúa aunque nadie haya abierto aún su pantalla de Seguridad.
+	inv  *flowinv.Store
+	deps module.Deps
 }
 
 // Register construye el módulo del rol detection (firma module.Factory).
@@ -97,7 +104,7 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 	if err != nil {
 		return nil, err
 	}
-	m := &mod{cfg: cfg, db: db, store: postgres.New(db), tenants: tenants, logger: logger}
+	m := &mod{cfg: cfg, db: db, store: postgres.New(db), tenants: tenants, logger: logger, inv: flowinv.NewStore(nil), deps: deps}
 	opts := app.Options{Cursor: pagination.NewCodec([]byte(cfg.CursorKey.Reveal())), Registry: m.store, Logger: logger}
 	if audit, ok := module.Lookup[authapi.AuditRecorder](deps.Services, authapi.ServiceAudit); ok {
 		opts.Audit = audit
@@ -181,6 +188,11 @@ func (m *mod) Run(ctx context.Context) error {
 		<-ctx.Done()
 		return nil
 	}
+	if bus, err := natsx.Shared(ctx, m.deps.Services, m.deps.Environ, m.logger); err != nil {
+		m.logger.WarnContext(ctx, "detection: NATS unavailable: only tenants registered by the API are evaluated", "err", err)
+	} else if bus != nil {
+		go flowinv.Keep(ctx, m.inv, "", bus.JS, bus.Durable("flows-inventory-"+Role), m.logger)
+	}
 	t := time.NewTicker(m.cfg.Interval)
 	defer t.Stop()
 	for {
@@ -213,7 +225,14 @@ func (m *mod) tick(ctx context.Context) {
 	if err != nil {
 		m.logger.WarnContext(ctx, "detection: list tenants", "err", err)
 	}
-	for _, id := range m.tenants {
+	extra := slices.Clone(m.tenants)
+	// Tenants con exportadores: sin esto, un ISP nuevo no se evaluaba hasta que
+	// alguien abría su pantalla de Seguridad (RegisterTenant), y las ventanas
+	// anteriores se perdían.
+	for _, e := range m.inv.Load().Data().Exporters {
+		extra = append(extra, e.TenantID)
+	}
+	for _, id := range extra {
 		if !slices.Contains(tenants, id) {
 			tenants = append(tenants, id)
 		}
