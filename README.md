@@ -230,7 +230,8 @@ Convenciones de código, flujo de trabajo y Definición de Terminado:
 
 ## Licencia
 
-Horus Flow es **software propietario**. Copyright © 2026 [TITULAR]. Todos los derechos reservados.
+Horus Flow es **software propietario**. Copyright © 2026 Connection And Solutions Company,
+Sociedad Anónima (C&S Company). Todos los derechos reservados.
 
 Su uso requiere un contrato de licencia escrito con el titular; sin él no se concede ningún
 derecho. Queda prohibido copiarlo, modificarlo, distribuirlo, ofrecerlo como servicio a terceros o
