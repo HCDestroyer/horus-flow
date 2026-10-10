@@ -36,6 +36,13 @@ func Migrate(ctx context.Context, db *pgdb.DB, logger *slog.Logger) (int, error)
 	return pgdb.Migrate(ctx, db, Schema, Migrations(), logger) //nolint:wrapcheck // error de pgdb con contexto
 }
 
+// Roles de PostgreSQL del registro (los crea la migración): la tabla tiene
+// RLS forzada y todo acceso es de plataforma (BYPASSRLS).
+const (
+	AppRole      = "platform_events_app"
+	PlatformRole = "platform_events_platform"
+)
+
 // Store es el acceso a platform_events.event.
 type Store struct{ db *pgdb.DB }
 

@@ -27,7 +27,7 @@ func TestPlatformEventsLifecycleAndAPI(t *testing.T) {
 	ctx := context.Background()
 	dsn := pgtest.New(t)
 	env := []string{"HORUS_POSTGRES_DSN=" + dsn, "HORUS_INSTANCE=c1", "HORUS_PLATFORM_MONITOR_INTERVAL=100ms"}
-	db, err := pgdb.Open(ctx, pgdb.Config{DSN: dsn})
+	db, err := pgdb.Open(ctx, pgdb.Config{DSN: dsn, AppRole: platformevents.AppRole, PlatformRole: platformevents.PlatformRole})
 	if err != nil {
 		t.Fatal(err)
 	}

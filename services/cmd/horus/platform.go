@@ -73,7 +73,7 @@ func newPlatform(cfg config.Common, environ []string, logger *slog.Logger) (*pla
 	opts := platformevents.Options{Logger: logger, Process: cfg.Process, Instance: pc.Instance, Version: version}
 	if pc.Enabled && pc.PostgresDSN != "" {
 		db, err := pgdb.Open(context.Background(), pgdb.Config{DSN: pc.PostgresDSN, Password: pc.PostgresPassword.Reveal(), MaxConns: 2,
-			StatementTimeout: 10 * time.Second})
+			StatementTimeout: 10 * time.Second, AppRole: platformevents.AppRole, PlatformRole: platformevents.PlatformRole})
 		if err != nil {
 			return nil, fmt.Errorf("platform events: %w", err)
 		}

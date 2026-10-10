@@ -16,7 +16,7 @@ import (
 
 func TestRecorderStoresListsPurgesAndSpools(t *testing.T) {
 	ctx := context.Background()
-	db, err := pgdb.Open(ctx, pgdb.Config{DSN: pgtest.New(t)})
+	db, err := pgdb.Open(ctx, pgdb.Config{DSN: pgtest.New(t), AppRole: platformevents.AppRole, PlatformRole: platformevents.PlatformRole})
 	if err != nil {
 		t.Fatal(err)
 	}

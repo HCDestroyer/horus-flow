@@ -301,7 +301,8 @@ func diagPostgres(ctx context.Context, b *bundle, cfg diagConfig, o diagOpts, se
 	if cfg.PostgresDSN == "" {
 		return errNotConfigured
 	}
-	db, err := pgdb.Open(ctx, pgdb.Config{DSN: cfg.PostgresDSN, Password: cfg.PostgresPassword.Reveal(), MaxConns: 2, StatementTimeout: 20 * time.Second})
+	db, err := pgdb.Open(ctx, pgdb.Config{DSN: cfg.PostgresDSN, Password: cfg.PostgresPassword.Reveal(), MaxConns: 2, StatementTimeout: 20 * time.Second,
+		PlatformRole: platformevents.PlatformRole})
 	if err != nil {
 		return err //nolint:wrapcheck // error de pgdb con contexto
 	}
