@@ -51,7 +51,9 @@ case "$cmd" in help | -h | --help) usage 0 ;; esac
 [ "$(id -u)" = 0 ] || die "ejecútalo como root: sudo horus-ctl $cmd"
 [ -f "$env_file" ] || die "no hay instalación en $install_dir (falta .env); instala con bootstrap-debian.sh o install.sh"
 
-set -a; . "$env_file"; set +a
+# Sin exportar: docker compose da prioridad al entorno sobre --env-file, y un HORUS_IMAGE exportado
+# de la versión anterior haría que install.sh de la nueva no cambiase las imágenes.
+. "$env_file"
 etc_dir="${HORUS_ETC_DIR:-$(dirname "$HORUS_SECRETS_DIR")}"
 conf_file="$etc_dir/install.conf"
 declare -A conf=()
@@ -396,7 +398,7 @@ restore_snapshot() {
   cp -a "$s/config/." "$install_dir/config/"
   rm -rf "$install_dir/release"; cp -a "$s/release" "$install_dir/release"
   cp -a "$s/install.conf" "$conf_file"
-  set -a; . "$env_file"; set +a
+  . "$env_file"
 }
 
 # rollback_now RAZÓN: vuelve a la instantánea; si el esquema cambió (migraciones) o la versión
@@ -495,7 +497,7 @@ do_upgrade() {
     rollback_now "la instalación de $target falló (registro: $log)"
     exit 3
   fi
-  set -a; . "$env_file"; set +a
+  . "$env_file"
   if ! health_wait "${HORUS_HEALTH_TIMEOUT:-300}"; then
     rollback_now "$target no superó el healthcheck"
     exit 3

@@ -92,8 +92,8 @@ build_pg() {
 images_ok() {
   build_horus horus:test-install-a 0.9.0 && build_horus horus:test-install-b 0.9.1 || return 1
   if ! docker image inspect horus:test-install-c >/dev/null 2>&1; then
-    # C: misma imagen que B pero el proceso no arranca (healthcheck nunca sano).
-    printf 'FROM horus:test-install-b\nENTRYPOINT ["/horus", "no-existe-este-subcomando"]\n' \
+    # C: misma imagen que B pero los procesos terminan al arrancar (imprimen la versión y salen).
+    printf 'FROM horus:test-install-b\nENTRYPOINT ["/horus", "--version"]\n' \
       | docker build -q -t horus:test-install-c - >>"$out/images.log" 2>&1 || return 1
   fi
   build_web && build_pg
@@ -207,6 +207,7 @@ step "6. horus-ctl upgrade A→B y B→C (rota)"
 check "upgrade --bundle 0.9.1 (backup previo, SHA256SUMS, healthcheck)" bash -c \
   "docker exec $name horus-ctl upgrade --bundle /artifacts/dist-0.9.1/horus-0.9.1-linux-amd64.tar.gz --yes --force >'$out/upgrade-b.log' 2>&1"
 check "versión 0.9.1 y sana" bash -c "[ \"\$(docker exec $name horus-ctl version)\" = 0.9.1 ]"
+check "horus-app corre la imagen de 0.9.1 (horus:test-install-b)" bash -c "[ \"\$(docker exec $name docker inspect -f '{{.Config.Image}}' horus-horus-app-1)\" = horus:test-install-b ]"
 check "sana tras actualizar" health
 set +e
 docker exec "$name" horus-ctl upgrade --bundle /artifacts/dist-0.9.2/horus-0.9.2-linux-amd64.tar.gz --yes --force >"$out/upgrade-c.log" 2>&1
@@ -214,6 +215,11 @@ rc=$?
 set -e
 check "upgrade a 0.9.2 rota falla con código 3 (vuelta atrás)" test "$rc" = 3
 check "vuelta atrás: versión 0.9.1" bash -c "[ \"\$(docker exec $name horus-ctl version)\" = 0.9.1 ]"
+check "vuelta atrás: horus-app de nuevo con la imagen de 0.9.1" bash -c "[ \"\$(docker exec $name docker inspect -f '{{.Config.Image}}' horus-horus-app-1)\" = horus:test-install-b ]"
+# Restauración en el sitio de las copias (la ruta que usa la vuelta atrás cuando el esquema cambia).
+check "horus-ctl backup run + restore --yes (PostgreSQL y ClickHouse en el sitio) y sana" bash -c \
+  "docker exec $name horus-ctl backup run >'$out/backup-restore.log' 2>&1 && docker exec $name horus-ctl restore --yes >>'$out/backup-restore.log' 2>&1"
+check "sana tras restaurar" health
 check "vuelta atrás: todo sano" health
 
 # --- 7. Desinstalación ----------------------------------------------------------------------------

@@ -86,6 +86,13 @@ umask 022
 
 repo_root="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 
+# Variables del .env heredadas del entorno (p. ej. de una versión anterior) tendrían prioridad sobre
+# --env-file en docker compose: se descartan todas salvo los ajustes del propio instalador.
+for _v in $(compgen -v | grep -E '^(HORUS_|COMPOSE_PROJECT_NAME$)' || true); do
+  case "$_v" in HORUS_INSTALL_WAIT | HORUS_UDP_RMEM_BYTES | HORUS_SKIP_SIGNATURE | HORUS_REPO | HORUS_BACKUP_PG_KEEP_FULL | HORUS_FRESH_COMPOSE) ;; *) unset "$_v" ;; esac
+done
+unset _v
+
 # --- Opciones ------------------------------------------------------------------------------------
 action=install
 opt_yes=0 opt_force=0 opt_purge=0 skip_fw=0 skip_tunnel=0 skip_systemd=0 skip_backup=0 confirm_bundle=0
@@ -912,9 +919,12 @@ ensure_images() {
         ref="${img[$v]:-}"; [ -n "$ref" ] || continue
         docker image inspect "$ref" >/dev/null 2>&1 || missing=1
       done
-      if [ "$missing" = 1 ]; then
+      # Se carga si falta alguna imagen o si este paquete aún no se cargó (una etiqueta ya presente
+      # podría ser de otro paquete con el mismo nombre).
+      if [ "$missing" = 1 ] || { [ ! -f "$bundle_dir/.loaded" ] && [ ! -f "$bundle_dir/.installed-copy" ]; }; then
         say "cargando las imágenes del paquete offline (docker load, puede tardar)"
         load_bundle_images
+        : >"$bundle_dir/.loaded"
       fi
       for v in "${img_vars[@]}"; do
         ref="${img[$v]:-}"; [ -n "$ref" ] || continue
