@@ -33,7 +33,22 @@
 #   --public-ip IP               IP pública (modo ip y endpoint WireGuard; por defecto la de la ruta por defecto)
 #   --tunnel-cidr CIDR           rango de IPs de túnel de los routers (10.255.0.0/16; nunca 100.64.0.0/10)
 #   --admin-email EMAIL          --admin-password-file FICHERO (si no, se pregunta o se genera)
-#   --image IMAGEN               imagen horus (por defecto horus:local, construida con el Dockerfile del repo)
+#   --image-source ghcr|bundle:RUTA|local   de dónde salen las imágenes (por defecto: bundle si
+#                                este árbol trae images/, ghcr si trae images.lock, si no local).
+#                                ghcr: descarga de GHCR fijada por digest y verifica la firma
+#                                cosign; bundle: paquete offline horus-<versión>-linux-<arch>.tar.gz
+#                                (o su directorio) verificado con SHA256SUMS; local: imágenes ya
+#                                presentes o construidas aquí (repo con Dockerfile)
+#   --registry PREFIJO (ghcr.io/hcdestroyer)  --registry-user USUARIO  --registry-token-file F
+#                                token de lectura (read:packages) si los paquetes son privados;
+#                                se guarda en <etc>/registry-token (0600)
+#   --channel stable|beta        canal de actualizaciones (stable)
+#   --auto-update on|off         parches automáticos (Z de X.Y.Z) en la ventana; off por defecto
+#   --update-window CALENDARIO   ventana de mantenimiento (OnCalendar de systemd; "Sun *-*-* 03:30:00")
+#   --update-source URL          fuente de versiones (API de releases de GitHub o latest.json)
+#   --no-update-check            no consulta versiones nuevas (servidores sin salida a Internet)
+#   --image IMAGEN               imagen horus en modo local (por defecto horus:local, construida con el Dockerfile del repo)
+#   --web-image IMAGEN (horus-web:local)  --postgres-image IMAGEN   (modo local)
 #   --store-dir DIR              almacén y backups (/var/lib/horus/store; mejor OTRO disco)
 #   --data-dir DIR               datos de PostgreSQL/ClickHouse/NATS (/var/lib/horus)
 #   --install-dir DIR (/opt/horus)   --etc-dir DIR (/etc/horus)
@@ -63,16 +78,19 @@ repo_root="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 action=install
 opt_yes=0 opt_force=0 opt_purge=0 skip_fw=0 skip_tunnel=0 skip_systemd=0 skip_backup=0 confirm_bundle=0
 declare -A opt=()
-usage() { sed -n '2,46p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,67p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 need_arg() { [ "$#" -ge 2 ] && [ -n "$2" ] || { echo "install.sh: $1 necesita un valor" >&2; exit 2; }; }
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --mode | --domain | --acme-email | --public-ip | --tunnel-cidr | --admin-email | --admin-password-file | \
       --image | --store-dir | --data-dir | --install-dir | --etc-dir | --root | --project | --http-port | \
       --https-port | --wg-port | --wg-interface | --docker-subnet | --tlm-max-bytes | --bundle-recipient | --bundle-out | \
-      --smtp-host | --smtp-port | --smtp-from | --smtp-user | --smtp-tls | --smtp-password-file | --backup-metrics-port)
+      --smtp-host | --smtp-port | --smtp-from | --smtp-user | --smtp-tls | --smtp-password-file | --backup-metrics-port | \
+      --image-source | --registry | --registry-user | --registry-token-file | --channel | --auto-update | --update-window | \
+      --update-source | --web-image | --postgres-image)
       need_arg "$@"; opt[${1#--}]="$2"; shift 2 ;;
     --acme-staging) opt[acme-staging]=1; shift ;;
+    --no-update-check) opt[update-check]=false; shift ;;
     --check) action=check; shift ;;
     --uninstall) action=uninstall; shift ;;
     --purge) opt_purge=1; shift ;;
@@ -272,7 +290,8 @@ configure() {
   docker_subnet="$(get docker-subnet 172.31.250.0/24)"
   valid_cidr "$docker_subnet" || die "CIDR inválido: $docker_subnet"
   grpc_bind="$(int2ip $(($(ip2int "${docker_subnet%/*}") + 1)))"
-  image="$(get image horus:local)"
+  configure_images
+  configure_updates
   public_base_url="https://$public_host"
   [ "$https_port" = 443 ] || public_base_url="$public_base_url:$https_port"
   access_mode="$mode"; [ "$mode" = ip ] && access_mode=ip_only
@@ -280,6 +299,114 @@ configure() {
   ok "acceso $access_mode → $public_base_url (TLS $tls_mode)"
   ok "túneles $tunnel_cidr, hub/colector $collector_ip en $wg_if, WireGuard UDP $wg_port"
   ok "superadmin $admin_email; datos en $data_dir, backups en $store_dir"
+  ok "versión $horus_version; imágenes: $image_source_desc; canal $channel, actualización automática $auto_update"
+}
+
+# --- Imágenes: origen (ghcr | bundle:RUTA | local) ------------------------------------------------
+# Árbol de esta versión: el repositorio clonado o un paquete de release (VERSION + images.lock;
+# el offline trae además images/horus-images.tar). images.lock: VARIABLE ETIQUETA DIGEST por
+# línea (HORUS_IMAGE ghcr.io/…/horus:1.2.3 sha256:…).
+img_vars=(HORUS_IMAGE HORUS_WEB_IMAGE HORUS_POSTGRES_IMAGE HORUS_CLICKHOUSE_IMAGE HORUS_NATS_IMAGE
+  HORUS_VALKEY_IMAGE HORUS_TRAEFIK_IMAGE HORUS_BUSYBOX_IMAGE)
+declare -A img=()
+tree_version() { if [ -s "$1/VERSION" ]; then tr -d ' \r\n' <"$1/VERSION"; else echo 0.0.0-dev; fi; }
+
+# bundle_tree <ruta>: directorio del paquete offline (extrae el .tar.gz si hace falta y verifica
+# SHA256SUMS del archivo y de su contenido).
+bundle_tree() {
+  local src="$1" dir sums
+  [ -e "$src" ] || die "no existe el paquete offline $src"
+  if [ -d "$src" ]; then
+    dir="$(readlink -f "$src")"
+  else
+    src="$(readlink -f "$src")"
+    sums="$(dirname "$src")/SHA256SUMS"
+    if [ -f "$sums" ] && grep -q " [*]\{0,1\}$(basename "$src")\$" "$sums"; then
+      (cd "$(dirname "$src")" && grep " [*]\{0,1\}$(basename "$src")\$" SHA256SUMS | sha256sum -c --quiet -) \
+        || die "el SHA256 de $(basename "$src") no coincide con SHA256SUMS: paquete dañado o manipulado"
+      ok "SHA256 de $(basename "$src") verificado" >&2
+    else
+      warn "sin SHA256SUMS junto a $(basename "$src"): solo se verifica su contenido" >&2
+    fi
+    dir="$(get_bundle_cache)/$(basename "$src" .tar.gz)"
+    if [ ! -f "$dir/.extracted" ] || [ "$src" -nt "$dir/.extracted" ]; then
+      rm -rf "$dir"; install -d -m 0755 "$dir"
+      tar -xzf "$src" -C "$dir" --strip-components=1 || die "no se pudo extraer $src"
+      : >"$dir/.extracted"
+    fi
+  fi
+  [ -f "$dir/SHA256SUMS" ] || die "$dir no es un paquete de Horus (falta SHA256SUMS)"
+  if [ ! -f "$dir/.verified" ] || [ "$dir/SHA256SUMS" -nt "$dir/.verified" ]; then
+    (cd "$dir" && sha256sum -c --quiet SHA256SUMS) || die "el contenido de $dir no coincide con su SHA256SUMS"
+    : >"$dir/.verified"
+  fi
+  printf '%s' "$dir"
+}
+get_bundle_cache() { local d="${root:-}/var/cache/horus/bundles"; install -d -m 0700 "$d"; printf '%s' "$d"; }
+
+read_lock() { # read_lock <images.lock> <modo: digest|tag>
+  local var ref dig
+  while read -r var ref dig; do
+    [[ "$var" =~ ^HORUS_[A-Z_]+_IMAGE$|^HORUS_IMAGE$ ]] || continue
+    if [ "$2" = digest ] && [ -n "$dig" ]; then img[$var]="$ref@$dig"; else img[$var]="$ref"; fi
+  done <"$1"
+}
+
+configure_images() {
+  horus_version="$(tree_version "$repo_root")"
+  # Origen: opción > paquete offline que es este árbol > respuesta guardada (si es la copia
+  # instalada en <instalación>/release) > release con images.lock (GHCR) > local (repo clonado).
+  if [ -n "${opt[image-source]:-}" ]; then image_source="${opt[image-source]}"
+  elif [ -f "$repo_root/images/horus-images.tar" ]; then image_source="bundle:$repo_root"
+  elif [ -f "$repo_root/.installed-copy" ] && [ -n "${saved[image-source]:-}" ]; then image_source="${saved[image-source]}"
+  elif [ -f "$repo_root/images.lock" ]; then image_source=ghcr
+  else image_source=local; fi
+  registry="$(get registry ghcr.io/hcdestroyer)"
+  case "$image_source" in
+    ghcr)
+      [ -f "$repo_root/images.lock" ] || die "--image-source ghcr necesita images.lock (árbol de una release; usa bootstrap-debian.sh o horus-ctl upgrade)"
+      read_lock "$repo_root/images.lock" digest
+      image_source_desc="GHCR ($registry), fijadas por digest"
+      ;;
+    bundle:*)
+      bundle_dir="$(bundle_tree "${image_source#bundle:}")"
+      [ -f "$bundle_dir/images.lock" ] && [ -f "$bundle_dir/images/horus-images.tar" ] || die "$bundle_dir no trae images.lock e images/horus-images.tar"
+      read_lock "$bundle_dir/images.lock" tag
+      horus_version="$(tree_version "$bundle_dir")"
+      # Compose, configuración y scripts de la MISMA versión que las imágenes.
+      repo_root="$bundle_dir"
+      image_source="bundle:$bundle_dir"
+      image_source_desc="paquete offline $bundle_dir"
+      ;;
+    local)
+      img[HORUS_IMAGE]="$(get image horus:local)"
+      img[HORUS_WEB_IMAGE]="$(get web-image horus-web:local)"
+      img[HORUS_POSTGRES_IMAGE]="$(get postgres-image horus-postgres:18.6-pgbackrest2.59.3)"
+      image_source_desc="locales (${img[HORUS_IMAGE]}, ${img[HORUS_WEB_IMAGE]})"
+      ;;
+    *) die "--image-source inválido: $image_source (ghcr | bundle:RUTA | local)" ;;
+  esac
+  image="${img[HORUS_IMAGE]:?images.lock sin HORUS_IMAGE}"
+  [ -n "${img[HORUS_WEB_IMAGE]:-}" ] || die "falta la imagen horus-web (images.lock o --web-image)"
+  [ -n "${img[HORUS_POSTGRES_IMAGE]:-}" ] || img[HORUS_POSTGRES_IMAGE]=horus-postgres:18.6-pgbackrest2.59.3
+}
+
+configure_updates() {
+  channel="$(get channel stable)"
+  case "$channel" in stable | beta) ;; *) die "--channel inválido: $channel (stable | beta)" ;; esac
+  auto_update="$(get auto-update off)"
+  case "$auto_update" in on | off) ;; *) die "--auto-update inválido: $auto_update (on | off)" ;; esac
+  update_window="$(get update-window "Sun *-*-* 03:30:00")"
+  update_source="$(get update-source "https://api.github.com/repos/hcdestroyer/horus-flow/releases?per_page=50")"
+  update_check="$(get update-check true)"
+  registry_user="$(get registry-user "")"
+  if [ -n "${opt[registry-token-file]:-}" ]; then
+    [ -r "${opt[registry-token-file]}" ] || die "no puedo leer ${opt[registry-token-file]}"
+    install -d -m 0755 "$etc_dir"
+    (umask 077 && head -n1 "${opt[registry-token-file]}" | tr -d '\r\n' >"$etc_dir/registry-token")
+    chmod 0600 "$etc_dir/registry-token"
+    [ -n "$registry_user" ] || registry_user=token
+  fi
 }
 
 save_conf() {
@@ -292,7 +419,11 @@ save_conf() {
       https-port "$https_port" wg-port "$wg_port" wg-interface "$wg_if" docker-subnet "$docker_subnet" \
       tlm-max-bytes "$tlm_max_bytes" smtp-host "$(get smtp-host "")" smtp-port "$(get smtp-port 587)" \
       smtp-from "$(get smtp-from "")" smtp-user "$(get smtp-user "")" smtp-tls "$(get smtp-tls starttls)" \
-      backup-metrics-port "$(get backup-metrics-port 9109)" bundle-out "$(get bundle-out "${root:-}/root")"
+      backup-metrics-port "$(get backup-metrics-port 9109)" bundle-out "$(get bundle-out "${root:-}/root")" \
+      image-source "$image_source" registry "$registry" registry-user "$registry_user" channel "$channel" \
+      auto-update "$auto_update" update-window "$update_window" update-source "$update_source" \
+      update-check "$update_check" web-image "${img[HORUS_WEB_IMAGE]}" postgres-image "${img[HORUS_POSTGRES_IMAGE]}" \
+      version "$horus_version"
     [ -z "${opt[acme-staging]:-${saved[acme-staging]:-}}" ] || echo "acme-staging=1"
   } >"$conf_file"
   chmod 0644 "$conf_file"
@@ -507,6 +638,31 @@ EOF
 }
 
 # --- Archivos de la instalación -------------------------------------------------------------------
+# Lo que necesita una instalación de su árbol de versión (sin imágenes). Es también el contenido
+# de un paquete de release (scripts/release/build-release.sh lee esta lista).
+release_paths=(VERSION images.lock deployments/compose/compose.prod.yaml deployments/images/postgres/Dockerfile
+  infrastructure/traefik/prod/horus.acme.yml.tmpl infrastructure/traefik/prod/horus.ip.yml.tmpl
+  infrastructure/nats/nats.prod.conf infrastructure/nats/kv.yaml infrastructure/backup/clickhouse-backups.xml
+  infrastructure/backup/httpd.conf packages/events/streams/streams.yaml scripts/install.sh scripts/horus-ctl.sh
+  scripts/bootstrap-debian.sh scripts/backup/horus-backup.sh docs/install-debian.md)
+
+# copy_release: copia el árbol de esta versión a <instalación>/release (lo usan bin/install.sh,
+# bin/horus-ctl y la vuelta atrás de horus-ctl upgrade). En un repo sin VERSION se escribe la
+# versión de desarrollo.
+copy_release() {
+  local dst="$install_dir/release" p
+  [ "$(readlink -f "$repo_root")" = "$(readlink -f "$dst" 2>/dev/null || true)" ] && return 0
+  rm -rf "$dst.new"; install -d -m 0755 "$dst.new"
+  for p in "${release_paths[@]}"; do
+    [ -e "$repo_root/$p" ] || continue
+    install -d -m 0755 "$dst.new/$(dirname "$p")"
+    cp -p "$repo_root/$p" "$dst.new/$p"
+  done
+  [ -f "$dst.new/VERSION" ] || printf '%s\n' "$horus_version" >"$dst.new/VERSION"
+  : >"$dst.new/.installed-copy"
+  rm -rf "$dst"; mv "$dst.new" "$dst"
+}
+
 render_files() {
   say "Archivos de la instalación ($install_dir)"
   install -m 0644 "$repo_root/deployments/compose/compose.prod.yaml" "$install_dir/compose.yaml"
@@ -520,7 +676,10 @@ render_files() {
   install -m 0644 "$repo_root/infrastructure/backup/clickhouse-backups.xml" "$repo_root/infrastructure/backup/httpd.conf" "$config_dir/backup/"
   install -m 0644 "$repo_root/deployments/images/postgres/Dockerfile" "$config_dir/images/postgres/Dockerfile"
   install -m 0755 "$repo_root/scripts/backup/horus-backup.sh" "$install_dir/bin/horus-backup"
-  install -m 0755 "$repo_root/scripts/install.sh" "$install_dir/bin/install.sh"
+  copy_release
+  ln -sfn ../release/scripts/install.sh "$install_dir/bin/install.sh"
+  ln -sfn ../release/scripts/horus-ctl.sh "$install_dir/bin/horus-ctl"
+  [ -n "$root" ] || ln -sfn "$install_dir/bin/horus-ctl" /usr/local/sbin/horus-ctl
   # .env de compose: SIN secretos (los secretos son archivos en $secrets_dir).
   local acme_ca="https://acme-v02.api.letsencrypt.org/directory"
   [ -n "${opt[acme-staging]:-${saved[acme-staging]:-}}" ] && acme_ca="https://acme-staging-v02.api.letsencrypt.org/directory"
@@ -533,8 +692,11 @@ render_files() {
 # Generado por scripts/install.sh (I1-22) — $(date -u +%Y-%m-%dT%H:%M:%SZ). Sin secretos.
 # No lo edites: vuelve a ejecutar $install_dir/bin/install.sh con las opciones nuevas.
 COMPOSE_PROJECT_NAME=$project
-HORUS_IMAGE=$image
-HORUS_POSTGRES_IMAGE=horus-postgres:18.6-pgbackrest2.59.3
+$(for v in "${img_vars[@]}"; do [ -z "${img[$v]:-}" ] || printf '%s=%s\n' "$v" "${img[$v]}"; done)
+HORUS_VERSION=$horus_version
+HORUS_UPDATE_CHANNEL=$channel
+HORUS_UPDATE_SOURCE=$update_source
+HORUS_UPDATE_CHECK=$update_check
 HORUS_CONFIG_DIR=$config_dir
 HORUS_SECRETS_DIR=$secrets_dir
 HORUS_TLS_DIR=$tls_dir
@@ -578,7 +740,7 @@ EOF
   chmod 0644 "$env_file"
   # Primer metrics.prom (lo sirve backup-metrics desde el arranque).
   HORUS_ENV_FILE="$env_file" "$install_dir/bin/horus-backup" metrics >/dev/null 2>&1 || true
-  ok "compose.yaml, .env, config/, bin/horus-backup"
+  ok "compose.yaml, .env, config/, release/ ($horus_version), bin/{horus-backup,horus-ctl,install.sh}"
 }
 
 # Tamaños de NATS según el disco: telemetría = 50 GB por defecto (≥ 6 h de autonomía, C-12),
@@ -604,24 +766,102 @@ size_nats() {
 
 # --- Imágenes ------------------------------------------------------------------------------------
 ensure_images() {
-  say "Imágenes"
-  if docker image inspect "$image" >/dev/null 2>&1; then
-    ok "imagen $image presente"
-  elif docker pull -q "$image" >/dev/null 2>&1; then
-    ok "imagen $image descargada"
-  else
-    [ -f "$repo_root/Dockerfile" ] || die "la imagen $image no existe ni se puede descargar"
-    say "construyendo $image con el Dockerfile del repositorio (puede tardar)"
-    docker build -q -t "$image" --build-arg "VERSION=$(git -C "$repo_root" describe --tags --always 2>/dev/null || echo local)" "$repo_root" >/dev/null \
-      || die "no se pudo construir $image (prueba --image con una imagen publicada)"
-    ok "imagen $image construida"
-  fi
-  if docker image inspect horus-postgres:18.6-pgbackrest2.59.3 >/dev/null 2>&1; then
-    ok "imagen horus-postgres presente"
-  else
-    docker build -q -t horus-postgres:18.6-pgbackrest2.59.3 "$config_dir/images/postgres" >/dev/null || die "no se pudo construir horus-postgres"
-    ok "imagen horus-postgres:18.6-pgbackrest2.59.3 construida (PostgreSQL 18.6 + pgBackRest 2.59.3)"
-  fi
+  say "Imágenes ($image_source_desc)"
+  local v ref
+  case "$image_source" in
+    ghcr)
+      registry_login
+      for v in HORUS_IMAGE HORUS_WEB_IMAGE HORUS_POSTGRES_IMAGE; do verify_signature "${img[$v]}"; done
+      for v in "${img_vars[@]}"; do
+        ref="${img[$v]:-}"; [ -n "$ref" ] || continue
+        if docker image inspect "$ref" >/dev/null 2>&1; then continue; fi
+        docker pull -q "$ref" >/dev/null || die "no se pudo descargar $ref (¿sin salida a $registry? usa el paquete offline: --image-source bundle:RUTA)"
+      done
+      ok "imágenes descargadas y fijadas por digest"
+      ;;
+    bundle:*)
+      local missing=0
+      for v in "${img_vars[@]}"; do
+        ref="${img[$v]:-}"; [ -n "$ref" ] || continue
+        docker image inspect "$ref" >/dev/null 2>&1 || missing=1
+      done
+      if [ "$missing" = 1 ]; then
+        say "cargando las imágenes del paquete offline (docker load, puede tardar)"
+        docker load -q -i "$bundle_dir/images/horus-images.tar" >/dev/null || die "docker load falló con $bundle_dir/images/horus-images.tar"
+      fi
+      for v in "${img_vars[@]}"; do
+        ref="${img[$v]:-}"; [ -n "$ref" ] || continue
+        docker image inspect "$ref" >/dev/null 2>&1 || die "el paquete offline no contiene $ref"
+      done
+      ok "imágenes del paquete offline cargadas (SHA256SUMS verificado)"
+      ;;
+    local)
+      image_local "$image" "$repo_root/Dockerfile" "$repo_root"
+      image_local "${img[HORUS_WEB_IMAGE]}" "$repo_root/apps/frontend/Dockerfile" "$repo_root"
+      image_local "${img[HORUS_POSTGRES_IMAGE]}" "$config_dir/images/postgres/Dockerfile" "$config_dir/images/postgres"
+      ;;
+  esac
+}
+
+# image_local <imagen> <Dockerfile> <contexto>: presente, descargable o construida aquí.
+image_local() {
+  if docker image inspect "$1" >/dev/null 2>&1; then ok "imagen $1 presente"; return 0; fi
+  if docker pull -q "$1" >/dev/null 2>&1; then ok "imagen $1 descargada"; return 0; fi
+  [ -f "$2" ] || die "la imagen $1 no existe ni se puede descargar (usa --image-source ghcr o bundle:RUTA)"
+  say "construyendo $1 con $2 (puede tardar)"
+  docker build -q -t "$1" -f "$2" --build-arg "VERSION=$horus_version" "$3" >/dev/null \
+    || die "no se pudo construir $1 (usa --image-source ghcr o bundle:RUTA)"
+  ok "imagen $1 construida"
+}
+
+# Credenciales de lectura del registro (paquetes privados): <etc>/registry-token (0600).
+registry_login() {
+  local tok="$etc_dir/registry-token"
+  [ -s "$tok" ] || return 0
+  docker login "${registry%%/*}" -u "${registry_user:-token}" --password-stdin <"$tok" >/dev/null 2>&1 \
+    || die "docker login en ${registry%%/*} falló con el token de $tok (¿caducado o sin read:packages?)"
+  ok "sesión de lectura en ${registry%%/*}"
+}
+
+# Firma cosign keyless (GitHub OIDC del workflow de release) de las imágenes propias.
+cosign_identity() { printf 'https://github.com/%s/.github/workflows/release.yml@refs/tags/v' "${HORUS_REPO:-hcdestroyer/horus-flow}"; }
+verify_signature() {
+  [ "${HORUS_SKIP_SIGNATURE:-0}" = 1 ] && { warn "HORUS_SKIP_SIGNATURE=1: no se verifica la firma de $1"; return 0; }
+  local cosign; cosign="$(command -v cosign || true)"
+  [ -n "$cosign" ] || [ ! -x "$install_dir/bin/cosign" ] || cosign="$install_dir/bin/cosign"
+  [ -n "$cosign" ] || die "falta cosign para verificar la firma de $1 (bootstrap-debian.sh lo instala; o HORUS_SKIP_SIGNATURE=1 bajo tu responsabilidad)"
+  "$cosign" verify --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+    --certificate-identity-regexp "^$(cosign_identity)" "$1" >/dev/null 2>&1 \
+    || die "la firma cosign de $1 no es válida: no se instala"
+  ok "firma cosign de ${1%@*} verificada"
+}
+
+# --- Parámetros del kernel ------------------------------------------------------------------------
+# net.core.rmem_max/rmem_default: búfer UDP del collector (tests/load/REPORT.md: con 4 MiB se
+# perdían flujos en ráfagas; 32 MiB). Son globales del host (no por espacio de red), así que valen
+# también dentro del contenedor del collector. ip_forward: el UDP que llega por wg0 se reenvía al
+# contenedor del collector (Docker también lo activa; aquí queda persistente). ClickHouse 26.8 no
+# exige vm.max_map_count.
+sysctl_file() { printf '%s' "${root:-}/etc/sysctl.d/90-horus.conf"; }
+setup_sysctl() {
+  say "Parámetros del kernel ($(sysctl_file))"
+  local rmem="${HORUS_UDP_RMEM_BYTES:-33554432}" kv k v cur
+  install -d -m 0755 "$(dirname "$(sysctl_file)")"
+  cat >"$(sysctl_file)" <<EOF
+# Horus Flow (scripts/install.sh). Búfer UDP del collector de IPFIX/NetFlow y reenvío del túnel.
+net.core.rmem_max = $rmem
+net.core.rmem_default = $rmem
+net.ipv4.ip_forward = 1
+EOF
+  chmod 0644 "$(sysctl_file)"
+  [ -z "$root" ] || { ok "escrito (raíz de pruebas: no se aplica)"; return 0; }
+  for kv in "net.core.rmem_max=$rmem" "net.core.rmem_default=$rmem" "net.ipv4.ip_forward=1"; do
+    k="${kv%%=*}"; v="${kv#*=}"
+    sysctl -q -w "$k=$v" >/dev/null 2>&1 || true
+    cur="$(sysctl -n "$k" 2>/dev/null || echo "?")"
+    if [ "$cur" = "$v" ]; then ok "$k = $v"
+    else warn "$k = $cur (no se pudo poner $v: ¿contenedor sin acceso al kernel del host?)"; fi
+  done
 }
 
 # --- Túnel WireGuard y cortafuegos ------------------------------------------------------------------
@@ -722,6 +962,31 @@ TimeoutStartSec=900
 [Install]
 WantedBy=multi-user.target
 EOF
+  # Actualización automática de PARCHES (opcional, off por defecto): horus-ctl auto-update solo
+  # aplica X.Y.Z → X.Y.Z' del canal, con backup previo, healthcheck y vuelta atrás.
+  if [ "$auto_update" = on ]; then
+    cat >"$u/horus-autoupdate.service" <<EOF
+[Unit]
+Description=Horus Flow: actualización automática de parches (horus-ctl auto-update)
+After=horus.service
+[Service]
+Type=oneshot
+ExecStart=$install_dir/bin/horus-ctl auto-update
+TimeoutStartSec=3600
+EOF
+    cat >"$u/horus-autoupdate.timer" <<EOF
+[Unit]
+Description=Horus Flow: ventana de mantenimiento para parches
+[Timer]
+OnCalendar=$update_window
+Persistent=false
+RandomizedDelaySec=300
+[Install]
+WantedBy=timers.target
+EOF
+  else
+    rm -f "$u/horus-autoupdate.service" "$u/horus-autoupdate.timer"
+  fi
   local name cal args
   for spec in "run|*-*-* 02:15:00 UTC|run all" "verify|Sun *-*-* 06:00:00 UTC|verify all" \
     "ttl|*-*-* 05:10:00 UTC|check-ttl" "metrics|*:0/5|metrics"; do
@@ -756,6 +1021,12 @@ setup_schedules() {
     systemctl enable horus-tunnel.service horus.service >/dev/null 2>&1
     systemctl enable --now horus-backup-run.timer horus-backup-verify.timer horus-backup-ttl.timer horus-backup-metrics.timer >/dev/null 2>&1
     ok "systemd: horus-tunnel, horus y timers horus-backup-{run,verify,ttl,metrics}"
+    if [ "$auto_update" = on ]; then
+      systemctl enable --now horus-autoupdate.timer >/dev/null 2>&1
+      ok "actualización automática de parches: $update_window (horus-autoupdate.timer)"
+    else
+      systemctl disable --now horus-autoupdate.timer >/dev/null 2>&1 || true
+    fi
   elif [ -z "$root" ] && [ -d /etc/cron.d ] && [ "$skip_systemd" = 0 ]; then
     cat >/etc/cron.d/horus-backup <<EOF
 # Horus Flow — backups (I1-23). Sin systemd; generado por install.sh.
@@ -821,6 +1092,8 @@ summary() {
     echo "                  cópialo FUERA del servidor (2 sitios), bórralo de aquí y ejecuta: $install_dir/bin/install.sh --confirm-bundle"
   fi
   echo "  Backups:        $store_dir/backups (horus-backup status); métricas en 127.0.0.1:$(get backup-metrics-port 9109)/metrics.prom"
+  echo "  Versión:        $horus_version (canal $channel; actualización automática de parches: $auto_update)"
+  echo "  Gestión:        horus-ctl status | logs | upgrade | backup | restore | uninstall  (horus-ctl help)"
   echo "  Comprobar:      $install_dir/bin/install.sh --check"
   [ "$warnings" = 0 ] || echo "  Avisos:         $warnings (ver arriba)"
 }
@@ -835,6 +1108,7 @@ do_install() {
   render_files
   make_bundle
   ensure_images
+  setup_sysctl
   setup_tunnel
   compose_up
   first_backup
@@ -863,6 +1137,8 @@ do_check() {
   local code
   code="$(curl -sk -o /dev/null -m 10 -w '%{http_code}' "https://127.0.0.1:$HORUS_HTTPS_PORT/api/v1/system/status" -H "Host: ${HORUS_PUBLIC_BASE_URL#https://}" || true)"
   [ "$code" = 401 ] && ok "API vía Traefik responde (401 sin token, esperado)" || fail "API vía Traefik: HTTP ${code:-sin respuesta} (se esperaba 401)"
+  code="$(curl -sk -o /dev/null -m 10 -w '%{http_code}' "https://127.0.0.1:$HORUS_HTTPS_PORT/" -H "Host: ${HORUS_PUBLIC_BASE_URL#https://}" || true)"
+  [ "$code" = 200 ] && ok "interfaz web vía Traefik responde (200)" || fail "interfaz web vía Traefik: HTTP ${code:-sin respuesta} (se esperaba 200)"
   if ip link show "$HORUS_WG_INTERFACE" >/dev/null 2>&1; then
     ok "interfaz $HORUS_WG_INTERFACE presente ($(ip -4 -o addr show "$HORUS_WG_INTERFACE" | awk '{ print $4 }' | head -1))"
     if command -v wg >/dev/null 2>&1; then
@@ -912,12 +1188,16 @@ do_uninstall() {
   fi
   local u; u="$(unit_dir)"
   if have_systemd; then
-    systemctl disable --now horus-backup-run.timer horus-backup-verify.timer horus-backup-ttl.timer horus-backup-metrics.timer horus.service >/dev/null 2>&1 || true
+    systemctl disable --now horus-backup-run.timer horus-backup-verify.timer horus-backup-ttl.timer horus-backup-metrics.timer horus-autoupdate.timer horus.service >/dev/null 2>&1 || true
   fi
   [ -x "$install_dir/bin/horus-tunnel" ] && "$install_dir/bin/horus-tunnel" down && ok "interfaz WireGuard y reglas de cortafuegos eliminadas"
   if have_systemd; then systemctl disable horus-tunnel.service >/dev/null 2>&1 || true; fi
-  rm -f "$u"/horus.service "$u"/horus-tunnel.service "$u"/horus-backup-*.service "$u"/horus-backup-*.timer
-  [ -z "$root" ] && rm -f /etc/cron.d/horus-backup
+  rm -f "$u"/horus.service "$u"/horus-tunnel.service "$u"/horus-backup-*.service "$u"/horus-backup-*.timer \
+    "$u"/horus-autoupdate.service "$u"/horus-autoupdate.timer "$(sysctl_file)"
+  if [ -z "$root" ]; then
+    rm -f /etc/cron.d/horus-backup
+    [ "$(readlink /usr/local/sbin/horus-ctl 2>/dev/null)" = "$install_dir/bin/horus-ctl" ] && rm -f /usr/local/sbin/horus-ctl
+  fi
   have_systemd && systemctl daemon-reload || true
   rm -rf "$install_dir"
   ok "units, cron y $install_dir eliminados"
