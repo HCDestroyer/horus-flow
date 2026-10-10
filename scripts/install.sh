@@ -1076,11 +1076,14 @@ EOF
     printf '    # Modo proxy externo: el HTTP de Traefik (%s/tcp) solo desde --trusted-proxies.\n' "$http_port"
     printf '    for chain in DOCKER-USER INPUT; do\n'
     printf '      iptables -N $chain 2>/dev/null || true\n'
-    printf '      while iptables -D $chain -p tcp -m conntrack --ctorigdstport %s -m comment --comment horus-proxy-only -j DROP 2>/dev/null; do :; done\n' "$http_port"
-    printf '      iptables -I $chain -p tcp -m conntrack --ctorigdstport %s -m comment --comment horus-proxy-only -j DROP\n' "$http_port"
+    # Primero se quitan las reglas anteriores (cambie o no el puerto o la lista); solo las conexiones
+    # NUEVAS en sentido original (--ctdir ORIGINAL): las respuestas y lo que reenvía docker-proxy desde
+    # el propio servidor no se tocan.
+    printf "      iptables -S \$chain 2>/dev/null | grep -- '--comment horus-proxy-only' | sed 's/^-A /-D /' | while read -r r; do eval \"iptables \$r\" 2>/dev/null || true; done\n"
+    printf '      iptables -I $chain -p tcp -m conntrack --ctstate NEW --ctdir ORIGINAL --ctorigdstport %s -m comment --comment horus-proxy-only -j DROP\n' "$http_port"
     IFS=, read -r -a _tp <<<"$trusted_proxies"
     for c in "${_tp[@]}" 127.0.0.0/8; do
-      printf '      iptables -C $chain -s %s -p tcp -m conntrack --ctorigdstport %s -m comment --comment horus-proxy-only -j ACCEPT 2>/dev/null || iptables -I $chain -s %s -p tcp -m conntrack --ctorigdstport %s -m comment --comment horus-proxy-only -j ACCEPT\n' "$c" "$http_port" "$c" "$http_port"
+      printf '      iptables -I $chain -s %s -p tcp -m conntrack --ctstate NEW --ctdir ORIGINAL --ctorigdstport %s -m comment --comment horus-proxy-only -j ACCEPT\n' "$c" "$http_port"
     done
     printf '    done\n'
   fi

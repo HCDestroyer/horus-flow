@@ -171,8 +171,8 @@ health() {
   docker exec "$name" horus-ctl status >"$out/status.log" 2>&1 || return 1
   local fp_file="$work/fp-$ver"
   docker exec "$name" cat /etc/horus/tls/public.crt >"$fp_file.crt"
-  [ "$(curl -s -o /dev/null -w '%{http_code}' --cacert "$fp_file.crt" "https://$ip/")" = 200 ] || return 1
-  [ "$(curl -s -o /dev/null -w '%{http_code}' --cacert "$fp_file.crt" "https://$ip/api/v1/system/status")" = 401 ]
+  [ "$(curl -s -m 20 -o /dev/null -w '%{http_code}' --cacert "$fp_file.crt" "https://$ip/")" = 200 ] || return 1
+  [ "$(curl -s -m 20 -o /dev/null -w '%{http_code}' --cacert "$fp_file.crt" "https://$ip/api/v1/system/status")" = 401 ]
 }
 want 3 && check "todos los servicios sanos; UI 200 y API 401 en https://$ip con el certificado autogenerado" health
 want 3 && check "huella SHA-256 del certificado coincide con la mostrada" bash -c \
@@ -269,7 +269,7 @@ if [ "${TEST_PROXY:-1}" = 1 ]; then
   pc="$work/proxy-$ver.crt"
   proxy_http() { # proxy_http <ruta> <código esperado> [curl…]
     local p="$1" want="$2"; shift 2
-    local got; got="$(curl -s -o /dev/null -w '%{http_code}' --cacert "$pc" "$@" "https://$ip$p")"
+    local got; got="$(curl -s -m 20 -o /dev/null -w '%{http_code}' --cacert "$pc" "$@" "https://$ip$p")"
     [ "$got" = "$want" ] || { echo "GET $p = $got (quiero $want)"; return 1; }
   }
   proxy_ok() {
@@ -278,7 +278,7 @@ if [ "${TEST_PROXY:-1}" = 1 ]; then
   }
   check "por el proxy: UI 200 y API 401" proxy_ok
   check "sin HSTS de Horus (solo el que pone el proxy) y CSP de la SPA" bash -c \
-    "h=\$(curl -sI --cacert '$pc' https://$ip/); echo \"\$h\" | grep -qi '^content-security-policy:' && [ \"\$(echo \"\$h\" | grep -ci '^strict-transport-security:')\" = 1 ]"
+    "h=\$(curl -sI -m 20 --cacert '$pc' https://$ip/); echo \"\$h\" | grep -qi '^content-security-policy:' && [ \"\$(echo \"\$h\" | grep -ci '^strict-transport-security:')\" = 1 ]"
   check "Traefik HTTP no escucha fuera de 127.0.0.1" bash -c "! curl -s -m 5 -o /dev/null http://$ip:8080/"
   # Login, refresco con la cookie __Secure-…, cambio de contraseña y TOTP, ISP, sitios y routers
   # (e2e de humo de I0) A TRAVÉS del proxy.
@@ -288,7 +288,7 @@ if [ "${TEST_PROXY:-1}" = 1 ]; then
     ACCEPT_ADMIN_PASSWORD_FILE="$work/admin-pw-$ver" "${GO:-go}" test -count=1 -tags acceptance "$repo_root/tests/acceptance/i0/"
   # WebSocket: el Upgrade llega a horus-app (401/403 por el ticket falso, no 400/502 del proxy).
   ws_ok() {
-    local c; c="$(curl -s -o /dev/null -w '%{http_code}' --cacert "$pc" --http1.1 -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
+    local c; c="$(curl -s -m 20 -o /dev/null -w '%{http_code}' --cacert "$pc" --http1.1 -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
       -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H "Origin: https://$ip" \
       "https://$ip/api/v1/ws?ticket=falso")"
     case "$c" in 401 | 403) return 0 ;; *) echo "ws = $c"; return 1 ;; esac
@@ -299,7 +299,7 @@ if [ "${TEST_PROXY:-1}" = 1 ]; then
   spoof_ok() {
     local i c=""
     for i in $(seq 1 22); do
-      c="$(curl -s -o /dev/null -w '%{http_code}' --cacert "$pc" -H 'Content-Type: application/json' -H 'X-Requested-With: horus' \
+      c="$(curl -s -m 20 -o /dev/null -w '%{http_code}' --cacert "$pc" -H 'Content-Type: application/json' -H 'X-Requested-With: horus' \
         -H "X-Forwarded-For: 10.66.$i.$i" -d '{"email":"nadie@horus.test","password":"incorrecta-123"}' "https://$ip/api/v1/auth/login")"
       [ "$c" != 429 ] || break
     done
