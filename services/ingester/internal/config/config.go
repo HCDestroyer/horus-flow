@@ -40,6 +40,9 @@ type Config struct {
 	InsertRows     int           `env:"HORUS_INGESTER_INSERT_ROWS" envDefault:"50000"`
 	InsertWait     time.Duration `env:"HORUS_INGESTER_INSERT_WAIT" envDefault:"1s"`
 	InsertFlushers int           `env:"HORUS_INGESTER_INSERT_FLUSHERS" envDefault:"2"`
+	// BufferWarnRatio: ocupación de TLM_FLOWS (respecto a max_bytes) a partir
+	// de la cual /readyz marca el búfer degradado y se registra un aviso.
+	BufferWarnRatio float64 `env:"HORUS_INGESTER_BUFFER_WARN_RATIO" envDefault:"0.7"`
 	// Descubrimiento de clientes (I1-05).
 	FirstSeenInterval  time.Duration `env:"HORUS_INGESTER_FIRST_SEEN_INTERVAL" envDefault:"10s"`
 	FirstSeenTTL       time.Duration `env:"HORUS_INGESTER_FIRST_SEEN_TTL" envDefault:"1h"`

@@ -175,7 +175,26 @@ func (m *ingester) Start(ctx context.Context) error {
 	m.consumer = &app.Consumer{Proc: proc, Ins: w, Workers: m.cfg.Workers, M: m.metrics, Log: m.log, Ledger: led,
 		Group: app.GroupOptions{Rows: m.cfg.InsertRows, Wait: m.cfg.InsertWait, Flushers: m.cfg.InsertFlushers},
 		DLQ: func(ctx context.Context, msg *nats.Msg) error { _, err := js.PublishMsg(ctx, msg); return err }}
+	buf := app.NewBufferMonitor(m.deps.Metrics, func(ctx context.Context) (app.BufferState, error) {
+		st, err := js.Stream(ctx, flowbus.StreamTelemetry)
+		if err != nil {
+			return app.BufferState{}, err
+		}
+		info := st.CachedInfo()
+		ci, err := cons.Info(ctx)
+		if err != nil {
+			return app.BufferState{}, err
+		}
+		var maxBytes uint64
+		if info.Config.MaxBytes > 0 {
+			maxBytes = uint64(info.Config.MaxBytes)
+		}
+		return app.BufferState{Bytes: info.State.Bytes, MaxBytes: maxBytes, Msgs: info.State.Msgs,
+			Pending: ci.NumPending + uint64(ci.NumAckPending)}, nil //nolint:gosec // contador
+	}, m.cfg.BufferWarnRatio, m.log)
+	m.loops = append(m.loops, func(ctx context.Context) { buf.Run(ctx, 10*time.Second) })
 	if h := m.deps.Health; h != nil {
+		h.AddCheck(health.Check{Name: "tlm_flows_buffer", Critical: false, Probe: buf.Probe})
 		h.AddCheck(health.Check{Name: "clickhouse", Critical: false, Probe: w.Ping})
 		h.AddCheck(health.Check{Name: "nats", Critical: false, Probe: func(context.Context) error {
 			if !nc.IsConnected() {
