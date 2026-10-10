@@ -124,7 +124,7 @@ func Shared(ctx context.Context, services *module.Services, environ []string, lo
 			return nil, err
 		}
 		sctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		err = EnsureStreams(sctx, js, defs, 0)
+		err = EnsureStreams(sctx, js, ExpandStreams(defs, environ), 0)
 		cancel()
 		if err != nil {
 			nc.Close()

@@ -70,6 +70,16 @@ func TestNATSProvisionContract(t *testing.T) {
 	args := []string{"--url", s.ClientURL(), "--streams", streams,
 		"--kv", repoFile(t, "infrastructure/nats/kv.yaml"), "--increment", "I1"}
 	env := []string{"HORUS_TLM_FLOWS_MAX_BYTES=268435456"}
+	// Instalación anterior: TLM_FLOWS sin compresión ni límite. La actualización
+	// activa s2 sin recrear el stream.
+	if nc, err := nats.Connect(s.ClientURL()); err == nil {
+		js, _ := jetstream.New(nc)
+		if _, err := js.CreateStream(context.Background(), jetstream.StreamConfig{Name: "TLM_FLOWS",
+			Subjects: []string{"horus.telemetry.flows.>"}, Storage: jetstream.FileStorage, MaxBytes: -1}); err != nil {
+			t.Fatal(err)
+		}
+		nc.Close()
+	}
 	for i := range 2 {
 		var out, errb bytes.Buffer
 		if code := natsProvision(context.Background(), args, env, &out, &errb); code != exitOK {
@@ -92,7 +102,8 @@ func TestNATSProvisionContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	info := st.CachedInfo().Config
-	if info.MaxBytes != 268435456 || info.MaxAge != 24*time.Hour || info.MaxMsgSize != 1<<20 || !info.AllowDirect {
+	if info.MaxBytes != 268435456 || info.MaxAge != 24*time.Hour || info.MaxMsgSize != 1<<20 || !info.AllowDirect ||
+		info.Compression != jetstream.S2Compression {
 		t.Errorf("TLM_FLOWS config = %+v", info)
 	}
 	if _, err := js.Stream(ctx, "SNMP_EVENTS"); err == nil {
@@ -101,7 +112,9 @@ func TestNATSProvisionContract(t *testing.T) {
 	if _, err := js.Consumer(ctx, "TLM_FLOWS", "flows-ingester"); err != nil {
 		t.Errorf("durable flows-ingester: %v", err)
 	}
-	if _, err := js.KeyValue(ctx, "flow_exporter_state"); err != nil {
-		t.Errorf("kv flow_exporter_state: %v", err)
+	for _, b := range []string{"flow_exporter_state", "flows_ingester_groups"} {
+		if _, err := js.KeyValue(ctx, b); err != nil {
+			t.Errorf("kv %s: %v", b, err)
+		}
 	}
 }

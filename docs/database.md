@@ -623,6 +623,15 @@ donde hace falta.
 | `flows.reputation_hit` | evento (MV) | `(tenant_id, realm_id, client_ip, remote_ip, bucket_1h)` | flows, bytes, packets, `syn_only`, `min(ts)`, `max(ts)`, `reputation_category`, `reputation_source_id`, `max(reputation_confidence)`, `reputation_version` | `reputation_category != 'none'` | 13 meses |
 | `flows.client_security_1h` | 1 h | `(tenant_id, realm_id, client_ip, bucket)` | igual (estados combinables) | idem | 13 meses |
 
+**Cascada (FLOW, isp10k; migración `20261010120000_cascade_rollup_views`).** `site_1h` y `site_1d`
+se calculan del bloque recién insertado en `site_5m`, y `customer_1d` del de `customer_1h`
+(combinando estados con `uniqMergeState`), en lugar de releer cada bloque de `flows_raw`: quedan 7
+vistas sobre el crudo y 4 en cascada (`mv_site_1h`, `mv_site_1d`, `mv_customer_1d`,
+`mv_client_security_1h`). Mismas tablas, columnas y resultados (sumas de sumas; `uniq` de la unión de
+estados). Con INSERT agrupados de 50 000 filas el banco
+(`services/ingester/internal/adapters/clickhouse/bench_integration_test.go`, 2 vCPU) pasó de 38 000
+a 47 000 filas/s y los merges de 49 a 34 s de CPU por millón de filas.
+
 Se elimina `flows.border_1h` del alcance v1: con un único router principal por nodo los flujos se
 observan en ese router; la vista de "tránsito por ASN" sale de `site_*` (`remote_asn`). Si un ISP
 exporta también desde el borde, se reintroduce con el mismo diseño del Sprint 0.
@@ -708,6 +717,46 @@ flujos). Viven en ClickHouse desde el primer incremento con SNMP (D4).
 | `MergeTree` | `flows_raw`, `snmp.*_metrics` |
 | `AggregatingMergeTree` | agregados de consumo y de seguridad |
 | `ReplacingMergeTree(version)` | `dim.*`, scores |
+
+### 6.6 Propuesta: conversaciones por hora (`flows.conversation_1h`) — cambia el contrato C3
+
+**No implementada**: añade una tabla y una vista al contrato v0
+(`packages/schemas/datastore/v0`), así que queda como propuesta para la siguiente versión del
+contrato. Motivo: el crudo vive 7 días y los agregados por cliente no guardan con quién habló
+(solo `uniq(remote_ip)` y ASN): investigar un hallazgo de hace 10–30 días (¿a qué prefijos y
+puertos hablaba el cliente?) no es posible hoy.
+
+```sql
+CREATE TABLE flows.conversation_1h
+(
+    tenant_id UUID, realm_id UUID, client_ip IPv6, bucket DateTime('UTC'),
+    direction Enum8('unknown' = 0, 'upload' = 1, 'download' = 2, 'internal' = 3),
+    protocol UInt8, remote_port UInt16,              -- puerto de servicio; efímeros (≥ 32768) → 0
+    remote_asn UInt32, remote_prefix IPv6, remote_prefix_len UInt8,
+    flows SimpleAggregateFunction(sum, UInt64), packets SimpleAggregateFunction(sum, UInt64),
+    bytes SimpleAggregateFunction(sum, UInt64), syn_only SimpleAggregateFunction(sum, UInt64),
+    remote_ips AggregateFunction(uniq, IPv6),
+    first_ts SimpleAggregateFunction(min, DateTime('UTC')), last_ts SimpleAggregateFunction(max, DateTime('UTC'))
+)
+ENGINE = AggregatingMergeTree PARTITION BY toYYYYMMDD(bucket)
+ORDER BY (tenant_id, realm_id, client_ip, bucket, remote_asn, remote_prefix, remote_prefix_len, protocol, remote_port, direction)
+TTL bucket + INTERVAL 2 DAY RECOMPRESS CODEC(ZSTD(6)), bucket + INTERVAL 30 DAY DELETE;
+-- MV desde flows_raw con attribution_status IN ('attributed', 'internal'), agrupando por la clave.
+```
+
+- **Clave:** cliente × hora × (ASN, prefijo remoto enrutado de `dim.asn`) × protocolo × puerto de
+  servicio × dirección; el puerto efímero del lado remoto se colapsa a 0 para que una descarga no
+  genere una fila por conexión. `remote_ips` conserva la dispersión (escaneo) sin guardar cada IP.
+- **Coste:** una vista más sobre `flows_raw` (la 8.ª).
+- **Volumen medido** (2 M de filas reales de isp10k, 3 min de 10 000 clientes): 413 000 filas de
+  conversación (≈ 32 por cliente en 3 min) a 20,3 B/fila sin recomprimir. En una hora las claves se
+  repiten (mismos ASN, prefijos y puertos); suponiendo ~100 conversaciones por cliente activo y hora
+  y un 50 % de clientes activos, un ISP de 10 000 clientes generaría ~12 M de filas/día, **~0,25
+  GB/día y ~7 GB en 30 días** (~4,5 GB con la recompresión ZSTD(6) de los agregados), frente a
+  ~300 GB que costaría guardar 30 días de crudo (9,9 GB/día con los códecs de
+  `20261010130000_flows_raw_codecs`). Hay que confirmarlo con una hora real de un router.
+- **Alternativa sin cambiar el contrato:** alargar `flows_raw` a 30 días (permitido por la
+  política, 7–30 d): unas 40× más disco que esta tabla.
 
 ---
 

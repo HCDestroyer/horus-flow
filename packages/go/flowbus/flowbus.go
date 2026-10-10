@@ -210,7 +210,8 @@ func EnsureStreams(ctx context.Context, js jetstream.JetStream, tlmMaxBytes int6
 	for _, cfg := range []jetstream.StreamConfig{
 		{Name: StreamTelemetry, Subjects: []string{"horus.telemetry.flows.>"}, Retention: jetstream.LimitsPolicy,
 			MaxAge: 24 * time.Hour, MaxBytes: tlmMaxBytes, Duplicates: 2 * time.Minute, MaxMsgSize: 1 << 20,
-			Storage: jetstream.FileStorage, Discard: jetstream.DiscardOld, AllowDirect: true},
+			Storage: jetstream.FileStorage, Discard: jetstream.DiscardOld, AllowDirect: true,
+			Compression: jetstream.S2Compression},
 		{Name: StreamEvents, Subjects: []string{"horus.flows.>"}, Retention: jetstream.LimitsPolicy,
 			MaxAge: 30 * 24 * time.Hour, MaxBytes: 1 << 30, Duplicates: 20 * time.Minute, MaxMsgSize: 64 << 10,
 			Storage: jetstream.FileStorage, Discard: jetstream.DiscardOld, AllowDirect: true},
@@ -228,11 +229,14 @@ func EnsureStreams(ctx context.Context, js jetstream.JetStream, tlmMaxBytes int6
 }
 
 // IngesterConsumerConfig es la configuración del durable flows-ingester
-// (streams.yaml: provisioned_consumers).
+// (streams.yaml: provisioned_consumers). MaxDeliver es ilimitado: con
+// ClickHouse caído horas, un lote prefetched alcanzaba las 5 entregas y, si el
+// ingester se reiniciaba, JetStream ya no lo volvía a entregar (pérdida). Los
+// lotes inválidos los termina el propio ingester tras 5 entregas (DLQ).
 func IngesterConsumerConfig() jetstream.ConsumerConfig {
 	return jetstream.ConsumerConfig{
 		Durable: ConsumerIngester, FilterSubjects: []string{SubjectBatchPrefix + ">"},
-		AckPolicy: jetstream.AckExplicitPolicy, AckWait: 60 * time.Second, MaxDeliver: 5,
+		AckPolicy: jetstream.AckExplicitPolicy, AckWait: 60 * time.Second, MaxDeliver: -1,
 		MaxAckPending: 5000, DeliverPolicy: jetstream.DeliverAllPolicy,
 		BackOff: []time.Duration{5 * time.Second, 30 * time.Second, 2 * time.Minute, 5 * time.Minute},
 	}

@@ -40,6 +40,8 @@ type Options struct {
 	CollectorPort uint16
 	// MaxDatagram; 0 = escenario.
 	MaxDatagram int
+	// Flat ignora el perfil diario del escenario (tasa fija = rate).
+	Flat bool
 	// AllowUnmet no falla si las señales calculadas no coinciden con las
 	// declaradas por el escenario (solo avisa en Expected.Warnings).
 	AllowUnmet bool
@@ -87,6 +89,7 @@ type gen struct {
 	activeMs  int64
 	inactMs   int64
 	rate      float64
+	daily     []float64
 	exps      []*expState
 	acc       *signals.Accumulator
 	pendingN  int
@@ -146,6 +149,9 @@ func newGen(sc *Scenario, opt Options) (*gen, error) {
 	}
 	if dur < time.Second {
 		return nil, errors.New("la duración debe ser >= 1s")
+	}
+	if !opt.Flat {
+		g.daily = sc.Daily
 	}
 	g.durMs = dur.Milliseconds()
 	g.start = sc.Start.UTC().Truncate(time.Second)
@@ -385,6 +391,19 @@ func (g *gen) calibrate() {
 			c.lambda = g.rate * c.weight / total / rpc
 		}
 	}
+}
+
+// dailyFactor es el factor del perfil diario en el instante t (ms desde el
+// arranque), interpolado entre horas; 1 sin perfil.
+func (g *gen) dailyFactor(t int64) float64 {
+	if len(g.daily) != 24 {
+		return 1
+	}
+	at := g.start.Add(time.Duration(t) * time.Millisecond)
+	h := float64(at.Hour()) + float64(at.Minute())/60 + float64(at.Second())/3600
+	i := int(h) % 24
+	frac := h - math.Floor(h)
+	return g.daily[i]*(1-frac) + g.daily[(i+1)%24]*frac
 }
 
 // --- Emulación de la caché de Traffic Flow ------------------------------

@@ -128,3 +128,65 @@ func (r *Row) Values() []any {
 		orNone(r.ReputationCategory), r.ReputationSourceID, r.ReputationConfidence, r.ReputationVersion, r.BatchID,
 	}
 }
+
+func col[T any](rows []Row, f func(*Row) T) []T {
+	out := make([]T, len(rows))
+	for i := range rows {
+		out[i] = f(&rows[i])
+	}
+	return out
+}
+
+// ColumnSlices devuelve las filas por columnas (mismo orden y conversiones que
+// Values) para el INSERT columnar: sin un []any por fila ni valores en caja,
+// que con grupos de 50 000 filas eran la mayor parte de la memoria y de la CPU
+// de escritura del ingester.
+func ColumnSlices(rows []Row) []any {
+	return []any{
+		col(rows, func(r *Row) uuid.UUID { return r.TenantID }),
+		col(rows, func(r *Row) time.Time { return r.TS }),
+		col(rows, func(r *Row) time.Time { return r.FlowStart }),
+		col(rows, func(r *Row) time.Time { return r.ReceivedAt }),
+		col(rows, func(r *Row) uuid.UUID { return r.SiteID }),
+		col(rows, func(r *Row) uuid.UUID { return r.RouterID }),
+		col(rows, func(r *Row) uuid.UUID { return r.InputInterfaceID }),
+		col(rows, func(r *Row) uuid.UUID { return r.OutputInterfaceID }),
+		col(rows, func(r *Row) uuid.UUID { return r.RealmID }),
+		col(rows, func(r *Row) string { return r.AttributionStatus }),
+		col(rows, func(r *Row) string { return r.Direction }),
+		col(rows, func(r *Row) netip.Addr { return v6(r.ClientIP) }),
+		col(rows, func(r *Row) uint16 { return r.ClientPort }),
+		col(rows, func(r *Row) netip.Addr { return v6(r.RemoteIP) }),
+		col(rows, func(r *Row) uint16 { return r.RemotePort }),
+		col(rows, func(r *Row) uint8 { return r.Protocol }),
+		col(rows, func(r *Row) uint8 { return r.TCPFlags }),
+		col(rows, func(r *Row) uint16 { return r.ICMPTypeCode }),
+		col(rows, func(r *Row) uint64 { return r.Bytes }),
+		col(rows, func(r *Row) uint64 { return r.Packets }),
+		col(rows, func(r *Row) uint32 { return r.DurationMs }),
+		col(rows, func(r *Row) uint32 { return r.SamplingRate }),
+		col(rows, func(r *Row) uint16 { return r.MergedFlows }),
+		col(rows, func(r *Row) string { return r.FlowSource }),
+		col(rows, func(r *Row) uint32 { return r.RemoteASN }),
+		col(rows, func(r *Row) netip.Addr { return v6(r.RemotePrefix) }),
+		col(rows, func(r *Row) uint8 { return r.RemotePrefixLen }),
+		col(rows, func(r *Row) uuid.UUID { return r.RemoteOrgID }),
+		col(rows, func(r *Row) string {
+			if len(r.RemoteCountry) != 2 {
+				return ""
+			}
+			return r.RemoteCountry
+		}),
+		col(rows, func(r *Row) uuid.UUID { return r.ServiceID }),
+		col(rows, func(r *Row) string { return orNone(r.ClassificationMethod) }),
+		col(rows, func(r *Row) uint8 { return r.ClassificationConfidence }),
+		col(rows, func(r *Row) uint32 { return r.CatalogVersion }),
+		col(rows, func(r *Row) uint32 { return r.TenantRulesVersion }),
+		col(rows, func(r *Row) uuid.UUID { return r.CategoryID }),
+		col(rows, func(r *Row) string { return orNone(r.ReputationCategory) }),
+		col(rows, func(r *Row) uint16 { return r.ReputationSourceID }),
+		col(rows, func(r *Row) uint8 { return r.ReputationConfidence }),
+		col(rows, func(r *Row) uint32 { return r.ReputationVersion }),
+		col(rows, func(r *Row) uuid.UUID { return r.BatchID }),
+	}
+}

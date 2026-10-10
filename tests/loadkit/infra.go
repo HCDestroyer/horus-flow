@@ -270,10 +270,10 @@ func (b *Bus) IngesterLag(ctx context.Context) (Lag, error) {
 
 // LimitTelemetry fija el max_bytes de TLM_FLOWS (el búfer ante caídas de
 // ClickHouse o del ingester). En dev los roles crean los streams del
-// contrato C4 con HORUS_NATS_ENSURE_STREAMS y dejan sin límite los max_bytes
-// parametrizados (`${HORUS_TLM_FLOWS_MAX_BYTES}`, natsx.EnsureStreams); en
-// producción los aplica `horus nats-provision`. Hay que repetirlo tras cada
-// reinicio de horus-app, que vuelve a crear los streams.
+// contrato C4 con HORUS_NATS_ENSURE_STREAMS (natsx.EnsureStreams expande
+// `${HORUS_TLM_FLOWS_MAX_BYTES:-50GB}`, así que ya no quedan sin límite); en
+// producción los aplica `horus nats-provision`. Se mantiene como garantía
+// por si el entorno del rol no lleva la variable.
 func (b *Bus) LimitTelemetry(ctx context.Context, maxBytes int64) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()

@@ -35,6 +35,14 @@ type Config struct {
 	InventoryFile string `env:"HORUS_FLOWS_INVENTORY_FILE"`
 	// Workers son los lotes que se procesan e insertan en paralelo.
 	Workers int `env:"HORUS_INGESTER_WORKERS" envDefault:"4"`
+	// Escritura agrupada: un INSERT por cada InsertRows filas o InsertWait de
+	// antigüedad, con InsertFlushers INSERT en curso a la vez (app/group.go).
+	InsertRows     int           `env:"HORUS_INGESTER_INSERT_ROWS" envDefault:"50000"`
+	InsertWait     time.Duration `env:"HORUS_INGESTER_INSERT_WAIT" envDefault:"1s"`
+	InsertFlushers int           `env:"HORUS_INGESTER_INSERT_FLUSHERS" envDefault:"2"`
+	// BufferWarnRatio: ocupación de TLM_FLOWS (respecto a max_bytes) a partir
+	// de la cual /readyz marca el búfer degradado y se registra un aviso.
+	BufferWarnRatio float64 `env:"HORUS_INGESTER_BUFFER_WARN_RATIO" envDefault:"0.7"`
 	// Descubrimiento de clientes (I1-05).
 	FirstSeenInterval  time.Duration `env:"HORUS_INGESTER_FIRST_SEEN_INTERVAL" envDefault:"10s"`
 	FirstSeenTTL       time.Duration `env:"HORUS_INGESTER_FIRST_SEEN_TTL" envDefault:"1h"`
@@ -56,6 +64,12 @@ type Config struct {
 func (c *Config) Validate() error {
 	if c.Migrate && c.ClickHouseDSN == "" && c.ClickHousePassword != "" {
 		return errors.New("HORUS_CLICKHOUSE_PASSWORD set without HORUS_CLICKHOUSE_DSN")
+	}
+	if c.InsertRows < 1 || c.InsertRows > 1_000_000 {
+		return errors.New("HORUS_INGESTER_INSERT_ROWS must be between 1 and 1000000")
+	}
+	if c.InsertWait <= 0 || c.InsertFlushers < 1 {
+		return errors.New("HORUS_INGESTER_INSERT_WAIT and HORUS_INGESTER_INSERT_FLUSHERS must be positive")
 	}
 	return nil
 }

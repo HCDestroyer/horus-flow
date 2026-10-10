@@ -22,6 +22,8 @@ type EngineOptions struct {
 	PendingTTL      time.Duration
 	CollectorID     string
 	State           StateOptions
+	// UDPReadBuffer es el búfer de recepción de cada socket (0 = DefaultUDPReadBuffer).
+	UDPReadBuffer int
 }
 
 // Engine recibe UDP, reparte por exportador entre trabajadores y publica.
@@ -72,7 +74,16 @@ func (e *Engine) Listen(addrs []string) error {
 			e.Close()
 			return err
 		}
-		_ = c.SetReadBuffer(8 << 20)
+		want := e.opts.UDPReadBuffer
+		if want <= 0 {
+			want = DefaultUDPReadBuffer
+		}
+		if got := setReadBuffer(c, want); got > 0 && got < want {
+			e.log.Warn("UDP receive buffer limited by the kernel: raise net.core.rmem_max (datagrams are dropped in bursts otherwise)",
+				"addr", a, "requested_bytes", want, "granted_bytes", got)
+		} else if got > 0 {
+			e.log.Info("UDP receive buffer", "addr", a, "bytes", got)
+		}
 		e.mu.Lock()
 		e.conns = append(e.conns, c)
 		e.mu.Unlock()

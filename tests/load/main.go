@@ -67,6 +67,7 @@ type step struct {
 	RecsPerBatch  float64        `json:"records_per_batch"`
 	MaxBuffer     float64        `json:"collector_max_buffer_bytes"`
 	NATSBytesFlow float64        `json:"nats_bytes_per_flow"`
+	NATSDiskFlow  float64        `json:"nats_disk_bytes_per_flow"`
 	Probe         loadkit.Stats  `json:"api"`
 	Pass          bool           `json:"pass"`
 	Why           []string       `json:"why,omitempty"`
@@ -91,7 +92,9 @@ func main() {
 	check(err)
 	api, err := loadkit.NewAPI(env.APIURL, env.AdminEmail, env.AdminPasswordFile, filepath.Join(env.Dir, "state.json"))
 	check(err)
-	st, err := api.Setup(ctx, loadkit.ClientPrefix)
+	scen, err := loadkit.ScenarioFromEnv()
+	check(err)
+	st, err := api.Setup(ctx, scen.Prefixes...)
 	check(err)
 	target, source, err := env.CollectorAddr(ctx)
 	check(err)
@@ -102,7 +105,7 @@ func main() {
 	defer bus.NC.Close()
 
 	r := runner{env: env, api: api, bus: bus, tenant: st.TenantID, target: target, flowsim: *flowsim,
-		workers: *workers, every: *every}
+		workers: *workers, every: *every, scen: scen}
 	var steps []step
 	criterionOK := true
 	for _, rate := range parseRates(*rates) {
@@ -122,7 +125,7 @@ func main() {
 			}
 		}
 	}
-	check(report(env.Dir, steps))
+	check(report(env.Dir, scen.Name, steps))
 	if !criterionOK {
 		log.Print("load-i1: KO — la tasa del criterio no se sostiene (ver bin/load/results.md)")
 		os.Exit(1)
@@ -140,6 +143,7 @@ type runner struct {
 	workers int
 	every   time.Duration
 	seed    int64
+	scen    loadkit.Scenario
 }
 
 type collectorSnap struct {
@@ -148,6 +152,7 @@ type collectorSnap struct {
 	udp                    uint64
 	rows                   uint64
 	streamBytes            uint64
+	diskBytes              uint64
 }
 
 func (r *runner) snap(ctx context.Context) collectorSnap {
@@ -164,6 +169,7 @@ func (r *runner) snap(ctx context.Context) collectorSnap {
 	if lag, err := r.bus.IngesterLag(ctx); err == nil {
 		s.streamBytes = lag.StreamByte
 	}
+	s.diskBytes, _ = r.env.NATSDiskBytes(ctx)
 	s.rows, err = r.env.FlowRows(ctx, r.tenant)
 	if err != nil {
 		log.Printf("aviso: ClickHouse: %v", err)
@@ -181,7 +187,7 @@ func (r *runner) run(ctx context.Context, rate float64, d time.Duration) step {
 	before := r.snap(ctx)
 	simLog, _ := os.Create(filepath.Join(r.env.Dir, fmt.Sprintf("flowsim-%.0f.log", rate)))
 	defer func() { _ = simLog.Close() }()
-	sim := &loadkit.Sim{Bin: r.flowsim, Target: r.target, Rate: rate, Duration: d, Seed: r.seed,
+	sim := &loadkit.Sim{Bin: r.flowsim, Target: r.target, Rate: rate, Duration: d, Seed: r.seed, Scenario: r.scen,
 		Expected: filepath.Join(r.env.Dir, fmt.Sprintf("expected-%.0f.json", rate)), Log: io.MultiWriter(simLog)}
 	pctx, pstop := context.WithCancel(ctx)
 	lat := &loadkit.Latencies{}
@@ -265,6 +271,9 @@ loop:
 	if s.Received > 0 && after.streamBytes > before.streamBytes {
 		s.NATSBytesFlow = math.Round(float64(after.streamBytes-before.streamBytes) / float64(s.Received))
 	}
+	if s.Received > 0 && after.diskBytes > before.diskBytes {
+		s.NATSDiskFlow = math.Round(float64(after.diskBytes-before.diskBytes) / float64(s.Received))
+	}
 	if b := after.batches - before.batches; b > 0 {
 		s.RecsPerBatch = math.Round(float64(s.Received)/b*10) / 10
 	}
@@ -334,8 +343,8 @@ func slope(x, y []float64) float64 {
 	return math.Round((n*sxy-sx*sy)/den*10) / 10
 }
 
-func report(dir string, steps []step) error {
-	b, err := json.MarshalIndent(map[string]any{"at": time.Now().UTC(), "host": hostInfo(), "steps": steps}, "", "  ")
+func report(dir, scenario string, steps []step) error {
+	b, err := json.MarshalIndent(map[string]any{"at": time.Now().UTC(), "host": hostInfo(), "scenario": scenario, "steps": steps}, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -343,7 +352,7 @@ func report(dir string, steps []step) error {
 		return err
 	}
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "Prueba de carga I1-26 — %s — %s\n\n", time.Now().UTC().Format(time.RFC3339), hostInfo())
+	fmt.Fprintf(&sb, "Prueba de carga (escenario %s) — %s — %s\n\n", scenario, time.Now().UTC().Format(time.RFC3339), hostInfo())
 	sb.WriteString("| Flujos/s | Duración | Enviados | Collector | Pérdida | ClickHouse | Lag máx. (lotes / s) | Pendiente lag (lotes/min) | Drenaje | p95 API | Peticiones | Resultado |\n")
 	sb.WriteString("| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n")
 	best := 0.0
@@ -360,6 +369,9 @@ func report(dir string, steps []step) error {
 	fmt.Fprintf(&sb, "\nMáximo sostenible medido: **%.0f flujos/s**\n", best)
 	if len(steps) > 0 && steps[0].NATSBytesFlow > 0 {
 		fmt.Fprintf(&sb, "\nTamaño medido en TLM_FLOWS: %.0f B por flujo (%.1f registros por lote)\n", steps[0].NATSBytesFlow, steps[0].RecsPerBatch)
+	}
+	if len(steps) > 0 && steps[0].NATSDiskFlow > 0 {
+		fmt.Fprintf(&sb, "\nEn disco (almacén JetStream, compresión s2): %.0f B por flujo\n", steps[0].NATSDiskFlow)
 	}
 	md := sb.String()
 	fmt.Print("\n" + md)
