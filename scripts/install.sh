@@ -43,6 +43,10 @@
 #   --http-bind IP:PUERTO        (external) dónde escucha Traefik en HTTP (127.0.0.1:8080; la IP de la
 #                                LAN si el proxy está en otra máquina)
 #   --wg-endpoint HOST           nombre o IP a la que los routers envían el UDP de WireGuard
+#   --size small|medium|large    perfil (docs/install-debian.md §1): small ≤ 300 clientes (4 vCPU, 8 GB),
+#                                medium ≈ 2 000 (8 vCPU, 16 GB), large ≈ 10 000 (8 vCPU, 32 GB, 500 GB NVMe);
+#                                memoria de ClickHouse/PostgreSQL, cola del collector y reserva de NATS.
+#                                Por defecto según la RAM del servidor
 #   --tunnel-cidr CIDR           rango de IPs de túnel de los routers (10.255.0.0/16; nunca 100.64.0.0/10)
 #   --admin-email EMAIL          --admin-password-file FICHERO (si no, se pregunta o se genera)
 #   --image-source ghcr|bundle:RUTA|local   de dónde salen las imágenes (por defecto: bundle si
@@ -89,7 +93,7 @@ repo_root="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 # Variables del .env heredadas del entorno (p. ej. de una versión anterior) tendrían prioridad sobre
 # --env-file en docker compose: se descartan todas salvo los ajustes del propio instalador.
 for _v in $(compgen -v | grep -E '^(HORUS_|COMPOSE_PROJECT_NAME$)' || true); do
-  case "$_v" in HORUS_INSTALL_WAIT | HORUS_UDP_RMEM_BYTES | HORUS_SKIP_SIGNATURE | HORUS_REPO | HORUS_BACKUP_PG_KEEP_FULL | HORUS_FRESH_COMPOSE) ;; *) unset "$_v" ;; esac
+  case "$_v" in HORUS_INSTALL_WAIT | HORUS_UDP_RMEM_BYTES | HORUS_UDP_RMEM_DEFAULT | HORUS_SKIP_SIGNATURE | HORUS_REPO | HORUS_BACKUP_PG_KEEP_FULL | HORUS_FRESH_COMPOSE) ;; *) unset "$_v" ;; esac
 done
 unset _v
 
@@ -97,7 +101,7 @@ unset _v
 action=install
 opt_yes=0 opt_force=0 opt_purge=0 skip_fw=0 skip_tunnel=0 skip_systemd=0 skip_backup=0 confirm_bundle=0
 declare -A opt=()
-usage() { sed -n '2,67p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,83p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 need_arg() { [ "$#" -ge 2 ] && [ -n "$2" ] || { echo "install.sh: $1 necesita un valor" >&2; exit 2; }; }
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -106,7 +110,7 @@ while [ "$#" -gt 0 ]; do
       --https-port | --wg-port | --wg-interface | --docker-subnet | --tlm-max-bytes | --bundle-recipient | --bundle-out | \
       --smtp-host | --smtp-port | --smtp-from | --smtp-user | --smtp-tls | --smtp-password-file | --backup-metrics-port | \
       --image-source | --registry | --registry-user | --registry-token-file | --channel | --auto-update | --update-window | \
-      --update-source | --web-image | --postgres-image | --tls | --public-url | --trusted-proxies | --http-bind | --wg-endpoint)
+      --update-source | --web-image | --postgres-image | --size | --tls | --public-url | --trusted-proxies | --http-bind | --wg-endpoint)
       need_arg "$@"; opt[${1#--}]="$2"; shift 2 ;;
     --acme-staging) opt[acme-staging]=1; shift ;;
     --no-update-check) opt[update-check]=false; shift ;;
@@ -211,17 +215,18 @@ check_requirements() {
   fi
   local cpus mem_kb mem_gb
   cpus="$(nproc)"
-  if [ "$cpus" -ge 4 ]; then ok "CPU: $cpus núcleos"; elif [ "$cpus" -ge 2 ]; then warn "CPU: $cpus núcleos (recomendado ≥ 4)"; else fail "CPU: $cpus núcleo (mínimo 2)"; fi
+  ok "perfil $size: recomendado ≥ $rec_cpu vCPU, ≥ $rec_ram GiB de RAM y ≥ $rec_disk GiB de disco"
+  if [ "$cpus" -ge "$rec_cpu" ]; then ok "CPU: $cpus núcleos"; elif [ "$cpus" -ge 2 ]; then warn "CPU: $cpus núcleos (perfil $size: recomendado ≥ $rec_cpu)"; else fail "CPU: $cpus núcleo (mínimo 2)"; fi
   mem_kb="$(awk '/MemTotal/ { print $2 }' /proc/meminfo)"; mem_gb=$((mem_kb / 1024 / 1024))
-  if [ "$mem_kb" -ge $((7 * 1024 * 1024)) ]; then ok "RAM: ${mem_gb} GiB"
-  elif [ "$mem_kb" -ge $((3800 * 1024)) ]; then warn "RAM: ${mem_gb} GiB (recomendado ≥ 8 GiB)"
+  if [ "$mem_kb" -ge $(((rec_ram - 1) * 1024 * 1024)) ]; then ok "RAM: ${mem_gb} GiB"
+  elif [ "$mem_kb" -ge $((3800 * 1024)) ]; then warn "RAM: ${mem_gb} GiB (perfil $size: recomendado ≥ $rec_ram GiB)"
   else fail "RAM: ${mem_gb} GiB (mínimo 4 GiB)"; fi
   local d free_gb
   for d in "$data_dir" "$store_dir"; do
     local probe="$d"; while [ ! -e "$probe" ]; do probe="$(dirname "$probe")"; done
     free_gb=$(($(df -P -k "$probe" | awk 'NR == 2 { print $4 }') / 1024 / 1024))
-    if [ "$free_gb" -ge 100 ]; then ok "disco libre en $d: ${free_gb} GiB"
-    elif [ "$free_gb" -ge 20 ]; then warn "disco libre en $d: ${free_gb} GiB (recomendado ≥ 100 GiB; ajusta --tlm-max-bytes)"
+    if [ "$free_gb" -ge "$rec_disk" ]; then ok "disco libre en $d: ${free_gb} GiB"
+    elif [ "$free_gb" -ge 20 ]; then warn "disco libre en $d: ${free_gb} GiB (perfil $size: recomendado ≥ $rec_disk GiB; ajusta --tlm-max-bytes)"
     elif [ "$free_gb" -ge 5 ]; then warn "disco libre en $d: ${free_gb} GiB: solo para pruebas"
     else fail "disco libre en $d: ${free_gb} GiB (mínimo 5 GiB)"; fi
   done
@@ -291,6 +296,7 @@ configure() {
   docker_subnet="$(get docker-subnet 172.31.250.0/24)"
   valid_cidr "$docker_subnet" || die "CIDR inválido: $docker_subnet"
   grpc_bind="$(int2ip $(($(ip2int "${docker_subnet%/*}") + 1)))"
+  configure_size
   configure_images
   configure_updates
   public_base_url="https://$public_host"
@@ -369,6 +375,23 @@ configure_external() {
   http_bind_addr="${BASH_REMATCH[1]}"; opt[http-port]="${BASH_REMATCH[3]}"
   https_bind_addr=127.0.0.1
   wg_endpoint="$(get wg-endpoint "${public_ip:-$public_host}")"
+}
+
+# Perfil de tamaño (docs/install-debian.md §1; perfil de 10 000 clientes medido por FLOW en
+# tests/load/REPORT.md): requisitos recomendados, memoria de ClickHouse/PostgreSQL, cola del
+# collector y disco reservado para NATS.
+configure_size() {
+  local mem_kb def=small
+  mem_kb="$(awk '/MemTotal/ { print $2 }' /proc/meminfo)"
+  [ "$mem_kb" -lt $((15 * 1024 * 1024)) ] || def=medium
+  [ "$mem_kb" -lt $((31 * 1024 * 1024)) ] || def=large
+  size="$(get size "$def")"
+  case "$size" in
+    small) rec_cpu=4 rec_ram=8 rec_disk=100 ch_mem=4g pg_mem=2g collector_queue=8192 nats_reserve_gb=20 ;;
+    medium) rec_cpu=8 rec_ram=16 rec_disk=500 ch_mem=8g pg_mem=3g collector_queue=32768 nats_reserve_gb=50 ;;
+    large) rec_cpu=8 rec_ram=32 rec_disk=500 ch_mem=14g pg_mem=4g collector_queue=32768 nats_reserve_gb=100 ;;
+    *) die "--size inválido: $size (small | medium | large)" ;;
+  esac
 }
 
 # --- Imágenes: origen (ghcr | bundle:RUTA | local) ------------------------------------------------
@@ -541,7 +564,7 @@ save_conf() {
       update-check "$update_check" web-image "${img[HORUS_WEB_IMAGE]}" postgres-image "${img[HORUS_POSTGRES_IMAGE]}" \
       version "$horus_version" tls "$tls_choice" public-url "$([ "$tls_choice" = external ] && echo "$public_base_url")" \
       trusted-proxies "$trusted_proxies" http-bind "$([ "$tls_choice" = external ] && echo "$http_bind_addr:$http_port")" \
-      wg-endpoint "$(get wg-endpoint "")"
+      wg-endpoint "$(get wg-endpoint "")" size "$size"
     [ -z "${opt[acme-staging]:-${saved[acme-staging]:-}}" ] || echo "acme-staging=1"
   } >"$conf_file"
   chmod 0644 "$conf_file"
@@ -861,6 +884,11 @@ HORUS_COLLECTOR_IP=$collector_ip
 HORUS_DOCKER_SUBNET=$docker_subnet
 HORUS_GRPC_BIND=$grpc_bind
 HORUS_TLM_FLOWS_MAX_BYTES=$tlm_max_bytes
+HORUS_SIZE=$size
+HORUS_CH_MEM=$ch_mem
+HORUS_PG_MEM=$pg_mem
+HORUS_COLLECTOR_QUEUE_DATAGRAMS=$collector_queue
+HORUS_COLLECTOR_UDP_RCVBUF=33554432
 HORUS_NATS_MAX_FILE_STORE=$nats_max_store
 HORUS_BACKUP_METRICS_PORT=$(get backup-metrics-port 9109)
 HORUS_RAW_TTL_DAYS=7
@@ -882,10 +910,14 @@ EOF
 # telemetría + margen.
 size_nats() {
   local free_b; free_b=$(($(df -P -k "$(existing_parent "$data_dir")" | awk 'NR == 2 { print $4 }') * 1024))
+  # TLM_FLOWS va comprimido con s2: max_bytes cuenta bytes SIN comprimir, que en disco ocupan ~27 %
+  # (FLOW, tests/load/REPORT.md). Se reserva para NATS el disco del perfil (≤ 30 % del libre) y
+  # max_bytes = 3 × esa reserva. max_file_store ≥ suma de los max_bytes (+ 20 GiB de eventos).
   tlm_max_bytes="$(get tlm-max-bytes "")"
   if [ -z "$tlm_max_bytes" ]; then
-    tlm_max_bytes=53687091200
-    [ "$tlm_max_bytes" -le $((free_b * 3 / 10)) ] || tlm_max_bytes=$((free_b * 3 / 10))
+    local reserve=$((nats_reserve_gb * 1073741824))
+    [ "$reserve" -le $((free_b * 3 / 10)) ] || reserve=$((free_b * 3 / 10))
+    tlm_max_bytes=$((reserve * 3))
     [ "$tlm_max_bytes" -ge 1073741824 ] || tlm_max_bytes=1073741824
   fi
   nats_max_store=$(((tlm_max_bytes + 20 * 1073741824) / 1048576))MB
@@ -974,25 +1006,26 @@ verify_signature() {
 }
 
 # --- Parámetros del kernel ------------------------------------------------------------------------
-# net.core.rmem_max/rmem_default: búfer UDP del collector (tests/load/REPORT.md: con 4 MiB se
-# perdían flujos en ráfagas; 32 MiB). Son globales del host (no por espacio de red), así que valen
+# net.core.rmem_max (32 MiB): techo del búfer UDP que pide el collector por socket
+# (HORUS_COLLECTOR_UDP_RCVBUF; tests/load/REPORT.md: con 4 MiB se perdían flujos en ráfagas);
+# rmem_default (1 MiB) para el resto de sockets. Son globales del host (no por espacio de red), así que valen
 # también dentro del contenedor del collector. ip_forward: el UDP que llega por wg0 se reenvía al
 # contenedor del collector (Docker también lo activa; aquí queda persistente). ClickHouse 26.8 no
 # exige vm.max_map_count.
 sysctl_file() { printf '%s' "${root:-}/etc/sysctl.d/90-horus.conf"; }
 setup_sysctl() {
   say "Parámetros del kernel ($(sysctl_file))"
-  local rmem="${HORUS_UDP_RMEM_BYTES:-33554432}" kv k v cur
+  local rmem="${HORUS_UDP_RMEM_BYTES:-33554432}" rdef="${HORUS_UDP_RMEM_DEFAULT:-1048576}" kv k v cur
   install -d -m 0755 "$(dirname "$(sysctl_file)")"
   cat >"$(sysctl_file)" <<EOF
 # Horus Flow (scripts/install.sh). Búfer UDP del collector de IPFIX/NetFlow y reenvío del túnel.
 net.core.rmem_max = $rmem
-net.core.rmem_default = $rmem
+net.core.rmem_default = $rdef
 net.ipv4.ip_forward = 1
 EOF
   chmod 0644 "$(sysctl_file)"
   [ -z "$root" ] || { ok "escrito (raíz de pruebas: no se aplica)"; return 0; }
-  for kv in "net.core.rmem_max=$rmem" "net.core.rmem_default=$rmem" "net.ipv4.ip_forward=1"; do
+  for kv in "net.core.rmem_max=$rmem" "net.core.rmem_default=$rdef" "net.ipv4.ip_forward=1"; do
     k="${kv%%=*}"; v="${kv#*=}"
     sysctl -q -w "$k=$v" >/dev/null 2>&1 || true
     cur="$(sysctl -n "$k" 2>/dev/null || echo "?")"

@@ -165,7 +165,7 @@ boot=(bash /artifacts/dist-0.9.0/bootstrap-debian.sh --bundle /artifacts/dist-0.
 want 3 && check "bootstrap + install.sh terminan sin error" bash -c "docker exec $name ${boot[*]@Q} >'$out/install.log' 2>&1"
 [ "$mode" = sandbox ] || check "apt instaló Docker oficial, wireguard-tools, age, jq, iptables" \
   docker exec "$name" bash -c 'dpkg -s docker-ce docker-compose-plugin wireguard-tools age jq iptables >/dev/null && grep -q download.docker.com /etc/apt/sources.list.d/docker.sources'
-want 3 && check "sysctl net.core.rmem_max/rmem_default = 32 MiB persistente (/etc/sysctl.d/90-horus.conf)" \
+want 3 && check "sysctl net.core.rmem_max = 32 MiB y rmem_default = 1 MiB persistentes (/etc/sysctl.d/90-horus.conf)" \
   docker exec "$name" grep -q 'net.core.rmem_max = 33554432' /etc/sysctl.d/90-horus.conf
 health() {
   docker exec "$name" horus-ctl status >"$out/status.log" 2>&1 || return 1
@@ -245,7 +245,7 @@ want 7 && check "purge: sin /etc/horus, /var/lib/horus ni /opt/horus" bash -c \
 # --- 8. Detrás de un proxy inverso (--tls external) -------------------------------------------------
 if [ "${TEST_PROXY:-1}" = 1 ]; then
   step "8. --tls external detrás de nginx con TLS autofirmado"
-  nginx_img="${TEST_NGINX_IMAGE:-nginx:1.27.5-alpine}"
+  nginx_img="${TEST_NGINX_IMAGE:-mirror.gcr.io/library/nginx:1.27.5-alpine}"
   docker image inspect "$nginx_img" >/dev/null 2>&1 || docker pull -q "$nginx_img" >/dev/null
   proxy_setup() {
     docker save "$nginx_img" | docker exec -i "$name" docker load -q >/dev/null || return 1

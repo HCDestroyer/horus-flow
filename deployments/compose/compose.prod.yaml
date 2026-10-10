@@ -369,6 +369,10 @@ services:
       <<: *horus-env
       HORUS_ROLES: collector
       HORUS_PROCESS: horus-collector
+      # Búfer UDP por socket (techo: net.core.rmem_max del host, 32 MiB con el instalador) y cola
+      # de datagramas (32768 en los perfiles medium/large).
+      HORUS_COLLECTOR_UDP_RCVBUF: ${HORUS_COLLECTOR_UDP_RCVBUF:-33554432}
+      HORUS_COLLECTOR_QUEUE_DATAGRAMS: ${HORUS_COLLECTOR_QUEUE_DATAGRAMS:-8192}
       GOMEMLIMIT: 900MiB
     secrets: [postgres_password, clickhouse_password, valkey_password, nats_url, grpc_ca]
     ports:
