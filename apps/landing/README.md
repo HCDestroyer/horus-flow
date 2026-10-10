@@ -86,7 +86,12 @@ réplicas cada una cuenta por separado.
    de Docker, p. ej. `172.16.0.0/12`). NPM añade `X-Forwarded-For`; sin esa variable el rate
    limit vería a todos los clientes como la IP de NPM, y con una subred demasiado amplia
    (`0.0.0.0/0`) cualquiera podría falsificar su IP.
-4. Comprueba `https://tu-dominio/robots.txt` y `https://tu-dominio/sitemap.xml` (deben mostrar
+4. Animaciones (`/motion/*.mp4|webm`): Safari solo reproduce vídeo servido con peticiones de
+   rango (`206 Partial Content`) y el servidor Nitro responde siempre `200`. En la pestaña
+   _Advanced_ del Proxy Host añade `proxy_force_ranges on;` para que NPM sirva los rangos. Sin
+   eso, en Safari se queda el póster estático (no se rompe nada). Los vídeos se generan en
+   [`../landing-motion/`](../landing-motion/README.md).
+5. Comprueba `https://tu-dominio/robots.txt` y `https://tu-dominio/sitemap.xml` (deben mostrar
    tu dominio) y envía una solicitud de demo de prueba.
 
 La salud del contenedor se comprueba con `/robots.txt`. El HTML se sirve comprimido (brotli o

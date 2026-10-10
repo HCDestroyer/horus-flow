@@ -158,6 +158,7 @@ export default defineNuxtConfig({
     '/admin': { ssr: false, headers: ADMIN_HEADERS },
     '/admin/**': { ssr: false, headers: ADMIN_HEADERS },
     '/img/**': { headers: { 'Cache-Control': 'public, max-age=2592000' } },
+    '/motion/**': { headers: { 'Cache-Control': 'public, max-age=2592000' } },
     '/api/**': { headers: { 'Cache-Control': 'no-store' } },
   },
 

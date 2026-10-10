@@ -34,6 +34,7 @@ base**, no desde el PR: un PR no puede relajar sus propias puertas.
 | `security` | ci | gitleaks (commits del cambio), govulncheck, trivy fs (vuln, secretos, misconfig; HIGH/CRITICAL) | govulncheck, sin Go |
 | `build` | ci | `make build`, imagen única `horus` (buildx, caché GHA, sin push), smoke no-root, trivy image | sin cambios de Go/Dockerfile |
 | `frontend` | ci | pnpm install, lint, typecheck, test, build en `apps/frontend` | hasta que exista `apps/frontend/package.json` (I0-14) |
+| `landing-motion` | ci | pnpm install y `pnpm typecheck` del proyecto Remotion de `apps/landing-motion` (el render no va en CI: los vídeos se commitean) | sin cambios en `apps/landing-motion/` |
 | `compose-smoke` | ci | `make up && scripts/wait-healthy.sh && make down` (I0-02) | sin cambios de compose/infra, salvo en `merge_group` |
 | `dod` | ci | Resultado de los jobs anteriores, título Conventional Commits, TODO con tarea, README de módulo, nombre de migraciones, aviso de dependencia sin ADR | — |
 | `ci-ok` | ci | Agregador: todo `success` o `skipped` | — |

@@ -2,8 +2,8 @@
 // ELEMENTO DISTINTIVO de la landing: una red /24 dibujada como 256 puntos (uno por IP, que en
 // Horus es un cliente) con un solo punto señalado como Infectado. Resume el producto: entre
 // miles de clientes, Horus señala cuál y por qué. La red (.0) y el broadcast (.255) van huecos,
-// un detalle que un ingeniero de red reconoce. Se anima una sola vez (barrido y anillo) y nada
-// con prefers-reduced-motion.
+// un detalle que un ingeniero de red reconoce. Se muestra como animación neón (MotionVideo,
+// clip hero-network); la cuadrícula SVG queda como respaldo si el póster no carga.
 const { t } = useI18n()
 
 const COLS = 16
@@ -28,60 +28,74 @@ const gridBottom = PAD + 15 * STEP
 </script>
 
 <template>
-  <figure class="relative mx-auto w-full max-w-[22rem]">
+  <figure class="relative mx-auto w-full max-w-[28rem]">
     <figcaption class="mb-2 text-sm text-muted">
       <span class="font-mono" aria-hidden="true">{{ t('hero.gridCaption') }}</span>
     </figcaption>
-    <svg
-      viewBox="0 0 344 344"
-      role="img"
-      aria-labelledby="grid-title grid-desc"
-      class="subnet block h-auto w-full"
+    <!--
+      Animación neón (HeroNetwork, apps/landing-motion): la misma cuadrícula, viva. Paquetes de
+      luz bajan al router, cruzan el túnel WireGuard y llegan a Horus; 10.20.1.47 se enciende en
+      rojo neón. El póster (frame con la IP señalada) es la imagen LCP. La ficha de debajo da la
+      misma información en texto.
+    -->
+    <MotionVideo
+      clip="hero-network"
+      priority
+      controls="top-left"
+      :label="`${t('hero.gridTitle')}. ${t('hero.gridDesc')}`"
     >
-      <title id="grid-title">{{ t('hero.gridTitle') }}</title>
-      <desc id="grid-desc">{{ t('hero.gridDesc') }}</desc>
-      <g aria-hidden="true">
-        <rect class="scan" x="0" :y="PAD - 8" width="330" height="16" rx="8" />
-        <template v-for="d in dots" :key="d.i">
-          <circle
-            v-if="d.kind === 'reserved'"
-            :cx="d.x"
-            :cy="d.y"
-            r="3.2"
-            fill="none"
-            stroke="var(--dot-strong)"
-            stroke-width="1.2"
-          />
-          <circle
-            v-else-if="d.kind !== 'flagged'"
-            :cx="d.x"
-            :cy="d.y"
-            r="3.4"
-            :fill="d.kind === 'active' ? 'var(--dot-strong)' : 'var(--dot)'"
-          />
-        </template>
-        <!-- Punto señalado: anillo, punto y guía hasta la ficha (debajo de la cuadrícula). -->
-        <circle
-          class="ring"
-          :cx="flagged.x"
-          :cy="flagged.y"
-          r="9"
-          fill="none"
-          stroke="var(--infected)"
-          stroke-width="2"
-        />
-        <circle :cx="flagged.x" :cy="flagged.y" r="4.6" fill="var(--infected)" />
-        <path
-          class="leader"
-          :d="`M${flagged.x + 9} ${flagged.y} H${flagged.x + 24} V${gridBottom + 34}`"
-          fill="none"
-          stroke="var(--infected)"
-          stroke-width="1.5"
-          stroke-dasharray="3 3"
-        />
-      </g>
-    </svg>
-    <div class="surface relative rounded-xl p-4 shadow-sm" aria-hidden="true">
+      <!-- Respaldo si el póster no carga: la cuadrícula SVG estática de siempre. -->
+      <template #fallback>
+        <svg
+          viewBox="0 0 344 344"
+          aria-hidden="true"
+          focusable="false"
+          class="subnet block h-auto w-full"
+        >
+          <g aria-hidden="true">
+            <rect class="scan" x="0" :y="PAD - 8" width="330" height="16" rx="8" />
+            <template v-for="d in dots" :key="d.i">
+              <circle
+                v-if="d.kind === 'reserved'"
+                :cx="d.x"
+                :cy="d.y"
+                r="3.2"
+                fill="none"
+                stroke="var(--dot-strong)"
+                stroke-width="1.2"
+              />
+              <circle
+                v-else-if="d.kind !== 'flagged'"
+                :cx="d.x"
+                :cy="d.y"
+                r="3.4"
+                :fill="d.kind === 'active' ? 'var(--dot-strong)' : 'var(--dot)'"
+              />
+            </template>
+            <!-- Punto señalado: anillo, punto y guía hasta la ficha (debajo de la cuadrícula). -->
+            <circle
+              class="ring"
+              :cx="flagged.x"
+              :cy="flagged.y"
+              r="9"
+              fill="none"
+              stroke="var(--infected)"
+              stroke-width="2"
+            />
+            <circle :cx="flagged.x" :cy="flagged.y" r="4.6" fill="var(--infected)" />
+            <path
+              class="leader"
+              :d="`M${flagged.x + 9} ${flagged.y} H${flagged.x + 24} V${gridBottom + 34}`"
+              fill="none"
+              stroke="var(--infected)"
+              stroke-width="1.5"
+              stroke-dasharray="3 3"
+            />
+          </g>
+        </svg>
+      </template>
+    </MotionVideo>
+    <div class="surface relative mt-3 rounded-xl p-4 shadow-sm">
       <div class="flex items-center gap-2">
         <span class="inline-block size-2.5 rounded-full bg-(--infected)" />
         <span class="font-mono font-semibold text-highlighted">10.20.1.47</span>

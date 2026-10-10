@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Cifras de tests/load/REPORT.md y README.md › "Fiabilidad y rendimiento medidos", como una
 // tabla de laboratorio (prueba → resultado) en lugar de números gigantes: el contexto de cada
-// cifra pesa tanto como la cifra.
+// cifra pesa tanto como la cifra. Encima, la animación Resilience con su cifra en texto.
 const { t } = useI18n()
 const rows = ['restart', 'clickhouse', 'platform', 'capacity'] as const
 </script>
@@ -18,7 +18,23 @@ const rows = ['restart', 'clickhouse', 'platform', 'capacity'] as const
       :title="t('reliability.title')"
       :lead="t('reliability.lead')"
     />
-    <div class="surface mt-10 overflow-hidden rounded-2xl">
+    <!--
+      Animación neón (Resilience, apps/landing-motion): un componente se detiene, los flujos
+      esperan en el búfer y se vacían al volver. La cifra va en el pie, en texto, con su
+      condición de prueba (tests/load/REPORT.md › pruebas de fallo a 5 000 flujos/s).
+    -->
+    <figure class="mt-10">
+      <MotionVideo clip="resilience" :label="t('motion.resilienceLabel')" />
+      <figcaption class="mt-3 flex gap-2 text-[0.95rem] text-toned">
+        <UIcon
+          name="i-lucide-database"
+          class="mt-0.5 size-5 shrink-0 text-primary"
+          aria-hidden="true"
+        />
+        <span>{{ t('motion.resilienceCaption') }}</span>
+      </figcaption>
+    </figure>
+    <div class="surface mt-8 overflow-hidden rounded-2xl">
       <table class="w-full border-collapse text-left">
         <caption class="sr-only">
           {{

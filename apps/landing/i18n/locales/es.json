@@ -150,6 +150,12 @@
       "body": "En un Debian 12 o 13 limpio, un script instala todo y deja Horus arrancando con el sistema. Las actualizaciones llegan firmadas, con copia previa obligatoria y vuelta atrás automática si algo falla."
     }
   },
+  "motion": {
+    "play": "Reproducir animación",
+    "pause": "Pausar animación",
+    "resilienceLabel": "Animación: un componente de almacenamiento se detiene, los flujos esperan en el búfer y se vacían cuando vuelve.",
+    "resilienceCaption": "ClickHouse, NATS o horus-app parados 30 s con la ingesta a 5 000 flujos/s: 0 flujos perdidos y el búfer vaciado en 12–20 s."
+  },
   "reliability": {
     "eyebrow": "Fiabilidad",
     "title": "Fiabilidad medida, no prometida",

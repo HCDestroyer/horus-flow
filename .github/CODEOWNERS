@@ -114,6 +114,10 @@
 # Landing comercial (precios en apps/landing/app/config/pricing.ts y textos legales).
 /apps/landing/                      @hcdestroyer
 
+# Agente: UI
+# Animaciones de la landing (Remotion); los vídeos renderizados viven en apps/landing/public/motion/.
+/apps/landing-motion/               @hcdestroyer
+
 # ---------------------------------------------------------------------------------------------
 # Contratos y librerías compartidas
 # ---------------------------------------------------------------------------------------------
