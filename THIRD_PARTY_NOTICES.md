@@ -925,3 +925,18 @@ compilar y no se distribuyen en el producto.
 | `zip-stream` | 6.0.1 | MIT |
 | `zod` | 4.6.5 | MIT |
 | `zrender` | 6.1.0 | BSD-3-Clause |
+
+## Herramientas de producción de la landing
+
+Se usan solo para producir material de la landing comercial (`apps/landing-motion`: las
+animaciones se renderizan a vídeo y se publican los archivos de vídeo). No se distribuyen
+con Horus Flow ni se cargan en la landing.
+
+| Herramienta | Versión | Licencia | Texto de la licencia |
+| --- | --- | --- | --- |
+| Remotion | 4.0.525 | Remotion License (no es de código abierto; ver nota) | https://github.com/remotion-dev/remotion/blob/main/LICENSE.md |
+
+Remotion se rige por la "Remotion License": gratuita para particulares, organizaciones con
+ánimo de lucro de hasta 3 empleados y organizaciones sin ánimo de lucro; el resto necesita
+una "Company License". Resumen y cita del texto en
+[`apps/landing-motion/README.md`](apps/landing-motion/README.md#licencia-de-remotion).
