@@ -160,6 +160,8 @@ Ejecuciones descartadas (para que no se repitan): con el inventario sin prefijos
 - **Búfer:** el backlog sin confirmar llegó a 5,6 M de flujos (1,03 GB lógicos). TLM_FLOWS alcanzó su `max_bytes` porque conserva los lotes ya confirmados de la rampa, que son los más antiguos y se descartan primero. `/readyz` avisó (`tlm_flows_buffer: TLM_FLOWS buffer at 72% of max_bytes …, 6958 batches pending`) a los 3 min 35 s de caída.
 - **Sin duplicados:** las filas en ClickHouse cuadran con lo recibido por el collector. Ni los reintentos de grupos durante la caída (mismo token) ni las reentregas de JetStream (mensajes de un grupo aún pendiente) duplicaron nada.
 - **Memoria:** drenando con el INSERT fila a fila, horus-app llegó a 894 MB de 1 GiB (GOMEMLIMIT 900 MiB). El INSERT columnar reduce a menos de la mitad la memoria que hace falta para preparar cada grupo.
+- **Repetición (03:38–03:47 UTC):** con el INSERT columnar, los códecs nuevos y la cola del collector a 32 768, el escalón de 10 000/s volvió a dar OK (p95 197 ms) y durante la caída el collector no descartó nada; la ejecución se cortó a mitad del drenaje porque el disco libre de la máquina bajó de 200 MB (el vigilante de disco paró la pila), así que no cuenta.
+- **Endurecido después de estas ejecuciones** (sin repetir el caos por falta de disco): durable del ingester con `MaxDeliver` ilimitado (con ClickHouse caído horas, un lote prefetched podía agotar sus 5 entregas y perderse tras reiniciar el ingester), InProgress de los grupos en su propia goroutine y reentregas descartadas por `Nats-Msg-Id` antes de decodificar.
 
 ## Tamaños medidos
 

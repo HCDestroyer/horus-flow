@@ -632,7 +632,9 @@ Todos los escenarios se ejercitan en el incremento de endurecimiento.
   INSERT de su grupo. Cada grupo lleva su `insert_deduplication_token` y su composición (token →
   batch_id) se guarda antes del INSERT en el KV `flows_ingester_groups`: si el proceso muere entre
   el INSERT y las confirmaciones, al arrancar los lotes reentregados se reagrupan con el token
-  original y ClickHouse descarta el reintento (`services/ingester/internal/app/group.go`). Supone un
+  original y ClickHouse descarta el reintento (`services/ingester/internal/app/group.go`). El durable
+  tiene `MaxDeliver` ilimitado (una caída de horas no agota las entregas; los lotes inválidos los
+  termina el ingester tras 5 intentos) y los grupos pendientes renuevan `ack_wait` (InProgress). Supone un
   único proceso consumiendo el durable; con varios, un grupo en recuperación podría repartirse
   entre ellos (el reparto por subject está pendiente para el clúster de L).
 - **Datos perdidos:** ninguno dentro de la autonomía del buffer (§9.4). Pasado el límite,
