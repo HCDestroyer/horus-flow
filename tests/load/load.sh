@@ -10,6 +10,7 @@
 #   LOAD_REUSE=1           reutiliza un compose ya levantado (no lo crea ni lo destruye)
 #   LOAD_KEEP=1            deja el compose levantado al terminar
 #   LOAD_SKIP_IMAGE=1      no reconstruye la imagen horus:load si ya existe
+#   LOAD_DRIVER=chaos      ejecuta las pruebas de fallo (tests/chaos/chaos.sh) en vez de la carga
 #
 # Resultados: bin/load/results.{md,json}, logs del simulador en bin/load/, logs del compose en
 # bin/load/compose-logs.txt si algo falla. Sale con 1 si la tasa del criterio no se sostiene.
@@ -25,6 +26,7 @@ chmod 755 bin/load
 
 "$GO" build -o bin/load/flowsim ./tools/flowsim/cmd/flowsim
 "$GO" build -o bin/load/horus-load ./tests/load
+"$GO" build -o bin/load/horus-chaos ./tests/chaos
 
 started=0
 cleanup() {
@@ -59,4 +61,4 @@ while IFS= read -r line; do
   export "$key=$val"
 done < <(bash tests/load/stack.sh env)
 
-./bin/load/horus-load "$@"
+./bin/load/horus-"${LOAD_DRIVER:-load}" "$@"
