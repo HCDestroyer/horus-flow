@@ -24,6 +24,9 @@ type EngineOptions struct {
 	State           StateOptions
 	// UDPReadBuffer es el búfer de recepción de cada socket (0 = DefaultUDPReadBuffer).
 	UDPReadBuffer int
+	// DecodeWorkers son los hilos que decodifican en paralelo los datagramas
+	// de un mismo exportador (parallel.go); 1 (o 0) = un hilo por carril.
+	DecodeWorkers int
 }
 
 // Engine recibe UDP, reparte por exportador entre trabajadores y publica.
@@ -127,14 +130,20 @@ func (e *Engine) Submit(d Datagram) {
 // pueda durante 5 s.
 func (e *Engine) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
-	for i, w := range e.workers {
+	if e.opts.DecodeWorkers > 1 {
+		wait := e.runParallel()
 		wg.Add(1)
-		go func(q chan Datagram, w *Worker) {
-			defer wg.Done()
-			for d := range q {
-				w.Handle(d)
-			}
-		}(e.queues[i], w)
+		go func() { defer wg.Done(); wait() }()
+	} else {
+		for i, w := range e.workers {
+			wg.Add(1)
+			go func(q chan Datagram, w *Worker) {
+				defer wg.Done()
+				for d := range q {
+					w.Handle(d)
+				}
+			}(e.queues[i], w)
+		}
 	}
 	pubCtx, stopPub := context.WithCancel(context.Background())
 	pubDone := make(chan struct{})

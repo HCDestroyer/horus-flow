@@ -105,7 +105,7 @@ func (m *mod) Start(ctx context.Context) error {
 	m.engine = app.NewEngine(app.EngineOptions{
 		Workers: m.cfg.Workers, QueueDatagrams: m.cfg.QueueDatagrams, BatchMaxRecords: m.cfg.BatchMaxRecords,
 		BatchMaxAge: m.cfg.BatchMaxAge, BufferBytes: m.cfg.BufferBytes, PendingTTL: m.cfg.PendingTTL,
-		CollectorID: m.cfg.CollectorID, UDPReadBuffer: m.cfg.UDPReadBuffer,
+		CollectorID: m.cfg.CollectorID, UDPReadBuffer: m.cfg.UDPReadBuffer, DecodeWorkers: m.cfg.EffectiveDecodeWorkers(),
 		State: app.StateOptions{SilentAfter: m.cfg.SilentAfter, LossThreshold: m.cfg.LossThreshold,
 			LossWindow: m.cfg.LossWindow, ClockSkew: m.cfg.ClockSkew, Interval: m.cfg.StateInterval},
 	}, m.inv, jsSink{js: js}, kv, m.m, m.log)

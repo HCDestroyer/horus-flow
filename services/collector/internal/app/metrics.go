@@ -15,15 +15,18 @@ const (
 
 // Metrics del collector (docs/observability.md: prefijo horus_collector_).
 type Metrics struct {
-	Datagrams    *prometheus.CounterVec
-	Records      prometheus.Counter
-	Dropped      *prometheus.CounterVec
-	SeqGaps      *prometheus.CounterVec
-	LostRecords  *prometheus.CounterVec
-	ClockSkew    *prometheus.GaugeVec
-	Batches      prometheus.Counter
-	BufferBytes  prometheus.Gauge
-	BusConnected prometheus.Gauge
+	Datagrams *prometheus.CounterVec
+	Records   prometheus.Counter
+	// ReceivedRecords son los registros decodificados de exportadores
+	// registrados, antes de filtros y lotes (lo recibido por el collector).
+	ReceivedRecords prometheus.Counter
+	Dropped         *prometheus.CounterVec
+	SeqGaps         *prometheus.CounterVec
+	LostRecords     *prometheus.CounterVec
+	ClockSkew       *prometheus.GaugeVec
+	Batches         prometheus.Counter
+	BufferBytes     prometheus.Gauge
+	BusConnected    prometheus.Gauge
 }
 
 // NewMetrics crea y registra las métricas (reg puede ser nil en tests).
@@ -33,6 +36,8 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Help: "Datagramas de exportación recibidos por versión."}, []string{"version"}),
 		Records: prometheus.NewCounter(prometheus.CounterOpts{Name: "horus_collector_records_total",
 			Help: "Registros de flujo decodificados y publicados."}),
+		ReceivedRecords: prometheus.NewCounter(prometheus.CounterOpts{Name: "horus_collector_received_records_total",
+			Help: "Registros de flujo decodificados de exportadores registrados (antes de filtros y lotes)."}),
 		Dropped: prometheus.NewCounterVec(prometheus.CounterOpts{Name: "horus_collector_dropped_total",
 			Help: "Datagramas, conjuntos o registros descartados por razón."}, []string{"reason"}),
 		SeqGaps: prometheus.NewCounterVec(prometheus.CounterOpts{Name: "horus_collector_sequence_gaps_total",
@@ -49,7 +54,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Help: "1 si la última publicación en NATS tuvo éxito."}),
 	}
 	if reg != nil {
-		for _, c := range []prometheus.Collector{m.Datagrams, m.Records, m.Dropped, m.SeqGaps, m.LostRecords,
+		for _, c := range []prometheus.Collector{m.Datagrams, m.Records, m.ReceivedRecords, m.Dropped, m.SeqGaps, m.LostRecords,
 			m.ClockSkew, m.Batches, m.BufferBytes, m.BusConnected} {
 			_ = reg.Register(c)
 		}

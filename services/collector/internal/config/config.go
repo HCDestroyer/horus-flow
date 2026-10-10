@@ -3,6 +3,7 @@ package config
 
 import (
 	"errors"
+	"runtime"
 	"time"
 )
 
@@ -22,6 +23,10 @@ type Config struct {
 	CollectorID string `env:"HORUS_COLLECTOR_ID" envDefault:"flows-collector-1"`
 	// Workers es el nº de trabajadores de decodificación (por exportador).
 	Workers int `env:"HORUS_COLLECTOR_WORKERS" envDefault:"4"`
+	// DecodeWorkers son los hilos que decodifican en paralelo los datagramas
+	// de un mismo exportador (0 = uno por CPU; 1 = un hilo por exportador,
+	// el comportamiento anterior).
+	DecodeWorkers int `env:"HORUS_COLLECTOR_DECODE_WORKERS" envDefault:"0"`
 	// QueueDatagrams es la cola por trabajador; llena = descarte contado.
 	QueueDatagrams int `env:"HORUS_COLLECTOR_QUEUE_DATAGRAMS" envDefault:"8192"`
 	// BatchMaxRecords y BatchMaxAge cortan los lotes (events.md §5.5).
@@ -44,11 +49,23 @@ type Config struct {
 	TLMMaxBytes int64 `env:"HORUS_TLM_FLOWS_MAX_BYTES" envDefault:"53687091200"`
 }
 
+// EffectiveDecodeWorkers resuelve DecodeWorkers (0 = GOMAXPROCS, que en Go
+// respeta el límite de CPU del contenedor).
+func (c *Config) EffectiveDecodeWorkers() int {
+	if c.DecodeWorkers > 0 {
+		return c.DecodeWorkers
+	}
+	return runtime.GOMAXPROCS(0)
+}
+
 // Validate implementa config.Validator.
 func (c *Config) Validate() error {
 	var errs []error
 	if c.Workers < 1 {
 		errs = append(errs, errors.New("HORUS_COLLECTOR_WORKERS must be >= 1"))
+	}
+	if c.DecodeWorkers < 0 || c.DecodeWorkers > 256 {
+		errs = append(errs, errors.New("HORUS_COLLECTOR_DECODE_WORKERS must be in 0..256"))
 	}
 	if c.BatchMaxRecords < 1 || c.BatchMaxRecords > 2000 {
 		errs = append(errs, errors.New("HORUS_COLLECTOR_BATCH_MAX_RECORDS must be in 1..2000"))
