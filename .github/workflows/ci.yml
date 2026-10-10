@@ -48,6 +48,7 @@ jobs:
       go_units: ${{ steps.affected.outputs.go_units }}
       frontend: ${{ steps.affected.outputs.frontend }}
       landing: ${{ steps.affected.outputs.landing }}
+      landing_motion: ${{ steps.affected.outputs.landing_motion }}
       compose: ${{ steps.affected.outputs.compose }}
       docker: ${{ steps.affected.outputs.docker }}
       contracts: ${{ steps.affected.outputs.contracts }}
@@ -377,6 +378,34 @@ jobs:
           if-no-files-found: ignore
 
   # -------------------------------------------------------------------------------------------
+  # Animaciones de la landing (apps/landing-motion, Remotion): solo typecheck y solo si cambia esa
+  # carpeta. El render no va en CI: los vídeos se renderizan a mano y se commitean en
+  # apps/landing/public/motion/ (ver apps/landing-motion/README.md).
+  landing-motion:
+    name: landing-motion
+    needs: changes
+    if: needs.changes.outputs.landing_motion == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: apps/landing-motion
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          package_json_file: apps/landing-motion/package.json
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: apps/landing-motion/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+
+  # -------------------------------------------------------------------------------------------
   compose-smoke:
     name: compose-smoke
     needs: changes
@@ -426,7 +455,7 @@ jobs:
   # -------------------------------------------------------------------------------------------
   dod:
     name: dod
-    needs: [changes, lint, unit, integration, contracts, security, build, frontend, landing, compose-smoke, licenses]
+    needs: [changes, lint, unit, integration, contracts, security, build, frontend, landing, landing-motion, compose-smoke, licenses]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -447,7 +476,7 @@ jobs:
   # -------------------------------------------------------------------------------------------
   ci-ok:
     name: ci-ok
-    needs: [changes, lint, unit, integration, contracts, security, build, frontend, landing, compose-smoke, licenses, dod]
+    needs: [changes, lint, unit, integration, contracts, security, build, frontend, landing, landing-motion, compose-smoke, licenses, dod]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 2
