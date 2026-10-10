@@ -347,14 +347,15 @@ func (s *Session) accessLocked() (string, error) {
 }
 
 // Reauth repite la autenticación (contraseña + TOTP) para las operaciones
-// sensibles (x-reauth) y renueva la sesión.
-func (s *Session) Reauth() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	a, err := s.accessLocked()
+// sensibles (x-reauth): auth emite un token del MISMO ámbito (scope: id de ISP
+// o "platform") con auth_time reciente, que queda como token de ese ámbito.
+func (s *Session) Reauth(scope string) error {
+	cur, err := s.Token(scope)
 	if err != nil {
 		return err
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	body := map[string]any{"password": s.Creds.Password}
 	if s.Creds.TOTPSecret != "" {
 		c, err := s.code()
@@ -363,17 +364,14 @@ func (s *Session) Reauth() error {
 		}
 		body["code"] = c
 	}
-	r, err := s.post(a, "/api/v1/auth/reauth", body)
+	r, err := s.post(cur, "/api/v1/auth/reauth", body)
 	if err != nil {
 		return err
 	}
-	if r.Status != http.StatusOK {
+	if r.Status != http.StatusOK || r.Str("access_token") == "" {
 		return fmt.Errorf("POST /auth/reauth: HTTP %d %s", r.Status, r.Raw)
 	}
-	if t := r.Str("access_token"); t != "" {
-		s.access, s.expires = t, expiry(r)
-	}
-	s.tenant = map[string]tok{}
+	s.tenant[scope] = tok{v: r.Str("access_token"), exp: expiry(r)}
 	return nil
 }
 

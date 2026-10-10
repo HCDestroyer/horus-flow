@@ -1,7 +1,9 @@
 package httpx
 
 import (
+	"bufio"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -167,3 +169,14 @@ func (w *statusWriter) status() int {
 
 // Unwrap permite a http.ResponseController llegar al writer original.
 func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+// Hijack delega en el writer original. coder/websocket (Accept) exige que el
+// ResponseWriter implemente http.Hijacker sin desenvolverlo: sin esto el
+// WebSocket del gateway respondía 501 detrás de este middleware (I1-13).
+func (w *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	c, rw, err := http.NewResponseController(w.ResponseWriter).Hijack()
+	if err == nil && w.code == 0 {
+		w.code = http.StatusSwitchingProtocols
+	}
+	return c, rw, err //nolint:wrapcheck // passthrough
+}

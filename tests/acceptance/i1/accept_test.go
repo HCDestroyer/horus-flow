@@ -988,7 +988,7 @@ func (w *world) kiosk() error {
 	k := w.expect("POST /kiosks", post(tok, "/api/v1/kiosks", map[string]any{"name": "TV NOC aceptación", "dashboard_ids": []string{noc}}), 201)
 	kid := k.Str("id")
 	// El código de enrolamiento es una operación sensible (x-reauth): se repite la autenticación.
-	if err := w.s.Reauth(); err != nil {
+	if err := w.s.Reauth(n.ISP.ID); err != nil {
 		return err
 	}
 	tok = w.token(n.ISP.ID)
@@ -1209,7 +1209,7 @@ func (w *world) cleanup() error {
 		return skipErr{"instalación temporal (se desinstala con --purge)"}
 	}
 	_, _ = w.run(w.simrtr, "down-all")
-	if err := w.s.Reauth(); err != nil {
+	if err := w.s.Reauth("platform"); err != nil {
 		return err
 	}
 	plat := w.token("platform")
