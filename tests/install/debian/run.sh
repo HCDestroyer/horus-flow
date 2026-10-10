@@ -10,8 +10,7 @@
 #      (A completo con todas las imágenes; B y C ligeros, --own-images-only).
 #   2. Contenedor Debian con systemd. TEST_MODE=apt (CI): bootstrap-debian.sh instala TODO por apt
 #      (Docker oficial, wireguard-tools, age, jq, iptables, NTP). TEST_MODE=sandbox (sin espejos de
-#      Debian): binarios estáticos equivalentes, bootstrap --no-apt, dockerd sin iptables y
-#      install.sh --skip-firewall.
+#      Debian): binarios equivalentes (Docker estático, iptables nft del host…) y bootstrap --no-apt.
 #   3. bootstrap-debian.sh --bundle A --mode ip: todos los servicios sanos, UI (200) y API (401) en
 #      https://IP con el certificado autogenerado verificado por su huella; install.sh --check.
 #   4. Segunda ejecución: idempotente, secretos idénticos.
@@ -44,7 +43,13 @@ result() { # result OK|FAIL <descripción>
   else printf '  \033[31mFAIL\033[0m %s\n' "$2"; fail=$((fail + 1)); fi
   printf '%s %s\n' "$1" "$2" >>"$out/summary.txt"
 }
-check() { local d="$1"; shift; if "$@" >>"$out/checks.log" 2>&1; then result OK "$d"; else result FAIL "$d"; fi; }
+check() {
+  local d="$1"; shift
+  if "$@" >>"$out/checks.log" 2>&1; then result OK "$d"; else
+    result FAIL "$d"
+    [ "${TEST_FAIL_FAST:-0}" = 0 ] || { echo "TEST_FAIL_FAST=1: se para aquí"; exit 1; }
+  fi
+}
 in_ct() { docker exec "$name" "$@"; }
 in_sh() { docker exec "$name" bash -c "$1"; }
 
@@ -120,6 +125,12 @@ if [ "$mode" = sandbox ]; then
   fetch https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64 "$cache/jq"
   [ -s "$cache/curl" ] || { fetch https://github.com/stunnel/static-curl/releases/download/8.15.0/curl-linux-x86_64-glibc-8.15.0.tar.xz "$work/curl.tar.xz" && tar -xJf "$work/curl.tar.xz" -C "$cache" curl; }
   [ -s "$cache/wireguard-go" ] || cp "$(command -v wireguard-go)" "$cache/wireguard-go"
+  if [ ! -x "$cache/iptables/xtables-nft-multi" ]; then
+    mkdir -p "$cache/iptables/lib" "$cache/iptables/xtables"
+    cp -L /usr/sbin/xtables-nft-multi "$cache/iptables/"
+    cp -a /lib/x86_64-linux-gnu/libxtables.so.12* /lib/x86_64-linux-gnu/libmnl.so.0* /lib/x86_64-linux-gnu/libnftnl.so.11* "$cache/iptables/lib/"
+    cp -a /usr/lib/x86_64-linux-gnu/xtables/. "$cache/iptables/xtables/"
+  fi
   docker build -q -t "$ct_image" --build-arg "DEBIAN_VERSION=$ver" -f "$here/Dockerfile.sandbox" "$here" >"$out/ct-build.log" 2>&1 \
     || { tail -20 "$out/ct-build.log"; exit 1; }
 else
@@ -142,7 +153,7 @@ step "3. bootstrap-debian.sh --bundle A --mode ip (IP $ip)"
 boot=(bash /artifacts/dist-0.9.0/bootstrap-debian.sh --bundle /artifacts/dist-0.9.0/horus-0.9.0-linux-amd64.tar.gz
   --yes --mode ip --public-ip "$ip" --admin-email admin@horus.test --admin-password-file /root/admin-pw
   --tunnel-cidr 10.230.0.0/16 --tlm-max-bytes 1073741824 --force)
-[ "$mode" = apt ] || boot+=(--no-apt --skip-firewall)
+[ "$mode" = apt ] || boot+=(--no-apt)
 check "bootstrap + install.sh terminan sin error" bash -c "docker exec $name ${boot[*]@Q} >'$out/install.log' 2>&1"
 [ "$mode" = sandbox ] || check "apt instaló Docker oficial, wireguard-tools, age, jq, iptables" \
   docker exec "$name" bash -c 'dpkg -s docker-ce docker-compose-plugin wireguard-tools age jq iptables >/dev/null && grep -q download.docker.com /etc/apt/sources.list.d/docker.sources'

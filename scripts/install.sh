@@ -19,6 +19,12 @@
 #                        resolver a este servidor y el puerto 80 ser accesible).
 #   ip                   (ip_only) sin dominio: certificado autogenerado para la IP; se muestra su
 #                        huella SHA-256 para verificarla en el navegador y RouterOS lo importa.
+#   --tls external       (cuarto modo, detrás de un proxy inverso propio: Nginx Proxy Manager,
+#   | --behind-proxy     nginx, Caddy, HAProxy…) el proxy termina TLS; Traefik sirve solo HTTP en
+#                        --http-bind (127.0.0.1:8080), sin ACME, sin certificado y sin HSTS, y solo
+#                        acepta X-Forwarded-* de --trusted-proxies (obligatoria), al que se limita
+#                        además ese puerto en el cortafuegos. --public-url https://… es la URL que
+#                        ve la gente. El UDP de WireGuard NO pasa por el proxy (--wg-endpoint).
 #
 # Qué hace: comprueba requisitos (CPU, RAM, disco, puertos, Docker, WireGuard), genera secretos
 # en <etc>/secrets (0700) y el PAQUETE DE SECRETOS OFFLINE cifrado (ADR-0029,
@@ -31,6 +37,12 @@
 # Opciones (también en --help):
 #   --mode domain|subdomain|ip   --domain FQDN   --acme-email EMAIL   --acme-staging
 #   --public-ip IP               IP pública (modo ip y endpoint WireGuard; por defecto la de la ruta por defecto)
+#   --tls auto|external          auto: Let's Encrypt (domain/subdomain) o autogenerado (ip); external: proxy propio
+#   --public-url URL             (external) URL pública https:// que sirve el proxy
+#   --trusted-proxies CIDR[,…]   (external) IP o red del proxy inverso; obligatoria
+#   --http-bind IP:PUERTO        (external) dónde escucha Traefik en HTTP (127.0.0.1:8080; la IP de la
+#                                LAN si el proxy está en otra máquina)
+#   --wg-endpoint HOST           nombre o IP a la que los routers envían el UDP de WireGuard
 #   --tunnel-cidr CIDR           rango de IPs de túnel de los routers (10.255.0.0/16; nunca 100.64.0.0/10)
 #   --admin-email EMAIL          --admin-password-file FICHERO (si no, se pregunta o se genera)
 #   --image-source ghcr|bundle:RUTA|local   de dónde salen las imágenes (por defecto: bundle si
@@ -67,8 +79,8 @@
 # Códigos de salida: 0 bien, 1 fallo, 2 uso incorrecto.
 
 # ok/warn/fail siempre devuelven 0, así que `cond && ok … || fail …` es intencionado; los .env y
-# /etc/os-release se generan o existen solo en el servidor.
-# shellcheck disable=SC2015,SC1090,SC1091
+# /etc/os-release se generan o existen solo en el servidor; $chain va literal a horus-tunnel.
+# shellcheck disable=SC2015,SC1090,SC1091,SC2016
 set -euo pipefail
 umask 022
 
@@ -87,10 +99,11 @@ while [ "$#" -gt 0 ]; do
       --https-port | --wg-port | --wg-interface | --docker-subnet | --tlm-max-bytes | --bundle-recipient | --bundle-out | \
       --smtp-host | --smtp-port | --smtp-from | --smtp-user | --smtp-tls | --smtp-password-file | --backup-metrics-port | \
       --image-source | --registry | --registry-user | --registry-token-file | --channel | --auto-update | --update-window | \
-      --update-source | --web-image | --postgres-image)
+      --update-source | --web-image | --postgres-image | --tls | --public-url | --trusted-proxies | --http-bind | --wg-endpoint)
       need_arg "$@"; opt[${1#--}]="$2"; shift 2 ;;
     --acme-staging) opt[acme-staging]=1; shift ;;
     --no-update-check) opt[update-check]=false; shift ;;
+    --behind-proxy) opt[tls]=external; shift ;;
     --check) action=check; shift ;;
     --uninstall) action=uninstall; shift ;;
     --purge) opt_purge=1; shift ;;
@@ -250,28 +263,9 @@ existing_parent() { local p="$1"; while [ ! -e "$p" ]; do p="$(dirname "$p")"; d
 # --- Configuración (preguntas) --------------------------------------------------------------------
 configure() {
   say "Configuración"
-  local default_ip
-  default_ip="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{ for (i = 1; i < NF; i++) if ($i == "src") print $(i + 1) }' | head -1)"
-  mode="$(get mode "")"
-  if [ -z "$mode" ]; then
-    echo "  Modo de acceso (D19): domain = dominio propio, subdomain = subdominio, ip = solo la IP del servidor"
-    ask mode "modo de acceso (domain|subdomain|ip)" ip
-  fi
-  case "$mode" in ip | ip_only) mode=ip ;; domain | subdomain) ;; *) die "modo de acceso inválido: $mode" ;; esac
-  public_ip="$(get public-ip "$default_ip")"
-  domain="" acme_email=""
-  if [ "$mode" = ip ]; then
-    [ -n "$(get public-ip "")" ] || ask public_ip "IP pública del servidor" "$public_ip"
-    [[ "$public_ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || die "IP inválida: $public_ip"
-    public_host="$public_ip"
-  else
-    domain="$(get domain "")"
-    [ -n "$domain" ] || ask domain "nombre (FQDN) que apunta a este servidor" "horus.example.net"
-    [[ "$domain" =~ ^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$ ]] || die "nombre inválido: $domain"
-    acme_email="$(get acme-email "")"
-    [ -n "$acme_email" ] || ask acme_email "email para Let's Encrypt (avisos de caducidad)" "admin@$domain"
-    public_host="$domain"
-  fi
+  tls_choice="$(get tls auto)"
+  case "$tls_choice" in auto | external) ;; *) die "--tls inválido: $tls_choice (auto | external)" ;; esac
+  if [ "$tls_choice" = external ]; then configure_external; else configure_traefik_tls; fi
   tunnel_cidr="$(get tunnel-cidr "")"
   [ -n "$tunnel_cidr" ] || ask tunnel_cidr "rango de IPs de túnel de los routers" "10.255.0.0/16"
   valid_cidr "$tunnel_cidr" || die "CIDR inválido: $tunnel_cidr"
@@ -296,10 +290,78 @@ configure() {
   [ "$https_port" = 443 ] || public_base_url="$public_base_url:$https_port"
   access_mode="$mode"; [ "$mode" = ip ] && access_mode=ip_only
   tls_mode=acme; [ "$mode" = ip ] && tls_mode=self_signed
+  if [ "$tls_choice" = external ]; then
+    tls_mode=external; https_port="$(get https-port 8443)"
+    public_base_url="https://$public_host"; [ "$public_url_port" = 443 ] || public_base_url="$public_base_url:$public_url_port"
+    ok "detrás de proxy inverso: Traefik en http://$http_bind_addr:$http_port, X-Forwarded-* solo de $trusted_proxies"
+  fi
   ok "acceso $access_mode → $public_base_url (TLS $tls_mode)"
-  ok "túneles $tunnel_cidr, hub/colector $collector_ip en $wg_if, WireGuard UDP $wg_port"
+  ok "túneles $tunnel_cidr, hub/colector $collector_ip en $wg_if, WireGuard UDP $wg_port en $wg_endpoint"
   ok "superadmin $admin_email; datos en $data_dir, backups en $store_dir"
   ok "versión $horus_version; imágenes: $image_source_desc; canal $channel, actualización automática $auto_update"
+}
+
+# Modos de Traefik con TLS propio (D19): domain/subdomain (Let's Encrypt) o ip (autogenerado).
+configure_traefik_tls() {
+  local default_ip
+  default_ip="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{ for (i = 1; i < NF; i++) if ($i == "src") print $(i + 1) }' | head -1)"
+  mode="$(get mode "")"
+  if [ -z "$mode" ]; then
+    echo "  Modo de acceso (D19): domain = dominio propio, subdomain = subdominio, ip = solo la IP del servidor"
+    ask mode "modo de acceso (domain|subdomain|ip)" ip
+  fi
+  case "$mode" in ip | ip_only) mode=ip ;; domain | subdomain) ;; *) die "modo de acceso inválido: $mode" ;; esac
+  public_ip="$(get public-ip "$default_ip")"
+  domain="" acme_email=""
+  if [ "$mode" = ip ]; then
+    [ -n "$(get public-ip "")" ] || ask public_ip "IP pública del servidor" "$public_ip"
+    [[ "$public_ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || die "IP inválida: $public_ip"
+    public_host="$public_ip"
+  else
+    domain="$(get domain "")"
+    [ -n "$domain" ] || ask domain "nombre (FQDN) que apunta a este servidor" "horus.example.net"
+    [[ "$domain" =~ ^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$ ]] || die "nombre inválido: $domain"
+    acme_email="$(get acme-email "")"
+    [ -n "$acme_email" ] || ask acme_email "email para Let's Encrypt (avisos de caducidad)" "admin@$domain"
+    public_host="$domain"
+  fi
+  wg_endpoint="$(get wg-endpoint "$public_host")"
+  http_bind_addr="${HORUS_PUBLIC_BIND:-0.0.0.0}"; https_bind_addr="$http_bind_addr"
+  trusted_proxies=""
+}
+
+# Cuarto modo (D19, nota de interpretación): detrás de un proxy inverso que termina TLS.
+configure_external() {
+  local url hostport
+  url="$(get public-url "")"
+  [ -n "$url" ] || ask url "URL pública que sirve tu proxy inverso (https://…)" "https://horus.example.net"
+  [[ "$url" =~ ^https://([A-Za-z0-9.-]+)(:([0-9]{1,5}))?/?$ ]] || die "--public-url debe ser https://NOMBRE[:PUERTO] (el proxy termina TLS): $url"
+  public_host="${BASH_REMATCH[1]}"; public_url_port="${BASH_REMATCH[3]:-443}"
+  public_ip="$(get public-ip "")"
+  domain="" acme_email=""
+  if [[ "$public_host" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then mode=ip; [ -n "$public_ip" ] || public_ip="$public_host"
+  else
+    mode="$(get mode domain)"; case "$mode" in domain | subdomain) ;; *) mode=domain ;; esac
+    domain="$public_host"
+  fi
+  trusted_proxies="$(get trusted-proxies "")"
+  [ -n "$trusted_proxies" ] || ask trusted_proxies "IP o red (CIDR) de tu proxy inverso" "127.0.0.1/32"
+  [ -n "$trusted_proxies" ] || die "--trusted-proxies es obligatoria con --tls external"
+  local c norm=()
+  IFS=, read -r -a _tp <<<"$trusted_proxies"
+  for c in "${_tp[@]}"; do
+    c="${c// /}"; [ -n "$c" ] || continue
+    [[ "$c" == */* ]] || c="$c/32"
+    valid_cidr "$c" || die "CIDR inválido en --trusted-proxies: $c"
+    [ "$c" != 0.0.0.0/0 ] || die "--trusted-proxies 0.0.0.0/0 aceptaría cabeceras falsificadas de cualquiera"
+    norm+=("$(cidr_network "$c")")
+  done
+  trusted_proxies="$(IFS=,; echo "${norm[*]}")"
+  hostport="$(get http-bind 127.0.0.1:8080)"
+  [[ "$hostport" =~ ^([0-9]{1,3}(\.[0-9]{1,3}){3}):([0-9]{1,5})$ ]] || die "--http-bind debe ser IP:PUERTO: $hostport"
+  http_bind_addr="${BASH_REMATCH[1]}"; opt[http-port]="${BASH_REMATCH[3]}"
+  https_bind_addr=127.0.0.1
+  wg_endpoint="$(get wg-endpoint "${public_ip:-$public_host}")"
 }
 
 # --- Imágenes: origen (ghcr | bundle:RUTA | local) ------------------------------------------------
@@ -470,7 +532,9 @@ save_conf() {
       image-source "$image_source" registry "$registry" registry-user "$registry_user" channel "$channel" \
       auto-update "$auto_update" update-window "$update_window" update-source "$update_source" \
       update-check "$update_check" web-image "${img[HORUS_WEB_IMAGE]}" postgres-image "${img[HORUS_POSTGRES_IMAGE]}" \
-      version "$horus_version"
+      version "$horus_version" tls "$tls_choice" public-url "$([ "$tls_choice" = external ] && echo "$public_base_url")" \
+      trusted-proxies "$trusted_proxies" http-bind "$([ "$tls_choice" = external ] && echo "$http_bind_addr:$http_port")" \
+      wg-endpoint "$(get wg-endpoint "")"
     [ -z "${opt[acme-staging]:-${saved[acme-staging]:-}}" ] || echo "acme-staging=1"
   } >"$conf_file"
   chmod 0644 "$conf_file"
@@ -573,7 +637,7 @@ gen_public_tls() {
     openssl x509 -in "$tls_dir/public.crt" -noout -fingerprint -sha256 | cut -d= -f2 >"$tls_dir/fingerprint-sha256.txt"
     chmod 0644 "$tls_dir/fingerprint-sha256.txt"
   else
-    # ACME: Traefik obtiene el certificado. public.crt vacío (wireguard no lo necesita con ACME).
+    # ACME (Traefik obtiene el certificado) o external (lo pone el proxy): public.crt vacío.
     [ -e "$tls_dir/public.crt" ] || : >"$tls_dir/public.crt"
     rm -f "$tls_dir/fingerprint-sha256.txt"
   fi
@@ -689,6 +753,7 @@ EOF
 # de un paquete de release (scripts/release/build-release.sh lee esta lista).
 release_paths=(VERSION images.lock deployments/compose/compose.prod.yaml deployments/images/postgres/Dockerfile
   infrastructure/traefik/prod/horus.acme.yml.tmpl infrastructure/traefik/prod/horus.ip.yml.tmpl
+  infrastructure/traefik/prod/horus.external.yml.tmpl
   infrastructure/nats/nats.prod.conf infrastructure/nats/kv.yaml infrastructure/backup/clickhouse-backups.xml
   infrastructure/backup/httpd.conf packages/events/streams/streams.yaml scripts/install.sh scripts/horus-ctl.sh
   scripts/bootstrap-debian.sh scripts/backup/horus-backup.sh docs/install-debian.md)
@@ -710,12 +775,23 @@ copy_release() {
   rm -rf "$dst"; mv "$dst.new" "$dst"
 }
 
+# IPs de las que Traefik acepta X-Forwarded-*: el proxy externo y, si escucha en loopback (proxy en
+# la misma máquina, conexión vía docker-proxy), la puerta de enlace de la red del compose. En los
+# modos con TLS propio, ninguna (127.0.0.1/32, que nunca es el origen real).
+forwarded_trusted_ips() {
+  if [ "$tls_mode" != external ]; then printf '127.0.0.1/32'; return; fi
+  local l="$trusted_proxies"
+  case "$http_bind_addr" in 127.*) l="$l,$grpc_bind/32" ;; esac
+  printf '%s' "$l"
+}
+
 render_files() {
   say "Archivos de la instalación ($install_dir)"
   install -m 0644 "$repo_root/deployments/compose/compose.prod.yaml" "$install_dir/compose.yaml"
   install -d -m 0755 "$config_dir/traefik/dynamic" "$config_dir/nats" "$config_dir/backup" "$config_dir/images/postgres"
   local tmpl="$repo_root/infrastructure/traefik/prod/horus.acme.yml.tmpl"
   [ "$tls_mode" = self_signed ] && tmpl="$repo_root/infrastructure/traefik/prod/horus.ip.yml.tmpl"
+  [ "$tls_mode" = external ] && tmpl="$repo_root/infrastructure/traefik/prod/horus.external.yml.tmpl"
   sed "s/@HORUS_HOST@/$public_host/g" "$tmpl" >"$config_dir/traefik/dynamic/horus.yml"
   install -m 0644 "$repo_root/infrastructure/nats/nats.prod.conf" "$config_dir/nats/nats.prod.conf"
   install -m 0644 "$repo_root/infrastructure/nats/kv.yaml" "$config_dir/nats/kv.yaml"
@@ -760,11 +836,15 @@ HORUS_PUBLIC_BASE_URL=$public_base_url
 HORUS_ACME_EMAIL=$acme_email
 HORUS_ACME_CA_SERVER=$acme_ca
 HORUS_PUBLIC_BIND=0.0.0.0
+HORUS_HTTP_BIND_ADDR=$http_bind_addr
+HORUS_HTTPS_BIND_ADDR=$https_bind_addr
+HORUS_FORWARDED_TRUSTED_IPS=$(forwarded_trusted_ips)
+HORUS_TRUSTED_PROXIES=$(printf '%s' "$docker_subnet${trusted_proxies:+,$trusted_proxies}")
 HORUS_HTTP_PORT=$http_port
 HORUS_HTTPS_PORT=$https_port
 HORUS_SEED_ADMIN_EMAIL=$admin_email
 HORUS_WG_HUB_ID=$hub_id
-HORUS_WG_ENDPOINT=$public_host
+HORUS_WG_ENDPOINT=$wg_endpoint
 HORUS_WG_PORT=$wg_port
 HORUS_WG_INTERFACE=$wg_if
 HORUS_WG_HUB_PUBLIC_KEY=$(cat "$secrets_dir/wg_hub_public_key")
@@ -948,11 +1028,25 @@ EOF
     done
 EOF
   fi
+  if [ "$skip_fw" = 0 ] && [ "$tls_mode" = external ]; then
+    local c
+    printf '    # Modo proxy externo: el HTTP de Traefik (%s/tcp) solo desde --trusted-proxies.\n' "$http_port"
+    printf '    for chain in DOCKER-USER INPUT; do\n'
+    printf '      iptables -N $chain 2>/dev/null || true\n'
+    printf '      while iptables -D $chain -p tcp -m conntrack --ctorigdstport %s -m comment --comment horus-proxy-only -j DROP 2>/dev/null; do :; done\n' "$http_port"
+    printf '      iptables -I $chain -p tcp -m conntrack --ctorigdstport %s -m comment --comment horus-proxy-only -j DROP\n' "$http_port"
+    IFS=, read -r -a _tp <<<"$trusted_proxies"
+    for c in "${_tp[@]}" 127.0.0.0/8; do
+      printf '      iptables -C $chain -s %s -p tcp -m conntrack --ctorigdstport %s -m comment --comment horus-proxy-only -j ACCEPT 2>/dev/null || iptables -I $chain -s %s -p tcp -m conntrack --ctorigdstport %s -m comment --comment horus-proxy-only -j ACCEPT\n' "$c" "$http_port" "$c" "$http_port"
+    done
+    printf '    done\n'
+  fi
   cat <<EOF
     ;;
   down)
     for chain in DOCKER-USER INPUT; do
       while iptables -D \$chain ! -i $wg_if -p udp -m multiport --dports 4739,2055 -m comment --comment horus-ipfix-only-wg -j DROP 2>/dev/null; do :; done
+      iptables -S \$chain 2>/dev/null | grep -- '--comment horus-proxy-only' | sed 's/^-A /-D /' | while read -r r; do eval "iptables \$r" 2>/dev/null || true; done
     done
     ip link del $wg_if 2>/dev/null || true
     pkill -f "wireguard-go $wg_if" 2>/dev/null || true
@@ -1127,6 +1221,9 @@ summary() {
     echo "  Certificado:    autogenerado para $public_ip — huella SHA-256:"
     echo "                  $(cat "$tls_dir/fingerprint-sha256.txt")"
     echo "                  compruébala en el navegador antes de aceptar el aviso."
+  elif [ "$tls_mode" = external ]; then
+    echo "  Proxy inverso:  apunta tu proxy (esquema http) a $http_bind_addr:$http_port con WebSockets activado;"
+    echo "                  solo se aceptan X-Forwarded-* de $trusted_proxies (docs/install-debian.md)"
   else
     echo "  Certificado:    Let's Encrypt para $domain (se emite en la primera petición HTTPS)"
   fi
@@ -1164,6 +1261,16 @@ do_install() {
 }
 
 # --- --check -------------------------------------------------------------------------------------
+# URL local de Traefik para las comprobaciones (HTTPS propio o, en modo externo, el HTTP del proxy).
+traefik_base() {
+  if [ "${HORUS_TLS_MODE:-}" = external ]; then
+    local a="${HORUS_HTTP_BIND_ADDR:-127.0.0.1}"; [ "$a" != 0.0.0.0 ] || a=127.0.0.1
+    printf 'http://%s:%s' "$a" "$HORUS_HTTP_PORT"
+  else
+    printf 'https://127.0.0.1:%s' "$HORUS_HTTPS_PORT"
+  fi
+}
+
 do_check() {
   [ -f "$env_file" ] || die "no hay instalación en $install_dir"
   set -a; . "$env_file"; set +a
@@ -1179,13 +1286,20 @@ do_check() {
     [ "$ready" = ok ] && ok "horus-app /readyz (todos sus roles listos)" || fail "horus-app /readyz no responde 200"
   fi
   say "Puertos"
-  port_busy tcp "$HORUS_HTTPS_PORT" && ok "HTTPS $HORUS_HTTPS_PORT/tcp escuchando" || fail "HTTPS $HORUS_HTTPS_PORT/tcp no escucha"
-  port_busy tcp "$HORUS_HTTP_PORT" && ok "HTTP $HORUS_HTTP_PORT/tcp escuchando (redirección y ACME)" || fail "HTTP $HORUS_HTTP_PORT/tcp no escucha"
-  local code
-  code="$(curl -sk -o /dev/null -m 10 -w '%{http_code}' "https://127.0.0.1:$HORUS_HTTPS_PORT/api/v1/system/status" -H "Host: ${HORUS_PUBLIC_BASE_URL#https://}" || true)"
+  local code base host="${HORUS_PUBLIC_BASE_URL#https://}"
+  base="$(traefik_base)"
+  if [ "${HORUS_TLS_MODE:-}" = external ]; then
+    port_busy tcp "$HORUS_HTTP_PORT" && ok "HTTP $HORUS_HTTP_BIND_ADDR:$HORUS_HTTP_PORT/tcp escuchando (para el proxy inverso)" || fail "HTTP $HORUS_HTTP_PORT/tcp no escucha"
+    ok "TLS lo termina tu proxy inverso en $HORUS_PUBLIC_BASE_URL (X-Forwarded-* solo de $HORUS_FORWARDED_TRUSTED_IPS)"
+  else
+    port_busy tcp "$HORUS_HTTPS_PORT" && ok "HTTPS $HORUS_HTTPS_PORT/tcp escuchando" || fail "HTTPS $HORUS_HTTPS_PORT/tcp no escucha"
+    port_busy tcp "$HORUS_HTTP_PORT" && ok "HTTP $HORUS_HTTP_PORT/tcp escuchando (redirección y ACME)" || fail "HTTP $HORUS_HTTP_PORT/tcp no escucha"
+  fi
+  code="$(curl -sk -o /dev/null -m 10 -w '%{http_code}' "$base/api/v1/system/status" -H "Host: $host" || true)"
   [ "$code" = 401 ] && ok "API vía Traefik responde (401 sin token, esperado)" || fail "API vía Traefik: HTTP ${code:-sin respuesta} (se esperaba 401)"
-  code="$(curl -sk -o /dev/null -m 10 -w '%{http_code}' "https://127.0.0.1:$HORUS_HTTPS_PORT/" -H "Host: ${HORUS_PUBLIC_BASE_URL#https://}" || true)"
+  code="$(curl -sk -o /dev/null -m 10 -w '%{http_code}' "$base/" -H "Host: $host" || true)"
   [ "$code" = 200 ] && ok "interfaz web vía Traefik responde (200)" || fail "interfaz web vía Traefik: HTTP ${code:-sin respuesta} (se esperaba 200)"
+
   if ip link show "$HORUS_WG_INTERFACE" >/dev/null 2>&1; then
     ok "interfaz $HORUS_WG_INTERFACE presente ($(ip -4 -o addr show "$HORUS_WG_INTERFACE" | awk '{ print $4 }' | head -1))"
     if command -v wg >/dev/null 2>&1; then
@@ -1203,6 +1317,8 @@ do_check() {
     ok "certificado autogenerado, caduca $end"
     ok "huella SHA-256 $(cat "$HORUS_TLS_DIR/fingerprint-sha256.txt")"
     openssl x509 -in "$HORUS_TLS_DIR/public.crt" -noout -checkend $((30 * 86400)) >/dev/null || warn "el certificado caduca en < 30 días: vuelve a ejecutar install.sh tras borrar $HORUS_TLS_DIR/public.crt"
+  elif [ "$HORUS_TLS_MODE" = external ]; then
+    ok "lo pone tu proxy inverso (sin HSTS en Horus: actívalo en el proxy si quieres)"
   else
     ok "Let's Encrypt (acme.json en $HORUS_DATA_ROOT/traefik)"
   fi

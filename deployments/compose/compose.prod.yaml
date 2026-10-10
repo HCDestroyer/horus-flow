@@ -56,6 +56,9 @@ x-horus-env: &horus-env
   HORUS_PUBLIC_BASE_URL: ${HORUS_PUBLIC_BASE_URL:?falta HORUS_PUBLIC_BASE_URL}
   HORUS_ALLOWED_ORIGINS: ${HORUS_PUBLIC_BASE_URL}
   HORUS_TLS_MODE: ${HORUS_TLS_MODE:?falta HORUS_TLS_MODE}
+  # Redes de las que se aceptan X-Forwarded-For/Proto (packages/go/clientip): la del compose
+  # (Traefik) y, en modo TLS externo, el proxy inverso.
+  HORUS_TRUSTED_PROXIES: ${HORUS_TRUSTED_PROXIES:-}
   # Hub WireGuard (I1-01): mismo valor en wireguard (horus-app) y wg-agent.
   HORUS_WG_HUB_ID: ${HORUS_WG_HUB_ID:?falta HORUS_WG_HUB_ID}
   HORUS_WG_PORT: ${HORUS_WG_PORT:-51820}
@@ -216,6 +219,11 @@ services:
       - --global.checkNewVersion=false
       - --global.sendAnonymousUsage=false
       - --entryPoints.web.address=:8080
+      # X-Forwarded-* solo de los proxies de confianza (modo TLS externo, D19); en los demás modos
+      # 127.0.0.1/32 (nunca es el origen real): Traefik descarta las cabeceras del cliente y pone
+      # las suyas, y horus-app las lee solo desde la red del compose (HORUS_TRUSTED_PROXIES).
+      - --entryPoints.web.forwardedHeaders.trustedIPs=${HORUS_FORWARDED_TRUSTED_IPS:-127.0.0.1/32}
+      - --entryPoints.websecure.forwardedHeaders.trustedIPs=127.0.0.1/32
       - --entryPoints.websecure.address=:8443
       - --entryPoints.websecure.http.tls=true
       - --entryPoints.traefik.address=:8082
@@ -237,8 +245,9 @@ services:
       - ${HORUS_TLS_DIR:?falta HORUS_TLS_DIR}:/etc/traefik/tls:ro
       - ${HORUS_DATA_ROOT}/traefik:/data
     ports:
-      - "${HORUS_PUBLIC_BIND:-0.0.0.0}:${HORUS_HTTP_PORT:-80}:8080"
-      - "${HORUS_PUBLIC_BIND:-0.0.0.0}:${HORUS_HTTPS_PORT:-443}:8443"
+      # Modo TLS externo: HTTP solo en --http-bind y HTTPS solo en loopback (no se usa).
+      - "${HORUS_HTTP_BIND_ADDR:-0.0.0.0}:${HORUS_HTTP_PORT:-80}:8080"
+      - "${HORUS_HTTPS_BIND_ADDR:-0.0.0.0}:${HORUS_HTTPS_PORT:-443}:8443"
     mem_limit: 256m
     networks: [horus]
     healthcheck:

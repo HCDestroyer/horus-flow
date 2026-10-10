@@ -158,6 +158,14 @@ do_check_update() {
 
 # --- Salud ----------------------------------------------------------------------------------------
 # health_ok: todos los servicios healthy (nats-init completado), API 401 y web 200 por Traefik.
+traefik_base() {
+  if [ "${HORUS_TLS_MODE:-}" = external ]; then
+    local a="${HORUS_HTTP_BIND_ADDR:-127.0.0.1}"; [ "$a" != 0.0.0.0 ] || a=127.0.0.1
+    printf 'http://%s:%s' "$a" "$HORUS_HTTP_PORT"
+  else
+    printf 'https://127.0.0.1:%s' "$HORUS_HTTPS_PORT"
+  fi
+}
 health_report() {
   local svc st bad=0 code host
   while read -r svc st; do
@@ -169,9 +177,9 @@ health_report() {
     esac
   done < <("${compose[@]}" ps -a --format '{{.Service}} {{if .Health}}{{.Health}}{{else}}{{.State}}{{end}}' 2>/dev/null)
   host="${HORUS_PUBLIC_BASE_URL#https://}"
-  code="$(curl -sk -o /dev/null -m 10 -w '%{http_code}' "https://127.0.0.1:$HORUS_HTTPS_PORT/api/v1/system/status" -H "Host: $host" || true)"
+  code="$(curl -sk -o /dev/null -m 10 -w '%{http_code}' "$(traefik_base)/api/v1/system/status" -H "Host: $host" || true)"
   [ "$code" = 401 ] || { printf '  %-18s HTTP %s (se esperaba 401)\n' "API" "${code:-sin respuesta}"; bad=1; }
-  code="$(curl -sk -o /dev/null -m 10 -w '%{http_code}' "https://127.0.0.1:$HORUS_HTTPS_PORT/" -H "Host: $host" || true)"
+  code="$(curl -sk -o /dev/null -m 10 -w '%{http_code}' "$(traefik_base)/" -H "Host: $host" || true)"
   [ "$code" = 200 ] || { printf '  %-18s HTTP %s (se esperaba 200)\n' "web" "${code:-sin respuesta}"; bad=1; }
   return "$bad"
 }

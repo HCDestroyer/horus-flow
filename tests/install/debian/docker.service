@@ -1,11 +1,12 @@
 # docker.service de los binarios estáticos (TEST_MODE=sandbox de make test-install-debian).
+# Mismas opciones por defecto que el paquete docker-ce (iptables activado).
 [Unit]
 Description=Docker Engine (binarios estáticos de prueba)
 After=network-online.target
 Wants=network-online.target
 [Service]
 Type=notify
-ExecStart=/usr/bin/dockerd --iptables=false --ip6tables=false
+ExecStart=/usr/bin/dockerd
 ExecReload=/bin/kill -s HUP $MAINPID
 TimeoutStartSec=120
 Restart=always
