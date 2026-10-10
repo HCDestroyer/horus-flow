@@ -41,6 +41,7 @@ if [ "${ISP10K_SKIP_CHAOS:-0}" != 1 ]; then
     CHAOS_DOWN="${ISP10K_CHAOS_DOWN:-5m}" bash tests/load/load.sh || rc=$?
 fi
 
+bash tests/load/stack.sh compose logs --no-color --tail 3000 >bin/load/compose-logs-isp10k.txt 2>&1 || true
 if [ "$keep" != 1 ]; then
   bash tests/load/stack.sh down >/dev/null 2>&1 || true
 fi
