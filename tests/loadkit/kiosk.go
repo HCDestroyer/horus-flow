@@ -35,6 +35,7 @@ type Kiosk struct {
 	events       map[string]time.Time // id de evento → recepción
 	lastHTTP     int                  // último estado de las sondas HTTP
 	lastHTTPOKAt time.Time
+	lastErr      string
 	widgetURLs   []string
 }
 
@@ -130,6 +131,9 @@ func (k *Kiosk) Run(ctx context.Context) {
 			k.disconnects++
 		}
 		k.connected = false
+		if err != nil {
+			k.lastErr = err.Error()
+		}
 		k.mu.Unlock()
 		if err != nil && ctx.Err() == nil {
 			select {
@@ -146,7 +150,7 @@ func (k *Kiosk) session(ctx context.Context) error {
 		return err
 	}
 	if r.Status != http.StatusCreated {
-		return fmt.Errorf("ticket: HTTP %d", r.Status)
+		return fmt.Errorf("ticket: HTTP %d: %s", r.Status, r.Raw)
 	}
 	u := "ws" + strings.TrimPrefix(k.api.Base, "http") + "/api/v1/ws?ticket=" + r.Str("ticket")
 	dctx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -223,6 +227,7 @@ type KioskStatus struct {
 	Disconnects int
 	HTTPStatus  int
 	HTTPOKAt    time.Time
+	LastErr     string
 }
 
 // Status devuelve el estado actual.
@@ -230,7 +235,7 @@ func (k *Kiosk) Status() KioskStatus {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	return KioskStatus{Connected: k.connected, ConnectedAt: k.connectedAt, Disconnects: k.disconnects,
-		HTTPStatus: k.lastHTTP, HTTPOKAt: k.lastHTTPOKAt}
+		HTTPStatus: k.lastHTTP, HTTPOKAt: k.lastHTTPOKAt, LastErr: k.lastErr}
 }
 
 // ProbeRealtime publica un hallazgo sintético del ISP en JetStream y espera

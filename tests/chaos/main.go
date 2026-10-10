@@ -261,7 +261,7 @@ func waitKiosk(ctx context.Context, k *loadkit.Kiosk, since time.Time, d time.Du
 		}
 	}
 	s := k.Status()
-	return fmt.Errorf("no se recupera en %s (ws conectado=%v, última sonda HTTP %d)", d, s.Connected, s.HTTPStatus)
+	return fmt.Errorf("no se recupera en %s (ws conectado=%v, último error ws %q, última sonda HTTP %d)", d, s.Connected, s.LastErr, s.HTTPStatus)
 }
 
 // restart: caída de `service` durante `down` con ingesta continua.
