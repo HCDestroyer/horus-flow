@@ -563,6 +563,31 @@ y se registra un aviso (`horus_ingester_tlm_buffer_ratio`, `HORUS_INGESTER_BUFFE
 pasado `max_bytes` se descarta lo más antiguo. `natsx.EnsureStreams` (dev y pruebas) ya no deja
 TLM_FLOWS sin límite: expande `${HORUS_TLM_FLOWS_MAX_BYTES:-50GB}`.
 
+### 9.5 Perfil recomendado para un ISP de 10 000 clientes (FLOW, isp10k)
+
+Medido con `make load-isp10k` ([`tests/load/REPORT.md`](../tests/load/REPORT.md), sección isp10k) en
+4 vCPU compartidas: 10 000 flujos/s con todos los criterios, 20 000 flujos/s sin pérdida ni lag
+(API a 700 ms), techo de ClickHouse + ingester ≈ 33 000 filas/s y collector de un solo router ≈ 35 000
+registros/s. ClickHouse con 2 vCPU dedicadas escribe 49 000 filas/s con todas las vistas (INSERT
+agrupados de 50 000 filas, vistas de 1 h y 1 d en cascada).
+
+| Recurso | Recomendado | Motivo |
+| --- | --- | --- |
+| CPU | **8 vCPU** dedicadas | pico de 60 000/s ≈ 3,5 núcleos de ClickHouse + 1 de horus-app + 0,5 de collector, más consultas |
+| RAM | **32 GB** | ClickHouse 12–16 GB, horus-app 2 GB (`GOMEMLIMIT` 1,8 GiB), collector 512 MiB, NATS 1 GB, caché de página |
+| Disco | **500 GB NVMe** | ~250 GB usados: ClickHouse 76–94 GB (7–90 días, [`storage.md` §5.1](storage.md)), NATS 27 GB (`max_bytes` 100 GB con s2), margen de merges y backups |
+| Red/kernel | `net.core.rmem_max = 33554432`, `rmem_default = 1048576` | el collector pide 32 MiB de búfer UDP |
+| Collector | `HORUS_COLLECTOR_QUEUE_DATAGRAMS=32768` | absorbe segundos de CPU saturada (un router = un trabajador) |
+| NATS | `HORUS_TLM_FLOWS_MAX_BYTES = 100 GB` | 23 h de ClickHouse caído a la media, 10 h en pico habitual |
+
+**Cuándo un segundo host o una réplica de ClickHouse:** pico sostenido por encima de ~40 000 flujos/s
+(varios nodos grandes o más de ~30 000 clientes), p95 de la API > 500 ms en hora pico, 30 días de
+crudo (+300 GB) o paneles que deban seguir con ClickHouse caído. Primero ClickHouse en un host propio
+(16 vCPU, 64 GB); la réplica (ReplicatedMergeTree + Keeper) solo aporta alta disponibilidad de las
+consultas, porque la ingesta ya aguanta la caída de ClickHouse dentro de la autonomía de TLM_FLOWS.
+Antes de superar ~35 000 registros/s **por router** hay que decodificar un mismo exportador en
+paralelo en el collector (pendiente).
+
 ---
 
 ## 10. Modos de fallo y degradación
@@ -787,6 +812,7 @@ Todos los routers de **todos los ISP** llegan por el hub; es el SPOF más import
 | ClickHouse parado 30 s | **0 flujos** | TLM_FLOWS (backlog máx. ~360 lotes ≈ 36 s de flujos) | healthy en 6 s, backlog drenado en ~20 s; kiosco de vuelta en 6 s |
 | NATS parado 30 s | **0 flujos** | búfer en memoria del collector (máx. 23,5 MB) | healthy en 6 s, drenado en ~12 s; kiosco (WebSocket) de vuelta en 6 s |
 | `horus-app` parado 30 s | **0 flujos** | TLM_FLOWS (backlog máx. ~270 lotes) | healthy en 6 s, drenado en ~14 s; kiosco de vuelta en 6 s |
+| ClickHouse parado **5 min a 20 000 flujos/s** (isp10k) | **0 flujos después del collector**; 123 381 (1,9 %) descartados por la cola del collector al drenar en 4 vCPU compartidas | TLM_FLOWS (backlog máx. 5,6 M de flujos, 1,03 GB lógicos; aviso de `/readyz` al 72 %) | healthy en 6 s, drenado en 2 min 22 s; kiosco de vuelta en 9 s |
 | Collector parado 1 min | **lo enviado durante la caída** (~53 s de flujos de 60 s) | ninguno: UDP sin reintento y sin spool | el hueco es ausencia de filas (la serie de la API da `null`, nunca 0); el exportador pasa por *Silencioso* y vuelve a *Exportando* |
 
 Límites que se derivan: la caída de ClickHouse, NATS o `horus-app` no pierde flujos mientras dure
