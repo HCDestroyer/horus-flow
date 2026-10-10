@@ -265,6 +265,13 @@ chaos-i1: ## Pruebas de fallo de I1: reinicio de ClickHouse, NATS y horus-app; c
 load-isp10k: ## Carga de un ISP de 10 000 clientes (rampa 10k→60k flujos/s) y ClickHouse caído 5 min a 20k/s
 	@GO='$(GO)' bash tests/load/isp10k.sh
 
+# Matriz de reinicio brusco de la cadena de flujos (D23; tests/chaos/restart.go): collector,
+# horus-app, NATS y ClickHouse × kill -9 / docker restart, CHAOS_REPEAT (3) veces en momentos
+# aleatorios a CHAOS_RATE (10000) flujos/s. Proyecto horus-chaos-flows (+25000).
+.PHONY: chaos-restart-flows
+chaos-restart-flows: ## Reinicios bruscos de collector, horus-app, NATS y ClickHouse: 0 pérdida (salvo UDP con el collector caído) y 0 duplicados
+	@GO='$(GO)' bash tests/chaos/restart-flows.sh
+
 ##@ Aceptación
 
 # Batería de aceptación del incremento 0 (I0-19, tests/acceptance/README.md). Levanta su propio
