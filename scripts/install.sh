@@ -247,7 +247,7 @@ check_requirements() {
   else
     local p
     # 18081/tcp: admin de horus-wg-agent (red del host, solo 127.0.0.1).
-    for p in "tcp:$(get http-port 80)" "tcp:$(get https-port 443)" "udp:$(get wg-port 51820)" "tcp:18081"; do
+    for p in "tcp:$http_port" "tcp:$https_port" "udp:$(get wg-port 51820)" "tcp:18081"; do
       if port_busy "${p%%:*}" "${p#*:}"; then fail "puerto ${p#*:}/${p%%:*} ocupado"; else ok "puerto ${p#*:}/${p%%:*} libre"; fi
     done
   fi
