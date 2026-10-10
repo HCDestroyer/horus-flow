@@ -28,6 +28,9 @@ const gridBottom = PAD + 15 * STEP
 
 <template>
   <figure class="relative mx-auto w-full max-w-[22rem]">
+    <figcaption class="mb-2 text-sm text-muted">
+      <span class="font-mono" aria-hidden="true">{{ t('hero.gridCaption') }}</span>
+    </figcaption>
     <svg
       viewBox="0 0 344 344"
       role="img"
@@ -77,10 +80,7 @@ const gridBottom = PAD + 15 * STEP
         />
       </g>
     </svg>
-    <figcaption class="mt-1 flex items-start justify-between gap-3 text-sm text-muted">
-      <span class="font-mono" aria-hidden="true">{{ t('hero.gridCaption') }}</span>
-    </figcaption>
-    <div class="surface relative mt-3 rounded-xl p-4 shadow-sm" aria-hidden="true">
+    <div class="surface relative rounded-xl p-4 shadow-sm" aria-hidden="true">
       <div class="flex items-center gap-2">
         <span class="inline-block size-2.5 rounded-full bg-(--infected)" />
         <span class="font-mono font-semibold text-highlighted">10.20.1.47</span>

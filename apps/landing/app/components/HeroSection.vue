@@ -9,7 +9,7 @@ const { t } = useI18n()
         <p class="eyebrow">{{ t('hero.eyebrow') }}</p>
         <h1
           id="hero-title"
-          class="mt-3 text-[2.125rem] font-bold text-highlighted sm:text-5xl lg:text-[3.5rem]"
+          class="mt-3 text-[2rem] font-bold text-balance text-highlighted sm:text-[2.75rem] lg:text-[3.25rem]"
         >
           {{ t('hero.title') }}
         </h1>
