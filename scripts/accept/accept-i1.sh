@@ -35,6 +35,9 @@
 #   ACCEPT_KEEP=1                        no desinstala (local) ni borra los routers simulados
 #   ACCEPT_PORT_OFFSET (21000), ACCEPT_IMAGE (horus:accept-i1), ACCEPT_IMAGE_MODE (auto)
 #   ACCEPT_INSTALL_ROOT, ACCEPT_ADMIN_PASSWORD_FILE, ACCEPT_ADMIN_TOTP_SECRET_FILE, ACCEPT_BASE_URL
+#   ACCEPT_PROJECT (horus-accept-i1), ACCEPT_WG_INTERFACE (hfwgacci1), ACCEPT_DOCKER_SUBNET (172.31.241.0/24),
+#   ACCEPT_TUNNEL_CIDR (10.241.0.0/16), ACCEPT_OUT_DIR (bin/accept-i1): otra instalación local en paralelo
+#   (make chaos-restart-core los cambia para no chocar con esta batería)
 #   GOLANGCI_LINT, GO, PLAYWRIGHT_BROWSERS_PATH
 #
 # Necesita root (instalador, WireGuard, namespaces de red), Docker con compose v2, Go,
@@ -47,7 +50,7 @@ set -uo pipefail
 repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$repo_root" || exit 1
 
-out_dir="$repo_root/bin/accept-i1"
+out_dir="${ACCEPT_OUT_DIR:-$repo_root/bin/accept-i1}"
 mkdir -p "$out_dir/notes"
 rm -rf "$out_dir"/*.log "$out_dir"/notes/* "$out_dir"/notes/.installed "$out_dir"/compose-logs.txt "$out_dir"/e2e-report.tsv 2>/dev/null || true
 
@@ -59,7 +62,7 @@ case "$target" in local | installed) ;; *) echo "accept-i1: TARGET=$target desco
 
 offset="${ACCEPT_PORT_OFFSET:-21000}"
 image="${ACCEPT_IMAGE:-horus:accept-i1}"
-project="horus-accept-i1"
+project="${ACCEPT_PROJECT:-horus-accept-i1}"
 inst_root=""   # raíz de la instalación ("" = /)
 if [ "$target" = local ]; then
   inst_root="${ACCEPT_LOCAL_ROOT:-/tmp/horus-accept-i1}"
@@ -180,9 +183,9 @@ s_install() {
   touch "$out_dir/notes/.installed" # la limpieza desinstala solo lo que instaló esta ejecución
   bash scripts/install.sh --yes --force --root "$inst_root" --mode ip --public-ip 127.0.0.1 \
     --admin-email admin@horus.test --admin-password-file "$inst_root/admin-password" \
-    --tunnel-cidr 10.241.0.0/16 --image "$image" --project "$project" \
+    --tunnel-cidr "${ACCEPT_TUNNEL_CIDR:-10.241.0.0/16}" --image "$image" --project "$project" \
     --http-port $((offset + 80)) --https-port $((offset + 443)) --wg-port $((51820 + offset / 1000)) \
-    --wg-interface hfwgacci1 --docker-subnet 172.31.241.0/24 --tlm-max-bytes 1073741824 \
+    --wg-interface "${ACCEPT_WG_INTERFACE:-hfwgacci1}" --docker-subnet "${ACCEPT_DOCKER_SUBNET:-172.31.241.0/24}" --tlm-max-bytes 1073741824 \
     --backup-metrics-port $((offset + 9109)) --skip-backup || return 1
   note "install.sh --mode ip en $inst_root, $(inst_env HORUS_PUBLIC_BASE_URL)"
 }
