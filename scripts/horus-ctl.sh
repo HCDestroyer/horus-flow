@@ -350,23 +350,23 @@ prepare_bundle() {
   local f; f="$(readlink -f "$1")"
   [ -f "$f" ] || [ -d "$f" ] || die "no existe $1"
   if [ -d "$f" ]; then printf '%s' "$f"; return 0; fi
-  local sums dir
+  local sums dir top
   sums="$(dirname "$f")/SHA256SUMS"
   if [ -f "$sums" ]; then
     [ ! -f "$(dirname "$f")/SHA256SUMS.sigstore.json" ] || [ -z "$(cosign_bin)" ] || verify_sums_signature "$(dirname "$f")" >&2
     (cd "$(dirname "$f")" && grep " [*]\{0,1\}$(basename "$f")\$" SHA256SUMS | sha256sum -c --quiet -) \
       || die "SHA256 de $(basename "$f") no coincide con SHA256SUMS"
+    : >"$f.verified" 2>/dev/null || true
     ok "SHA256 de $(basename "$f") verificado" >&2
   else
-    warn "sin SHA256SUMS junto a $(basename "$f"): se verifica solo su contenido" >&2
+    warn "sin SHA256SUMS junto a $(basename "$f"): install.sh verifica su contenido" >&2
   fi
-  dir="$cache_dir/bundles/$(basename "$f" .tar.gz)"
-  install -d -m 0700 "$cache_dir/bundles"
+  # Solo scripts y VERSION: install.sh de la versión nueva verifica, extrae y carga el resto.
+  dir="$cache_dir/upgrade/$(basename "$f" .tar.gz)"
+  install -d -m 0700 "$cache_dir/upgrade"
   rm -rf "$dir"; install -d -m 0755 "$dir"
-  tar -xzf "$f" -C "$dir" --strip-components=1 || die "no se pudo extraer $f"
-  : >"$dir/.extracted"
-  (cd "$dir" && sha256sum -c --quiet SHA256SUMS) || die "el contenido de $(basename "$f") no coincide con su SHA256SUMS"
-  : >"$dir/.verified"
+  top="$(tar -tzf "$f" | head -1)"; top="${top%%/*}"
+  tar -xzf "$f" -C "$dir" --strip-components=1 "$top/scripts" "$top/VERSION" || die "$(basename "$f") no es un paquete de Horus"
   printf '%s' "$dir"
 }
 
@@ -435,7 +435,7 @@ do_upgrade() {
     say "Paquete offline $bundle"
     tree="$(prepare_bundle "$bundle")"
     target="$(tr -d ' \r\n' <"$tree/VERSION")"
-    src="bundle:$tree"
+    src="bundle:$(readlink -f "$bundle")"
   else
     if [ -z "$to" ]; then
       to="$(latest_in_channel "${HORUS_UPDATE_CHANNEL:-stable}")" || die "no se pudo consultar la fuente de versiones (¿sin Internet? usa --bundle)"

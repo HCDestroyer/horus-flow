@@ -200,13 +200,13 @@ elif [ -n "$bundle" ]; then
   else
     warn "sin SHA256SUMS junto al paquete: se verifica solo su contenido"
   fi
-  tree="$cache/bundles/$(basename "$f" .tar.gz)"
-  install -d -m 0700 "$cache/bundles"; rm -rf "$tree"; install -d -m 0755 "$tree"
-  tar -xzf "$f" -C "$tree" --strip-components=1
-  (cd "$tree" && sha256sum -c --quiet SHA256SUMS) || die "el contenido del paquete no coincide con su SHA256SUMS"
-  : >"$tree/.extracted"; : >"$tree/.verified"
-  ok "paquete $(cat "$tree/VERSION") extraído en $tree"
-  pass=(--image-source "bundle:$tree" "${pass[@]}")
+  # Solo los scripts (install.sh verifica y extrae el resto y carga las imágenes en streaming).
+  tree="$cache/bootstrap/$(basename "$f" .tar.gz)"
+  install -d -m 0700 "$cache/bootstrap"; rm -rf "$tree"; install -d -m 0755 "$tree"
+  top="$(tar -tzf "$f" | head -1)"; top="${top%%/*}"
+  tar -xzf "$f" -C "$tree" --strip-components=1 "$top/scripts" "$top/VERSION" || die "$(basename "$f") no es un paquete de Horus"
+  ok "paquete $(cat "$tree/VERSION")"
+  pass=(--image-source "bundle:$f" "${pass[@]}")
 elif [ -f "$here/VERSION" ] && [ -f "$here/scripts/install.sh" ] && [ -f "$here/images.lock" ]; then
   tree="$here"   # este script viene dentro de un paquete ya extraído
 else

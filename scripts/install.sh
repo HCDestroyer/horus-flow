@@ -314,34 +314,73 @@ tree_version() { if [ -s "$1/VERSION" ]; then tr -d ' \r\n' <"$1/VERSION"; else 
 # bundle_tree <ruta>: directorio del paquete offline (extrae el .tar.gz si hace falta y verifica
 # SHA256SUMS del archivo y de su contenido).
 bundle_tree() {
-  local src="$1" dir sums
-  [ -e "$src" ] || die "no existe el paquete offline $src"
+  local src="$1" dir sums top
+  bundle_archive="" bundle_sums_ok=0
   if [ -d "$src" ]; then
     dir="$(readlink -f "$src")"
-  else
-    src="$(readlink -f "$src")"
-    sums="$(dirname "$src")/SHA256SUMS"
-    if [ -f "$sums" ] && grep -q " [*]\{0,1\}$(basename "$src")\$" "$sums"; then
+    [ -f "$dir/SHA256SUMS" ] || die "$dir no es un paquete de Horus (falta SHA256SUMS)"
+    if [ ! -f "$dir/.verified" ] || [ "$dir/SHA256SUMS" -nt "$dir/.verified" ]; then
+      if [ -f "$dir/images/horus-images.tar" ]; then
+        (cd "$dir" && sha256sum -c --quiet SHA256SUMS) || die "el contenido de $dir no coincide con su SHA256SUMS"
+      else
+        (cd "$dir" && grep -v ' [*]\{0,1\}images/horus-images.tar$' SHA256SUMS | sha256sum -c --quiet -) || die "el contenido de $dir no coincide con su SHA256SUMS"
+      fi
+      : >"$dir/.verified"
+    fi
+    bundle_dir="$dir"; return 0
+  fi
+  [ -f "$src" ] || die "no existe el paquete offline $src"
+  src="$(readlink -f "$src")"
+  bundle_archive="$src"
+  sums="$(dirname "$src")/SHA256SUMS"
+  if [ -f "$sums" ] && grep -q " [*]\{0,1\}$(basename "$src")\$" "$sums"; then
+    if [ ! -f "$src.verified" ] || [ "$src" -nt "$src.verified" ]; then
       (cd "$(dirname "$src")" && grep " [*]\{0,1\}$(basename "$src")\$" SHA256SUMS | sha256sum -c --quiet -) \
         || die "el SHA256 de $(basename "$src") no coincide con SHA256SUMS: paquete dañado o manipulado"
-      ok "SHA256 de $(basename "$src") verificado" >&2
-    else
-      warn "sin SHA256SUMS junto a $(basename "$src"): solo se verifica su contenido" >&2
+      : >"$src.verified" 2>/dev/null || true
     fi
-    dir="$(get_bundle_cache)/$(basename "$src" .tar.gz)"
-    if [ ! -f "$dir/.extracted" ] || [ "$src" -nt "$dir/.extracted" ]; then
-      rm -rf "$dir"; install -d -m 0755 "$dir"
-      tar -xzf "$src" -C "$dir" --strip-components=1 || die "no se pudo extraer $src"
-      : >"$dir/.extracted"
-    fi
+    bundle_sums_ok=1
+    ok "SHA256 de $(basename "$src") verificado (SHA256SUMS)" >&2
+  else
+    warn "sin SHA256SUMS junto a $(basename "$src"): se verifica su contenido" >&2
   fi
-  [ -f "$dir/SHA256SUMS" ] || die "$dir no es un paquete de Horus (falta SHA256SUMS)"
-  if [ ! -f "$dir/.verified" ] || [ "$dir/SHA256SUMS" -nt "$dir/.verified" ]; then
-    (cd "$dir" && sha256sum -c --quiet SHA256SUMS) || die "el contenido de $dir no coincide con su SHA256SUMS"
-    : >"$dir/.verified"
+  # Se extrae todo MENOS images/horus-images.tar (se carga en streaming desde el .tar.gz).
+  dir="$(get_bundle_cache)/$(basename "$src" .tar.gz)"
+  if [ ! -f "$dir/.extracted" ] || [ "$src" -nt "$dir/.extracted" ]; then
+    top="$(tar -tzf "$src" | head -1)"; top="${top%%/*}"
+    rm -rf "$dir"; install -d -m 0755 "$dir"
+    tar -xzf "$src" -C "$dir" --strip-components=1 --exclude "$top/images/horus-images.tar" || die "no se pudo extraer $src"
+    (cd "$dir" && grep -v ' [*]\{0,1\}images/horus-images.tar$' SHA256SUMS | sha256sum -c --quiet -) \
+      || die "el contenido de $src no coincide con su SHA256SUMS"
+    printf '%s\n' "$top" >"$dir/.extracted"
   fi
-  printf '%s' "$dir"
+  bundle_dir="$dir"
 }
+
+# load_bundle_images: docker load del paquete offline (directorio o streaming desde el .tar.gz,
+# comprobando el SHA256 de images/horus-images.tar contra el SHA256SUMS interno).
+load_bundle_images() {
+  local want got top tmp
+  want="$(awk '$2 ~ /^[*]?images\/horus-images.tar$/ { print $1 }' "$bundle_dir/SHA256SUMS")"
+  [ -n "$want" ] || die "el SHA256SUMS del paquete no lista images/horus-images.tar"
+  if [ -f "$bundle_dir/images/horus-images.tar" ]; then
+    docker load -q -i "$bundle_dir/images/horus-images.tar" >/dev/null || die "docker load falló"
+    return 0
+  fi
+  [ -n "$bundle_archive" ] && [ -f "$bundle_archive" ] || die "falta el paquete offline .tar.gz para cargar las imágenes"
+  top="$(head -1 "$bundle_dir/.extracted")"
+  if [ "$bundle_sums_ok" = 0 ]; then
+    got="$(tar -xzOf "$bundle_archive" "$top/images/horus-images.tar" | sha256sum | cut -d' ' -f1)"
+    [ "$got" = "$want" ] || die "SHA256 de images/horus-images.tar no coincide: paquete dañado"
+  fi
+  tmp="$(mktemp)"
+  tar -xzOf "$bundle_archive" "$top/images/horus-images.tar" | tee >(sha256sum | cut -d' ' -f1 >"$tmp") | docker load -q >/dev/null \
+    || { rm -f "$tmp"; die "docker load falló con $bundle_archive"; }
+  sleep 1
+  got="$(cat "$tmp")"; rm -f "$tmp"
+  [ "$got" = "$want" ] || die "SHA256 de images/horus-images.tar no coincide tras cargar: borra las imágenes cargadas y usa un paquete íntegro"
+}
+
 get_bundle_cache() { local d="${root:-}/var/cache/horus/bundles"; install -d -m 0700 "$d"; printf '%s' "$d"; }
 
 read_lock() { # read_lock <images.lock> <modo: digest|tag>
@@ -369,14 +408,22 @@ configure_images() {
       image_source_desc="GHCR ($registry), fijadas por digest"
       ;;
     bundle:*)
-      bundle_dir="$(bundle_tree "${image_source#bundle:}")"
-      [ -f "$bundle_dir/images.lock" ] && [ -f "$bundle_dir/images/horus-images.tar" ] || die "$bundle_dir no trae images.lock e images/horus-images.tar"
+      local bsrc="${image_source#bundle:}"
+      bundle_archive="" bundle_sums_ok=0
+      if [ ! -e "$bsrc" ] && [ -f "$repo_root/.installed-copy" ] && [ -f "$repo_root/images.lock" ]; then
+        # Reejecución desde la copia instalada sin el paquete: las imágenes ya están cargadas.
+        bundle_dir="$repo_root"
+        warn "el paquete offline $bsrc ya no está: se usan las imágenes cargadas de $(tree_version "$repo_root")"
+      else
+        bundle_tree "$bsrc"
+      fi
+      [ -f "$bundle_dir/images.lock" ] || die "$bundle_dir no trae images.lock"
       read_lock "$bundle_dir/images.lock" tag
       horus_version="$(tree_version "$bundle_dir")"
       # Compose, configuración y scripts de la MISMA versión que las imágenes.
       repo_root="$bundle_dir"
-      image_source="bundle:$bundle_dir"
-      image_source_desc="paquete offline $bundle_dir"
+      image_source="bundle:$bsrc"
+      image_source_desc="paquete offline $bsrc ($horus_version)"
       ;;
     local)
       img[HORUS_IMAGE]="$(get image horus:local)"
@@ -787,7 +834,7 @@ ensure_images() {
       done
       if [ "$missing" = 1 ]; then
         say "cargando las imágenes del paquete offline (docker load, puede tardar)"
-        docker load -q -i "$bundle_dir/images/horus-images.tar" >/dev/null || die "docker load falló con $bundle_dir/images/horus-images.tar"
+        load_bundle_images
       fi
       for v in "${img_vars[@]}"; do
         ref="${img[$v]:-}"; [ -n "$ref" ] || continue
