@@ -44,6 +44,10 @@ type Metrics struct {
 	// más aguanta cada búfer (memoria, spool) sin bus a ese ritmo.
 	IngressBytesRate prometheus.Gauge
 	Autonomy         *prometheus.GaugeVec
+	// DowntimeLost son los registros que el exportador envió mientras el
+	// collector estaba caído (secuencia guardada frente a la primera tras
+	// arrancar; cota superior: incluye hasta 1 s anterior a un kill -9).
+	DowntimeLost *prometheus.CounterVec
 }
 
 // NewMetrics crea y registra las métricas (reg puede ser nil en tests).
@@ -91,11 +95,13 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Help: "Bytes de lotes por segundo que produce el collector (media de 5 s)."}),
 		Autonomy: prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "horus_collector_autonomy_seconds",
 			Help: "Segundos que aguanta cada búfer sin bus al ritmo de entrada actual (-1 sin entrada)."}, []string{"buffer"}),
+		DowntimeLost: prometheus.NewCounterVec(prometheus.CounterOpts{Name: "horus_collector_downtime_lost_records_total",
+			Help: "Registros que el exportador envió mientras el collector estaba caído (según la secuencia guardada)."}, []string{"router_id"}),
 	}
 	if reg != nil {
 		for _, c := range []prometheus.Collector{m.Datagrams, m.Records, m.ReceivedRecords, m.Dropped, m.SeqGaps, m.LostRecords,
 			m.ClockSkew, m.Batches, m.BufferBytes, m.BusConnected, m.Spooling, m.SpoolBytes, m.SpoolBatches, m.SpoolRecords,
-			m.SpoolOldestAge, m.SpoolWritten, m.SpoolReplayed, m.SpoolDropped, m.SpoolDroppedRecords, m.IngressBytesRate, m.Autonomy} {
+			m.SpoolOldestAge, m.SpoolWritten, m.SpoolReplayed, m.SpoolDropped, m.SpoolDroppedRecords, m.IngressBytesRate, m.Autonomy, m.DowntimeLost} {
 			_ = reg.Register(c)
 		}
 	}

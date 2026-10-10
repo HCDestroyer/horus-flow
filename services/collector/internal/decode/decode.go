@@ -163,6 +163,10 @@ type Options struct {
 	PendingMaxSets int
 	// Now es el reloj (tests).
 	Now func() time.Time
+	// OnTemplate se llama al definir (o retirar) una plantilla, en el hilo de
+	// Decode/Prepare. El collector la usa para guardarlas y reinstalarlas tras
+	// un reinicio (Install). La plantilla es inmutable.
+	OnTemplate func(src string, odid uint32, version uint16, t *Template, withdrawn bool)
 }
 
 // Decoder mantiene las plantillas por exportador. No es seguro para uso
@@ -192,6 +196,26 @@ func New(o Options) *Decoder {
 		o.Now = time.Now
 	}
 	return &Decoder{opts: o, templates: map[tkey]*Template{}, pending: map[string][]pendingSet{}, sampling: map[string]uint32{}}
+}
+
+// SetOnTemplate cambia Options.OnTemplate (antes de usar el decodificador).
+func (d *Decoder) SetOnTemplate(fn func(src string, odid uint32, version uint16, t *Template, withdrawn bool)) {
+	d.opts.OnTemplate = fn
+}
+
+// Install reinstala una plantilla guardada (reinicio del collector) sin
+// esperar a que el exportador la reenvíe.
+func (d *Decoder) Install(src string, odid uint32, version uint16, t Template) error {
+	if t.ID < 256 || len(t.Fields) == 0 || len(t.Fields) > maxFieldsPerTemplate || (version != VersionIPFIX && version != VersionV9) {
+		return fmt.Errorf("%w: template %d", ErrMalformed, t.ID)
+	}
+	t.computeMin()
+	if t.minLen == 0 {
+		return fmt.Errorf("%w: template %d has zero length", ErrMalformed, t.ID)
+	}
+	t.Fields = append([]Field(nil), t.Fields...)
+	d.templates[tkey{src: src, odid: odid, version: version, id: t.ID}] = &t
+	return nil
 }
 
 // Sampling devuelve la tasa de muestreo anunciada por Options Template (0 si ninguna).
@@ -480,6 +504,9 @@ func (d *Decoder) templateSet(src string, res *Result, b []byte, options bool) e
 		if nfields == 0 && ver == VersionIPFIX { // retirada de plantilla (RFC 7011 §8.1)
 			delete(d.templates, k)
 			res.Templates++
+			if d.opts.OnTemplate != nil {
+				d.opts.OnTemplate(src, odid, ver, &Template{ID: t.ID, Options: options}, true)
+			}
 			continue
 		}
 		t.Fields = make([]Field, 0, nfields)
@@ -509,6 +536,9 @@ func (d *Decoder) templateSet(src string, res *Result, b []byte, options bool) e
 		tt := t
 		d.templates[k] = &tt
 		res.Templates++
+		if d.opts.OnTemplate != nil {
+			d.opts.OnTemplate(src, odid, ver, &tt, false)
+		}
 		d.release(k, &tt, res)
 		if options && ver == VersionV9 {
 			return nil // v9: el resto del conjunto de opciones es relleno

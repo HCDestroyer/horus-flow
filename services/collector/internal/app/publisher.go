@@ -11,6 +11,7 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"github.com/hcdestroyer/horus-flow/packages/go/flowbus"
+	"github.com/hcdestroyer/horus-flow/packages/go/flowinv"
 	"github.com/hcdestroyer/horus-flow/services/collector/internal/spool"
 )
 
@@ -110,6 +111,33 @@ func (p *Publisher) SpoolDropped(reason string, batches, records int) {
 	p.sgReason = "spool_" + reason
 	p.sgBatches += uint64(batches) //nolint:gosec // >= 0
 	p.sgRecords += uint64(records) //nolint:gosec // >= 0
+}
+
+// ReportDowntime publica horus.flows.collector.data_gap con reason
+// collector_down: lo que el exportador envió mientras el collector estaba
+// caído (medido con la secuencia guardada). No bloquea a quien lo llama.
+func (p *Publisher) ReportDowntime(exp *flowinv.Exporter, from, to time.Time, records uint64) {
+	p.log.Warn("flows sent while the collector was down (UDP, lost)", "router_id", exp.RouterID, "tenant_id", exp.TenantID,
+		"from", from.UTC(), "to", to.UTC(), "records", records)
+	collector := uuid.NewSHA1(uuid.NameSpaceOID, []byte("horus-collector:"+p.collectorID))
+	ev := flowbus.Event{Type: flowbus.TypeCollectorDataGap, Source: "horus/flows/collector",
+		Entity: collector.String(), AggregateType: "collector", AggregateVersion: 1,
+		Data: map[string]any{
+			"collector_id": p.collectorID, "from": from.UTC().Format(flowbus.TimeFormat),
+			"to": to.UTC().Format(flowbus.TimeFormat), "dropped_batches": "0",
+			"dropped_records_estimated": uintString(records), "reason": "collector_down",
+		}}
+	go func() {
+		m, err := ev.Msg()
+		if err == nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			err = p.sink.PublishMsg(ctx, m)
+			cancel()
+		}
+		if err != nil {
+			p.log.Warn("data_gap (collector_down) not published", "error", err)
+		}
+	}()
 }
 
 // SpoolHealth es la sonda de /readyz: degradado mientras los lotes van al

@@ -112,6 +112,20 @@ func (m *mod) Start(ctx context.Context) error {
 		State: app.StateOptions{SilentAfter: m.cfg.SilentAfter, LossThreshold: m.cfg.LossThreshold,
 			LossWindow: m.cfg.LossWindow, ClockSkew: m.cfg.ClockSkew, Interval: m.cfg.StateInterval},
 	}, m.inv, jsSink{js: js}, kv, m.m, m.log)
+	if b, err := js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: app.CollectorStateBucket,
+		Description: "Plantillas y secuencias del collector para continuar tras un reinicio (D23)", History: 1,
+		Storage: jetstream.FileStorage}); err != nil {
+		m.log.WarnContext(ctx, "collector state bucket unavailable: templates and sequences start empty after a restart", "error", err)
+	} else {
+		skv := app.JetStreamStateKV{KV: b}
+		tpls, seqs, err := m.engine.RestoreState(ctx, skv, m.cfg.TemplateTTL)
+		if err != nil {
+			m.log.WarnContext(ctx, "collector state not restored", "error", err)
+		} else {
+			m.log.InfoContext(ctx, "collector state restored", "templates", tpls, "sequences", seqs)
+		}
+		m.engine.UsePersistence(skv)
+	}
 	if m.cfg.SpoolDir != "" {
 		sp, err := spool.Open(spool.Options{Dir: m.cfg.SpoolDir, MaxBytes: m.cfg.SpoolBytes, SegmentBytes: m.cfg.SpoolSegmentBytes,
 			Fsync: m.cfg.SpoolFsync, OnDrop: m.engine.Pub.SpoolDropped, Log: m.log})

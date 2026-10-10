@@ -45,6 +45,9 @@ type Config struct {
 	// UDPReadBuffer es el búfer de recepción de cada socket UDP; el kernel lo
 	// limita a net.core.rmem_max (el instalador lo sube a 32 MiB).
 	UDPReadBuffer int `env:"HORUS_COLLECTOR_UDP_RCVBUF" envDefault:"33554432"`
+	// TemplateTTL: las plantillas guardadas en flow_collector_state se
+	// reinstalan al arrancar si no son más viejas que esto.
+	TemplateTTL time.Duration `env:"HORUS_COLLECTOR_TEMPLATE_TTL" envDefault:"30m"`
 	// PendingTTL es cuánto se retienen datos que llegan antes de su plantilla.
 	PendingTTL time.Duration `env:"HORUS_COLLECTOR_PENDING_TTL" envDefault:"30s"`
 	// Estado del exportador (I1-09).

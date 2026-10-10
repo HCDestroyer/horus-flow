@@ -35,6 +35,10 @@ type Worker struct {
 	batcher *Batcher
 	states  *States
 	m       *Metrics
+	// persist guarda plantillas y secuencias (nil = sin persistencia).
+	persist *workerPersist
+	// downtime informa de lo enviado mientras el collector estaba caído.
+	downtime func(exp *flowinv.Exporter, from, to time.Time, records uint64)
 }
 
 type seqKey struct {
@@ -143,11 +147,21 @@ func (w *Worker) post(j *dgram) {
 		tr = &seqTracker{}
 		w.seq[k] = tr
 	}
-	var lost uint64
+	var lost, downtime uint64
+	restoredAt := tr.restoredAt
 	if err == nil {
-		lost = tr.observe(res.Header.Version == decode.VersionIPFIX, res.Header.Sequence, res.DataRecords+res.OptionsRecords)
+		lost, downtime = tr.observe(res.Header.Version == decode.VersionIPFIX, res.Header.Sequence, res.DataRecords+res.OptionsRecords)
+		if w.persist != nil {
+			w.persist.seq(k, tr, j.d.At)
+		}
 	}
 	rid := exp.RouterID.String()
+	if downtime > 0 {
+		w.m.DowntimeLost.WithLabelValues(rid).Add(float64(downtime))
+		if w.downtime != nil {
+			w.downtime(exp, restoredAt, j.d.At, downtime)
+		}
+	}
 	if lost > 0 {
 		w.m.SeqGaps.WithLabelValues(rid).Inc()
 		w.m.LostRecords.WithLabelValues(rid).Add(float64(lost))
