@@ -249,6 +249,7 @@ if [ "${TEST_PROXY:-1}" = 1 ]; then
   docker image inspect "$nginx_img" >/dev/null 2>&1 || docker pull -q "$nginx_img" >/dev/null
   proxy_setup() {
     docker save "$nginx_img" | docker exec -i "$name" docker load -q >/dev/null || return 1
+    docker exec "$name" docker rm -f horus-test-nginx >/dev/null 2>&1 || true
     docker exec "$name" mkdir -p /etc/horus-test-nginx/tls
     docker cp "$here/nginx-proxy.conf" "$name:/etc/horus-test-nginx/default.conf"
     docker exec "$name" openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 30 \
