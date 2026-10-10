@@ -539,9 +539,29 @@ Stream FLOWS con `max_bytes = 50 GB` en SSD (`discard: old`):
 **Medido en I1-26** ([`tests/load/REPORT.md`](../tests/load/REPORT.md)): un lote de TLM_FLOWS ocupa
 **184 B por flujo** (no 60), así que con `max_bytes = 50 GB` la autonomía real es un tercio de la
 tabla: **S ≈ 45 – 90 min en pico (≈ 1,9 – 3,8 h en media), M ≈ 15 – 30 min en pico (≈ 38 – 76 min
-en media), L ≈ 4,5 – 9 min en pico**. El objetivo de C-12 (≥ 6 h ante caída de ClickHouse) exige
-dimensionar `HORUS_TLM_FLOWS_MAX_BYTES` con 184 B/flujo (p. ej. M en media: ~160 GB) o reducir el
-tamaño del lote en el bus (pendiente de FLOW).
+en media), L ≈ 4,5 – 9 min en pico**.
+
+**Con compresión s2 (FLOW, isp10k).** TLM_FLOWS se declara con `compression: s2` en el contrato C4
+(NATS ≥ 2.10; la pila usa 2.14). Medido con el escenario isp10k: **185 B por flujo sin comprimir**
+(lo que cuenta `max_bytes` y lo que reserva `max_file_store`) y **50 B por flujo en disco** (×3,7).
+`max_bytes` sigue contando bytes sin comprimir, así que la autonomía por `max_bytes` no cambia; lo
+que cambia es el disco: un `max_bytes` de 100 GB ocupa ≈ 27 GB. Dimensionado (configurable con
+`HORUS_TLM_FLOWS_MAX_BYTES`; `max_file_store` de NATS ≥ suma de `max_bytes`):
+
+    max_bytes = tasa (flujos/s) × 3 600 × horas × 185 B      disco ≈ max_bytes × 0,27
+
+| ISP de 10 000 clientes | Tasa | GB/h sin comprimir | GB/h en disco | Autonomía con 50 GB | Con 100 GB (≈ 27 GB de disco) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Media del día (0,65 flujos/s por cliente medidos) | 6 500/s | 4,3 | 1,2 | 11,5 h | **23 h** |
+| Pico habitual | 15 000/s | 10,0 | 2,7 | 5 h | **10 h** |
+| Pico alto (vendors/mikrotik.md §2.5) | 60 000/s | 40,0 | 10,8 | 1,25 h | 2,5 h |
+
+Recomendación para 10 000 clientes: `HORUS_TLM_FLOWS_MAX_BYTES = 100 GB` (≈ 27 GB de disco), que
+cubre una noche entera de ClickHouse caído a la tasa media y el objetivo C-12 (≥ 6 h) en pico
+habitual. A partir del 70 % de ocupación `/readyz` del ingester marca `tlm_flows_buffer` degradado
+y se registra un aviso (`horus_ingester_tlm_buffer_ratio`, `HORUS_INGESTER_BUFFER_WARN_RATIO`);
+pasado `max_bytes` se descarta lo más antiguo. `natsx.EnsureStreams` (dev y pruebas) ya no deja
+TLM_FLOWS sin límite: expande `${HORUS_TLM_FLOWS_MAX_BYTES:-50GB}`.
 
 ---
 
@@ -582,7 +602,14 @@ Todos los escenarios se ejercitan en el incremento de endurecimiento.
   `horus_clickhouse_up == 0`; lag del consumer del ingester creciendo; alerta "ClickHouse down > 2
   min" y "buffer FLOWS > 70 %".
 - **Recuperación:** reinicio automático; los consumers durables drenan el backlog (ingester ≥ 3×
-  la tasa de entrada); inserción idempotente con `insert_deduplication_token` = ID del lote.
+  la tasa de entrada). El ingester agrupa lotes en INSERT de hasta `HORUS_INGESTER_INSERT_ROWS`
+  (50 000) filas o `HORUS_INGESTER_INSERT_WAIT` (1 s) y confirma cada lote en JetStream solo tras el
+  INSERT de su grupo. Cada grupo lleva su `insert_deduplication_token` y su composición (token →
+  batch_id) se guarda antes del INSERT en el KV `flows_ingester_groups`: si el proceso muere entre
+  el INSERT y las confirmaciones, al arrancar los lotes reentregados se reagrupan con el token
+  original y ClickHouse descarta el reintento (`services/ingester/internal/app/group.go`). Supone un
+  único proceso consumiendo el durable; con varios, un grupo en recuperación podría repartirse
+  entre ellos (el reparto por subject está pendiente para el clúster de L).
 - **Datos perdidos:** ninguno dentro de la autonomía del buffer (§9.4). Pasado el límite,
   JetStream descarta lo más antiguo; `horus_flows_dropped_total{reason="stream_full"}` y la tabla
   de cobertura marca el hueco por tenant.
@@ -772,8 +799,9 @@ usa 30 s).
 Pérdida sin fallo de ningún componente (prueba de carga, `make load-i1`): con la CPU del servidor
 saturada, el collector perdió datagramas por desbordamiento del búfer UDP del socket
 (`RcvbufErrors`; el collector pide 8 MiB pero el kernel lo limita a `net.core.rmem_max`, 4 MiB en el
-host de prueba). El instalador debería subir `net.core.rmem_max` (p. ej. 32 MiB) y el collector
-pedir ese tamaño (pendiente).
+host de prueba). Ahora el collector pide **32 MiB** (`HORUS_COLLECTOR_UDP_RCVBUF`), avisa en el log
+si el kernel le da menos y, con `CAP_NET_ADMIN`, usa `SO_RCVBUFFORCE`; el instalador debe fijar
+`net.core.rmem_max = 33554432` y `net.core.rmem_default = 1048576` (sysctl persistente).
 
 ### 10.15 Spool a disco del collector (diseño, no implementado)
 

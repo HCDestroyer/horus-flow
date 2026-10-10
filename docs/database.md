@@ -623,6 +623,15 @@ donde hace falta.
 | `flows.reputation_hit` | evento (MV) | `(tenant_id, realm_id, client_ip, remote_ip, bucket_1h)` | flows, bytes, packets, `syn_only`, `min(ts)`, `max(ts)`, `reputation_category`, `reputation_source_id`, `max(reputation_confidence)`, `reputation_version` | `reputation_category != 'none'` | 13 meses |
 | `flows.client_security_1h` | 1 h | `(tenant_id, realm_id, client_ip, bucket)` | igual (estados combinables) | idem | 13 meses |
 
+**Cascada (FLOW, isp10k; migración `20261010120000_cascade_rollup_views`).** `site_1h` y `site_1d`
+se calculan del bloque recién insertado en `site_5m`, y `customer_1d` del de `customer_1h`
+(combinando estados con `uniqMergeState`), en lugar de releer cada bloque de `flows_raw`: quedan 7
+vistas sobre el crudo y 4 en cascada (`mv_site_1h`, `mv_site_1d`, `mv_customer_1d`,
+`mv_client_security_1h`). Mismas tablas, columnas y resultados (sumas de sumas; `uniq` de la unión de
+estados). Con INSERT agrupados de 50 000 filas el banco
+(`services/ingester/internal/adapters/clickhouse/bench_integration_test.go`, 2 vCPU) pasó de 38 000
+a 47 000 filas/s y los merges de 49 a 34 s de CPU por millón de filas.
+
 Se elimina `flows.border_1h` del alcance v1: con un único router principal por nodo los flujos se
 observan en ese router; la vista de "tránsito por ASN" sale de `site_*` (`remote_asn`). Si un ISP
 exporta también desde el borde, se reintroduce con el mismo diseño del Sprint 0.
