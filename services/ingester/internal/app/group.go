@@ -307,17 +307,25 @@ func (c *Consumer) flush(ctx context.Context, stop <-chan struct{}, g *grouper, 
 		return true
 	}
 	if c.Ledger != nil && !gr.recovery {
-		for {
+		// El Ledger solo protege de duplicados tras una caída del proceso: si
+		// no responde tras varios intentos se inserta igualmente (disponibilidad
+		// antes que la deduplicación de un caso raro).
+		for attempt := 1; ; attempt++ {
 			err := c.Ledger.Put(ctx, gr.token, gr.ids)
 			if err == nil {
 				break
 			}
-			c.Log.Warn("ingester ledger put failed: retrying", "token", gr.token, "error", err)
+			if attempt >= 5 {
+				c.M.Batches.WithLabelValues("ledger_unavailable").Inc()
+				c.Log.Warn("ingester ledger unavailable: inserting without crash protection", "token", gr.token, "error", err)
+				break
+			}
 			if !wait() {
 				g.done(gr, false, time.Now())
 				return false
 			}
 		}
+		backoff = 200 * time.Millisecond
 	}
 	start := time.Now()
 	for {
