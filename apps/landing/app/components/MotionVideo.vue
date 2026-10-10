@@ -206,15 +206,21 @@ onMounted(() => {
   display: none;
 }
 
-/* El texto del botón solo se ve con reduced motion ("Reproducir animación"); si no, el botón
-   es un icono de 44 px con su nombre accesible. */
+/* El texto del botón solo se ve con reduced motion ("Reproducir animación") y si el lienzo es
+   ancho; en el hero (estrecho) taparía la cuadrícula, así que queda el icono de 44 px con su
+   nombre accesible y su title. */
+.motion {
+  container-type: inline-size;
+}
 .motion-text {
   display: none;
 }
-.motion-reduced .motion-toggle .motion-text {
-  display: inline;
-}
-.motion-reduced .motion-toggle {
-  padding-inline: 1rem;
+@container (min-width: 36rem) {
+  .motion-reduced .motion-toggle .motion-text {
+    display: inline;
+  }
+  .motion-reduced .motion-toggle {
+    padding-inline: 1rem;
+  }
 }
 </style>

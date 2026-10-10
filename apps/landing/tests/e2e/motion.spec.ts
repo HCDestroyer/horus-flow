@@ -131,3 +131,65 @@ test.describe('sin reduced motion', () => {
     expect(results.violations.map((v) => v.id)).toEqual([])
   })
 })
+
+// Capturas de las animaciones (solo con `pnpm screenshots`): vídeo en marcha en claro y oscuro,
+// y el póster con el botón "Reproducir animación" (reduced motion) en móvil.
+const resilience = '[data-motion]:has(source[data-src-small*="resilience"])'
+const shots = [
+  {
+    name: 'motion-hero-1440-oscuro',
+    width: 1440,
+    scheme: 'dark',
+    motion: 'no-preference',
+    at: hero,
+  },
+  {
+    name: 'motion-hero-1440-claro',
+    width: 1440,
+    scheme: 'light',
+    motion: 'no-preference',
+    at: hero,
+  },
+  {
+    name: 'motion-como-funciona-1440-oscuro',
+    width: 1440,
+    scheme: 'dark',
+    motion: 'no-preference',
+    at: how,
+  },
+  {
+    name: 'motion-fiabilidad-1440-claro',
+    width: 1440,
+    scheme: 'light',
+    motion: 'no-preference',
+    at: resilience,
+  },
+  {
+    name: 'motion-hero-390-reduced-oscuro',
+    width: 390,
+    scheme: 'dark',
+    motion: 'reduce',
+    at: hero,
+  },
+] as const
+
+for (const s of shots) {
+  test(`@screenshots ${s.name}`, async ({ page }) => {
+    await page.setViewportSize({ width: s.width, height: s.width === 390 ? 844 : 900 })
+    await page.emulateMedia({ colorScheme: s.scheme, reducedMotion: s.motion })
+    await page.goto('/')
+    await hydrated(page)
+    const target = page.locator(s.at)
+    await target.scrollIntoViewIfNeeded()
+    if (s.motion === 'no-preference') {
+      await expect
+        .poll(async () => (await videoState(page, s.at)).time, { timeout: 15_000 })
+        .toBeGreaterThan(2)
+    } else {
+      await page.waitForTimeout(500)
+    }
+    await target
+      .locator('xpath=ancestor::section[1]')
+      .screenshot({ path: `docs/screenshots/${s.name}.jpg`, type: 'jpeg', quality: 78 })
+  })
+}

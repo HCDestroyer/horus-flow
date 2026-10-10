@@ -82,8 +82,15 @@ Tras corregir los hallazgos Critical y High de la primera pasada: **Good**.
   defecto), tracking negativo solo en titulares, cifras tabulares en tablas.
 - **Apariencia.** Claro y oscuro según el sistema, sin selector propio (`dark-mode.md › Best
 practices`: "Avoid offering an app-specific appearance setting").
-- **Movimiento.** Una única coreografía (la cuadrícula) y transiciones de 150–200 ms; todo
-  desactivado con `prefers-reduced-motion` (apple-design §14).
+- **Movimiento.** Transiciones de 150–200 ms y tres animaciones neón (vídeos renderizados con
+  Remotion en `apps/landing-motion`): la cuadrícula del hero viva (paquetes hacia el router, el
+  túnel y Horus; 10.20.1.47 se enciende en rojo), "cómo funciona" etapa a etapa y la prueba de
+  fallo de fiabilidad. El neón es el **único elemento llamativo**; el resto sigue sobrio. El rojo
+  neón solo significa Infectado (un componente caído es gris). `motion.md › "Make motion
+optional"`: el texto equivalente va siempre en HTML (ficha, lista de etapas, pie con la cifra),
+  el vídeo es `aria-hidden`, hay botón de pausa (`accessibility.md › "Let people control audio
+and video playback"`) y con `prefers-reduced-motion` o ahorro de datos solo se ve el póster
+  con "Reproducir animación". Capturas `screenshots/motion-*`.
 - **Quitar un accesorio:** se probó y quitó el número gigante en fiabilidad; no queda otro
   elemento que sobre.
 
