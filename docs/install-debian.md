@@ -437,18 +437,30 @@ nuevas; es normal sin Internet (`--no-update-check` lo silencia).
 
 ## 14. Qué está probado y qué no
 
-Probado automáticamente (`make test-install-debian`, contenedor Debian 12 y 13 con systemd y
-Docker dentro): instalación con el paquete offline, servicios sanos, web y API por HTTPS con el
-certificado autogenerado, segunda ejecución sin cambios, arranque tras reiniciar el contenedor,
-actualización A→B, actualización a una versión rota con vuelta atrás automática, desinstalación
-conservando datos, reinstalación y `--purge`, y el modo detrás de un nginx con TLS. En CI se hace
-además con `apt` real contra los espejos de Debian y Docker.
+Prueba automática: `make test-install-debian DEBIAN_VERSION=12|13` (contenedor Debian con systemd
+como PID 1 y Docker dentro). Recorre: instalación con el paquete offline, todos los servicios sanos,
+web (200) y API (401) por HTTPS con el certificado autogenerado y su huella, `horus-ctl check`,
+segunda ejecución sin cambiar secretos, arranque tras reiniciar el contenedor entero, actualización
+A→B (comprobando la imagen que corre de verdad), actualización a una versión rota con **vuelta atrás
+automática**, `horus-ctl backup run` + `restore` en el sitio, desinstalación conservando datos,
+reinstalación con los mismos secretos, `--purge`, y el modo **detrás de nginx** con TLS (login,
+cookie de refresco, TOTP, ISP y routers a través del proxy, WebSocket, cabecera `X-Forwarded-For`
+falsificada ignorada e IP real en sesiones y auditoría).
+
+- En CI (nocturno `install-debian`, Debian 12 y 13) se ejecuta con **apt real** contra los espejos
+  de Debian y de Docker (`TEST_MODE=apt`).
+- En el entorno de desarrollo donde se escribió esta guía los espejos de Debian no eran accesibles,
+  así que allí se probó con `TEST_MODE=sandbox`: los mismos pasos, pero con Docker, curl, jq e
+  iptables ya presentes (sin apt) y `bootstrap-debian.sh --no-apt`.
 
 **No probado de verdad** (tenlo en cuenta en la primera instalación):
 
+- la instalación de paquetes por **apt** fuera de CI (ver arriba);
 - la emisión real de un certificado de **Let's Encrypt** (necesita un dominio público);
 - un **reinicio real** del servidor (se simula reiniciando el contenedor con systemd);
 - la descarga real desde **GHCR** y la verificación de la **firma cosign** (requieren una release
-  publicada por el workflow `release.yml`);
-- el **arm64** en hardware real (las imágenes y paquetes se publican, pero la prueba es amd64);
-- Nginx Proxy Manager en sí (se prueba con nginx con la misma configuración que genera NPM).
+  publicada por el workflow `release.yml`) y el token de **repositorio privado**;
+- la **actualización automática** por el timer (la orden `horus-ctl auto-update` y los parches sí
+  usan el mismo camino que `upgrade`);
+- **arm64** en hardware real (las imágenes y paquetes se publican, pero la prueba es amd64);
+- **Nginx Proxy Manager** en sí (se prueba con nginx con la configuración equivalente) y el Stream UDP.
