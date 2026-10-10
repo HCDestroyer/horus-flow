@@ -223,7 +223,7 @@ func (p jsPub) PublishMsg(ctx context.Context, msg *nats.Msg) error {
 }
 
 // wire añade enriquecimiento, descubrimiento y resúmenes al procesador.
-func (m *ingester) wire(_ context.Context, proc *app.Processor) error {
+func (m *ingester) wire(ctx context.Context, proc *app.Processor) error {
 	enr, err := app.NewEnrichment(m.deps.Metrics, m.log)
 	if err != nil {
 		return err
@@ -237,10 +237,14 @@ func (m *ingester) wire(_ context.Context, proc *app.Processor) error {
 	disc := app.NewDiscovery(app.DiscoveryOptions{TTL: m.cfg.FirstSeenTTL, PerMinute: m.cfg.DiscoveryPerMinute,
 		RealmMax: m.cfg.DiscoveryRealmMax}, pub, m.deps.Metrics, m.log)
 	disc.LoadKnown(m.inv.Load().Data().Customers)
+	if err := disc.LoadState(ctx, m.snapshots); err != nil {
+		m.log.WarnContext(ctx, "discovery state snapshot not restored", "error", err)
+	}
 	proc.Observers = append(proc.Observers, disc)
 	m.loops = append(m.loops,
 		func(ctx context.Context) { disc.Run(ctx, m.cfg.FirstSeenInterval, m.cfg.ActivityInterval) },
 		func(ctx context.Context) { disc.RunKnownClients(ctx, m.js, m.snapshots, m.log, nil) },
+		func(ctx context.Context) { disc.KeepState(ctx, m.snapshots, 10*time.Second, m.log) },
 	)
 	return nil
 }
