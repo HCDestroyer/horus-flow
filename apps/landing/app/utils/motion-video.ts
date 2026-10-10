@@ -50,13 +50,41 @@ function setButton(s: State, playing: boolean) {
   if (text) text.textContent = label ?? ''
 }
 
+// Ahorro de datos activado: como reduced motion, póster y botón.
+function saveData() {
+  return (
+    (navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData === true
+  )
+}
+
 function shouldPlay(s: State) {
   if (s.userPaused || !s.visible || document.hidden) return false
-  return s.userPlayed || !reducedMotion()
+  return s.userPlayed || (!reducedMotion() && !saveData())
+}
+
+// El vídeo no compite con la carga de la página (LCP, scripts): se pide tras `load` y un
+// momento de inactividad. Una pulsación del botón no espera.
+let pageReady = false
+function whenPageReady(cb: () => void) {
+  if (pageReady) return cb()
+  const go = () => {
+    const idle = window.requestIdleCallback ?? ((f: () => void) => setTimeout(f, 200))
+    idle(() => {
+      pageReady = true
+      cb()
+    })
+  }
+  if (document.readyState === 'complete') go()
+  else window.addEventListener('load', go, { once: true })
 }
 
 function sync(s: State) {
   if (shouldPlay(s)) {
+    if (!s.loaded && !pageReady && !s.userPlayed) {
+      setButton(s, true)
+      whenPageReady(() => sync(s))
+      return
+    }
     load(s)
     const p = s.video.play()
     if (p) p.catch(() => setButton(s, false))
@@ -106,7 +134,7 @@ export function enhanceMotionVideo(root: HTMLElement) {
   })
 
   button.hidden = false
-  root.classList.toggle('motion-reduced', reducedMotion())
+  root.classList.toggle('motion-reduced', reducedMotion() || saveData())
   setButton(s, false)
   button.addEventListener('click', () => {
     const playing = button.dataset.state === 'playing'

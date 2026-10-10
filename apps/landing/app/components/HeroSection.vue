@@ -7,8 +7,15 @@ const { t } = useI18n()
     aria-labelledby="hero-title"
     class="mx-auto max-w-6xl px-4 pt-12 pb-16 sm:px-6 md:pt-20 lg:pb-24"
   >
-    <div class="grid items-center gap-12 lg:grid-cols-[1.25fr_1fr] lg:gap-16">
-      <div>
+    <!--
+      Móvil: titular → animación → texto y botones (el póster entra en la primera pantalla y es
+      el LCP; el CTA flotante cubre la acción). Escritorio: texto a la izquierda y animación a la
+      derecha, como siempre.
+    -->
+    <div
+      class="grid gap-y-8 lg:grid-cols-[1.25fr_1fr] lg:grid-rows-[1fr_auto_auto_1fr] lg:gap-x-16 lg:gap-y-0"
+    >
+      <div class="lg:col-start-1 lg:row-start-2">
         <p class="eyebrow">{{ t('hero.eyebrow') }}</p>
         <h1
           id="hero-title"
@@ -16,7 +23,12 @@ const { t } = useI18n()
         >
           {{ t('hero.title') }}
         </h1>
-        <p class="mt-6 max-w-2xl text-lg text-toned sm:text-xl sm:leading-relaxed">
+      </div>
+      <div class="lg:col-start-2 lg:row-span-4 lg:row-start-1 lg:self-center">
+        <SubnetGrid />
+      </div>
+      <div class="lg:col-start-1 lg:row-start-3">
+        <p class="max-w-2xl text-lg text-toned sm:text-xl sm:leading-relaxed lg:mt-6">
           {{ t('hero.lead') }}
         </p>
         <div class="mt-8 flex flex-col gap-3 sm:flex-row">
@@ -41,7 +53,6 @@ const { t } = useI18n()
           {{ t('hero.note') }}
         </p>
       </div>
-      <SubnetGrid />
     </div>
   </section>
 </template>

@@ -86,8 +86,13 @@ onMounted(() => {
           class="motion-poster absolute inset-0 block size-full object-cover"
         />
       </picture>
+      <!--
+        1 px más pequeño que el póster (inset-px): el primer frame del vídeo nunca es "más
+        grande" que el póster, así que no sustituye al póster como LCP. El borde es el fondo
+        oscuro del lienzo, idéntico en ambos.
+      -->
       <video
-        class="motion-video absolute inset-0 block size-full object-cover"
+        class="motion-video absolute inset-px block object-cover"
         autoplay
         muted
         loop
@@ -99,6 +104,7 @@ onMounted(() => {
         tabindex="-1"
         :width="meta.width"
         :height="meta.height"
+        :style="{ width: 'calc(100% - 2px)', height: 'calc(100% - 2px)' }"
       >
         <source
           v-for="s in sources"
