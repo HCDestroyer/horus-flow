@@ -12,3 +12,6 @@ services:
     cap_add: [NET_ADMIN]
     environment:
       HORUS_COLLECTOR_UDP_RCVBUF: "33554432"
+      # Perfil recomendado para nodos grandes (docs/architecture.md §9.5): cola de 32 768 datagramas
+      # por trabajador; un router entero va a un solo trabajador.
+      HORUS_COLLECTOR_QUEUE_DATAGRAMS: "32768"
