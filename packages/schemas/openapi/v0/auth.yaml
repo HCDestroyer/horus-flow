@@ -209,6 +209,43 @@ paths:
       responses:
         '204': { $ref: './common.yaml#/components/responses/NoContent' }
         '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+  /auth/invitations/inspect:
+    post:
+      tags: [auth]
+      operationId: authInspectInvitation
+      summary: Datos de una invitación para la página de aceptación (sin consumirla)
+      x-module: auth
+      x-scope: public
+      x-permission: public
+      x-rate-limit: login
+      x-increment: I1
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string, minLength: 32 }
+      responses:
+        '200':
+          description: Invitación vigente.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [email, tenant_name, needs_password, expires_at]
+                properties:
+                  email: { type: string, format: email }
+                  tenant_name: { type: string }
+                  needs_password:
+                    type: boolean
+                    description: true si la cuenta es nueva (debe elegir contraseña); false si ya existía.
+                  expires_at: { type: string, format: date-time }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+        '429': { $ref: './common.yaml#/components/responses/TooManyRequests' }
   /auth/invitations/accept:
     post:
       tags: [auth]
@@ -436,9 +473,41 @@ paths:
                   minItems: 1
                   items: { $ref: '#/components/schemas/RoleAssignment' }
       responses:
-        '202': { description: Invitación aceptada para envío. }
+        '202':
+          description: |
+            Miembro añadido (cuenta activa existente: `outcome=added`, sin enlace) o invitado
+            (`outcome=invited`): el enlace de un solo uso se devuelve a quien invita para que lo
+            comparta (compartir nativo o copiar) y, si hay SMTP configurado, también se envía por
+            correo (`email_sent`). El token va en el fragmento (#token=…): nunca llega a un servidor.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InvitationIssued' }
         '403': { $ref: './common.yaml#/components/responses/Forbidden' }
         '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /members/{user_id}/invitation:
+    parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    post:
+      tags: [members]
+      operationId: reissueMemberInvitation
+      summary: Genera un enlace de invitación nuevo para un miembro invitado (invalida los anteriores)
+      x-module: auth
+      x-scope: tenant
+      x-permission: users.manage
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Enlace nuevo (y reenvío por correo si hay SMTP).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InvitationIssued' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
   /members/{user_id}:
     parameters:
       - name: user_id
@@ -827,6 +896,21 @@ components:
         scope:
           type: string
           pattern: '^(tenant|site:[0-9a-f-]{36}|router_group:[0-9a-f-]{36})$'
+    InvitationIssued:
+      type: object
+      required: [outcome, user_id, email_sent]
+      properties:
+        outcome:
+          type: string
+          enum: [added, invited]
+          description: added = la cuenta ya existía y la membresía queda activa; invited = hay que aceptar el enlace.
+        user_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        invitation_url:
+          type: [string, 'null']
+          format: uri
+          description: Solo con outcome=invited. <HORUS_PUBLIC_BASE_URL>/invitation#token=<token>; se muestra una vez.
+        expires_at: { type: [string, 'null'], format: date-time }
+        email_sent: { type: boolean }
     Member:
       type: object
       required: [user_id, display_name, email, status, mfa_enabled, role_assignments, version]

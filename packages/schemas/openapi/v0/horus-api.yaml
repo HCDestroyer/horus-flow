@@ -68,6 +68,8 @@ paths:
     $ref: ./analytics.yaml#/paths/~1analytics~1traffic~1top
   /auth/invitations/accept:
     $ref: ./auth.yaml#/paths/~1auth~1invitations~1accept
+  /auth/invitations/inspect:
+    $ref: ./auth.yaml#/paths/~1auth~1invitations~1inspect
   /auth/login:
     $ref: ./auth.yaml#/paths/~1auth~1login
   /auth/logout:
@@ -160,6 +162,8 @@ paths:
     $ref: ./auth.yaml#/paths/~1members
   /members/{user_id}:
     $ref: ./auth.yaml#/paths/~1members~1{user_id}
+  /members/{user_id}/invitation:
+    $ref: ./auth.yaml#/paths/~1members~1{user_id}~1invitation
   /members/{user_id}/role-assignments:
     $ref: ./auth.yaml#/paths/~1members~1{user_id}~1role-assignments
   /notification-channels:

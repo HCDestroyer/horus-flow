@@ -158,6 +158,11 @@ modules:
       methods:
         POST: public
       rate_limit: login
+    - prefix: /api/v1/auth/invitations/inspect
+      scope: public
+      methods:
+        POST: public
+      rate_limit: login
     - prefix: /api/v1/auth/login
       scope: public
       methods:
@@ -241,6 +246,10 @@ modules:
       scope: tenant
       methods:
         DELETE: users.manage
+    - prefix: /api/v1/members/{user_id}/invitation
+      scope: tenant
+      methods:
+        POST: users.manage
     - prefix: /api/v1/members/{user_id}/role-assignments
       scope: tenant
       methods:
