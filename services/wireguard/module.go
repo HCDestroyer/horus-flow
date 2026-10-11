@@ -32,6 +32,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/natsx"
 	"github.com/hcdestroyer/horus-flow/packages/go/pagination"
 	"github.com/hcdestroyer/horus-flow/packages/go/pgdb"
+	"github.com/hcdestroyer/horus-flow/packages/go/platformoverview"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
 	devapi "github.com/hcdestroyer/horus-flow/services/devices/api"
 	wgapi "github.com/hcdestroyer/horus-flow/services/wgagent/api"
@@ -128,6 +129,11 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 	})
 	if deps.Services != nil {
 		if err := deps.Services.Provide(wgapi.ServiceControl, m.svc); err != nil {
+			db.Close()
+			return nil, err
+		}
+		// Túneles caídos por tenant para GET /platform/overview (gateway).
+		if err := deps.Services.Provide(platformoverview.ServiceTunnels, platformoverview.Source(m.svc)); err != nil {
 			db.Close()
 			return nil, err
 		}

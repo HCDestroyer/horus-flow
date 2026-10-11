@@ -13,9 +13,10 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/apperr"
 	"github.com/hcdestroyer/horus-flow/packages/go/authz"
 	"github.com/hcdestroyer/horus-flow/packages/go/outbox"
-	"github.com/hcdestroyer/horus-flow/packages/go/platformevents"
 	"github.com/hcdestroyer/horus-flow/packages/go/pagination"
 	"github.com/hcdestroyer/horus-flow/packages/go/pgdb"
+	"github.com/hcdestroyer/horus-flow/packages/go/platformevents"
+	"github.com/hcdestroyer/horus-flow/packages/go/platformoverview"
 	"github.com/hcdestroyer/horus-flow/packages/go/problem"
 	devapi "github.com/hcdestroyer/horus-flow/services/devices/api"
 	wgapi "github.com/hcdestroyer/horus-flow/services/wgagent/api"
@@ -272,3 +273,29 @@ func (s *Service) HandshakeState(p *domain.Peer) string {
 
 // Now es el reloj del servicio.
 func (s *Service) Now() time.Time { return s.now() }
+
+// OverviewStats implementa platformoverview.Source: túneles caídos por
+// tenant (peers vivos con handshake stale: tuvieron handshake y llevan más de
+// domain.StaleAfter sin renovarlo). Los peers aún sin handshake no cuentan.
+func (s *Service) OverviewStats(ctx context.Context) (map[uuid.UUID]platformoverview.Stats, error) {
+	peers, err := s.o.Store.AllPeers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	now := s.now()
+	down := map[uuid.UUID]int{}
+	for i := range peers {
+		p := &peers[i]
+		if _, ok := down[p.TenantID]; !ok {
+			down[p.TenantID] = 0
+		}
+		if domain.HandshakeStateAt(p.LastHandshakeAt, now) == domain.HandshakeStale {
+			down[p.TenantID]++
+		}
+	}
+	out := make(map[uuid.UUID]platformoverview.Stats, len(down))
+	for t, n := range down {
+		out[t] = platformoverview.Stats{TunnelsDown: platformoverview.Ptr(n)}
+	}
+	return out, nil
+}
