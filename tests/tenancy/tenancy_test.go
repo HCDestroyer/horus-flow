@@ -65,7 +65,9 @@ func cases() map[string]tenanttest.Case {
 	c["resetCustomer"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"reason": "intento de otro ISP"}}
 	c["setCustomerKind"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"kind": "commercial", "reason": "intento de otro ISP"}}
 	c["unlockCustomerKind"] = tenanttest.Case{Kind: tenanttest.ByID}
-	pending("CORE I1 (devices: credenciales y confirmación de prefijos)", "confirmClientPrefix", "putRouterCredential")
+	c["confirmClientPrefix"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["putRouterCredential"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{
+		"username": "horus-ro", "auth_protocol": "sha256", "auth_password": "clave-auth-pirata", "priv_protocol": "aes128", "priv_password": "clave-priv-pirata"}}
 	// auth: kioscos (I1-14, CORE)
 	c["listKiosks"] = tenanttest.Case{Kind: tenanttest.List}
 	c["createKiosk"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"name": "TV pirata"}}
@@ -164,6 +166,7 @@ func (a *app) fixtureISP(x isp, cidr string) map[string]string {
 		"items": []any{map[string]any{"dashboard_id": dash, "duration_seconds": 30}}}), 201).str("id")
 	// Miembro del ISP (su administrador) para /members/{user_id}.
 	out["user_id"] = a.must(a.do(req{Method: "GET", Path: "/api/v1/me", Token: x.admin.token}), 200).str("id")
+	out["kind"] = "snmp" // /routers/{router_id}/credentials/{kind}: no es un ID (fuera de ForeignIDs)
 	if _, err := a.admin.Exec(context.Background(), `UPDATE detection.finding SET customer_id = $1 WHERE id = $2`,
 		out["customer_id"], out["finding_id"]); err != nil {
 		a.t.Fatal(err)
@@ -190,8 +193,10 @@ func TestTenantIsolationMatrix(t *testing.T) {
 		versionsB[path], _ = a.must(a.do(req{Method: "GET", Path: path, Token: B.token}), 200).Body["version"].(float64)
 	}
 	var foreign []string
-	for _, v := range paramsB {
-		foreign = append(foreign, v)
+	for k, v := range paramsB {
+		if k != "kind" {
+			foreign = append(foreign, v)
+		}
 	}
 
 	root, err := archtest.FindRepoRoot(".")
@@ -216,6 +221,7 @@ func TestTenantIsolationMatrix(t *testing.T) {
 				"{finding_id}", paramsA["finding_id"], "{customer_id}", paramsA["customer_id"], "{entry_id}", paramsA["entry_id"],
 				"{kiosk_id}", paramsA["kiosk_id"], "{dashboard_id}", paramsA["dashboard_id"], "{widget_id}", paramsA["widget_id"],
 				"{playlist_id}", paramsA["playlist_id"], "{channel_id}", paramsA["channel_id"], "{user_id}", paramsA["user_id"],
+				"{kind}", paramsA["kind"],
 			).Replace(tmpl), nil)
 			return a.mux.Matches(r)
 		},
