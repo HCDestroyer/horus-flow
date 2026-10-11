@@ -18,6 +18,14 @@ name: release
 on:
   push:
     tags: ["v*"]
+  # Ensayo: arma el instalador y los paquetes offline con las imágenes de una versión YA publicada en
+  # GHCR, sin publicar ni firmar nada (artefacto del workflow). Valida build-release.sh en CI antes de
+  # crear una etiqueta nueva.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versión ya publicada en GHCR, sin la v (p. ej. 1.0.1)"
+        required: true
 
 permissions:
   contents: read
@@ -34,6 +42,7 @@ jobs:
   # -------------------------------------------------------------------------------------------
   images:
     name: imágenes (GHCR, amd64 + arm64, firmadas)
+    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     permissions:
@@ -109,8 +118,12 @@ jobs:
   bundles:
     name: instalador, paquetes offline y release
     needs: images
+    if: always() && (needs.images.result == 'success' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    env:
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' }}
+      VERSION: ${{ needs.images.outputs.version || inputs.version }}
     permissions:
       contents: write
       packages: read
@@ -138,7 +151,6 @@ jobs:
           sudo install -m 0755 /tmp/cosign /usr/local/bin/cosign
       - name: Verificar las firmas recién publicadas
         env:
-          VERSION: ${{ needs.images.outputs.version }}
           REPO: ${{ github.repository }}
         run: |
           for n in horus horus-web horus-postgres; do
@@ -148,14 +160,26 @@ jobs:
           done
       - name: Artefactos (build-release.sh)
         env:
-          VERSION: ${{ needs.images.outputs.version }}
           REPO: ${{ github.repository }}
         run: |
           bash scripts/release/build-release.sh --version "$VERSION" --out dist --arch amd64,arm64 \
             --registry "$REGISTRY" --source registry \
             --notes-url "https://github.com/$REPO/releases/tag/v$VERSION"
-          cosign sign-blob --yes --bundle dist/SHA256SUMS.sigstore.json dist/SHA256SUMS
+          if [ "$DRY_RUN" != true ]; then
+            cosign sign-blob --yes --bundle dist/SHA256SUMS.sigstore.json dist/SHA256SUMS
+          fi
+          ls -l dist | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Artefactos del ensayo
+        if: env.DRY_RUN == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-ensayo-${{ env.VERSION }}
+          path: |
+            dist/*
+            !dist/*-linux-*.tar.gz
+          retention-days: 7
       - name: Publicar la release
+        if: env.DRY_RUN != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}

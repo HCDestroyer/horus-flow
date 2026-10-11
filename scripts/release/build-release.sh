@@ -109,6 +109,10 @@ if [ "$bundle" = 1 ]; then
         if [ "$source" = local ] && docker image inspect "$ref" >/dev/null 2>&1; then
           :
         else
+          # El almacén clásico de Docker no admite dos arquitecturas bajo el mismo digest de índice
+          # ("cannot overwrite digest" al pasar de amd64 a arm64): se borra la copia de la
+          # arquitectura anterior antes de descargar la siguiente.
+          docker image rm -f "$ref" "$ref@$dig" >/dev/null 2>&1 || true
           docker pull -q --platform "linux/$arch" "$ref@$dig" >/dev/null
           docker tag "$ref@$dig" "$ref"
         fi
