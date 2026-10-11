@@ -2,25 +2,63 @@
 /**
  * ISP de la instalación (frontend.md §3.3–§3.4): routers, exportadores *Exportando* /
  * *Silenciosos*, túneles caídos, flujos/s y hallazgos críticos abiertos (solo conteos, nunca
- * clientes). Clic → entra al ISP.
+ * clientes). Clic → entra al ISP (si se es miembro).
+ * "Nuevo ISP" (`platform.tenants.manage`): alta con su primer administrador (TenantCreateModal).
  */
 const { t } = useI18n()
 const { $api } = useNuxtApp()
-const { me } = useAuth()
+const auth = useAuth()
+const { me } = auth
+const platformCan = usePlatformCan()
 useSectionGuard()(findSection('platform', '/platform/isps'))
+
+const canCreate = computed(() => platformCan('platform.tenants.manage'))
+const createOpen = ref(false)
 
 const { data, error, status, refresh } = useTenantQuery('platform:overview', () =>
   unwrap($api.GET('/platform/overview')),
 )
 const member = (slug: string) => me.value?.memberships.some((m) => m.tenant_slug === slug)
+
+/** ISP creado: aparece en la lista y, si quedó como administrador, en "mis ISP" (`/me`). */
+async function onCreated() {
+  await Promise.allSettled([refresh(), auth.reloadMe()])
+}
 </script>
 
 <template>
   <AppPage :title="t('nav.items.platformIsps')" panel-id="platform-isps">
+    <template v-if="canCreate" #toolbar-right>
+      <UButton
+        icon="i-lucide-plus"
+        :label="t('platform.create.open')"
+        data-testid="tenant-create-open"
+        @click="createOpen = true"
+      />
+    </template>
+
     <LoadingState v-if="status === 'pending' && !data" :rows="3" />
     <ErrorState v-else-if="error" :error="error" @retry="refresh()" />
+    <UCard v-else-if="data && !data.data.length" class="py-6" data-testid="platform-isps-empty">
+      <EmptyState
+        icon="i-lucide-building-2"
+        :title="t('platform.isps.empty')"
+        :description="canCreate ? t('platform.isps.emptyHint') : undefined"
+        :actions="
+          canCreate
+            ? [
+                {
+                  label: t('platform.create.open'),
+                  icon: 'i-lucide-plus',
+                  onClick: () => (createOpen = true),
+                },
+              ]
+            : []
+        "
+      />
+    </UCard>
     <ul v-else-if="data" class="grid gap-3 lg:grid-cols-3" data-testid="platform-isps">
-      <li v-for="isp in data.data" :key="isp.tenant_id">
+      <li v-for="isp in data.data" :key="isp.tenant_id" :data-isp="isp.slug">
         <UCard :ui="{ body: 'p-4 sm:p-4 flex flex-col gap-3' }">
           <div class="flex items-start justify-between gap-2">
             <NuxtLink
@@ -81,5 +119,7 @@ const member = (slug: string) => me.value?.memberships.some((m) => m.tenant_slug
         </UCard>
       </li>
     </ul>
+
+    <TenantCreateModal v-if="canCreate" v-model:open="createOpen" @created="onCreated" />
   </AppPage>
 </template>

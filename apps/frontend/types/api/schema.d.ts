@@ -6308,7 +6308,12 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Creado. */
+            /**
+             * @description Creado. `initial_admin_invitation` dice cómo quedó el primer administrador: si su cuenta ya
+             *     existía (p. ej. el propio superadministrador) queda como miembro activo (`outcome=added`); si
+             *     no, se invita (`outcome=invited`) con un enlace de un solo uso para compartir y, con SMTP,
+             *     también por correo. El enlace solo aparece en esta respuesta.
+             */
             201: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -6316,7 +6321,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Tenant"];
+                    "application/json": components["schemas"]["Tenant"] & {
+                        initial_admin_invitation: components["schemas"]["InvitationIssued"];
+                    };
                 };
             };
             401: components["responses"]["Unauthorized"];

@@ -1012,7 +1012,9 @@
       "silent": "Silenciosos",
       "fps": "Flujos/s",
       "critical": "Hallazgos críticos abiertos",
-      "tunnelsDown": "Túneles caídos"
+      "tunnelsDown": "Túneles caídos",
+      "empty": "Aún no hay ningún ISP en esta instalación",
+      "emptyHint": "Da de alta el primero: tú o la persona que indiques quedará como su administrador."
     },
     "wireguard": {
       "readOnly": "Hubs y rangos de túneles de la instalación (solo lectura; la gestión llega más adelante).",
@@ -1070,6 +1072,38 @@
       "warning": "Disco local al {pct}",
       "critical": "Disco local casi lleno: {pct}",
       "body": "Por encima del 85 % revisa las retenciones o amplía el disco; cerca del 100 % la ingesta descarta flujos y se pierden datos."
+    },
+    "create": {
+      "open": "Nuevo ISP",
+      "title": "Nuevo ISP",
+      "description": "Crea el ISP y elige quién será su primer administrador.",
+      "name": "Nombre",
+      "namePlaceholder": "Fibra del Lago",
+      "nameRequired": "Escribe el nombre del ISP.",
+      "slug": "Identificador",
+      "slugHint": "Dirección: /t/{slug}",
+      "slugInvalid": "Usa solo minúsculas, números y guiones (de 2 a 63 caracteres, empezando por letra o número).",
+      "slugTaken": "Ya existe un ISP con este identificador. Elige otro.",
+      "country": "País",
+      "countryRequired": "Elige el país.",
+      "timezone": "Zona horaria",
+      "timezoneSearch": "Buscar o escribir una zona IANA…",
+      "timezoneRequired": "Elige la zona horaria.",
+      "email": "Correo del primer administrador",
+      "emailInvalid": "Escribe un correo válido.",
+      "emailOwnHint": "Si pones tu propio correo, quedarás como administrador del ISP y podrás invitar al resto.",
+      "emailOtherHint": "Se generará un enlace de invitación para esa persona. Si pones tu propio correo, quedarás como administrador del ISP y podrás invitar al resto.",
+      "submit": "Crear ISP",
+      "reauth": "Por seguridad, dar de alta un ISP exige confirmar que eres tú: escribe de nuevo tu contraseña.",
+      "reauthCancelled": "No se creó el ISP: confirma tu identidad para continuar.",
+      "added": "ISP «{name}» creado. Ya eres su administrador.",
+      "addedTitle": "ISP «{name}» creado",
+      "addedDescription": "Ya eres administrador de este ISP.",
+      "addedNext": "Entra al ISP para dar de alta sus routers o invita al resto del equipo desde «Usuarios y roles».",
+      "invitedTitle": "ISP «{name}» creado",
+      "invitedDescription": "Comparte este enlace con {email} para que entre como administrador del ISP.",
+      "enter": "Entrar al ISP",
+      "inviteUsers": "Invitar usuarios"
     }
   },
   "reputation": {
@@ -1390,8 +1424,9 @@
       "saved": "Roles de {name} actualizados",
       "conflict": "Otra persona cambió los roles mientras editabas. Se han cargado los roles vigentes: revísalos y guarda de nuevo.",
       "reauthTitle": "Confirma tu identidad para cambiar roles",
-      "reauthBody": "Por seguridad, cambiar roles exige haber iniciado sesión hace poco. Cierra sesión, vuelve a entrar y repite el cambio.",
-      "reauthAction": "Volver a iniciar sesión"
+      "reauthBody": "Por seguridad, cambiar roles exige confirmar que eres tú: escribe de nuevo tu contraseña.",
+      "reauthAction": "Confirmar identidad",
+      "reauthCancelled": "No se guardó el cambio: confirma tu identidad para continuar."
     }
   },
   "invitation": {
@@ -1416,5 +1451,18 @@
     "errors": {
       "network": "No se puede conectar con Horus Flow. Comprueba tu conexión e inténtalo de nuevo."
     }
+  },
+  "reauth": {
+    "title": "Confirma tu identidad",
+    "description": "Por seguridad, esta acción exige confirmar que eres tú: escribe de nuevo tu contraseña.",
+    "password": "Contraseña",
+    "passwordRequired": "Escribe tu contraseña.",
+    "code": "Código de verificación",
+    "codeHint": "6 dígitos de tu app",
+    "codeInvalid": "Escribe los 6 dígitos de tu app de verificación.",
+    "codeWrong": "Código incorrecto o caducado. Prueba con el código actual.",
+    "wrong": "Contraseña incorrecta.",
+    "wrongWithCode": "La contraseña o el código no son correctos.",
+    "submit": "Confirmar"
   }
 }

@@ -116,6 +116,11 @@ export type LibreNmsChannelConfig = Schemas['LibreNmsChannelConfig']
 export type InstallationAccess = Schemas['InstallationAccess']
 export type WireguardHub = Schemas['WireguardHub']
 export type TenantOverview = Schemas['TenantOverview']
+export type Tenant = Schemas['Tenant']
+export type TenantCreate = Schemas['TenantCreate']
+/** `POST /platform/tenants` 201: el ISP y cómo quedó su primer administrador. */
+export type TenantCreated =
+  operations['platformCreateTenant']['responses'][201]['content']['application/json']
 export type ReputationSource = Schemas['ReputationSource']
 export type ReputationSourceCreate = Schemas['ReputationSourceCreate']
 export type ReputationCategory = Schemas['ReputationCategory']

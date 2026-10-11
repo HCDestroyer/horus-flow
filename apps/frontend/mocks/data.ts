@@ -104,6 +104,8 @@ export interface MockTenant {
   sites: { id: string; name: string }[]
   /** Prefijo de clientes sintético (RFC 1918). */
   prefix: string
+  /** Solo los ISP dados de alta desde la consola de plataforma (`POST /platform/tenants`). */
+  created?: { country: string; timezone: string; at: string }
 }
 
 export const TENANTS = {
@@ -142,7 +144,9 @@ export const TENANTS = {
   },
 } as const satisfies Record<string, MockTenant>
 
-export const ALL_TENANTS: readonly MockTenant[] = Object.values(TENANTS)
+/** ISP de la instalación: los de partida y los que se den de alta (`registerTenant`). */
+export const ALL_TENANTS: MockTenant[] = [...Object.values(TENANTS)]
+const SEEDED_TENANTS = ALL_TENANTS.length
 
 /** Roles de sistema de tenant (C7); los permisos de cada uno, en `mocks/members.ts`. */
 export const ROLE_IDS: Record<string, string> = {
@@ -253,4 +257,42 @@ USERS.push({
 
 export function findTenant(id: string | null | undefined) {
   return ALL_TENANTS.find((t) => t.tenant_id === id)
+}
+
+/**
+ * ISP nuevo (sintético, determinista por id): un nodo y un prefijo de clientes propio, para que
+ * las pantallas del ISP tengan con qué pintarse en la API simulada.
+ */
+export function newMockTenant(
+  id: string,
+  slug: string,
+  name: string,
+  created?: MockTenant['created'],
+): MockTenant {
+  let n = 0
+  for (const c of id) n = (n * 31 + c.charCodeAt(0)) >>> 0
+  return {
+    tenant_id: id,
+    tenant_slug: slug,
+    tenant_name: name,
+    prefix: `10.${100 + (n % 150)}`,
+    sites: [{ id: `0192e111-0000-7000-8000-${id.slice(-12)}`, name: 'Nodo Principal' }],
+    created,
+  }
+}
+
+/** Añade un ISP a la instalación (si no estaba ya). */
+export function registerTenant(tenant: MockTenant) {
+  const existing = findTenant(tenant.tenant_id)
+  if (existing) return existing
+  ALL_TENANTS.push(tenant)
+  return tenant
+}
+
+/** Pruebas: quita los ISP dados de alta y las membresías que se les dieron. */
+export function resetCreatedTenants() {
+  const removed = new Set(ALL_TENANTS.splice(SEEDED_TENANTS).map((t) => t.tenant_id))
+  for (const u of USERS) {
+    u.me.memberships = u.me.memberships.filter((m) => !removed.has(m.tenant_id))
+  }
 }

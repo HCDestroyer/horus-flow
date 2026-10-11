@@ -52,6 +52,8 @@ export const COOKIE_AUTH_PATHS = ['/auth/refresh', '/auth/logout', '/kiosk/enrol
 const NO_REFRESH_PATHS = [
   '/auth/login',
   '/auth/mfa/verify',
+  // 401 = contraseña o código incorrectos al re-autenticarse, no un token caducado.
+  '/auth/reauth',
   '/auth/refresh',
   '/auth/logout',
   // El kiosco renueva su propio token con la credencial de dispositivo (useKiosk).
