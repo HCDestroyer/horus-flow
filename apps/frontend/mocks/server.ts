@@ -12,6 +12,7 @@ import { channelRoute } from './channels'
 import { findTenant, MOCK_TOTP_CODE, USERS, type MockUser } from './data'
 import { json, problem, randomHex } from './http'
 import { currentKiosk, enroll, kioskAdminRoute, kioskConfig, touchKiosk } from './kiosk'
+import { invitationRoute, memberRoute } from './members'
 import { platformRoute } from './platform'
 import { tenantRoute } from './tenant-routes'
 import { widgetData } from './widget-data'
@@ -464,6 +465,9 @@ export function createMockFetch(options: MockOptions = {}) {
         return enroll(req, body, now())
       case 'POST /kiosk/token':
         return kioskToken(req)
+      case 'POST /auth/invitations/inspect':
+      case 'POST /auth/invitations/accept':
+        return invitationRoute(route, body, now())!
     }
 
     const kioskRecord = rawRecord(req)
@@ -572,7 +576,8 @@ export function createMockFetch(options: MockOptions = {}) {
         stepMs: readNumber('horus.mock.onboardingStepMs') ?? 6000,
       }) ??
       channelRoute(shared) ??
-      kioskAdminRoute(shared)
+      kioskAdminRoute(shared) ??
+      memberRoute({ ...shared, url, userId: user.me.id })
     if (res) return res
 
     return problem(404, 'NOT_FOUND', 'No encontrado')

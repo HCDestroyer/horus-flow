@@ -41,6 +41,16 @@
     "demo": {
       "title": "API simulada",
       "description": "Sin backend todavía. Usa {email} con la contraseña {password}; código de verificación {code}."
+    },
+    "notice": {
+      "invitation-new": {
+        "title": "Cuenta creada: ya eres parte de {tenant}",
+        "body": "Inicia sesión con {email} y la contraseña que acabas de elegir."
+      },
+      "invitation-existing": {
+        "title": "Invitación aceptada: {tenant} ya está en tu cuenta",
+        "body": "Inicia sesión con tu cuenta de siempre ({email}) para entrar."
+      }
     }
   },
   "nav": {
@@ -1289,6 +1299,122 @@
       "personalHelp": "Desactivado por defecto: una pantalla la ven visitas y cámaras.",
       "personalReason": "Motivo (queda registrado)",
       "submit": "Crear y generar código"
+    }
+  },
+  "members": {
+    "intro": "Quién tiene acceso a este ISP y con qué rol.",
+    "search": "Buscar",
+    "searchPlaceholder": "Nombre o correo",
+    "searchSubmit": "Buscar",
+    "showing": "Mostrando {n} miembros",
+    "empty": "Todavía no hay nadie más en este ISP",
+    "emptyHint": "Invita a tu equipo con su correo y el rol que necesita.",
+    "emptyFiltered": "Ningún miembro coincide con la búsqueda",
+    "you": "tú",
+    "mfaOn": "Activada",
+    "mfaOff": "Sin activar",
+    "reissueConflict": "Ese miembro ya no está pendiente de aceptar: no hace falta un enlace nuevo.",
+    "col": {
+      "member": "Miembro",
+      "status": "Estado",
+      "roles": "Roles",
+      "mfa": "Verificación en dos pasos",
+      "actions": "Acciones"
+    },
+    "status": {
+      "active": "Activo",
+      "invited": "Invitación pendiente",
+      "revoked": "Revocado"
+    },
+    "filters": {
+      "all": "Todos los estados",
+      "active": "Activos",
+      "invited": "Invitaciones pendientes",
+      "revoked": "Revocados"
+    },
+    "actions": {
+      "menu": "Acciones para {name}",
+      "reissue": "Generar enlace",
+      "roles": "Cambiar roles",
+      "remove": "Quitar del ISP"
+    },
+    "invite": {
+      "open": "Invitar",
+      "title": "Invitar a un miembro",
+      "description": "Escribe el correo y elige el rol con el que entrará en {tenant}.",
+      "email": "Correo electrónico",
+      "emailPlaceholder": "nombre{'@'}tu-isp.com",
+      "emailInvalid": "Escribe un correo válido, por ejemplo nombre{'@'}tu-isp.com",
+      "roleRequired": "Elige al menos un rol.",
+      "noRoles": "No puedes ver los roles del ISP, así que no puedes invitar desde aquí.",
+      "hint": "Si la persona ya tiene cuenta en Horus Flow, entra directamente; si no, recibirás un enlace para compartírselo.",
+      "submit": "Invitar",
+      "added": "{email} ya tenía cuenta: añadido al ISP"
+    },
+    "link": {
+      "title": "Invitación para {email}",
+      "description": "Comparte este enlace con la persona invitada para que entre en {tenant}.",
+      "label": "Enlace de invitación",
+      "onceTitle": "Este enlace solo se muestra ahora",
+      "onceBody": "Funciona una sola vez y hasta la fecha de caducidad. Si se pierde, genera uno nuevo desde la lista (el anterior dejará de valer).",
+      "expires": "Caduca:",
+      "emailSent": "Se envió por correo a {email}.",
+      "noEmail": "No hay correo configurado: comparte el enlace.",
+      "share": "Compartir",
+      "copy": "Copiar enlace",
+      "copied": "Enlace copiado",
+      "copyFailed": "No se pudo copiar. Selecciona el enlace y cópialo a mano.",
+      "shareFailed": "No se pudo abrir el menú de compartir. Copia el enlace.",
+      "shareTitle": "Invitación a {tenant} en Horus Flow",
+      "shareText": "Te invito a {tenant} en Horus Flow. Abre este enlace para aceptar (funciona una sola vez):"
+    },
+    "remove": {
+      "title": "¿Quitar a {name}?",
+      "body": "Perderá el acceso a {tenant} en unos segundos. Su cuenta sigue existiendo y puedes volver a invitarle.",
+      "submit": "Quitar del ISP",
+      "done": "{name} ya no tiene acceso al ISP"
+    },
+    "roles": {
+      "title": "Roles",
+      "role": "Rol",
+      "scope": "Alcance",
+      "choose": "Elige un rol",
+      "mfa": "exige verificación en dos pasos",
+      "scopeTenant": "Todo el ISP",
+      "scopeSite": "Nodo {name}",
+      "scopeGroup": "Grupo de routers",
+      "addRow": "Añadir rol",
+      "removeRow": "Quitar este rol",
+      "editTitle": "Roles de {name}",
+      "editDescription": "Lo que cambies se aplica en su próxima petición.",
+      "saved": "Roles de {name} actualizados",
+      "conflict": "Otra persona cambió los roles mientras editabas. Se han cargado los roles vigentes: revísalos y guarda de nuevo.",
+      "reauthTitle": "Confirma tu identidad para cambiar roles",
+      "reauthBody": "Por seguridad, cambiar roles exige haber iniciado sesión hace poco. Cierra sesión, vuelve a entrar y repite el cambio.",
+      "reauthAction": "Volver a iniciar sesión"
+    }
+  },
+  "invitation": {
+    "title": "Invitación",
+    "heading": "Te invitaron a {tenant}",
+    "summary": "Invitación para {email} al ISP {tenant} en Horus Flow.",
+    "expires": "Válida hasta {time}.",
+    "email": "Correo electrónico",
+    "name": "Tu nombre",
+    "password": "Contraseña",
+    "passwordHint": "Mínimo 12 caracteres.",
+    "repeat": "Repite la contraseña",
+    "create": "Crear cuenta y entrar",
+    "existing": "Ya tienes una cuenta con este correo. Acepta la invitación y luego inicia sesión con ella.",
+    "accept": "Aceptar invitación",
+    "goLogin": "Ir a iniciar sesión",
+    "invalid": {
+      "title": "Este enlace no sirve",
+      "body": "El enlace de invitación no es válido, ya se usó o ha caducado.",
+      "advice": "Pide a la administración de tu ISP que te genere un enlace nuevo."
+    },
+    "errors": {
+      "network": "No se puede conectar con Horus Flow. Comprueba tu conexión e inténtalo de nuevo."
     }
   }
 }
