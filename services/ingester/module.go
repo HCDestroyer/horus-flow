@@ -53,7 +53,7 @@ func Register(_ context.Context, deps module.Deps) (module.Module, error) {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	m := &ingester{Module: module.Idle(), cfg: cfg, log: log, deps: deps, inv: flowinv.NewStore(nil), states: &lazyStates{}}
+	m := &ingester{Module: module.Idle(), cfg: cfg, log: log, deps: deps, inv: flowinv.NewStore(nil), states: &lazyStates{}, unreg: &lazyUnregistered{}}
 	if cfg.NATSURL != "" {
 		m.metrics = app.NewMetrics(deps.Metrics)
 		if cfg.InventoryFile != "" {
@@ -65,7 +65,7 @@ func Register(_ context.Context, deps module.Deps) (module.Module, error) {
 		}
 		if deps.Routes != nil {
 			if v := verifier(cfg, deps); v != nil {
-				httpapi.New(authz.NewGuard(v), m.inv, m.states).Mount(deps.Routes)
+				httpapi.New(authz.NewGuard(v), m.inv, m.states, m.unreg, nil).Mount(deps.Routes)
 			} else {
 				log.Warn("ingester: no token verifier (auth not local, HORUS_JWT_PUBLIC_KEYS unset): /flow-exporters not served")
 			}
@@ -101,6 +101,19 @@ func (l *lazyStates) Get(ctx context.Context, id uuid.UUID) (*collectorapi.FlowE
 	return kv.Get(ctx, id)
 }
 
+// lazyUnregistered da acceso al bucket de exportadores no registrados una vez conectado.
+type lazyUnregistered struct {
+	kv atomic.Pointer[collectorapi.KVUnregistered]
+}
+
+func (l *lazyUnregistered) ListUnregistered(ctx context.Context) ([]collectorapi.Unregistered, error) {
+	kv := l.kv.Load()
+	if kv == nil {
+		return nil, nil
+	}
+	return kv.ListUnregistered(ctx)
+}
+
 type ingester struct {
 	module.Module
 	cfg     modcfg.Config
@@ -109,6 +122,7 @@ type ingester struct {
 	inv     *flowinv.Store
 	metrics *app.Metrics
 	states  *lazyStates
+	unreg   *lazyUnregistered
 
 	nc       *nats.Conn
 	js       jetstream.JetStream
@@ -166,6 +180,11 @@ func (m *ingester) Start(ctx context.Context) error {
 		m.states.kv.Store(&httpapi.KVStates{KV: kv})
 	} else {
 		m.log.WarnContext(ctx, "exporter state bucket unavailable", "error", err)
+	}
+	if kv, err := js.CreateOrUpdateKeyValue(ctx, collectorapi.UnregisteredKVConfig()); err == nil {
+		m.unreg.kv.Store(&collectorapi.KVUnregistered{KV: kv})
+	} else {
+		m.log.WarnContext(ctx, "unregistered exporters bucket unavailable", "error", err)
 	}
 	if os, err := flowstate.Open(ctx, js); err == nil {
 		m.snapshots = os

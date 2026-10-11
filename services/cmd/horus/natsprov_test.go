@@ -13,6 +13,8 @@ import (
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+
+	collectorapi "github.com/hcdestroyer/horus-flow/services/collector/api"
 )
 
 func repoFile(t *testing.T, rel string) string {
@@ -112,9 +114,20 @@ func TestNATSProvisionContract(t *testing.T) {
 	if _, err := js.Consumer(ctx, "TLM_FLOWS", "flows-ingester"); err != nil {
 		t.Errorf("durable flows-ingester: %v", err)
 	}
-	for _, b := range []string{"flow_exporter_state", "flows_ingester_groups"} {
+	for _, b := range []string{"flow_exporter_state", "flow_exporter_unregistered", "flows_ingester_groups"} {
 		if _, err := js.KeyValue(ctx, b); err != nil {
 			t.Errorf("kv %s: %v", b, err)
 		}
+	}
+	// kv.yaml y el collector/ingester crean flow_exporter_unregistered igual.
+	ukv, err := js.KeyValue(ctx, collectorapi.UnregisteredBucket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st, err := ukv.Status(ctx); err != nil || st.TTL() != collectorapi.UnregisteredKVConfig().TTL {
+		t.Errorf("flow_exporter_unregistered status = %v, %v", st, err)
+	}
+	if _, err := js.CreateOrUpdateKeyValue(ctx, collectorapi.UnregisteredKVConfig()); err != nil {
+		t.Errorf("collector config over the provisioned bucket: %v", err)
 	}
 }

@@ -568,9 +568,9 @@ func (s *Store) CreatePrefix(ctx context.Context, t pgdb.TenantID, p *domain.Cli
 func (s *Store) UpdatePrefix(ctx context.Context, t pgdb.TenantID, p *domain.ClientPrefix, expect int, ev app.Events[domain.ClientPrefix]) error {
 	return s.db.TenantTx(ctx, t, func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx, `UPDATE devices.client_prefix SET role = $4, default_kind = $5, assignment_mode = $6, ipv6_client_len = $7,
-				note = $8, updated_at = $9, version = version + 1
+				note = $8, updated_at = $9, confirmed = $10, version = version + 1
 			WHERE tenant_id = $1 AND id = $2 AND version = $3 AND deleted_at IS NULL RETURNING version`,
-			t.UUID(), p.ID, expect, p.Role, p.DefaultKind, p.AssignmentMode, p.IPv6ClientLen, p.Note, p.UpdatedAt).Scan(&p.Version)
+			t.UUID(), p.ID, expect, p.Role, p.DefaultKind, p.AssignmentMode, p.IPv6ClientLen, p.Note, p.UpdatedAt, p.Confirmed).Scan(&p.Version)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return app.ErrVersionChanged
 		}

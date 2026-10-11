@@ -117,9 +117,14 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 			return module.Lookup[authapi.AuditRecorder](deps.Services, authapi.ServiceAudit)
 		}, nil, logger)
 	customers.InactivityDays, customers.RetentionMonths = cfg.CustomerInactivityDays, cfg.CustomerRetentionMonths
+	credentials := app.NewCredentials(store, sealer,
+		func() (authapi.AuditRecorder, bool) {
+			return module.Lookup[authapi.AuditRecorder](deps.Services, authapi.ServiceAudit)
+		}, nil, logger)
 	if deps.Routes != nil {
 		guard := authz.NewGuard(verifier)
 		httpapi.New(svc, guard, cfg.PublicBaseURL, logger).Mount(deps.Routes)
+		httpapi.NewCredentials(credentials, guard, logger).Mount(deps.Routes)
 		httpapi.NewImport(importer, guard, logger).Mount(deps.Routes)
 		httpapi.NewCustomers(customers, guard, logger).Mount(deps.Routes)
 	}

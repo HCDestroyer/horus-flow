@@ -62,7 +62,10 @@ Con `HORUS_NATS_URL` el rol consume `TLM_FLOWS` (durable `flows-ingester`) y por
    `customer.discovered/reactivated/purged` (durable `ingester-known-clients`).
 
 Sirve `GET /api/v1/flow-exporters[/{router_id}]` (permiso `flows.read`) con el estado que el
-collector guarda en el bucket KV `flow_exporter_state`.
+collector guarda en el bucket KV `flow_exporter_state`, y
+`GET /api/v1/platform/exporters/unregistered` (token de plataforma, `platform.tenants.read`) con
+las IPs no registradas del bucket `flow_exporter_unregistered` (solo IP, primera/última vez y
+datagramas; sin datos de ningún ISP).
 
 | Variable | Defecto | Uso |
 | --- | --- | --- |

@@ -91,26 +91,7 @@ type Preview struct {
 }
 
 func (im *Importer) record(ctx context.Context, p *authz.Principal, t pgdb.TenantID, action, rid string, changes map[string]any) {
-	e := authapi.AuditEntry{TenantID: t.UUID(), OccurredAt: im.now().UTC(), ActorType: p.Type, ActorID: p.Subject, ViaPlatform: p.ViaPlatform,
-		Action: action, ResourceType: "router", ResourceID: rid, Scope: "tenant", Outcome: "success", Changes: changes}
-	if rec, ok := im.audit(); ok {
-		if err := rec.Record(ctx, e); err != nil {
-			im.logger.ErrorContext(ctx, "audit failed", slog.String("action", action), slog.Any("error", err))
-		}
-		return
-	}
-	id := uuid.Must(uuid.NewV7())
-	tid := t.UUID()
-	actor := outbox.ActorFrom(p)
-	ev := outbox.Event{ID: id, Type: "horus.devices.audit.recorded", Source: "horus/devices", TenantID: &tid, AggregateType: "audit",
-		AggregateID: id, AggregateVersion: 1, Actor: actor, OccurredAt: e.OccurredAt, Data: map[string]any{
-			"id": id.String(), "tenant_id": tid.String(), "occurred_at": e.OccurredAt.Format(outbox.TimeFormat), "source_service": "devices",
-			"actor": actor, "ip": nil, "user_agent": nil, "action": action, "resource_type": "router", "resource_id": rid, "scope": "tenant",
-			"outcome": "success", "reason": nil, "changes": changes, "request_id": nil, "trace_id": nil,
-		}}
-	if err := im.store.Emit(ctx, []outbox.Event{ev}); err != nil {
-		im.logger.ErrorContext(ctx, "audit outbox failed", slog.String("action", action), slog.Any("error", err))
-	}
+	recordAudit(ctx, im.audit, im.store, im.logger, im.now().UTC(), p, t, action, "router", rid, "tenant", changes)
 }
 
 // PreviewImport lee el router por el túnel y propone prefijos sin aplicar

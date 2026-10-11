@@ -11,6 +11,15 @@ kv:
     description: Estado de los exportadores de flujos (I1-09)
     history: 1
     storage: file
+  # IPs que envían flujos sin ser exportador registrado (collector escribe por instancia e IP,
+  # ingester lee en GET /platform/exporters/unregistered). Mismos parámetros que
+  # services/collector/api.UnregisteredKVConfig; max_bytes acota orígenes falsificados.
+  - bucket: flow_exporter_unregistered
+    description: Exportadores no registrados que envían flujos (descartados)
+    history: 1
+    ttl: 1h
+    max_bytes: 16MiB
+    storage: file
   # Plantillas IPFIX/v9 y secuencias de cada exportador: el collector las reinstala tras un
   # reinicio y mide lo enviado mientras estuvo caído (D23; services/collector/internal/app/persist.go).
   - bucket: flow_collector_state

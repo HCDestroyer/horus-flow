@@ -22,7 +22,9 @@
 6. Calcula el **estado del exportador** (pending_configuration, exporting, silent > 2 min,
    lossy > 1 % en 5 min, clock_skew > 30 s) en el bucket KV `flow_exporter_state` y publica
    `horus.flows.exporter.{state_changed,silent,recovered}`. Lo sirve el ingester en
-   `GET /flow-exporters`.
+   `GET /flow-exporters`. Las IPs que envían flujos sin ser exportador registrado van al
+   bucket `flow_exporter_unregistered` (por instancia e IP, TTL 1 h, como mucho una
+   escritura cada 30 s por IP); el ingester las sirve en `GET /platform/exporters/unregistered`.
 
 7. **Decodificación multihilo de un mismo exportador** (`HORUS_COLLECTOR_DECODE_WORKERS`):
    cada carril hace en serie lo que toca estado (plantillas, retenidos, opciones; luego

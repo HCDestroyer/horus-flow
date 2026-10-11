@@ -84,7 +84,17 @@ type exporterState struct {
 type unregistered struct {
 	first, last, lastEmit time.Time
 	datagrams             uint64
+	// putLast es el `last` guardado en el bucket flow_exporter_unregistered
+	// y lastPut cuándo se guardó.
+	putLast, lastPut time.Time
 }
+
+// Escrituras en el bucket de no registrados: como mucho una cada
+// unregPutEvery por IP y unregPutMax por evaluación (orígenes falsificados).
+const (
+	unregPutEvery = 30 * time.Second
+	unregPutMax   = 1000
+)
 
 // StateOptions son los umbrales de I1-09.
 type StateOptions struct {
@@ -109,6 +119,18 @@ type States struct {
 	mu    sync.Mutex
 	byID  map[uuid.UUID]*exporterState
 	unreg map[netip.Addr]*unregistered
+
+	// ukv guarda las IPs no registradas para GET /platform/exporters/unregistered
+	// (bucket flow_exporter_unregistered, clave por collector e IP).
+	ukv       KV
+	collector string
+}
+
+// UseUnregistered activa el registro de IPs no registradas en kv.
+func (s *States) UseUnregistered(kv KV, collectorID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ukv, s.collector = kv, collectorID
 }
 
 // NewStates crea el evaluador.
@@ -201,6 +223,7 @@ func (s *States) Evaluate(ctx context.Context, onlyDirty bool) {
 	var writes []pendingWrite
 	var unreg []netip.Addr
 	var unregData []unregistered
+	var unregPuts []api.Unregistered
 	s.mu.Lock()
 	for _, exp := range inv.Data().Exporters {
 		st := s.get(exp.RouterID)
@@ -243,14 +266,30 @@ func (s *States) Evaluate(ctx context.Context, onlyDirty bool) {
 				unreg = append(unreg, ip)
 				unregData = append(unregData, *u)
 			}
+			if s.ukv != nil && len(unregPuts) < unregPutMax && u.last.After(u.putLast) && now.Sub(u.lastPut) >= unregPutEvery {
+				u.putLast, u.lastPut = u.last, now
+				unregPuts = append(unregPuts, api.Unregistered{ExporterIP: ip.Unmap().String(), FirstSeenAt: u.first.UTC(),
+					LastSeenAt: u.last.UTC(), Datagrams: u.datagrams, Collector: s.collector})
+			}
 			if now.Sub(u.last) > time.Hour {
 				delete(s.unreg, ip)
 			}
 		}
 	}
+	ukv := s.ukv
 	s.mu.Unlock()
 	for _, w := range writes {
 		s.persist(ctx, w)
+	}
+	for _, u := range unregPuts {
+		b, err := json.Marshal(u)
+		if err != nil {
+			continue
+		}
+		if err := ukv.Put(ctx, api.UnregisteredKey(u.Collector, netip.MustParseAddr(u.ExporterIP)), b); err != nil {
+			s.log.Warn("unregistered exporter not stored", "error", err)
+			break // bucket lleno o NATS caído: se reintenta con el próximo datagrama de esa IP
+		}
 	}
 	for i, ip := range unreg {
 		s.emitUnregistered(ctx, ip, unregData[i])

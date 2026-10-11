@@ -224,3 +224,37 @@ func (s *Service) DeletePrefix(ctx context.Context, id uuid.UUID, ifMatch int) e
 	}
 	return mapStoreErrNil(err, domain.CodeClientPrefixNotFound)
 }
+
+// ConfirmPrefix confirma un prefijo sugerido (p. ej. leído del MikroTik y aún
+// sin aceptar; docs/api.md §client-prefixes) con If-Match. Uno ya confirmado
+// se devuelve tal cual (idempotente, sin nueva versión ni evento).
+func (s *Service) ConfirmPrefix(ctx context.Context, id uuid.UUID, ifMatch int) (*domain.ClientPrefix, error) {
+	cp, err := s.prefixInScope(ctx, "sites.update", id)
+	if err != nil {
+		return nil, err
+	}
+	pr, t, _ := scope(ctx, "sites.update")
+	if ifMatch != cp.Version {
+		return nil, apperr.PreconditionFailed(cp)
+	}
+	if cp.Confirmed {
+		return cp, nil
+	}
+	now := s.ts()
+	cp.Confirmed, cp.UpdatedAt = true, now
+	err = s.store.UpdatePrefix(ctx, t, cp, ifMatch, func(v *domain.ClientPrefix) []outbox.Event {
+		return []outbox.Event{event(pr, t, "horus.devices.client_prefix.updated", "client_prefix", v.ID, v.Version, now,
+			PrefixEventData(v, []string{"confirmed"}))}
+	})
+	if errors.Is(err, ErrVersionChanged) {
+		cur, gerr := s.store.GetPrefix(ctx, t, id)
+		if gerr != nil {
+			return nil, apperr.NotFound(domain.CodeClientPrefixNotFound)
+		}
+		return nil, apperr.PreconditionFailed(cur)
+	}
+	if err != nil {
+		return nil, mapStoreErr(err, domain.CodeClientPrefixNotFound)
+	}
+	return cp, nil
+}

@@ -13,12 +13,19 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/flowinv"
 	"github.com/hcdestroyer/horus-flow/packages/go/httpx"
 	"github.com/hcdestroyer/horus-flow/packages/go/jsonapi"
+	"github.com/hcdestroyer/horus-flow/packages/go/pagination"
 	"github.com/hcdestroyer/horus-flow/packages/go/problem"
 	collectorapi "github.com/hcdestroyer/horus-flow/services/collector/api"
 )
 
 // PermFlowsRead es el permiso de las rutas (x-permission: flows.read).
 const PermFlowsRead = "flows.read"
+
+// PermPlatformTenantsRead es x-permission de GET /platform/exporters/unregistered.
+const PermPlatformTenantsRead = "platform.tenants.read"
+
+// Unregistered lista las IPs que envían flujos sin estar registradas (collector/api).
+type Unregistered = collectorapi.UnregisteredLister
 
 // States es el lector del estado (collector/api).
 type States = collectorapi.States
@@ -29,17 +36,23 @@ type KVStates = collectorapi.KVStates
 // FlowExporter es la respuesta.
 type FlowExporter = collectorapi.View
 
-// Handler sirve /flow-exporters.
+// Handler sirve /flow-exporters y /platform/exporters/unregistered.
 type Handler struct {
 	guard  *authz.Guard
 	inv    *flowinv.Store
 	states States
+	unreg  Unregistered
+	cursor *pagination.Codec
 	now    func() time.Time
 }
 
-// New crea el handler.
-func New(guard *authz.Guard, inv *flowinv.Store, states States) *Handler {
-	return &Handler{guard: guard, inv: inv, states: states, now: time.Now}
+// New crea el handler. unreg nil = listado de no registrados vacío; cursor
+// nil = clave aleatoria por proceso.
+func New(guard *authz.Guard, inv *flowinv.Store, states States, unreg Unregistered, cursor *pagination.Codec) *Handler {
+	if cursor == nil {
+		cursor = pagination.NewCodec(nil)
+	}
+	return &Handler{guard: guard, inv: inv, states: states, unreg: unreg, cursor: cursor, now: time.Now}
 }
 
 // Mount registra las rutas.
@@ -51,6 +64,7 @@ func (h *Handler) Mount(r *httpx.ServiceMux) {
 	read := authz.Requirement{Scope: authz.ScopeTenant, AllowKiosk: true}
 	r.Handle("GET /api/v1/flow-exporters", h.guard.Wrap(read, http.HandlerFunc(h.list)))
 	r.Handle("GET /api/v1/flow-exporters/{router_id}", h.guard.Tenant(PermFlowsRead, h.get))
+	r.Handle("GET /api/v1/platform/exporters/unregistered", h.guard.Platform(PermPlatformTenantsRead, h.listUnregistered))
 }
 
 func (h *Handler) visible(r *http.Request) (uuid.UUID, []uuid.UUID, bool) {

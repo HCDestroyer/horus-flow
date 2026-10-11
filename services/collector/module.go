@@ -28,6 +28,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/flowstate"
 	"github.com/hcdestroyer/horus-flow/packages/go/health"
 	"github.com/hcdestroyer/horus-flow/packages/go/module"
+	collectorapi "github.com/hcdestroyer/horus-flow/services/collector/api"
 	"github.com/hcdestroyer/horus-flow/services/collector/internal/app"
 	modcfg "github.com/hcdestroyer/horus-flow/services/collector/internal/config"
 	"github.com/hcdestroyer/horus-flow/services/collector/internal/spool"
@@ -116,6 +117,11 @@ func (m *mod) Start(ctx context.Context) error {
 		State: app.StateOptions{SilentAfter: m.cfg.SilentAfter, LossThreshold: m.cfg.LossThreshold,
 			LossWindow: m.cfg.LossWindow, ClockSkew: m.cfg.ClockSkew, Interval: m.cfg.StateInterval},
 	}, m.inv, jsSink{js: js}, kv, m.m, m.log)
+	if b, err := js.CreateOrUpdateKeyValue(ctx, collectorapi.UnregisteredKVConfig()); err != nil {
+		m.log.WarnContext(ctx, "unregistered exporters bucket unavailable: GET /platform/exporters/unregistered stays empty", "error", err)
+	} else {
+		m.engine.States.UseUnregistered(app.JetStreamKV{KV: b}, m.cfg.CollectorID)
+	}
 	if b, err := js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: app.CollectorStateBucket,
 		Description: "Plantillas y secuencias del collector para continuar tras un reinicio (D23)", History: 1,
 		Storage: jetstream.FileStorage}); err != nil {
