@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -82,6 +83,22 @@ func TestCheckManifest(t *testing.T) {
 	_ = c.Check(context.Background())
 	if s := c.Status(); s.Latest == nil || s.Latest.Version != "2.0.0" || s.Latest.PatchOnly || s.Latest.NotesURL != "https://n" {
 		t.Fatalf("manifiesto = %+v", s.Latest)
+	}
+}
+
+func TestFallbackWhenSourceRateLimited(t *testing.T) {
+	limited := serve(t, 403, `{"message":"API rate limit exceeded"}`)
+	manifest := serve(t, 200, `{"schema":1,"channels":{"stable":{"version":"1.0.4"}}}`)
+	c := New(Options{Current: "1.0.3", Source: limited, Fallback: manifest})
+	if err := c.Check(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if s := c.Status(); s.Status != StatusAvailable || s.Latest == nil || s.Latest.Version != "1.0.4" {
+		t.Fatalf("respaldo = %+v", s)
+	}
+	both := New(Options{Current: "1.0.3", Source: limited, Fallback: serve(t, 404, "no")})
+	if err := both.Check(context.Background()); err == nil || !strings.Contains(err.Error(), "403") {
+		t.Fatalf("error = %v, quiero el de la fuente principal (403)", err)
 	}
 }
 

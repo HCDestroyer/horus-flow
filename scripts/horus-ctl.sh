@@ -119,10 +119,18 @@ http_get() { # http_get URL [cabecera…]: cuerpo por stdout
 }
 
 # releases_tsv: VERSIÓN<TAB>PRERELEASE<TAB>URL_NOTAS<TAB>FECHA (API de GitHub o latest.json).
+# Sin HORUS_UPDATE_SOURCE se consulta la API de GitHub; si falla (sin token limita a 60 consultas
+# por hora y por IP y responde 403, algo habitual tras un NAT compartido) se usa el latest.json de
+# la última release, que se descarga de github.com sin pasar por la API.
 releases_tsv() {
-  local src="${HORUS_UPDATE_SOURCE:-https://api.github.com/repos/$repo/releases?per_page=50}" body
+  local body
   command -v jq >/dev/null 2>&1 || die "falta jq (apt install jq)"
-  body="$(http_get "$src" "Accept: application/vnd.github+json")" || return 1
+  if [ -n "${HORUS_UPDATE_SOURCE:-}" ]; then
+    body="$(http_get "$HORUS_UPDATE_SOURCE" "Accept: application/vnd.github+json")" || return 1
+  elif ! body="$(http_get "https://api.github.com/repos/$repo/releases?per_page=50" "Accept: application/vnd.github+json" 2>/dev/null)"; then
+    warn "la API de GitHub no respondió (¿límite de consultas?); uso latest.json de la última release" >&2
+    body="$(curl -fsSL --retry 2 -m 60 "https://github.com/$repo/releases/latest/download/latest.json")" || return 1
+  fi
   printf '%s' "$body" | jq -r '
     if type == "array" then .[] | select(.draft | not) | [(.tag_name | ltrimstr("v")), (.prerelease | tostring), .html_url, (.published_at // "")] | @tsv
     else (.channels // {}) | to_entries[] | [(.value.version | ltrimstr("v")), ((.key != "stable") | tostring), (.value.notes_url // ""), (.value.published_at // "")] | @tsv
@@ -131,13 +139,14 @@ releases_tsv() {
 
 # latest_in_channel CANAL [X.Y]: mayor versión publicada del canal (opcional: misma X.Y).
 latest_in_channel() {
-  local ch="$1" mm="${2:-}" best="" v pre _rest
+  local ch="$1" mm="${2:-}" best="" v pre _rest tsv
+  tsv="$(releases_tsv)" || return 1 # un fallo de la fuente no es "no hay versiones"
   while IFS=$'\t' read -r v pre _rest; do
     semver_valid "$v" || continue
     [ "$ch" = beta ] || { [ "$pre" = false ] && [ "$v" = "${v%%-*}" ]; } || continue
     [ -z "$mm" ] || [ "$(major_minor "$v")" = "$mm" ] || continue
     if [ -z "$best" ] || semver_gt "$v" "$best"; then best="$v"; fi
-  done < <(releases_tsv)
+  done <<<"$tsv"
   printf '%s' "$best"
 }
 

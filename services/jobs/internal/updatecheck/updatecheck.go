@@ -64,9 +64,12 @@ type Options struct {
 	Current string
 	Channel string
 	Source  string
-	Repo    string
-	Client  *http.Client
-	Now     func() time.Time
+	// Fallback se consulta si Source falla (p. ej. la API de GitHub limita a 60 consultas/hora
+	// por IP sin token y responde 403): normalmente el latest.json de la última release.
+	Fallback string
+	Repo     string
+	Client   *http.Client
+	Now      func() time.Time
 }
 
 // Checker guarda el último estado y lo recalcula con Check.
@@ -153,7 +156,17 @@ func (c *Checker) fetch(ctx context.Context) ([]Release, error) {
 	if c.o.Source == "" {
 		return nil, errors.New("sin fuente de versiones")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.o.Source, nil)
+	rels, err := c.fetchURL(ctx, c.o.Source)
+	if err != nil && c.o.Fallback != "" && ctx.Err() == nil {
+		if fb, ferr := c.fetchURL(ctx, c.o.Fallback); ferr == nil {
+			return fb, nil
+		}
+	}
+	return rels, err
+}
+
+func (c *Checker) fetchURL(ctx context.Context, src string) ([]Release, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, src, nil)
 	if err != nil {
 		return nil, fmt.Errorf("fuente de versiones inválida: %w", err)
 	}

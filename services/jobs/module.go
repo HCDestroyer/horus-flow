@@ -61,6 +61,15 @@ func (c *Config) Validate() error {
 	return nil
 }
 
+// fallback: con la fuente por defecto (API de GitHub), el latest.json de la última release, que
+// se descarga de github.com sin pasar por el límite de la API. Una fuente propia no tiene respaldo.
+func (c *Config) fallback() string {
+	if c.Source != "https://api.github.com/repos/"+c.Repo+"/releases?per_page=50" {
+		return ""
+	}
+	return "https://github.com/" + c.Repo + "/releases/latest/download/latest.json"
+}
+
 // Register construye el módulo del rol jobs (firma module.Factory).
 func Register(_ context.Context, deps module.Deps) (module.Module, error) {
 	cfg, err := config.Load[Config](deps.Environ)
@@ -72,7 +81,7 @@ func Register(_ context.Context, deps module.Deps) (module.Module, error) {
 		log = slog.New(slog.DiscardHandler)
 	}
 	j := &jobs{cfg: cfg, log: log, checker: updatecheck.New(updatecheck.Options{
-		Current: cfg.Version, Channel: cfg.Channel, Source: cfg.Source, Repo: cfg.Repo,
+		Current: cfg.Version, Channel: cfg.Channel, Source: cfg.Source, Fallback: cfg.fallback(), Repo: cfg.Repo,
 	})}
 	if deps.Metrics != nil {
 		j.available = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "horus_update_available",
