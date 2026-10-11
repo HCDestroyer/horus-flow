@@ -141,6 +141,28 @@ func TestParseNetset(t *testing.T) {
 	}
 }
 
+// Variantes reales del CSV de abuse.ch: cabecera sin comentar, pie entre
+// comillas, lista sin entradas y página HTML.
+func TestFeodoFormatVariants(t *testing.T) {
+	s := src("abusech-feodo", "abusech-feodo-csv", "botnet_cc", 90)
+	banner := "################################################################\n" +
+		"# abuse.ch Feodo Tracker Botnet C2 IP Blocklist (CSV)          #\n" +
+		"################################################################\n#\n"
+	row := "\"2026-09-01 10:11:12\",\"192.0.2.10\",\"443\",\"online\",\"2026-10-07\",\"QakBot\"\n"
+	hdr := "\"first_seen_utc\",\"dst_ip\",\"dst_port\",\"c2_status\",\"last_online\",\"malware\"\n"
+	res, err := Parse(strings.NewReader(banner+hdr+row+"#\"Number of entries: 1\"\n"), s, fetchedAt)
+	if err != nil || len(res.Entries) != 1 || res.Entries[0].Port != 443 {
+		t.Fatalf("cabecera sin comentar: %v %+v", err, res)
+	}
+	if _, err := Parse(strings.NewReader(banner+"# Number of entries: 0\n"), s, fetchedAt); !errors.Is(err, ErrEmpty) {
+		t.Fatalf("lista sin entradas: %v, quiero ErrEmpty", err)
+	}
+	_, err = Parse(strings.NewReader("<!DOCTYPE html>\n<html><body>Unauthorized</body></html>\n"), s, fetchedAt)
+	if !errors.Is(err, ErrCorrupt) || !strings.Contains(err.Error(), "HTML") {
+		t.Fatalf("página HTML: %v", err)
+	}
+}
+
 func TestRejectsCorruptAndEmpty(t *testing.T) {
 	dir := filepath.Join(fixtures(t), "corrupt")
 	cases := []struct {

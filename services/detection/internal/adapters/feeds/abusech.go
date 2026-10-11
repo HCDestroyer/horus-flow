@@ -16,8 +16,9 @@ import (
 )
 
 // abuseCSV es un CSV de abuse.ch: comentarios con '#', la cabecera va
-// comentada ("# "first_seen_utc",…") y puede haber un pie
-// "# Number of entries: N".
+// comentada ("# "first_seen_utc",…") o, en las versiones nuevas, sin
+// comentar, y puede haber un pie "# Number of entries: N" (con o sin
+// comillas).
 type abuseCSV struct {
 	cols     map[string]int
 	records  [][]string
@@ -27,34 +28,57 @@ type abuseCSV struct {
 func readAbuseCSV(r io.Reader, required ...string) (*abuseCSV, error) {
 	out := &abuseCSV{declared: -1}
 	var data strings.Builder
+	header := func(body string) error {
+		cr := csv.NewReader(strings.NewReader(body))
+		cr.TrimLeadingSpace = true
+		hdr, err := cr.Read()
+		if err != nil {
+			return fmt.Errorf("%w: cabecera ilegible: %v", ErrCorrupt, err)
+		}
+		out.cols = make(map[string]int, len(hdr))
+		for i, h := range hdr {
+			out.cols[strings.TrimSpace(h)] = i
+		}
+		return nil
+	}
+	banner, first := false, true
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 64<<10), 1<<20)
 	for sc.Scan() {
 		line := strings.TrimRight(sc.Text(), "\r")
+		if first && strings.TrimSpace(line) != "" {
+			first = false
+			if strings.HasPrefix(strings.TrimSpace(line), "<") {
+				return nil, fmt.Errorf("%w: la descarga es una página HTML, no el CSV (¿la URL cambió o exige clave de acceso?)", ErrCorrupt)
+			}
+		}
 		if strings.HasPrefix(line, "#") {
 			body := strings.TrimSpace(strings.TrimPrefix(line, "#"))
+			unq := strings.Trim(body, `"`)
 			switch {
 			case out.cols == nil && strings.Contains(body, "first_seen_utc"):
-				cr := csv.NewReader(strings.NewReader(body))
-				cr.TrimLeadingSpace = true
-				hdr, err := cr.Read()
-				if err != nil {
-					return nil, fmt.Errorf("%w: cabecera ilegible: %v", ErrCorrupt, err)
+				if err := header(body); err != nil {
+					return nil, err
 				}
-				out.cols = make(map[string]int, len(hdr))
-				for i, h := range hdr {
-					out.cols[strings.TrimSpace(h)] = i
-				}
-			case strings.HasPrefix(strings.ToLower(body), "number of entries:"):
+			case strings.HasPrefix(strings.ToLower(unq), "number of entries:"):
+				body = unq
 				n, err := strconv.Atoi(strings.TrimSpace(body[len("number of entries:"):]))
 				if err != nil {
 					return nil, fmt.Errorf("%w: pie ilegible %q", ErrCorrupt, body)
 				}
 				out.declared = n
+			case strings.Contains(strings.ToLower(body), "abuse.ch"):
+				banner = true
 			}
 			continue
 		}
 		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if out.cols == nil && strings.Contains(line, "first_seen_utc") {
+			if err := header(line); err != nil {
+				return nil, err
+			}
 			continue
 		}
 		data.WriteString(line)
@@ -64,6 +88,14 @@ func readAbuseCSV(r io.Reader, required ...string) (*abuseCSV, error) {
 		return nil, fmt.Errorf("%w: %v", ErrCorrupt, err)
 	}
 	if out.cols == nil {
+		if banner && data.Len() == 0 {
+			// Lista de abuse.ch sin entradas (sin cabecera): vacía, no corrupta.
+			out.cols = map[string]int{}
+			for i, c := range required {
+				out.cols[c] = i
+			}
+			return out, nil
+		}
 		return nil, fmt.Errorf("%w: no se encontró la cabecera (¿página de error o formato cambiado?)", ErrCorrupt)
 	}
 	for _, c := range required {
