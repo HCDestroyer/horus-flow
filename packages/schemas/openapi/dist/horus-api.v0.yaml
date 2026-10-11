@@ -3511,7 +3511,11 @@ paths:
               $ref: '#/components/schemas/TenantCreate'
       responses:
         '201':
-          description: Creado.
+          description: |
+            Creado. `initial_admin_invitation` dice cómo quedó el primer administrador: si su cuenta ya
+            existía (p. ej. el propio superadministrador) queda como miembro activo (`outcome=added`); si
+            no, se invita (`outcome=invited`) con un enlace de un solo uso para compartir y, con SMTP,
+            también por correo. El enlace solo aparece en esta respuesta.
           headers:
             Location:
               $ref: '#/components/headers/Location'
@@ -3520,7 +3524,14 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Tenant'
+                allOf:
+                  - $ref: '#/components/schemas/Tenant'
+                  - type: object
+                    required:
+                      - initial_admin_invitation
+                    properties:
+                      initial_admin_invitation:
+                        $ref: '#/components/schemas/InvitationIssued'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
