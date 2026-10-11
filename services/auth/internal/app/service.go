@@ -44,6 +44,9 @@ type Options struct {
 	RefreshIdle time.Duration
 	SessionMax  time.Duration
 	TOTPIssuer  string
+	// Invitations entrega los tokens de invitación; nil = sin canal de
+	// entrega (la invitación queda guardada y la persona no la recibe).
+	Invitations InvitationSender
 	Now         func() time.Time
 	Logger      *slog.Logger
 }
@@ -54,8 +57,8 @@ type Service struct {
 	o         Options
 	dummyHash string
 
-	mu          sync.Mutex
-	cache       map[string]cachedStatus
+	mu    sync.Mutex
+	cache map[string]cachedStatus
 }
 
 type cachedStatus struct {
