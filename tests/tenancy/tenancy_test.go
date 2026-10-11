@@ -73,8 +73,13 @@ func cases() map[string]tenanttest.Case {
 	c["updateKiosk"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"name": "pirata"}}
 	c["createKioskEnrollmentCode"] = tenanttest.Case{Kind: tenanttest.ByID}
 	c["revokeKiosk"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"reason": "pirata"}}
-	pending("CORE I1 (auth: miembros y roles)",
-		"removeMember", "listMembers", "listRoles", "inviteMember", "replaceMemberRoleAssignments")
+	// auth: miembros y roles (I1, CORE)
+	c["listMembers"] = tenanttest.Case{Kind: tenanttest.List}
+	c["listRoles"] = tenanttest.Case{Kind: tenanttest.List}
+	c["inviteMember"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"email": "pirata@isp.test",
+		"role_assignments": []any{map[string]any{"role_id": "0192f000-0000-7000-8000-00000000a001", "scope": "tenant"}}}}
+	c["removeMember"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["replaceMemberRoleAssignments"] = tenanttest.Case{Kind: tenanttest.ByID}
 	// alerts: canal mínimo (D13/D17/D21, CORE)
 	c["listNotificationChannels"] = tenanttest.Case{Kind: tenanttest.List}
 	c["createNotificationChannel"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"name": "pirata", "kind": "telegram",
@@ -157,6 +162,8 @@ func (a *app) fixtureISP(x isp, cidr string) map[string]string {
 		"config": map[string]any{"chat_id": "-100123"}, "subscription": map[string]any{"event_types": []string{"finding_opened"}}}), 201).str("id")
 	out["playlist_id"] = a.must(a.post(x.token, "/api/v1/playlists", map[string]any{"name": "Rotación",
 		"items": []any{map[string]any{"dashboard_id": dash, "duration_seconds": 30}}}), 201).str("id")
+	// Miembro del ISP (su administrador) para /members/{user_id}.
+	out["user_id"] = a.must(a.do(req{Method: "GET", Path: "/api/v1/me", Token: x.admin.token}), 200).str("id")
 	if _, err := a.admin.Exec(context.Background(), `UPDATE detection.finding SET customer_id = $1 WHERE id = $2`,
 		out["customer_id"], out["finding_id"]); err != nil {
 		a.t.Fatal(err)
@@ -208,7 +215,7 @@ func TestTenantIsolationMatrix(t *testing.T) {
 				"{peer_id}", paramsA["peer_id"], "{token_id}", paramsA["token_id"],
 				"{finding_id}", paramsA["finding_id"], "{customer_id}", paramsA["customer_id"], "{entry_id}", paramsA["entry_id"],
 				"{kiosk_id}", paramsA["kiosk_id"], "{dashboard_id}", paramsA["dashboard_id"], "{widget_id}", paramsA["widget_id"],
-				"{playlist_id}", paramsA["playlist_id"], "{channel_id}", paramsA["channel_id"],
+				"{playlist_id}", paramsA["playlist_id"], "{channel_id}", paramsA["channel_id"], "{user_id}", paramsA["user_id"],
 			).Replace(tmpl), nil)
 			return a.mux.Matches(r)
 		},
