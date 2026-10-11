@@ -53,7 +53,7 @@ func setup(t *testing.T) (http.Handler, *authz.Signer) {
 	states := memStates{routerA: {TenantID: tenantA, RouterID: routerA, Version: 3, State: collectorapi.StateExporting,
 		StateSince: now, LastFlowAt: &now, FlowsPerSecond: &fps, DroppedRecordsQuota1h: "0", SequenceGaps: 80}}
 	mux := httpx.NewMux(nil, slog.New(slog.DiscardHandler))
-	New(authz.NewGuard(authz.NewVerifier(ks, "horus-auth", nil)), flowinv.NewStore(inv), states).Mount(mux.ForService("ingester"))
+	New(authz.NewGuard(authz.NewVerifier(ks, "horus-auth", nil)), flowinv.NewStore(inv), states, nil, nil).Mount(mux.ForService("ingester"))
 	return mux.Handler(), signer
 }
 

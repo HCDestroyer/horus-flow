@@ -48,6 +48,7 @@ func (h *Handler) Mount(r *httpx.ServiceMux) {
 	r.Handle("POST /api/v1/sites/{site_id}/client-prefixes", h.guard.Tenant("sites.update", h.createPrefix))
 	r.Handle("PATCH /api/v1/client-prefixes/{client_prefix_id}", h.guard.Tenant("sites.update", h.updatePrefix))
 	r.Handle("DELETE /api/v1/client-prefixes/{client_prefix_id}", h.guard.Tenant("sites.update", h.deletePrefix))
+	r.Handle("POST /api/v1/client-prefixes/{client_prefix_id}/confirm", h.guard.Tenant("sites.update", h.confirmPrefix))
 }
 
 func ts(t time.Time) string { return t.UTC().Format("2006-01-02T15:04:05.000Z") }
@@ -352,4 +353,21 @@ func (h *Handler) deletePrefix(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) confirmPrefix(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r, "client_prefix_id", domain.CodeClientPrefixNotFound)
+	if !ok {
+		return
+	}
+	ver, ok := h.ifMatch(w, r)
+	if !ok {
+		return
+	}
+	p, err := h.svc.ConfirmPrefix(r.Context(), id, ver)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	writeItem(w, http.StatusOK, p.Version, prefixJSON(p))
 }

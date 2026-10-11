@@ -13,7 +13,10 @@ import (
 	"github.com/hcdestroyer/horus-flow/services/devices/internal/domain"
 )
 
-var _ app.OnboardingStore = (*Store)(nil)
+var (
+	_ app.OnboardingStore = (*Store)(nil)
+	_ app.CredentialStore = (*Store)(nil)
+)
 
 // ListAllRouters implementa app.OnboardingStore (rol de plataforma: la
 // reconciliación de túneles de wireguard es multi-tenant).
@@ -68,8 +71,16 @@ func (s *Store) PutCredentials(ctx context.Context, t pgdb.TenantID, routerID uu
 				WHERE tenant_id = $1 AND router_id = $2 AND kind = $3 AND deleted_at IS NULL`, t.UUID(), routerID, c.Kind); err != nil {
 				return err
 			}
-			if _, err := tx.Exec(ctx, `INSERT INTO devices.credential (id, tenant_id, router_id, kind, username, secret_ciphertext, dek_wrapped, kek_id)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, c.ID, t.UUID(), routerID, c.Kind, c.Username, c.Ciphertext, c.DEKWrapped, c.KEKID); err != nil {
+			// tls_fingerprint_sha256: la huella fijada que el llamante decida
+			// conservar (nil = se fija en el primer contacto, TOFU).
+			at := c.UpdatedAt
+			if at.IsZero() {
+				at = time.Now().UTC()
+			}
+			if _, err := tx.Exec(ctx, `INSERT INTO devices.credential (id, tenant_id, router_id, kind, username, secret_ciphertext, dek_wrapped, kek_id,
+					tls_fingerprint_sha256, created_at, updated_at)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)`, c.ID, t.UUID(), routerID, c.Kind, c.Username, c.Ciphertext, c.DEKWrapped, c.KEKID,
+				c.TLSFingerprintSHA256, at); err != nil {
 				if pgdb.IsCode(err, pgdb.SQLStateForeignKey) {
 					return domain.ErrNotFound
 				}
