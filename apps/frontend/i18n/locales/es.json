@@ -208,7 +208,55 @@
     "mfa": "Verificación en dos pasos",
     "mfaOn": "Activada",
     "mfaOff": "Desactivada",
-    "timeZone": "Zona horaria"
+    "timeZone": "Zona horaria",
+    "required": {
+      "password": {
+        "title": "Cambia la contraseña inicial",
+        "body": "Por seguridad, antes de usar Horus debes sustituir la contraseña con la que se creó tu cuenta."
+      },
+      "mfa": {
+        "title": "Activa la verificación en dos pasos",
+        "body": "La consola de plataforma exige un segundo factor (TOTP). Actívalo aquí y vuelve a entrar en la sección."
+      },
+      "mfa-login": {
+        "title": "Vuelve a iniciar sesión con tu código",
+        "body": "Esta sesión se inició sin el segundo factor. Cierra sesión y entra de nuevo con el código de tu app de autenticación."
+      }
+    },
+    "password": {
+      "title": "Contraseña",
+      "hint": "Mínimo 12 caracteres. Al cambiarla se cierran tus demás sesiones.",
+      "current": "Contraseña actual",
+      "new": "Nueva contraseña",
+      "repeat": "Repite la nueva contraseña",
+      "submit": "Cambiar contraseña",
+      "done": "Contraseña cambiada.",
+      "tooShort": "Debe tener al menos 12 caracteres.",
+      "mismatch": "Las contraseñas no coinciden."
+    },
+    "mfaSetup": {
+      "title": "Verificación en dos pasos (TOTP)",
+      "intro": "Añade un segundo factor con una app de autenticación (Google Authenticator, Microsoft Authenticator, 1Password, Aegis…).",
+      "start": "Activar verificación en dos pasos",
+      "passwordFirst": "Primero cambia la contraseña inicial.",
+      "scan": "Escanea el código con tu app de autenticación y escribe el código de 6 dígitos que muestra.",
+      "qrLabel": "Código QR para la app de autenticación",
+      "manual": "¿No puedes escanearlo? Escribe esta clave en la app:",
+      "code": "Código de 6 dígitos",
+      "confirm": "Confirmar",
+      "codeInvalid": "Escribe el código de 6 dígitos de la app.",
+      "enabled": "Verificación en dos pasos activada",
+      "recoveryHint": "Guarda estos códigos de recuperación en un lugar seguro: cada uno sirve una sola vez si pierdes el móvil. No se volverán a mostrar.",
+      "download": "Descargar códigos",
+      "continue": "Continuar",
+      "alreadyOn": "Ya está activada en tu cuenta.",
+      "recoveryFileHeader": "Horus Flow — códigos de recuperación de {email}. Cada código sirve una sola vez."
+    },
+    "errors": {
+      "wrongCredentials": "La contraseña actual o el código no son correctos.",
+      "invalid": "Los datos no son válidos; revisa los campos.",
+      "network": "No se pudo contactar con el servidor. Inténtalo de nuevo."
+    }
   },
   "states": {
     "loading": "Cargando…",

@@ -98,6 +98,11 @@ export function useAuth() {
     scoped.value = { scope, token: res.access_token, expiresAt: res.expires_at }
   }
 
+  /** Vuelve a leer `GET /me` (tras cambiar la contraseña o activar el TOTP). */
+  async function reloadMe() {
+    me.value = await unwrap($api.GET('/me'))
+  }
+
   function clear() {
     session.value = null
     scoped.value = null
@@ -125,6 +130,7 @@ export function useAuth() {
     verifyMfa,
     restore,
     activateScope,
+    reloadMe,
     logout,
     clear,
   }

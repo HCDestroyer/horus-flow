@@ -225,6 +225,27 @@ export const USERS: MockUser[] = [
   },
 ]
 
+// Superadministrador recién instalado (install.sh): contraseña inicial que debe cambiar y sin
+// TOTP; el backend no le da token de plataforma hasta completar ambas cosas.
+USERS.push({
+  username: 'admin@horus.example',
+  password: MOCK_PASSWORD,
+  mfa: false,
+  me: {
+    id: '01926b3e-1111-7000-8000-000000000003',
+    email: 'admin@horus.example',
+    display_name: 'Superadministrador',
+    locale: 'es',
+    timezone: null,
+    default_tenant_id: null,
+    mfa_enabled: false,
+    must_change_password: true,
+    platform_roles: ['platform_admin'],
+    platform_permissions: USERS[0]!.me.platform_permissions,
+    memberships: [],
+  },
+})
+
 export function findTenant(id: string | null | undefined) {
   return ALL_TENANTS.find((t) => t.tenant_id === id)
 }

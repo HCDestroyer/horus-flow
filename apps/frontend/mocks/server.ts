@@ -155,6 +155,27 @@ export function createMockFetch(options: MockOptions = {}) {
 
   const findUser = (id: string | null | undefined) => USERS.find((u) => u.me.id === id)
 
+  // Cambios de cuenta (contraseña, TOTP) persistidos como la sesión: sobreviven a recargar.
+  const accountKey = (id: string) => `horus.mock.account.${id}`
+  for (const u of USERS) {
+    try {
+      const saved = JSON.parse(storage?.getItem(accountKey(u.me.id)) ?? 'null')
+      if (saved) {
+        u.password = saved.password
+        u.mfa = saved.mfa
+        u.me.mfa_enabled = saved.mfa
+        u.me.must_change_password = saved.mustChange
+      }
+    } catch {
+      // estado guardado ilegible: se ignora
+    }
+  }
+  const saveAccount = (u: MockUser) =>
+    storage?.setItem(
+      accountKey(u.me.id),
+      JSON.stringify({ password: u.password, mfa: u.mfa, mustChange: u.me.must_change_password }),
+    )
+
   function issue(user: MockUser, scope: TokenRecord['scope'], tenantId?: string) {
     const token = `mock.${scope}.${randomHex(24)}`
     const expires = now().getTime() + ttl
@@ -301,10 +322,17 @@ export function createMockFetch(options: MockOptions = {}) {
     const auth = bearer(req)
     const user = auth?.record.scope === 'session' ? auth.user : cookieUser()
     if (!user) return problem(401, 'TOKEN_EXPIRED', 'La sesión caducó')
+    if (user.me.must_change_password) {
+      return problem(403, 'PASSWORD_CHANGE_REQUIRED', 'Debe cambiar la contraseña')
+    }
     if (body.scope === 'platform') {
-      return user.me.platform_roles.length
-        ? issue(user, 'platform')
-        : problem(403, 'PERMISSION_DENIED', 'Sin acceso a la plataforma')
+      if (!user.me.platform_roles.length) {
+        return problem(403, 'PERMISSION_DENIED', 'Sin acceso a la plataforma')
+      }
+      if (!user.me.mfa_enabled) {
+        return problem(403, 'MFA_ENROLLMENT_REQUIRED', 'Active el TOTP')
+      }
+      return issue(user, 'platform')
     }
     const membership = user.me.memberships.find((m) => m.tenant_id === body.tenant_id)
     if (!membership) return problem(404, 'TENANT_NOT_FOUND', 'No encontrado')
@@ -448,6 +476,41 @@ export function createMockFetch(options: MockOptions = {}) {
     switch (route) {
       case 'GET /me':
         return json(user.me)
+      case 'POST /me/password': {
+        if (body.current_password !== user.password) {
+          return problem(401, 'INVALID_CREDENTIALS', 'Contraseña actual incorrecta')
+        }
+        if (String(body.new_password ?? '').length < 12) {
+          return problem(422, 'VALIDATION_FAILED', 'La contraseña es demasiado corta')
+        }
+        user.password = String(body.new_password)
+        user.me.must_change_password = false
+        saveAccount(user)
+        return new Response(null, { status: 204 })
+      }
+      case 'POST /me/totp/enroll':
+        return json(
+          {
+            secret: 'JBSWY3DPEHPK3PXP',
+            otpauth_uri: `otpauth://totp/Horus%20Flow:${encodeURIComponent(user.me.email)}?secret=JBSWY3DPEHPK3PXP&issuer=Horus%20Flow`,
+          },
+          200,
+          { 'Cache-Control': 'no-store' },
+        )
+      case 'POST /me/totp/confirm': {
+        if (!/^\d{6}$/.test(String(body.code ?? ''))) {
+          return problem(401, 'INVALID_MFA_CODE', 'Código incorrecto')
+        }
+        user.me.mfa_enabled = true
+        user.mfa = true
+        saveAccount(user)
+        return json({
+          recovery_codes: Array.from(
+            { length: 10 },
+            (_, i) => `rc${i}-mock-${String(i).padStart(4, '0')}`,
+          ),
+        })
+      }
       case 'GET /system/status':
         return systemStatus(user.me.platform_permissions.includes('platform.status.read'))
       case 'GET /widget-types':
