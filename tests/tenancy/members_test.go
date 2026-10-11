@@ -38,7 +38,8 @@ func (a *app) member(token, status, email string) map[string]any {
 }
 
 // I1 · Miembros del ISP: alta de un usuario existente, invitación de uno
-// nuevo y su aceptación (token de un uso), reasignación de roles con
+// nuevo con el enlace de la respuesta, inspección, reenvío (invalida el
+// anterior) y aceptación (token de un uso), reasignación de roles con
 // If-Match, baja (corta el acceso) y aislamiento entre ISP.
 func TestMembersLifecycle(t *testing.T) {
 	t.Parallel()
@@ -56,10 +57,17 @@ func TestMembersLifecycle(t *testing.T) {
 
 	viewer, noc := a.roleID(tok, "viewer"), a.roleID(tok, "noc")
 
-	// Usuario existente: membresía activa directa.
+	// Usuario existente: membresía activa directa (outcome added, sin enlace).
 	op := a.createUser("op@isp-m.test")
-	a.must(a.do(req{Method: "POST", Path: "/api/v1/members", Token: tok, Header: map[string]string{"Idempotency-Key": uuid.NewString()},
+	added := a.must(a.do(req{Method: "POST", Path: "/api/v1/members", Token: tok, Header: map[string]string{"Idempotency-Key": uuid.NewString()},
 		Body: map[string]any{"email": "op@isp-m.test", "role_assignments": []map[string]string{{"role_id": viewer, "scope": "tenant"}}}}), 202)
+	if added.str("outcome") != "added" || added.str("user_id") != op.String() || added.Body["invitation_url"] != nil || added.Body["email_sent"] != false {
+		t.Fatalf("alta de cuenta existente = %s", added.Raw)
+	}
+	// Reenviar la invitación de un miembro activo: 409.
+	if r := a.do(req{Method: "POST", Path: "/api/v1/members/" + op.String() + "/invitation", Token: tok}); r.Status != 409 || r.code() != "CONFLICT" {
+		t.Fatalf("reenviar a un activo = %d %s", r.Status, r.Raw)
+	}
 	m := a.member(tok, "active", "op@isp-m.test")
 	if m == nil || m["user_id"] != op.String() || m["version"] != float64(1) {
 		t.Fatalf("op no es miembro activo: %v", m)
@@ -67,10 +75,16 @@ func TestMembersLifecycle(t *testing.T) {
 	opTok := a.login("op@isp-m.test", userPassword).tenantToken(tA)
 	a.must(a.do(req{Method: "GET", Path: "/api/v1/members", Token: opTok}), 200)
 
-	// Email nuevo: usuario pendiente, membresía invitada e invitación con el token guardado como hash.
-	a.must(a.do(req{Method: "POST", Path: "/api/v1/members", Token: tok,
+	// Email nuevo: usuario pendiente, membresía invitada y el enlace (token en el fragmento) en la respuesta; en la base solo el hash.
+	inv := a.must(a.do(req{Method: "POST", Path: "/api/v1/members", Token: tok,
 		Body: map[string]any{"email": "nueva@isp-m.test", "role_assignments": []map[string]string{{"role_id": noc, "scope": "tenant"}}}}), 202)
-	if inv := a.member(tok, "invited", "nueva@isp-m.test"); inv == nil {
+	link := inv.str("invitation_url")
+	const prefix = "/invitation#token="
+	if inv.str("outcome") != "invited" || inv.Body["email_sent"] != false || inv.str("expires_at") == "" || !strings.Contains(link, prefix) {
+		t.Fatalf("invitación = %s", inv.Raw)
+	}
+	firstToken := link[strings.Index(link, prefix)+len(prefix):]
+	if a.member(tok, "invited", "nueva@isp-m.test") == nil {
 		t.Fatal("la invitada no aparece con status=invited")
 	}
 	var n int
@@ -78,11 +92,32 @@ func TestMembersLifecycle(t *testing.T) {
 		WHERE u.email = 'nueva@isp-m.test' AND octet_length(i.token_hash) = 32 AND i.used_at IS NULL`).Scan(&n); err != nil || n != 1 {
 		t.Fatalf("invitaciones = %d, %v", n, err)
 	}
-	// El token solo lo conoce el canal de entrega: el test fija uno conocido.
-	token := strings.Repeat("t", 43)
-	sum := sha256.Sum256([]byte(token))
-	if _, err := a.admin.Exec(ctx, `UPDATE auth.invitation SET token_hash = $1 WHERE user_id = (SELECT id FROM auth."user" WHERE email = 'nueva@isp-m.test')`, sum[:]); err != nil {
-		t.Fatal(err)
+	sum := sha256.Sum256([]byte(firstToken))
+	if err := a.admin.QueryRow(ctx, `SELECT count(*) FROM auth.invitation WHERE token_hash = $1`, sum[:]).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("el hash guardado no es el del enlace: %d, %v", n, err)
+	}
+	// La página de aceptación consulta la invitación sin consumirla.
+	ins := a.must(a.do(req{Method: "POST", Path: "/api/v1/auth/invitations/inspect", Body: map[string]string{"token": firstToken}}), 200)
+	if ins.str("email") != "nueva@isp-m.test" || ins.str("tenant_name") == "" || ins.Body["needs_password"] != true || ins.str("expires_at") == "" {
+		t.Fatalf("inspect = %s", ins.Raw)
+	}
+	// Enlace nuevo: el anterior deja de valer (misma respuesta que uno desconocido).
+	newUser := inv.str("user_id")
+	re := a.must(a.do(req{Method: "POST", Path: "/api/v1/members/" + newUser + "/invitation", Token: tok}), 200)
+	link = re.str("invitation_url")
+	token := link[strings.Index(link, prefix)+len(prefix):]
+	if re.str("outcome") != "invited" || re.str("user_id") != newUser || token == firstToken || a.auditCount("members.invitation_reissued") != 1 {
+		t.Fatalf("reenvío = %s", re.Raw)
+	}
+	unknown := a.do(req{Method: "POST", Path: "/api/v1/auth/invitations/inspect", Body: map[string]string{"token": strings.Repeat("u", 43)}})
+	old := a.do(req{Method: "POST", Path: "/api/v1/auth/invitations/inspect", Body: map[string]string{"token": firstToken}})
+	if old.Status != 422 || old.code() != "VALIDATION_FAILED" || !strings.Contains(string(old.Raw), "INVITATION_INVALID") || unknown.Status != 422 ||
+		unknown.code() != old.code() {
+		t.Fatalf("enlace anterior = %d %s; desconocido = %d %s", old.Status, old.Raw, unknown.Status, unknown.Raw)
+	}
+	if r := a.do(req{Method: "POST", Path: "/api/v1/auth/invitations/accept", Body: map[string]string{"token": firstToken,
+		"password": "frase-larga-segura-987"}}); r.Status != 422 {
+		t.Fatalf("aceptar con el enlace anterior = %d %s", r.Status, r.Raw)
 	}
 	if r := a.do(req{Method: "POST", Path: "/api/v1/auth/invitations/accept", Body: map[string]string{"token": token}}); r.Status != 422 {
 		t.Fatalf("aceptar sin contraseña = %d %s", r.Status, r.Raw)
@@ -93,6 +128,9 @@ func TestMembersLifecycle(t *testing.T) {
 		Body: map[string]string{"token": token, "password": "frase-larga-segura-987"}}); r.Status != 422 || r.code() != "VALIDATION_FAILED" {
 		t.Fatalf("segundo uso = %d %s", r.Status, r.Raw)
 	}
+	if r := a.do(req{Method: "POST", Path: "/api/v1/auth/invitations/inspect", Body: map[string]string{"token": token}}); r.Status != 422 {
+		t.Fatalf("inspect tras el uso = %d %s", r.Status, r.Raw)
+	}
 	ns := a.login("nueva@isp-m.test", "frase-larga-segura-987")
 	me := a.must(a.do(req{Method: "GET", Path: "/api/v1/me", Token: ns.token}), 200)
 	if me.str("display_name") != "Nueva Persona" || !strings.Contains(string(me.Raw), tA) {
@@ -100,6 +138,20 @@ func TestMembersLifecycle(t *testing.T) {
 	}
 	if a.member(tok, "active", "nueva@isp-m.test") == nil {
 		t.Fatal("la invitada no quedó activa")
+	}
+
+	// Invitación caducada: el mismo 422.
+	exp := a.must(a.do(req{Method: "POST", Path: "/api/v1/members", Token: tok,
+		Body: map[string]any{"email": "tarde@isp-m.test", "role_assignments": []map[string]string{{"role_id": viewer, "scope": "tenant"}}}}), 202)
+	link = exp.str("invitation_url")
+	late := link[strings.Index(link, prefix)+len(prefix):]
+	if _, err := a.admin.Exec(ctx, `UPDATE auth.invitation SET expires_at = now() - interval '1 minute'
+		WHERE user_id = (SELECT id FROM auth."user" WHERE email = 'tarde@isp-m.test')`); err != nil {
+		t.Fatal(err)
+	}
+	if r := a.do(req{Method: "POST", Path: "/api/v1/auth/invitations/inspect", Body: map[string]string{"token": late}}); r.Status != 422 ||
+		!strings.Contains(string(r.Raw), "INVITATION_INVALID") {
+		t.Fatalf("inspect caducada = %d %s", r.Status, r.Raw)
 	}
 
 	// Reasignación de roles con If-Match.
@@ -130,6 +182,7 @@ func TestMembersLifecycle(t *testing.T) {
 		t.Fatal("un ISP ve miembros de otro")
 	}
 	a.must(a.do(req{Method: "DELETE", Path: "/api/v1/members/" + op.String(), Token: otok}), 404)
+	a.must(a.do(req{Method: "POST", Path: "/api/v1/members/" + newUser + "/invitation", Token: otok}), 404)
 
 	// Baja: corta el acceso al ISP.
 	a.must(a.do(req{Method: "DELETE", Path: "/api/v1/members/" + op.String(), Token: tok}), 204)

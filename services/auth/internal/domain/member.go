@@ -76,6 +76,8 @@ type Invitation struct {
 	UserStatus       string
 	UserEmail        string
 	UserDisplayName  string
+	// TenantName es el nombre del ISP (página de aceptación).
+	TenantName string
 }
 
 // Usable indica si la invitación puede aceptarse en now.

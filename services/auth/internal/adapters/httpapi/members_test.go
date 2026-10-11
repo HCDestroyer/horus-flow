@@ -1,8 +1,10 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -27,6 +29,20 @@ type fakeStore struct {
 	users   []domain.PlatformUser
 	current *domain.Member
 	invites int
+	inviteS string // estado de la membresía tras InviteMember
+	inv     *domain.Invitation
+	invHash []byte
+	reissue int
+}
+
+func (f *fakeStore) Tenant(_ context.Context, id uuid.UUID) (*domain.Tenant, error) {
+	return &domain.Tenant{ID: id, Name: "ISP Uno"}, nil
+}
+
+func (f *fakeStore) ReissueInvitation(_ context.Context, in app.ReissuedInvitation) (*app.ReissueResult, error) {
+	f.reissue++
+	f.invHash = in.TokenHash
+	return &app.ReissueResult{MembershipID: f.current.MembershipID, Email: f.current.Email, Replaced: 1}, nil
 }
 
 func (f *fakeStore) TenantRoles(context.Context, uuid.UUID) ([]domain.TenantRoleRecord, error) {
@@ -44,8 +60,12 @@ func (f *fakeStore) ListUsers(context.Context, app.UserFilter) ([]domain.Platfor
 	return f.users, nil
 }
 
-func (f *fakeStore) InviteMember(context.Context, app.NewInvitation) (*app.InviteResult, error) {
+func (f *fakeStore) InviteMember(_ context.Context, in app.NewInvitation) (*app.InviteResult, error) {
 	f.invites++
+	if f.inviteS == domain.MembershipInvited {
+		f.invHash = in.TokenHash
+		return &app.InviteResult{MembershipID: uuid.New(), UserID: uuid.New(), Status: domain.MembershipInvited, UserCreated: true, TokenStored: true}, nil
+	}
 	return &app.InviteResult{MembershipID: uuid.New(), UserID: uuid.New(), Status: domain.MembershipActive}, nil
 }
 
@@ -71,8 +91,23 @@ func (f *fakeStore) ReplaceAssignments(_ context.Context, _, _ uuid.UUID, expect
 	return &m, nil
 }
 
-func (f *fakeStore) InvitationByHash(context.Context, []byte) (*domain.Invitation, error) {
-	return nil, domain.ErrNotFound
+func (f *fakeStore) InvitationByHash(_ context.Context, hash []byte) (*domain.Invitation, error) {
+	if f.inv == nil || !bytes.Equal(hash, f.invHash) {
+		return nil, domain.ErrNotFound
+	}
+	i := *f.inv
+	return &i, nil
+}
+
+// fakeSender es el canal de correo de las invitaciones.
+type fakeSender struct {
+	got []app.InvitationDelivery
+	err error
+}
+
+func (s *fakeSender) SendInvitation(_ context.Context, d app.InvitationDelivery) error {
+	s.got = append(s.got, d)
+	return s.err
 }
 
 func (f *fakeStore) InsertAudit(context.Context, api.AuditEntry) error { return nil }
@@ -82,6 +117,7 @@ type env struct {
 	srv    *httptest.Server
 	signer *authz.Signer
 	store  *fakeStore
+	sender *fakeSender
 	cat    *domain.Catalog
 	tenant uuid.UUID
 }
@@ -103,7 +139,9 @@ func newEnv(t *testing.T) *env {
 	for _, r := range cat.TenantRoles {
 		st.roles = append(st.roles, domain.TenantRoleRecord{ID: r.ID, Key: r.Key, Name: r.Name, IsSystem: true, RequiresMFA: r.RequiresMFA, Permissions: r.Permissions})
 	}
-	svc, err := app.NewService(st, app.Options{Catalog: cat, Argon: domain.Argon2Params{Memory: 1024, Time: 1, Threads: 1, SaltLen: 16, KeyLen: 32}})
+	snd := &fakeSender{}
+	svc, err := app.NewService(st, app.Options{Catalog: cat, Argon: domain.Argon2Params{Memory: 1024, Time: 1, Threads: 1, SaltLen: 16, KeyLen: 32},
+		Invitations: snd, PublicBaseURL: "https://horus.example"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +149,7 @@ func newEnv(t *testing.T) *env {
 	New(svc, authz.NewGuard(authz.NewVerifier(keys, "horus-auth", nil)), Options{}).Mount(mux.ForService("auth"))
 	srv := httptest.NewServer(mux.Handler())
 	t.Cleanup(srv.Close)
-	return &env{t: t, srv: srv, signer: signer, store: st, cat: cat, tenant: uuid.New()}
+	return &env{t: t, srv: srv, signer: signer, store: st, sender: snd, cat: cat, tenant: uuid.New()}
 }
 
 func (e *env) token(scope string, role string, authAge time.Duration) string {
@@ -187,6 +225,7 @@ func TestContractRoutesRegistered(t *testing.T) {
 		{"GET", "/api/v1/members"},
 		{"POST", "/api/v1/members"},
 		{"DELETE", "/api/v1/members/" + uid},
+		{"POST", "/api/v1/members/" + uid + "/invitation"},
 		{"PUT", "/api/v1/members/" + uid + "/role-assignments"},
 		{"GET", "/api/v1/platform/users"},
 		{"GET", "/api/v1/roles"},
@@ -195,8 +234,10 @@ func TestContractRoutesRegistered(t *testing.T) {
 			t.Errorf("%s %s sin token = %d %s", rt.method, rt.path, r.status, r.raw)
 		}
 	}
-	if r := e.do("POST", "/api/v1/auth/invitations/accept", "", `{"token":"`+strings.Repeat("x", 43)+`"}`); r.status != 422 || r.code() != "VALIDATION_FAILED" {
-		t.Errorf("accept = %d %s", r.status, r.raw)
+	for _, p := range []string{"accept", "inspect"} {
+		if r := e.do("POST", "/api/v1/auth/invitations/"+p, "", `{"token":"`+strings.Repeat("x", 43)+`"}`); r.status != 422 || r.code() != "VALIDATION_FAILED" {
+			t.Errorf("%s = %d %s", p, r.status, r.raw)
+		}
 	}
 }
 
@@ -281,10 +322,35 @@ func TestInviteMemberHTTP(t *testing.T) {
 	if r := e.do("POST", "/api/v1/members", tok, body, "Idempotency-Key", "no-uuid"); r.status != 400 {
 		t.Fatalf("Idempotency-Key inválida = %d %s", r.status, r.raw)
 	}
+	// Cuenta activa existente: added, sin enlace.
 	r := e.do("POST", "/api/v1/members", tok, body, "Idempotency-Key", uuid.NewString())
-	if r.status != http.StatusAccepted || r.raw != "" || e.store.invites != 1 {
+	if r.status != http.StatusAccepted || e.store.invites != 1 || r.body["outcome"] != "added" || r.body["invitation_url"] != nil ||
+		r.body["expires_at"] != nil || r.body["email_sent"] != false || r.body["user_id"] == nil {
 		t.Fatalf("invitar = %d %q", r.status, r.raw)
 	}
+	for _, k := range []string{"invitation_url", "expires_at"} {
+		if _, ok := r.body[k]; !ok {
+			t.Fatalf("InvitationIssued sin %s: %s", k, r.raw)
+		}
+	}
+	// Email nuevo: invited con el enlace (token en el fragmento) y el correo enviado.
+	e.store.inviteS = domain.MembershipInvited
+	r = e.do("POST", "/api/v1/members", tok, body)
+	link, _ := r.body["invitation_url"].(string)
+	if r.status != http.StatusAccepted || r.body["outcome"] != "invited" || r.body["email_sent"] != true || r.header.Get("Cache-Control") != "no-store" ||
+		!strings.HasPrefix(link, "https://horus.example/invitation#token=") || len(e.sender.got) != 1 || e.sender.got[0].URL != link {
+		t.Fatalf("invitar nuevo = %d %s", r.status, r.raw)
+	}
+	if exp, _ := r.body["expires_at"].(string); !strings.HasSuffix(exp, "Z") {
+		t.Fatalf("expires_at = %s", r.raw)
+	}
+	// El correo falla: la invitación sigue (202) con email_sent=false.
+	e.sender.err = errors.New("smtp: RCPT: 550")
+	r = e.do("POST", "/api/v1/members", tok, body)
+	if r.status != http.StatusAccepted || r.body["email_sent"] != false || r.body["invitation_url"] == nil {
+		t.Fatalf("correo fallido = %d %s", r.status, r.raw)
+	}
+	e.sender.err = nil
 	if r := e.do("POST", "/api/v1/members", tok, `{"email":"x","role_assignments":[]}`); r.status != 422 || r.code() != "VALIDATION_FAILED" {
 		t.Fatalf("inválida = %d %s", r.status, r.raw)
 	}
@@ -293,6 +359,74 @@ func TestInviteMemberHTTP(t *testing.T) {
 	}
 	if r := e.do("DELETE", "/api/v1/members/no-uuid", tok, ""); r.status != 404 {
 		t.Fatalf("quitar id inválido = %d %s", r.status, r.raw)
+	}
+}
+
+func TestReissueAndInspectHTTP(t *testing.T) {
+	e := newEnv(t)
+	noc, _ := e.cat.TenantRole("noc")
+	uid := uuid.New()
+	e.store.current = &domain.Member{MembershipID: uuid.New(), UserID: uid, TenantID: e.tenant, Email: "inv@isp.test", Status: domain.MembershipActive,
+		Version: 1, Assignments: []domain.Assignment{{RoleID: noc.ID, RoleKey: noc.Key, ScopeType: "tenant", Permissions: noc.Permissions}}}
+	tok := e.token(authz.ScopeTenant, "tenant_admin", 0)
+	path := "/api/v1/members/" + uid.String() + "/invitation"
+
+	if r := e.do("POST", path, e.token(authz.ScopeTenant, "viewer", 0), ""); r.status != 403 {
+		t.Fatalf("viewer = %d %s", r.status, r.raw)
+	}
+	if r := e.do("POST", "/api/v1/members/"+uuid.NewString()+"/invitation", tok, ""); r.status != 404 || r.code() != "NOT_FOUND" {
+		t.Fatalf("no miembro = %d %s", r.status, r.raw)
+	}
+	if r := e.do("POST", "/api/v1/members/no-uuid/invitation", tok, ""); r.status != 404 {
+		t.Fatalf("id inválido = %d %s", r.status, r.raw)
+	}
+	if r := e.do("POST", path, tok, ""); r.status != 409 || r.code() != "CONFLICT" || e.store.reissue != 0 {
+		t.Fatalf("miembro activo = %d %s", r.status, r.raw)
+	}
+	e.store.current.Status = domain.MembershipInvited
+	r := e.do("POST", path, tok, "")
+	link, _ := r.body["invitation_url"].(string)
+	if r.status != 200 || r.body["outcome"] != "invited" || r.body["user_id"] != uid.String() || r.body["email_sent"] != true ||
+		r.header.Get("Cache-Control") != "no-store" || !strings.HasPrefix(link, "https://horus.example/invitation#token=") || e.store.reissue != 1 {
+		t.Fatalf("reenviar = %d %s", r.status, r.raw)
+	}
+
+	// Inspección del enlace: sin consumirlo, sin token de acceso.
+	token := strings.TrimPrefix(link, "https://horus.example/invitation#token=")
+	e.store.inv = &domain.Invitation{ID: uuid.New(), TenantID: e.tenant, MembershipID: e.store.current.MembershipID, UserID: uid,
+		ExpiresAt: time.Now().Add(time.Hour), MembershipStatus: domain.MembershipInvited, UserStatus: domain.UserPending,
+		UserEmail: "inv@isp.test", TenantName: "ISP Uno"}
+	r = e.do("POST", "/api/v1/auth/invitations/inspect", "", `{"token":"`+token+`"}`)
+	if r.status != 200 || r.body["email"] != "inv@isp.test" || r.body["tenant_name"] != "ISP Uno" || r.body["needs_password"] != true ||
+		r.header.Get("Cache-Control") != "no-store" {
+		t.Fatalf("inspect = %d %s", r.status, r.raw)
+	}
+	if exp, _ := r.body["expires_at"].(string); !strings.HasSuffix(exp, "Z") {
+		t.Fatalf("expires_at = %s", r.raw)
+	}
+	// Usada, caducada y desconocida: el mismo 422 que accept.
+	unknown := e.do("POST", "/api/v1/auth/invitations/inspect", "", `{"token":"`+strings.Repeat("q", 43)+`"}`)
+	used := *e.store.inv
+	now := time.Now()
+	used.UsedAt = &now
+	e.store.inv = &used
+	usedR := e.do("POST", "/api/v1/auth/invitations/inspect", "", `{"token":"`+token+`"}`)
+	expired := used
+	expired.UsedAt, expired.ExpiresAt = nil, now.Add(-time.Minute)
+	e.store.inv = &expired
+	expiredR := e.do("POST", "/api/v1/auth/invitations/inspect", "", `{"token":"`+token+`"}`)
+	acceptR := e.do("POST", "/api/v1/auth/invitations/accept", "", `{"token":"`+token+`"}`)
+	strip := func(r result) string {
+		delete(r.body, "request_id")
+		delete(r.body, "instance")
+		delete(r.body, "trace_id")
+		b, _ := json.Marshal(r.body)
+		return string(b)
+	}
+	for name, x := range map[string]result{"desconocida": unknown, "usada": usedR, "caducada": expiredR, "accept": acceptR} {
+		if x.status != 422 || x.code() != "VALIDATION_FAILED" || !strings.Contains(x.raw, `"INVITATION_INVALID"`) || strip(x) != strip(unknown) {
+			t.Fatalf("%s = %d %s (desconocida: %s)", name, x.status, x.raw, unknown.raw)
+		}
 	}
 }
 

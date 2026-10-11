@@ -150,17 +150,8 @@ func (s *Service) resolveAssignments(ctx context.Context, p *authz.Principal, te
 	if len(errs) > 0 {
 		return nil, apperr.Validation(errs...)
 	}
-	for _, a := range out {
-		scope := ""
-		if a.ScopeType != "tenant" {
-			scope = a.PermScope()
-		}
-		for _, perm := range a.Permissions {
-			if !p.HasScope(perm, scope) {
-				return nil, apperr.Forbidden(problem.CodePermissionDenied,
-					fmt.Sprintf("No puede conceder el rol %s: incluye %s, que usted no tiene en ese alcance.", a.RoleKey, perm))
-			}
-		}
+	if err := checkGrantable(p, out, "conceder"); err != nil {
+		return nil, err
 	}
 	slices.SortFunc(out, func(x, y domain.Assignment) int {
 		if c := strings.Compare(x.RoleKey, y.RoleKey); c != 0 {
@@ -169,6 +160,24 @@ func (s *Service) resolveAssignments(ctx context.Context, p *authz.Principal, te
 		return strings.Compare(x.Scope(), y.Scope())
 	})
 	return out, nil
+}
+
+// checkGrantable aplica la regla anti-escalada a unas asignaciones: p debe
+// tener cada permiso de cada rol en su alcance.
+func checkGrantable(p *authz.Principal, as []domain.Assignment, verb string) error {
+	for _, a := range as {
+		scope := ""
+		if a.ScopeType != "tenant" {
+			scope = a.PermScope()
+		}
+		for _, perm := range a.Permissions {
+			if !p.HasScope(perm, scope) {
+				return apperr.Forbidden(problem.CodePermissionDenied,
+					fmt.Sprintf("No puede %s el rol %s: incluye %s, que usted no tiene en ese alcance.", verb, a.RoleKey, perm))
+			}
+		}
+	}
+	return nil
 }
 
 func (s *Service) recordTenant(ctx context.Context, p *authz.Principal, tenant uuid.UUID, action, resourceType, resourceID, ip string, changes map[string]any) {
@@ -238,16 +247,40 @@ func (s *Service) ListMembers(ctx context.Context, codec *pagination.Codec, req 
 	return &MemberPage{Data: rows, Page: page}, nil
 }
 
-// InviteMember es POST /members: invita un email con roles iniciales. La
-// respuesta es la misma exista o no el email (docs/api.md §2.2): si es de un
-// usuario activo la membresía queda activa; si no, el usuario queda
-// pendiente con la membresía invitada y una invitación de un uso (72 h) que
-// se entrega por el canal configurado. Si ya era miembro no se cambian sus
-// roles (PUT /members/{user_id}/role-assignments).
-func (s *Service) InviteMember(ctx context.Context, email string, items []AssignmentInput, requestIP string) error {
+// Resultados de POST /members (InvitationIssued.outcome).
+const (
+	OutcomeAdded   = "added"
+	OutcomeInvited = "invited"
+)
+
+// InvitationIssued es la respuesta de POST /members y de
+// POST /members/{user_id}/invitation. URL lleva el token en claro: solo se
+// devuelve a quien invita (nunca se registra).
+type InvitationIssued struct {
+	Outcome   string
+	UserID    uuid.UUID
+	URL       *string
+	ExpiresAt *time.Time
+	EmailSent bool
+}
+
+// invitationURL es <HORUS_PUBLIC_BASE_URL>/invitation#token=<token>: el token
+// va en el fragmento, que el navegador no envía a ningún servidor.
+func (s *Service) invitationURL(token string) string {
+	return s.o.PublicBaseURL + "/invitation#token=" + token
+}
+
+// InviteMember es POST /members: invita un email con roles iniciales. Si el
+// email es de una cuenta activa la membresía queda activa (outcome added);
+// si no, el usuario queda pendiente con la membresía invitada y una
+// invitación de un uso (72 h) cuyo enlace se devuelve a quien invita y, si
+// hay SMTP, se envía por correo (outcome invited). Si ya era miembro no se
+// cambian sus roles (PUT /members/{user_id}/role-assignments); si seguía
+// invitado, el enlace anterior deja de valer.
+func (s *Service) InviteMember(ctx context.Context, email string, items []AssignmentInput, requestIP string) (*InvitationIssued, error) {
 	p, tenant, err := tenantPrincipal(ctx, PermUsersManage)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	email = strings.TrimSpace(email)
 	var errs []problem.FieldError
@@ -262,47 +295,122 @@ func (s *Service) InviteMember(ctx context.Context, email string, items []Assign
 		errs = append(errs, apperr.Field("role_assignments", "TOO_MANY", "Hasta 50 asignaciones."))
 	}
 	if len(errs) > 0 {
-		return apperr.Validation(errs...)
+		return nil, apperr.Validation(errs...)
 	}
 	as, err := s.resolveAssignments(ctx, p, tenant, items, "role_assignments")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	token, err := domain.NewInvitationToken()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	now := s.now()
+	exp := now.Add(domain.InvitationTTL)
 	actor := s.actor(p)
 	res, err := s.store.InviteMember(ctx, NewInvitation{
 		TenantID: tenant, Email: email, Assignments: as, GrantedBy: p.UserID, TokenHash: domain.HashSecret(token),
-		ExpiresAt: now.Add(domain.InvitationTTL), Now: now, Event: memberEvent(actor, tenant, "granted", "", now),
+		ExpiresAt: exp, Now: now, Event: memberEvent(actor, tenant, "granted", "", now),
 	})
 	if err != nil {
 		if errors.Is(err, ErrUnknownRole) {
-			return apperr.Validation(apperr.Field("role_assignments", CodeUnknownRole, "El rol no existe en este ISP."))
+			return nil, apperr.Validation(apperr.Field("role_assignments", CodeUnknownRole, "El rol no existe en este ISP."))
 		}
-		return err
+		return nil, err
+	}
+	out := &InvitationIssued{Outcome: OutcomeAdded, UserID: res.UserID}
+	if res.Status == domain.MembershipInvited {
+		out.Outcome = OutcomeInvited
 	}
 	if res.TokenStored {
-		s.deliverInvitation(ctx, InvitationDelivery{Email: email, TenantID: tenant, Token: token, ExpiresAt: now.Add(domain.InvitationTTL)}, res.MembershipID)
+		u := s.invitationURL(token)
+		out.URL, out.ExpiresAt = &u, &exp
+		out.EmailSent = s.deliverInvitation(ctx, InvitationDelivery{Email: email, TenantID: tenant, Token: token, URL: u, ExpiresAt: exp}, res.MembershipID)
 	}
 	s.recordTenant(ctx, p, tenant, "members.invited", "membership", res.MembershipID.String(), requestIP, map[string]any{
 		"user_id": res.UserID.String(), "status": res.Status, "already_member": res.AlreadyMember,
 		"user_created": res.UserCreated, "role_assignments": assignmentScopes(as),
+		"link_issued": res.TokenStored, "email_sent": out.EmailSent,
 	})
-	return nil
+	return out, nil
 }
 
-func (s *Service) deliverInvitation(ctx context.Context, d InvitationDelivery, membershipID uuid.UUID) {
+// ReissueInvitation es POST /members/{user_id}/invitation: enlace nuevo para
+// un miembro invitado (los anteriores sin usar dejan de valer). 404 si no es
+// miembro de este ISP; 409 si no está invitado. Anti-escalada: quien lo
+// renueva debe tener todos los permisos de los roles del invitado (el enlace
+// da acceso a la cuenta pendiente).
+func (s *Service) ReissueInvitation(ctx context.Context, userID uuid.UUID, requestIP string) (*InvitationIssued, error) {
+	p, tenant, err := tenantPrincipal(ctx, PermUsersManage)
+	if err != nil {
+		return nil, err
+	}
+	cur, err := s.store.Member(ctx, tenant, userID)
+	if errors.Is(err, domain.ErrNotFound) || (err == nil && cur.Status == domain.MembershipRevoked) {
+		return nil, apperr.NotFound(problem.CodeNotFound)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if cur.Status != domain.MembershipInvited {
+		return nil, errNotInvited()
+	}
+	if err := checkGrantable(p, cur.Assignments, "reenviar la invitación con"); err != nil {
+		return nil, err
+	}
+	token, err := domain.NewInvitationToken()
+	if err != nil {
+		return nil, err
+	}
+	now := s.now()
+	exp := now.Add(domain.InvitationTTL)
+	res, err := s.store.ReissueInvitation(ctx, ReissuedInvitation{TenantID: tenant, UserID: userID, TokenHash: domain.HashSecret(token),
+		ExpiresAt: exp, CreatedBy: p.UserID, Now: now})
+	switch {
+	case errors.Is(err, domain.ErrNotFound):
+		return nil, apperr.NotFound(problem.CodeNotFound)
+	case errors.Is(err, ErrNotInvited):
+		return nil, errNotInvited()
+	case err != nil:
+		return nil, err
+	}
+	u := s.invitationURL(token)
+	out := &InvitationIssued{Outcome: OutcomeInvited, UserID: userID, URL: &u, ExpiresAt: &exp}
+	out.EmailSent = s.deliverInvitation(ctx, InvitationDelivery{Email: res.Email, TenantID: tenant, Token: token, URL: u, ExpiresAt: exp}, res.MembershipID)
+	s.recordTenant(ctx, p, tenant, "members.invitation_reissued", "membership", res.MembershipID.String(), requestIP, map[string]any{
+		"user_id": userID.String(), "replaced": res.Replaced, "email_sent": out.EmailSent,
+	})
+	return out, nil
+}
+
+func errNotInvited() error {
+	return apperr.Conflict(problem.CodeConflict, "El miembro no está pendiente de aceptar una invitación.")
+}
+
+// deliverInvitation envía el enlace por el canal configurado (síncrono, con
+// plazo) y dice si se entregó. Un fallo nunca falla la petición: se registra
+// sin la dirección, el token ni el enlace.
+func (s *Service) deliverInvitation(ctx context.Context, d InvitationDelivery, membershipID uuid.UUID) bool {
 	if s.o.Invitations == nil {
-		s.o.Logger.InfoContext(ctx, "invitation stored without a delivery channel", slog.String("membership_id", membershipID.String()))
-		return
+		s.o.Logger.InfoContext(ctx, "invitation link issued without email delivery", slog.String("membership_id", membershipID.String()))
+		return false
 	}
-	if err := s.o.Invitations.SendInvitation(ctx, d); err != nil {
-		// El error del canal nunca incluye el token (lo redacta el canal).
-		s.o.Logger.ErrorContext(ctx, "invitation delivery failed", slog.String("membership_id", membershipID.String()), slog.Any("error", err))
+	if t, err := s.store.Tenant(ctx, d.TenantID); err == nil {
+		d.TenantName = t.Name
 	}
+	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.o.InvitationSendTimeout)
+	defer cancel()
+	if err := s.o.Invitations.SendInvitation(sctx, d); err != nil {
+		msg := err.Error()
+		for _, secret := range []string{d.URL, d.Token, d.Email} {
+			if secret != "" {
+				msg = strings.ReplaceAll(msg, secret, "***")
+			}
+		}
+		s.o.Logger.WarnContext(ctx, "invitation email not sent", slog.String("membership_id", membershipID.String()), slog.String("error", msg))
+		return false
+	}
+	return true
 }
 
 // RemoveMember es DELETE /members/{user_id}: revoca la membresía (no borra
@@ -404,24 +512,55 @@ func errInvitationInvalid() error {
 	return apperr.Validation(apperr.Field("token", CodeInvitationInvalid, "La invitación no es válida, ya se usó o caducó."))
 }
 
+// InvitationInfo es la respuesta de POST /auth/invitations/inspect.
+type InvitationInfo struct {
+	Email         string
+	TenantName    string
+	NeedsPassword bool
+	ExpiresAt     time.Time
+}
+
+// usableInvitation resuelve un token de invitación vigente (sin tenant: se
+// busca por hash con auth_platform). Desconocido, usado, caducado, de una
+// membresía que ya no está invitada o de una cuenta que no puede aceptarla:
+// la misma respuesta 422.
+func (s *Service) usableInvitation(ctx context.Context, token string, now time.Time) (*domain.Invitation, error) {
+	if len(token) < 32 || len(token) > 256 {
+		return nil, errInvitationInvalid()
+	}
+	inv, err := s.store.InvitationByHash(ctx, domain.HashSecret(token))
+	if errors.Is(err, domain.ErrNotFound) {
+		return nil, errInvitationInvalid()
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !inv.Usable(now) || (inv.UserStatus != domain.UserPending && inv.UserStatus != domain.UserActive) {
+		return nil, errInvitationInvalid()
+	}
+	return inv, nil
+}
+
+// InspectInvitation es POST /auth/invitations/inspect (público): los datos
+// de la página de aceptación sin consumir la invitación.
+func (s *Service) InspectInvitation(ctx context.Context, token string) (*InvitationInfo, error) {
+	inv, err := s.usableInvitation(ctx, token, s.now())
+	if err != nil {
+		return nil, err
+	}
+	return &InvitationInfo{Email: inv.UserEmail, TenantName: inv.TenantName, NeedsPassword: inv.UserStatus == domain.UserPending,
+		ExpiresAt: inv.ExpiresAt}, nil
+}
+
 // AcceptInvitation canjea una invitación (un uso): activa la membresía y,
 // si el usuario estaba pendiente, lo activa con la contraseña elegida. Un
 // usuario que ya existía conserva su contraseña y su nombre (el token no
 // sirve para cambiarlos).
 func (s *Service) AcceptInvitation(ctx context.Context, in AcceptInvitationInput, li LoginInput) error {
 	now := s.now()
-	if len(in.Token) < 32 || len(in.Token) > 256 {
-		return errInvitationInvalid()
-	}
-	inv, err := s.store.InvitationByHash(ctx, domain.HashSecret(in.Token))
-	if errors.Is(err, domain.ErrNotFound) {
-		return errInvitationInvalid()
-	}
+	inv, err := s.usableInvitation(ctx, in.Token, now)
 	if err != nil {
 		return err
-	}
-	if !inv.Usable(now) || (inv.UserStatus != domain.UserPending && inv.UserStatus != domain.UserActive) {
-		return errInvitationInvalid()
 	}
 	acc := AcceptedInvitation{Invitation: *inv, Now: now}
 	if inv.UserStatus == domain.UserPending {

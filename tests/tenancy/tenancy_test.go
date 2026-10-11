@@ -81,6 +81,7 @@ func cases() map[string]tenanttest.Case {
 	c["inviteMember"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"email": "pirata@isp.test",
 		"role_assignments": []any{map[string]any{"role_id": "0192f000-0000-7000-8000-00000000a001", "scope": "tenant"}}}}
 	c["removeMember"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["reissueMemberInvitation"] = tenanttest.Case{Kind: tenanttest.ByID}
 	c["replaceMemberRoleAssignments"] = tenanttest.Case{Kind: tenanttest.ByID}
 	// alerts: canal mínimo (D13/D17/D21, CORE)
 	c["listNotificationChannels"] = tenanttest.Case{Kind: tenanttest.List}

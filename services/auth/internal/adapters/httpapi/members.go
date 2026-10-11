@@ -16,7 +16,7 @@ import (
 )
 
 // Rutas de cuenta, miembros, roles y usuarios de plataforma del incremento
-// I1 (auth.yaml /auth/invitations/accept, PATCH /me, /members*, /roles;
+// I1 (auth.yaml /auth/invitations/{inspect,accept}, PATCH /me, /members*, /roles;
 // platform.yaml /platform/users).
 
 func assignmentsJSON(as []domain.Assignment) []roleAssignmentJSON {
@@ -131,11 +131,58 @@ func (h *Handler) inviteMember(w http.ResponseWriter, r *http.Request) {
 	if !jsonapi.Decode(w, r, &body, false) {
 		return
 	}
-	if err := h.svc.InviteMember(r.Context(), body.Email, body.RoleAssignments, clientIP(r)); err != nil {
+	w.Header().Set("Cache-Control", "no-store")
+	res, err := h.svc.InviteMember(r.Context(), body.Email, body.RoleAssignments, clientIP(r))
+	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
-	w.WriteHeader(http.StatusAccepted)
+	jsonapi.Write(w, http.StatusAccepted, invitationIssuedJSON(res))
+}
+
+// invitationIssuedJSON es InvitationIssued del contrato. La respuesta lleva
+// el enlace con el token: no se cachea.
+func invitationIssuedJSON(res *app.InvitationIssued) map[string]any {
+	var exp any
+	if res.ExpiresAt != nil {
+		exp = ts(*res.ExpiresAt)
+	}
+	var link any
+	if res.URL != nil {
+		link = *res.URL
+	}
+	return map[string]any{"outcome": res.Outcome, "user_id": res.UserID, "invitation_url": link, "expires_at": exp, "email_sent": res.EmailSent}
+}
+
+func (h *Handler) reissueInvitation(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, r, "user_id", problem.CodeNotFound)
+	if !ok {
+		return
+	}
+	res, err := h.svc.ReissueInvitation(r.Context(), id, clientIP(r))
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	jsonapi.Write(w, http.StatusOK, invitationIssuedJSON(res))
+}
+
+func (h *Handler) inspectInvitation(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Token string `json:"token"`
+	}
+	if !jsonapi.Decode(w, r, &body, false) {
+		return
+	}
+	info, err := h.svc.InspectInvitation(r.Context(), body.Token)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	jsonapi.Write(w, http.StatusOK, map[string]any{"email": info.Email, "tenant_name": info.TenantName,
+		"needs_password": info.NeedsPassword, "expires_at": ts(info.ExpiresAt)})
 }
 
 func (h *Handler) removeMember(w http.ResponseWriter, r *http.Request) {

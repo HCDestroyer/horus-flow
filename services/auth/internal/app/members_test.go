@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/authz"
 	"github.com/hcdestroyer/horus-flow/packages/go/pagination"
 	"github.com/hcdestroyer/horus-flow/packages/go/problem"
+	"github.com/hcdestroyer/horus-flow/packages/go/testkit"
 	"github.com/hcdestroyer/horus-flow/services/auth/api"
 	"github.com/hcdestroyer/horus-flow/services/auth/internal/domain"
 )
@@ -34,6 +37,20 @@ type memMemberStore struct {
 	ms       []domain.Membership
 	profile  *domain.User
 	audits   []api.AuditEntry
+	reissued *ReissuedInvitation
+	reissueE error
+}
+
+func (m *memMemberStore) Tenant(_ context.Context, id uuid.UUID) (*domain.Tenant, error) {
+	return &domain.Tenant{ID: id, Name: "ISP Ejemplo"}, nil
+}
+
+func (m *memMemberStore) ReissueInvitation(_ context.Context, in ReissuedInvitation) (*ReissueResult, error) {
+	if m.reissueE != nil {
+		return nil, m.reissueE
+	}
+	m.reissued = &in
+	return &ReissueResult{MembershipID: m.member.MembershipID, Email: m.member.Email, Replaced: 1}, nil
 }
 
 func (m *memMemberStore) TenantRoles(context.Context, uuid.UUID) ([]domain.TenantRoleRecord, error) {
@@ -109,11 +126,14 @@ func (m *memMemberStore) UpdateProfile(_ context.Context, u *domain.User, _ time
 
 const validToken = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG"
 
-type captureSender struct{ got []InvitationDelivery }
+type captureSender struct {
+	got []InvitationDelivery
+	err error
+}
 
 func (c *captureSender) SendInvitation(_ context.Context, d InvitationDelivery) error {
 	c.got = append(c.got, d)
-	return nil
+	return c.err
 }
 
 func newMemberEnv(t *testing.T) (*Service, *memMemberStore, *captureSender, *domain.Catalog) {
@@ -127,7 +147,7 @@ func newMemberEnv(t *testing.T) (*Service, *memMemberStore, *captureSender, *dom
 		st.roles = append(st.roles, domain.TenantRoleRecord{ID: r.ID, Key: r.Key, Name: r.Name, IsSystem: true, RequiresMFA: r.RequiresMFA, Permissions: r.Permissions})
 	}
 	snd := &captureSender{}
-	svc, err := NewService(st, Options{Catalog: cat, Invitations: snd,
+	svc, err := NewService(st, Options{Catalog: cat, Invitations: snd, PublicBaseURL: "https://horus.example/",
 		Argon: domain.Argon2Params{Memory: 1024, Time: 1, Threads: 1, SaltLen: 16, KeyLen: 32}})
 	if err != nil {
 		t.Fatal(err)
@@ -174,24 +194,24 @@ func TestInviteMemberValidation(t *testing.T) {
 	ctx := tenantCtx(tenant, allPerms(cat, "tenant_admin"))
 	admin, _ := cat.TenantRole("tenant_admin")
 
-	e := wantErr(t, svc.InviteMember(ctx, "no-es-email", nil, ""), 422, problem.CodeValidationFailed)
+	e := wantErr(t, errOf(svc.InviteMember(ctx, "no-es-email", nil, "")), 422, problem.CodeValidationFailed)
 	if !hasField(e, "email", "INVALID_EMAIL") || !hasField(e, "role_assignments", "REQUIRED") {
 		t.Fatalf("fields = %+v", e.Fields)
 	}
-	e = wantErr(t, svc.InviteMember(ctx, "a@isp.test", []AssignmentInput{{RoleID: uuid.NewString(), Scope: "tenant"}}, ""), 422, problem.CodeValidationFailed)
+	e = wantErr(t, errOf(svc.InviteMember(ctx, "a@isp.test", []AssignmentInput{{RoleID: uuid.NewString(), Scope: "tenant"}}, "")), 422, problem.CodeValidationFailed)
 	if !hasField(e, "role_assignments[0].role_id", CodeUnknownRole) {
 		t.Fatalf("fields = %+v", e.Fields)
 	}
-	e = wantErr(t, svc.InviteMember(ctx, "a@isp.test", []AssignmentInput{{RoleID: admin.ID.String(), Scope: "site:nope"}}, ""), 422, problem.CodeValidationFailed)
+	e = wantErr(t, errOf(svc.InviteMember(ctx, "a@isp.test", []AssignmentInput{{RoleID: admin.ID.String(), Scope: "site:nope"}}, "")), 422, problem.CodeValidationFailed)
 	if !hasField(e, "role_assignments[0].scope", "INVALID_FORMAT") {
 		t.Fatalf("fields = %+v", e.Fields)
 	}
 	// Sin users.manage (defensa en profundidad tras el guard).
-	wantErr(t, svc.InviteMember(tenantCtx(tenant, allPerms(cat, "viewer")), "a@isp.test",
-		[]AssignmentInput{{RoleID: admin.ID.String(), Scope: "tenant"}}, ""), 403, problem.CodePermissionDenied)
+	wantErr(t, errOf(svc.InviteMember(tenantCtx(tenant, allPerms(cat, "viewer")), "a@isp.test",
+		[]AssignmentInput{{RoleID: admin.ID.String(), Scope: "tenant"}}, "")), 403, problem.CodePermissionDenied)
 	// Un token de sesión (sin tenant) no sirve.
-	wantErr(t, svc.InviteMember(authz.WithPrincipal(context.Background(), &authz.Principal{Type: authz.TypeUser, Scope: authz.ScopeSession}),
-		"a@isp.test", nil, ""), 403, problem.CodeTokenScopeInvalid)
+	wantErr(t, errOf(svc.InviteMember(authz.WithPrincipal(context.Background(), &authz.Principal{Type: authz.TypeUser, Scope: authz.ScopeSession}),
+		"a@isp.test", nil, "")), 403, problem.CodeTokenScopeInvalid)
 }
 
 // security.md §2 (E): nadie concede un permiso que no tiene en ese alcance.
@@ -205,11 +225,11 @@ func TestAssignmentsCannotEscalate(t *testing.T) {
 	perms[PermUsersManage] = []string{authz.ScopeAll}
 	ctx := tenantCtx(tenant, perms)
 
-	wantErr(t, svc.InviteMember(ctx, "a@isp.test", []AssignmentInput{{RoleID: admin.ID.String(), Scope: "tenant"}}, ""), 403, problem.CodePermissionDenied)
+	wantErr(t, errOf(svc.InviteMember(ctx, "a@isp.test", []AssignmentInput{{RoleID: admin.ID.String(), Scope: "tenant"}}, "")), 403, problem.CodePermissionDenied)
 	if st.invited != nil {
 		t.Fatal("se invitó con un rol con más permisos que el invitador")
 	}
-	if err := svc.InviteMember(ctx, "a@isp.test", []AssignmentInput{{RoleID: noc.ID.String(), Scope: "tenant"}, {RoleID: noc.ID.String(), Scope: "tenant"}}, ""); err != nil {
+	if err := errOf(svc.InviteMember(ctx, "a@isp.test", []AssignmentInput{{RoleID: noc.ID.String(), Scope: "tenant"}, {RoleID: noc.ID.String(), Scope: "tenant"}}, "")); err != nil {
 		t.Fatal(err)
 	}
 	if len(st.invited.Assignments) != 1 || st.invited.Assignments[0].RoleKey != "noc" {
@@ -222,8 +242,8 @@ func TestAssignmentsCannotEscalate(t *testing.T) {
 		scoped[p] = []string{"site:" + site.String()}
 	}
 	sctx := tenantCtx(tenant, scoped)
-	wantErr(t, svc.InviteMember(sctx, "b@isp.test", []AssignmentInput{{RoleID: noc.ID.String(), Scope: "tenant"}}, ""), 403, problem.CodePermissionDenied)
-	if err := svc.InviteMember(sctx, "b@isp.test", []AssignmentInput{{RoleID: noc.ID.String(), Scope: "site:" + site.String()}}, ""); err != nil {
+	wantErr(t, errOf(svc.InviteMember(sctx, "b@isp.test", []AssignmentInput{{RoleID: noc.ID.String(), Scope: "tenant"}}, "")), 403, problem.CodePermissionDenied)
+	if err := errOf(svc.InviteMember(sctx, "b@isp.test", []AssignmentInput{{RoleID: noc.ID.String(), Scope: "site:" + site.String()}}, "")); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -236,22 +256,31 @@ func TestInviteDeliversTokenOnlyWhenStored(t *testing.T) {
 	in := []AssignmentInput{{RoleID: viewer.ID.String(), Scope: "tenant"}}
 
 	st.inviteRS = InviteResult{MembershipID: uuid.New(), UserID: uuid.New(), Status: domain.MembershipActive, AlreadyMember: true}
-	if err := svc.InviteMember(ctx, "ya@isp.test", in, ""); err != nil {
+	res, err := svc.InviteMember(ctx, "ya@isp.test", in, "")
+	if err != nil {
 		t.Fatal(err)
 	}
 	if len(snd.got) != 0 {
 		t.Fatal("se entregó un token sin invitación guardada")
 	}
+	if res.Outcome != OutcomeAdded || res.UserID != st.inviteRS.UserID || res.URL != nil || res.ExpiresAt != nil || res.EmailSent {
+		t.Fatalf("cuenta existente = %+v", res)
+	}
 	st.inviteRS = InviteResult{MembershipID: uuid.New(), UserID: uuid.New(), Status: domain.MembershipInvited, UserCreated: true, TokenStored: true}
-	if err := svc.InviteMember(ctx, "nuevo@isp.test", in, ""); err != nil {
+	res, err = svc.InviteMember(ctx, "nuevo@isp.test", in, "")
+	if err != nil {
 		t.Fatal(err)
 	}
 	if len(snd.got) != 1 {
 		t.Fatalf("entregas = %d", len(snd.got))
 	}
 	d := snd.got[0]
-	if len(d.Token) < 32 || !bytes.Equal(domain.HashSecret(d.Token), st.invited.TokenHash) || d.Email != "nuevo@isp.test" || d.TenantID != tenant {
+	if len(d.Token) < 32 || !bytes.Equal(domain.HashSecret(d.Token), st.invited.TokenHash) || d.Email != "nuevo@isp.test" || d.TenantID != tenant ||
+		d.TenantName != "ISP Ejemplo" || d.URL != "https://horus.example/invitation#token="+d.Token {
 		t.Fatalf("entrega = %+v", d)
+	}
+	if res.Outcome != OutcomeInvited || res.URL == nil || *res.URL != d.URL || res.ExpiresAt == nil || !res.ExpiresAt.Equal(st.invited.ExpiresAt) || !res.EmailSent {
+		t.Fatalf("invitada = %+v", res)
 	}
 	if ttl := st.invited.ExpiresAt.Sub(st.invited.Now); ttl != domain.InvitationTTL {
 		t.Fatalf("caducidad = %v", ttl)
@@ -266,6 +295,158 @@ func TestInviteDeliversTokenOnlyWhenStored(t *testing.T) {
 		if b, _ := json.Marshal(a.Changes); bytes.Contains(b, []byte(d.Token)) {
 			t.Fatal("el token aparece en la auditoría")
 		}
+	}
+}
+
+// Un fallo del correo no falla la invitación: 202 con email_sent=false y un
+// aviso en el log sin la dirección, el token ni el enlace.
+func TestInviteEmailFailureIsNotFatal(t *testing.T) {
+	svc, st, snd, cat := newMemberEnv(t)
+	logger, logs := testkit.Logger(t)
+	svc.o.Logger = logger
+	snd.err = errors.New("550 <nuevo@isp.test> rechazado")
+	ctx := tenantCtx(uuid.New(), allPerms(cat, "tenant_admin"))
+	viewer, _ := cat.TenantRole("viewer")
+	st.inviteRS = InviteResult{MembershipID: uuid.New(), UserID: uuid.New(), Status: domain.MembershipInvited, UserCreated: true, TokenStored: true}
+	res, err := svc.InviteMember(ctx, "nuevo@isp.test", []AssignmentInput{{RoleID: viewer.ID.String(), Scope: "tenant"}}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.EmailSent || res.URL == nil {
+		t.Fatalf("res = %+v", res)
+	}
+	out := logs.String()
+	if !strings.Contains(out, "invitation email not sent") || strings.Contains(out, "nuevo@isp.test") || strings.Contains(out, snd.got[0].Token) {
+		t.Fatalf("log = %s", out)
+	}
+	if last := st.audits[len(st.audits)-1]; last.Changes["email_sent"] != false || last.Changes["link_issued"] != true {
+		t.Fatalf("auditoría = %+v", last.Changes)
+	}
+	// Sin canal de correo: email_sent=false.
+	svc.o.Invitations = nil
+	res, err = svc.InviteMember(ctx, "otro@isp.test", []AssignmentInput{{RoleID: viewer.ID.String(), Scope: "tenant"}}, "")
+	if err != nil || res.EmailSent || res.URL == nil {
+		t.Fatalf("sin SMTP = %+v, %v", res, err)
+	}
+}
+
+func TestReissueInvitation(t *testing.T) {
+	svc, st, snd, cat := newMemberEnv(t)
+	tenant := uuid.New()
+	ctx := tenantCtx(tenant, allPerms(cat, "tenant_admin"))
+	admin, _ := cat.TenantRole("tenant_admin")
+	noc, _ := cat.TenantRole("noc")
+	uid := uuid.New()
+
+	// No es miembro de este ISP (o fue revocado): 404.
+	_, err := svc.ReissueInvitation(ctx, uid, "")
+	wantErr(t, err, 404, problem.CodeNotFound)
+	st.member = &domain.Member{MembershipID: uuid.New(), UserID: uid, Email: "inv@isp.test", Status: domain.MembershipRevoked}
+	_, err = svc.ReissueInvitation(ctx, uid, "")
+	wantErr(t, err, 404, problem.CodeNotFound)
+	// Miembro activo: 409.
+	st.member.Status = domain.MembershipActive
+	_, err = svc.ReissueInvitation(ctx, uid, "")
+	wantErr(t, err, 409, problem.CodeConflict)
+	if st.reissued != nil {
+		t.Fatal("se renovó la invitación de un miembro activo")
+	}
+
+	st.member.Status = domain.MembershipInvited
+	st.member.Assignments = []domain.Assignment{{RoleID: admin.ID, RoleKey: admin.Key, ScopeType: "tenant", Permissions: admin.Permissions}}
+	// Anti-escalada: quien no tiene los permisos de los roles del invitado no obtiene su enlace.
+	perms := allPerms(cat, "noc")
+	perms[PermUsersManage] = []string{authz.ScopeAll}
+	_, err = svc.ReissueInvitation(tenantCtx(tenant, perms), uid, "")
+	wantErr(t, err, 403, problem.CodePermissionDenied)
+	if st.reissued != nil {
+		t.Fatal("enlace renovado con escalada")
+	}
+	// Sin users.manage.
+	_, err = svc.ReissueInvitation(tenantCtx(tenant, allPerms(cat, "viewer")), uid, "")
+	wantErr(t, err, 403, problem.CodePermissionDenied)
+
+	st.member.Assignments = []domain.Assignment{{RoleID: noc.ID, RoleKey: noc.Key, ScopeType: "tenant", Permissions: noc.Permissions}}
+	res, err := svc.ReissueInvitation(ctx, uid, "198.51.100.7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.reissued == nil || st.reissued.TenantID != tenant || st.reissued.UserID != uid || st.reissued.ExpiresAt.Sub(st.reissued.Now) != domain.InvitationTTL {
+		t.Fatalf("reissued = %+v", st.reissued)
+	}
+	d := snd.got[len(snd.got)-1]
+	if !bytes.Equal(domain.HashSecret(d.Token), st.reissued.TokenHash) || d.Email != "inv@isp.test" || res.URL == nil || *res.URL != d.URL ||
+		res.Outcome != OutcomeInvited || res.UserID != uid || !res.EmailSent {
+		t.Fatalf("res = %+v, entrega = %+v", res, d)
+	}
+	last := st.audits[len(st.audits)-1]
+	if last.Action != "members.invitation_reissued" || last.TenantID != tenant || last.ResourceID != st.member.MembershipID.String() || last.IP != "198.51.100.7" {
+		t.Fatalf("auditoría = %+v", last)
+	}
+	if b, _ := json.Marshal(last); bytes.Contains(b, []byte(d.Token)) {
+		t.Fatal("el token aparece en la auditoría")
+	}
+	// Carrera: la membresía cambió entre la lectura y el bloqueo.
+	st.reissueE = ErrNotInvited
+	_, err = svc.ReissueInvitation(ctx, uid, "")
+	wantErr(t, err, 409, problem.CodeConflict)
+	st.reissueE = domain.ErrNotFound
+	_, err = svc.ReissueInvitation(ctx, uid, "")
+	wantErr(t, err, 404, problem.CodeNotFound)
+}
+
+func TestInspectInvitation(t *testing.T) {
+	svc, st, _, _ := newMemberEnv(t)
+	now := time.Now()
+	base := domain.Invitation{ID: uuid.New(), TenantID: uuid.New(), MembershipID: uuid.New(), UserID: uuid.New(),
+		ExpiresAt: now.Add(time.Hour), MembershipStatus: domain.MembershipInvited, UserStatus: domain.UserPending,
+		UserEmail: "nueva@isp.test", UserDisplayName: "nueva", TenantName: "ISP Norte"}
+	ctx := context.Background()
+
+	st.inv = &base
+	info, err := svc.InspectInvitation(ctx, validToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Email != "nueva@isp.test" || info.TenantName != "ISP Norte" || !info.NeedsPassword || !info.ExpiresAt.Equal(base.ExpiresAt) {
+		t.Fatalf("info = %+v", info)
+	}
+	if st.accepted != nil {
+		t.Fatal("inspeccionar consumió la invitación")
+	}
+	active := base
+	active.UserStatus = domain.UserActive
+	st.inv = &active
+	if info, err := svc.InspectInvitation(ctx, validToken); err != nil || info.NeedsPassword {
+		t.Fatalf("cuenta existente = %+v, %v", info, err)
+	}
+
+	// Desconocida, corta, usada, caducada, revocada o de una cuenta deshabilitada: el mismo 422 que accept.
+	check := func(name, token string) {
+		t.Helper()
+		_, err := svc.InspectInvitation(ctx, token)
+		e := wantErr(t, err, 422, problem.CodeValidationFailed)
+		if len(e.Fields) != 1 || !hasField(e, "token", CodeInvitationInvalid) {
+			t.Fatalf("%s: fields = %+v", name, e.Fields)
+		}
+		aerr := svc.AcceptInvitation(ctx, AcceptInvitationInput{Token: token}, LoginInput{})
+		ae := wantErr(t, aerr, 422, problem.CodeValidationFailed)
+		if ae.Detail != e.Detail || len(ae.Fields) != 1 || ae.Fields[0] != e.Fields[0] {
+			t.Fatalf("%s: inspect %+v != accept %+v", name, e, ae)
+		}
+	}
+	check("desconocida", strings.Repeat("z", 43))
+	check("corta", "corto")
+	for name, mut := range map[string]func(i *domain.Invitation){
+		"usada":         func(i *domain.Invitation) { u := now; i.UsedAt = &u },
+		"caducada":      func(i *domain.Invitation) { i.ExpiresAt = now.Add(-time.Second) },
+		"revocada":      func(i *domain.Invitation) { i.MembershipStatus = domain.MembershipRevoked },
+		"deshabilitado": func(i *domain.Invitation) { i.UserStatus = "disabled" },
+	} {
+		bad := active
+		mut(&bad)
+		st.inv = &bad
+		check(name, validToken)
 	}
 }
 
@@ -451,3 +632,5 @@ func TestListMembersFilters(t *testing.T) {
 	_, err = svc.ListMembers(tenantCtx(uuid.New(), allPerms(cat, "noc")), pagination.NewCodec(nil), pagination.Request{Limit: 50}, "", "")
 	wantErr(t, err, 403, problem.CodePermissionDenied)
 }
+
+func errOf(_ *InvitationIssued, err error) error { return err }

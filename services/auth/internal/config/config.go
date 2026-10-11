@@ -1,5 +1,5 @@
 // Package config es la configuración del módulo auth (HORUS_AUTH_* y las
-// comunes de PostgreSQL y URL pública; docs/conventions.md §2.3). Toda
+// comunes de PostgreSQL, URL pública y SMTP; docs/conventions.md §2.3). Toda
 // variable admite la variante _FILE.
 package config
 
@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/hcdestroyer/horus-flow/packages/go/mailer"
 	"github.com/hcdestroyer/horus-flow/packages/go/observability"
 )
 
@@ -48,9 +49,19 @@ type Config struct {
 	SeedAdminPassword observability.Secret `env:"HORUS_SEED_ADMIN_PASSWORD"`
 	SeedAdminName     string               `env:"HORUS_SEED_ADMIN_NAME" envDefault:"Superadministrador"`
 
-	// PublicBaseURL y AllowedOrigins (D14/D19, api.md §1.11).
+	// PublicBaseURL (base de los enlaces de invitación y de kiosco) y
+	// AllowedOrigins (D14/D19, api.md §1.11).
 	PublicBaseURL  string   `env:"HORUS_PUBLIC_BASE_URL"`
 	AllowedOrigins []string `env:"HORUS_ALLOWED_ORIGINS" envSeparator:","`
+
+	// SMTP de la instalación (las mismas variables que alerts): con
+	// HORUS_SMTP_HOST las invitaciones también se envían por correo.
+	SMTPHost     string               `env:"HORUS_SMTP_HOST"`
+	SMTPPort     int                  `env:"HORUS_SMTP_PORT" envDefault:"587"`
+	SMTPUsername string               `env:"HORUS_SMTP_USERNAME"`
+	SMTPPassword observability.Secret `env:"HORUS_SMTP_PASSWORD"`
+	SMTPFrom     string               `env:"HORUS_SMTP_FROM"`
+	SMTPTLS      string               `env:"HORUS_SMTP_TLS" envDefault:"starttls"`
 }
 
 // Validate implementa config.Validator.
@@ -70,6 +81,9 @@ func (c *Config) Validate() error {
 			errs = append(errs, fmt.Errorf("HORUS_PUBLIC_BASE_URL invalid: %q", c.PublicBaseURL))
 		}
 	}
+	if c.SMTPHost != "" && (!mailer.ValidTLS(c.SMTPTLS) || c.SMTPPort < 0 || c.SMTPPort > 65535) {
+		errs = append(errs, fmt.Errorf("HORUS_SMTP_TLS must be starttls, tls or none and HORUS_SMTP_PORT a port: %q %d", c.SMTPTLS, c.SMTPPort))
+	}
 	if (c.SeedAdminEmail == "") != (c.SeedAdminPassword.IsZero()) {
 		errs = append(errs, errors.New("HORUS_SEED_ADMIN_EMAIL and HORUS_SEED_ADMIN_PASSWORD_FILE go together"))
 	}
@@ -86,5 +100,6 @@ func (c Config) LogValue() slog.Value {
 		slog.String("access_ttl", c.AccessTTL.String()),
 		slog.Bool("seed_admin", c.SeedAdminEmail != ""),
 		slog.String("public_base_url", c.PublicBaseURL),
+		slog.Bool("smtp", c.SMTPHost != ""),
 	)
 }

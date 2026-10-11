@@ -372,18 +372,75 @@ func (s *Store) InviteMember(ctx context.Context, in app.NewInvitation) (*app.In
 		default:
 			res.MembershipID, res.Status, res.AlreadyMember = cur.MembershipID, cur.Status, true
 		}
-		if res.Status != domain.MembershipInvited || userStatus != domain.UserPending || len(in.TokenHash) == 0 {
+		// Membresía invitada de una cuenta que puede aceptarla (pendiente, o
+		// activa que aún no aceptó): enlace nuevo, los anteriores sin usar
+		// dejan de valer.
+		if res.Status != domain.MembershipInvited || !canAccept(userStatus) || len(in.TokenHash) == 0 {
 			return nil
 		}
-		if _, err := tx.Exec(ctx, `DELETE FROM auth.invitation WHERE membership_id = $1 AND used_at IS NULL`, res.MembershipID); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, `INSERT INTO auth.invitation (id, tenant_id, membership_id, user_id, token_hash, expires_at, created_by, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, uuid.Must(uuid.NewV7()), in.TenantID, res.MembershipID, res.UserID, in.TokenHash,
-			in.ExpiresAt, in.GrantedBy, in.Now); err != nil {
+		if _, err := replaceInvitation(ctx, tx, in.TenantID, res.MembershipID, res.UserID, in.TokenHash, in.ExpiresAt, in.GrantedBy, in.Now); err != nil {
 			return err
 		}
 		res.TokenStored = true
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func canAccept(userStatus string) bool {
+	return userStatus == domain.UserPending || userStatus == domain.UserActive
+}
+
+// replaceInvitation borra las invitaciones sin usar de la membresía y guarda
+// una nueva; devuelve cuántas borró.
+func replaceInvitation(ctx context.Context, tx pgx.Tx, tenant, membershipID, userID uuid.UUID, hash []byte, expires time.Time,
+	createdBy uuid.UUID, now time.Time,
+) (int, error) {
+	tag, err := tx.Exec(ctx, `DELETE FROM auth.invitation WHERE membership_id = $1 AND used_at IS NULL`, membershipID)
+	if err != nil {
+		return 0, err
+	}
+	var by *uuid.UUID
+	if createdBy != uuid.Nil {
+		by = &createdBy
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO auth.invitation (id, tenant_id, membership_id, user_id, token_hash, expires_at, created_by, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, uuid.Must(uuid.NewV7()), tenant, membershipID, userID, hash, expires, by, now); err != nil {
+		return 0, err
+	}
+	return int(tag.RowsAffected()), nil
+}
+
+// ReissueInvitation implementa app.Store: dentro del tenant (RLS), con la
+// membresía bloqueada.
+func (s *Store) ReissueInvitation(ctx context.Context, in app.ReissuedInvitation) (*app.ReissueResult, error) {
+	var res *app.ReissueResult
+	err := s.db.TenantTx(ctx, pgdb.TenantID(in.TenantID), func(tx pgx.Tx) error {
+		cur, err := memberForUpdate(ctx, tx, in.UserID)
+		if err != nil {
+			return err
+		}
+		if cur.Status == domain.MembershipRevoked {
+			return domain.ErrNotFound
+		}
+		if cur.Status != domain.MembershipInvited {
+			return app.ErrNotInvited
+		}
+		var userStatus string
+		if err := tx.QueryRow(ctx, `SELECT status FROM auth."user" WHERE id = $1 AND deleted_at IS NULL`, in.UserID).Scan(&userStatus); err != nil {
+			return notFound(err)
+		}
+		if !canAccept(userStatus) {
+			return app.ErrNotInvited
+		}
+		n, err := replaceInvitation(ctx, tx, in.TenantID, cur.MembershipID, in.UserID, in.TokenHash, in.ExpiresAt, in.CreatedBy, in.Now)
+		if err != nil {
+			return err
+		}
+		res = &app.ReissueResult{MembershipID: cur.MembershipID, Email: cur.Email, Replaced: n}
 		return nil
 	})
 	if err != nil {
@@ -479,13 +536,14 @@ func (s *Store) InvitationByHash(ctx context.Context, hash []byte) (*domain.Invi
 	var inv domain.Invitation
 	err := s.db.PlatformTx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
-			SELECT i.id, i.tenant_id, i.membership_id, i.user_id, i.expires_at, i.used_at, m.status, u.status, u.email::text, u.display_name
+			SELECT i.id, i.tenant_id, i.membership_id, i.user_id, i.expires_at, i.used_at, m.status, u.status, u.email::text, u.display_name, t.name
 			FROM auth.invitation i
 			JOIN auth.tenant_membership m ON m.tenant_id = i.tenant_id AND m.id = i.membership_id
 			JOIN auth."user" u ON u.id = i.user_id AND u.deleted_at IS NULL
+			JOIN auth.tenant t ON t.id = i.tenant_id AND t.deleted_at IS NULL
 			WHERE i.token_hash = $1`, hash).
 			Scan(&inv.ID, &inv.TenantID, &inv.MembershipID, &inv.UserID, &inv.ExpiresAt, &inv.UsedAt, &inv.MembershipStatus,
-				&inv.UserStatus, &inv.UserEmail, &inv.UserDisplayName)
+				&inv.UserStatus, &inv.UserEmail, &inv.UserDisplayName, &inv.TenantName)
 	})
 	if err != nil {
 		return nil, notFound(err)

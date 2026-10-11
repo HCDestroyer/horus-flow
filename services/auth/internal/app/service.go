@@ -44,11 +44,16 @@ type Options struct {
 	RefreshIdle time.Duration
 	SessionMax  time.Duration
 	TOTPIssuer  string
-	// Invitations entrega los tokens de invitación; nil = sin canal de
-	// entrega (la invitación queda guardada y la persona no la recibe).
+	// Invitations entrega los enlaces de invitación (SMTP); nil = sin canal
+	// de entrega (quien invita comparte el enlace de la respuesta).
 	Invitations InvitationSender
-	Now         func() time.Time
-	Logger      *slog.Logger
+	// InvitationSendTimeout acota el envío síncrono (por defecto 10 s).
+	InvitationSendTimeout time.Duration
+	// PublicBaseURL es la base del enlace de invitación
+	// (HORUS_PUBLIC_BASE_URL); vacía = enlace relativo (desarrollo).
+	PublicBaseURL string
+	Now           func() time.Time
+	Logger        *slog.Logger
 }
 
 // Service implementa los casos de uso de auth.
@@ -78,6 +83,10 @@ func NewService(store Store, o Options) (*Service, error) {
 	if o.Logger == nil {
 		o.Logger = slog.New(slog.DiscardHandler)
 	}
+	if o.InvitationSendTimeout <= 0 || o.InvitationSendTimeout > 10*time.Second {
+		o.InvitationSendTimeout = 10 * time.Second
+	}
+	o.PublicBaseURL = strings.TrimRight(o.PublicBaseURL, "/")
 	if o.TOTPIssuer == "" {
 		o.TOTPIssuer = "Horus Flow"
 	}

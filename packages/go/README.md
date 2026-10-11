@@ -20,6 +20,7 @@
 | `module` | Contrato módulo ↔ binario: `Deps{Role, Logger, Health, Metrics, Routes, Common, Environ}`, `Module` (`Run`), `Starter`, `Stopper`, `Factory`, `Func`, `Idle()` |
 | `testkit` | `Logger(t)` + `LogBuffer` (`Records`, `Find`), `Environ(kv...)`, `Eventually` |
 | `clientip` | IP real del cliente tras proxies de confianza (`HORUS_TRUSTED_PROXIES`: red del compose y, en modo TLS externo, el proxy inverso): `Default()`, `String(r)`, `Addr(r)`, `Parse`, `Resolver.IP`/`Proto`/`FromTrustedProxy`. X-Forwarded-For solo cuenta si la conexión viene de una red de confianza; se recorre de derecha a izquierda (I1-22) |
+| `mailer` | SMTP de la instalación (`HORUS_SMTP_*`): `Config`, `Dial` (STARTTLS/TLS/none, AUTH PLAIN, `ErrAuth`), `Send(ctx, cfg, Message{To, Subject, Text, HTML})` (texto o multipart/alternative), `Compose`, `ValidTLS`; `mailertest.New(t)` es un servidor SMTP en memoria. Lo usan alerts (canal email) y auth (invitaciones) |
 | `archtest` | `Check(root, modulePath) ([]Violation, error)`, `FindRepoRoot`. Reglas `module-internal`, `module-api-only`, `platform-no-services`, `domain-no-adapters`; `TestRepositoryArchitecture` corre contra el repo en cada `go test ./...` |
 
 ## Pendiente (historias posteriores)

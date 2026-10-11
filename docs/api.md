@@ -432,6 +432,7 @@ la columna "servicio" es el módulo). Rutas bajo `/api/v1`. Las de negocio exige
 | `POST /auth/reauth` | Contraseña (+TOTP) para marcar `auth_time` reciente. | autenticado |
 | `POST /auth/logout` | Revoca la sesión actual y borra la cookie. Requiere `X-Requested-With: horus`. | autenticado |
 | `POST /auth/password/forgot` · `POST /auth/password/reset` | Recuperación. | público, rate limited |
+| `POST /auth/invitations/inspect` | `{token}` → `{email, tenant_name, needs_password, expires_at}` para la página de aceptación, sin consumir la invitación. Desconocida, usada o caducada → el mismo `422` (`token`/`INVITATION_INVALID`) que `accept`. | público, rate limited |
 | `POST /auth/invitations/accept` | Acepta una invitación a un tenant (token de un uso, 72 h); crea el usuario si no existe. | público, rate limited |
 | `GET /me` | Usuario, roles de plataforma, **membresías** (`[{tenant_id, tenant_slug, tenant_name, roles, permissions_with_scope}]`). | autenticado |
 | `POST /ws/tickets` | Ticket de un uso (30 s) para abrir el WebSocket (§4.2). | autenticado |
@@ -450,7 +451,8 @@ caché de membresías revocadas, igual que la de sesiones).
 | Método y ruta | Descripción | Permiso |
 | --- | --- | --- |
 | `GET /members` · `GET /members/{user_id}` | Miembros del tenant (filtros `status`, `role_id`, `q`). Sólo datos del usuario necesarios (nombre, email, estado, 2FA activo); nunca sus otras membresías. | `users.read` |
-| `POST /members` | Invitar por email con roles iniciales. Si el email ya existe en la plataforma se añade la membresía (sin revelar al invitador si existía: misma respuesta `202`). | `users.manage` |
+| `POST /members` | Invitar por email con roles iniciales → `202 InvitationIssued {outcome, user_id, invitation_url, expires_at, email_sent}`. Cuenta activa existente: `outcome=added` (membresía activa, sin enlace). Email nuevo o cuenta pendiente: `outcome=invited` con el enlace de un uso (72 h) `<HORUS_PUBLIC_BASE_URL>/invitation#token=…` (token en el fragmento) para compartirlo; con SMTP (`HORUS_SMTP_*`) también se envía por correo (`email_sent`; un fallo del correo no falla la invitación). | `users.manage` |
+| `POST /members/{user_id}/invitation` | Enlace nuevo para un miembro `invited` (los anteriores sin usar dejan de valer) → `200 InvitationIssued`. `404` si no es miembro de este tenant; `409 CONFLICT` si no está invitado. Quien lo pide debe tener los permisos de los roles del invitado (anti-escalada). | `users.manage` |
 | `DELETE /members/{user_id}` | Quitar del tenant (no borra al usuario de la plataforma). | `users.manage` |
 | `GET /members/{user_id}/role-assignments` | Asignaciones `(rol, alcance)` en este tenant. | `roles.read` |
 | `PUT /members/{user_id}/role-assignments` 🔒 | Reemplaza `[{"role_id", "scope": "tenant" \| "site:<id>" \| "router_group:<id>"}]` (siempre dentro del `tid`). | `roles.assign` |

@@ -130,6 +130,29 @@ type Store interface {
 	// AcceptInvitation consume la invitación (un uso), activa la membresía y,
 	// si PasswordHash no está vacío, activa al usuario pendiente.
 	AcceptInvitation(ctx context.Context, in AcceptedInvitation) error
+	// ReissueInvitation sustituye las invitaciones sin usar de la membresía
+	// invitada de UserID por una nueva (dentro del tenant, RLS):
+	// domain.ErrNotFound si no hay membresía no revocada; ErrNotInvited si no
+	// está invitada o la cuenta no puede aceptarla.
+	ReissueInvitation(ctx context.Context, in ReissuedInvitation) (*ReissueResult, error)
+}
+
+// ReissuedInvitation es un enlace nuevo para una membresía invitada.
+type ReissuedInvitation struct {
+	TenantID  uuid.UUID
+	UserID    uuid.UUID
+	TokenHash []byte
+	ExpiresAt time.Time
+	CreatedBy uuid.UUID
+	Now       time.Time
+}
+
+// ReissueResult es la membresía cuyo enlace se renovó.
+type ReissueResult struct {
+	MembershipID uuid.UUID
+	Email        string
+	// Replaced es el número de invitaciones sin usar invalidadas.
+	Replaced int
 }
 
 // UserFilter filtra GET /platform/users (keyset por created_at, id).
@@ -162,8 +185,9 @@ type NewInvitation struct {
 	Email       string
 	Assignments []domain.Assignment
 	GrantedBy   uuid.UUID
-	// TokenHash y ExpiresAt se usan solo si el usuario está pendiente (la
-	// invitación anterior sin usar se sustituye).
+	// TokenHash y ExpiresAt se usan solo si la membresía queda invitada y la
+	// cuenta puede aceptarla (pendiente o activa); las invitaciones anteriores
+	// sin usar se sustituyen.
 	TokenHash []byte
 	ExpiresAt time.Time
 	Now       time.Time
@@ -198,6 +222,9 @@ var (
 	ErrMemberVersion = errors.New("auth: membership version changed")
 	// ErrInvitationUsed: la invitación ya se usó, caducó o su membresía cambió.
 	ErrInvitationUsed = errors.New("auth: invitation not usable")
+	// ErrNotInvited: la membresía no está invitada (o la cuenta no puede
+	// aceptar una invitación).
+	ErrNotInvited = errors.New("auth: membership not invited")
 	// ErrUnknownRole: algún rol no es visible en el tenant.
 	ErrUnknownRole = errors.New("auth: unknown role")
 )
@@ -210,16 +237,20 @@ func (e *MemberVersionError) Error() string { return ErrMemberVersion.Error() }
 // Unwrap permite errors.Is(err, ErrMemberVersion).
 func (e *MemberVersionError) Unwrap() error { return ErrMemberVersion }
 
-// InvitationSender entrega el token de una invitación a la persona invitada
-// (p. ej. por email). El token solo existe en memoria durante la entrega.
+// InvitationSender entrega el enlace de una invitación a la persona invitada
+// (p. ej. por email). El token solo existe en memoria durante la entrega; un
+// error no debe incluir el token ni el enlace.
 type InvitationSender interface {
 	SendInvitation(ctx context.Context, inv InvitationDelivery) error
 }
 
 // InvitationDelivery es lo que necesita el canal de entrega.
 type InvitationDelivery struct {
-	Email     string
-	TenantID  uuid.UUID
-	Token     string
+	Email      string
+	TenantID   uuid.UUID
+	TenantName string
+	Token      string
+	// URL es el enlace de aceptación (<HORUS_PUBLIC_BASE_URL>/invitation#token=…).
+	URL       string
 	ExpiresAt time.Time
 }
