@@ -290,10 +290,37 @@ modules:
       scope: platform
       methods:
         GET: platform.users.read
+    - prefix: /api/v1/platform/users/{user_id}
+      scope: platform
+      methods:
+        PATCH: platform.users.manage
+      reauth:
+        - PATCH
+      audited:
+        - PATCH
+    - prefix: /api/v1/platform/users/{user_id}/platform-roles
+      scope: platform
+      methods:
+        PUT: platform.users.manage
+      reauth:
+        - PUT
+      audited:
+        - PUT
     - prefix: /api/v1/roles
       scope: tenant
       methods:
         GET: roles.read
+        POST: roles.manage
+      audited:
+        - POST
+    - prefix: /api/v1/roles/{role_id}
+      scope: tenant
+      methods:
+        PATCH: roles.manage
+        DELETE: roles.manage
+      audited:
+        - PATCH
+        - DELETE
   detection:
     - prefix: /api/v1/customers/{customer_id}/findings
       scope: tenant

@@ -208,6 +208,10 @@ paths:
     $ref: ./platform.yaml#/paths/~1platform~1updates
   /platform/users:
     $ref: ./platform.yaml#/paths/~1platform~1users
+  /platform/users/{user_id}:
+    $ref: ./platform.yaml#/paths/~1platform~1users~1{user_id}
+  /platform/users/{user_id}/platform-roles:
+    $ref: ./platform.yaml#/paths/~1platform~1users~1{user_id}~1platform-roles
   /platform/wireguard/hubs:
     $ref: ./platform.yaml#/paths/~1platform~1wireguard~1hubs
   /playlists:
@@ -222,6 +226,8 @@ paths:
     $ref: ./detection.yaml#/paths/~1reputation~1sources
   /roles:
     $ref: ./auth.yaml#/paths/~1roles
+  /roles/{role_id}:
+    $ref: ./auth.yaml#/paths/~1roles~1{role_id}
   /routers:
     $ref: ./devices.yaml#/paths/~1routers
   /routers/{router_id}:

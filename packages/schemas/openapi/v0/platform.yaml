@@ -225,6 +225,85 @@ paths:
                   data: { type: array, items: { $ref: '#/components/schemas/PlatformUser' } }
                   page: { $ref: './common.yaml#/components/schemas/PageInfo' }
         '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+  /platform/users/{user_id}:
+    parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    patch:
+      tags: [platform]
+      operationId: platformUpdateUser
+      summary: Activa o bloquea una cuenta (bloquear revoca sus sesiones; nunca la propia ni el último platform_admin activo)
+      x-module: auth
+      x-scope: platform
+      x-permission: platform.users.manage
+      x-reauth: true
+      x-audited: true
+      x-increment: I1
+      security:
+        - platformBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              additionalProperties: false
+              properties:
+                status: { type: string, enum: [active, disabled] }
+      responses:
+        '200':
+          description: Usuario.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlatformUser' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /platform/users/{user_id}/platform-roles:
+    parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    put:
+      tags: [platform]
+      operationId: platformSetUserRoles
+      summary: Sustituye los roles de plataforma de un usuario ([] los quita; siempre queda un platform_admin activo)
+      x-module: auth
+      x-scope: platform
+      x-permission: platform.users.manage
+      x-reauth: true
+      x-audited: true
+      x-increment: I1
+      security:
+        - platformBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [platform_roles]
+              additionalProperties: false
+              properties:
+                platform_roles:
+                  type: array
+                  uniqueItems: true
+                  items: { type: string, enum: [platform_admin, platform_operator, platform_auditor] }
+      responses:
+        '200':
+          description: Usuario con sus roles nuevos.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlatformUser' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
   /platform/overview:
     get:
       tags: [platform]

@@ -3736,6 +3736,110 @@ paths:
                     $ref: '#/components/schemas/PageInfo'
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /platform/users/{user_id}:
+    parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+    patch:
+      tags:
+        - platform
+      operationId: platformUpdateUser
+      summary: Activa o bloquea una cuenta (bloquear revoca sus sesiones; nunca la propia ni el último platform_admin activo)
+      x-module: auth
+      x-scope: platform
+      x-permission: platform.users.manage
+      x-reauth: true
+      x-audited: true
+      x-increment: I1
+      security:
+        - platformBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - status
+              additionalProperties: false
+              properties:
+                status:
+                  type: string
+                  enum:
+                    - active
+                    - disabled
+      responses:
+        '200':
+          description: Usuario.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformUser'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /platform/users/{user_id}/platform-roles:
+    parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+    put:
+      tags:
+        - platform
+      operationId: platformSetUserRoles
+      summary: Sustituye los roles de plataforma de un usuario ([] los quita; siempre queda un platform_admin activo)
+      x-module: auth
+      x-scope: platform
+      x-permission: platform.users.manage
+      x-reauth: true
+      x-audited: true
+      x-increment: I1
+      security:
+        - platformBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - platform_roles
+              additionalProperties: false
+              properties:
+                platform_roles:
+                  type: array
+                  uniqueItems: true
+                  items:
+                    type: string
+                    enum:
+                      - platform_admin
+                      - platform_operator
+                      - platform_auditor
+      responses:
+        '200':
+          description: Usuario con sus roles nuevos.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformUser'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
   /platform/wireguard/hubs:
     get:
       tags:
@@ -4098,6 +4202,116 @@ paths:
                     $ref: '#/components/schemas/PageInfo'
         '401':
           $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+        - members
+      operationId: createRole
+      summary: Crea un rol propio del ISP (solo permisos de ISP que tenga quien lo crea)
+      x-module: auth
+      x-scope: tenant
+      x-permission: roles.manage
+      x-audited: true
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoleCreate'
+      responses:
+        '201':
+          description: Rol creado.
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Role'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /roles/{role_id}:
+    parameters:
+      - name: role_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+    patch:
+      tags:
+        - members
+      operationId: updateRole
+      summary: Edita un rol propio (nombre, descripción, permisos); los de sistema no se editan
+      x-module: auth
+      x-scope: tenant
+      x-permission: roles.manage
+      x-audited: true
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RolePatch'
+      responses:
+        '200':
+          description: Rol actualizado.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Role'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+    delete:
+      tags:
+        - members
+      operationId: deleteRole
+      summary: Borra un rol propio sin asignaciones (409 ROLE_IN_USE si alguien lo tiene)
+      x-module: auth
+      x-scope: tenant
+      x-permission: roles.manage
+      x-audited: true
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContent'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
   /routers:
     get:
       tags:
@@ -5415,6 +5629,10 @@ components:
             - REPUTATION_SOURCE_NOT_FOUND
             - REPUTATION_SOURCE_READ_ONLY
             - REPUTATION_SOURCE_URL_NOT_ALLOWED
+            - ROLE_NOT_FOUND
+            - ROLE_READ_ONLY
+            - ROLE_IN_USE
+            - LAST_PLATFORM_ADMIN
         - type: string
           pattern: ^[A-Z][A-Z0-9_]*$
     FieldError:
@@ -8487,6 +8705,17 @@ components:
           type: array
           items:
             type: string
+        description:
+          type:
+            - string
+            - 'null'
+          maxLength: 500
+        version:
+          description: Solo en roles propios (If-Match de PATCH/DELETE); los de sistema no lo traen.
+          $ref: '#/components/schemas/Version'
+        assignments_count:
+          type: integer
+          description: Asignaciones activas de este rol en el ISP.
     PermissionCatalog:
       type: object
       required:
@@ -9479,6 +9708,54 @@ components:
           $ref: '#/components/schemas/Timestamp'
         created_by:
           $ref: '#/components/schemas/Uuid'
+    RoleCreate:
+      type: object
+      required:
+        - key
+        - name
+        - permissions
+      additionalProperties: false
+      properties:
+        key:
+          type: string
+          pattern: ^[a-z][a-z0-9_]{1,62}$
+          description: Único en el ISP; no puede coincidir con un rol de sistema.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        description:
+          type:
+            - string
+            - 'null'
+          maxLength: 500
+        permissions:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            description: Clave de permiso de ISP del catálogo (GET /permissions).
+    RolePatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        description:
+          type:
+            - string
+            - 'null'
+          maxLength: 500
+        permissions:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
     RouterInput:
       type: object
       additionalProperties: false

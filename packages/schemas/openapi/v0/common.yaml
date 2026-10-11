@@ -410,6 +410,10 @@ components:
             - REPUTATION_SOURCE_NOT_FOUND
             - REPUTATION_SOURCE_READ_ONLY
             - REPUTATION_SOURCE_URL_NOT_ALLOWED
+            - ROLE_NOT_FOUND
+            - ROLE_READ_ONLY
+            - ROLE_IN_USE
+            - LAST_PLATFORM_ADMIN
         - type: string
           pattern: '^[A-Z][A-Z0-9_]*$'
     ActorRef:
