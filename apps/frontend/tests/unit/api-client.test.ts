@@ -161,6 +161,10 @@ describe('tokens por ámbito (api.md §0.2)', () => {
     expect(tokenForPath('/dashboards', 'ses', scoped)).toBe('isp')
     expect(tokenForPath('/dashboards', 'ses', null)).toBe('ses')
   })
+  it('/auth/reauth presenta el token del ámbito actual (devuelve uno del mismo ámbito)', () => {
+    expect(tokenForPath('/auth/reauth', 'ses', scoped)).toBe('isp')
+    expect(tokenForPath('/auth/reauth', 'ses', null)).toBe('ses')
+  })
 })
 
 describe('refresh entre pestañas', () => {

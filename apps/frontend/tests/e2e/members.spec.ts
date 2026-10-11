@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { loginAsAdmin, loginAsNoc, seriousViolations } from './helpers'
+import { loginAsAdmin, loginAsNoc, PASSWORD, seriousViolations, TOTP } from './helpers'
 
 /**
  * Usuarios y roles del ISP (I1): lista, invitar con enlace para compartir o copiar, generar
@@ -211,14 +211,35 @@ test.describe('usuarios y roles @members', () => {
     await expect(page.getByText('Roles de Jorge Díaz actualizados', { exact: true })).toBeVisible()
     await expect(rowOf(page, 'jorge.diaz@')).toContainText('Operador NOC')
 
-    // El backend exige haberse identificado hace poco (x-reauth): se explica qué hacer.
+    // El backend exige haberse identificado hace poco (x-reauth): se confirma la identidad en
+    // un diálogo (sin cerrar la sesión) y el cambio se reintenta solo.
     await page.evaluate(() => localStorage.setItem('horus.mock.reauthRequired', '1'))
     await rowOf(page, 'jorge.diaz@').getByTestId('member-actions').click()
     await page.getByRole('menuitem', { name: 'Cambiar roles' }).click()
+    await page.getByTestId('role-select').first().click()
+    await page.getByRole('option', { name: 'Ingeniero de red' }).click()
     await page.getByTestId('roles-save').click()
+
+    const reauth = page.getByRole('dialog', { name: 'Confirma tu identidad' })
+    await expect(reauth).toContainText('cambiar roles')
+    // Cancelar: no se guarda y se ofrece repetir la confirmación.
+    await page.getByTestId('reauth-cancel').click()
     await expect(page.getByTestId('roles-reauth')).toContainText(
       'Confirma tu identidad para cambiar roles',
     )
+    await page
+      .getByTestId('roles-reauth')
+      .getByRole('button', { name: 'Confirmar identidad' })
+      .click()
+    await expect(reauth).toBeVisible()
+    expect(await seriousViolations(page)).toEqual([])
+    await page.getByTestId('reauth-password').fill(PASSWORD)
+    await page.getByTestId('reauth-code').fill(TOTP)
+    await page.getByTestId('reauth-submit').click()
+    await expect(reauth).toHaveCount(0)
+    await expect(page.getByText('Roles de Jorge Díaz actualizados', { exact: true })).toBeVisible()
+    await expect(rowOf(page, 'jorge.diaz@')).toContainText('Ingeniero de red')
+    await expect(page).toHaveURL(/\/admin\/users/)
   })
 
   test('sin users.read la sección no existe para el operador NOC', async ({ page }) => {

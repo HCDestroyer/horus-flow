@@ -10,7 +10,8 @@ import type { InvitationIssued, Member, RoleAssignment } from '~~/types/api'
  *   si no, se muestra el enlace de un solo uso para compartirlo o copiarlo (y si hay correo
  *   configurado, también sale por correo).
  * - "Generar enlace" para un invitado (invalida los anteriores), "Quitar" con confirmación y
- *   "Cambiar roles" (`roles.assign`, `If-Match` + re-autenticación reciente).
+ *   "Cambiar roles" (`roles.assign`, `If-Match` + re-autenticación reciente: si el backend la
+ *   pide, se confirma la identidad en un diálogo y el cambio se reintenta solo).
  * Ocultar por permiso, deshabilitar por estado (frontend.md §12).
  */
 type Row = { role_id: string; scope: string }
@@ -20,8 +21,8 @@ const route = useRoute()
 const { $api } = useNuxtApp()
 const toast = useToast()
 const can = useCan()
-const auth = useAuth()
-const { me } = auth
+const { me } = useAuth()
+const { withReauth } = useReauth()
 const { membership } = useTenant()
 const slug = computed(() => String(route.params.slug))
 useSectionGuard()(findSection('tenant', 'admin/users'), slug.value)
@@ -340,14 +341,19 @@ async function saveRoles() {
   }
   saving.value = true
   try {
-    await unwrap(
-      $api.PUT('/members/{user_id}/role-assignments', {
-        params: {
-          path: { user_id: m.user_id },
-          header: { 'If-Match': ifMatch(editVersion.value) },
-        },
-        body: editRows.value.map((r) => ({ ...r })),
-      }),
+    const body = editRows.value.map((r) => ({ ...r }))
+    await withReauth(
+      () =>
+        unwrap(
+          $api.PUT('/members/{user_id}/role-assignments', {
+            params: {
+              path: { user_id: m.user_id },
+              header: { 'If-Match': ifMatch(editVersion.value) },
+            },
+            body,
+          }),
+        ),
+      t('members.roles.reauthBody'),
     )
     editing.value = null
     toast.add({
@@ -366,7 +372,8 @@ async function saveRoles() {
         scope: a.scope,
       }))
       editNotice.value = t('members.roles.conflict')
-    } else if (e instanceof ApiError && e.code === 'REAUTH_REQUIRED') {
+    } else if (isReauthRequired(e)) {
+      // Canceló la confirmación de identidad: se ofrece repetirla.
       reauthNeeded.value = true
     } else if (e instanceof ApiError && e.status === 422) {
       editError.value = Object.values(fieldErrors(e))[0] ?? t('members.invite.roleRequired')
@@ -704,14 +711,14 @@ async function saveRoles() {
             variant="subtle"
             icon="i-lucide-lock-keyhole"
             :title="t('members.roles.reauthTitle')"
-            :description="t('members.roles.reauthBody')"
+            :description="t('members.roles.reauthCancelled')"
             :actions="[
               {
                 label: t('members.roles.reauthAction'),
-                icon: 'i-lucide-log-in',
+                icon: 'i-lucide-lock-keyhole',
                 color: 'warning',
                 variant: 'outline',
-                onClick: () => auth.logout(),
+                onClick: () => saveRoles(),
               },
             ]"
             data-testid="roles-reauth"

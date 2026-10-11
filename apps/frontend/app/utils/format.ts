@@ -62,3 +62,22 @@ export function formatChange(current: number | null, previous: number | null): s
   const sign = pct > 0 ? '+' : pct < 0 ? '−' : '±'
   return `${sign}${fixed(Math.abs(pct), 0)} %`
 }
+
+/** Identificador de ISP válido (`TenantCreate.slug`, platform.yaml). */
+export const TENANT_SLUG_RE = /^[a-z0-9][a-z0-9-]{1,62}$/
+
+/**
+ * Identificador derivado de un nombre: minúsculas, sin acentos (marcas combinantes tras NFD),
+ * cualquier otro carácter → guion, sin guiones al principio ni al final, máximo 63.
+ * "Fibra Óptica del Sur" → "fibra-optica-del-sur".
+ */
+export function slugify(text: string) {
+  return text
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+/, '')
+    .slice(0, 63)
+    .replace(/-+$/, '')
+}

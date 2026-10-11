@@ -22,12 +22,16 @@ export function useAuthTokens() {
   return { session, scoped }
 }
 
-/** Token que corresponde a una ruta de la API (sin prefijo `/api/v1`). */
+/**
+ * Token que corresponde a una ruta de la API (sin prefijo `/api/v1`). `/auth/reauth` renueva
+ * el token que se le presenta (mismo ámbito, auth.yaml): el del ISP o plataforma si lo hay.
+ */
 export function tokenForPath(
   path: string,
   session: string | null,
   scoped: { token: string } | null,
 ): string | null {
+  if (path === '/auth/reauth') return scoped?.token ?? session
   const sessionOnly = path.startsWith('/auth/') || path === '/me' || path.startsWith('/me/')
   if (sessionOnly) return session
   return scoped?.token ?? session
@@ -98,6 +102,23 @@ export function useAuth() {
     scoped.value = { scope, token: res.access_token, expiresAt: res.expires_at }
   }
 
+  /**
+   * Re-autenticación reciente (`POST /auth/reauth`, acciones `x-reauth`): contraseña y, con 2FA,
+   * el código TOTP. El token devuelto (mismo ámbito, `auth_time` nuevo) sustituye al actual.
+   * Lanza `ApiError` 401 si la contraseña o el código no son correctos.
+   */
+  async function reauthenticate(password: string, code?: string | null) {
+    const res = await unwrap(
+      $api.POST('/auth/reauth', { body: { password, code: code?.trim() || null } }),
+    )
+    const current = scoped.value
+    if (res.scope === 'session' || !current) {
+      session.value = res.access_token
+    } else {
+      scoped.value = { scope: current.scope, token: res.access_token, expiresAt: res.expires_at }
+    }
+  }
+
   /** Vuelve a leer `GET /me` (tras cambiar la contraseña o activar el TOTP). */
   async function reloadMe() {
     me.value = await unwrap($api.GET('/me'))
@@ -130,6 +151,7 @@ export function useAuth() {
     verifyMfa,
     restore,
     activateScope,
+    reauthenticate,
     reloadMe,
     logout,
     clear,

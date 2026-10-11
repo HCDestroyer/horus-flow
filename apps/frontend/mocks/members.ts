@@ -1,7 +1,9 @@
 import type { InvitationIssued, Member, Membership, Role, RoleAssignment } from '~~/types/api'
 import {
   findTenant,
+  newMockTenant,
   NOC,
+  registerTenant,
   ROLE_IDS,
   scoped,
   SECURITY_ANALYST,
@@ -26,7 +28,8 @@ import { mockState } from './state'
  *
  * - `localStorage['horus.mock.smtp'] = '1'`: hay correo configurado (`email_sent: true`).
  * - `localStorage['horus.mock.reauthRequired'] = '1'`: cambiar roles responde
- *   `403 REAUTH_REQUIRED` (re-autenticación reciente, `x-reauth`).
+ *   `403 REAUTH_REQUIRED` (re-autenticación reciente, `x-reauth`) hasta que se confirma la
+ *   identidad con `POST /auth/reauth` (`ctx.reauthRequired`, lo calcula `mocks/server.ts`).
  */
 
 const INVITATION_TTL = 7 * 86_400_000
@@ -121,7 +124,7 @@ function withKeys(assignments: RoleAssignment[]): RoleAssignment[] {
   }))
 }
 
-const tenantRole = (key: string): RoleAssignment => ({
+export const tenantRole = (key: string): RoleAssignment => ({
   role_id: ROLE_IDS[key]!,
   role_key: key,
   scope: 'tenant',
@@ -145,6 +148,8 @@ function seed(tenant: MockTenant): Member[] {
       },
     ]
   })
+  // Un ISP recién dado de alta solo tiene a su primer administrador.
+  if (tenant.created) return fromUsers
   const domain = `${tenant.tenant_slug.replace(/-/g, '')}.example`
   const synthetic = (
     n: number,
@@ -196,6 +201,9 @@ interface InvitationPayload {
   x: number
   /** Aleatorio: dos enlaces del mismo miembro nunca coinciden. */
   k: string
+  /** Slug y nombre del ISP: el navegador del invitado no conoce un ISP recién creado. */
+  s?: string
+  n?: string
 }
 
 const b64url = (text: string) =>
@@ -248,14 +256,15 @@ function validInvitation(token: unknown, now: Date) {
   if (!p || p.x <= now.getTime() || mockState.usedInvitations.has(raw)) return null
   const latest = mockState.invitationTokens.get(p.u)
   if (latest && latest !== raw) return null
-  const tenant = findTenant(p.t)
+  const tenant =
+    findTenant(p.t) ?? (p.s && p.n ? registerTenant(newMockTenant(p.t, p.s, p.n)) : undefined)
   return tenant ? { payload: p, tenant, raw } : null
 }
 
-const existingAccount = (email: string) =>
+export const existingAccount = (email: string) =>
   USERS.find((u) => u.username === email.trim().toLowerCase())
 
-function readFlag(key: string) {
+export function readFlag(key: string) {
   try {
     return globalThis.localStorage?.getItem(key) === '1'
   } catch {
@@ -263,7 +272,7 @@ function readFlag(key: string) {
   }
 }
 
-function issueInvitation(member: Member, tenant: MockTenant, now: Date): InvitationIssued {
+export function issueInvitation(member: Member, tenant: MockTenant, now: Date): InvitationIssued {
   const expires = now.getTime() + INVITATION_TTL
   const token = encodeToken({
     e: member.email,
@@ -272,6 +281,8 @@ function issueInvitation(member: Member, tenant: MockTenant, now: Date): Invitat
     r: member.role_assignments,
     x: expires,
     k: randomHex(16),
+    s: tenant.tenant_slug,
+    n: tenant.tenant_name,
   })
   // Un enlace nuevo invalida los anteriores del mismo miembro.
   mockState.invitationTokens.set(member.user_id, token)
@@ -286,7 +297,7 @@ function issueInvitation(member: Member, tenant: MockTenant, now: Date): Invitat
 }
 
 /** Membresía (con permisos efectivos) para `GET /me` de quien acepta. */
-function membershipFor(tenant: MockTenant, roles: RoleAssignment[]): Membership {
+export function membershipFor(tenant: MockTenant, roles: RoleAssignment[]): Membership {
   const perms = new Set(roles.flatMap((r) => ROLE_PERMISSIONS[roleKey(r.role_id) ?? ''] ?? []))
   return {
     tenant_id: tenant.tenant_id,
@@ -385,6 +396,8 @@ export interface MemberRouteContext {
   userId: string
   can: (permission: string) => boolean
   now: Date
+  /** La acción `x-reauth` exige re-autenticarse antes (simulación de `auth_time` viejo). */
+  reauthRequired?: boolean
 }
 
 function validationError(field: string, message: string, code = 'INVALID') {
@@ -529,7 +542,7 @@ export function memberRoute(ctx: MemberRouteContext): Response | undefined {
   if (m[2] === 'role-assignments' && ctx.method === 'PUT') {
     if (!ctx.can('roles.assign')) return forbidden()
     if (!member) return notFound()
-    if (readFlag('horus.mock.reauthRequired')) {
+    if (ctx.reauthRequired) {
       return problem(403, 'REAUTH_REQUIRED', 'Vuelve a identificarte para cambiar roles')
     }
     const expected = ifMatch(ctx.req)

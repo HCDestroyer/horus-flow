@@ -12,9 +12,10 @@ import { channelRoute } from './channels'
 import { findTenant, MOCK_TOTP_CODE, USERS, type MockUser } from './data'
 import { json, problem, randomHex } from './http'
 import { currentKiosk, enroll, kioskAdminRoute, kioskConfig, touchKiosk } from './kiosk'
-import { invitationRoute, memberRoute } from './members'
+import { invitationRoute, memberRoute, readFlag } from './members'
 import { platformRoute } from './platform'
 import { tenantRoute } from './tenant-routes'
+import { createTenant, restoreTenants } from './tenants'
 import { widgetData } from './widget-data'
 
 /**
@@ -46,6 +47,8 @@ export interface MockOptions {
 const SESSION_KEY = 'horus.mock.session'
 const SCENARIO_KEY = 'horus.mock.scenario'
 const SCENARIOS: MockScenario[] = ['normal', 'degraded', 'system-error', 'widget-error', 'empty']
+/** Ventana de re-autenticación reciente (`auth_time`, security.md §4: 5 min). */
+const REAUTH_WINDOW_MS = 5 * 60_000
 const MAX_FAILURES = 5
 const LOCK_SECONDS = 60
 const BASE_PATH = '/api/v1'
@@ -153,6 +156,8 @@ export function createMockFetch(options: MockOptions = {}) {
   const mfaTokens = new Map<string, { userId: string; expires: number }>()
   const failures = new Map<string, { count: number; lockedUntil: number }>()
   const failedOnce = new Set<string>()
+  /** Última re-autenticación (`POST /auth/reauth`) de cada usuario. */
+  const reauthAt = new Map<string, number>()
 
   const findUser = (id: string | null | undefined) => USERS.find((u) => u.me.id === id)
 
@@ -171,6 +176,9 @@ export function createMockFetch(options: MockOptions = {}) {
       // estado guardado ilegible: se ignora
     }
   }
+  // ISP dados de alta en esta sesión simulada (consola de plataforma).
+  restoreTenants(storage)
+
   const saveAccount = (u: MockUser) =>
     storage?.setItem(
       accountKey(u.me.id),
@@ -264,6 +272,29 @@ export function createMockFetch(options: MockOptions = {}) {
       )
     }
     return problem(403, 'KIOSK_FORBIDDEN', 'Una pantalla NOC solo puede leer sus dashboards')
+  }
+
+  /**
+   * ¿La acción `x-reauth` exige re-autenticarse? Simulación: con
+   * `localStorage['horus.mock.reauthRequired'] = '1'` el `auth_time` del login se trata como
+   * viejo; vale solo una re-autenticación hecha en los últimos 5 minutos.
+   */
+  function reauthRequired(user: MockUser) {
+    if (!readFlag('horus.mock.reauthRequired')) return false
+    const at = reauthAt.get(user.me.id)
+    return at === undefined || now().getTime() - at > REAUTH_WINDOW_MS
+  }
+
+  /** `POST /auth/reauth`: contraseña (+ TOTP) → token del mismo ámbito con `auth_time` nuevo. */
+  function reauth(user: MockUser, record: TokenRecord, body: { password?: string; code?: string }) {
+    if (body.password !== user.password) {
+      return problem(401, 'INVALID_CREDENTIALS', 'Contraseña incorrecta')
+    }
+    if (user.mfa && String(body.code ?? '').replace(/\s/g, '') !== MOCK_TOTP_CODE) {
+      return problem(401, 'INVALID_MFA_CODE', 'Código incorrecto')
+    }
+    reauthAt.set(user.me.id, now().getTime())
+    return issue(user, record.scope, record.tenantId)
   }
 
   function cookieUser() {
@@ -480,6 +511,8 @@ export function createMockFetch(options: MockOptions = {}) {
     switch (route) {
       case 'GET /me':
         return json(user.me)
+      case 'POST /auth/reauth':
+        return reauth(user, record, body)
       case 'POST /me/password': {
         if (body.current_password !== user.password) {
           return problem(401, 'INVALID_CREDENTIALS', 'Contraseña actual incorrecta')
@@ -521,6 +554,16 @@ export function createMockFetch(options: MockOptions = {}) {
         return json({ data: WIDGET_CATALOG as unknown as WidgetType[] })
     }
 
+    if (record.scope === 'platform' && route === 'POST /platform/tenants') {
+      return createTenant({
+        req,
+        body,
+        can: (p) => user.me.platform_permissions.includes(p),
+        now: now(),
+        reauthRequired: reauthRequired(user),
+        storage,
+      })
+    }
     if (record.scope === 'platform' && path.startsWith('/platform/')) {
       const res = platformRoute({
         req,
@@ -577,7 +620,7 @@ export function createMockFetch(options: MockOptions = {}) {
       }) ??
       channelRoute(shared) ??
       kioskAdminRoute(shared) ??
-      memberRoute({ ...shared, url, userId: user.me.id })
+      memberRoute({ ...shared, url, userId: user.me.id, reauthRequired: reauthRequired(user) })
     if (res) return res
 
     return problem(404, 'NOT_FOUND', 'No encontrado')
