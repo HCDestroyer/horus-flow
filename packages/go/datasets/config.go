@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"regexp"
@@ -112,6 +113,10 @@ type Source struct {
 	OnDangerous string `yaml:"on_dangerous,omitempty"`
 	// CSV configura el formato genérico "csv".
 	CSV *CSVOptions `yaml:"csv,omitempty"`
+	// Header son cabeceras extra de la descarga (p. ej. la clave de acceso de
+	// un feed personalizado). Es un secreto: nunca se serializa ni se registra,
+	// y HTTPFetcher no lo reenvía si una redirección cambia de host.
+	Header http.Header `yaml:"-" json:"-"`
 }
 
 // Valores de Source.Origin.

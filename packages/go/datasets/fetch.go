@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -60,6 +61,14 @@ func (f *HTTPFetcher) Fetch(ctx context.Context, src Source) (io.ReadCloser, err
 		}
 		client = f.Guard.guardedClient(client, req)
 	}
+	if len(src.Header) > 0 {
+		for k, vs := range src.Header {
+			for _, v := range vs {
+				req.Header.Add(k, v)
+			}
+		}
+		client = withoutHeaderOnHostChange(client, src.Header)
+	}
 	resp, err := client.Do(req) //nolint:gosec // URL declarada en la configuración de fuentes
 	if err != nil {
 		return nil, fmt.Errorf("descargar %s: %w", src.ID, err)
@@ -69,6 +78,29 @@ func (f *HTTPFetcher) Fetch(ctx context.Context, src Source) (io.ReadCloser, err
 		return nil, fmt.Errorf("descargar %s: HTTP %d", src.ID, resp.StatusCode)
 	}
 	return resp.Body, nil
+}
+
+// withoutHeaderOnHostChange devuelve una copia de client que quita las
+// cabeceras de h (secretos de la fuente) de una redirección a otro host: el
+// cliente de net/http solo quita así Authorization y Cookie.
+func withoutHeaderOnHostChange(client *http.Client, h http.Header) *http.Client {
+	c := *client
+	next := client.CheckRedirect
+	c.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) > 0 && !strings.EqualFold(req.URL.Host, via[0].URL.Host) {
+			for k := range h {
+				req.Header.Del(k)
+			}
+		}
+		if next != nil {
+			return next(req, via)
+		}
+		if len(via) >= 10 {
+			return errors.New("demasiadas redirecciones")
+		}
+		return nil
+	}
+	return &c
 }
 
 // DirFetcher sirve fuentes desde un directorio local: el contenido de la
