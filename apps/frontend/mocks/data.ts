@@ -11,7 +11,7 @@ export const MOCK_PASSWORD = 'horus-demo-2026'
 export const MOCK_TOTP_CODE = '123456'
 
 /** `tenant_admin` = todos los permisos de tenant (C7, `permissions: ['*']`). */
-const TENANT_ADMIN = [
+export const TENANT_ADMIN = [
   'users.read',
   'users.manage',
   'roles.read',
@@ -60,7 +60,7 @@ const TENANT_ADMIN = [
 ]
 
 /** Rol `noc` (C7): sin `customers.read`, `kiosks.manage` ni administración. */
-const NOC = [
+export const NOC = [
   'sites.read',
   'devices.read',
   'wireguard.read',
@@ -75,7 +75,7 @@ const NOC = [
 ]
 
 /** Rol `security_analyst` (C7): sin `users.read` ni `kiosks.manage`. */
-const SECURITY_ANALYST = [
+export const SECURITY_ANALYST = [
   'security.findings.read',
   'security.findings.manage',
   'security.evidence.read',
@@ -92,7 +92,7 @@ const SECURITY_ANALYST = [
   'flows.read',
 ]
 
-function scoped(perms: string[]): Membership['permissions_with_scope'] {
+export function scoped(perms: string[]): Membership['permissions_with_scope'] {
   return Object.fromEntries(perms.map((p) => [p, ['*']]))
 }
 
@@ -144,10 +144,15 @@ export const TENANTS = {
 
 export const ALL_TENANTS: readonly MockTenant[] = Object.values(TENANTS)
 
-const ROLE_IDS: Record<string, string> = {
+/** Roles de sistema de tenant (C7); los permisos de cada uno, en `mocks/members.ts`. */
+export const ROLE_IDS: Record<string, string> = {
   tenant_admin: '0192a000-0000-7000-8000-000000000001',
   security_analyst: '0192a000-0000-7000-8000-000000000002',
+  network_engineer: '0192a000-0000-7000-8000-000000000003',
   noc: '0192a000-0000-7000-8000-000000000004',
+  analyst: '0192a000-0000-7000-8000-000000000005',
+  auditor: '0192a000-0000-7000-8000-000000000006',
+  viewer: '0192a000-0000-7000-8000-000000000007',
 }
 
 function membership(tenant: MockTenant, role: keyof typeof ROLE_IDS, perms: string[]): Membership {

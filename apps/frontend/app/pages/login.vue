@@ -33,7 +33,11 @@ const credentialsSchema = z.object({
   password: z.string().min(1, t('login.errors.passwordRequired')),
 })
 type Credentials = z.output<typeof credentialsSchema>
-const credentials = reactive({ email: '', password: '' })
+// Tras aceptar una invitación: aviso de éxito y correo ya escrito (una sola vez).
+const noticeState = useLoginNotice()
+const notice = noticeState.value
+noticeState.value = null
+const credentials = reactive({ email: notice?.email ?? '', password: '' })
 
 const mfaSchema = z.object({
   code: z.string().trim().min(1, t('login.mfa.errors.required')),
@@ -123,6 +127,17 @@ function backToCredentials(clearError = true) {
         {{ step === 'credentials' ? t('login.description') : t('login.mfa.description') }}
       </p>
     </header>
+
+    <UAlert
+      v-if="notice && !formError && step === 'credentials'"
+      color="success"
+      variant="subtle"
+      icon="i-lucide-circle-check"
+      :title="t(`login.notice.${notice.kind}.title`, { tenant: notice.tenantName })"
+      :description="t(`login.notice.${notice.kind}.body`, { email: notice.email })"
+      role="status"
+      data-testid="login-notice"
+    />
 
     <UAlert
       v-if="formError"

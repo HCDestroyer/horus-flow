@@ -26,6 +26,13 @@ export type Membership = Schemas['Membership']
 export type RoleAssignment = Schemas['RoleAssignment']
 export type PermissionsWithScope = Membership['permissions_with_scope']
 
+// Miembros, roles e invitaciones del ISP (I1).
+export type Member = Schemas['Member']
+export type Role = Schemas['Role']
+export type InvitationIssued = Schemas['InvitationIssued']
+export type InvitationInspection =
+  operations['authInspectInvitation']['responses'][200]['content']['application/json']
+
 export type SystemStatus = Schemas['SystemStatus']
 export type CapabilityState = Schemas['CapabilityState']
 

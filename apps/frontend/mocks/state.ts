@@ -1,5 +1,6 @@
 import type {
   ClientPrefix,
+  Member,
   Finding,
   KindChange,
   NotificationChannel,
@@ -54,6 +55,12 @@ export const mockState = {
   reputation: null as ReputationSource[] | null,
   /** Hallazgos nuevos emitidos por el tiempo real simulado, por ISP. */
   liveFindings: new Map<string, number[]>(),
+  /** Miembros por ISP (`mocks/members.ts`). */
+  members: new Map<string, Member[]>(),
+  /** Último token de invitación de cada miembro (los anteriores dejan de valer). */
+  invitationTokens: new Map<string, string>(),
+  /** Tokens de invitación ya aceptados (un solo uso). */
+  usedInvitations: new Set<string>(),
 }
 
 export function resetMockState() {
@@ -67,6 +74,9 @@ export function resetMockState() {
   mockState.deliveries.clear()
   mockState.reputation = null
   mockState.liveFindings.clear()
+  mockState.members.clear()
+  mockState.invitationTokens.clear()
+  mockState.usedInvitations.clear()
 }
 
 /** Hallazgo cerrado por una acción del usuario: sale de los agregados de "abiertos". */

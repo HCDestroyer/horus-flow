@@ -92,6 +92,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/invitations/inspect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Datos de una invitación para la página de aceptación (sin consumirla) */
+        post: operations["authInspectInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/login": {
         parameters: {
             query?: never;
@@ -971,6 +988,25 @@ export interface paths {
         post?: never;
         /** Quita al usuario del tenant (corta su acceso en ≤ 5 s) */
         delete: operations["removeMember"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/members/{user_id}/invitation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Genera un enlace de invitación nuevo para un miembro invitado (invalida los anteriores) */
+        post: operations["reissueMemberInvitation"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2425,6 +2461,22 @@ export interface components {
             /** @description HORUS_WG_ENDPOINT (nombre o IP). */
             wireguard_endpoint: string;
         };
+        InvitationIssued: {
+            email_sent: boolean;
+            /** Format: date-time */
+            expires_at?: string | null;
+            /**
+             * Format: uri
+             * @description Solo con outcome=invited. <HORUS_PUBLIC_BASE_URL>/invitation#token=<token>; se muestra una vez.
+             */
+            invitation_url?: string | null;
+            /**
+             * @description added = la cuenta ya existía y la membresía queda activa; invited = hay que aceptar el enlace.
+             * @enum {string}
+             */
+            outcome: "added" | "invited";
+            user_id: components["schemas"]["Uuid"];
+        };
         /**
          * @description IPv4 o IPv6. **Dato personal** cuando es la IP de un cliente (nunca en URLs).
          * @example 100.64.12.34
@@ -3821,6 +3873,42 @@ export interface operations {
         };
         responses: {
             204: components["responses"]["NoContent"];
+            422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    authInspectInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    token: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Invitación vigente. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: email */
+                        email: string;
+                        /** Format: date-time */
+                        expires_at: string;
+                        /** @description true si la cuenta es nueva (debe elegir contraseña); false si ya existía. */
+                        needs_password: boolean;
+                        tenant_name: string;
+                    };
+                };
+            };
             422: components["responses"]["UnprocessableEntity"];
             429: components["responses"]["TooManyRequests"];
         };
@@ -5497,12 +5585,19 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Invitación aceptada para envío. */
+            /**
+             * @description Miembro añadido (cuenta activa existente: `outcome=added`, sin enlace) o invitado
+             *     (`outcome=invited`): el enlace de un solo uso se devuelve a quien invita para que lo
+             *     comparta (compartir nativo o copiar) y, si hay SMTP configurado, también se envía por
+             *     correo (`email_sent`). El token va en el fragmento (#token=…): nunca llega a un servidor.
+             */
             202: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["InvitationIssued"];
+                };
             };
             403: components["responses"]["Forbidden"];
             422: components["responses"]["UnprocessableEntity"];
@@ -5521,6 +5616,30 @@ export interface operations {
         responses: {
             204: components["responses"]["NoContent"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    reissueMemberInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Enlace nuevo (y reenvío por correo si hay SMTP). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationIssued"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     replaceMemberRoleAssignments: {
