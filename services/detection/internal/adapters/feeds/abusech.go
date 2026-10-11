@@ -18,7 +18,7 @@ import (
 // abuseCSV es un CSV de abuse.ch: comentarios con '#', la cabecera va
 // comentada ("# "first_seen_utc",…") o, en las versiones nuevas, sin
 // comentar, y puede haber un pie "# Number of entries: N" (con o sin
-// comillas).
+// comillas) o "# END N entries".
 type abuseCSV struct {
 	cols     map[string]int
 	records  [][]string
@@ -63,6 +63,13 @@ func readAbuseCSV(r io.Reader, required ...string) (*abuseCSV, error) {
 			case strings.HasPrefix(strings.ToLower(unq), "number of entries:"):
 				body = unq
 				n, err := strconv.Atoi(strings.TrimSpace(body[len("number of entries:"):]))
+				if err != nil {
+					return nil, fmt.Errorf("%w: pie ilegible %q", ErrCorrupt, body)
+				}
+				out.declared = n
+			case strings.HasPrefix(strings.ToLower(unq), "end ") && strings.HasSuffix(strings.ToLower(unq), " entries"):
+				// Pie de 2026: "# END 5 entries".
+				n, err := strconv.Atoi(strings.TrimSpace(unq[len("end ") : len(unq)-len(" entries")]))
 				if err != nil {
 					return nil, fmt.Errorf("%w: pie ilegible %q", ErrCorrupt, body)
 				}

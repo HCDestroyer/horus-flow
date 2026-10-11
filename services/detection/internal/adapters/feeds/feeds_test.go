@@ -154,6 +154,15 @@ func TestFeodoFormatVariants(t *testing.T) {
 	if err != nil || len(res.Entries) != 1 || res.Entries[0].Port != 443 {
 		t.Fatalf("cabecera sin comentar: %v %+v", err, res)
 	}
+	// Formato publicado en 2026 (cabecera sin '#', pie "# END N entries").
+	res, err = Parse(strings.NewReader(banner+hdr+row+
+		"\"2026-03-04 14:28:39\",\"198.51.100.218\",\"443\",\"offline\",\"2026-03-05\",\"QakBot\"\n# END 2 entries\n"), s, fetchedAt)
+	if err != nil || len(res.Entries) != 2 {
+		t.Fatalf("formato 2026: %v %+v", err, res)
+	}
+	if _, err := Parse(strings.NewReader(banner+hdr+row+"# END 5 entries\n"), s, fetchedAt); !errors.Is(err, ErrCorrupt) {
+		t.Fatalf("pie END que no cuadra (descarga cortada): %v", err)
+	}
 	if _, err := Parse(strings.NewReader(banner+"# Number of entries: 0\n"), s, fetchedAt); !errors.Is(err, ErrEmpty) {
 		t.Fatalf("lista sin entradas: %v, quiero ErrEmpty", err)
 	}
