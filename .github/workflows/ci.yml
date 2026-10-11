@@ -376,6 +376,8 @@ jobs:
         working-directory: apps/frontend
       - name: make licenses-check (licencia propietaria y avisos de terceros)
         run: make licenses-check
+      - name: make routes-check (toda ruta del contrato tiene handler Go)
+        run: make routes-check
 
   # -------------------------------------------------------------------------------------------
   dod:

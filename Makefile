@@ -101,6 +101,10 @@ third-party-notices: ## Regenera THIRD_PARTY_NOTICES.md (Go, frontend e imágene
 licenses-check: ## Verifica licencias compatibles con software propietario y THIRD_PARTY_NOTICES.md al día
 	@python3 scripts/ci/third_party_notices.py --check
 
+.PHONY: routes-check
+routes-check: ## Verifica que toda ruta de la tabla del gateway tiene un handler Go (si no, 503 en producción)
+	@python3 scripts/ci/routes_implemented.py
+
 .PHONY: contracts-check
 contracts-check: ## Verifica los contratos v0 (OpenAPI, eventos, Protobuf, esquemas, DDL)
 	@command -v $${BUF_BIN:-buf} >/dev/null 2>&1 || { \
