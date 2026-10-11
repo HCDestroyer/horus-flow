@@ -1003,7 +1003,7 @@ verify_signature() {
   [ -n "$cosign" ] || [ ! -x "$install_dir/bin/cosign" ] || cosign="$install_dir/bin/cosign"
   [ -n "$cosign" ] || die "falta cosign para verificar la firma de $1 (bootstrap-debian.sh lo instala; o HORUS_SKIP_SIGNATURE=1 bajo tu responsabilidad)"
   "$cosign" verify --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-    --certificate-identity-regexp "^$(cosign_identity)" "$1" >/dev/null 2>&1 \
+    --certificate-identity-regexp "(?i)^$(cosign_identity)" "$1" >/dev/null 2>&1 \
     || die "la firma cosign de $1 no es válida: no se instala"
   ok "firma cosign de ${1%@*} verificada"
 }

@@ -239,7 +239,7 @@ else
     command -v cosign >/dev/null 2>&1 || die "falta cosign para verificar la firma de la release"
     cosign verify-blob --bundle "$dl/SHA256SUMS.sigstore.json" \
       --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-      --certificate-identity-regexp "^https://github.com/$repo/.github/workflows/release.yml@refs/tags/v" \
+      --certificate-identity-regexp "(?i)^https://github.com/$repo/.github/workflows/release.yml@refs/tags/v" \
       "$dl/SHA256SUMS" >/dev/null 2>&1 || die "la firma de SHA256SUMS de v$version no es válida"
     ok "firma cosign de la release v$version verificada"
   fi

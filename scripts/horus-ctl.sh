@@ -355,7 +355,7 @@ verify_sums_signature() {
   [ -n "$cosign" ] || die "falta cosign para verificar la firma (bootstrap-debian.sh lo instala)"
   "$cosign" verify-blob --bundle "$dir/SHA256SUMS.sigstore.json" \
     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-    --certificate-identity-regexp "^https://github.com/$repo/.github/workflows/release.yml@refs/tags/v" \
+    --certificate-identity-regexp "(?i)^https://github.com/$repo/.github/workflows/release.yml@refs/tags/v" \
     "$dir/SHA256SUMS" >/dev/null 2>&1 || die "la firma de SHA256SUMS no es válida: no se actualiza"
   ok "firma cosign de SHA256SUMS verificada"
 }
