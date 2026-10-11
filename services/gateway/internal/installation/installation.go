@@ -44,10 +44,14 @@ type Options struct {
 	WGEndpoint     string
 	TLSMode        string
 	CertFile       string
-	Resolver       *clientip.Resolver
-	Logger         *slog.Logger
-	Metrics        prometheus.Registerer
-	Now            func() time.Time
+	// HostAddr es la IP del servidor en la que Traefik publica el puerto HTTP (HORUS_HTTP_BIND_ADDR).
+	// Lo que llega desde ella sale del propio servidor (horus-ctl status, healthchecks), no de
+	// alguien que se salte el proxy, así que no se avisa.
+	HostAddr string
+	Resolver *clientip.Resolver
+	Logger   *slog.Logger
+	Metrics  prometheus.Registerer
+	Now      func() time.Time
 }
 
 // Warning es un aviso de la consola.
@@ -146,12 +150,25 @@ func (in *Installation) Observe(r *http.Request) {
 	hops := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
 	last := strings.TrimSpace(hops[len(hops)-1])
 	if a, err := netip.ParseAddr(last); err == nil && !res.Trusted(a) {
+		if in.fromHost(a) {
+			return
+		}
 		in.record(WarnProxyUntrusted, last)
 		return
 	}
 	if p := res.Proto(r); p != "" && p != "https" {
 		in.record(WarnProxyProtoHTTP, clientip.String(r))
 	}
+}
+
+// fromHost: la petición sale del propio servidor (bucle local o la IP de HostAddr).
+func (in *Installation) fromHost(a netip.Addr) bool {
+	a = a.Unmap()
+	if a.IsLoopback() {
+		return true
+	}
+	h, err := netip.ParseAddr(in.o.HostAddr)
+	return err == nil && !h.IsUnspecified() && h.Unmap() == a
 }
 
 func (in *Installation) record(code, ip string) {

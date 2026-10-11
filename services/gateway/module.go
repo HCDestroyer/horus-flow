@@ -50,6 +50,7 @@ type Config struct {
 	TLSMode    string `env:"HORUS_TLS_MODE"`
 	WGEndpoint string `env:"HORUS_WG_ENDPOINT"`
 	CertFile   string `env:"HORUS_PUBLIC_TLS_CERT_FILE"`
+	HostAddr   string `env:"HORUS_HTTP_BIND_ADDR"`
 }
 
 // Register construye el módulo del rol gateway (firma module.Factory).
@@ -93,7 +94,7 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 	})
 	inst := installation.New(installation.Options{
 		AccessMode: cfg.AccessMode, PublicBaseURL: cfg.PublicBaseURL, AllowedOrigins: cfg.AllowedOrigins,
-		WGEndpoint: cfg.WGEndpoint, TLSMode: cfg.TLSMode, CertFile: cfg.CertFile, Logger: logger, Metrics: deps.Metrics,
+		WGEndpoint: cfg.WGEndpoint, TLSMode: cfg.TLSMode, CertFile: cfg.CertFile, HostAddr: cfg.HostAddr, Logger: logger, Metrics: deps.Metrics,
 	})
 	// En modo TLS externo se vigilan las cabeceras del proxy antes del borde.
 	if err := deps.Routes.SetEdge(func(next http.Handler) http.Handler { return inst.Wrap(e.Middleware(next)) }); err != nil {

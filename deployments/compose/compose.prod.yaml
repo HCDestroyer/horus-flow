@@ -70,6 +70,9 @@ x-horus-env: &horus-env
   # Redes de las que se aceptan X-Forwarded-For/Proto (packages/go/clientip): la del compose
   # (Traefik) y, en modo TLS externo, el proxy inverso.
   HORUS_TRUSTED_PROXIES: ${HORUS_TRUSTED_PROXIES:-}
+  # IP del servidor donde se publica el puerto HTTP: sus peticiones (horus-ctl status) no cuentan
+  # como "sin pasar por el proxy".
+  HORUS_HTTP_BIND_ADDR: ${HORUS_HTTP_BIND_ADDR:-0.0.0.0}
   # Hub WireGuard (I1-01): mismo valor en wireguard (horus-app) y wg-agent.
   HORUS_WG_HUB_ID: ${HORUS_WG_HUB_ID:?falta HORUS_WG_HUB_ID}
   HORUS_WG_PORT: ${HORUS_WG_PORT:-51820}

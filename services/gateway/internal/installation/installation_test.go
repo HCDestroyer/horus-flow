@@ -56,6 +56,33 @@ func TestExternalProxyWarnings(t *testing.T) {
 	}
 }
 
+// horus-ctl status consulta http://HORUS_HTTP_BIND_ADDR:puerto desde el propio servidor: ni eso
+// ni el bucle local deben dar el aviso crítico de "sin pasar por el proxy".
+func TestHostChecksAreNotProxyBypass(t *testing.T) {
+	res, err := clientip.Parse("172.30.250.0/24,172.31.250.42/32")
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := New(Options{PublicBaseURL: "https://horus.kns.gt", TLSMode: TLSExternal, HostAddr: "172.31.250.243", Resolver: res})
+	h := in.Wrap(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	do := func(xff string) {
+		r := httptest.NewRequest("GET", "/api/v1/system/status", nil)
+		r.RemoteAddr = "172.30.250.3:4000" // Traefik
+		r.Header.Set("X-Forwarded-For", xff)
+		r.Header.Set("X-Forwarded-Proto", "http")
+		h.ServeHTTP(httptest.NewRecorder(), r)
+	}
+	do("172.31.250.243")
+	do("127.0.0.1")
+	if c := codes(in.Access()); len(c) != 0 {
+		t.Fatalf("avisos por comprobaciones locales = %+v", c)
+	}
+	do("172.31.250.99") // otro equipo de la LAN saltándose el proxy: sí avisa
+	if c := codes(in.Access()); c[WarnProxyUntrusted].Code == "" {
+		t.Fatalf("sin aviso para 172.31.250.99: %+v", c)
+	}
+}
+
 func TestNotExternalIsNoop(t *testing.T) {
 	in := New(Options{PublicBaseURL: "https://203.0.113.10", TLSMode: "self_signed"})
 	called := false
