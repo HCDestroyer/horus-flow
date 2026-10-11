@@ -81,7 +81,9 @@ printf "INSERT INTO dim.tenant (tenant_id, name, timezone, version) VALUES (gene
 
 step "3. backups"
 check "horus-backup run all (full)" "$hb" run all
-check "horus-backup run all (diferencial / incremental)" "$hb" run all
+# "run" en modo auto hace full los domingos: la segunda copia se pide explícita para que la prueba
+# no dependa del día en que corre la nightly.
+check "horus-backup pg diff + ch incr (diferencial / incremental)" bash -c "'$hb' pg diff && '$hb' ch incr"
 check "repositorio pgBackRest con full y diff" bash -c "docker compose --project-directory '$root/opt/horus' -f '$root/opt/horus/compose.yaml' --env-file '$root/opt/horus/.env' exec -T -u postgres postgres pgbackrest --config=/run/secrets/pgbackrest_conf --stanza=horus info | grep -q 'diff backup'"
 check "ClickHouse: un completo y un incremental" bash -c "ls '$root/var/lib/horus/store/backups/clickhouse' | grep -q '^full_' && ls '$root/var/lib/horus/store/backups/clickhouse' | grep -q '^incr_'"
 
