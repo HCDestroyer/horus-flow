@@ -16,7 +16,9 @@ ARG NODE_IMAGE=node:22.22.0-bookworm-slim
 ARG RUNTIME_IMAGE=gcr.io/distroless/nodejs22-debian12:nonroot
 
 # ---------------------------------------------------------------------------------------------
-FROM ${NODE_IMAGE} AS build
+# La salida es estática (igual para amd64 y arm64): se compila una sola vez en la arquitectura del
+# runner, sin emular arm64 con QEMU (que alargaba el release de minutos a más de una hora).
+FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS build
 WORKDIR /src
 RUN corepack enable
 COPY packages/schemas/ packages/schemas/
