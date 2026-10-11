@@ -301,38 +301,58 @@ func (s *Service) InviteMember(ctx context.Context, email string, items []Assign
 	if err != nil {
 		return nil, err
 	}
-	token, err := domain.NewInvitationToken()
+	now := s.now()
+	in, token, err := s.newInvitation(tenant, email, as, p.UserID, memberEvent(s.actor(p), tenant, "granted", "", now), now)
 	if err != nil {
 		return nil, err
 	}
-	now := s.now()
-	exp := now.Add(domain.InvitationTTL)
-	actor := s.actor(p)
-	res, err := s.store.InviteMember(ctx, NewInvitation{
-		TenantID: tenant, Email: email, Assignments: as, GrantedBy: p.UserID, TokenHash: domain.HashSecret(token),
-		ExpiresAt: exp, Now: now, Event: memberEvent(actor, tenant, "granted", "", now),
-	})
+	res, err := s.store.InviteMember(ctx, in)
 	if err != nil {
 		if errors.Is(err, ErrUnknownRole) {
 			return nil, apperr.Validation(apperr.Field("role_assignments", CodeUnknownRole, "El rol no existe en este ISP."))
 		}
 		return nil, err
 	}
-	out := &InvitationIssued{Outcome: OutcomeAdded, UserID: res.UserID}
-	if res.Status == domain.MembershipInvited {
-		out.Outcome = OutcomeInvited
-	}
-	if res.TokenStored {
-		u := s.invitationURL(token)
-		out.URL, out.ExpiresAt = &u, &exp
-		out.EmailSent = s.deliverInvitation(ctx, InvitationDelivery{Email: email, TenantID: tenant, Token: token, URL: u, ExpiresAt: exp}, res.MembershipID)
-	}
+	out := s.invitationIssued(ctx, in, res, token)
 	s.recordTenant(ctx, p, tenant, "members.invited", "membership", res.MembershipID.String(), requestIP, map[string]any{
 		"user_id": res.UserID.String(), "status": res.Status, "already_member": res.AlreadyMember,
 		"user_created": res.UserCreated, "role_assignments": assignmentScopes(as),
 		"link_issued": res.TokenStored, "email_sent": out.EmailSent,
 	})
 	return out, nil
+}
+
+// newInvitation prepara la invitación de email a tenant con un token nuevo
+// de un uso (72 h): al repositorio solo llega su hash. El token en claro se
+// devuelve para el enlace (nunca se registra).
+func (s *Service) newInvitation(tenant uuid.UUID, email string, as []domain.Assignment, grantedBy uuid.UUID, ev MemberEvent,
+	now time.Time,
+) (NewInvitation, string, error) {
+	token, err := domain.NewInvitationToken()
+	if err != nil {
+		return NewInvitation{}, "", err
+	}
+	return NewInvitation{
+		TenantID: tenant, Email: email, Assignments: as, GrantedBy: grantedBy, TokenHash: domain.HashSecret(token),
+		ExpiresAt: now.Add(domain.InvitationTTL), Now: now, Event: ev,
+	}, token, nil
+}
+
+// invitationIssued construye InvitationIssued a partir de lo que hizo el
+// repositorio con in y, si guardó el token, entrega el enlace por correo
+// (tras el commit).
+func (s *Service) invitationIssued(ctx context.Context, in NewInvitation, res *InviteResult, token string) *InvitationIssued {
+	out := &InvitationIssued{Outcome: OutcomeAdded, UserID: res.UserID}
+	if res.Status == domain.MembershipInvited {
+		out.Outcome = OutcomeInvited
+	}
+	if res.TokenStored {
+		u, exp := s.invitationURL(token), in.ExpiresAt
+		out.URL, out.ExpiresAt = &u, &exp
+		out.EmailSent = s.deliverInvitation(ctx, InvitationDelivery{Email: in.Email, TenantID: in.TenantID, Token: token, URL: u, ExpiresAt: exp},
+			res.MembershipID)
+	}
+	return out
 }
 
 // ReissueInvitation es POST /members/{user_id}/invitation: enlace nuevo para

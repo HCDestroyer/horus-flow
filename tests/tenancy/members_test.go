@@ -5,6 +5,7 @@ package tenancy
 import (
 	"context"
 	"crypto/sha256"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -35,6 +36,59 @@ func (a *app) member(token, status, email string) map[string]any {
 		}
 	}
 	return nil
+}
+
+// I1 · Alta de un ISP con un administrador sin cuenta: la respuesta trae el
+// enlace de un solo uso (en la base solo su hash), que la persona canjea para
+// activar su cuenta y entrar como tenant_admin.
+func TestCreateTenantInvitesFirstAdmin(t *testing.T) {
+	t.Parallel()
+	a := startApp(t)
+	ctx := context.Background()
+	pt := a.superadmin().platformToken()
+	r := a.must(a.do(req{Method: "POST", Path: "/api/v1/platform/tenants", Token: pt, Header: map[string]string{"Idempotency-Key": uuid.NewString()},
+		Body: map[string]any{"slug": "isp-inv", "name": "ISP Invitado", "country": "MX", "timezone": "America/Mexico_City",
+			"initial_admin_email": "primera@isp-inv.test"}}), 201)
+	tenant := r.str("id")
+	inv, _ := r.Body["initial_admin_invitation"].(map[string]any)
+	link, _ := inv["invitation_url"].(string)
+	const prefix = "/invitation#token="
+	if r.str("slug") != "isp-inv" || inv["outcome"] != "invited" || inv["email_sent"] != false || inv["expires_at"] == nil ||
+		!strings.Contains(link, prefix) || r.Header.Get("Cache-Control") != "no-store" {
+		t.Fatalf("alta = %s", r.Raw)
+	}
+	token := link[strings.Index(link, prefix)+len(prefix):]
+	sum := sha256.Sum256([]byte(token))
+	var n int
+	if err := a.admin.QueryRow(ctx, `SELECT count(*) FROM auth.invitation i JOIN auth.tenant_membership m ON m.id = i.membership_id
+		WHERE i.token_hash = $1 AND i.tenant_id = $2 AND i.user_id = $3 AND m.status = 'invited' AND i.used_at IS NULL`,
+		sum[:], tenant, inv["user_id"]).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("invitación guardada = %d, %v", n, err)
+	}
+	if err := a.admin.QueryRow(ctx, `SELECT count(*) FROM auth.outbox WHERE tenant_id = $1
+		AND payload->>'type' IN ('horus.auth.tenant.created', 'horus.auth.membership.granted')`, tenant).Scan(&n); err != nil || n != 2 {
+		t.Fatalf("eventos del alta = %d, %v", n, err)
+	}
+	if err := a.admin.QueryRow(ctx, `SELECT count(*) FROM auth.audit_log WHERE action = 'platform.tenant.created'
+		AND changes->>'link_issued' = 'true' AND changes->>'email_sent' = 'false' AND changes::text NOT LIKE '%' || $1 || '%'`, token).Scan(&n); err != nil || n != 2 {
+		t.Fatalf("auditoría del alta = %d, %v", n, err)
+	}
+	ins := a.must(a.do(req{Method: "POST", Path: "/api/v1/auth/invitations/inspect", Body: map[string]string{"token": token}}), 200)
+	if ins.str("email") != "primera@isp-inv.test" || ins.str("tenant_name") != "ISP Invitado" || ins.Body["needs_password"] != true {
+		t.Fatalf("inspect = %s", ins.Raw)
+	}
+	a.must(a.do(req{Method: "POST", Path: "/api/v1/auth/invitations/accept",
+		Body: map[string]string{"token": token, "password": "frase-larga-segura-987", "display_name": "Primera Admin"}}), 204)
+	s := a.login("primera@isp-inv.test", "frase-larga-segura-987")
+	me := a.must(a.do(req{Method: "GET", Path: "/api/v1/me", Token: s.token}), 200)
+	if me.str("display_name") != "Primera Admin" || !strings.Contains(string(me.Raw), tenant) {
+		t.Fatalf("me = %s", me.Raw)
+	}
+	s.enrollTOTP()
+	tok := s.tenantToken(tenant)
+	if m := a.member(tok, "active", "primera@isp-inv.test"); m == nil || !strings.Contains(fmt.Sprint(m["role_assignments"]), "tenant_admin") {
+		t.Fatalf("la administradora no quedó activa como tenant_admin: %v", m)
+	}
 }
 
 // I1 · Miembros del ISP: alta de un usuario existente, invitación de uno

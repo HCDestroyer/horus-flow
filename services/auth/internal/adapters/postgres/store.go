@@ -495,11 +495,13 @@ func (s *Store) Tenant(ctx context.Context, id uuid.UUID) (*domain.Tenant, error
 	return t, err
 }
 
-// CreateTenant implementa app.Store: todo dentro del tenant nuevo (RLS),
-// con el usuario administrador creado o reutilizado y los eventos en el
-// outbox en la misma transacción.
-func (s *Store) CreateTenant(ctx context.Context, nt app.NewTenant) error {
+// CreateTenant implementa app.Store: todo dentro del tenant nuevo (RLS) y en
+// una transacción: el ISP, su evento y la invitación del primer
+// administrador (usuario creado o reutilizado, membresía, rol, evento y
+// token), con las mismas reglas que InviteMember.
+func (s *Store) CreateTenant(ctx context.Context, nt app.NewTenant) (*app.InviteResult, error) {
 	t := nt.Tenant
+	var res *app.InviteResult
 	err := s.db.TenantTx(ctx, pgdb.TenantID(t.ID), func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `INSERT INTO auth.tenant (id, slug, name, status, country, timezone, quotas, settings,
 				support_access_policy, created_by, created_at, updated_at, version)
@@ -510,46 +512,21 @@ func (s *Store) CreateTenant(ctx context.Context, nt app.NewTenant) error {
 			}
 			return err
 		}
-		var userID uuid.UUID
-		var userStatus string
-		err := tx.QueryRow(ctx, `SELECT id, status FROM auth."user" WHERE email = $1 AND deleted_at IS NULL`, nt.AdminEmail).Scan(&userID, &userStatus)
-		if errors.Is(err, pgx.ErrNoRows) {
-			userID, userStatus = uuid.Must(uuid.NewV7()), domain.UserPending
-			local, _, _ := strings.Cut(nt.AdminEmail, "@")
-			if _, err := tx.Exec(ctx, `INSERT INTO auth."user" (id, email, display_name, status) VALUES ($1, $2, $3, 'pending')
-				ON CONFLICT DO NOTHING`, userID, nt.AdminEmail, local); err != nil {
+		if nt.Event.ID != uuid.Nil {
+			if err := insertOutbox(ctx, tx, nt.Event); err != nil {
 				return err
 			}
-		} else if err != nil {
-			return err
 		}
-		mStatus := domain.MembershipInvited
-		if userStatus == domain.UserActive {
-			mStatus = domain.MembershipActive
-		}
-		mID := uuid.Must(uuid.NewV7())
-		granter := uuid.Nil
-		if t.CreatedBy != nil {
-			granter = *t.CreatedBy
-		}
-		if _, err := tx.Exec(ctx, `INSERT INTO auth.tenant_membership (id, tenant_id, user_id, status, granted_by) VALUES ($1, $2, $3, $4, $5)`,
-			mID, t.ID, userID, mStatus, granter); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, `INSERT INTO auth.role_assignment (id, tenant_id, membership_id, role_id, scope_type) VALUES ($1, $2, $3, $4, 'tenant')`,
-			uuid.Must(uuid.NewV7()), t.ID, mID, nt.AdminRole); err != nil {
-			return err
-		}
-		if nt.Events != nil {
-			for _, ev := range nt.Events(t, mID, userID, mStatus) {
-				if err := insertOutbox(ctx, tx, ev); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
+		admin := nt.Admin
+		admin.TenantID = t.ID
+		var err error
+		res, err = inviteTx(ctx, tx, admin)
+		return err
 	})
-	return err
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
 }
 
 // UpdateTenant implementa app.Store (bloqueo optimista por version).

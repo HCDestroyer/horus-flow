@@ -430,14 +430,19 @@ func (h *Handler) createTenant(w http.ResponseWriter, r *http.Request) {
 	if !jsonapi.Decode(w, r, &in, true) {
 		return
 	}
-	t, err := h.svc.CreateTenant(r.Context(), authz.FromContext(r.Context()), in, clientIP(r))
+	res, err := h.svc.CreateTenant(r.Context(), authz.FromContext(r.Context()), in, clientIP(r))
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
+	t := res.Tenant
 	jsonapi.SetLocation(w, h.baseURL, "/api/v1/platform/tenants/"+t.ID.String())
 	w.Header().Set("ETag", jsonapi.ETag(t.Version))
-	jsonapi.Write(w, http.StatusCreated, tenantJSON(t))
+	// La respuesta puede llevar el enlace de invitación con el token.
+	w.Header().Set("Cache-Control", "no-store")
+	body := tenantJSON(t)
+	body["initial_admin_invitation"] = invitationIssuedJSON(res.InitialAdminInvitation)
+	jsonapi.Write(w, http.StatusCreated, body)
 }
 
 func pathUUID(w http.ResponseWriter, r *http.Request, name, notFoundCode string) (uuid.UUID, bool) {

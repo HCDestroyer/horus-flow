@@ -301,7 +301,23 @@ func memberForUpdate(ctx context.Context, tx pgx.Tx, userID uuid.UUID) (*domain.
 func (s *Store) InviteMember(ctx context.Context, in app.NewInvitation) (*app.InviteResult, error) {
 	var res *app.InviteResult
 	err := s.db.TenantTx(ctx, pgdb.TenantID(in.TenantID), func(tx pgx.Tx) error {
-		res = &app.InviteResult{}
+		var err error
+		res, err = inviteTx(ctx, tx, in)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// inviteTx resuelve una invitación dentro de una transacción del tenant
+// (RLS): usuario creado o reutilizado, membresía, asignaciones, evento y,
+// si la membresía queda invitada y la cuenta puede aceptarla, el token. La
+// usan InviteMember y CreateTenant (primer administrador).
+func inviteTx(ctx context.Context, tx pgx.Tx, in app.NewInvitation) (*app.InviteResult, error) {
+	res := &app.InviteResult{}
+	err := func() error {
 		if err := checkRoles(ctx, tx, in.Assignments); err != nil {
 			return err
 		}
@@ -383,7 +399,7 @@ func (s *Store) InviteMember(ctx context.Context, in app.NewInvitation) (*app.In
 		}
 		res.TokenStored = true
 		return nil
-	})
+	}()
 	if err != nil {
 		return nil, err
 	}

@@ -109,10 +109,20 @@ func tenantEventData(t domain.Tenant, changed []string) map[string]any {
 	}
 }
 
-// CreateTenant da de alta un ISP y su primer tenant_admin: si el email ya es
-// de un usuario, la membresía queda activa; si no, se crea el usuario
-// pendiente con la membresía invitada (la aceptación llega en I1).
-func (s *Service) CreateTenant(ctx context.Context, p *authz.Principal, in TenantInput, requestIP string) (*domain.Tenant, error) {
+// CreatedTenant es la respuesta de POST /platform/tenants: el ISP y cómo
+// quedó su primer administrador.
+type CreatedTenant struct {
+	Tenant                 *domain.Tenant
+	InitialAdminInvitation *InvitationIssued
+}
+
+// CreateTenant da de alta un ISP y su primer tenant_admin con las reglas de
+// InviteMember: si el email es de una cuenta activa, la membresía queda
+// activa (outcome added); si no, se crea el usuario pendiente con la
+// membresía invitada y una invitación de un uso (72 h) en la misma
+// transacción, cuyo enlace se devuelve y, con SMTP, se envía por correo tras
+// el commit (outcome invited).
+func (s *Service) CreateTenant(ctx context.Context, p *authz.Principal, in TenantInput, requestIP string) (*CreatedTenant, error) {
 	var errs []problem.FieldError
 	in.Slug = strings.TrimSpace(in.Slug)
 	if !slugRe.MatchString(in.Slug) {
@@ -145,37 +155,35 @@ func (s *Service) CreateTenant(ctx context.Context, p *authz.Principal, in Tenan
 	}
 	admin, _ := s.o.Catalog.TenantRole(domain.RoleTenantAdmin)
 	actor := s.actor(p)
-	nt := NewTenant{
-		Tenant: t, AdminEmail: addr.Address, AdminRole: admin.ID, Actor: actor,
-		Events: func(t domain.Tenant, membershipID, userID uuid.UUID, status string) []OutboxEvent {
-			tid := t.ID
-			return []OutboxEvent{
-				{ID: uuid.Must(uuid.NewV7()), Type: "horus.auth.tenant.created", TenantID: &tid, AggregateType: "tenant",
-					AggregateID: t.ID, AggregateVersion: 1, Actor: actor, OccurredAt: now, Data: tenantEventData(t, nil)},
-				{ID: uuid.Must(uuid.NewV7()), Type: "horus.auth.membership.granted", TenantID: &tid, AggregateType: "membership",
-					AggregateID: membershipID, AggregateVersion: 1, Actor: actor, OccurredAt: now, Data: map[string]any{
-						"id": membershipID.String(), "user_id": userID.String(), "version": 1, "status": status,
-						"assignments":          []map[string]any{{"role_id": admin.ID.String(), "scope": "tenant"}},
-						"previous_assignments": []map[string]any{},
-					}},
-			}
-		},
+	tid := t.ID
+	as := []domain.Assignment{{RoleID: admin.ID, RoleKey: admin.Key, ScopeType: "tenant", RequiresMFA: admin.RequiresMFA, Permissions: admin.Permissions}}
+	inv, token, err := s.newInvitation(t.ID, addr.Address, as, creator, memberEvent(actor, t.ID, "granted", "", now), now)
+	if err != nil {
+		return nil, err
 	}
-	if err := s.store.CreateTenant(ctx, nt); err != nil {
+	nt := NewTenant{
+		Tenant: t, Admin: inv,
+		Event: OutboxEvent{ID: uuid.Must(uuid.NewV7()), Type: "horus.auth.tenant.created", TenantID: &tid, AggregateType: "tenant",
+			AggregateID: t.ID, AggregateVersion: 1, Actor: actor, OccurredAt: now, Data: tenantEventData(t, nil)},
+	}
+	res, err := s.store.CreateTenant(ctx, nt)
+	if err != nil {
 		if errors.Is(err, ErrSlugTaken) {
 			return nil, apperr.Conflict(problem.CodeAlreadyExists, "Ya existe un ISP con ese slug.")
 		}
 		return nil, err
 	}
+	issued := s.invitationIssued(ctx, inv, res, token)
 	for _, tenant := range []uuid.UUID{uuid.Nil, t.ID} {
 		_ = s.Record(ctx, api.AuditEntry{
 			TenantID: tenant, ActorType: p.Type, ActorID: p.Subject, ViaPlatform: tenant != uuid.Nil,
 			Action: "platform.tenant.created", ResourceType: "tenant", ResourceID: t.ID.String(), Outcome: "success",
-			IP: requestIP, Changes: map[string]any{"slug": t.Slug},
+			IP: requestIP, Changes: map[string]any{"slug": t.Slug, "admin_user_id": res.UserID.String(), "admin_status": res.Status,
+				"link_issued": res.TokenStored, "email_sent": issued.EmailSent},
 		})
 	}
 	t.Members = 1
-	return &t, nil
+	return &CreatedTenant{Tenant: &t, InitialAdminInvitation: issued}, nil
 }
 
 // ErrSlugTaken lo devuelve el repositorio si el slug ya existe.

@@ -38,8 +38,16 @@ func TestPlatformCreatesISP(t *testing.T) {
 	t.Parallel()
 	a := startApp(t)
 	pt := a.superadmin().platformToken()
-	a.createUser("jefa@isp-uno.test")
-	id := a.createTenant(pt, "isp-uno", "jefa@isp-uno.test")
+	jefa := a.createUser("jefa@isp-uno.test")
+	created := a.must(a.do(req{Method: "POST", Path: "/api/v1/platform/tenants", Token: pt, Header: map[string]string{"Idempotency-Key": uuid.NewString()},
+		Body: map[string]any{"slug": "isp-uno", "name": "ISP isp-uno", "country": "MX", "timezone": "America/Mexico_City",
+			"initial_admin_email": "jefa@isp-uno.test"}}), 201)
+	id := created.str("id")
+	// Cuenta activa existente: miembro activo, sin enlace.
+	if inv, _ := created.Body["initial_admin_invitation"].(map[string]any); inv == nil || inv["outcome"] != "added" || inv["user_id"] != jefa.String() ||
+		inv["invitation_url"] != nil || inv["email_sent"] != false || created.Header.Get("Cache-Control") != "no-store" {
+		t.Fatalf("alta = %s", created.Raw)
+	}
 	dup := a.do(req{Method: "POST", Path: "/api/v1/platform/tenants", Token: pt, Header: map[string]string{"Idempotency-Key": uuid.NewString()},
 		Body: map[string]any{"slug": "isp-uno", "name": "Otro", "country": "MX", "timezone": "America/Mexico_City", "initial_admin_email": "x@y.test"}})
 	if dup.Status != 409 || dup.code() != "ALREADY_EXISTS" {

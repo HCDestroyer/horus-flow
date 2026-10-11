@@ -47,13 +47,13 @@ type Actor struct {
 	ViaPlatform bool
 }
 
-// NewTenant es el alta de un ISP con su primer administrador.
+// NewTenant es el alta de un ISP con su primer administrador. Admin es la
+// invitación del administrador (TenantID = Tenant.ID), que se resuelve en la
+// misma transacción y con las mismas reglas que InviteMember.
 type NewTenant struct {
-	Tenant     domain.Tenant
-	AdminEmail string
-	AdminRole  uuid.UUID
-	Actor      Actor
-	Events     func(t domain.Tenant, membershipID, userID uuid.UUID, membershipStatus string) []OutboxEvent
+	Tenant domain.Tenant
+	Event  OutboxEvent
+	Admin  NewInvitation
 }
 
 // SessionStatus es el estado de una sesión y una membresía (gateway).
@@ -95,7 +95,7 @@ type Store interface {
 	ListTenants(ctx context.Context, f TenantFilter) ([]domain.Tenant, error)
 	CountTenants(ctx context.Context, f TenantFilter) (int, error)
 	Tenant(ctx context.Context, id uuid.UUID) (*domain.Tenant, error)
-	CreateTenant(ctx context.Context, nt NewTenant) error
+	CreateTenant(ctx context.Context, nt NewTenant) (*InviteResult, error)
 	UpdateTenant(ctx context.Context, t *domain.Tenant, expectVersion int, ev func(domain.Tenant) OutboxEvent) (bool, error)
 	// SetTenantStatus cambia el estado de from a to (CAS) y emite el evento.
 	SetTenantStatus(ctx context.Context, id uuid.UUID, from, to string, at time.Time, ev func(domain.Tenant) OutboxEvent) (bool, error)
