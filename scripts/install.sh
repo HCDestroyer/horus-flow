@@ -685,6 +685,7 @@ make_secrets() {
   new_secret auth_kek gen_hex32
   new_secret devices_kek gen_hex32
   new_secret alerts_kek gen_hex32
+  new_secret detection_kek gen_hex32 # credenciales de fuentes de reputación (v1.0.4; se crea al actualizar)
   if [ -n "${opt[smtp-password-file]:-}" ]; then
     [ -r "${opt[smtp-password-file]}" ] || die "no puedo leer ${opt[smtp-password-file]}"
     head -n1 "${opt[smtp-password-file]}" | tr -d '\r\n' >"$secrets_dir/smtp_password"

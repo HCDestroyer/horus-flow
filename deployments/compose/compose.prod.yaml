@@ -286,6 +286,7 @@ services:
       HORUS_AUTH_KEK_FILE: /run/secrets/auth_kek
       HORUS_DEVICES_KEK_FILE: /run/secrets/devices_kek
       HORUS_ALERTS_KEK_FILE: /run/secrets/alerts_kek
+      HORUS_DETECTION_KEK_FILE: /run/secrets/detection_kek
       HORUS_ALERTS_CURSOR_KEY_FILE: /run/secrets/cursor_key
       # Reputación (SEC): detection sincroniza las fuentes y publica el snapshot en el almacén;
       # ingester marca los flujos con ese mismo snapshot.
@@ -339,6 +340,7 @@ services:
       - auth_kek
       - devices_kek
       - alerts_kek
+      - detection_kek
       - smtp_password
       - cursor_key
       - ch_ingester_password
@@ -526,6 +528,8 @@ secrets:
     file: ${HORUS_SECRETS_DIR}/devices_kek
   alerts_kek:
     file: ${HORUS_SECRETS_DIR}/alerts_kek
+  detection_kek:
+    file: ${HORUS_SECRETS_DIR}/detection_kek
   smtp_password:
     file: ${HORUS_SECRETS_DIR}/smtp_password
   cursor_key:

@@ -36,12 +36,12 @@ const sourcesPath = "/api/v1/platform/reputation/sources"
 // Mount registra las rutas (token de plataforma con platform.reputation_sources.manage).
 func (h *Platform) Mount(r *httpx.ServiceMux) {
 	perm := app.PermReputationSources
-	r.Handle("GET "+sourcesPath, h.guard.Platform(perm, h.list))
-	r.Handle("POST "+sourcesPath, h.guard.Platform(perm, h.create))
-	r.Handle("GET "+sourcesPath+"/{source_id}", h.guard.Platform(perm, h.get))
-	r.Handle("PATCH "+sourcesPath+"/{source_id}", h.guard.Platform(perm, h.update))
-	r.Handle("DELETE "+sourcesPath+"/{source_id}", h.guard.Platform(perm, h.delete))
-	r.Handle("POST "+sourcesPath+"/{source_id}/refresh", h.guard.Platform(perm, h.refresh))
+	r.Handle("GET /api/v1/platform/reputation/sources", h.guard.Platform(perm, h.list))
+	r.Handle("POST /api/v1/platform/reputation/sources", h.guard.Platform(perm, h.create))
+	r.Handle("GET /api/v1/platform/reputation/sources/{source_id}", h.guard.Platform(perm, h.get))
+	r.Handle("PATCH /api/v1/platform/reputation/sources/{source_id}", h.guard.Platform(perm, h.update))
+	r.Handle("DELETE /api/v1/platform/reputation/sources/{source_id}", h.guard.Platform(perm, h.delete))
+	r.Handle("POST /api/v1/platform/reputation/sources/{source_id}/refresh", h.guard.Platform(perm, h.refresh))
 }
 
 func (h *Platform) fail(w http.ResponseWriter, r *http.Request, err error) {
