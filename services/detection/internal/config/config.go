@@ -64,6 +64,10 @@ type Config struct {
 	FeedsSync       bool          `env:"HORUS_DETECTION_FEEDS_SYNC" envDefault:"false"`
 	FeedsInterval   time.Duration `env:"HORUS_DETECTION_FEEDS_INTERVAL" envDefault:"15m"`
 	AllowUnverified bool          `env:"HORUS_FEEDS_ALLOW_UNVERIFIED" envDefault:"false"`
+	// KEK de 32 B (hex o base64; HORUS_DETECTION_KEK_FILE) para cifrar la
+	// cabecera de autenticación de las listas personalizadas. Sin ella (fuera
+	// de dev) la API rechaza fuentes con autenticación.
+	KEK observability.Secret `env:"HORUS_DETECTION_KEK"`
 }
 
 // LogValue implementa slog.LogValuer (sin secretos).

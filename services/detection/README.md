@@ -74,7 +74,9 @@ resto se registra en `detection.tenant_registry` al usar la API). Feeds en el ro
 (`/var/lib/horus/store`), `HORUS_FEEDS_CONFIG`, `HORUS_FEEDS_CUSTOM`, `HORUS_FEEDS_FIXTURES`,
 `HORUS_DETECTION_FEEDS_SYNC` (false: activar en despliegue para descargar de Internet),
 `HORUS_DETECTION_FEEDS_INTERVAL` (15m; cada fuente se descarga según su `frequency`),
-`HORUS_FEEDS_ALLOW_UNVERIFIED`. El snapshot se publica en `$HORUS_DATA_DIR/catalog/reputation/` y el
+`HORUS_FEEDS_ALLOW_UNVERIFIED`, `HORUS_DETECTION_KEK_FILE` (KEK de 32 B en hex o base64 para la cabecera de
+autenticación de las listas personalizadas; efímera en dev; sin ella la API rechaza fuentes con
+autenticación). El snapshot se publica en `$HORUS_DATA_DIR/catalog/reputation/` y el
 motor lo lee de ahí si no se fija `HORUS_REPUTATION_SNAPSHOT_DIR`; `GET /reputation/sources` muestra
 el estado de cada fuente.
 
@@ -154,6 +156,30 @@ las del catálogo. Contrato en `api/customfeeds`:
   proxy HTTP(S) el socket lo abre el proxy y queda la comprobación por DNS.
 - CLI: `horus-feeds <orden> -custom <archivo|directorio>` (o `HORUS_FEEDS_CUSTOM`); `sources`
   termina con 1 si alguna lista personalizada se rechaza. Ejemplos en `tests/fixtures/feeds/custom/`.
+
+### API de plataforma (`/platform/reputation/sources`, D20)
+
+Rutas de `platform.yaml` con token de plataforma y `platform.reputation_sources.manage`
+(re-autenticación e `Idempotency-Key` las exige el gateway): listar (filtros `origin`, `enabled`),
+alta, detalle, `PATCH` (merge patch con `If-Match`), borrado y recarga (`202`, asíncrona).
+
+- Persistencia: `detection.reputation_source` (sin tenant; `detection_platform`). Al arrancar el
+  rol concilia las filas del catálogo con la declaración de feeds (solo las de `commercial_use: yes`):
+  UUID v5 estable, `key` = id con `_` (`abusech-feodo` → `abusech_feodo`), `numeric_id` =
+  `reputation.SourceID(id)` (el `reputation_source_id` de `flows_raw`). Del catálogo solo cambia
+  `enabled` (y no se borra: `REPUTATION_SOURCE_READ_ONLY`).
+- Las personalizadas se guardan completas con id de dataset `custom-<key>`; la URL pasa la
+  política de `customfeeds` y, resolviendo DNS, la de `datasets.EgressGuard`
+  (`REPUTATION_SOURCE_URL_NOT_ALLOWED`). `auth_header_value` es write-only: se cifra con envelope
+  encryption (AAD `reputation_source:<id>`), nunca se devuelve (`has_auth`) ni se audita, y
+  `HTTPFetcher` no la reenvía si una redirección cambia de host.
+- `feedsync.Scheduler.Registry` lee en cada sincronización la activación del catálogo y las
+  listas personalizadas. Alta, recarga, cambio de URL/formato/autenticación o reactivación encolan
+  la carga de esa fuente (`Refresh`); desactivar, borrar o cambiar categoría/confianza recompila el
+  snapshot (`Invalidate`). Esto funciona también con `HORUS_DETECTION_FEEDS_SYNC=false` (solo lo
+  pedido, sin la descarga periódica).
+- Cada cambio se audita (`platform.reputation_source.{created,updated,deleted,refresh_requested}`,
+  `scope: platform`) con auth en proceso o por `horus.detection.audit.recorded`.
 
 ### Integración en el binario `horus` (pendiente)
 

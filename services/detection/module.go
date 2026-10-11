@@ -25,6 +25,7 @@ import (
 
 	"github.com/hcdestroyer/horus-flow/packages/go/authz"
 	"github.com/hcdestroyer/horus-flow/packages/go/config"
+	"github.com/hcdestroyer/horus-flow/packages/go/crypto/envelope"
 	"github.com/hcdestroyer/horus-flow/packages/go/datasets"
 	"github.com/hcdestroyer/horus-flow/packages/go/flowbus"
 	"github.com/hcdestroyer/horus-flow/packages/go/flowinv"
@@ -53,6 +54,7 @@ const Role = "detection"
 
 type mod struct {
 	feeds   *feedsync.Scheduler
+	sources *app.ReputationSources
 	cfg     modcfg.Config
 	db      *pgdb.DB
 	ch      *chreader.Reader
@@ -129,6 +131,17 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 	svc := app.NewService(db, opts)
 	m.feeds = newFeeds(cfg, logger)
 	svc.SetSources(m.feeds)
+	// Fuentes de reputación de plataforma (D20): el catálogo y las listas
+	// personalizadas viven en detection.reputation_source; feedsync las lee
+	// en cada sincronización.
+	sealer, err := loadSealer(cfg, dev, logger)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	m.sources = app.NewReputationSources(app.SourcesOptions{Repo: m.store, Sync: m.feeds, Sealer: sealer,
+		Guard: &datasets.EgressGuard{Deny: datasets.InstallationPrefixes()}, Audit: svc.RecordPlatformAudit, Logger: logger})
+	m.feeds.Registry = m.sources
 	snapDir := cfg.ReputationSnapshotDir
 	if snapDir == "" {
 		snapDir = m.feeds.SnapshotDir()
@@ -151,7 +164,9 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		}
 	}
 	if deps.Routes != nil {
-		httpapi.New(svc, authz.NewGuard(verifier), cfg.PublicBaseURL, logger).Mount(deps.Routes)
+		guard := authz.NewGuard(verifier)
+		httpapi.New(svc, guard, cfg.PublicBaseURL, logger).Mount(deps.Routes)
+		httpapi.NewPlatform(m.sources, guard, cfg.PublicBaseURL, logger).Mount(deps.Routes)
 	}
 	return natsx.WithRelay(ctx, deps, m, db, migrations.Schema)
 }
@@ -160,15 +175,37 @@ func (m *mod) Start(ctx context.Context) error {
 	if err := m.db.Ping(ctx); err != nil {
 		return err
 	}
-	if !m.cfg.Migrate {
-		return nil
+	if m.cfg.Migrate {
+		n, err := pgdb.Migrate(ctx, m.db, migrations.Schema, migrations.Postgres(), m.logger)
+		if err != nil {
+			return err
+		}
+		m.logger.InfoContext(ctx, "detection migrations applied", slog.Int("count", n))
 	}
-	n, err := pgdb.Migrate(ctx, m.db, migrations.Schema, migrations.Postgres(), m.logger)
-	if err != nil {
-		return err
+	// Siembra/concilia el catálogo base en detection.reputation_source; si
+	// falla se reintenta en la primera petición de la API.
+	if err := m.sources.SyncCatalog(ctx); err != nil {
+		m.logger.WarnContext(ctx, "detection: reputation catalog sync", "err", err)
 	}
-	m.logger.InfoContext(ctx, "detection migrations applied", slog.Int("count", n))
 	return nil
+}
+
+// loadSealer carga la KEK de las credenciales de los feeds (efímera solo en
+// dev). Sin KEK fuera de dev no se admiten fuentes con autenticación.
+func loadSealer(cfg modcfg.Config, dev bool, logger *slog.Logger) (*envelope.Sealer, error) {
+	if cfg.KEK.IsZero() {
+		if dev {
+			logger.Warn("detection: ephemeral KEK (dev): reputation feed credentials become unreadable on restart; set HORUS_DETECTION_KEK_FILE")
+			return envelope.Ephemeral(), nil
+		}
+		logger.Warn("detection: HORUS_DETECTION_KEK_FILE not set: reputation sources with authentication are rejected")
+		return nil, nil
+	}
+	kek, err := envelope.ParseKEK(cfg.KEK.Reveal())
+	if err != nil {
+		return nil, fmt.Errorf("detection: HORUS_DETECTION_KEK_FILE: %w", err)
+	}
+	return envelope.New(kek)
 }
 
 // newFeeds construye la sincronización de feeds del rol (catálogo + listas
@@ -180,7 +217,8 @@ func newFeeds(cfg modcfg.Config, log *slog.Logger) *feedsync.Scheduler {
 	if cfg.FeedsFixtures != "" {
 		f = datasets.DirFetcher{Dir: cfg.FeedsFixtures}
 	}
-	return &feedsync.Scheduler{ConfigPath: cfg.FeedsConfig, CustomPath: cfg.FeedsCustom, DataDir: cfg.DataDir, Log: log,
+	pol := app.SourcesPolicy()
+	return &feedsync.Scheduler{ConfigPath: cfg.FeedsConfig, CustomPath: cfg.FeedsCustom, DataDir: cfg.DataDir, Log: log, Policy: &pol,
 		Service: &feedsync.Service{Store: &datasets.Store{Root: datasets.DatasetsDir(cfg.DataDir), Tool: "horus/detection"},
 			Fetcher: f, Parse: feeds.EntriesFromFile, AllowUnverified: cfg.AllowUnverified}}
 }
@@ -188,9 +226,7 @@ func newFeeds(cfg modcfg.Config, log *slog.Logger) *feedsync.Scheduler {
 // Run sincroniza los feeds (si está activado) y evalúa periódicamente a los
 // tenants (planificador del motor).
 func (m *mod) Run(ctx context.Context) error {
-	if m.cfg.FeedsSync {
-		go m.syncFeeds(ctx)
-	}
+	go m.syncFeeds(ctx, m.cfg.FeedsSync)
 	if m.engine == nil {
 		<-ctx.Done()
 		return nil
@@ -252,18 +288,36 @@ func (m *mod) ingestWatermark(ctx context.Context) (time.Time, bool) {
 	return msg.Time, true
 }
 
-func (m *mod) syncFeeds(ctx context.Context) {
-	t := time.NewTicker(m.cfg.FeedsInterval)
-	defer t.Stop()
+// syncFeeds sincroniza los feeds: periódicamente si periodic (descarga de
+// Internet activada) y, siempre, lo que pida la API de plataforma (alta,
+// recarga, cambio de URL, desactivación o borrado de una fuente).
+func (m *mod) syncFeeds(ctx context.Context, periodic bool) {
+	var tick <-chan time.Time
+	if periodic {
+		t := time.NewTicker(m.cfg.FeedsInterval)
+		defer t.Stop()
+		tick = t.C
+		m.runFeeds(ctx, m.feeds.Sync)
+	}
 	for {
-		if _, err := m.feeds.Sync(ctx, time.Now()); err != nil && ctx.Err() == nil {
-			m.logger.WarnContext(ctx, "detection: reputation feeds sync", "err", err)
-		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-t.C:
+		case <-tick:
+			m.runFeeds(ctx, m.feeds.Sync)
+		case <-m.feeds.Kick():
+			if periodic {
+				m.runFeeds(ctx, m.feeds.Sync)
+			} else {
+				m.runFeeds(ctx, m.feeds.SyncPending)
+			}
 		}
+	}
+}
+
+func (m *mod) runFeeds(ctx context.Context, sync func(context.Context, time.Time) ([]datasets.Result, error)) {
+	if _, err := sync(ctx, time.Now()); err != nil && ctx.Err() == nil {
+		m.logger.WarnContext(ctx, "detection: reputation feeds sync", "err", err)
 	}
 }
 

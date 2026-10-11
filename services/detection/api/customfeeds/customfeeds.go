@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/netip"
 	"net/url"
 	"os"
@@ -86,6 +87,9 @@ type SourceSpec struct {
 	// Auditoría (la rellena la API de plataforma).
 	CreatedBy string    `yaml:"created_by,omitempty" json:"created_by,omitempty"`
 	UpdatedAt time.Time `yaml:"updated_at,omitempty" json:"updated_at,omitzero"`
+	// Header: cabecera de autenticación del feed (secreto descifrado por la
+	// API de plataforma; nunca se serializa).
+	Header http.Header `yaml:"-" json:"-"`
 }
 
 // Policy son los límites de validación de las fuentes personalizadas.
@@ -298,7 +302,7 @@ func ToSource(s SourceSpec, pol Policy) datasets.Source {
 		Attribution: s.Attribution, Frequency: s.Frequency, Category: s.Category,
 		Confidence: s.Confidence, TTL: s.TTL, MinEntries: max(s.MinEntries, 1),
 		MaxBytes: s.MaxBytes, MaxEntries: s.MaxEntries, Enabled: s.Enabled, Notes: s.Notes,
-		Origin: datasets.OriginCustom, OnDangerous: s.OnDangerous, CSV: s.CSV,
+		Origin: datasets.OriginCustom, OnDangerous: s.OnDangerous, CSV: s.CSV, Header: s.Header.Clone(),
 	}
 	if src.License == "" {
 		src.License = DefaultLicense
