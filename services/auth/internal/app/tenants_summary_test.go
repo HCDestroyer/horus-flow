@@ -21,9 +21,12 @@ func (m *memTenantStore) ListTenants(_ context.Context, f TenantFilter) ([]domai
 	m.calls++
 	var out []domain.Tenant
 	for _, t := range m.tenants {
-		if f.AfterCreated != nil && !(t.CreatedAt.After(*f.AfterCreated) ||
-			(t.CreatedAt.Equal(*f.AfterCreated) && t.ID.String() > f.AfterID.String())) {
-			continue
+		if f.AfterCreated != nil {
+			after := t.CreatedAt.After(*f.AfterCreated) ||
+				(t.CreatedAt.Equal(*f.AfterCreated) && t.ID.String() > f.AfterID.String())
+			if !after {
+				continue
+			}
 		}
 		out = append(out, t)
 		if len(out) == f.Limit {

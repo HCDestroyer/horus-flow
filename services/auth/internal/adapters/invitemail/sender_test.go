@@ -55,8 +55,7 @@ func TestSendInvitation(t *testing.T) {
 
 // Un fallo del SMTP devuelve un error sin la dirección, el token ni el enlace.
 func TestSendInvitationFailureRedacted(t *testing.T) {
-	srv := mailertest.New(t)
-	srv.RejectRcpt = true
+	srv := mailertest.New(t, mailertest.Options{RejectRcpt: true})
 	s := New(mailer.Config{Host: srv.Host, Port: srv.Port, TLS: mailer.TLSNone})
 	err := s.SendInvitation(context.Background(), delivery())
 	if err == nil || err.Error() != "invitation email: RCPT failed" {

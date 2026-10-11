@@ -207,10 +207,10 @@ func TestInviteMemberValidation(t *testing.T) {
 		t.Fatalf("fields = %+v", e.Fields)
 	}
 	// Sin users.manage (defensa en profundidad tras el guard).
-	wantErr(t, errOf(svc.InviteMember(tenantCtx(tenant, allPerms(cat, "viewer")), "a@isp.test",
+	_ = wantErr(t, errOf(svc.InviteMember(tenantCtx(tenant, allPerms(cat, "viewer")), "a@isp.test",
 		[]AssignmentInput{{RoleID: admin.ID.String(), Scope: "tenant"}}, "")), 403, problem.CodePermissionDenied)
 	// Un token de sesión (sin tenant) no sirve.
-	wantErr(t, errOf(svc.InviteMember(authz.WithPrincipal(context.Background(), &authz.Principal{Type: authz.TypeUser, Scope: authz.ScopeSession}),
+	_ = wantErr(t, errOf(svc.InviteMember(authz.WithPrincipal(context.Background(), &authz.Principal{Type: authz.TypeUser, Scope: authz.ScopeSession}),
 		"a@isp.test", nil, "")), 403, problem.CodeTokenScopeInvalid)
 }
 
@@ -225,7 +225,7 @@ func TestAssignmentsCannotEscalate(t *testing.T) {
 	perms[PermUsersManage] = []string{authz.ScopeAll}
 	ctx := tenantCtx(tenant, perms)
 
-	wantErr(t, errOf(svc.InviteMember(ctx, "a@isp.test", []AssignmentInput{{RoleID: admin.ID.String(), Scope: "tenant"}}, "")), 403, problem.CodePermissionDenied)
+	_ = wantErr(t, errOf(svc.InviteMember(ctx, "a@isp.test", []AssignmentInput{{RoleID: admin.ID.String(), Scope: "tenant"}}, "")), 403, problem.CodePermissionDenied)
 	if st.invited != nil {
 		t.Fatal("se invitó con un rol con más permisos que el invitador")
 	}
@@ -242,7 +242,7 @@ func TestAssignmentsCannotEscalate(t *testing.T) {
 		scoped[p] = []string{"site:" + site.String()}
 	}
 	sctx := tenantCtx(tenant, scoped)
-	wantErr(t, errOf(svc.InviteMember(sctx, "b@isp.test", []AssignmentInput{{RoleID: noc.ID.String(), Scope: "tenant"}}, "")), 403, problem.CodePermissionDenied)
+	_ = wantErr(t, errOf(svc.InviteMember(sctx, "b@isp.test", []AssignmentInput{{RoleID: noc.ID.String(), Scope: "tenant"}}, "")), 403, problem.CodePermissionDenied)
 	if err := errOf(svc.InviteMember(sctx, "b@isp.test", []AssignmentInput{{RoleID: noc.ID.String(), Scope: "site:" + site.String()}}, "")); err != nil {
 		t.Fatal(err)
 	}
@@ -340,14 +340,14 @@ func TestReissueInvitation(t *testing.T) {
 
 	// No es miembro de este ISP (o fue revocado): 404.
 	_, err := svc.ReissueInvitation(ctx, uid, "")
-	wantErr(t, err, 404, problem.CodeNotFound)
+	_ = wantErr(t, err, 404, problem.CodeNotFound)
 	st.member = &domain.Member{MembershipID: uuid.New(), UserID: uid, Email: "inv@isp.test", Status: domain.MembershipRevoked}
 	_, err = svc.ReissueInvitation(ctx, uid, "")
-	wantErr(t, err, 404, problem.CodeNotFound)
+	_ = wantErr(t, err, 404, problem.CodeNotFound)
 	// Miembro activo: 409.
 	st.member.Status = domain.MembershipActive
 	_, err = svc.ReissueInvitation(ctx, uid, "")
-	wantErr(t, err, 409, problem.CodeConflict)
+	_ = wantErr(t, err, 409, problem.CodeConflict)
 	if st.reissued != nil {
 		t.Fatal("se renovó la invitación de un miembro activo")
 	}
@@ -358,13 +358,13 @@ func TestReissueInvitation(t *testing.T) {
 	perms := allPerms(cat, "noc")
 	perms[PermUsersManage] = []string{authz.ScopeAll}
 	_, err = svc.ReissueInvitation(tenantCtx(tenant, perms), uid, "")
-	wantErr(t, err, 403, problem.CodePermissionDenied)
+	_ = wantErr(t, err, 403, problem.CodePermissionDenied)
 	if st.reissued != nil {
 		t.Fatal("enlace renovado con escalada")
 	}
 	// Sin users.manage.
 	_, err = svc.ReissueInvitation(tenantCtx(tenant, allPerms(cat, "viewer")), uid, "")
-	wantErr(t, err, 403, problem.CodePermissionDenied)
+	_ = wantErr(t, err, 403, problem.CodePermissionDenied)
 
 	st.member.Assignments = []domain.Assignment{{RoleID: noc.ID, RoleKey: noc.Key, ScopeType: "tenant", Permissions: noc.Permissions}}
 	res, err := svc.ReissueInvitation(ctx, uid, "198.51.100.7")
@@ -389,10 +389,10 @@ func TestReissueInvitation(t *testing.T) {
 	// Carrera: la membresía cambió entre la lectura y el bloqueo.
 	st.reissueE = ErrNotInvited
 	_, err = svc.ReissueInvitation(ctx, uid, "")
-	wantErr(t, err, 409, problem.CodeConflict)
+	_ = wantErr(t, err, 409, problem.CodeConflict)
 	st.reissueE = domain.ErrNotFound
 	_, err = svc.ReissueInvitation(ctx, uid, "")
-	wantErr(t, err, 404, problem.CodeNotFound)
+	_ = wantErr(t, err, 404, problem.CodeNotFound)
 }
 
 func TestInspectInvitation(t *testing.T) {
@@ -459,7 +459,7 @@ func TestAcceptInvitation(t *testing.T) {
 	ctx := context.Background()
 	pw := func(s string) *string { return &s }
 
-	wantErr(t, svc.AcceptInvitation(ctx, AcceptInvitationInput{Token: "corto"}, LoginInput{}), 422, problem.CodeValidationFailed)
+	_ = wantErr(t, svc.AcceptInvitation(ctx, AcceptInvitationInput{Token: "corto"}, LoginInput{}), 422, problem.CodeValidationFailed)
 	e := wantErr(t, svc.AcceptInvitation(ctx, AcceptInvitationInput{Token: validToken}, LoginInput{}), 422, problem.CodeValidationFailed)
 	if !hasField(e, "token", CodeInvitationInvalid) {
 		t.Fatalf("fields = %+v", e.Fields)
@@ -512,7 +512,7 @@ func TestAcceptInvitation(t *testing.T) {
 		}
 	}
 	st.inv, st.acceptEr = &active, ErrInvitationUsed
-	wantErr(t, svc.AcceptInvitation(ctx, AcceptInvitationInput{Token: validToken}, LoginInput{}), 422, problem.CodeValidationFailed)
+	_ = wantErr(t, svc.AcceptInvitation(ctx, AcceptInvitationInput{Token: validToken}, LoginInput{}), 422, problem.CodeValidationFailed)
 }
 
 func TestReplaceAssignmentsErrors(t *testing.T) {
@@ -525,10 +525,10 @@ func TestReplaceAssignmentsErrors(t *testing.T) {
 
 	// Miembro inexistente o revocado: 404 aunque el cuerpo no sea válido.
 	_, err := svc.ReplaceAssignments(ctx, uuid.New(), 1, json.RawMessage(`{}`), "")
-	wantErr(t, err, 404, problem.CodeNotFound)
+	_ = wantErr(t, err, 404, problem.CodeNotFound)
 	st.member = &domain.Member{UserID: cur.UserID, Status: domain.MembershipRevoked}
 	_, err = svc.ReplaceAssignments(ctx, cur.UserID, 1, in, "")
-	wantErr(t, err, 404, problem.CodeNotFound)
+	_ = wantErr(t, err, 404, problem.CodeNotFound)
 
 	st.member = cur
 	_, err = svc.ReplaceAssignments(ctx, cur.UserID, 3, json.RawMessage(`{"role_id":"x"}`), "")
@@ -542,7 +542,7 @@ func TestReplaceAssignmentsErrors(t *testing.T) {
 
 	st.replace = func(int, []domain.Assignment) (*domain.Member, error) { return nil, domain.ErrNotFound }
 	_, err = svc.ReplaceAssignments(ctx, cur.UserID, 3, in, "")
-	wantErr(t, err, 404, problem.CodeNotFound)
+	_ = wantErr(t, err, 404, problem.CodeNotFound)
 
 	st.replace = func(int, []domain.Assignment) (*domain.Member, error) { return nil, &MemberVersionError{Current: cur} }
 	_, err = svc.ReplaceAssignments(ctx, cur.UserID, 1, in, "")
@@ -569,7 +569,7 @@ func TestReplaceAssignmentsErrors(t *testing.T) {
 func TestRemoveMember(t *testing.T) {
 	svc, st, _, cat := newMemberEnv(t)
 	ctx := tenantCtx(uuid.New(), allPerms(cat, "tenant_admin"))
-	wantErr(t, svc.RemoveMember(ctx, uuid.New(), ""), 404, problem.CodeNotFound)
+	_ = wantErr(t, svc.RemoveMember(ctx, uuid.New(), ""), 404, problem.CodeNotFound)
 	st.revoked = true
 	if err := svc.RemoveMember(ctx, uuid.New(), ""); err != nil {
 		t.Fatal(err)
@@ -625,12 +625,12 @@ func TestListMembersFilters(t *testing.T) {
 	svc, _, _, cat := newMemberEnv(t)
 	ctx := tenantCtx(uuid.New(), allPerms(cat, "viewer"))
 	_, err := svc.ListMembers(ctx, pagination.NewCodec(nil), pagination.Request{Limit: 50}, "", "borrado")
-	wantErr(t, err, 400, problem.CodeInvalidFilter)
+	_ = wantErr(t, err, 400, problem.CodeInvalidFilter)
 	_, err = svc.ListMembers(ctx, pagination.NewCodec(nil), pagination.Request{Limit: 50, Cursor: "x.y"}, "", "")
-	wantErr(t, err, 400, problem.CodeInvalidCursor)
+	_ = wantErr(t, err, 400, problem.CodeInvalidCursor)
 	// Sin users.read.
 	_, err = svc.ListMembers(tenantCtx(uuid.New(), allPerms(cat, "noc")), pagination.NewCodec(nil), pagination.Request{Limit: 50}, "", "")
-	wantErr(t, err, 403, problem.CodePermissionDenied)
+	_ = wantErr(t, err, 403, problem.CodePermissionDenied)
 }
 
 func errOf(_ *InvitationIssued, err error) error { return err }

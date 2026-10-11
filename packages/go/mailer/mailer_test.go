@@ -39,8 +39,7 @@ func TestSendPlainText(t *testing.T) {
 }
 
 func TestSendMultipartAndAuth(t *testing.T) {
-	srv := mailertest.New(t)
-	srv.User, srv.Password = "horus", "s3creto"
+	srv := mailertest.New(t, mailertest.Options{User: "horus", Password: "s3creto"})
 	c := cfg(srv)
 	c.Username, c.Password = "horus", "mala"
 	err := mailer.Send(context.Background(), c, mailer.Message{To: []string{"a@isp.test"}, Subject: "x", Text: "t"})
@@ -61,8 +60,7 @@ func TestSendMultipartAndAuth(t *testing.T) {
 }
 
 func TestSendErrors(t *testing.T) {
-	srv := mailertest.New(t)
-	srv.RejectRcpt = true
+	srv := mailertest.New(t, mailertest.Options{RejectRcpt: true})
 	if err := mailer.Send(context.Background(), cfg(srv), mailer.Message{To: []string{"a@isp.test"}, Text: "t"}); err == nil || !strings.Contains(err.Error(), "RCPT") {
 		t.Fatalf("RCPT rechazado = %v", err)
 	}
@@ -80,14 +78,14 @@ func TestSendErrors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	go func() {
 		for {
 			c, err := ln.Accept()
 			if err != nil {
 				return
 			}
-			defer c.Close() // acepta y calla
+			defer func() { _ = c.Close() }() // acepta y calla
 		}
 	}()
 	port := ln.Addr().(*net.TCPAddr).Port

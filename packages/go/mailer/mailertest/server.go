@@ -19,17 +19,22 @@ type Mail struct {
 	Data string
 }
 
-// Server es el servidor SMTP de prueba.
-type Server struct {
-	// Host y Port de escucha (127.0.0.1).
-	Host string
-	Port int
+// Options configura el servidor antes de que empiece a aceptar conexiones.
+type Options struct {
 	// RejectRcpt responde 550 a RCPT TO.
 	RejectRcpt bool
 	// User y Password, si no están vacíos, anuncian AUTH PLAIN y exigen esas
 	// credenciales.
 	User, Password string
+}
 
+// Server es el servidor SMTP de prueba.
+type Server struct {
+	// Host y Port de escucha (127.0.0.1).
+	Host string
+	Port int
+
+	o    Options
 	ln   net.Listener
 	mu   sync.Mutex
 	mail []Mail
@@ -37,7 +42,9 @@ type Server struct {
 }
 
 // New arranca un servidor en un puerto libre; se cierra al terminar el test.
-func New(t testing.TB) *Server {
+// La configuración se fija aquí: cambiarla con el servidor ya escuchando
+// sería una carrera con las sesiones.
+func New(t testing.TB, opts ...Options) *Server {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -45,6 +52,9 @@ func New(t testing.TB) *Server {
 	}
 	addr := ln.Addr().(*net.TCPAddr) //nolint:forcetypeassert // tcp
 	s := &Server{Host: "127.0.0.1", Port: addr.Port, ln: ln}
+	if len(opts) > 0 {
+		s.o = opts[0]
+	}
 	s.wg.Add(1)
 	go s.serve()
 	t.Cleanup(func() {
@@ -85,7 +95,7 @@ func (s *Server) session(c net.Conn) {
 	say := func(line string) { _, _ = c.Write([]byte(line + "\r\n")) }
 	say("220 mailertest ESMTP")
 	var cur Mail
-	authed := s.User == ""
+	authed := s.o.User == ""
 	for {
 		line, err := r.ReadString('\n')
 		if err != nil {
@@ -95,7 +105,7 @@ func (s *Server) session(c net.Conn) {
 		cmd := strings.ToUpper(line)
 		switch {
 		case strings.HasPrefix(cmd, "EHLO"), strings.HasPrefix(cmd, "HELO"):
-			if s.User != "" {
+			if s.o.User != "" {
 				say("250-mailertest")
 				say("250 AUTH PLAIN")
 			} else {
@@ -104,7 +114,7 @@ func (s *Server) session(c net.Conn) {
 		case strings.HasPrefix(cmd, "AUTH PLAIN"):
 			raw, _ := base64.StdEncoding.DecodeString(strings.TrimSpace(line[len("AUTH PLAIN"):]))
 			parts := strings.Split(string(raw), "\x00")
-			if len(parts) == 3 && parts[1] == s.User && parts[2] == s.Password {
+			if len(parts) == 3 && parts[1] == s.o.User && parts[2] == s.o.Password {
 				authed = true
 				say("235 ok")
 			} else {
@@ -118,7 +128,7 @@ func (s *Server) session(c net.Conn) {
 			cur = Mail{From: strings.Trim(line[len("MAIL FROM:"):], "<> ")}
 			say("250 ok")
 		case strings.HasPrefix(cmd, "RCPT TO:"):
-			if s.RejectRcpt {
+			if s.o.RejectRcpt {
 				say("550 mailbox unavailable")
 				continue
 			}

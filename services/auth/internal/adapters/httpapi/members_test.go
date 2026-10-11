@@ -206,7 +206,7 @@ func (e *env) do(method, path, token, body string, hdr ...string) result {
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	b, _ := io.ReadAll(resp.Body)
 	r := result{status: resp.StatusCode, header: resp.Header, raw: string(b)}
 	_ = json.Unmarshal(b, &r.body)
