@@ -114,7 +114,8 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 	}
 	cursor := pagination.NewCodec(sealer.MAC("cursor", nil))
 	kiosks := app.NewKiosks(store, signer, svc, cursor, cfg.PublicBaseURL, nil, logger)
-	for name, v := range map[string]any{api.ServiceSessions: svc, api.ServiceVerifier: verifier, api.ServiceAudit: svc, api.ServiceKiosks: kiosks} {
+	for name, v := range map[string]any{api.ServiceSessions: svc, api.ServiceVerifier: verifier, api.ServiceAudit: svc, api.ServiceKiosks: kiosks,
+		api.ServiceTenants: svc} {
 		if deps.Services == nil {
 			break
 		}

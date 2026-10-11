@@ -31,17 +31,19 @@ type platformAPIConfig struct {
 	Issuer     string               `env:"HORUS_AUTH_ISSUER" envDefault:"horus-auth"`
 }
 
-// mountAPI monta GET /api/v1/platform/events (contrato v0, platform.yaml)
-// si el proceso sirve la API de plataforma (rol gateway) y tiene registro en
-// PostgreSQL. El borde del gateway ya exige token de plataforma y permiso;
-// el guard lo revalida (defensa en profundidad).
+// mountAPI monta la API de plataforma del proceso con el rol gateway:
+// GET /api/v1/platform/events (contrato v0, platform.yaml) si hay registro en
+// PostgreSQL y GET /api/v1/platform/overview, que compone el estado por ISP
+// de los módulos locales (module.Services). El borde del gateway ya exige
+// token de plataforma y permiso; el guard lo revalida (defensa en
+// profundidad).
 func (p *platform) mountAPI(api *httpx.Mux, services *module.Services) {
-	if p.store == nil || !slices.Contains(p.roles, "gateway") {
+	if !slices.Contains(p.roles, "gateway") {
 		return
 	}
 	cfg, err := config.Load[platformAPIConfig](p.environ)
 	if err != nil {
-		p.logger.Warn("platform events API disabled: config", slog.Any("error", err))
+		p.logger.Warn("platform API disabled: config", slog.Any("error", err))
 		return
 	}
 	verifier, ok := module.Lookup[*authz.Verifier](services, authapi.ServiceVerifier)
@@ -52,11 +54,18 @@ func (p *platform) mountAPI(api *httpx.Mux, services *module.Services) {
 		}
 	}
 	if !ok {
-		p.logger.Warn("platform events API disabled: no token verifier")
+		p.logger.Warn("platform API disabled: no token verifier")
+		return
+	}
+	guard := authz.NewGuard(verifier)
+	routes := api.ForService("gateway")
+	routes.Handle("GET /api/v1/platform/overview", guard.Platform(PermPlatformOverview, newOverviewHandler(services, p.logger).get))
+	if p.store == nil {
+		p.logger.Warn("platform events API disabled: no PostgreSQL registry")
 		return
 	}
 	h := &eventsHandler{store: p.store, cursor: pagination.NewCodec([]byte(cfg.CursorKey.Reveal())), logger: p.logger}
-	api.ForService("gateway").Handle("GET /api/v1/platform/events", authz.NewGuard(verifier).Platform(PermPlatformEvents, h.list))
+	routes.Handle("GET /api/v1/platform/events", guard.Platform(PermPlatformEvents, h.list))
 }
 
 type eventsHandler struct {

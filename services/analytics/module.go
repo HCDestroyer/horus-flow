@@ -63,6 +63,8 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 	if deps.Routes != nil {
 		if v := verifier(cfg, deps); v != nil {
 			httpapi.New(authz.NewGuard(v), m.svc).Mount(deps.Routes)
+			// Destinos remotos de copias en lectura (I1): sin fuente hasta I3.
+			httpapi.NewRemoteDestinations(authz.NewGuard(v), nil, log).Mount(deps.Routes)
 		} else {
 			log.WarnContext(ctx, "analytics: no token verifier (auth not local, HORUS_JWT_PUBLIC_KEYS unset): traffic API not served")
 		}

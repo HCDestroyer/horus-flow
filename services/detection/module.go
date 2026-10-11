@@ -35,6 +35,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/observability"
 	"github.com/hcdestroyer/horus-flow/packages/go/pagination"
 	"github.com/hcdestroyer/horus-flow/packages/go/pgdb"
+	"github.com/hcdestroyer/horus-flow/packages/go/platformoverview"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
 	"github.com/hcdestroyer/horus-flow/services/detection/api/securitywidgets"
 	chreader "github.com/hcdestroyer/horus-flow/services/detection/internal/adapters/clickhouse"
@@ -162,6 +163,11 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 			db.Close()
 			return nil, err
 		}
+		// Hallazgos críticos activos por tenant para GET /platform/overview.
+		if err := deps.Services.Provide(platformoverview.ServiceFindings, platformoverview.SourceFunc(m.overviewStats)); err != nil {
+			db.Close()
+			return nil, err
+		}
 	}
 	if deps.Routes != nil {
 		guard := authz.NewGuard(verifier)
@@ -169,6 +175,20 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		httpapi.NewPlatform(m.sources, guard, cfg.PublicBaseURL, logger).Mount(deps.Routes)
 	}
 	return natsx.WithRelay(ctx, deps, m, db, migrations.Schema)
+}
+
+// overviewStats implementa platformoverview.Source: hallazgos críticos
+// activos por tenant (solo conteos).
+func (m *mod) overviewStats(ctx context.Context) (map[uuid.UUID]platformoverview.Stats, error) {
+	counts, err := m.store.ActiveFindingsBySeverity(ctx, "critical")
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[uuid.UUID]platformoverview.Stats, len(counts))
+	for t, n := range counts {
+		out[t] = platformoverview.Stats{OpenFindingsCritical: platformoverview.Ptr(n)}
+	}
+	return out, nil
 }
 
 func (m *mod) Start(ctx context.Context) error {

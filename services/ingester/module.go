@@ -31,6 +31,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/flowstate"
 	"github.com/hcdestroyer/horus-flow/packages/go/health"
 	"github.com/hcdestroyer/horus-flow/packages/go/module"
+	"github.com/hcdestroyer/horus-flow/packages/go/platformoverview"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
 	collectorapi "github.com/hcdestroyer/horus-flow/services/collector/api"
 	chadapter "github.com/hcdestroyer/horus-flow/services/ingester/internal/adapters/clickhouse"
@@ -62,6 +63,15 @@ func Register(_ context.Context, deps module.Deps) (module.Module, error) {
 				return nil, fmt.Errorf("%s: inventory: %w", Role, err)
 			}
 			m.inv.Swap(s)
+		}
+		if deps.Services != nil {
+			// Exportadores por tenant para GET /platform/overview (gateway).
+			if err := deps.Services.Provide(platformoverview.ServiceExporters, platformoverview.SourceFunc(
+				func(ctx context.Context) (map[uuid.UUID]platformoverview.Stats, error) {
+					return collectorapi.OverviewStats(ctx, m.inv.Load(), m.states, time.Now())
+				})); err != nil {
+				return nil, err
+			}
 		}
 		if deps.Routes != nil {
 			if v := verifier(cfg, deps); v != nil {

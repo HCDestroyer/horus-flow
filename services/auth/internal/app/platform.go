@@ -244,6 +244,32 @@ func (s *Service) ListTenants(ctx context.Context, codec *pagination.Codec, req 
 	return &TenantPage{Data: rows, Page: page}, nil
 }
 
+var _ api.TenantDirectory = (*Service)(nil)
+
+// tenantSummaryBatch es el tamaño de página interno de TenantSummaries.
+const tenantSummaryBatch = 500
+
+// TenantSummaries implementa api.TenantDirectory: todos los tenants no
+// borrados por fecha de alta, en páginas keyset.
+func (s *Service) TenantSummaries(ctx context.Context) ([]api.TenantSummary, error) {
+	out := []api.TenantSummary{}
+	f := TenantFilter{Limit: tenantSummaryBatch}
+	for {
+		rows, err := s.store.ListTenants(ctx, f)
+		if err != nil {
+			return nil, err
+		}
+		for _, t := range rows {
+			out = append(out, api.TenantSummary{ID: t.ID, Slug: t.Slug, Name: t.Name, Status: t.Status})
+		}
+		if len(rows) < tenantSummaryBatch {
+			return out, nil
+		}
+		last := rows[len(rows)-1]
+		f.AfterCreated, f.AfterID = &last.CreatedAt, last.ID
+	}
+}
+
 // UpdateTenant aplica un JSON Merge Patch (TenantPatch) con If-Match.
 func (s *Service) UpdateTenant(ctx context.Context, p *authz.Principal, id uuid.UUID, ifMatch int, patch map[string]json.RawMessage, requestIP string) (*domain.Tenant, error) {
 	t, err := s.GetTenant(ctx, id)
