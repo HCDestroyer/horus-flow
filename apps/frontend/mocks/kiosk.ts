@@ -197,6 +197,8 @@ export interface KioskAdminContext {
   tenant: MockTenant
   can: (permission: string) => boolean
   now: Date
+  /** La acción `x-reauth` exige re-autenticarse antes (`auth_time` viejo simulado). */
+  reauthRequired?: boolean
 }
 
 export function kioskAdminRoute(ctx: KioskAdminContext): Response | undefined {
@@ -272,6 +274,9 @@ export function kioskAdminRoute(ctx: KioskAdminContext): Response | undefined {
   if (!m || !kiosk) return notFound()
   if (!m[2] && ctx.method === 'GET') return json(kiosk, 200, { ETag: `"${kiosk.version}"` })
   if (m[2] === 'enrollment-codes' && ctx.method === 'POST') {
+    if (ctx.reauthRequired) {
+      return problem(403, 'REAUTH_REQUIRED', 'Vuelve a identificarte para generar el código')
+    }
     if (!ctx.req.headers.get('Idempotency-Key')) {
       return problem(428, 'PRECONDITION_REQUIRED', 'Falta Idempotency-Key')
     }

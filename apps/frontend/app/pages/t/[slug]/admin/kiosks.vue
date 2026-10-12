@@ -11,6 +11,7 @@ import type { Kiosk, KioskEnrollmentCode } from '~~/types/api'
 const { t, d } = useI18n()
 const route = useRoute()
 const { $api } = useNuxtApp()
+const { withReauth } = useReauth()
 const toast = useToast()
 const now = useNow()
 const slug = computed(() => String(route.params.slug))
@@ -22,7 +23,7 @@ const {
   status,
   refresh,
 } = useTenantQuery('kiosks', () => unwrap($api.GET('/kiosks')).then((r) => r.data))
-const { data: playlists } = useTenantQuery('playlists', () =>
+const { data: playlists, refresh: refreshPlaylists } = useTenantQuery('playlists', () =>
   unwrap($api.GET('/playlists')).then((r) => r.data),
 )
 let poll: ReturnType<typeof setInterval> | undefined
@@ -62,10 +63,12 @@ async function generate(k: Kiosk) {
   codeFor.value = k
   code.value = null
   try {
-    code.value = await unwrap(
-      $api.POST('/kiosks/{kiosk_id}/enrollment-codes', {
-        params: { path: { kiosk_id: k.id }, header: { 'Idempotency-Key': idempotencyKey() } },
-      }),
+    code.value = await withReauth(() =>
+      unwrap(
+        $api.POST('/kiosks/{kiosk_id}/enrollment-codes', {
+          params: { path: { kiosk_id: k.id }, header: { 'Idempotency-Key': idempotencyKey() } },
+        }),
+      ),
     )
   } catch (e) {
     codeFor.value = null
@@ -104,6 +107,46 @@ async function revoke() {
     toast.add({ title: t(describeError(e).messageKey), color: 'error' })
   }
   revoking.value = null
+  refresh()
+}
+
+// --- Cambiar lista ------------------------------------------------------------------------
+const playlistFor = ref<Kiosk | null>(null)
+const playlistChoice = ref('')
+const playlistOpen = computed({
+  get: () => !!playlistFor.value,
+  set: (v) => {
+    if (!v) playlistFor.value = null
+  },
+})
+const playlistName = (id: string | null | undefined) =>
+  playlists.value?.find((p) => p.id === id)?.name ?? t('kiosks.noPlaylist')
+function changePlaylist(k: Kiosk) {
+  playlistChoice.value = k.playlist_id ?? playlists.value?.[0]?.id ?? ''
+  playlistFor.value = k
+}
+async function savePlaylist() {
+  const k = playlistFor.value
+  if (!k || !playlistChoice.value) return
+  try {
+    await unwrap(
+      $api.PATCH('/kiosks/{kiosk_id}', {
+        params: { path: { kiosk_id: k.id }, header: { 'If-Match': ifMatch(k.version) } },
+        body: { playlist_id: playlistChoice.value },
+      }),
+    )
+    toast.add({
+      title: t('kiosks.playlistSaved', {
+        name: k.name,
+        playlist: playlistName(playlistChoice.value),
+      }),
+      icon: 'i-lucide-check',
+      color: 'success',
+    })
+  } catch (e) {
+    toast.add({ title: t(describeError(e).messageKey), color: 'error' })
+  }
+  playlistFor.value = null
   refresh()
 }
 
@@ -203,6 +246,10 @@ const playlistItems = computed(() =>
             <template v-else>{{ t('kiosks.revokedHint') }}</template>
           </p>
           <dl class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+            <div class="col-span-2">
+              <dt class="text-muted text-xs">{{ t('kiosks.playlistLabel') }}</dt>
+              <dd data-testid="kiosk-playlist">{{ playlistName(k.playlist_id) }}</dd>
+            </div>
             <div>
               <dt class="text-muted text-xs">{{ t('kiosks.lastIp') }}</dt>
               <dd class="font-mono">{{ k.last_ip ?? '—' }}</dd>
@@ -247,10 +294,58 @@ const playlistItems = computed(() =>
               data-testid="revoke-kiosk"
               @click="revoking = k"
             />
+            <UButton
+              size="sm"
+              color="neutral"
+              variant="outline"
+              icon="i-lucide-list-video"
+              :label="t('kiosks.changePlaylist')"
+              :disabled="!playlists?.length"
+              data-testid="change-playlist"
+              @click="changePlaylist(k)"
+            />
           </div>
         </UCard>
       </li>
     </ul>
+
+    <PlaylistsManager
+      class="mt-8"
+      :playlists="playlists ?? []"
+      :kiosks="kiosks ?? []"
+      @changed="refreshPlaylists()"
+    />
+
+    <UModal
+      v-model:open="playlistOpen"
+      :title="t('kiosks.playlistTitle', { name: playlistFor?.name ?? '' })"
+      :description="t('kiosks.playlistBody')"
+    >
+      <template #body>
+        <USelect
+          v-model="playlistChoice"
+          :items="playlistItems"
+          class="w-full"
+          :aria-label="t('kiosks.playlistLabel')"
+          data-testid="kiosk-playlist-select"
+        />
+      </template>
+      <template #footer>
+        <div class="flex w-full justify-end gap-2">
+          <UButton
+            color="neutral"
+            variant="outline"
+            :label="t('common.cancel')"
+            @click="playlistFor = null"
+          />
+          <UButton
+            :label="t('common.save')"
+            data-testid="kiosk-playlist-save"
+            @click="savePlaylist"
+          />
+        </div>
+      </template>
+    </UModal>
 
     <UModal
       v-model:open="codeOpen"

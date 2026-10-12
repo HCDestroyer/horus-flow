@@ -1658,7 +1658,13 @@
       "personalHelp": "Desactivado por defecto: una pantalla la ven visitas y cámaras.",
       "personalReason": "Motivo (queda registrado)",
       "submit": "Crear y generar código"
-    }
+    },
+    "playlistLabel": "Lista",
+    "noPlaylist": "Sin lista",
+    "changePlaylist": "Cambiar lista",
+    "playlistTitle": "Lista de {name}",
+    "playlistBody": "La pantalla cambia a la nueva lista en segundos, sin volver a conectarla.",
+    "playlistSaved": "{name} usa ahora {playlist}"
   },
   "members": {
     "intro": "Quién tiene acceso a este ISP y con qué rol.",
@@ -2153,6 +2159,51 @@
       "fingerprintHelp": "Déjala vacía para conservar la fijada; Horus la fija en el primer contacto.",
       "fingerprintInvalid": "Escribe los 64 dígitos hexadecimales de la huella SHA-256 (con o sin dos puntos).",
       "forgetFingerprint": "Olvidar la huella fijada (se volverá a fijar en el próximo contacto)"
+    }
+  },
+  "playlists": {
+    "title": "Listas de reproducción",
+    "intro": "Qué dashboards rota cada pantalla y cuánto tiempo se muestra cada uno. Los cambios llegan a las TV sin volver a conectarlas.",
+    "add": "Nueva lista",
+    "empty": "Aún no hay listas. Crea una para elegir qué ven las pantallas.",
+    "edit": "Editar",
+    "delete": "Borrar",
+    "usedBy": "Sin pantallas | 1 pantalla | {n} pantallas",
+    "cycle": "Ciclo completo: {time}",
+    "unknownDashboard": "Dashboard no disponible",
+    "created": "Lista {name} creada",
+    "updated": "Lista {name} guardada: las pantallas la aplican en segundos",
+    "deleted": "Lista {name} borrada",
+    "inUse": "Hay pantallas usando esta lista: asígnales otra antes de borrarla.",
+    "deleteTitle": "¿Borrar la lista {name}?",
+    "deleteBody": "La lista se elimina para siempre. Ninguna pantalla la está usando.",
+    "transition": {
+      "fade": "Transición suave",
+      "none": "Sin transición"
+    },
+    "errors": {
+      "name": "Escribe un nombre",
+      "count": "Añade entre 1 y 20 dashboards",
+      "dashboard": "Elige un dashboard en cada fila",
+      "duration": "Cada dashboard se muestra entre 10 y 3600 segundos"
+    },
+    "form": {
+      "title": "Nueva lista",
+      "editTitle": "Editar lista",
+      "description": "Los dashboards se muestran en este orden y vuelven a empezar al terminar.",
+      "name": "Nombre",
+      "namePlaceholder": "Sala NOC",
+      "transition": "Transición entre dashboards",
+      "items": "Dashboards",
+      "itemsHelp": "Solo dashboards compartidos con el ISP o de sistema: los privados no se pueden mostrar en una pantalla.",
+      "noDashboards": "No hay dashboards compartidos. Crea uno o comparte uno tuyo con el ISP.",
+      "dashboard": "Dashboard {n}",
+      "duration": "Duración del dashboard {n} en segundos",
+      "seconds": "segundos",
+      "up": "Subir",
+      "down": "Bajar",
+      "remove": "Quitar",
+      "addItem": "Añadir dashboard"
     }
   }
 }

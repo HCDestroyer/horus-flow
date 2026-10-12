@@ -9,6 +9,7 @@ import type { ReputationCategory, ReputationSource, ReputationSourceFormat } fro
  */
 const { t, d } = useI18n()
 const { $api } = useNuxtApp()
+const { withReauth } = useReauth()
 const toast = useToast()
 useSectionGuard()(findSection('platform', '/platform/reputation'))
 
@@ -33,11 +34,13 @@ const STATUS: Record<
 
 async function toggle(s: ReputationSource, enabled: boolean) {
   try {
-    await unwrap(
-      $api.PATCH('/platform/reputation/sources/{source_id}', {
-        params: { path: { source_id: s.id }, header: { 'If-Match': ifMatch(s.version) } },
-        body: { enabled },
-      }),
+    await withReauth(() =>
+      unwrap(
+        $api.PATCH('/platform/reputation/sources/{source_id}', {
+          params: { path: { source_id: s.id }, header: { 'If-Match': ifMatch(s.version) } },
+          body: { enabled },
+        }),
+      ),
     )
     toast.add({
       title: enabled ? t('reputation.enabled') : t('reputation.disabled'),
@@ -79,10 +82,12 @@ async function remove() {
   const s = deleting.value
   if (!s) return
   try {
-    await unwrap(
-      $api.DELETE('/platform/reputation/sources/{source_id}', {
-        params: { path: { source_id: s.id }, header: { 'If-Match': ifMatch(s.version) } },
-      }),
+    await withReauth(() =>
+      unwrap(
+        $api.DELETE('/platform/reputation/sources/{source_id}', {
+          params: { path: { source_id: s.id }, header: { 'If-Match': ifMatch(s.version) } },
+        }),
+      ),
     )
     toast.add({ title: t('reputation.deleted'), color: 'success', icon: 'i-lucide-check' })
   } catch (e) {
@@ -127,23 +132,25 @@ async function create() {
   }
   saving.value = true
   try {
-    await unwrap(
-      $api.POST('/platform/reputation/sources', {
-        body: {
-          name: form.name.trim(),
-          key: form.key.trim(),
-          url: form.url.trim(),
-          format: form.format,
-          category: form.category,
-          confidence: Number(form.confidence),
-          frequency: form.frequency,
-          license: form.license?.trim() || null,
-          notes: form.notes?.trim() || null,
-          auth_header_name: form.auth_header_name?.trim() || null,
-          auth_header_value: form.auth_header_value || null,
-          terms_acknowledged: true,
-        },
-      }),
+    await withReauth(() =>
+      unwrap(
+        $api.POST('/platform/reputation/sources', {
+          body: {
+            name: form.name.trim(),
+            key: form.key.trim(),
+            url: form.url.trim(),
+            format: form.format,
+            category: form.category,
+            confidence: Number(form.confidence),
+            frequency: form.frequency,
+            license: form.license?.trim() || null,
+            notes: form.notes?.trim() || null,
+            auth_header_name: form.auth_header_name?.trim() || null,
+            auth_header_value: form.auth_header_value || null,
+            terms_acknowledged: true,
+          },
+        }),
+      ),
     )
     formOpen.value = false
     toast.add({ title: t('reputation.form.done'), color: 'success', icon: 'i-lucide-check' })

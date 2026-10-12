@@ -1,5 +1,5 @@
 import { expect, test, type BrowserContext, type Page } from '@playwright/test'
-import { loginAsAdmin } from './helpers'
+import { loginAsAdmin, PASSWORD, TOTP } from './helpers'
 
 /**
  * I1-21 · Modo kiosco: enrolamiento por código, reproducción sin interacción, rotación,
@@ -69,6 +69,43 @@ test.describe('modo kiosco @kiosk', () => {
     await expect(
       page.locator('[data-kiosk="Pantalla de recepción"]').getByTestId('kiosk-presence'),
     ).toHaveText('En línea')
+  })
+
+  test('listas: crear una, asignarla a una pantalla y generar código confirmando identidad', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+    await page.goto(KIOSKS)
+    await page.getByTestId('add-playlist').click()
+    await page.getByTestId('playlist-name').fill('Pared NOC')
+    await page.getByTestId('playlist-add-item').click()
+    await expect(page.getByTestId('playlist-item')).toHaveCount(2)
+    await page.getByTestId('playlist-submit').click()
+    const created = page.locator('[data-playlist="Pared NOC"]')
+    await expect(created).toBeVisible()
+    await expect(created.locator('ol > li')).toHaveCount(2)
+
+    const card = page.locator('[data-kiosk="Pantalla de recepción"]')
+    await card.getByTestId('change-playlist').click()
+    await page.getByTestId('kiosk-playlist-select').click()
+    await page.getByRole('option', { name: 'Pared NOC' }).click()
+    await page.getByTestId('kiosk-playlist-save').click()
+    await expect(card.getByTestId('kiosk-playlist')).toHaveText('Pared NOC')
+    // Una lista en uso no se puede borrar.
+    await expect(created.getByTestId('delete-playlist')).toBeDisabled()
+
+    // Generar el código es x-reauth: se confirma la identidad y se reintenta solo.
+    await page.evaluate(() => localStorage.setItem('horus.mock.reauthRequired', '1'))
+    await card.getByTestId('generate-code').click()
+    const reauth = page.getByRole('dialog', { name: 'Confirma tu identidad' })
+    await expect(reauth).toBeVisible()
+    await page.evaluate(() => localStorage.removeItem('horus.mock.reauthRequired'))
+    await page.getByTestId('reauth-password').fill(PASSWORD)
+    await page.getByTestId('reauth-code').fill(TOTP)
+    await page.getByTestId('reauth-submit').click()
+    await expect(reauth).toHaveCount(0)
+    await expect(page.getByTestId('enrollment-code')).toHaveText(/^[A-Z0-9]{8}$/)
   })
 
   test('rota según la playlist, precarga el siguiente y Espacio pausa', async ({

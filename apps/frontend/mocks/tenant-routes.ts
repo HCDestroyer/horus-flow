@@ -840,26 +840,108 @@ function analyticsRoutes(ctx: TenantRouteContext): Response | undefined {
   }
 }
 
+type MockPlaylist = {
+  id: string
+  tenant_id: string
+  name: string
+  transition: 'fade' | 'none'
+  version: number
+  created_at: string
+  updated_at: string
+  items: { dashboard_id: string; duration_seconds: number }[]
+}
+const playlistStore = new Map<string, MockPlaylist[]>()
+
+function playlistsOf(ctx: TenantRouteContext) {
+  let list = playlistStore.get(ctx.tenant.tenant_id)
+  if (!list) {
+    list = [
+      {
+        id: mockUuid('0194a000', 1),
+        tenant_id: ctx.tenant.tenant_id,
+        name: 'Sala NOC',
+        transition: 'fade',
+        version: 1,
+        created_at: '2026-09-10T12:00:00.000Z',
+        updated_at: '2026-09-10T12:00:00.000Z',
+        items: [
+          { dashboard_id: '0192f000-0000-7000-8000-00000000d001', duration_seconds: 30 },
+          { dashboard_id: '0192f000-0000-7000-8000-00000000d002', duration_seconds: 30 },
+        ],
+      },
+    ]
+    playlistStore.set(ctx.tenant.tenant_id, list)
+  }
+  return list
+}
+
+/** Valida PlaylistInput (playlist.schema.json): nombre ≤ 80, 1–20 elementos de 10–3600 s. */
+function playlistInvalid(body: Record<string, unknown>, partial: boolean) {
+  if (!partial || 'name' in body) {
+    const name = typeof body.name === 'string' ? body.name.trim() : ''
+    if (!name) return validation('name', 'Escribe un nombre')
+    if (name.length > 80) return validation('name', 'Máximo 80 caracteres', 'TOO_LONG')
+  }
+  if (!partial || 'items' in body) {
+    const items = Array.isArray(body.items) ? body.items : []
+    if (items.length < 1 || items.length > 20)
+      return validation('items', 'Entre 1 y 20 dashboards', 'OUT_OF_RANGE')
+    for (const it of items as { dashboard_id?: unknown; duration_seconds?: unknown }[]) {
+      const d = Number(it.duration_seconds)
+      if (typeof it.dashboard_id !== 'string' || !Number.isInteger(d) || d < 10 || d > 3600)
+        return validation('items', 'Cada dashboard dura entre 10 y 3600 s', 'OUT_OF_RANGE')
+    }
+  }
+  return null
+}
+
 function playlistRoutes(ctx: TenantRouteContext): Response | undefined {
   if (match(ctx, 'GET', '/playlists')) {
     return json({
-      data: [
-        {
-          id: mockUuid('0194a000', 1),
-          tenant_id: ctx.tenant.tenant_id,
-          name: 'Sala NOC',
-          transition: 'fade',
-          version: 1,
-          created_at: '2026-09-10T12:00:00.000Z',
-          updated_at: '2026-09-10T12:00:00.000Z',
-          items: [
-            { dashboard_id: '0192f000-0000-7000-8000-00000000d001', duration_seconds: 30 },
-            { dashboard_id: '0192f000-0000-7000-8000-00000000d002', duration_seconds: 30 },
-          ],
-        },
-      ],
+      data: playlistsOf(ctx),
       page: { limit: 50, has_more: false, next_cursor: null, prev_cursor: null },
     })
+  }
+  if (match(ctx, 'POST', '/playlists')) {
+    if (!ctx.can('dashboards.manage')) return forbidden()
+    const bad = playlistInvalid(ctx.body, false)
+    if (bad) return bad
+    const now = ctx.now.toISOString()
+    const pl: MockPlaylist = {
+      id: crypto.randomUUID(),
+      tenant_id: ctx.tenant.tenant_id,
+      name: String(ctx.body.name).trim(),
+      transition: ctx.body.transition === 'none' ? 'none' : 'fade',
+      version: 1,
+      created_at: now,
+      updated_at: now,
+      items: ctx.body.items as MockPlaylist['items'],
+    }
+    playlistsOf(ctx).push(pl)
+    return json(pl, 201, etag(1))
+  }
+  const one = match(ctx, 'PATCH', '/playlists/{id}') ?? match(ctx, 'DELETE', '/playlists/{id}')
+  if (one) {
+    if (!ctx.can('dashboards.manage')) return forbidden()
+    const list = playlistsOf(ctx)
+    const pl = list.find((x) => x.id === one.id)
+    if (!pl) return notFound()
+    const expected = ifMatch(ctx.req)
+    if (expected === null) return problem(428, 'PRECONDITION_REQUIRED', 'Falta If-Match')
+    if (expected !== pl.version) return preconditionFailed(pl)
+    if (ctx.method === 'DELETE') {
+      list.splice(list.indexOf(pl), 1)
+      return noContent()
+    }
+    const bad = playlistInvalid(ctx.body, true)
+    if (bad) return bad
+    if (typeof ctx.body.name === 'string') pl.name = ctx.body.name.trim()
+    if (Array.isArray(ctx.body.items)) pl.items = ctx.body.items as MockPlaylist['items']
+    if (ctx.body.transition === 'fade' || ctx.body.transition === 'none')
+      pl.transition = ctx.body.transition
+    pl.version++
+    pl.updated_at = ctx.now.toISOString()
+    return json(pl, 200, etag(pl.version))
   }
 }
 

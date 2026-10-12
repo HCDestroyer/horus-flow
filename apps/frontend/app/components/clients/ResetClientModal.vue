@@ -12,6 +12,7 @@ const open = defineModel<boolean>('open', { default: false })
 
 const { t } = useI18n()
 const { $api } = useNuxtApp()
+const { withReauth } = useReauth()
 const toast = useToast()
 const reason = ref('')
 const touched = ref(false)
@@ -31,14 +32,16 @@ async function confirm() {
   if (!reason.value.trim()) return
   saving.value = true
   try {
-    const updated = await unwrap(
-      $api.POST('/customers/{customer_id}/reset', {
-        params: {
-          path: { customer_id: props.customer.id },
-          header: { 'If-Match': ifMatch(props.customer.version) },
-        },
-        body: { reason: reason.value.trim() },
-      }),
+    const updated = await withReauth(() =>
+      unwrap(
+        $api.POST('/customers/{customer_id}/reset', {
+          params: {
+            path: { customer_id: props.customer.id },
+            header: { 'If-Match': ifMatch(props.customer.version) },
+          },
+          body: { reason: reason.value.trim() },
+        }),
+      ),
     )
     open.value = false
     toast.add({ title: t('clients.reset.done'), icon: 'i-lucide-check', color: 'success' })

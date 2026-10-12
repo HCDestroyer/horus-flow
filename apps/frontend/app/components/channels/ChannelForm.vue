@@ -18,6 +18,7 @@ const open = defineModel<boolean>('open', { default: false })
 
 const { t } = useI18n()
 const { $api } = useNuxtApp()
+const { withReauth } = useReauth()
 const toast = useToast()
 
 const EVENTS: NotificationEventType[] = [
@@ -126,11 +127,13 @@ async function save() {
       : await unwrap($api.POST('/notification-channels', { body: { ...body, kind: form.kind } }))
     const creds = credentials()
     if (creds) {
-      await unwrap(
-        $api.PUT('/notification-channels/{channel_id}/credentials', {
-          params: { path: { channel_id: saved.id } },
-          body: creds,
-        }),
+      await withReauth(() =>
+        unwrap(
+          $api.PUT('/notification-channels/{channel_id}/credentials', {
+            params: { path: { channel_id: saved.id } },
+            body: creds,
+          }),
+        ),
       )
     }
     open.value = false

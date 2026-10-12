@@ -644,7 +644,7 @@ export function createMockFetch(options: MockOptions = {}) {
         reauthRequired: reauthRequired(user),
       }) ??
       channelRoute(shared) ??
-      kioskAdminRoute(shared) ??
+      kioskAdminRoute({ ...shared, reauthRequired: reauthRequired(user) }) ??
       memberRoute({
         ...shared,
         url,
