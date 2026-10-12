@@ -133,7 +133,7 @@ func setup(t *testing.T) *fixture {
 	creds := app.NewCredentials(st, sealer, func() (authapi.AuditRecorder, bool) { return audit, true }, nil, logger)
 	mux := httpx.NewMux(nil, logger)
 	sm := mux.ForService("devices")
-	New(app.NewService(st, nil, nil), guard, "", logger).Mount(sm)
+	New(app.NewService(st, nil, nil), guard, "", logger).WithCredentials(creds).Mount(sm)
 	NewCredentials(creds, guard, logger).Mount(sm)
 	return &fixture{h: mux.Handler(), signer: signer, store: st, sealer: sealer, audit: audit, logs: logs}
 }
@@ -214,6 +214,49 @@ func TestPutRouterOSCredential(t *testing.T) {
 	}
 	if strings.Contains(fx.logs.String(), apiPassword) {
 		t.Fatal("secret logged")
+	}
+}
+
+// GET /routers/{id} devuelve el estado de las dos credenciales (para que la
+// consola lo muestre tras recargar), con la huella fijada y nunca el secreto.
+func TestGetRouterCredentialStatus(t *testing.T) {
+	fx := setup(t)
+	read := fx.token(t, tenantA, map[string][]string{"devices.read": {"*"}}, time.Hour)
+	get := func() []map[string]any {
+		t.Helper()
+		w := fx.do(http.MethodGet, "/api/v1/routers/"+routerA.String(), read, "", nil)
+		if w.Code != http.StatusOK {
+			t.Fatalf("get = %d %s", w.Code, w.Body)
+		}
+		if strings.Contains(w.Body.String(), apiPassword) {
+			t.Fatalf("router leaks secret: %s", w.Body)
+		}
+		var body struct {
+			Credentials []map[string]any `json:"credentials"`
+		}
+		_ = json.Unmarshal(w.Body.Bytes(), &body)
+		return body.Credentials
+	}
+	cs := get()
+	if len(cs) != 2 || cs[0]["configured"] != false || cs[1]["configured"] != false {
+		t.Fatalf("sin credenciales: %v", cs)
+	}
+	fp := strings.Repeat("ab", 32)
+	body := `{"username":"horus-ro","password":"` + apiPassword + `","tls_fingerprint_sha256":"` + fp + `"}`
+	if w := fx.do(http.MethodPut, credPath(routerA, "routeros_api"), fx.token(t, tenantA, credsWrite, time.Minute), body, nil); w.Code != http.StatusOK {
+		t.Fatalf("put = %d %s", w.Code, w.Body)
+	}
+	byKind := map[string]map[string]any{}
+	for _, c := range get() {
+		byKind[c["kind"].(string)] = c
+	}
+	api, snmp := byKind["routeros_api"], byKind["snmp"]
+	if api["configured"] != true || api["updated_at"] == nil || api["tls_fingerprint_sha256"] == nil || snmp["configured"] != false {
+		t.Fatalf("estado tras guardar: %v", byKind)
+	}
+	// Otro ISP no ve el router (ni sus credenciales).
+	if w := fx.do(http.MethodGet, "/api/v1/routers/"+routerA.String(), fx.token(t, tenantB, map[string][]string{"devices.read": {"*"}}, time.Hour), "", nil); w.Code != http.StatusNotFound {
+		t.Fatalf("otro ISP = %d", w.Code)
 	}
 }
 

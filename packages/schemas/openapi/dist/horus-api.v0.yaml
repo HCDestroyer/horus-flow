@@ -9829,6 +9829,11 @@ components:
             - unreachable
             - tls_fingerprint_changed
             - null
+        tls_fingerprint_sha256:
+          type:
+            - string
+            - 'null'
+          description: Huella SHA-256 del certificado TLS fijada para la API de RouterOS (solo routeros_api; null hasta el primer contacto).
     Router:
       allOf:
         - $ref: '#/components/schemas/TenantScopedResource'

@@ -2168,6 +2168,8 @@ export interface components {
             /** @enum {string|null} */
             last_result?: "ok" | "auth_failed" | "unreachable" | "tls_fingerprint_changed" | null;
             last_used_at?: components["schemas"]["Timestamp"] | null;
+            /** @description Huella SHA-256 del certificado TLS fijada para la API de RouterOS (solo routeros_api; null hasta el primer contacto). */
+            tls_fingerprint_sha256?: string | null;
             updated_at?: components["schemas"]["Timestamp"] | null;
         };
         Customer: {

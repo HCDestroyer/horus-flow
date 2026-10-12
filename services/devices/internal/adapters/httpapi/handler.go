@@ -22,9 +22,17 @@ import (
 // Handler sirve las rutas del módulo.
 type Handler struct {
 	svc     *app.Service
+	creds   *app.Credentials
 	guard   *authz.Guard
 	baseURL string
 	logger  *slog.Logger
+}
+
+// WithCredentials añade el estado de las credenciales (sin secretos) a
+// GET /routers/{id}; sin él la lista va vacía.
+func (h *Handler) WithCredentials(c *app.Credentials) *Handler {
+	h.creds = c
+	return h
 }
 
 // New crea el handler.
@@ -236,7 +244,20 @@ func (h *Handler) getRouter(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	writeItem(w, http.StatusOK, x.Version, routerJSON(x))
+	body := routerJSON(x)
+	if h.creds != nil {
+		sts, err := h.creds.Statuses(r.Context(), id)
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		list := make([]any, 0, len(sts))
+		for i := range sts {
+			list = append(list, credentialStatusJSON(&sts[i]))
+		}
+		body["credentials"] = list
+	}
+	writeItem(w, http.StatusOK, x.Version, body)
 }
 
 func (h *Handler) updateRouter(w http.ResponseWriter, r *http.Request) {

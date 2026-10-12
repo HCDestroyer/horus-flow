@@ -94,11 +94,43 @@ func NewCredentials(store CredentialStore, sealer *envelope.Sealer, audit func()
 
 // CredentialStatus es el esquema CredentialStatus (sin secretos).
 type CredentialStatus struct {
-	Kind       string
-	Configured bool
-	UpdatedAt  *time.Time
-	LastUsedAt *time.Time
-	LastResult *string
+	Kind                 string
+	Configured           bool
+	UpdatedAt            *time.Time
+	LastUsedAt           *time.Time
+	LastResult           *string
+	TLSFingerprintSHA256 *string
+}
+
+// Statuses devuelve el estado de las dos credenciales del router (snmp y
+// routeros_api) para GET /routers/{id}: si están configuradas, último uso y
+// resultado y la huella TLS fijada. Nunca el secreto. Requiere devices.read en
+// el sitio del router; fuera de alcance → 404 como el resto de rutas.
+func (c *Credentials) Statuses(ctx context.Context, routerID uuid.UUID) ([]CredentialStatus, error) {
+	p, t, err := scope(ctx, "devices.read")
+	if err != nil {
+		return nil, err
+	}
+	r, err := c.store.GetRouter(ctx, t, routerID)
+	if err != nil || !siteAllowed(p, "devices.read", r.SiteID) {
+		return nil, apperr.NotFound(domain.CodeRouterNotFound)
+	}
+	out := make([]CredentialStatus, 0, len(CredentialKinds))
+	for _, kind := range CredentialKinds {
+		st := CredentialStatus{Kind: kind}
+		cred, err := c.store.GetCredential(ctx, t, routerID, credentialPathKinds[kind])
+		switch {
+		case errors.Is(err, domain.ErrNotFound):
+		case err != nil:
+			return nil, err
+		default:
+			at := cred.UpdatedAt
+			st.Configured, st.UpdatedAt, st.LastUsedAt, st.LastResult = true, &at, cred.LastUsedAt, cred.LastResult
+			st.TLSFingerprintSHA256 = cred.TLSFingerprintSHA256
+		}
+		out = append(out, st)
+	}
+	return out, nil
 }
 
 // PutCredential valida, cifra y sustituye la credencial `kind` del router.
@@ -137,7 +169,7 @@ func (c *Credentials) PutCredential(ctx context.Context, routerID uuid.UUID, kin
 	}
 	recordAudit(ctx, c.audit, c.store, c.logger, now, p, t, AuditCredentialsWrite, "router", routerID.String(),
 		"site:"+r.SiteID.String(), changes)
-	return &CredentialStatus{Kind: kind, Configured: true, UpdatedAt: &now}, nil
+	return &CredentialStatus{Kind: kind, Configured: true, UpdatedAt: &now, TLSFingerprintSHA256: cred.TLSFingerprintSHA256}, nil
 }
 
 // credentialFieldNames son los campos enviados (para la auditoría: nombres,

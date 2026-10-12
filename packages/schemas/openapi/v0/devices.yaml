@@ -1014,6 +1014,9 @@ components:
             - $ref: './common.yaml#/components/schemas/Timestamp'
             - type: 'null'
         last_result: { type: [string, 'null'], enum: [ok, auth_failed, unreachable, tls_fingerprint_changed, null] }
+        tls_fingerprint_sha256:
+          type: [string, 'null']
+          description: Huella SHA-256 del certificado TLS fijada para la API de RouterOS (solo routeros_api; null hasta el primer contacto).
     ClientPrefixRole:
       type: string
       enum: [customers, infrastructure, excluded]

@@ -69,5 +69,5 @@ func tsPtr(t *time.Time) any {
 
 func credentialStatusJSON(s *app.CredentialStatus) map[string]any {
 	return map[string]any{"kind": s.Kind, "configured": s.Configured, "updated_at": tsPtr(s.UpdatedAt),
-		"last_used_at": tsPtr(s.LastUsedAt), "last_result": s.LastResult}
+		"last_used_at": tsPtr(s.LastUsedAt), "last_result": s.LastResult, "tls_fingerprint_sha256": s.TLSFingerprintSHA256}
 }

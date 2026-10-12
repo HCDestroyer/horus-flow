@@ -123,7 +123,7 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		}, nil, logger)
 	if deps.Routes != nil {
 		guard := authz.NewGuard(verifier)
-		httpapi.New(svc, guard, cfg.PublicBaseURL, logger).Mount(deps.Routes)
+		httpapi.New(svc, guard, cfg.PublicBaseURL, logger).WithCredentials(credentials).Mount(deps.Routes)
 		httpapi.NewCredentials(credentials, guard, logger).Mount(deps.Routes)
 		httpapi.NewImport(importer, guard, logger).Mount(deps.Routes)
 		httpapi.NewCustomers(customers, guard, logger).Mount(deps.Routes)
