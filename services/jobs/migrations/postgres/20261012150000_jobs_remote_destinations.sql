@@ -2,7 +2,7 @@
 --  * installation: identificador estable de la instalación; nombra la carpeta de las copias en el destino
 --    (<ruta>/horus-<id>/backups/...). Viaja con los backups de PostgreSQL: tras una restauración la carpeta
 --    remota sigue siendo la misma.
---  * remote_destination: destinos de plataforma (tenant_id nulo; por tenant fuera de v1, Q20). Credenciales
+--  * remote_destination: destinos de plataforma (sin tenant_id: los destinos por ISP, Q20, llegarán con su columna y RLS). Credenciales
 --    SFTP write-only con envelope encryption (KEK de jobs, AAD "remote_destination:<id>"); huella SHA-256 de
 --    la clave del servidor confirmada por la persona (TOFU); estado de la última copia. `version` es el ETag:
 --    no sube con el estado de las copias, solo con las ediciones.
@@ -38,7 +38,6 @@ CREATE TABLE jobs.installation (
 
 CREATE TABLE jobs.remote_destination (
   id                     uuid PRIMARY KEY,
-  tenant_id              uuid CHECK (tenant_id IS NULL),
   kind                   text NOT NULL CHECK (kind IN ('sftp')),
   name                   text NOT NULL CHECK (length(name) BETWEEN 1 AND 120),
   host                   text NOT NULL CHECK (length(host) BETWEEN 1 AND 253),

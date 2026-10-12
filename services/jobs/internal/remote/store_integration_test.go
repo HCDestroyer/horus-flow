@@ -18,6 +18,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/crypto/envelope"
 	"github.com/hcdestroyer/horus-flow/packages/go/pgdb"
 	"github.com/hcdestroyer/horus-flow/packages/go/pgdb/pgtest"
+	"github.com/hcdestroyer/horus-flow/packages/go/tenanttest"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
 	"github.com/hcdestroyer/horus-flow/services/jobs/migrations"
 )
@@ -34,6 +35,22 @@ func newPGStore(t *testing.T) (*Store, *pgdb.DB) {
 		t.Fatal(err)
 	}
 	return NewStore(db), db
+}
+
+// database.md §1.2: toda tabla con tenant_id lleva RLS forzada y p_tenant. Los
+// destinos remotos son de plataforma y no tienen tenant_id (la batería accept-i1
+// lo comprobó contra la instalación real y falló cuando la columna existía).
+func TestJobsSchemaTenantColumnsHaveRLS(t *testing.T) {
+	_, db := newPGStore(t)
+	tables, err := tenanttest.InspectRLS(context.Background(), db.Pool, []string{migrations.Schema})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tb := range tables {
+		if !tb.Enabled || !tb.Forced || tb.TenantNullable {
+			t.Errorf("%s: tenant_id sin RLS forzada o admite NULL: %+v", tb.Table, tb)
+		}
+	}
 }
 
 func TestStorePostgres(t *testing.T) {
