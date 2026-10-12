@@ -8,7 +8,9 @@ import type { FlowExporter, Peer, Router } from '~~/types/api'
  * 2. Pegar en el router: el script envía la clave sola; la UI pasa a "Clave recibida".
  * 3. Verificación: clave → handshake → primer flujo → primeros clientes, marcados en vivo
  *    (sondeo cada 3 s mientras no termina; el WebSocket `wireguard.peers` lo sustituirá).
- * Horus no escribe en el router: el script lo pega el técnico.
+ * Horus no escribe en el router: el script lo pega el técnico. Generarlo es `x-reauth`: si el
+ * backend pide confirmar identidad se abre `ReauthModal` y se reintenta; RouterOS < 7.12 →
+ * `ROUTEROS_VERSION_UNSUPPORTED` con el motivo.
  */
 const props = defineProps<{
   router: Router
@@ -23,6 +25,7 @@ const { t, d } = useI18n()
 const { $api } = useNuxtApp()
 const can = useCan()
 const toast = useToast()
+const { withReauth } = useReauth()
 const canWrite = computed(() => can('wireguard.write'))
 
 const script = ref<string | null>(null)
@@ -38,21 +41,35 @@ const tokenDead = computed(
   () => stage.value === 0 && (tokenState.value === 'expired' || tokenState.value === 'revoked'),
 )
 
+async function requestScript() {
+  const res = await $api.POST('/routers/{router_id}/provisioning-script', {
+    params: {
+      path: { router_id: props.router.id },
+      header: { 'Idempotency-Key': idempotencyKey() },
+    },
+    body: {},
+    parseAs: 'text',
+  })
+  if (!res.response.ok) {
+    // Con `parseAs: 'text'` el Problem llega como texto: se interpreta aquí.
+    let body: unknown = res.error
+    if (typeof body === 'string') {
+      try {
+        body = JSON.parse(body)
+      } catch {
+        // no era JSON
+      }
+    }
+    throw new ApiError(toProblem(res.response.status, body))
+  }
+  return res
+}
+
 async function generate() {
   generating.value = true
   genError.value = null
   try {
-    const res = await $api.POST('/routers/{router_id}/provisioning-script', {
-      params: {
-        path: { router_id: props.router.id },
-        header: { 'Idempotency-Key': idempotencyKey() },
-      },
-      body: {},
-      parseAs: 'text',
-    })
-    if (!res.response.ok) {
-      throw new ApiError(toProblem(res.response.status, res.error))
-    }
+    const res = await withReauth(requestScript, t('onboarding.generate.reauth'))
     script.value = res.data as unknown as string
     tokenId.value = res.response.headers.get('X-Horus-Enrollment-Token-Id')
     tokenExpires.value = res.response.headers.get('X-Horus-Enrollment-Token-Expires-At')
@@ -63,6 +80,15 @@ async function generate() {
     generating.value = false
   }
 }
+
+const genErrorText = computed(() => {
+  const e = genError.value
+  if (isReauthRequired(e)) return t('onboarding.generate.reauthNeeded')
+  if (e instanceof ApiError && e.code === 'ROUTEROS_VERSION_UNSUPPORTED') {
+    return t('onboarding.generate.unsupported')
+  }
+  return null
+})
 
 async function revoke() {
   const id = tokenId.value ?? props.peer?.enrollment.token_id
@@ -180,7 +206,15 @@ onBeforeUnmount(() => clearInterval(timer))
                   data-testid="provisioning-script"
                 />
               </template>
-              <ErrorState v-if="genError" :error="genError" @retry="generate" />
+              <UAlert
+                v-if="genErrorText"
+                color="warning"
+                variant="subtle"
+                icon="i-lucide-triangle-alert"
+                :title="genErrorText"
+                data-testid="generate-blocked"
+              />
+              <ErrorState v-else-if="genError" :error="genError" @retry="generate" />
               <div v-if="canWrite && stage === 0" class="flex flex-wrap gap-2">
                 <UButton
                   :icon="script ? 'i-lucide-refresh-cw' : 'i-lucide-file-code-2'"

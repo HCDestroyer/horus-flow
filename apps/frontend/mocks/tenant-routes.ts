@@ -9,6 +9,7 @@ import type {
 } from '~~/types/api'
 import { CATEGORIES, maskIp } from './base'
 import type { MockTenant } from './data'
+import { deviceRoutes } from './devices'
 import { evidenceFlows, findFinding, findingsOf, securitySummary, sortFindings } from './findings'
 import {
   forbidden,
@@ -65,6 +66,8 @@ export interface TenantRouteContext {
   empty: boolean
   /** Paso del asistente de alta simulado (ms entre "clave recibida", "túnel" y "primer flujo"). */
   stepMs: number
+  /** La acción `x-reauth` exige re-autenticarse antes (`auth_time` viejo simulado). */
+  reauthRequired?: boolean
 }
 
 type Params = Record<string, string>
@@ -656,8 +659,18 @@ function inventoryRoutes(ctx: TenantRouteContext): Response | undefined {
   if (match(ctx, 'GET', '/flow-exporters/{id}')) return json(item.exporter)
   if (match(ctx, 'POST', '/routers/{id}/provisioning-script')) {
     if (!ctx.can('wireguard.write')) return forbidden()
+    if (ctx.reauthRequired) {
+      return problem(403, 'REAUTH_REQUIRED', 'Vuelve a identificarte para generar el script')
+    }
     if (!ctx.req.headers.get('Idempotency-Key')) {
       return problem(428, 'PRECONDITION_REQUIRED', 'Falta Idempotency-Key')
+    }
+    if (item.router.routeros_version_supported === false) {
+      return problem(
+        422,
+        'ROUTEROS_VERSION_UNSUPPORTED',
+        'RouterOS anterior a 7.12: actualiza el router antes de generar el script',
+      )
     }
     const tokenId = mockUuid('0193e000', hash(item.router.id + now.getTime()))
     const ttl = readEnrollTtl()
@@ -854,6 +867,7 @@ export function tenantRoute(ctx: TenantRouteContext): Response | undefined {
   return (
     customerRoutes(ctx) ??
     findingRoutes(ctx) ??
+    deviceRoutes(ctx) ??
     inventoryRoutes(ctx) ??
     analyticsRoutes(ctx) ??
     playlistRoutes(ctx)

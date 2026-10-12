@@ -509,7 +509,8 @@
     "yes": "Sí",
     "no": "No",
     "never": "Nunca",
-    "since": "desde {time}"
+    "since": "desde {time}",
+    "optional": "Opcional"
   },
   "ranges": {
     "1h": "Última hora",
@@ -833,6 +834,7 @@
     "tabs": {
       "summary": "Resumen",
       "connection": "Conexión",
+      "credentials": "Credenciales",
       "prefixes": "Prefijos de clientes",
       "traffic": "Tráfico"
     },
@@ -879,7 +881,10 @@
       "noPermission": "Pide a quien administra el ISP que genere el script (permiso de WireGuard).",
       "onceTitle": "Solo se muestra una vez",
       "onceBody": "Contiene la contraseña del usuario de solo lectura y el token de enrolamiento (un solo uso, válido hasta {date}). Cópialo o descárgalo ahora; si lo pierdes, regéneralo.",
-      "scriptLabel": "Script de alta (RouterOS)"
+      "scriptLabel": "Script de alta (RouterOS)",
+      "reauth": "Generar el script crea contraseñas y un token de enrolamiento nuevos: confirma tu identidad para continuar.",
+      "reauthNeeded": "Confirma tu identidad para generar el script (pulsa de nuevo \"Generar script\").",
+      "unsupported": "Este router tiene RouterOS anterior a 7.12: actualízalo (o corrige la versión en \"Editar router\") y vuelve a generar el script."
     },
     "paste": {
       "title": "Pegar en el router",
@@ -994,6 +999,13 @@
         "exists": "Ya existe",
         "overlaps": "Solapa con uno existente"
       }
+    },
+    "confirm": {
+      "pending": "Sin confirmar",
+      "action": "Confirmar",
+      "aria": "Confirmar {prefix}",
+      "done": "Prefijo {prefix} confirmado",
+      "conflict": "El prefijo cambió mientras lo revisabas: recargamos la lista, revísalo y vuelve a confirmarlo."
     }
   },
   "platform": {
@@ -1464,5 +1476,189 @@
     "wrong": "Contraseña incorrecta.",
     "wrongWithCode": "La contraseña o el código no son correctos.",
     "submit": "Confirmar"
+  },
+  "devices": {
+    "routers": "Routers",
+    "conflictTitle": "Otra persona hizo cambios mientras editabas",
+    "nodes": {
+      "intro": "Cada nodo agrupa sus routers MikroTik; el principal envía los flujos a Horus por el túnel WireGuard.",
+      "add": "Nuevo nodo",
+      "addFirst": "Crear el primer nodo",
+      "emptyTitle": "Aún no hay nodos",
+      "emptyBody": "Empieza por crear un nodo (un sitio o POP de tu red). Después agregas su router MikroTik, pegas el script de conexión WireGuard y Horus empieza a recibir el tráfico.",
+      "emptyNoPermission": "Todavía no hay nodos en este ISP. Pide a quien lo administra que cree el primero.",
+      "noRouters": "Sin routers todavía.",
+      "noRoutersTitle": "Este nodo aún no tiene routers",
+      "noRoutersBody": "Agrega el primer router: es el MikroTik que enviará los flujos de este nodo a Horus. Después te guiamos con el script de conexión.",
+      "addFirstRouter": "Agrega el primer router",
+      "addRouter": "Agregar router",
+      "otherRouters": "y {n} router(s) más"
+    },
+    "site": {
+      "createTitle": "Nuevo nodo",
+      "createDescription": "Un nodo es un sitio o POP de tu red (p. ej. \"Nodo Centro\"). Luego le agregas su router.",
+      "createSubmit": "Crear nodo",
+      "created": "Nodo {name} creado",
+      "editTitle": "Editar nodo",
+      "editDescription": "Los cambios se guardan sobre la versión que estás viendo.",
+      "edit": "Editar nodo",
+      "updated": "Nodo actualizado",
+      "name": "Nombre",
+      "namePlaceholder": "Nodo Centro",
+      "nameRequired": "Escribe el nombre del nodo.",
+      "code": "Código",
+      "codeHelp": "Corto y único en el ISP (p. ej. CEN).",
+      "codeTaken": "Ya hay un nodo con ese código. Elige otro.",
+      "kindLabel": "Tipo",
+      "kind": {
+        "node": "Nodo",
+        "region": "Región",
+        "datacenter": "Centro de datos",
+        "other": "Otro"
+      },
+      "address": "Dirección",
+      "timezone": "Zona horaria",
+      "timezoneHelp": "Formato IANA, p. ej. America/Bogota.",
+      "timezoneInvalid": "Zona horaria no reconocida. Usa el formato IANA, p. ej. America/Bogota.",
+      "latitude": "Latitud",
+      "longitude": "Longitud",
+      "latitudeInvalid": "Número entre -90 y 90.",
+      "longitudeInvalid": "Número entre -180 y 180.",
+      "coordinates": "Coordenadas",
+      "conflictBody": "Cargamos la versión actual del nodo en el formulario. Revisa los datos y vuelve a guardar.",
+      "delete": "Eliminar nodo",
+      "deleteTitle": "¿Eliminar {name}?",
+      "deleteBody": "El nodo deja de aparecer en Horus junto con sus prefijos de clientes. Solo se puede eliminar un nodo sin routers.",
+      "deleteSubmit": "Eliminar nodo",
+      "deleted": "Nodo {name} eliminado",
+      "notEmptyTitle": "Este nodo todavía tiene routers",
+      "notEmptyBody": "Elimina primero sus {n} router(s) desde la ficha de cada uno (antes, desinstala Horus del router con el script de desinstalación):",
+      "deleteConflict": "El nodo cambió mientras lo revisabas. Recargamos sus datos: revísalos y vuelve a intentarlo."
+    },
+    "router": {
+      "createTitle": "Agregar router",
+      "createDescription": "Registra el MikroTik del nodo. Horus solo lo lee: no escribe en él.",
+      "createSubmit": "Agregar router",
+      "createdTitle": "Router {name} registrado",
+      "createdDescription": "Siguiente paso: generar el script de conexión WireGuard y pegarlo en el router.",
+      "continueToScript": "Continuar con el script de conexión",
+      "later": "Más tarde",
+      "editTitle": "Editar router",
+      "editDescription": "Los cambios se guardan sobre la versión que estás viendo.",
+      "edit": "Editar router",
+      "updated": "Router actualizado",
+      "name": "Nombre (identidad del router)",
+      "nameHelp": "El /system identity del MikroTik, sin espacios (p. ej. rt-centro). Único en el ISP.",
+      "nameRequired": "Escribe el nombre del router.",
+      "nameSpaces": "Sin espacios: usa guiones (p. ej. rt-centro).",
+      "nameTaken": "Ya hay un router con ese nombre en el ISP. Elige otro.",
+      "displayName": "Nombre visible",
+      "model": "Modelo",
+      "version": "Versión de RouterOS",
+      "versionHelp": "Solo RouterOS 7, desde 7.12 (p. ej. 7.16.2). Se actualiza sola al conectar.",
+      "versionInvalid": "Horus solo admite RouterOS 7.x: escribe la versión como 7.16 o 7.16.2.",
+      "unsupportedTitle": "RouterOS anterior a 7.12",
+      "unsupportedBody": "El router se puede registrar, pero no se podrá generar el script de conexión hasta actualizarlo a RouterOS 7.12 o superior.",
+      "primary": "Router principal",
+      "primaryHelp": "El principal es el que envía los flujos del nodo a Horus (uno por nodo).",
+      "primaryTaken": "Este nodo ya tiene un router principal: el nuevo se registrará como secundario.",
+      "primaryYes": "Sí, es el principal del nodo",
+      "primaryNo": "No, es secundario",
+      "primaryBadge": "Principal",
+      "secondaryBadge": "Secundario",
+      "primaryExistsTitle": "Este nodo ya tiene un router principal",
+      "primaryExistsBody": "Solo puede haber un principal por nodo. Regístralo como secundario o elimina primero el principal actual.",
+      "saveAsSecondary": "Registrar como secundario",
+      "conflictBody": "Cargamos la versión actual del router en el formulario. Revisa los datos y vuelve a guardar.",
+      "adminState": "Estado administrativo",
+      "admin": {
+        "active": "Activo",
+        "maintenance": "En mantenimiento",
+        "decommissioned": "Retirado"
+      },
+      "delete": "Eliminar router",
+      "deleteTitle": "¿Eliminar {name}?",
+      "deleteBody": "Horus revoca su túnel WireGuard, deja de esperar sus flujos y el router desaparece del nodo. Esta acción no toca la configuración del MikroTik.",
+      "deleteSubmit": "Eliminar router",
+      "deleted": "Router {name} eliminado",
+      "deleteConflict": "El router cambió mientras lo revisabas. Recargamos sus datos: revísalos y vuelve a intentarlo.",
+      "deprovisionFirstTitle": "Desinstala Horus del router antes",
+      "deprovisionFirstBody": "Pega en el MikroTik el script de desinstalación: quita el túnel WireGuard, el usuario de solo lectura y el destino de Traffic Flow que creó el script de alta."
+    },
+    "steps": {
+      "label": "Pasos para conectar un nodo",
+      "next": "Siguientes pasos",
+      "site": {
+        "title": "Nodo",
+        "body": "El sitio o POP de tu red."
+      },
+      "router": {
+        "title": "Router",
+        "body": "El MikroTik principal del nodo."
+      },
+      "script": {
+        "title": "Script de conexión WireGuard",
+        "body": "Lo pegas en el router; crea el túnel y la exportación de flujos."
+      },
+      "credentials": {
+        "title": "Credenciales",
+        "body": "Usuario de solo lectura (API) y SNMPv3; el script ya las crea."
+      },
+      "prefixes": {
+        "title": "Prefijos de clientes",
+        "body": "Qué IPs son de clientes: importa del MikroTik o decláralas."
+      }
+    }
+  },
+  "credentials": {
+    "readOnlyTitle": "Horus solo lee del router",
+    "readOnlyBody": "Horus nunca escribe en tu MikroTik: usa estas credenciales únicamente para leer por el túnel WireGuard (API REST de RouterOS y SNMPv3). Recomendamos un usuario de un grupo sin permiso de escritura.",
+    "scriptNote": "El script de conexión ya crea el usuario de solo lectura y el usuario SNMPv3 y Horus las guarda cifradas. Usa esto para reemplazarlas (p. ej. si rotaste las contraseñas o creaste los usuarios a mano).",
+    "neverShown": "Los secretos nunca se muestran: ni al guardarlos ni después.",
+    "snippetTitle": "Crear los usuarios de solo lectura a mano",
+    "snippetBody": "Comandos para RouterOS 7: un grupo sin escritura, el usuario de la API limitado a la IP de Horus en el túnel y un usuario SNMPv3 authPriv de solo lectura. Cambia las contraseñas de ejemplo antes de pegarlos.",
+    "snippetLabel": "Comandos RouterOS (solo lectura)",
+    "configured": "Configurada",
+    "notConfigured": "Sin configurar",
+    "updatedAt": "Actualizada",
+    "lastUsed": "Último uso",
+    "lastResult": "Último resultado",
+    "result": {
+      "ok": "Correcto",
+      "auth_failed": "Usuario o contraseña rechazados",
+      "unreachable": "Router inalcanzable por el túnel",
+      "tls_fingerprint_changed": "La huella TLS del router cambió"
+    },
+    "username": "Usuario",
+    "usernameRequired": "Escribe el usuario.",
+    "minLength": "Mínimo {n} caracteres.",
+    "show": "Mostrar contraseña",
+    "hide": "Ocultar contraseña",
+    "saveAction": "Guardar credencial",
+    "replace": "Reemplazar credencial",
+    "saved": "Credencial {kind} guardada",
+    "noPermission": "Pide a quien administra el ISP que configure las credenciales (permiso de credenciales de dispositivos).",
+    "reauthDescription": "Guardar una credencial del router es una acción sensible: confirma tu identidad para continuar.",
+    "reauthNeeded": "Confirma tu identidad para guardar la credencial (pulsa de nuevo el botón).",
+    "snmp": {
+      "title": "SNMPv3",
+      "body": "Lectura de interfaces y estado del router (authPriv).",
+      "authProtocol": "Autenticación",
+      "privProtocol": "Cifrado",
+      "authPassword": "Contraseña de autenticación",
+      "privPassword": "Contraseña de cifrado"
+    },
+    "routeros_api": {
+      "title": "API de RouterOS",
+      "body": "Usuario de solo lectura para leer pools, direcciones y la versión (REST por el túnel)."
+    },
+    "api": {
+      "usernameHelp": "Recomendado: un usuario del grupo horus-ro (sin escritura).",
+      "password": "Contraseña",
+      "fingerprint": "Huella TLS (SHA-256)",
+      "fingerprintHelp": "Déjala vacía para conservar la fijada; Horus la fija en el primer contacto.",
+      "fingerprintInvalid": "Escribe los 64 dígitos hexadecimales de la huella SHA-256 (con o sin dos puntos).",
+      "forgetFingerprint": "Olvidar la huella fijada (se volverá a fijar en el próximo contacto)"
+    }
   }
 }
