@@ -123,3 +123,40 @@ por su licencia y su distribución comunitaria reducida.
   [disaster-recovery.md](../disaster-recovery.md) (pgBackRest posix + copia remota, RPO local vs
   remoto), [observability.md](../observability.md) (métricas de disco y de sincronización),
   [security.md](../security.md) (cifrado `crypt`, credenciales de destinos).
+
+## Nota (2026-10-12): SFTP nativo en Go y cifrado age en lugar de rclone
+
+Al implementar la copia remota (rol `jobs`, primer destino SFTP) se cambia la herramienta del §2;
+el resto de la decisión (local primario, remoto opcional, `copy` inmutable, retención remota
+independiente, reglas del §3) no cambia.
+
+- **Por qué no rclone.** La imagen `horus` es *distroless* (solo el binario `/horus`, sin shell ni
+  binarios externos) y ADR-0025 la hace única para todos los roles. Ejecutar rclone obligaría a
+  meter otro binario (y su superficie y actualizaciones) en la imagen, o a un contenedor más con
+  acceso al almacén y a las credenciales. Para el primer incremento solo hace falta SFTP.
+- **Qué se hace.** SFTP nativo en Go dentro del rol `jobs`: `golang.org/x/crypto/ssh` +
+  `github.com/pkg/sftp` (BSD-3/BSD-2). Verificación TOFU de la clave del servidor: la prueba de
+  conexión devuelve la huella `SHA256:…`, la persona la confirma y queda fijada; si cambia, ni la
+  prueba ni las copias continúan ("La clave del servidor cambió"). Credenciales (contraseña o clave
+  OpenSSH con passphrase) write-only, con *envelope encryption* y una KEK propia de `jobs`
+  (`jobs_kek`).
+- **Cifrado en Horus con age en lugar de `crypt`.** Cada archivo se cifra con
+  [age](https://age-encryption.org) (`filippo.io/age`, BSD-3; destinatario X25519) **antes** de
+  salir del servidor: el destino nunca ve datos en claro, también en SFTP. horus-app solo recibe
+  la **clave pública** (`backup_age_recipient`); la identidad privada (`backup_age_identity`) la
+  genera `install.sh` y va solo al paquete de secretos offline (ADR-0029): un servidor
+  comprometido no puede leer las copias remotas ya hechas (el endurecimiento opcional de
+  storage.md §4.3 pasa a ser el comportamiento por defecto). Restaurar no necesita Horus:
+  `age -d -i backup_age_identity -o ARCHIVO ARCHIVO.age` (o `horus-ctl remote-decrypt`).
+  Diferencia con `crypt`: los **nombres** de archivo no se cifran (se ven rutas de pgBackRest y
+  nombres de tablas/fechas de los BACKUP de ClickHouse, nunca datos de clientes).
+- **Semántica.** Ledger por destino en PostgreSQL (`jobs.remote_copy`: ruta, tamaño, mtime,
+  SHA-256 del original, nombre remoto): solo se sube lo nuevo o cambiado, con nombre temporal y
+  renombrado atómico, en serie y un destino cada vez; tras un reinicio sigue donde se quedó. La
+  retención remota borra solo lo subido hace más de `retention_days` **que ya no existe en local**.
+  Estado por destino (`ok | lagging | failing | disabled | pending`) y métricas
+  `horus_remote_sync_lag_seconds`, `horus_remote_sync_failures_total{reason}`,
+  `horus_remote_sync_bytes_total`.
+- **Revisión.** Google Drive, MEGA y Dropbox siguen siendo "después": cuando lleguen se decidirá
+  entre clientes Go nativos o rclone en un contenedor aparte; el cifrado age y el ledger valen
+  igual para cualquier destino.

@@ -143,11 +143,11 @@ interfaces.
 | `horus_alerts_pipeline_latency_seconds` | histogram | — | Desde evento detectado a notificación |
 | `horus_backup_last_success_timestamp_seconds` | gauge | `component` (`postgres`, `clickhouse`, `secrets_bundle`) | Copia **local**; ver [`disaster-recovery.md`](disaster-recovery.md) |
 | `horus_backup_restore_test_last_success_timestamp_seconds` | gauge | `component` | Última restauración de prueba correcta |
-| `horus_remote_sync_configured` | gauge | — | Nº de destinos remotos activos (0 es válido: aviso, no fallo) |
-| `horus_remote_sync_lag_seconds` | gauge | `destination` (nombre corto, < 5) | Edad de lo más antiguo pendiente de copiar al destino ([ADR-0019](adr/0019-almacenamiento-local-y-destino-remoto.md)) |
-| `horus_remote_sync_pending_bytes` | gauge | `destination` | Bytes por copiar |
-| `horus_remote_sync_last_success_timestamp_seconds` | gauge | `destination` | Última copia completa verificada |
-| `horus_remote_sync_failures_total` | counter | `destination, reason` | Errores (auth, red, cuota del proveedor, verificación) |
+| `horus_remote_sync_configured` | gauge | — | Nº de destinos remotos activos (0 es válido: aviso, no fallo). Pendiente: hoy se ve en `GET /platform/remote-destinations` |
+| `horus_remote_sync_lag_seconds` | gauge | `destination` (id del destino) | Segundos desde la última pasada correcta del destino habilitado (0 tras cada copia correcta; crece mientras falla) ([ADR-0019](adr/0019-almacenamiento-local-y-destino-remoto.md), rol `jobs`) |
+| `horus_remote_sync_bytes_total` | counter | `destination` | Bytes (en claro) de backups copiados, cifrados con age |
+| `horus_remote_sync_failures_total` | counter | `destination, reason` | Copias fallidas: `connect`, `host_key` (la clave del servidor cambió), `auth`, `write`, `local` (lectura del almacén o PostgreSQL), `config` (sin credenciales legibles o sin clave age) |
+| `horus_remote_sync_pending_bytes` / `_last_success_timestamp_seconds` | gauge | `destination` | Pendientes: hoy `bytes_pending` y `last_success_at` en la API |
 | `horus_local_store_used_ratio` | gauge | `volume` (`data`, `backups`) | Ocupación del almacén local (umbrales 70/85/95 %) |
 | `horus_audit_chain_verified_timestamp_seconds` | gauge | — | Integridad de auditoría ([`security.md`](security.md) §7) |
 

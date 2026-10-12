@@ -68,7 +68,7 @@ referencia arquitectónica:
 | 4. Clasificación + reputación | `traffic`, `detection.reputation` (snapshot en el ingester) |
 | 5. Botnets + alertas | `detection.correlation`, `alerts` |
 | 6. Dashboards modulares y kiosco | `analytics` (widgets, layouts) |
-| 7. Scoring, reportes, archivo, copia remota | `detection.scoring`, `reporting`, `jobs` (archiver, rclone) |
+| 7. Scoring, reportes, archivo, copia remota | `detection.scoring`, `reporting`, `jobs` (archiver, copia remota SFTP + age) |
 
 ### 1.4 Reglas de módulo
 
@@ -249,7 +249,7 @@ NATS KV); **Sharded** = N instancias con *leases*.
 | Campo | Valor |
 | --- | --- |
 | Responsabilidad | Tareas singleton de plataforma: **archivado** de particiones vencidas de ClickHouse a Parquet en `archive/<tenant_id>/` (verificado antes de permitir el borrado); **copia remota con rclone** a los destinos configurados (SFTP primero; Drive/MEGA/Dropbox después; cifrado `crypt` en nube), con estado y métricas por destino; **cobertura de flujos** (bytes de flujos vs contadores SNMP por router, cada hora); retención del almacén local; mantenimiento (inactivación de clientes sin tráfico vía evento a `devices`). [ADR-0019](adr/0019-almacenamiento-local-y-destino-remoto.md). |
-| Dueño de datos | PG `jobs`: `remote_destinations` (credenciales cifradas; `tenant_id` nulo = plataforma), `remote_sync_runs`, `archive_manifests`, `outbox`. Almacén local: `archive/`, `audit/`. |
+| Dueño de datos | PG `jobs`: `remote_destination` (credenciales SFTP cifradas con la KEK de jobs; `tenant_id` nulo = plataforma), `remote_copy` (ledger de lo copiado), `installation`; después `archive_manifests`, `outbox`. Almacén local: `archive/`, `audit/`. |
 | API pública | `/api/v1/platform/storage/destinations` (CRUD, prueba de conexión), `/api/v1/platform/storage/status`, `/api/v1/coverage` (por tenant). |
 | Publica | `jobs.archive.completed`, `jobs.remote_sync.completed/lagging`, `jobs.coverage.low`. |
 | Dependencias | ClickHouse, almacén local, rclone, destinos remotos (**degradables**: nunca bloquean nada). |

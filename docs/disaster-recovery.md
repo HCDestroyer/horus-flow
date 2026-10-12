@@ -129,6 +129,12 @@ al remoto).
 
 ### 3.5 Copia remota (rclone)
 
+> **Implementado (2026-10-12):** destinos SFTP con cliente Go nativo y cifrado **age** en Horus (no rclone; ver la
+> [nota de ADR-0019](adr/0019-almacenamiento-local-y-destino-remoto.md#nota-2026-10-12-sftp-nativo-en-go-y-cifrado-age-en-lugar-de-rclone)).
+> El rol `jobs` sube cada 10 min lo nuevo de `backups/postgres` y `backups/clickhouse` a
+> `<ruta>/horus-<id>/backups/…/<archivo>.age`; estado en `GET /platform/remote-destinations` y métricas
+> `horus_remote_sync_*`. Restauración en §3.6 y RB-09. El resto de esta sección es el diseño general.
+
 - Ejecutada por el rol `jobs` como proceso hijo; configuración generada desde PostgreSQL y pasada **en memoria**
   (variables `RCLONE_CONFIG_*`), nunca escrita en disco ([`security.md`](security.md) §8.5).
 - Destinos por orden: **SFTP** (NAS/servidor propio; primero), Google Drive, Dropbox, MEGA. MediaFire no se soporta.
@@ -146,12 +152,15 @@ Sin estos secretos **no hay recuperación** aunque existan las copias:
 
 | Secreto | Para qué |
 |---------|----------|
-| Clave de `rclone crypt` (+ salt) | Leer cualquier copia de la nube |
+| Identidad age de las copias remotas (`secrets/backup_age_identity`) | Leer cualquier copia remota (`age -d -i backup_age_identity -o ARCHIVO ARCHIVO.age`); horus-app solo tiene la pública |
 | Passphrase de cifrado de pgBackRest | Leer el repositorio de PostgreSQL (local y remoto) |
 | KEK de cada módulo (`devices`, `wireguard`, `auth`, `alerts`, `jobs`) | Descifrar credenciales de routers, clave del hub, TOTP, canales, destinos |
 | Clave de firma JWT (opcional: se puede regenerar invalidando sesiones) | Evitar cerrar todas las sesiones |
 | Llave privada age de SOPS | Descifrar el repo de despliegue |
 
+- `install.sh` ya genera el paquete con **todo** `secrets/` (incluidas `backup_age_identity` y `jobs_kek`) y lo
+  regenera al cambiar cualquier secreto; la consola no habilita un destino remoto sin la huella confirmada, y el
+  paquete debe estar confirmado (`install.sh --confirm-bundle`) antes de confiar en la copia remota.
 - Se exportan con `horusctl secrets export` (cifrado con age a la llave pública de la persona) a **dos** sitios
   offline: gestor de contraseñas + medio físico (USB cifrado) fuera del servidor. Se regenera el paquete al rotar
   cualquiera de ellos y la consola de plataforma muestra "paquete de secretos desactualizado" hasta confirmarlo.
@@ -312,8 +321,13 @@ perdidos**. Cada uno será un script de `scripts/dr/` (principio 7). Comportamie
 1. Conseguir servidor (o VM) con discos para datos y almacén separados; instalar el sistema base con el script de
    `deployments/`.
 2. Recuperar el **paquete de secretos offline** (§3.6) → descifrar el repo de despliegue (SOPS), KEK, claves de copia.
-3. Recuperar las copias: desde el destino remoto (`rclone copy` inverso con `crypt`) a `backups/` y `audit/`; si el
-   disco del almacén sobrevivió, montarlo.
+3. Recuperar las copias: si el disco del almacén sobrevivió, montarlo. Si no, descargar del destino SFTP la carpeta
+   `<ruta>/horus-<id>/` (p. ej. `sftp -r usuario@nas:/ruta/horus-<id> /root/remota`) y descifrarla con la identidad
+   del paquete offline: `horus-ctl remote-decrypt /root/remota/horus-<id>` (deja `backups/postgres` y
+   `backups/clickhouse` en `HORUS_STORE_DIR` con sus dueños), o a mano, archivo por archivo,
+   `age -d -i backup_age_identity -o ARCHIVO ARCHIVO.age`. Luego `horus-ctl restore --pg latest --ch latest`.
+   Limitación: la retención remota puede conservar backups que el `backup.info` más reciente de pgBackRest ya no
+   lista; se restauran con el `backup.info` de su época o con `pgbackrest restore --set`.
 4. Levantar datastores vacíos; `pgbackrest restore`; ClickHouse: migraciones + restore (agregados primero).
 5. Levantar `horus-app`, `horus-collector`, `horus-wg-agent` (imágenes por digest, `cosign verify`).
 6. **Hub WireGuard**: si la IP pública cambió, actualizar el **registro DNS** del endpoint del hub (TTL bajo); la
@@ -346,9 +360,11 @@ Todos los routers de todos los ISP llegan por el hub: es el punto único de fall
 - **Datos perdidos:** flujos y métricas de todo el periodo sin túnel (huecos de cobertura por tenant).
 - **Verificación:** > 95 % de peers con handshake < 3 min; flujos entrando de todos los tenants.
 
-### RB-12 — Clave de `rclone crypt` o de pgBackRest perdida
+### RB-12 — Identidad age de las copias remotas (o clave de pgBackRest) perdida
 
-- Las copias remotas existentes son **ilegibles**. Mientras el servidor viva no hay pérdida: generar clave nueva,
+- Las copias remotas existentes son **ilegibles**. Mientras el servidor viva no hay pérdida: generar clave nueva
+  (borrar `secrets/backup_age_identity` y `backup_age_recipient` y ejecutar `install.sh`; cambiar también la ruta
+  del destino para que todo se vuelva a subir),
   hacer **full** nuevo de PostgreSQL y ClickHouse, re-subir archivo y auditoría, y retirar las copias antiguas del
   destino tras verificar. Actualizar el paquete offline.
 

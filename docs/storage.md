@@ -118,6 +118,17 @@ Convenciones:
 
 ## 4. Destino remoto opcional
 
+> **Implementado (2026-10-12, [nota de ADR-0019](adr/0019-almacenamiento-local-y-destino-remoto.md#nota-2026-10-12-sftp-nativo-en-go-y-cifrado-age-en-lugar-de-rclone)).**
+> El primer destino (SFTP) no usa rclone: el rol `jobs` habla SFTP en Go y cifra cada archivo con
+> **age** antes de subirlo (horus-app solo tiene la clave pública; la identidad está en el paquete
+> offline). Copia `backups/postgres` y `backups/clickhouse` cada `HORUS_REMOTE_SYNC_INTERVAL`
+> (10 min) y bajo demanda (`POST /platform/remote-destinations/{id}/sync`), a
+> `<ruta>/horus-<id de instalación>/backups/…/<archivo>.age`, omitiendo lo que aún se escribe
+> (mtime < 2 min, backup de pgBackRest sin `backup.manifest`, BACKUP de ClickHouse sin `.backup`).
+> Ledger `jobs.remote_destination` + `jobs.remote_copy` (tamaño, mtime y SHA-256 del original).
+> Lo que sigue en §4.1–§4.6 describe el diseño general (otros proveedores, verificación periódica)
+> y queda como referencia para los incrementos siguientes.
+
 ### 4.1 Herramienta: rclone
 
 **[rclone](https://rclone.org)** (MIT), ejecutado por el rol **`jobs`**
@@ -160,7 +171,8 @@ puede ser de un tercero).
   retención.
 - Endurecimiento opcional (no predeterminado): cifrar los backups con `age` y una clave pública,
   con la privada solo fuera del servidor, para que un servidor comprometido no pueda leer las
-  copias remotas antiguas.
+  copias remotas antiguas. **Desde 2026-10-12 es el comportamiento por defecto del destino SFTP**
+  (sin `crypt`; los nombres de archivo no se cifran).
 
 ### 4.4 Cola, checksums y reintentos
 

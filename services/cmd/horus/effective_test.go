@@ -14,6 +14,7 @@ func TestEffectiveConfigHasNoSecrets(t *testing.T) {
 		"HORUS_TELEGRAM_BOT_TOKEN=123:abcdefghijklmnopqrstuvwxyz0123456789",
 		"HORUS_AUTH_SIGNING_KEY=-----BEGIN PRIVATE KEY-----xyz",
 		"HORUS_ALERTS_KEK=deadbeef",
+		"HORUS_BACKUP_AGE_IDENTITY=AGE-SECRET-KEY-1QQQQ",
 		"HORUS_JWT_PUBLIC_KEYS=-----BEGIN PUBLIC KEY-----abc",
 		"HORUS_CLICKHOUSE_DSN=clickhouse://horus:ch-pass@clickhouse:9000/horus?password=qpass",
 		"HORUS_SEED_ADMIN_EMAIL=admin@isp.example",
@@ -25,7 +26,7 @@ func TestEffectiveConfigHasNoSecrets(t *testing.T) {
 	for k, v := range cfg {
 		all += k + "=" + v + "\n"
 	}
-	for _, secret := range []string{"s3cr3t-pg", "n4ts-pass", "abcdefghijklmnop", "BEGIN PRIVATE", "deadbeef", "ch-pass", "qpass", "admin@isp.example"} {
+	for _, secret := range []string{"s3cr3t-pg", "n4ts-pass", "abcdefghijklmnop", "BEGIN PRIVATE", "deadbeef", "ch-pass", "qpass", "admin@isp.example", "AGE-SECRET-KEY"} {
 		if strings.Contains(all, secret) {
 			t.Errorf("secret %q leaked:\n%s", secret, all)
 		}

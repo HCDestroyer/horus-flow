@@ -18,6 +18,12 @@
 #   horus-ctl backup [run|verify|status]           copias locales (horus-backup)
 #   horus-ctl restore [--pg latest|ETIQUETA] [--ch latest|NOMBRE] [--yes]
 #                                    restaura PostgreSQL (pgBackRest) y/o ClickHouse en el sitio
+#   horus-ctl remote-decrypt DIR [--identity FICHERO] [--out DIR]
+#                                    descifra una copia remota descargada (carpeta horus-<id> del
+#                                    destino SFTP, archivos *.age) con la identidad age del paquete
+#                                    de secretos offline (secrets/backup_age_identity); por defecto
+#                                    la deja en HORUS_STORE_DIR (backups/…) lista para `restore`.
+#                                    A mano: age -d -i backup_age_identity -o ARCHIVO ARCHIVO.age
 #   horus-ctl uninstall [--purge] [--yes]          desinstala (conserva datos salvo --purge)
 #   horus-ctl diagnose [--output FICHERO] [--since 24h] [ARGS…]
 #                                    paquete de diagnóstico (horus diagnose): logs, eventos de
@@ -47,7 +53,7 @@ say() { printf '==> %s\n' "$*"; }
 ok() { printf '  %sOK%s    %s\n' "$c_ok" "$c_off" "$*"; }
 warn() { printf '  %sAVISO%s %s\n' "$c_warn" "$c_off" "$*"; }
 die() { printf '%shorus-ctl: %s%s\n' "$c_err" "$*" "$c_off" >&2; exit 1; }
-usage() { sed -n '2,32p' "$self" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,38p' "$self" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 cmd="${1:-help}"; [ "$#" -eq 0 ] || shift
 case "$cmd" in help | -h | --help) usage 0 ;; esac
@@ -283,6 +289,38 @@ do_backup() {
     status) exec "$install_dir/bin/horus-backup" status ;;
     *) die "backup: run | verify | status" ;;
   esac
+}
+
+# do_remote_decrypt DIR [--identity F] [--out D]: copia remota descargada → árbol en claro (RB-09).
+do_remote_decrypt() {
+  local src="" id="$HORUS_SECRETS_DIR/backup_age_identity" out="$HORUS_STORE_DIR" f rel n=0
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --identity) id="${2:?}"; shift 2 ;;
+      --out) out="${2:?}"; shift 2 ;;
+      -*) die "remote-decrypt: opción desconocida $1" ;;
+      *) src="$1"; shift ;;
+    esac
+  done
+  [ -n "$src" ] && [ -d "$src" ] || die "remote-decrypt DIR: carpeta horus-<id> descargada del destino remoto"
+  [ -r "$id" ] || die "no puedo leer la identidad age $id (está en el paquete de secretos offline: secrets/backup_age_identity)"
+  command -v age >/dev/null 2>&1 || die "falta la herramienta age (apt install age)"
+  src="$(cd "$src" && pwd)"
+  say "Descifrando $src → $out"
+  while IFS= read -r -d '' f; do
+    rel="${f#"$src"/}"; rel="${rel%.age}"
+    install -d "$(dirname "$out/$rel")"
+    age -d -i "$id" -o "$out/$rel.tmp" "$f" || die "no se pudo descifrar $rel (¿identidad de otra instalación?)"
+    mv -f "$out/$rel.tmp" "$out/$rel"
+    n=$((n + 1))
+  done < <(find "$src" -type f -name '*.age' -print0)
+  [ "$n" -gt 0 ] || die "no hay archivos .age en $src"
+  # Mismos dueños que en la instalación (postgres 70, clickhouse 101).
+  if [ "$out" = "$HORUS_STORE_DIR" ]; then
+    [ -d "$out/backups/postgres" ] && chown -R 70:70 "$out/backups/postgres"
+    [ -d "$out/backups/clickhouse" ] && chown -R 101:101 "$out/backups/clickhouse"
+  fi
+  ok "$n archivos descifrados en $out; siguiente paso: horus-ctl restore --pg latest --ch latest"
 }
 
 app_services=(horus-app horus-collector horus-wg-agent horus-web)
@@ -590,6 +628,7 @@ case "$cmd" in
   rollback) do_rollback "$@" ;;
   backup) do_backup "$@" ;;
   restore) take_lock; do_restore "$@" ;;
+  remote-decrypt) do_remote_decrypt "$@" ;;
   uninstall) do_uninstall "$@" ;;
   diagnose) do_diagnose "$@" ;;
   auto-update) do_auto_update ;;

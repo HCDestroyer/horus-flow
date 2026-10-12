@@ -15,7 +15,7 @@ const redacted = "[REDACTED]"
 // secretMarkers: una variable cuyo nombre contiene alguno es secreta y su
 // valor nunca sale del proceso (docs/observability.md §3.3).
 var secretMarkers = []string{"PASSWORD", "SECRET", "TOKEN", "KEK", "PRIVATE_KEY", "SIGNING_KEY", "CURSOR_KEY", "API_KEY",
-	"CREDENTIAL", "PASSPHRASE", "COMMUNITY", "_PSK", "SEED_ADMIN"}
+	"CREDENTIAL", "PASSPHRASE", "COMMUNITY", "_PSK", "SEED_ADMIN", "AGE_IDENTITY"}
 
 // extraEnv son las variables sin prefijo HORUS_ que también describen la
 // ejecución (sin secretos).

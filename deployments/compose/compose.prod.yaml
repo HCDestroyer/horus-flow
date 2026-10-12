@@ -287,6 +287,11 @@ services:
       HORUS_DEVICES_KEK_FILE: /run/secrets/devices_kek
       HORUS_ALERTS_KEK_FILE: /run/secrets/alerts_kek
       HORUS_DETECTION_KEK_FILE: /run/secrets/detection_kek
+      # Copia remota de los backups (rol jobs, ADR-0019 nota 2026-10-12): credenciales SFTP cifradas
+      # con la KEK de jobs y copias cifradas con age para la clave PÚBLICA de la instalación; la
+      # identidad privada (backup_age_identity) no entra en el contenedor: solo en el paquete offline.
+      HORUS_JOBS_KEK_FILE: /run/secrets/jobs_kek
+      HORUS_BACKUP_AGE_RECIPIENT_FILE: /run/secrets/backup_age_recipient
       HORUS_ALERTS_CURSOR_KEY_FILE: /run/secrets/cursor_key
       # Reputación (SEC): detection sincroniza las fuentes y publica el snapshot en el almacén;
       # ingester marca los flujos con ese mismo snapshot.
@@ -342,6 +347,8 @@ services:
       - devices_kek
       - alerts_kek
       - detection_kek
+      - jobs_kek
+      - backup_age_recipient
       - smtp_password
       - cursor_key
       - ch_ingester_password
@@ -352,6 +359,9 @@ services:
       - grpc_ca
       - grpc_wireguard_crt
       - grpc_wireguard_key
+    # Lectura de los backups locales para la copia remota (rol jobs): el repositorio pgBackRest es
+    # de postgres (70) y los BACKUP de ClickHouse de clickhouse (101), con permisos de grupo de lectura.
+    group_add: ["70", "101"]
     volumes:
       - ${HORUS_STORE_DIR}:/var/lib/horus/store
       - ${HORUS_TLS_DIR}/public.crt:/etc/horus/tls/public.crt:ro
@@ -531,6 +541,10 @@ secrets:
     file: ${HORUS_SECRETS_DIR}/alerts_kek
   detection_kek:
     file: ${HORUS_SECRETS_DIR}/detection_kek
+  jobs_kek:
+    file: ${HORUS_SECRETS_DIR}/jobs_kek
+  backup_age_recipient:
+    file: ${HORUS_SECRETS_DIR}/backup_age_recipient
   smtp_password:
     file: ${HORUS_SECRETS_DIR}/smtp_password
   cursor_key:

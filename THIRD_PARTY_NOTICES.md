@@ -25,10 +25,12 @@ BusyBox (GPL-2.0) se usa como imagen auxiliar independiente, sin enlazarse con H
 se distribuye en el paquete offline, se ofrece su código fuente correspondiente a petición o en
 el enlace indicado, como exige la GPL.
 
-## Módulos Go enlazados en el binario `horus` (50)
+## Módulos Go enlazados en el binario `horus` (54)
 
 | Módulo | Versión | Licencia |
 | --- | --- | --- |
+| `filippo.io/age` | v1.3.2 | BSD-3-Clause |
+| `filippo.io/hpke` | v0.4.0 | BSD-3-Clause |
 | `github.com/ClickHouse/ch-go` | v0.74.0 | Apache-2.0 |
 | `github.com/ClickHouse/clickhouse-go/v2` | v2.40.3 | Apache-2.0 |
 | `github.com/andybalholm/brotli` | v1.2.2 | MIT |
@@ -47,6 +49,7 @@ el enlace indicado, como exige la GPL.
 | `github.com/jackc/puddle/v2` | v2.2.2 | MIT |
 | `github.com/josharian/native` | v1.1.0 | MIT |
 | `github.com/klauspost/compress` | v1.19.1 | Apache-2.0 |
+| `github.com/kr/fs` | v0.1.0 | BSD-3-Clause |
 | `github.com/mdlayher/genetlink` | v1.3.2 | MIT |
 | `github.com/mdlayher/netlink` | v1.7.2 | MIT |
 | `github.com/mdlayher/socket` | v0.5.1 | MIT |
@@ -57,6 +60,7 @@ el enlace indicado, como exige la GPL.
 | `github.com/nats-io/nuid` | v1.0.1 | Apache-2.0 |
 | `github.com/paulmach/orb` | v0.13.0 | MIT |
 | `github.com/pierrec/lz4/v4` | v4.1.27 | BSD-3-Clause |
+| `github.com/pkg/sftp` | v1.13.11 | BSD-2-Clause |
 | `github.com/pressly/goose/v3` | v3.26.0 | MIT |
 | `github.com/prometheus/client_golang` | v1.22.0 | Apache-2.0 |
 | `github.com/prometheus/client_model` | v0.6.1 | Apache-2.0 |

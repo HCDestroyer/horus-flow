@@ -35,3 +35,10 @@ sobrevive a la pérdida del servidor.
   de la frecuencia de la copia remota.
 - Sin el paquete de secretos no hay recuperación ante desastres: es un procedimiento obligatorio
   del alta de la instalación.
+
+## Nota (2026-10-12)
+
+La copia remota se cifra con **age** en Horus en lugar de rclone `crypt` (ver la nota de
+[ADR-0019](0019-almacenamiento-local-y-destino-remoto.md)). La clave del paquete offline es la
+identidad age `secrets/backup_age_identity` (más la KEK de `jobs` para las credenciales de los
+destinos); horus-app solo tiene la clave pública.

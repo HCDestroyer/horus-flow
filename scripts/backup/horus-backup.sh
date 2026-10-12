@@ -3,7 +3,8 @@
 #
 # Lo instala scripts/install.sh en <instalación>/bin/horus-backup y lo programan los timers de
 # systemd horus-backup-*.timer (docs/disaster-recovery.md §3.7). Todo es LOCAL (D2, ADR-0019):
-# el destino remoto (rclone, SFTP…) llega en I3 y nunca bloquea estos pasos.
+# la copia remota (destinos SFTP, cifrada con age) la hace el rol jobs de horus-app leyendo
+# backups/postgres y backups/clickhouse, y nunca bloquea estos pasos (ADR-0019, nota 2026-10-12).
 #
 #   horus-backup run [all|pg|ch]        backup "auto": full el domingo o si no hay ninguno; si no,
 #                                       diferencial (PostgreSQL) / incremental (ClickHouse)
@@ -72,6 +73,14 @@ compose=(docker compose --project-directory "$install_dir" -f "$install_dir/comp
 
 mkdir -p "$metrics_dir" "$state_dir" "$CH_BACKUP_DIR/meta"
 chmod 0755 "$metrics_dir"
+
+# meta/ la escribe este script (root, umask 027): grupo clickhouse (101) con lectura, como los
+# BACKUP, para que la copia remota del rol jobs (group_add 101 en horus-app) también la lea.
+share_ch_meta() {
+  chgrp -R 101 "$CH_BACKUP_DIR/meta" 2>/dev/null || true
+  chmod -R g+rX "$CH_BACKUP_DIR/meta" 2>/dev/null || true
+}
+share_ch_meta
 
 log() { printf '%s horus-backup: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 die() { log "ERROR: $*" >&2; exit 1; }
@@ -338,6 +347,7 @@ ch_backup() {
     printf '%s\n' "$full" >"$CH_BACKUP_DIR/meta/$name.base"
   fi
   [ -f "$CH_BACKUP_DIR/$name/.backup" ] || die "BACKUP terminó sin $name/.backup"
+  share_ch_meta
   ch_retention
   state_set clickhouse size "$(du -sb "$CH_BACKUP_DIR" | cut -f1)"
   log "ClickHouse: $name OK ($(du -sh "$CH_BACKUP_DIR/$name" | cut -f1))"

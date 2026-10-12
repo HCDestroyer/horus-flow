@@ -607,6 +607,52 @@ gen_alnum() { random_alnum 32; }
 gen_hex32() { openssl rand -hex 32; }
 gen_ed25519() { openssl genpkey -algorithm ed25519 2>/dev/null; }
 gen_wg_private() { openssl genpkey -algorithm X25519 -outform DER 2>/dev/null | tail -c 32 | base64; }
+# Identidad age X25519 de las copias remotas (ADR-0019, nota 2026-10-12): age-keygen si está
+# (bootstrap-debian.sh instala age); si no, la misma clave con openssl y Bech32 en bash.
+gen_age_identity() {
+  if command -v age-keygen >/dev/null 2>&1; then
+    age-keygen 2>/dev/null
+    return
+  fi
+  local priv pub
+  priv="$(openssl genpkey -algorithm X25519 -outform DER 2>/dev/null | tail -c 32 | base64)"
+  pub="$({ printf '\x30\x2e\x02\x01\x00\x30\x05\x06\x03\x2b\x65\x6e\x04\x22\x04\x20'; base64 -d <<<"$priv"; } |
+    openssl pkey -inform DER -pubout -outform DER 2>/dev/null | tail -c 32 | od -An -tu1 -v)"
+  [ -n "$pub" ] || die "no se pudo generar la identidad age (openssl ≥ 1.1.1 o apt install age)"
+  # shellcheck disable=SC2046 # palabras = bytes/grupos de 5 bits
+  printf '# created: %s\n# public key: %s\n%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    "$(bech32_encode age $(to5bits $pub))" \
+    "$(bech32_encode age-secret-key- $(to5bits $(base64 -d <<<"$priv" | od -An -tu1 -v)) | tr '[:lower:]' '[:upper:]')"
+}
+# to5bits BYTE…: reagrupa bytes (decimales) en grupos de 5 bits con relleno (BIP-173).
+to5bits() {
+  local acc=0 bits=0 b out=()
+  for b in "$@"; do
+    acc=$(((acc << 8) | b)); bits=$((bits + 8))
+    while [ "$bits" -ge 5 ]; do bits=$((bits - 5)); out+=($(((acc >> bits) & 31))); done
+    acc=$((acc & ((1 << bits) - 1)))
+  done
+  if [ "$bits" -gt 0 ]; then out+=($(((acc << (5 - bits)) & 31))); fi
+  echo "${out[@]}"
+}
+# bech32_encode HRP VALOR…: Bech32 (BIP-173, sin el límite de 90 caracteres, como age).
+bech32_encode() {
+  local hrp="$1" cs=qpzry9x8gf2tvdw0s3jn54khce6mua7l chk=1 b v i c out
+  shift
+  local -a vals=() gen=(0x3b6a57b2 0x26508e6d 0x1ea119fa 0x3d4233dd 0x2a1462b3)
+  for ((i = 0; i < ${#hrp}; i++)); do printf -v c '%d' "'${hrp:i:1}"; vals+=($((c >> 5))); done
+  vals+=(0)
+  for ((i = 0; i < ${#hrp}; i++)); do printf -v c '%d' "'${hrp:i:1}"; vals+=($((c & 31))); done
+  vals+=("$@" 0 0 0 0 0 0)
+  for v in "${vals[@]}"; do
+    b=$((chk >> 25)); chk=$((((chk & 0x1ffffff) << 5) ^ v))
+    for i in 0 1 2 3 4; do if (((b >> i) & 1)); then chk=$((chk ^ gen[i])); fi; done
+  done
+  chk=$((chk ^ 1)); out="${hrp}1"
+  for v in "$@"; do out+="${cs:v:1}"; done
+  for i in 0 1 2 3 4 5; do out+="${cs:$(((chk >> (5 * (5 - i))) & 31)):1}"; done
+  printf '%s' "$out"
+}
 wg_public_of() { # clave pública WireGuard (base64) de una privada en base64
   { printf '\x30\x2e\x02\x01\x00\x30\x05\x06\x03\x2b\x65\x6e\x04\x22\x04\x20'; base64 -d <"$1"; } |
     openssl pkey -inform DER -pubout -outform DER 2>/dev/null | tail -c 32 | base64
@@ -686,6 +732,10 @@ make_secrets() {
   new_secret devices_kek gen_hex32
   new_secret alerts_kek gen_hex32
   new_secret detection_kek gen_hex32 # credenciales de fuentes de reputación (v1.0.4; se crea al actualizar)
+  new_secret jobs_kek gen_hex32      # credenciales de los destinos remotos de copias (se crea al actualizar)
+  # Identidad age de las copias remotas: la privada solo va al paquete offline (sin ella las copias
+  # remotas son irrecuperables); horus-app recibe solo la pública (backup_age_recipient).
+  new_secret backup_age_identity gen_age_identity
   if [ -n "${opt[smtp-password-file]:-}" ]; then
     [ -r "${opt[smtp-password-file]}" ] || die "no puedo leer ${opt[smtp-password-file]}"
     head -n1 "${opt[smtp-password-file]}" | tr -d '\r\n' >"$secrets_dir/smtp_password"
@@ -695,12 +745,17 @@ make_secrets() {
   new_secret auth_signing_key.pem gen_ed25519
   new_secret wg_hub_private_key gen_wg_private
   [ -s "$secrets_dir/seed_admin_password" ] || new_secret seed_admin_password gen_admin_password
-  chmod 0600 "$secrets_dir/pgbackrest_cipher_pass" "$secrets_dir/nats_password"
+  chmod 0600 "$secrets_dir/pgbackrest_cipher_pass" "$secrets_dir/nats_password" "$secrets_dir/backup_age_identity"
   # Derivados (se reescriben siempre a partir de los anteriores).
   printf 'user default on #%s ~* &* +@all\n' "$(printf '%s' "$(cat "$secrets_dir/valkey_password")" | sha256sum | cut -d' ' -f1)" >"$secrets_dir/valkey_users.acl"
   printf 'authorization {\n  users = [\n    { user: horus, password: "%s" }\n  ]\n}\n' "$(cat "$secrets_dir/nats_password")" >"$secrets_dir/nats_auth.conf"
   printf 'nats://horus:%s@nats:4222\n' "$(cat "$secrets_dir/nats_password")" >"$secrets_dir/nats_url"
   wg_public_of "$secrets_dir/wg_hub_private_key" >"$secrets_dir/wg_hub_public_key"
+  sed -n 's/^# public key: \(age1[a-z0-9]*\)$/\1/p' "$secrets_dir/backup_age_identity" | head -1 >"$secrets_dir/backup_age_recipient"
+  if [ ! -s "$secrets_dir/backup_age_recipient" ] && command -v age-keygen >/dev/null 2>&1; then
+    age-keygen -y "$secrets_dir/backup_age_identity" >"$secrets_dir/backup_age_recipient"
+  fi
+  grep -q '^age1' "$secrets_dir/backup_age_recipient" || die "no se pudo derivar la clave pública age de backup_age_identity"
   [ -n "$(cat "$secrets_dir/wg_hub_public_key")" ] || die "no se pudo derivar la clave pública del hub WireGuard (openssl ≥ 1.1.1)"
   cat >"$secrets_dir/pgbackrest.conf" <<EOF
 # pgBackRest de Horus (I1-23; docs/disaster-recovery.md §3.1). Generado por install.sh.
@@ -727,7 +782,7 @@ pg1-user=$(get pg-user horus)
 pg1-database=$(get pg-db horus)
 EOF
   chmod 0644 "$secrets_dir"/valkey_users.acl "$secrets_dir"/nats_auth.conf "$secrets_dir"/nats_url \
-    "$secrets_dir"/pgbackrest.conf "$secrets_dir"/wg_hub_public_key
+    "$secrets_dir"/pgbackrest.conf "$secrets_dir"/wg_hub_public_key "$secrets_dir"/backup_age_recipient
   gen_grpc_pki
   gen_public_tls
   if [ "${#created_secrets[@]}" -gt 0 ]; then ok "generados: ${created_secrets[*]}"; else ok "ya existían; no se ha regenerado ninguno"; fi
@@ -756,7 +811,8 @@ make_bundle() {
   [ -f "$env_file" ] && cp "$env_file" "$tmp/horus.env"
   cat >"$tmp/LEEME.txt" <<EOF
 Paquete de secretos offline de Horus Flow — servidor $host, $stamp (UTC).
-Sin estos secretos NO se pueden leer los backups (pgBackRest cifrado), ni las credenciales
+Sin estos secretos NO se pueden leer los backups (pgBackRest cifrado), ni las copias remotas
+(secrets/backup_age_identity: age -d -i backup_age_identity ARCHIVO.age), ni las credenciales
 cifradas en PostgreSQL (KEK), ni reconstruir el hub WireGuard sin re-enrolar los routers.
 Guárdalo en DOS sitios fuera del servidor (gestor de contraseñas + USB cifrado) y bórralo de aquí.
 Restauración: docs/disaster-recovery.md RB-09; copia secrets/ y tls/ a /etc/horus antes de install.sh.

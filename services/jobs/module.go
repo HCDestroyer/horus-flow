@@ -8,6 +8,15 @@
 // platform.updates.read, el superadministrador). Sin salida a Internet falla
 // en silencio: estado "unchecked". Métricas horus_update_available y
 // horus_update_check_success; un aviso en el log por cada versión nueva.
+//
+// Copia remota de los backups (ADR-0019 con la nota de 2026-10-12): destinos
+// SFTP de plataforma (/api/v1/platform/remote-destinations,
+// platform.storage.manage) en el esquema PostgreSQL `jobs`, credenciales
+// cifradas con la KEK de jobs (HORUS_JOBS_KEK_FILE) y un motor que cada
+// HORUS_REMOTE_SYNC_INTERVAL (10 min) sube cifrado con age
+// (HORUS_BACKUP_AGE_RECIPIENT_FILE) lo nuevo de backups/postgres y
+// backups/clickhouse. Nada depende del destino: un fallo solo cambia su
+// estado y las métricas horus_remote_sync_*.
 package jobs
 
 import (
@@ -24,6 +33,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/config"
 	"github.com/hcdestroyer/horus-flow/packages/go/jsonapi"
 	"github.com/hcdestroyer/horus-flow/packages/go/module"
+	"github.com/hcdestroyer/horus-flow/packages/go/observability"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
 	"github.com/hcdestroyer/horus-flow/services/jobs/internal/updatecheck"
 )
@@ -45,6 +55,24 @@ type Config struct {
 	PublicKeys    string        `env:"HORUS_JWT_PUBLIC_KEYS"`
 	Issuer        string        `env:"HORUS_AUTH_ISSUER" envDefault:"horus-auth"`
 	FirstDelayMax time.Duration `env:"HORUS_UPDATE_CHECK_FIRST_DELAY" envDefault:"2m"`
+
+	// Copia remota (esquema PostgreSQL jobs).
+	PostgresDSN      string               `env:"HORUS_POSTGRES_DSN"`
+	PostgresPassword observability.Secret `env:"HORUS_POSTGRES_PASSWORD"`
+	Migrate          bool                 `env:"HORUS_JOBS_MIGRATE" envDefault:"true"`
+	AppRole          string               `env:"HORUS_JOBS_DB_APP_ROLE" envDefault:"jobs_app"`
+	PlatformRole     string               `env:"HORUS_JOBS_DB_PLATFORM_ROLE" envDefault:"jobs_platform"`
+	KEK              observability.Secret `env:"HORUS_JOBS_KEK"`
+	// Clave pública age (age1…) con la que se cifran las copias; la identidad
+	// (privada) vive en el paquete de secretos offline. HORUS_BACKUP_AGE_IDENTITY
+	// se admite en desarrollo y tests (se deriva la pública).
+	AgeRecipient  string               `env:"HORUS_BACKUP_AGE_RECIPIENT"`
+	AgeIdentity   observability.Secret `env:"HORUS_BACKUP_AGE_IDENTITY"`
+	StoreDir      string               `env:"HORUS_DATA_DIR" envDefault:"/var/lib/horus/store"`
+	SyncInterval  time.Duration        `env:"HORUS_REMOTE_SYNC_INTERVAL" envDefault:"10m"`
+	SyncSettle    time.Duration        `env:"HORUS_REMOTE_SYNC_SETTLE" envDefault:"2m"`
+	SyncLagAfter  time.Duration        `env:"HORUS_REMOTE_SYNC_LAG_THRESHOLD" envDefault:"26h"`
+	PublicBaseURL string               `env:"HORUS_PUBLIC_BASE_URL"`
 }
 
 // Validate implementa config.Validator.
@@ -54,6 +82,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Interval < time.Minute {
 		return fmt.Errorf("HORUS_UPDATE_CHECK_INTERVAL=%s: mínimo 1m", c.Interval)
+	}
+	if c.SyncInterval < time.Minute {
+		return fmt.Errorf("HORUS_REMOTE_SYNC_INTERVAL=%s: mínimo 1m", c.SyncInterval)
+	}
+	if c.SyncSettle < 0 || c.SyncLagAfter < time.Hour {
+		return fmt.Errorf("HORUS_REMOTE_SYNC_SETTLE ≥ 0 y HORUS_REMOTE_SYNC_LAG_THRESHOLD ≥ 1h")
 	}
 	if c.Source == "" {
 		c.Source = "https://api.github.com/repos/" + c.Repo + "/releases?per_page=50"
@@ -71,7 +105,7 @@ func (c *Config) fallback() string {
 }
 
 // Register construye el módulo del rol jobs (firma module.Factory).
-func Register(_ context.Context, deps module.Deps) (module.Module, error) {
+func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 	cfg, err := config.Load[Config](deps.Environ)
 	if err != nil {
 		return nil, fmt.Errorf("%s config: %w", Role, err)
@@ -97,13 +131,17 @@ func Register(_ context.Context, deps module.Deps) (module.Module, error) {
 	if !cfg.Check {
 		j.checker.Disable("comprobación de versiones desactivada en la instalación (--no-update-check)")
 	}
+	v := verifier(cfg, deps)
 	if deps.Routes != nil {
-		if v := verifier(cfg, deps); v != nil {
+		if v != nil {
 			g := authz.NewGuard(v)
 			deps.Routes.Handle("GET /api/v1/platform/updates", g.Platform(PermUpdatesRead, j.getUpdates))
 		} else {
 			log.Warn("jobs: sin verificador de tokens (auth no es local y falta HORUS_JWT_PUBLIC_KEYS): /platform/updates no se sirve")
 		}
+	}
+	if j.remote, err = newRemote(ctx, cfg, deps, v, log); err != nil {
+		return nil, err
 	}
 	return j, nil
 }
@@ -129,15 +167,40 @@ type jobs struct {
 	available *prometheus.GaugeVec
 	success   prometheus.Gauge
 	notified  string
+	remote    *remoteCopy
 }
 
 func (j *jobs) getUpdates(w http.ResponseWriter, _ *http.Request) {
 	jsonapi.Write(w, http.StatusOK, j.checker.Status())
 }
 
-// Run comprueba al poco de arrancar (con espera aleatoria para no coincidir
-// todas las instalaciones) y después cada Interval.
+// Start aplica las migraciones del esquema jobs (si hay copia remota).
+func (j *jobs) Start(ctx context.Context) error {
+	if j.remote == nil {
+		return nil
+	}
+	return j.remote.start(ctx)
+}
+
+// Stop cierra la conexión a PostgreSQL.
+func (j *jobs) Stop(context.Context) error {
+	if j.remote != nil {
+		j.remote.db.Close()
+	}
+	return nil
+}
+
+// Run arranca el motor de copia remota y el aviso de versiones.
 func (j *jobs) Run(ctx context.Context) error {
+	if j.remote != nil {
+		go j.remote.svc.Run(ctx)
+	}
+	return j.runUpdates(ctx)
+}
+
+// runUpdates comprueba al poco de arrancar (con espera aleatoria para no
+// coincidir todas las instalaciones) y después cada Interval.
+func (j *jobs) runUpdates(ctx context.Context) error {
 	if !j.cfg.Check {
 		<-ctx.Done()
 		return nil

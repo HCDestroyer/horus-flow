@@ -5,6 +5,7 @@ go 1.26.0
 toolchain go1.26.8
 
 require (
+	filippo.io/age v1.3.2
 	github.com/ClickHouse/clickhouse-go/v2 v2.40.3
 	github.com/caarlos0/env/v11 v11.3.1
 	github.com/coder/websocket v1.8.12
@@ -19,6 +20,7 @@ require (
 	github.com/nats-io/nats-server/v2 v2.12.1
 	github.com/nats-io/nats.go v1.47.0
 	github.com/netsampler/goflow2/v2 v2.2.3
+	github.com/pkg/sftp v1.13.11
 	github.com/pressly/goose/v3 v3.26.0
 	github.com/prometheus/client_golang v1.22.0
 	github.com/prometheus/client_model v0.6.1
@@ -35,6 +37,7 @@ require (
 
 require (
 	dario.cat/mergo v1.0.2 // indirect
+	filippo.io/hpke v0.4.0 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20210617225240-d185dfc1b5a1 // indirect
 	github.com/ClickHouse/ch-go v0.74.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
@@ -64,6 +67,7 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/josharian/native v1.1.0 // indirect
+	github.com/kr/fs v0.1.0 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/magiconair/properties v1.8.10 // indirect
