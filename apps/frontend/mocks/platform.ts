@@ -1,13 +1,16 @@
 import type {
   InstallationAccess,
+  PlatformRoleKey,
+  PlatformUser,
+  PlatformUserStatus,
   ReputationSource,
   ReputationSourceCreate,
   TenantOverview,
   WireguardHub,
 } from '~~/types/api'
 import { openFindings } from './base'
-import { ALL_TENANTS, USERS } from './data'
-import { forbidden, ifMatch, json, noContent, notFound, problem } from './http'
+import { ALL_TENANTS, TENANTS, USERS, type MockUser } from './data'
+import { forbidden, ifMatch, json, noContent, notFound, paginate, problem } from './http'
 import { routersOf } from './inventory'
 import { parseIp } from './net'
 import { hash, mockUuid } from './random'
@@ -27,6 +30,10 @@ export interface PlatformRouteContext {
   body: Record<string, unknown>
   can: (permission: string) => boolean
   now: Date
+  /** Quien llama (no puede bloquearse a sí mismo). */
+  userId?: string
+  /** La acción `x-reauth` exige re-autenticarse antes (simulación de `auth_time` viejo). */
+  reauthRequired?: boolean
 }
 
 function readAccessMode(): InstallationAccess['access_mode'] {
@@ -453,8 +460,262 @@ function reputationRoutes(ctx: PlatformRouteContext): Response | undefined {
   }
 }
 
+// --- Usuarios de plataforma (I1, `GET/PATCH /platform/users`) -------------------------------
+
+/** Permisos de cada rol de plataforma (C7, permissions.yaml). */
+export const PLATFORM_ROLE_PERMISSIONS: Record<string, string[]> = {
+  platform_admin: [
+    'platform.tenants.read',
+    'platform.tenants.manage',
+    'platform.users.read',
+    'platform.users.manage',
+    'platform.audit.read',
+    'platform.status.read',
+    'platform.updates.read',
+    'platform.storage.manage',
+    'platform.catalog.manage',
+    'platform.reputation_sources.manage',
+  ],
+  platform_operator: ['platform.status.read', 'platform.tenants.read', 'platform.audit.read'],
+  platform_auditor: ['platform.audit.read', 'platform.tenants.read', 'platform.users.read'],
+}
+
+/** Cuentas sintéticas que no inician sesión en la demo (solo para la lista). */
+const EXTRA_USERS: PlatformUser[] = [
+  {
+    id: mockUuid('0195c000', 1),
+    email: 'carlos.mendez@horus.example',
+    display_name: 'Carlos Méndez',
+    status: 'active',
+    mfa_enabled: true,
+    platform_roles: ['platform_operator'],
+    memberships: [],
+  },
+  {
+    id: mockUuid('0195c000', 2),
+    email: 'sofia.herrera@horus.example',
+    display_name: 'Sofía Herrera',
+    status: 'active',
+    mfa_enabled: true,
+    platform_roles: ['platform_auditor'],
+    memberships: [],
+  },
+  {
+    id: mockUuid('0195c000', 3),
+    email: 'marta.gomez@fibranorte.example',
+    display_name: 'Marta Gómez',
+    status: 'locked',
+    mfa_enabled: true,
+    platform_roles: [],
+    memberships: [
+      {
+        tenant_id: TENANTS.fibraNorte.tenant_id,
+        tenant_slug: TENANTS.fibraNorte.tenant_slug,
+        role_keys: ['security_analyst'],
+      },
+    ],
+  },
+  {
+    id: mockUuid('0195c000', 4),
+    email: 'pablo.ortega@valleconecta.example',
+    display_name: 'Pablo Ortega',
+    status: 'disabled',
+    mfa_enabled: false,
+    platform_roles: [],
+    memberships: [
+      {
+        tenant_id: TENANTS.valleConecta.tenant_id,
+        tenant_slug: TENANTS.valleConecta.tenant_slug,
+        role_keys: ['noc', 'analyst'],
+      },
+    ],
+  },
+  {
+    id: mockUuid('0195c000', 5),
+    email: 'pedro.salas@fibranorte.example',
+    display_name: 'pedro.salas',
+    status: 'pending',
+    mfa_enabled: false,
+    platform_roles: [],
+    memberships: [
+      {
+        tenant_id: TENANTS.fibraNorte.tenant_id,
+        tenant_slug: TENANTS.fibraNorte.tenant_slug,
+        role_keys: ['noc'],
+      },
+    ],
+  },
+]
+
+/** Roles de plataforma de partida de las cuentas de demo (para `resetPlatformUsers`). */
+const SEEDED_ROLES = new Map(
+  USERS.map((u) => [
+    u.me.id,
+    { roles: [...u.me.platform_roles], perms: [...u.me.platform_permissions] },
+  ]),
+)
+
+/** Pruebas: deshace los cambios de roles de plataforma en las cuentas de demo. */
+export function resetPlatformUsers() {
+  mockState.platformUsers.clear()
+  for (const u of USERS) {
+    const seeded = SEEDED_ROLES.get(u.me.id)
+    if (seeded) {
+      u.me.platform_roles = [...seeded.roles]
+      u.me.platform_permissions = [...seeded.perms]
+    }
+  }
+}
+
+const USERS_KEY = 'horus.mock.platformUsers'
+type Storage = Pick<globalThis.Storage, 'getItem' | 'setItem'> | null | undefined
+let usersStorage: Storage
+
+/** Recupera los cambios de cuentas hechos en esta sesión simulada (al recargar). */
+export function restorePlatformUsers(storage: Storage) {
+  usersStorage = storage
+  try {
+    const saved = JSON.parse(storage?.getItem(USERS_KEY) ?? '{}') as Record<
+      string,
+      { status?: PlatformUserStatus; platform_roles?: PlatformRoleKey[] }
+    >
+    for (const [id, change] of Object.entries(saved)) {
+      if (!mockState.platformUsers.has(id)) mockState.platformUsers.set(id, change)
+      const user = USERS.find((u) => u.me.id === id)
+      if (user && change.platform_roles) applyPlatformRoles(user, change.platform_roles)
+    }
+  } catch {
+    // estado guardado ilegible: se ignora
+  }
+}
+
+function saveUsers() {
+  try {
+    usersStorage?.setItem(USERS_KEY, JSON.stringify(Object.fromEntries(mockState.platformUsers)))
+  } catch {
+    // sin storage: solo en memoria
+  }
+}
+
+function applyPlatformRoles(user: MockUser, roles: PlatformRoleKey[]) {
+  user.me.platform_roles = [...roles]
+  user.me.platform_permissions = [
+    ...new Set(roles.flatMap((r) => PLATFORM_ROLE_PERMISSIONS[r] ?? [])),
+  ]
+}
+
+/** Estado de una cuenta que inicia sesión: el fijado desde la consola o el derivado. */
+export function platformUserStatus(user: MockUser): PlatformUserStatus {
+  const override = mockState.platformUsers.get(user.me.id)?.status
+  if (override) return override
+  return user.me.must_change_password && !user.me.mfa_enabled ? 'pending' : 'active'
+}
+
+function platformUsers(): PlatformUser[] {
+  const real: PlatformUser[] = USERS.map((u) => ({
+    id: u.me.id,
+    email: u.me.email,
+    display_name: u.me.display_name,
+    platform_roles: [...u.me.platform_roles],
+    mfa_enabled: u.me.mfa_enabled,
+    status: platformUserStatus(u),
+    memberships: u.me.memberships.map((m) => ({
+      tenant_id: m.tenant_id,
+      tenant_slug: m.tenant_slug,
+      role_keys: m.roles.map((r) => r.role_key ?? ''),
+    })),
+  }))
+  const extra = EXTRA_USERS.map((u) => {
+    const change = mockState.platformUsers.get(u.id)
+    return {
+      ...u,
+      status: change?.status ?? u.status,
+      platform_roles: change?.platform_roles ?? u.platform_roles,
+    }
+  })
+  return [...real, ...extra].sort((a, b) => a.display_name.localeCompare(b.display_name, 'es'))
+}
+
+const PLATFORM_ROLES = Object.keys(PLATFORM_ROLE_PERMISSIONS) as PlatformRoleKey[]
+
+function lastAdminConflict() {
+  return problem(409, 'LAST_PLATFORM_ADMIN', 'Debe quedar al menos un superadministrador activo')
+}
+
+function usersRoutes(ctx: PlatformRouteContext): Response | undefined {
+  if (ctx.path === '/platform/users' && ctx.method === 'GET') {
+    if (!ctx.can('platform.users.read')) return forbidden()
+    const q = (ctx.url.searchParams.get('q') ?? '').trim().toLowerCase()
+    const rows = platformUsers().filter(
+      (u) => !q || u.display_name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q),
+    )
+    return json(paginate(rows, ctx.url))
+  }
+  const m = ctx.path.match(/^\/platform\/users\/([^/]+)(\/platform-roles)?$/)
+  if (!m) return
+  const isRoles = !!m[2]
+  if ((isRoles && ctx.method !== 'PUT') || (!isRoles && ctx.method !== 'PATCH')) return
+  if (!ctx.can('platform.users.manage')) return forbidden()
+  const all = platformUsers()
+  const target = all.find((u) => u.id === m[1])
+  if (!target) return notFound()
+  if (ctx.reauthRequired) {
+    return problem(403, 'REAUTH_REQUIRED', 'Vuelve a identificarte para gestionar usuarios')
+  }
+  const activeAdmins = (list: PlatformUser[]) =>
+    list.filter((u) => u.status === 'active' && u.platform_roles.includes('platform_admin')).length
+
+  let next: PlatformUser
+  if (isRoles) {
+    const roles = (ctx.body as { platform_roles?: unknown }).platform_roles
+    if (
+      !Array.isArray(roles) ||
+      roles.some((r) => !PLATFORM_ROLES.includes(r as PlatformRoleKey))
+    ) {
+      return problem(
+        422,
+        'VALIDATION_FAILED',
+        'Revisa los campos marcados',
+        {},
+        {
+          errors: [
+            { field: 'platform_roles', code: 'INVALID', message: 'Rol de plataforma no válido' },
+          ],
+        },
+      )
+    }
+    next = { ...target, platform_roles: [...new Set(roles as PlatformRoleKey[])] }
+  } else {
+    const status = String((ctx.body as { status?: unknown }).status ?? '')
+    if (status !== 'active' && status !== 'disabled') {
+      return problem(
+        422,
+        'VALIDATION_FAILED',
+        'Revisa los campos marcados',
+        {},
+        { errors: [{ field: 'status', code: 'INVALID', message: 'Estado no válido' }] },
+      )
+    }
+    if (status === 'disabled' && target.id === ctx.userId) {
+      return problem(409, 'CONFLICT', 'No puedes bloquear tu propia cuenta')
+    }
+    next = { ...target, status }
+  }
+  if (activeAdmins(all.map((u) => (u.id === next.id ? next : u))) === 0) return lastAdminConflict()
+
+  const roles = next.platform_roles as PlatformRoleKey[]
+  const change = { ...mockState.platformUsers.get(target.id) }
+  if (isRoles) change.platform_roles = roles
+  else change.status = next.status
+  mockState.platformUsers.set(target.id, change)
+  const account = USERS.find((u) => u.me.id === target.id)
+  if (account && isRoles) applyPlatformRoles(account, roles)
+  saveUsers()
+  return json(next)
+}
+
 export function platformRoute(ctx: PlatformRouteContext): Response | undefined {
-  const rep = reputationRoutes(ctx)
+  const rep = reputationRoutes(ctx) ?? usersRoutes(ctx)
   if (rep) return rep
   if (ctx.method !== 'GET') return
   switch (ctx.path) {
@@ -484,23 +745,6 @@ export function platformRoute(ctx: PlatformRouteContext): Response | undefined {
           created_at: t.created?.at ?? '2026-09-01T10:00:00.000Z',
           updated_at: t.created?.at ?? '2026-09-01T10:00:00.000Z',
           version: 1,
-        })),
-        page: { limit: 50, has_more: false, next_cursor: null, prev_cursor: null },
-      })
-    case '/platform/users':
-      return json({
-        data: USERS.map((u) => ({
-          id: u.me.id,
-          email: u.me.email,
-          display_name: u.me.display_name,
-          platform_roles: u.me.platform_roles,
-          mfa_enabled: u.me.mfa_enabled,
-          status: 'active',
-          memberships: u.me.memberships.map((m) => ({
-            tenant_id: m.tenant_id,
-            tenant_slug: m.tenant_slug,
-            role_keys: m.roles.map((r) => r.role_key ?? ''),
-          })),
         })),
         page: { limit: 50, has_more: false, next_cursor: null, prev_cursor: null },
       })

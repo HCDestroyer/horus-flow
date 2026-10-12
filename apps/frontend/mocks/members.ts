@@ -1,18 +1,16 @@
-import type { InvitationIssued, Member, Membership, Role, RoleAssignment } from '~~/types/api'
+import type { InvitationIssued, Member, Membership, RoleAssignment } from '~~/types/api'
 import {
   findTenant,
   newMockTenant,
-  NOC,
   registerTenant,
   ROLE_IDS,
   scoped,
-  SECURITY_ANALYST,
-  TENANT_ADMIN,
   USERS,
   type MockTenant,
 } from './data'
 import { forbidden, ifMatch, json, noContent, notFound, paginate, problem, randomHex } from './http'
 import { hash, mockUuid } from './random'
+import { effectivePermissions, findRole, ROLES, roleRoute, withKeys } from './roles'
 import { mockState } from './state'
 
 /**
@@ -34,95 +32,7 @@ import { mockState } from './state'
 
 const INVITATION_TTL = 7 * 86_400_000
 
-/** Permisos de los roles de sistema de tenant (C7, permissions.yaml). */
-const ROLE_PERMISSIONS: Record<string, string[]> = {
-  tenant_admin: TENANT_ADMIN,
-  security_analyst: SECURITY_ANALYST,
-  network_engineer: [
-    'sites.read',
-    'sites.create',
-    'sites.update',
-    'sites.delete',
-    'devices.read',
-    'devices.create',
-    'devices.update',
-    'devices.delete',
-    'devices.credentials.write',
-    'wireguard.read',
-    'wireguard.write',
-    'wireguard.keys.rotate',
-    'snmp.read',
-    'snmp.manage',
-    'flows.read',
-    'flows.manage',
-    'alerts.read',
-    'alerts.ack',
-    'traffic.read',
-    'dashboards.read',
-    'dashboards.manage',
-  ],
-  noc: NOC,
-  analyst: [
-    'traffic.read',
-    'traffic.customer.read',
-    'customers.read',
-    'customers.update',
-    'customers.kind.write',
-    'reports.read',
-    'reports.export',
-    'devices.read',
-    'sites.read',
-    'dashboards.read',
-    'dashboards.manage',
-  ],
-  auditor: ['audit.read', 'audit.export', 'users.read', 'roles.read'],
-  viewer: [
-    'users.read',
-    'roles.read',
-    'sites.read',
-    'devices.read',
-    'wireguard.read',
-    'snmp.read',
-    'flows.read',
-    'traffic.read',
-    'traffic.catalog.read',
-    'security.findings.read',
-    'alerts.read',
-    'reports.read',
-    'dashboards.read',
-    'settings.read',
-  ],
-}
-
-const ROLE_NAMES: Record<string, { name: string; mfa: boolean }> = {
-  tenant_admin: { name: 'Administrador del ISP', mfa: true },
-  security_analyst: { name: 'Analista de seguridad', mfa: true },
-  network_engineer: { name: 'Ingeniero de red', mfa: true },
-  noc: { name: 'Operador NOC', mfa: false },
-  analyst: { name: 'Analista', mfa: false },
-  auditor: { name: 'Auditor', mfa: false },
-  viewer: { name: 'Solo lectura', mfa: false },
-}
-
-export const ROLES: Role[] = Object.entries(ROLE_IDS).map(([key, id]) => ({
-  id,
-  tenant_id: null,
-  key,
-  name: ROLE_NAMES[key]!.name,
-  is_system: true,
-  requires_mfa: ROLE_NAMES[key]!.mfa,
-  permissions: key === 'tenant_admin' ? ['*'] : ROLE_PERMISSIONS[key]!,
-}))
-
-const roleKey = (roleId: string) => ROLES.find((r) => r.id === roleId)?.key
-
-function withKeys(assignments: RoleAssignment[]): RoleAssignment[] {
-  return assignments.map((a) => ({
-    role_id: a.role_id,
-    role_key: roleKey(a.role_id),
-    scope: a.scope,
-  }))
-}
+export { ROLES }
 
 export const tenantRole = (key: string): RoleAssignment => ({
   role_id: ROLE_IDS[key]!,
@@ -298,14 +208,13 @@ export function issueInvitation(member: Member, tenant: MockTenant, now: Date): 
 
 /** Membresía (con permisos efectivos) para `GET /me` de quien acepta. */
 export function membershipFor(tenant: MockTenant, roles: RoleAssignment[]): Membership {
-  const perms = new Set(roles.flatMap((r) => ROLE_PERMISSIONS[roleKey(r.role_id) ?? ''] ?? []))
   return {
     tenant_id: tenant.tenant_id,
     tenant_slug: tenant.tenant_slug,
     tenant_name: tenant.tenant_name,
     tenant_status: 'active',
-    roles: withKeys(roles),
-    permissions_with_scope: scoped([...perms]),
+    roles: withKeys(tenant.tenant_id, roles),
+    permissions_with_scope: scoped(effectivePermissions(tenant.tenant_id, roles)),
   }
 }
 
@@ -398,6 +307,8 @@ export interface MemberRouteContext {
   now: Date
   /** La acción `x-reauth` exige re-autenticarse antes (simulación de `auth_time` viejo). */
   reauthRequired?: boolean
+  /** ¿Tiene quien llama el permiso en todo el ISP (alcance `*`/`tenant`)? */
+  tenantWide?: (permission: string) => boolean
 }
 
 function validationError(field: string, message: string, code = 'INVALID') {
@@ -412,26 +323,37 @@ function validationError(field: string, message: string, code = 'INVALID') {
 
 const SCOPE_RE = /^(tenant|site:[0-9a-f-]{36}|router_group:[0-9a-f-]{36})$/
 
-function parseAssignments(value: unknown, field: string): RoleAssignment[] | Response {
+function parseAssignments(
+  tenantId: string,
+  value: unknown,
+  field: string,
+): RoleAssignment[] | Response {
   if (!Array.isArray(value) || value.length === 0) {
     return validationError(field, 'Elige al menos un rol', 'REQUIRED')
   }
   const out: RoleAssignment[] = []
   for (const a of value as Partial<RoleAssignment>[]) {
-    if (!a || !roleKey(String(a.role_id)) || !SCOPE_RE.test(String(a.scope))) {
+    if (!a || !findRole(tenantId, String(a.role_id)) || !SCOPE_RE.test(String(a.scope))) {
       return validationError(field, 'Rol o alcance no válido')
     }
     out.push({ role_id: String(a.role_id), scope: String(a.scope) })
   }
-  return withKeys(out)
+  return withKeys(tenantId, out)
+}
+
+/** Asignaciones activas (miembros no revocados) de un rol en el ISP. */
+export function roleAssignments(tenant: MockTenant, roleId: string) {
+  return membersOf(tenant).filter(
+    (m) => m.status !== 'revoked' && m.role_assignments.some((a) => a.role_id === roleId),
+  ).length
 }
 
 export function memberRoute(ctx: MemberRouteContext): Response | undefined {
-  if (ctx.path === '/roles' && ctx.method === 'GET') {
-    if (!ctx.can('roles.read')) return forbidden()
-    return json({
-      data: ROLES,
-      page: { limit: 50, has_more: false, next_cursor: null, prev_cursor: null },
+  if (ctx.path === '/roles' || ctx.path.startsWith('/roles/')) {
+    return roleRoute({
+      ...ctx,
+      tenantWide: (p) => ctx.tenantWide?.(p) ?? ctx.can(p),
+      assignments: (roleId) => roleAssignments(ctx.tenant, roleId),
     })
   }
   if (!ctx.path.startsWith('/members')) return
@@ -459,7 +381,7 @@ export function memberRoute(ctx: MemberRouteContext): Response | undefined {
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
       return validationError('email', 'Escribe un correo válido')
     }
-    const roles = parseAssignments(body.role_assignments, 'role_assignments')
+    const roles = parseAssignments(ctx.tenant.tenant_id, body.role_assignments, 'role_assignments')
     if (roles instanceof Response) return roles
     const existing = list.find((m) => m.email.toLowerCase() === email)
     const account = existingAccount(email)
@@ -556,7 +478,7 @@ export function memberRoute(ctx: MemberRouteContext): Response | undefined {
         { current: member as unknown as Record<string, unknown> },
       )
     }
-    const roles = parseAssignments(ctx.body, 'role_assignments')
+    const roles = parseAssignments(ctx.tenant.tenant_id, ctx.body, 'role_assignments')
     if (roles instanceof Response) return roles
     member.role_assignments = roles
     member.version++

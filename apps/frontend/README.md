@@ -60,7 +60,10 @@ Interruptores de I1 (todos en `localStorage`, solo leídos por `mocks/`):
 `horus.mock.enrollTtlMs` (vida del token de enrolamiento) · `horus.mock.offline` = `1` (corte de
 red para el kiosco) · `horus.mock.frontendVersion` (versión mínima que pide el kiosco) ·
 `horus.mock.accessMode` = `domain` | `subdomain` | `ip_only` (D19) · `horus.mock.diskRatio`
-(uso del disco local, aviso desde 0,85). Datos de demo: Fibra Norte tiene el Nodo Costa en
+(uso del disco local, aviso desde 0,85) · `horus.mock.reauthRequired` = `1` (las acciones
+`x-reauth` piden confirmar la identidad) · `horus.mock.roleConflict` = `1` (el primer `PATCH`
+de cada rol propio responde 412). Los roles propios y los cambios de la consola de plataforma
+sobre las cuentas se guardan en `sessionStorage` (sobreviven a recargar). Datos de demo: Fibra Norte tiene el Nodo Costa en
 modo descubrimiento y el router `rt-lago` pendiente de configurar; Valle Conecta, `rt-ribera`
 silencioso; en el ISP hay clientes IPv6 por prefijo delegado (D22).
 

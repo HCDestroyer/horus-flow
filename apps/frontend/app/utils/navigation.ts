@@ -52,6 +52,7 @@ export const NAV_SECTIONS: NavSection[] = [
   { id: 'alerts', group: 'management', labelKey: 'nav.items.alerts', icon: 'i-lucide-bell', path: 'alerts', scope: 'tenant', increment: 'I3', permission: 'alerts.read' },
   { id: 'reports', group: 'management', labelKey: 'nav.items.reports', icon: 'i-lucide-file-chart-column', path: 'reports', scope: 'tenant', increment: 'I3', permission: 'reports.read' },
   { id: 'users', group: 'admin', labelKey: 'nav.items.users', icon: 'i-lucide-user-cog', path: 'admin/users', scope: 'tenant', increment: 'I0', permission: 'users.read' },
+  { id: 'roles', group: 'admin', labelKey: 'nav.items.roles', icon: 'i-lucide-key-round', path: 'admin/roles', scope: 'tenant', increment: 'I1', permission: 'roles.read' },
   { id: 'kiosks', group: 'admin', labelKey: 'nav.items.kiosks', icon: 'i-lucide-monitor', path: 'admin/kiosks', scope: 'tenant', increment: 'I1', permission: 'kiosks.manage' },
   { id: 'notifications', group: 'admin', labelKey: 'nav.items.notifications', icon: 'i-lucide-send', path: 'admin/notifications', scope: 'tenant', increment: 'I1', permission: 'alerts.read' },
   { id: 'detection', group: 'admin', labelKey: 'nav.items.detection', icon: 'i-lucide-scan-search', path: 'admin/detection', scope: 'tenant', increment: 'I1', permission: 'settings.read' },

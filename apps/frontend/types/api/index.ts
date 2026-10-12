@@ -29,6 +29,10 @@ export type PermissionsWithScope = Membership['permissions_with_scope']
 // Miembros, roles e invitaciones del ISP (I1).
 export type Member = Schemas['Member']
 export type Role = Schemas['Role']
+export type RoleCreate = Schemas['RoleCreate']
+export type RolePatch = Schemas['RolePatch']
+export type PermissionCatalog = Schemas['PermissionCatalog']
+export type CatalogPermission = PermissionCatalog['permissions'][number]
 export type InvitationIssued = Schemas['InvitationIssued']
 export type InvitationInspection =
   operations['authInspectInvitation']['responses'][200]['content']['application/json']
@@ -121,6 +125,10 @@ export type TenantCreate = Schemas['TenantCreate']
 /** `POST /platform/tenants` 201: el ISP y cómo quedó su primer administrador. */
 export type TenantCreated =
   operations['platformCreateTenant']['responses'][201]['content']['application/json']
+export type PlatformUser = Schemas['PlatformUser']
+export type PlatformUserStatus = PlatformUser['status']
+export type PlatformRoleKey =
+  operations['platformSetUserRoles']['requestBody']['content']['application/json']['platform_roles'][number]
 export type ReputationSource = Schemas['ReputationSource']
 export type ReputationSourceCreate = Schemas['ReputationSourceCreate']
 export type ReputationCategory = Schemas['ReputationCategory']
