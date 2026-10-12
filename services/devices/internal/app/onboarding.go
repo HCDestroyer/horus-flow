@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/hcdestroyer/horus-flow/packages/go/crypto/envelope"
+	"github.com/hcdestroyer/horus-flow/packages/go/natsx"
 	"github.com/hcdestroyer/horus-flow/packages/go/outbox"
 	"github.com/hcdestroyer/horus-flow/packages/go/pgdb"
 	devapi "github.com/hcdestroyer/horus-flow/services/devices/api"
@@ -133,6 +134,50 @@ func (o *Onboarding) SetTunnel(ctx context.Context, tenant, routerID uuid.UUID, 
 	})
 	if errors.Is(err, domain.ErrNotFound) {
 		return devapi.ErrRouterNotFound
+	}
+	return err
+}
+
+// DurableExporterState: consumidor de horus.flows.exporter.state_changed
+// (streams.yaml consumers_i1, devices-exporter-state).
+const DurableExporterState = "devices-exporter-state"
+
+// Estados del exportador que prueban que llegan flujos del router.
+var flowingStates = map[string]bool{"exporting": true, "lossy": true, "clock_skew": true}
+
+// HandleExporterState proyecta el primer flujo del colector en el router:
+// onboarding_state pasa a exporting (paso 3 del asistente, I1-19). Solo avanza
+// desde tunnel_up o anteriores con túnel asignado; nunca retrocede.
+func (o *Onboarding) HandleExporterState(ctx context.Context, m *natsx.Message) error {
+	if m.Envelope == nil || m.Envelope.Type != "horus.flows.exporter.state_changed" {
+		return nil
+	}
+	var d struct {
+		RouterID uuid.UUID `json:"router_id"`
+		State    string    `json:"state"`
+	}
+	if err := json.Unmarshal(m.Envelope.Data, &d); err != nil {
+		return natsx.Permanent(fmt.Errorf("exporter state_changed: %w", err))
+	}
+	if !flowingStates[d.State] || d.RouterID == uuid.Nil || m.Tenant == uuid.Nil {
+		return nil
+	}
+	t := pgdb.TenantID(m.Tenant)
+	now := o.now().UTC()
+	err := o.store.SetRouterTunnel(ctx, t, d.RouterID, func(r *domain.Router) bool {
+		if r.TunnelAddress == nil || r.OnboardingState == devapi.OnboardingExporting {
+			return false
+		}
+		r.OnboardingState, r.UpdatedAt = devapi.OnboardingExporting, now
+		return true
+	}, func(r *domain.Router) []outbox.Event {
+		tid := t.UUID()
+		return []outbox.Event{{Type: "horus.devices.router.updated", Source: "horus/devices", TenantID: &tid, AggregateType: "router",
+			AggregateID: r.ID, AggregateVersion: r.Version, Actor: outbox.Actor{Type: "service", ID: "svc:flows"}, OccurredAt: now,
+			Data: RouterEventData(r, []string{"onboarding_state"})}}
+	})
+	if errors.Is(err, domain.ErrNotFound) {
+		return nil // router borrado: nada que proyectar
 	}
 	return err
 }

@@ -44,6 +44,7 @@ type mod struct {
 	logger    *slog.Logger
 	migrate   bool
 	customers *app.Customers
+	onboard   *app.Onboarding
 	bus       *natsx.Bus
 	every     time.Duration
 }
@@ -133,7 +134,7 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		db.Close()
 		return nil, err
 	}
-	m := &mod{db: db, logger: logger, migrate: cfg.Migrate, customers: customers, bus: bus, every: cfg.CustomerLifecycleEvery}
+	m := &mod{db: db, logger: logger, migrate: cfg.Migrate, customers: customers, onboard: onboarding, bus: bus, every: cfg.CustomerLifecycleEvery}
 	return natsx.WithRelay(ctx, deps, m, db, migrations.Schema)
 }
 
@@ -175,7 +176,12 @@ func (m *mod) Run(ctx context.Context) error {
 	wg.Add(1)
 	go func() { defer wg.Done(); m.customers.RunLifecycleDaily(ctx, m.every) }()
 	if m.bus != nil {
-		wg.Add(2)
+		wg.Add(3)
+		go func() {
+			defer wg.Done()
+			_ = natsx.Consume(ctx, m.bus.JS, natsx.ConsumerConfig{Service: Role, Stream: "FLOWS_EVENTS", Durable: m.bus.Durable(app.DurableExporterState),
+				FilterSubjects: []string{"horus.flows.exporter.state_changed.>"}, Logger: m.logger}, m.onboard.HandleExporterState)
+		}()
 		go func() {
 			defer wg.Done()
 			_ = natsx.Consume(ctx, m.bus.JS, natsx.ConsumerConfig{Service: Role, Stream: "FLOWS_EVENTS", Durable: m.bus.Durable(app.DurableFirstSeen),
