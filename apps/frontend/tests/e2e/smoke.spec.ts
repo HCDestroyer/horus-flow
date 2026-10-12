@@ -57,6 +57,18 @@ test.describe('login @i0', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Resumen' })).toBeVisible()
   })
 
+  test('el botón de ayuda explica la sección actual', async ({ page }) => {
+    await loginAsAdmin(page)
+    await page.goto('/t/fibra-norte/clients')
+    await page.getByTestId('help-button').click()
+    const panel = page.getByTestId('help-panel')
+    await expect(panel).toContainText('¿Qué hace cada IP de cliente y de qué tipo es?')
+    await expect(panel).toContainText('Atajos')
+    expect(await seriousViolations(page)).toEqual([])
+    await page.keyboard.press('Escape')
+    await expect(panel).toHaveCount(0)
+  })
+
   test('cerrar sesión vuelve al login', async ({ page }) => {
     await loginAsNoc(page)
     await page.getByTestId('user-menu').click()

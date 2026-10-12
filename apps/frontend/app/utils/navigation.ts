@@ -142,6 +142,18 @@ export function findSection(scope: NavSection['scope'], path: string) {
   return NAV_SECTIONS.find((s) => s.scope === scope && s.path === path)
 }
 
+/** Sección de una ruta de la consola (la más específica cuyo path es prefijo), o undefined. */
+export function sectionOfPath(fullPath: string) {
+  const path = fullPath.split(/[?#]/)[0]!.replace(/\/$/, '')
+  const tenant = path.match(/^\/t\/[^/]+\/?(.*)$/)
+  const scope: NavSection['scope'] = tenant ? 'tenant' : 'platform'
+  const rest = tenant ? tenant[1]! : path
+  return NAV_SECTIONS.filter(
+    (s) =>
+      s.scope === scope && (s.path === rest || (s.path !== '' && rest.startsWith(`${s.path}/`))),
+  ).sort((a, b) => b.path.length - a.path.length)[0]
+}
+
 /**
  * Destino al cambiar de ISP (frontend.md §3.2): se conserva la sección si existe y es visible
  * en el ISP nuevo ("Hallazgos" de A → "Hallazgos" de B); los detalles (IDs de A) y los

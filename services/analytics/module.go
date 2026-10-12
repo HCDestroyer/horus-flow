@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync/atomic"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go/jetstream"
@@ -24,6 +25,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/flowinv"
 	"github.com/hcdestroyer/horus-flow/packages/go/health"
 	"github.com/hcdestroyer/horus-flow/packages/go/module"
+	"github.com/hcdestroyer/horus-flow/packages/go/natsx"
 	analyticsapi "github.com/hcdestroyer/horus-flow/services/analytics/api/trafficwidgets"
 	"github.com/hcdestroyer/horus-flow/services/analytics/dashboards"
 	"github.com/hcdestroyer/horus-flow/services/analytics/internal/adapters/chread"
@@ -70,6 +72,10 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 	if deps.Health != nil && cfg.ClickHouseDSN != "" {
 		deps.Health.AddCheck(health.Check{Name: "clickhouse", Critical: false, Probe: m.q.Ping})
 	}
+	// Bus de eventos de dominio: proyección de nodos, routers y clientes en dim.*.
+	if m.bus, err = natsx.Shared(ctx, deps.Services, deps.Environ, log); err != nil {
+		log.WarnContext(ctx, "analytics: NATS unavailable: dim.site/router/customer not projected", "error", err)
+	}
 	// Submódulo de dashboards, playlists y kiosco (CORE, I1-15).
 	if m.dash, err = dashboards.New(ctx, deps); err != nil {
 		return nil, err
@@ -101,6 +107,7 @@ type mod struct {
 	js      jetstream.JetStream
 	loops   []func(context.Context)
 	dash    *dashboards.Module
+	bus     *natsx.Bus
 }
 
 // Start abre ClickHouse (si está configurado). Un ClickHouse caído no
@@ -132,6 +139,20 @@ func (m *mod) Run(ctx context.Context) error {
 	go flowinv.Keep(ctx, m.inv, m.cfg.InventoryFile, m.js, "flows-inventory-"+Role, m.log)
 	for _, l := range m.loops {
 		go l(ctx)
+	}
+	if m.bus != nil {
+		proj := app.DimProjector{Store: func() app.DimStore {
+			if r := m.q.get(); r != nil {
+				return r
+			}
+			return nil
+		}}
+		go func() {
+			_ = natsx.Consume(ctx, m.bus.JS, natsx.ConsumerConfig{Service: Role, Stream: "DEVICES_EVENTS",
+				Durable: m.bus.Durable(app.DurableNames), FilterSubjects: app.NamesSubjects, MaxDeliver: 20,
+				BackOff: []time.Duration{time.Second, 5 * time.Second, 30 * time.Second, time.Minute, 5 * time.Minute},
+				Logger:  m.log}, proj.Handle)
+		}()
 	}
 	if m.dash != nil {
 		go func() { _ = m.dash.Run(ctx) }()

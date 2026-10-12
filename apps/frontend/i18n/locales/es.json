@@ -2205,5 +2205,11 @@
       "remove": "Quitar",
       "addItem": "Añadir dashboard"
     }
+  },
+  "help": {
+    "generic": "Consulta y gestiona esta parte de Horus Flow. Los cambios que hagas quedan registrados.",
+    "shortcuts": "Atajos",
+    "search": "Ir a cualquier sección o cambiar de ISP",
+    "errors": "Si algo falla, el mensaje muestra un código y una traza: compártelos con soporte para localizar el problema."
   }
 }

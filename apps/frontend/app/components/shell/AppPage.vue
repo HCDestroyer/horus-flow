@@ -10,8 +10,17 @@ const props = defineProps<{
   panelId?: string
 }>()
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 const { membership } = useTenant()
+const route = useRoute()
+
+// Ayuda contextual: para qué sirve la sección actual y los atajos de la consola.
+const section = computed(() => sectionOfPath(route.path))
+const helpText = computed(() => {
+  const key = section.value && `sections.${section.value.id}.question`
+  return key && te(key) ? t(key) : t('help.generic')
+})
+const isMac = computed(() => import.meta.client && /Mac|iP(hone|ad)/.test(navigator.platform))
 
 // El cuerpo del panel hace scroll propio: debe poder enfocarse para desplazarlo con el
 // teclado aunque el contenido no tenga controles (WCAG 2.1.1, axe scrollable-region-focusable).
@@ -33,14 +42,37 @@ useHead({
         </template>
         <template #right>
           <slot name="navbar-right" />
-          <UTooltip :text="t('toolbar.help')">
-            <UButton
-              icon="i-lucide-circle-help"
-              color="neutral"
-              variant="ghost"
-              :aria-label="t('toolbar.help')"
-            />
-          </UTooltip>
+          <UPopover :content="{ align: 'end' }">
+            <UTooltip :text="t('toolbar.help')">
+              <UButton
+                icon="i-lucide-circle-help"
+                color="neutral"
+                variant="ghost"
+                :aria-label="t('toolbar.help')"
+                data-testid="help-button"
+              />
+            </UTooltip>
+            <template #content>
+              <div
+                class="flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-3 p-4"
+                data-testid="help-panel"
+              >
+                <div>
+                  <p class="text-highlighted font-semibold">{{ title }}</p>
+                  <p class="text-default mt-1 text-sm">{{ helpText }}</p>
+                </div>
+                <dl class="text-sm">
+                  <dt class="text-muted text-xs">{{ t('help.shortcuts') }}</dt>
+                  <dd class="mt-1 flex items-center gap-1.5">
+                    <UKbd :value="isMac ? 'meta' : 'ctrl'" />
+                    <UKbd value="K" />
+                    <span class="text-default">{{ t('help.search') }}</span>
+                  </dd>
+                </dl>
+                <p class="text-muted text-xs">{{ t('help.errors') }}</p>
+              </div>
+            </template>
+          </UPopover>
         </template>
       </UDashboardNavbar>
       <UDashboardToolbar v-if="$slots['toolbar-left'] || $slots['toolbar-right']">

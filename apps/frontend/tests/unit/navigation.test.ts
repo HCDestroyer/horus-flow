@@ -7,6 +7,7 @@ import {
   NAV_SECTIONS,
   parseIncrement,
   sectionAccess,
+  sectionOfPath,
   tenantSwitchPath,
 } from '~/utils/navigation'
 import { USERS } from '~~/mocks/data'
@@ -148,5 +149,16 @@ describe('incrementos futuros (aparición progresiva)', () => {
     const system = findSection('platform', '/platform/system')
     expect(sectionAccess(system, noc, undefined, 'I1')).toBe('not-found')
     expect(sectionAccess(system, admin, undefined, 'I1')).toBe('ok')
+  })
+})
+
+describe('sectionOfPath (ayuda contextual)', () => {
+  it('resuelve la sección más específica del ISP o de plataforma', () => {
+    expect(sectionOfPath('/t/fibra-norte')?.id).toBe('overview')
+    expect(sectionOfPath('/t/fibra-norte/clients/abc?x=1')?.id).toBe('clients')
+    expect(sectionOfPath('/t/fibra-norte/security/findings/123')?.id).toBe('findings')
+    expect(sectionOfPath('/t/fibra-norte/admin/kiosks')?.id).toBe('kiosks')
+    expect(sectionOfPath('/platform/isps')?.id).toBe('platform-isps')
+    expect(sectionOfPath('/kiosk')).toBeUndefined()
   })
 })
