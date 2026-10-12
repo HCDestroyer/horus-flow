@@ -1266,10 +1266,92 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Destinos remotos de copias (lectura en I1; cero destinos es válido; escritura en I3) */
+        /** Destinos remotos de copias (cero destinos es válido; la UI avisa de que no hay copia fuera del servidor) */
         get: operations["platformListRemoteDestinations"];
         put?: never;
+        /** Alta de un destino SFTP (sin credenciales; se ponen con PUT .../credentials y se prueba con POST .../test) */
+        post: operations["platformCreateRemoteDestination"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/remote-destinations/{destination_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                destination_id: components["parameters"]["DestinationId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
         post?: never;
+        /** Borra el destino y sus credenciales (los archivos ya copiados en el servidor remoto no se tocan) */
+        delete: operations["platformDeleteRemoteDestination"];
+        options?: never;
+        head?: never;
+        /** Edita un destino (cambiar host o puerto borra la huella confirmada y lo deshabilita hasta volver a probarlo) */
+        patch: operations["platformUpdateRemoteDestination"];
+        trace?: never;
+    };
+    "/platform/remote-destinations/{destination_id}/credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                destination_id: components["parameters"]["DestinationId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Credenciales SFTP write-only (contraseña o clave privada OpenSSH); cifradas, nunca se devuelven */
+        put: operations["platformPutRemoteDestinationCredentials"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/remote-destinations/{destination_id}/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                destination_id: components["parameters"]["DestinationId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Encola una copia inmediata al destino (además del calendario automático tras cada backup local) */
+        post: operations["platformSyncRemoteDestination"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/remote-destinations/{destination_id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                destination_id: components["parameters"]["DestinationId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Prueba la conexión: se conecta, devuelve la huella SHA-256 de la clave del servidor y, si
+         *     coincide con la confirmada (o se envía confirm_host_key con ella), autentica y escribe y borra
+         *     un archivo de prueba en la ruta. La primera vez la huella hay que confirmarla (TOFU).
+         */
+        post: operations["platformTestRemoteDestination"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2388,7 +2470,7 @@ export interface components {
          * @description Código estable UPPER_SNAKE_CASE (= `ErrorInfo.reason` de gRPC). **Enum abierto**: se listan los
          *     conocidos en v0; el cliente trata un código desconocido según el `status` HTTP.
          */
-        ErrorCode: ("VALIDATION_FAILED" | "UNAUTHENTICATED" | "TOKEN_EXPIRED" | "SESSION_REVOKED" | "PERMISSION_DENIED" | "ORIGIN_NOT_ALLOWED" | "MFA_REQUIRED" | "MFA_ENROLLMENT_REQUIRED" | "REAUTH_REQUIRED" | "NOT_FOUND" | "ALREADY_EXISTS" | "CONFLICT" | "PRECONDITION_FAILED" | "PRECONDITION_REQUIRED" | "IDEMPOTENCY_KEY_REUSED" | "IDEMPOTENCY_IN_PROGRESS" | "RATE_LIMITED" | "TENANT_RATE_LIMITED" | "INTERNAL" | "SERVICE_UNAVAILABLE" | "ANALYTICS_UNAVAILABLE" | "TIMEOUT" | "INVALID_CREDENTIALS" | "INVALID_CURSOR" | "INVALID_FILTER" | "INVALID_SORT_FIELD" | "TIME_RANGE_TOO_LARGE" | "TENANT_NOT_FOUND" | "TENANT_MISMATCH" | "TENANT_SUSPENDED" | "TOKEN_SCOPE_INVALID" | "KIOSK_FORBIDDEN" | "ROUTER_NOT_FOUND" | "ROUTER_PRIMARY_EXISTS" | "ROUTEROS_VERSION_UNSUPPORTED" | "ROUTER_UNREACHABLE" | "ROUTER_TLS_FINGERPRINT_CHANGED" | "SITE_NOT_FOUND" | "SITE_NOT_EMPTY" | "PEER_ALREADY_REVOKED" | "WIREGUARD_IP_POOL_EXHAUSTED" | "WIREGUARD_PUBLIC_KEY_IN_USE" | "ENROLLMENT_TOKEN_INVALID" | "CUSTOMER_NOT_FOUND" | "CUSTOMER_KIND_LOCKED" | "CLIENT_PREFIX_OVERLAP" | "CLIENT_PREFIX_NOT_FOUND" | "FINDING_NOT_FOUND" | "FINDING_STATE_INVALID" | "DASHBOARD_NOT_FOUND" | "DASHBOARD_READ_ONLY" | "WIDGET_TYPE_NOT_ALLOWED" | "WIDGET_TYPE_UNKNOWN" | "WIDGET_CONFIG_INVALID" | "KIOSK_ENROLLMENT_CODE_INVALID" | "NOTIFICATION_CHANNEL_NOT_FOUND" | "NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE" | "NOTIFICATION_CHANNEL_UNREACHABLE" | "NOTIFICATION_CHANNEL_AUTH_FAILED" | "NOTIFICATION_CHANNEL_CREDENTIALS_MISSING" | "STORAGE_TARGET_UNREACHABLE" | "REPUTATION_SOURCE_NOT_FOUND" | "REPUTATION_SOURCE_READ_ONLY" | "REPUTATION_SOURCE_URL_NOT_ALLOWED" | "ROLE_NOT_FOUND" | "ROLE_READ_ONLY" | "ROLE_IN_USE" | "LAST_PLATFORM_ADMIN" | "WIREGUARD_HUB_NOT_FOUND" | "WIREGUARD_POOL_NOT_FOUND" | "WIREGUARD_POOL_OVERLAP" | "WIREGUARD_POOL_INVALID" | "WIREGUARD_POOL_IN_USE") | string;
+        ErrorCode: ("VALIDATION_FAILED" | "UNAUTHENTICATED" | "TOKEN_EXPIRED" | "SESSION_REVOKED" | "PERMISSION_DENIED" | "ORIGIN_NOT_ALLOWED" | "MFA_REQUIRED" | "MFA_ENROLLMENT_REQUIRED" | "REAUTH_REQUIRED" | "NOT_FOUND" | "ALREADY_EXISTS" | "CONFLICT" | "PRECONDITION_FAILED" | "PRECONDITION_REQUIRED" | "IDEMPOTENCY_KEY_REUSED" | "IDEMPOTENCY_IN_PROGRESS" | "RATE_LIMITED" | "TENANT_RATE_LIMITED" | "INTERNAL" | "SERVICE_UNAVAILABLE" | "ANALYTICS_UNAVAILABLE" | "TIMEOUT" | "INVALID_CREDENTIALS" | "INVALID_CURSOR" | "INVALID_FILTER" | "INVALID_SORT_FIELD" | "TIME_RANGE_TOO_LARGE" | "TENANT_NOT_FOUND" | "TENANT_MISMATCH" | "TENANT_SUSPENDED" | "TOKEN_SCOPE_INVALID" | "KIOSK_FORBIDDEN" | "ROUTER_NOT_FOUND" | "ROUTER_PRIMARY_EXISTS" | "ROUTEROS_VERSION_UNSUPPORTED" | "ROUTER_UNREACHABLE" | "ROUTER_TLS_FINGERPRINT_CHANGED" | "SITE_NOT_FOUND" | "SITE_NOT_EMPTY" | "PEER_ALREADY_REVOKED" | "WIREGUARD_IP_POOL_EXHAUSTED" | "WIREGUARD_PUBLIC_KEY_IN_USE" | "ENROLLMENT_TOKEN_INVALID" | "CUSTOMER_NOT_FOUND" | "CUSTOMER_KIND_LOCKED" | "CLIENT_PREFIX_OVERLAP" | "CLIENT_PREFIX_NOT_FOUND" | "FINDING_NOT_FOUND" | "FINDING_STATE_INVALID" | "DASHBOARD_NOT_FOUND" | "DASHBOARD_READ_ONLY" | "WIDGET_TYPE_NOT_ALLOWED" | "WIDGET_TYPE_UNKNOWN" | "WIDGET_CONFIG_INVALID" | "KIOSK_ENROLLMENT_CODE_INVALID" | "NOTIFICATION_CHANNEL_NOT_FOUND" | "NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE" | "NOTIFICATION_CHANNEL_UNREACHABLE" | "NOTIFICATION_CHANNEL_AUTH_FAILED" | "NOTIFICATION_CHANNEL_CREDENTIALS_MISSING" | "STORAGE_TARGET_UNREACHABLE" | "REPUTATION_SOURCE_NOT_FOUND" | "REPUTATION_SOURCE_READ_ONLY" | "REPUTATION_SOURCE_URL_NOT_ALLOWED" | "ROLE_NOT_FOUND" | "ROLE_READ_ONLY" | "ROLE_IN_USE" | "LAST_PLATFORM_ADMIN" | "WIREGUARD_HUB_NOT_FOUND" | "WIREGUARD_POOL_NOT_FOUND" | "WIREGUARD_POOL_OVERLAP" | "WIREGUARD_POOL_INVALID" | "WIREGUARD_POOL_IN_USE" | "REMOTE_DESTINATION_NOT_FOUND" | "REMOTE_DESTINATION_NOT_READY" | "REMOTE_DESTINATION_SYNC_RUNNING") | string;
         /** @description Evidencia agregada según kind (nunca payloads; nunca la IP del cliente). Campos conocidos; otros permitidos. */
         Evidence: {
             bps_peak?: number;
@@ -3070,6 +3152,69 @@ export interface components {
         };
         /** @enum {string} */
         RelativeRange: "15m" | "1h" | "6h" | "24h" | "7d" | "30d" | "90d";
+        RemoteDestination: {
+            bytes_pending?: number | null;
+            enabled: boolean;
+            files_pending?: number | null;
+            has_credentials: boolean;
+            host: string;
+            /** @description Huella SHA256:… confirmada de la clave del servidor. */
+            host_key_fingerprint?: string | null;
+            id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            kind: "sftp" | "gdrive" | "dropbox" | "mega";
+            lag_seconds?: number | null;
+            last_attempt_at?: components["schemas"]["Timestamp"] | null;
+            last_error?: string | null;
+            last_success_at?: components["schemas"]["Timestamp"] | null;
+            name: string;
+            /** @description Directorio remoto donde se dejan las copias cifradas. */
+            path: string;
+            port: number;
+            /** @description Días que se conservan las copias en el destino. */
+            retention_days?: number;
+            /**
+             * @description pending = aún sin primera copia.
+             * @enum {string}
+             */
+            status: "ok" | "lagging" | "failing" | "disabled" | "pending";
+            username: string;
+            version: components["schemas"]["Version"];
+        };
+        RemoteDestinationCreate: {
+            host: string;
+            /** @enum {string} */
+            kind: "sftp";
+            name: string;
+            path: string;
+            /** @default 22 */
+            port?: number;
+            /** @default 30 */
+            retention_days?: number;
+            username: string;
+        };
+        RemoteDestinationPatch: {
+            /** @description Solo se habilita con credenciales y huella confirmada. */
+            enabled?: boolean;
+            host?: string;
+            name?: string;
+            path?: string;
+            port?: number;
+            retention_days?: number;
+            username?: string;
+        };
+        RemoteDestinationTestResult: {
+            destination?: components["schemas"]["RemoteDestination"];
+            error?: string | null;
+            host_key_confirmed?: boolean;
+            host_key_fingerprint?: string | null;
+            ok: boolean;
+            /**
+             * @description Último paso alcanzado.
+             * @enum {string}
+             */
+            stage: "connect" | "host_key" | "auth" | "write" | "done";
+        };
         /**
          * @description Igual que `reputation_category` de ClickHouse (C3).
          * @enum {string}
@@ -3816,6 +3961,7 @@ export interface components {
         Cursor: string;
         CustomerId: components["schemas"]["Uuid"];
         DashboardId: components["schemas"]["Uuid"];
+        DestinationId: components["schemas"]["Uuid"];
         FindingId: components["schemas"]["Uuid"];
         /** @description Inicio RFC 3339 UTC, intervalo semiabierto `[from, to)`. Excluyente con `range`. */
         From: string;
@@ -6230,20 +6376,183 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        data: {
-                            id: components["schemas"]["Uuid"];
-                            /** @enum {string} */
-                            kind: "sftp" | "gdrive" | "dropbox" | "mega";
-                            lag_seconds?: number | null;
-                            last_success_at?: components["schemas"]["Timestamp"] | null;
-                            name: string;
-                            /** @enum {string} */
-                            status: "ok" | "lagging" | "failing" | "disabled";
-                        }[];
+                        data: components["schemas"]["RemoteDestination"][];
                     };
                 };
             };
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    platformCreateRemoteDestination: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RemoteDestinationCreate"];
+            };
+        };
+        responses: {
+            /** @description Destino creado (deshabilitado hasta que tenga credenciales y huella del servidor confirmada). */
+            201: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    Location: components["headers"]["Location"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteDestination"];
+                };
+            };
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
+        };
+    };
+    platformDeleteRemoteDestination: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description ETag (`"<version>"`) del recurso; falta → 428, no coincide → 412 con `current`. */
+                "If-Match": components["parameters"]["IfMatch"];
+            };
+            path: {
+                destination_id: components["parameters"]["DestinationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: components["responses"]["NoContent"];
+            404: components["responses"]["NotFound"];
+            412: components["responses"]["PreconditionFailed"];
+            428: components["responses"]["PreconditionRequired"];
+        };
+    };
+    platformUpdateRemoteDestination: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description ETag (`"<version>"`) del recurso; falta → 428, no coincide → 412 con `current`. */
+                "If-Match": components["parameters"]["IfMatch"];
+            };
+            path: {
+                destination_id: components["parameters"]["DestinationId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RemoteDestinationPatch"];
+            };
+        };
+        responses: {
+            /** @description Destino. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteDestination"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["UnprocessableEntity"];
+            428: components["responses"]["PreconditionRequired"];
+        };
+    };
+    platformPutRemoteDestinationCredentials: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                destination_id: components["parameters"]["DestinationId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    passphrase?: string | null;
+                    password?: string;
+                    /** @description Clave privada OpenSSH (PEM). */
+                    private_key?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Destino (has_credentials=true). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteDestination"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["UnprocessableEntity"];
+        };
+    };
+    platformSyncRemoteDestination: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUID generado por el cliente; obligatorio en acciones con efecto externo (falta → 428). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKeyRequired"];
+            };
+            path: {
+                destination_id: components["parameters"]["DestinationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Copia encolada. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteDestination"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    platformTestRemoteDestination: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                destination_id: components["parameters"]["DestinationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /** @description Huella SHA256:… que la persona confirma para fijarla. */
+                    confirm_host_key?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Resultado de la prueba (ok=false con error legible si falla; no es un 5xx). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteDestinationTestResult"];
+                };
+            };
+            404: components["responses"]["NotFound"];
         };
     };
     platformListReputationSources: {

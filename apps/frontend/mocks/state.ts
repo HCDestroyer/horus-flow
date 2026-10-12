@@ -11,6 +11,7 @@ import type {
   PlatformUserStatus,
   Role,
 } from '~~/types/api'
+import type { StoredDestination } from './remote-destinations'
 import type { WireguardHubState } from './wireguard'
 
 /**
@@ -149,6 +150,8 @@ export const mockState = {
   devices: new Map<string, DeviceState>(),
   /** Hubs WireGuard editados y sus rangos (`mocks/wireguard.ts`; también en el storage). */
   wireguard: new Map<string, WireguardHubState>(),
+  /** Destinos remotos SFTP (`mocks/remote-destinations.ts`; también en el storage). */
+  remoteDestinations: null as StoredDestination[] | null,
 }
 
 export function resetMockState() {
@@ -170,6 +173,7 @@ export function resetMockState() {
   mockState.platformUsers.clear()
   mockState.devices.clear()
   mockState.wireguard.clear()
+  mockState.remoteDestinations = null
 }
 
 /** Hallazgo cerrado por una acción del usuario: sale de los agregados de "abiertos". */

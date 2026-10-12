@@ -66,8 +66,20 @@ de cada rol propio responde 412) · `horus.mock.wgHubConflict` = `1` (el primer 
 WireGuard responde 412: otra persona cambió el keepalive) · `horus.mock.wgUsage` = `0.85`
 (ocupación del primer rango de túneles; aviso desde 0,8) · `horus.mock.wgQuarantine` = `1` (los
 rangos vacíos tienen direcciones en cuarentena de 24 h: quitarlos da 409
-`WIREGUARD_POOL_IN_USE`). Los roles propios, los cambios de la consola de plataforma sobre las
-cuentas y los del hub WireGuard (endpoint, MTU, keepalive, rangos) se guardan en
+`WIREGUARD_POOL_IN_USE`) · `horus.mock.sftpSeed` = `1` (si no hay destinos remotos, crea
+cuatro de ejemplo: al día, con retraso, fallando y desactivado; sin él, cero destinos y el aviso
+"Sin copia remota configurada") · `horus.mock.sftpHostKeyChanged` = `1` (los servidores SFTP
+presentan otra clave: la prueba responde "La clave del servidor cambió" hasta confirmar la
+huella nueva) · `horus.mock.sftpTestFail` = `connect` | `auth` | `write` (la prueba de conexión
+falla en ese paso; un host acabado en `.invalid` falla siempre al conectar) ·
+`horus.mock.sftpConflict` = `1` (el primer `PATCH`/`DELETE` de cada destino responde 412: otra
+persona cambió la retención a 14 días) · `horus.mock.sftpSyncMs` (duración de cada copia
+simulada, 3000 ms; mientras dura, otra copia da 409 `REMOTE_DESTINATION_SYNC_RUNNING`). Los
+destinos nacen desactivados; la primera prueba para en la huella del servidor (TOFU) hasta
+confirmarla, activar sin credenciales o sin huella y copiar un destino desactivado dan
+`REMOTE_DESTINATION_NOT_READY`, y cambiar el host o el puerto borra la huella y lo desactiva.
+Los roles propios, los cambios de la consola de plataforma sobre las cuentas, los del hub
+WireGuard (endpoint, MTU, keepalive, rangos) y los destinos remotos se guardan en
 `sessionStorage` (sobreviven a recargar). Datos de demo: Fibra Norte tiene el Nodo Costa en
 modo descubrimiento y el router `rt-lago` pendiente de configurar; Valle Conecta, `rt-ribera`
 silencioso; en el ISP hay clientes IPv6 por prefijo delegado (D22).

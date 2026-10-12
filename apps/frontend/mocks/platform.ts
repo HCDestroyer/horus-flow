@@ -14,11 +14,12 @@ import { routersOf } from './inventory'
 import { parseIp } from './net'
 import { hash, mockUuid } from './random'
 import { mockState } from './state'
+import { remoteDestinationRoute } from './remote-destinations'
 import { wireguardHubs, wireguardRoute } from './wireguard'
 
 /**
  * Consola de plataforma simulada (I1-31, D19, D20): resumen por ISP, hubs WireGuard, acceso a
- * la instalación, destinos remotos (ninguno: "Sin copia remota configurada") y fuentes de
+ * la instalación, destinos remotos SFTP (`mocks/remote-destinations.ts`) y fuentes de
  * reputación con alta de listas personalizadas.
  */
 
@@ -698,7 +699,8 @@ export function platformRoute(ctx: PlatformRouteContext): Response | undefined {
   const rep =
     reputationRoutes(ctx) ??
     usersRoutes(ctx) ??
-    wireguardRoute({ ...ctx, defaultEndpoint: installationAccess(ctx.now).wireguard_endpoint })
+    wireguardRoute({ ...ctx, defaultEndpoint: installationAccess(ctx.now).wireguard_endpoint }) ??
+    remoteDestinationRoute(ctx)
   if (rep) return rep
   if (ctx.method !== 'GET') return
   switch (ctx.path) {
@@ -713,8 +715,6 @@ export function platformRoute(ctx: PlatformRouteContext): Response | undefined {
     case '/platform/installation':
       if (!ctx.can('platform.status.read')) return forbidden()
       return json(installationAccess(ctx.now))
-    case '/platform/remote-destinations':
-      return json({ data: [] })
     case '/platform/tenants':
       return json({
         data: ALL_TENANTS.map((t) => ({
