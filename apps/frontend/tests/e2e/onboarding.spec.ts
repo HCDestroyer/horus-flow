@@ -38,6 +38,12 @@ test.describe('router y onboarding @onboarding', () => {
     await expect(script.getByRole('button', { name: 'Copiar' })).toBeVisible()
     await expect(script.getByRole('button', { name: 'Descargar .rsc' })).toBeVisible()
     await expect(page.getByTestId('script-once')).toContainText('Solo se muestra una vez')
+    // Por partes: cada encabezado `# N)` es una parte; tras firmar el certificado, esperar.
+    const parts = page.getByTestId('script-parts')
+    await expect(page.getByTestId('script-part-1')).toContainText('/interface wireguard add')
+    await expect(page.getByTestId('script-part-3')).toContainText('/certificate sign horus-api')
+    await expect(page.getByTestId('script-part-4')).toContainText('/ip service set www-ssl')
+    await expect(parts.getByTestId('script-part-wait')).toHaveCount(1)
     await expect(page.getByTestId('revoke-token')).toBeVisible()
 
     // Sin recargar: clave recibida → handshake → primer flujo.

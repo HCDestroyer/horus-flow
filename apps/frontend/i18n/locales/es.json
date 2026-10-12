@@ -886,6 +886,11 @@
       "onceTitle": "Solo se muestra una vez",
       "onceBody": "Contiene la contraseña del usuario de solo lectura y el token de enrolamiento (un solo uso, válido hasta {date}). Cópialo o descárgalo ahora; si lo pierdes, regéneralo.",
       "scriptLabel": "Script de alta (RouterOS)",
+      "importHint": "Lo más fiable: descarga {file}, súbelo al router (Files en Winbox) y ejecuta /import file-name={file} verbose=yes. Si prefieres pegarlo, hazlo por partes.",
+      "partsTitle": "Pegar por partes",
+      "partsBody": "Pega cada parte en la terminal y espera a que termine antes de la siguiente: si pegas todo de golpe, lo que llega mientras el router trabaja se pierde.",
+      "partLabel": "Parte {n} de {total} · {title}",
+      "partWait": "Espera a que termine la firma del certificado (deja de mostrar \"progress\") antes de pegar la siguiente parte.",
       "reauth": "Generar el script crea contraseñas y un token de enrolamiento nuevos: confirma tu identidad para continuar.",
       "reauthNeeded": "Confirma tu identidad para generar el script (pulsa de nuevo \"Generar script\").",
       "unsupported": "Este router tiene RouterOS anterior a 7.12: actualízalo (o corrige la versión en \"Editar router\") y vuelve a generar el script."

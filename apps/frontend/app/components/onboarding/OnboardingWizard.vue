@@ -108,6 +108,7 @@ async function revoke() {
 }
 
 const filename = computed(() => `horus-alta-${props.router.name}.rsc`)
+const parts = computed(() => (script.value ? splitRouterScript(script.value) : []))
 
 type StepState = 'done' | 'current' | 'waiting' | 'error'
 const steps = computed<{ key: string; state: StepState }[]>(() => {
@@ -205,6 +206,41 @@ onBeforeUnmount(() => clearInterval(timer))
                   max-height="18rem"
                   data-testid="provisioning-script"
                 />
+                <p class="text-muted text-sm">
+                  {{ t('onboarding.generate.importHint', { file: filename }) }}
+                </p>
+                <section
+                  v-if="parts.length > 1"
+                  class="flex flex-col gap-2"
+                  data-testid="script-parts"
+                >
+                  <h4 class="text-highlighted text-sm font-semibold">
+                    {{ t('onboarding.generate.partsTitle') }}
+                  </h4>
+                  <p class="text-muted text-sm">{{ t('onboarding.generate.partsBody') }}</p>
+                  <template v-for="(part, pi) in parts" :key="pi">
+                    <CodeBlock
+                      :code="part.code"
+                      :label="
+                        t('onboarding.generate.partLabel', {
+                          n: pi + 1,
+                          total: parts.length,
+                          title: part.title,
+                        })
+                      "
+                      max-height="12rem"
+                      :data-testid="`script-part-${pi + 1}`"
+                    />
+                    <p
+                      v-if="part.waitAfter"
+                      class="text-warning flex items-center gap-1.5 text-sm"
+                      data-testid="script-part-wait"
+                    >
+                      <UIcon name="i-lucide-hourglass" class="size-4 shrink-0" aria-hidden="true" />
+                      {{ t('onboarding.generate.partWait') }}
+                    </p>
+                  </template>
+                </section>
               </template>
               <UAlert
                 v-if="genErrorText"
