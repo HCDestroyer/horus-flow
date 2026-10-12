@@ -16,6 +16,15 @@ export function hasTenantPermission(membership: Membership | undefined, permissi
   return Array.isArray(scopes) && scopes.length > 0
 }
 
+/**
+ * ¿Tiene `permission` en TODO el ISP (alcance `*` o `tenant`), no solo en un nodo? Es lo que
+ * exige el backend para conceder ese permiso en un rol propio (anti-escalada).
+ */
+export function hasTenantWidePermission(membership: Membership | undefined, permission: string) {
+  const scopes = membership?.permissions_with_scope[permission]
+  return Array.isArray(scopes) && (scopes.includes('*') || scopes.includes('tenant'))
+}
+
 export function hasPlatformPermission(me: Me | null | undefined, permission: string) {
   return !!me?.platform_permissions.includes(permission)
 }

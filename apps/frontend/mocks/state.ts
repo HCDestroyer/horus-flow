@@ -6,6 +6,9 @@ import type {
   NotificationChannel,
   NotificationDelivery,
   ReputationSource,
+  PlatformRoleKey,
+  PlatformUserStatus,
+  Role,
 } from '~~/types/api'
 
 /**
@@ -61,6 +64,15 @@ export const mockState = {
   invitationTokens: new Map<string, string>(),
   /** Tokens de invitación ya aceptados (un solo uso). */
   usedInvitations: new Set<string>(),
+  /** Roles propios por ISP (`mocks/roles.ts`; también en el storage de la sesión simulada). */
+  customRoles: new Map<string, Role[]>(),
+  /** Roles cuyo primer `PATCH` ya devolvió el 412 simulado (`horus.mock.roleConflict`). */
+  roleConflictServed: new Set<string>(),
+  /** Cambios de la consola de plataforma sobre las cuentas (estado y roles de plataforma). */
+  platformUsers: new Map<
+    string,
+    { status?: PlatformUserStatus; platform_roles?: PlatformRoleKey[] }
+  >(),
 }
 
 export function resetMockState() {
@@ -77,6 +89,9 @@ export function resetMockState() {
   mockState.members.clear()
   mockState.invitationTokens.clear()
   mockState.usedInvitations.clear()
+  mockState.customRoles.clear()
+  mockState.roleConflictServed.clear()
+  mockState.platformUsers.clear()
 }
 
 /** Hallazgo cerrado por una acción del usuario: sale de los agregados de "abiertos". */

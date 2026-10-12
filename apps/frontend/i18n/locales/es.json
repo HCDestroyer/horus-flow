@@ -81,7 +81,8 @@
       "platformStorage": "Almacenamiento",
       "platformSystem": "Estado del sistema",
       "notifications": "Canales de notificación",
-      "platformReputation": "Fuentes de reputación"
+      "platformReputation": "Fuentes de reputación",
+      "roles": "Roles y permisos"
     },
     "search": "Buscar",
     "searchPlaceholder": "Buscar secciones…",
@@ -180,6 +181,9 @@
     },
     "users": {
       "question": "¿Quién tiene acceso a este ISP y con qué rol?"
+    },
+    "roles": {
+      "question": "¿Qué puede hacer cada rol en este ISP?"
     },
     "kiosks": {
       "question": "¿Qué pantallas NOC están en línea y qué muestran?"
@@ -1426,8 +1430,189 @@
       "reauthTitle": "Confirma tu identidad para cambiar roles",
       "reauthBody": "Por seguridad, cambiar roles exige confirmar que eres tú: escribe de nuevo tu contraseña.",
       "reauthAction": "Confirmar identidad",
-      "reauthCancelled": "No se guardó el cambio: confirma tu identidad para continuar."
-    }
+      "reauthCancelled": "No se guardó el cambio: confirma tu identidad para continuar.",
+      "customHint": "¿Necesitas otra combinación de permisos?"
+    },
+    "manageRoles": "Gestionar roles"
+  },
+  "roles": {
+    "intro": "Qué puede hacer cada rol en este ISP. Los roles de sistema no se modifican; crea roles propios para combinaciones a medida.",
+    "create": "Nuevo rol",
+    "system": "Sistema",
+    "custom": "Propio",
+    "mfa": "Exige 2FA",
+    "noDescription": "Sin descripción",
+    "readOnly": "Los roles de sistema son de solo lectura",
+    "readOnlyHint": "Si necesitas algo parecido, duplícalo y ajusta los permisos en el rol nuevo.",
+    "permissionCount": "{n} permiso | {n} permisos",
+    "assignments": "sin asignaciones | {n} asignación | {n} asignaciones",
+    "tabs": {
+      "roles": "Roles",
+      "matrix": "Matriz de permisos"
+    },
+    "customTitle": "Roles propios del ISP",
+    "customHint": "Creados por tu equipo; se pueden editar y eliminar.",
+    "customEmpty": "Todavía no hay roles propios",
+    "customEmptyHint": "Crea uno con los permisos exactos que necesita tu equipo, o duplica un rol de sistema.",
+    "systemTitle": "Roles de sistema",
+    "systemHint": "Predefinidos por Horus Flow; de solo lectura.",
+    "actions": {
+      "menu": "Acciones para el rol {name}",
+      "view": "Ver permisos",
+      "edit": "Editar",
+      "duplicate": "Duplicar",
+      "delete": "Eliminar"
+    },
+    "matrix": {
+      "title": "Matriz de permisos por rol",
+      "caption": "Permisos del ISP agrupados por área (filas) y si cada rol (columnas) los incluye.",
+      "permission": "Permiso",
+      "pickRole": "Rol",
+      "areaCount": "{n} de {total}"
+    },
+    "areas": {
+      "users": "Usuarios",
+      "roles": "Roles",
+      "audit": "Auditoría",
+      "sites": "Nodos",
+      "devices": "Routers",
+      "wireguard": "Túneles WireGuard",
+      "snmp": "SNMP",
+      "flows": "Exportadores de flujos",
+      "customers": "Clientes",
+      "traffic": "Tráfico",
+      "security": "Seguridad",
+      "alerts": "Alertas y notificaciones",
+      "reports": "Reportes",
+      "dashboards": "Dashboards",
+      "kiosks": "Pantallas NOC",
+      "settings": "Configuración",
+      "api_tokens": "API tokens"
+    },
+    "form": {
+      "createTitle": "Nuevo rol",
+      "createDescription": "Elige un nombre y los permisos que tendrá quien reciba este rol.",
+      "editTitle": "Editar «{name}»",
+      "editDescription": "Los cambios se aplican a todos los miembros con este rol en su próxima petición.",
+      "name": "Nombre",
+      "nameRequired": "Escribe un nombre.",
+      "nameTooLong": "Como mucho 120 caracteres.",
+      "key": "Clave",
+      "keyHelp": "Se genera a partir del nombre: minúsculas, números y guion bajo; empieza por una letra.",
+      "keyFixed": "No se puede cambiar",
+      "keyInvalid": "Usa entre 2 y 63 caracteres: minúsculas sin acentos, números y _, empezando por una letra.",
+      "keyTaken": "Ya existe un rol con esa clave en este ISP.",
+      "description": "Descripción",
+      "optional": "Opcional",
+      "descriptionTooLong": "Como mucho 500 caracteres.",
+      "copyFrom": "Copiar de un rol existente",
+      "copyHelp": "Rellena los permisos con los de otro rol; después puedes ajustarlos.",
+      "copyPlaceholder": "Empezar desde cero",
+      "omitted": "Se omitió {n} permiso que no tienes en todo el ISP. | Se omitieron {n} permisos que no tienes en todo el ISP.",
+      "permissions": "Permisos",
+      "selectedCount": "ninguno elegido | {n} elegido | {n} elegidos",
+      "permissionsRequired": "Elige al menos un permiso.",
+      "selectGroup": "Seleccionar área",
+      "clearGroup": "Quitar área",
+      "selectGroupAria": "Seleccionar todos los permisos de {area}",
+      "clearGroupAria": "Quitar todos los permisos de {area}",
+      "notGrantable": "no lo tienes en todo el ISP",
+      "escalationTitle": "Algunos permisos están desactivados",
+      "escalationHelp": "Solo puedes conceder permisos que tú tienes en todo el ISP (no solo en un nodo). Así nadie puede darse más acceso del que tiene.",
+      "escalation": "No puedes conceder permisos que no tienes en todo el ISP. Quita los marcados como no disponibles.",
+      "conflict": "Otra persona cambió este rol mientras lo editabas. Se ha cargado la versión actual: revísala y guarda de nuevo.",
+      "gone": "Este rol ya no existe: puede que otra persona lo haya eliminado.",
+      "reauthBody": "Por seguridad, gestionar roles exige confirmar que eres tú: escribe de nuevo tu contraseña.",
+      "reauthCancelled": "No se guardó: confirma tu identidad para continuar.",
+      "submitCreate": "Crear rol",
+      "created": "Rol «{name}» creado",
+      "updated": "Rol «{name}» actualizado",
+      "copyName": "{name} (copia)"
+    },
+    "delete": {
+      "title": "¿Eliminar el rol «{name}»?",
+      "body": "Se borra para siempre. Solo se puede eliminar un rol que nadie tenga asignado.",
+      "assigned": "Nadie lo tiene asignado. | Está asignado a {n} miembro. | Está asignado a {n} miembros.",
+      "unassigned": "Nadie lo tiene asignado.",
+      "inUse": "No se puede eliminar: está asignado a {n} miembro. Quítaselo primero en Usuarios y roles. | No se puede eliminar: está asignado a {n} miembros. Quítaselo primero en Usuarios y roles.",
+      "conflict": "El rol cambió mientras tanto. Revisa los datos actualizados y vuelve a intentarlo.",
+      "goToUsers": "Ir a Usuarios y roles",
+      "submit": "Eliminar rol",
+      "done": "Rol «{name}» eliminado"
+    },
+    "detailLabel": "Permisos del rol {name}"
+  },
+  "platformUsers": {
+    "intro": "Cuentas de la instalación: estado, verificación en dos pasos, roles de plataforma e ISP de los que son miembros.",
+    "search": "Buscar",
+    "searchPlaceholder": "Nombre o correo",
+    "searchSubmit": "Buscar",
+    "showing": "Mostrando {n} usuario | Mostrando {n} usuarios",
+    "empty": "Ningún usuario coincide con la búsqueda",
+    "mfaShort": "2FA",
+    "noMfaShort": "Sin 2FA",
+    "col": {
+      "user": "Usuario",
+      "status": "Estado",
+      "mfa": "Verificación en dos pasos",
+      "platformRoles": "Roles de plataforma",
+      "memberships": "ISP y roles",
+      "actions": "Acciones"
+    },
+    "statusLabel": {
+      "active": "Activo",
+      "disabled": "Bloqueado",
+      "locked": "Bloqueado temporalmente",
+      "pending": "Pendiente"
+    },
+    "roles": {
+      "platform_admin": {
+        "name": "Superadministrador",
+        "description": "Todo en la consola de plataforma: alta y baja de ISP, usuarios, roles de plataforma, almacenamiento y fuentes de reputación."
+      },
+      "platform_operator": {
+        "name": "Operador de plataforma",
+        "description": "Ve el estado de la instalación, los ISP y la auditoría de plataforma, sin cambiar nada."
+      },
+      "platform_auditor": {
+        "name": "Auditor de plataforma",
+        "description": "Lee la auditoría de plataforma, los ISP y los usuarios, sin cambiar nada."
+      }
+    },
+    "actions": {
+      "menu": "Acciones para {name}",
+      "roles": "Roles de plataforma",
+      "block": "Bloquear",
+      "activate": "Activar"
+    },
+    "block": {
+      "title": "¿Bloquear a {name}?",
+      "body": "No podrá iniciar sesión y sus sesiones abiertas se cierran al momento, en todos sus dispositivos. Puedes activar la cuenta de nuevo cuando quieras.",
+      "submit": "Bloquear cuenta"
+    },
+    "activate": {
+      "title": "¿Activar a {name}?",
+      "body": "Podrá volver a iniciar sesión con su contraseña. Sus sesiones anteriores siguen revocadas.",
+      "submit": "Activar cuenta"
+    },
+    "status": {
+      "blocked": "{name} está bloqueado y sus sesiones se han cerrado",
+      "activated": "{name} puede volver a iniciar sesión"
+    },
+    "rolesEditor": {
+      "title": "Roles de plataforma de {name}",
+      "description": "Dan acceso a la consola de plataforma de toda la instalación, no a un ISP concreto.",
+      "legend": "Roles",
+      "none": "Sin roles de plataforma: solo verá los ISP de los que sea miembro.",
+      "totpTitle": "Necesita la verificación en dos pasos",
+      "totpHelp": "Para usar la consola de plataforma la cuenta debe tener activado el TOTP.",
+      "totpMissing": "Esta cuenta aún no tiene el TOTP activado: no podrá entrar en la consola de plataforma hasta activarlo en Mi cuenta.",
+      "ownAdmin": "Te estás quitando el rol de superadministrador: perderás el acceso a esta consola al guardar."
+    },
+    "rolesSaved": "Roles de plataforma de {name} actualizados",
+    "lastAdmin": "Debe quedar al menos un superadministrador activo",
+    "reauthBody": "Por seguridad, gestionar usuarios de plataforma exige confirmar que eres tú: escribe de nuevo tu contraseña.",
+    "reauthCancelled": "No se guardó: confirma tu identidad para continuar."
   },
   "invitation": {
     "title": "Invitación",

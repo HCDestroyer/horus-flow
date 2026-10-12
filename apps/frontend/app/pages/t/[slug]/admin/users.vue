@@ -29,6 +29,8 @@ useSectionGuard()(findSection('tenant', 'admin/users'), slug.value)
 
 const canManage = computed(() => can('users.manage'))
 const canAssign = computed(() => can('roles.assign'))
+const canSeeRoles = computed(() => can('roles.read'))
+const rolesHref = computed(() => `/t/${slug.value}/admin/roles`)
 const tenantName = computed(() => membership.value?.tenant_name ?? '')
 
 const { data: rolesData } = useTenantQuery(
@@ -391,8 +393,18 @@ async function saveRoles() {
     <template #toolbar-left>
       <p class="text-muted text-sm">{{ t('members.intro') }}</p>
     </template>
-    <template v-if="canManage" #toolbar-right>
+    <template v-if="canManage || canSeeRoles" #toolbar-right>
       <UButton
+        v-if="canSeeRoles"
+        :to="rolesHref"
+        color="neutral"
+        variant="outline"
+        icon="i-lucide-key-round"
+        :label="t('members.manageRoles')"
+        data-testid="manage-roles"
+      />
+      <UButton
+        v-if="canManage"
         icon="i-lucide-user-plus"
         :label="t('members.invite.open')"
         data-testid="invite-open"
@@ -705,6 +717,12 @@ async function saveRoles() {
             :roles="roles"
             :error="editError ?? undefined"
           />
+          <p v-if="canSeeRoles" class="text-muted text-sm">
+            {{ t('members.roles.customHint') }}
+            <ULink :to="rolesHref" class="text-primary font-medium" data-testid="roles-manage-link">
+              {{ t('members.manageRoles') }}
+            </ULink>
+          </p>
           <UAlert
             v-if="reauthNeeded"
             color="warning"

@@ -13,7 +13,8 @@ import { findTenant, MOCK_TOTP_CODE, USERS, type MockUser } from './data'
 import { json, problem, randomHex } from './http'
 import { currentKiosk, enroll, kioskAdminRoute, kioskConfig, touchKiosk } from './kiosk'
 import { invitationRoute, memberRoute, readFlag } from './members'
-import { platformRoute } from './platform'
+import { platformRoute, platformUserStatus, restorePlatformUsers } from './platform'
+import { PERMISSION_CATALOG, restoreRoles, ROLES } from './roles'
 import { tenantRoute } from './tenant-routes'
 import { createTenant, restoreTenants } from './tenants'
 import { widgetData } from './widget-data'
@@ -131,6 +132,13 @@ function hasPermission(user: MockUser, tenantId: string | undefined, permission:
   return !!m?.permissions_with_scope[permission]?.length
 }
 
+/** ¿Tiene el permiso en todo el ISP (alcance `*` o `tenant`, no solo en un nodo)? */
+function hasTenantWide(user: MockUser, tenantId: string | undefined, permission: string) {
+  const m = user.me.memberships.find((x) => x.tenant_id === tenantId)
+  const scopes = m?.permissions_with_scope[permission] ?? []
+  return scopes.includes('*') || scopes.includes('tenant')
+}
+
 function summary(d: Dashboard): DashboardSummary {
   return {
     id: d.id,
@@ -178,6 +186,10 @@ export function createMockFetch(options: MockOptions = {}) {
   }
   // ISP dados de alta en esta sesión simulada (consola de plataforma).
   restoreTenants(storage)
+  // Roles propios de los ISP creados en esta sesión simulada.
+  restoreRoles(storage)
+  // Cambios de cuentas hechos desde la consola de plataforma.
+  restorePlatformUsers(storage)
 
   const saveAccount = (u: MockUser) =>
     storage?.setItem(
@@ -316,7 +328,9 @@ export function createMockFetch(options: MockOptions = {}) {
       return problem(429, 'RATE_LIMITED', 'Demasiados intentos', { 'Retry-After': String(wait) })
     }
     const user = USERS.find((u) => u.username === username)
-    if (!user || user.password !== body.password) {
+    // Una cuenta bloqueada desde la consola de plataforma no entra (mismo mensaje).
+    const blocked = user && platformUserStatus(user) === 'disabled'
+    if (!user || user.password !== body.password || blocked) {
       const count = (entry?.count ?? 0) + 1
       failures.set(username, {
         count: count >= MAX_FAILURES ? 0 : count,
@@ -552,6 +566,8 @@ export function createMockFetch(options: MockOptions = {}) {
         return systemStatus(user.me.platform_permissions.includes('platform.status.read'))
       case 'GET /widget-types':
         return json({ data: WIDGET_CATALOG as unknown as WidgetType[] })
+      case 'GET /permissions':
+        return json({ version: 'v0', permissions: PERMISSION_CATALOG, roles: ROLES })
     }
 
     if (record.scope === 'platform' && route === 'POST /platform/tenants') {
@@ -573,6 +589,8 @@ export function createMockFetch(options: MockOptions = {}) {
         body,
         can: (p) => user.me.platform_permissions.includes(p),
         now: now(),
+        userId: user.me.id,
+        reauthRequired: reauthRequired(user),
       })
       return res ?? problem(404, 'NOT_FOUND', 'No encontrado')
     }
@@ -620,7 +638,13 @@ export function createMockFetch(options: MockOptions = {}) {
       }) ??
       channelRoute(shared) ??
       kioskAdminRoute(shared) ??
-      memberRoute({ ...shared, url, userId: user.me.id, reauthRequired: reauthRequired(user) })
+      memberRoute({
+        ...shared,
+        url,
+        userId: user.me.id,
+        reauthRequired: reauthRequired(user),
+        tenantWide: (p) => hasTenantWide(user, tenantId, p),
+      })
     if (res) return res
 
     return problem(404, 'NOT_FOUND', 'No encontrado')
