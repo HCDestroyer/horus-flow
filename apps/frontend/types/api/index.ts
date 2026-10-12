@@ -123,6 +123,9 @@ export type LibreNmsChannelConfig = Schemas['LibreNmsChannelConfig']
 // Plataforma (I1, D19/D20).
 export type InstallationAccess = Schemas['InstallationAccess']
 export type WireguardHub = Schemas['WireguardHub']
+export type WireguardPool = Schemas['WireguardPool']
+export type WireguardHubUpdate =
+  operations['platformUpdateWireguardHub']['requestBody']['content']['application/json']
 export type TenantOverview = Schemas['TenantOverview']
 export type Tenant = Schemas['Tenant']
 export type TenantCreate = Schemas['TenantCreate']

@@ -203,6 +203,7 @@ export const USERS: MockUser[] = [
         'platform.audit.read',
         'platform.status.read',
         'platform.storage.manage',
+        'platform.wireguard.manage',
         'platform.catalog.manage',
         'platform.reputation_sources.manage',
       ],

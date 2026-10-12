@@ -32,7 +32,7 @@ pnpm e2e --grep @tenant # Playwright (construye con build:mocks si no hay E2E_NO
 pnpm e2e --grep @widgets
 pnpm e2e --grep @layout # sin desbordamiento: mural 720p–4K, escritorio y móvil 320–430 px
 pnpm e2e --grep @tour   # recorrido con capturas en docs/screenshots/tour/
-pnpm e2e --grep "@clients|@traffic|@security|@onboarding|@platform|@kiosk"   # I1
+pnpm e2e --grep "@clients|@traffic|@security|@onboarding|@platform|@wireguard|@kiosk"   # I1
 pnpm screenshots        # capturas en docs/screenshots/
 ```
 
@@ -62,8 +62,13 @@ red para el kiosco) · `horus.mock.frontendVersion` (versión mínima que pide e
 `horus.mock.accessMode` = `domain` | `subdomain` | `ip_only` (D19) · `horus.mock.diskRatio`
 (uso del disco local, aviso desde 0,85) · `horus.mock.reauthRequired` = `1` (las acciones
 `x-reauth` piden confirmar la identidad) · `horus.mock.roleConflict` = `1` (el primer `PATCH`
-de cada rol propio responde 412). Los roles propios y los cambios de la consola de plataforma
-sobre las cuentas se guardan en `sessionStorage` (sobreviven a recargar). Datos de demo: Fibra Norte tiene el Nodo Costa en
+de cada rol propio responde 412) · `horus.mock.wgHubConflict` = `1` (el primer `PATCH` del hub
+WireGuard responde 412: otra persona cambió el keepalive) · `horus.mock.wgUsage` = `0.85`
+(ocupación del primer rango de túneles; aviso desde 0,8) · `horus.mock.wgQuarantine` = `1` (los
+rangos vacíos tienen direcciones en cuarentena de 24 h: quitarlos da 409
+`WIREGUARD_POOL_IN_USE`). Los roles propios, los cambios de la consola de plataforma sobre las
+cuentas y los del hub WireGuard (endpoint, MTU, keepalive, rangos) se guardan en
+`sessionStorage` (sobreviven a recargar). Datos de demo: Fibra Norte tiene el Nodo Costa en
 modo descubrimiento y el router `rt-lago` pendiente de configurar; Valle Conecta, `rt-ribera`
 silencioso; en el ISP hay clientes IPv6 por prefijo delegado (D22).
 

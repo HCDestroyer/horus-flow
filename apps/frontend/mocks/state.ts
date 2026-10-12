@@ -11,6 +11,7 @@ import type {
   PlatformUserStatus,
   Role,
 } from '~~/types/api'
+import type { WireguardHubState } from './wireguard'
 
 /**
  * Cambios hechos en la API simulada (las acciones del usuario) sobre la base determinista.
@@ -146,6 +147,8 @@ export const mockState = {
   >(),
   /** Nodos y routers dados de alta, editados o borrados, por ISP (`mocks/devices.ts`). */
   devices: new Map<string, DeviceState>(),
+  /** Hubs WireGuard editados y sus rangos (`mocks/wireguard.ts`; también en el storage). */
+  wireguard: new Map<string, WireguardHubState>(),
 }
 
 export function resetMockState() {
@@ -166,6 +169,7 @@ export function resetMockState() {
   mockState.roleConflictServed.clear()
   mockState.platformUsers.clear()
   mockState.devices.clear()
+  mockState.wireguard.clear()
 }
 
 /** Hallazgo cerrado por una acción del usuario: sale de los agregados de "abiertos". */
