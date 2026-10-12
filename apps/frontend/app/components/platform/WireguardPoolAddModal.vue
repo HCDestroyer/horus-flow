@@ -44,6 +44,7 @@ function message(check: Exclude<PoolCidrCheck, { ok: true }>) {
   switch (check.error) {
     case 'required':
     case 'syntax':
+    case 'ipv6':
       return t(`platform.wireguard.pool.errors.${check.error}`, {
         example: suggestion.value ?? '10.253.0.0/16',
       })

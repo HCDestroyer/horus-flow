@@ -180,6 +180,7 @@ function endpointOk(value: string) {
 const POOL_MESSAGES: Record<PoolCidrError, string> = {
   required: 'Escribe un rango en notación CIDR',
   syntax: 'No es un rango CIDR válido',
+  ipv6: 'Los túneles de los routers usan direcciones IPv4',
   prefix: 'Entre /16 y /28 (IPv4) o /64 y /120 (IPv6)',
   network: 'Escribe la dirección de red del rango',
   cgnat: '100.64.0.0/10 (CGNAT) no puede usarse para túneles',

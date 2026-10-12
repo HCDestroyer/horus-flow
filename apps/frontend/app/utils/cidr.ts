@@ -122,7 +122,14 @@ export function cidrSize(c: string | Cidr): number {
 }
 
 export type PoolCidrError =
-  'required' | 'syntax' | 'prefix' | 'network' | 'cgnat' | 'overlapPool' | 'overlapServices'
+  | 'required'
+  | 'syntax'
+  | 'ipv6'
+  | 'prefix'
+  | 'network'
+  | 'cgnat'
+  | 'overlapPool'
+  | 'overlapServices'
 
 export type PoolCidrCheck =
   | { ok: true; cidr: string; family: 4 | 6 }
@@ -143,6 +150,9 @@ export function checkPoolCidr(
   if (!value) return { ok: false, error: 'required' }
   const c = parseCidr(value)
   if (!c) return { ok: false, error: 'syntax' }
+  // Las direcciones de túnel de los routers son IPv4 (script de RouterOS y origen IPFIX): el
+  // servidor rechaza los rangos IPv6 aunque estén bien formados.
+  if (c.family === 6) return { ok: false, error: 'ipv6', family: 6 }
   const limits = POOL_PREFIX_LIMITS[c.family]
   if (c.length < limits.min || c.length > limits.max) {
     return { ok: false, error: 'prefix', family: c.family }

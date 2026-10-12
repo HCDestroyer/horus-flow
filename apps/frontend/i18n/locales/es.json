@@ -1099,7 +1099,7 @@
         "onlyAddTitle": "Los rangos solo se añaden",
         "onlyAddIdentity": "La dirección de túnel de cada router es su identidad en Horus: las ya asignadas nunca se mueven a otro rango.",
         "onlyAddCollide": "Elige un rango que no choque con las redes internas del ISP (gestión, clientes, VPN): los routers no podrían distinguir el túnel de esas redes.",
-        "onlyAddRules": "IPv4 entre /16 y /28 o IPv6 entre /64 y /120, escrito como dirección de red, sin solaparse con los rangos del hub ni con el de servicios.",
+        "onlyAddRules": "Rango IPv4 entre /16 y /28 (los túneles de los routers son IPv4), escrito como dirección de red, sin solaparse con los rangos del hub ni con el de servicios.",
         "cidrHelp": "Sugerencia libre: {suggestion}.",
         "cidrHelpNoSuggestion": "Escribe un rango privado libre.",
         "useSuggestion": "Usar {suggestion}",
@@ -1115,6 +1115,7 @@
         "errors": {
           "required": "Escribe un rango, p. ej. {example}.",
           "syntax": "No es un rango CIDR válido. Ejemplo: {example}.",
+          "ipv6": "Los túneles de los routers usan direcciones IPv4: añade un rango IPv4 privado (p. ej. {example}).",
           "prefixV4": "En IPv4, el rango debe estar entre /16 y /28.",
           "prefixV6": "En IPv6, el rango debe estar entre /64 y /120.",
           "network": "Escribe la dirección de red del rango: {cidr}.",

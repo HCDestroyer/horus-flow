@@ -59,7 +59,7 @@ describe('checkPoolCidr', () => {
       cidr: '10.253.0.0/16',
       family: 4,
     })
-    expect(checkPoolCidr('fd00:abcd::/64', HUB)).toMatchObject({ ok: true, family: 6 })
+    expect(checkPoolCidr('fd00:abcd::/64', HUB)).toMatchObject({ ok: false, error: 'ipv6' })
   })
 
   it('vacío o mal escrito', () => {
@@ -71,9 +71,8 @@ describe('checkPoolCidr', () => {
     expect(checkPoolCidr('10.0.0.0/15', HUB)).toMatchObject({ error: 'prefix', family: 4 })
     expect(checkPoolCidr('10.0.0.0/29', HUB)).toMatchObject({ error: 'prefix', family: 4 })
     expect(checkPoolCidr('10.0.0.0/28', HUB)).toMatchObject({ ok: true })
-    expect(checkPoolCidr('fd00::/63', HUB)).toMatchObject({ error: 'prefix', family: 6 })
-    expect(checkPoolCidr('fd00::/121', HUB)).toMatchObject({ error: 'prefix', family: 6 })
-    expect(checkPoolCidr('fd00::/120', HUB)).toMatchObject({ ok: true })
+    expect(checkPoolCidr('fd00::/63', HUB)).toMatchObject({ error: 'ipv6' })
+    expect(checkPoolCidr('fd00::/120', HUB)).toMatchObject({ error: 'ipv6' })
   })
 
   it('exige la dirección de red y la propone', () => {

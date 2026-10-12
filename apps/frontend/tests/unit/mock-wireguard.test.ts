@@ -170,7 +170,7 @@ describe('API simulada: hub WireGuard', () => {
     for (const [cidr, code] of [
       ['100.64.0.0/16', 'CGNAT'],
       ['10.0.0.0/12', 'PREFIX'],
-      ['fd00::/56', 'PREFIX'],
+      ['fd00::/56', 'IPV6'],
       ['10.252.1.0/16', 'NETWORK'],
       ['no-es-un-cidr', 'SYNTAX'],
     ] as const) {
