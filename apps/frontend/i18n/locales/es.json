@@ -1196,7 +1196,7 @@
       "explain": {
         "title": "Cómo funcionan las copias remotas",
         "encrypted": "Las copias se cifran con age en este servidor antes de salir: el destino solo recibe archivos cifrados y nunca ve los datos en claro.",
-        "restore": "Para restaurar hace falta la llave age del paquete de secretos offline; sin ella, las copias remotas no sirven. Se exporta con",
+        "restore": "Para restaurar hace falta la clave age, que va en el paquete de secretos offline que genera el instalador (/root/horus-secrets-….tar.gz.enc); sin ella las copias remotas no sirven. En el servidor está en",
         "docs": "guía de recuperación en",
         "copyOnly": "Horus solo copia: nunca borra datos locales ni deja de funcionar si el destino falla (lo pendiente espera en el disco local).",
         "retention": "La retención de cada destino borra allí las copias de más de N días (30 por defecto).",

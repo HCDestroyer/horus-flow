@@ -29,7 +29,9 @@ const { t } = useI18n()
       <li>{{ t('platform.storage.explain.encrypted') }}</li>
       <li>
         {{ t('platform.storage.explain.restore') }}
-        <code class="text-highlighted font-mono text-xs break-all">horusctl secrets export</code>
+        <code class="text-highlighted font-mono text-xs break-all"
+          >/etc/horus/secrets/backup_age_identity</code
+        >
         · {{ t('platform.storage.explain.docs') }}
         <code class="text-highlighted font-mono text-xs break-all"
           >docs/disaster-recovery.md §3.6</code
