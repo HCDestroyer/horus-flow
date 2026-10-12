@@ -35,13 +35,19 @@ func MemberJSON(m *domain.Member) map[string]any {
 	}
 }
 
+// roleJSON es Role del contrato: version solo en los roles propios (las
+// plantillas de sistema no se editan).
 func roleJSON(r *domain.TenantRoleRecord) map[string]any {
 	perms := r.Permissions
 	if perms == nil {
 		perms = []string{}
 	}
-	return map[string]any{"id": r.ID, "tenant_id": r.TenantID, "key": r.Key, "name": r.Name, "is_system": r.IsSystem,
-		"requires_mfa": r.RequiresMFA, "permissions": perms}
+	out := map[string]any{"id": r.ID, "tenant_id": r.TenantID, "key": r.Key, "name": r.Name, "is_system": r.IsSystem,
+		"requires_mfa": r.RequiresMFA, "permissions": perms, "description": r.Description, "assignments_count": r.AssignmentsCount}
+	if !r.IsSystem {
+		out["version"] = r.Version
+	}
+	return out
 }
 
 func platformUserJSON(u *domain.PlatformUser) map[string]any {

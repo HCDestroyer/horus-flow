@@ -41,7 +41,19 @@ type TenantRoleRecord struct {
 	IsSystem    bool
 	RequiresMFA bool
 	Permissions []string
+	Description *string
+	// Version es el bloqueo optimista de un rol propio (If-Match); las
+	// plantillas de sistema no lo exponen.
+	Version int
+	// AssignmentsCount son las asignaciones de este rol en el tenant.
+	AssignmentsCount int
 }
+
+// RoleKeyRe es la forma de la clave de un rol propio (RoleCreate.key).
+var RoleKeyRe = regexp.MustCompile(`^[a-z][a-z0-9_]{1,62}$`)
+
+// Estado de usuario bloqueado por la plataforma.
+const UserDisabled = "disabled"
 
 // PlatformUser es un usuario de la plataforma con sus membresías (vista de
 // GET /platform/users).

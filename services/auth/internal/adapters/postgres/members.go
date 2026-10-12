@@ -35,6 +35,10 @@ func (s *Store) UpdateProfile(ctx context.Context, u *domain.User, now time.Time
 func (s *Store) ListUsers(ctx context.Context, f app.UserFilter) ([]domain.PlatformUser, error) {
 	conds := []string{"u.deleted_at IS NULL"}
 	var args []any
+	if f.ID != uuid.Nil {
+		args = append(args, f.ID)
+		conds = append(conds, fmt.Sprintf("u.id = $%d", len(args)))
+	}
 	if f.Q != "" {
 		args = append(args, likePattern(f.Q))
 		conds = append(conds, fmt.Sprintf("(u.email::text ILIKE $%d OR u.display_name ILIKE $%d)", len(args), len(args)))
@@ -229,20 +233,17 @@ func (s *Store) Member(ctx context.Context, tenant, userID uuid.UUID) (*domain.M
 func (s *Store) TenantRoles(ctx context.Context, tenant uuid.UUID) ([]domain.TenantRoleRecord, error) {
 	var out []domain.TenantRoleRecord
 	err := s.db.TenantTx(ctx, pgdb.TenantID(tenant), func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `
-			SELECT r.id, r.tenant_id, r.key, r.name, r.is_system, r.requires_mfa,
-			       coalesce((SELECT array_agg(rp.permission_key ORDER BY rp.permission_key) FROM auth.role_permission rp WHERE rp.role_id = r.id), '{}')
-			FROM auth.role r ORDER BY r.is_system DESC, r.key`)
+		rows, err := tx.Query(ctx, `SELECT `+roleCols+` FROM auth.role r ORDER BY r.is_system DESC, r.key`)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 		for rows.Next() {
-			var r domain.TenantRoleRecord
-			if err := rows.Scan(&r.ID, &r.TenantID, &r.Key, &r.Name, &r.IsSystem, &r.RequiresMFA, &r.Permissions); err != nil {
+			r, err := scanRole(rows)
+			if err != nil {
 				return err
 			}
-			out = append(out, r)
+			out = append(out, *r)
 		}
 		return rows.Err()
 	})

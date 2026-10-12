@@ -135,7 +135,85 @@ type Store interface {
 	// domain.ErrNotFound si no hay membresía no revocada; ErrNotInvited si no
 	// está invitada o la cuenta no puede aceptarla.
 	ReissueInvitation(ctx context.Context, in ReissuedInvitation) (*ReissueResult, error)
+
+	// Roles propios del tenant (dentro del tenant, RLS).
+	// TenantRole devuelve una plantilla de sistema o un rol propio del
+	// tenant (domain.ErrNotFound si no es visible en él).
+	TenantRole(ctx context.Context, tenant, id uuid.UUID) (*domain.TenantRoleRecord, error)
+	// CreateRole guarda un rol propio (ErrRoleKeyTaken si la clave existe).
+	CreateRole(ctx context.Context, tenant uuid.UUID, r *domain.TenantRoleRecord) error
+	// UpdateRole sustituye nombre, descripción, permisos y requires_mfa de un
+	// rol propio con bloqueo optimista: domain.ErrNotFound si no hay rol
+	// propio; *RoleVersionError si la versión no coincide.
+	UpdateRole(ctx context.Context, tenant uuid.UUID, r *domain.TenantRoleRecord, expect int, now time.Time) error
+	// DeleteRole borra un rol propio sin asignaciones: domain.ErrNotFound,
+	// *RoleVersionError o ErrRoleInUse.
+	DeleteRole(ctx context.Context, tenant, id uuid.UUID, expect int) error
+
+	// Usuarios de la plataforma (identidad global, auth_app).
+	// PlatformUser devuelve un usuario con sus membresías (domain.ErrNotFound).
+	PlatformUser(ctx context.Context, id uuid.UUID) (*domain.PlatformUser, error)
+	// SetUserStatus activa o bloquea una cuenta; bloquear revoca todas sus
+	// sesiones con su evento. ErrLastPlatformAdmin si dejaría la instalación
+	// sin platform_admin activo.
+	SetUserStatus(ctx context.Context, in UserStatusChange) (*UserStatusResult, error)
+	// ReplacePlatformRoles sustituye los roles de plataforma; si quita alguno
+	// revoca las sesiones del usuario. ErrLastPlatformAdmin igual que arriba.
+	ReplacePlatformRoles(ctx context.Context, in PlatformRolesChange) (*PlatformRolesResult, error)
 }
+
+// UserStatusChange es PATCH /platform/users/{id} {status}.
+type UserStatusChange struct {
+	UserID uuid.UUID
+	// Disable: true bloquea; false reactiva (una cuenta sin contraseña vuelve
+	// a pending para que la active su invitación).
+	Disable bool
+	Actor   Actor
+	Now     time.Time
+}
+
+// UserStatusResult describe el cambio aplicado.
+type UserStatusResult struct {
+	Previous string
+	Status   string
+	// Revoked son las sesiones revocadas (bloqueo).
+	Revoked []uuid.UUID
+}
+
+// PlatformRolesChange es PUT /platform/users/{id}/platform-roles.
+type PlatformRolesChange struct {
+	UserID    uuid.UUID
+	Roles     []string
+	GrantedBy uuid.UUID
+	Actor     Actor
+	Now       time.Time
+}
+
+// PlatformRolesResult describe el cambio aplicado.
+type PlatformRolesResult struct {
+	Previous []string
+	Revoked  []uuid.UUID
+}
+
+// Errores del repositorio de roles y usuarios de plataforma.
+var (
+	// ErrRoleKeyTaken: ya hay un rol con esa clave en el tenant.
+	ErrRoleKeyTaken = errors.New("auth: role key taken")
+	// ErrRoleInUse: el rol tiene asignaciones.
+	ErrRoleInUse = errors.New("auth: role in use")
+	// ErrRoleVersion: la versión del rol no coincide (If-Match).
+	ErrRoleVersion = errors.New("auth: role version changed")
+	// ErrLastPlatformAdmin: el cambio dejaría sin platform_admin activo.
+	ErrLastPlatformAdmin = errors.New("auth: last active platform admin")
+)
+
+// RoleVersionError lleva el rol actual de un ErrRoleVersion.
+type RoleVersionError struct{ Current *domain.TenantRoleRecord }
+
+func (e *RoleVersionError) Error() string { return ErrRoleVersion.Error() }
+
+// Unwrap permite errors.Is(err, ErrRoleVersion).
+func (e *RoleVersionError) Unwrap() error { return ErrRoleVersion }
 
 // ReissuedInvitation es un enlace nuevo para una membresía invitada.
 type ReissuedInvitation struct {
@@ -157,6 +235,8 @@ type ReissueResult struct {
 
 // UserFilter filtra GET /platform/users (keyset por created_at, id).
 type UserFilter struct {
+	// ID limita a un usuario (GET de uno; uuid.Nil = todos).
+	ID           uuid.UUID
 	Q            string
 	AfterCreated *time.Time
 	AfterID      uuid.UUID

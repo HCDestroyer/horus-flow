@@ -33,6 +33,8 @@ type fakeStore struct {
 	inv     *domain.Invitation
 	invHash []byte
 	reissue int
+	pusers  map[uuid.UUID]*domain.PlatformUser
+	revoked int // sesiones revocadas por SetUserStatus/ReplacePlatformRoles
 }
 
 func (f *fakeStore) Tenant(_ context.Context, id uuid.UUID) (*domain.Tenant, error) {
@@ -229,6 +231,11 @@ func TestContractRoutesRegistered(t *testing.T) {
 		{"PUT", "/api/v1/members/" + uid + "/role-assignments"},
 		{"GET", "/api/v1/platform/users"},
 		{"GET", "/api/v1/roles"},
+		{"POST", "/api/v1/roles"},
+		{"PATCH", "/api/v1/roles/" + uid},
+		{"DELETE", "/api/v1/roles/" + uid},
+		{"PATCH", "/api/v1/platform/users/" + uid},
+		{"PUT", "/api/v1/platform/users/" + uid + "/platform-roles"},
 	} {
 		if r := e.do(rt.method, rt.path, "", "{}"); r.status != http.StatusUnauthorized || r.code() != "UNAUTHENTICATED" {
 			t.Errorf("%s %s sin token = %d %s", rt.method, rt.path, r.status, r.raw)

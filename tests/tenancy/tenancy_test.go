@@ -83,6 +83,9 @@ func cases() map[string]tenanttest.Case {
 	c["removeMember"] = tenanttest.Case{Kind: tenanttest.ByID}
 	c["reissueMemberInvitation"] = tenanttest.Case{Kind: tenanttest.ByID}
 	c["replaceMemberRoleAssignments"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["createRole"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"key": "pirata", "name": "Pirata", "permissions": []string{"devices.read"}}}
+	c["updateRole"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"name": "pirata"}}
+	c["deleteRole"] = tenanttest.Case{Kind: tenanttest.ByID}
 	// alerts: canal mínimo (D13/D17/D21, CORE)
 	c["listNotificationChannels"] = tenanttest.Case{Kind: tenanttest.List}
 	c["createNotificationChannel"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"name": "pirata", "kind": "telegram",
@@ -167,6 +170,9 @@ func (a *app) fixtureISP(x isp, cidr string) map[string]string {
 		"items": []any{map[string]any{"dashboard_id": dash, "duration_seconds": 30}}}), 201).str("id")
 	// Miembro del ISP (su administrador) para /members/{user_id}.
 	out["user_id"] = a.must(a.do(req{Method: "GET", Path: "/api/v1/me", Token: x.admin.token}), 200).str("id")
+	// Rol propio del ISP para /roles/{role_id}.
+	out["role_id"] = a.must(a.post(x.token, "/api/v1/roles", map[string]any{"key": "soporte_nodo", "name": "Soporte de nodo",
+		"permissions": []string{"sites.read", "devices.read"}}), 201).str("id")
 	out["kind"] = "snmp" // /routers/{router_id}/credentials/{kind}: no es un ID (fuera de ForeignIDs)
 	if _, err := a.admin.Exec(context.Background(), `UPDATE detection.finding SET customer_id = $1 WHERE id = $2`,
 		out["customer_id"], out["finding_id"]); err != nil {
@@ -222,7 +228,7 @@ func TestTenantIsolationMatrix(t *testing.T) {
 				"{finding_id}", paramsA["finding_id"], "{customer_id}", paramsA["customer_id"], "{entry_id}", paramsA["entry_id"],
 				"{kiosk_id}", paramsA["kiosk_id"], "{dashboard_id}", paramsA["dashboard_id"], "{widget_id}", paramsA["widget_id"],
 				"{playlist_id}", paramsA["playlist_id"], "{channel_id}", paramsA["channel_id"], "{user_id}", paramsA["user_id"],
-				"{kind}", paramsA["kind"],
+				"{kind}", paramsA["kind"], "{role_id}", paramsA["role_id"],
 			).Replace(tmpl), nil)
 			return a.mux.Matches(r)
 		},
