@@ -70,6 +70,7 @@ permissions:
     - { key: platform.status.read, description: 'Estado detallado de la instalación, hubs WireGuard, overview' }
     - { key: platform.updates.read, description: 'Versiones nuevas de Horus disponibles y comando de actualización (solo superadministrador)' }
     - { key: platform.storage.manage, description: 'Destinos remotos de copias' }
+    - { key: platform.wireguard.manage, description: 'Hub WireGuard: endpoint, MTU, keepalive y rangos de túnel', reauth: true, audited: true }
     - { key: platform.catalog.manage, description: 'Catálogo de clasificación de tráfico' }
     - { key: platform.reputation_sources.manage, description: 'Fuentes de reputación: ver estado, alta/edición/baja de listas personalizadas, habilitar las del catálogo base y forzar cargas (D20)', reauth: true, audited: true }
 roles:
@@ -108,7 +109,7 @@ roles:
     - key: platform_admin
       name: Superadministrador
       requires_mfa: true
-      permissions: [platform.tenants.read, platform.tenants.manage, platform.users.read, platform.users.manage, platform.audit.read, platform.status.read, platform.updates.read, platform.storage.manage, platform.catalog.manage, platform.reputation_sources.manage]
+      permissions: [platform.tenants.read, platform.tenants.manage, platform.users.read, platform.users.manage, platform.audit.read, platform.status.read, platform.updates.read, platform.storage.manage, platform.wireguard.manage, platform.catalog.manage, platform.reputation_sources.manage]
       note: platform.support_access se concede aparte aunque sea a la misma persona.
     - key: platform_operator
       name: Operador de plataforma

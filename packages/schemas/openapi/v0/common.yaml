@@ -414,6 +414,11 @@ components:
             - ROLE_READ_ONLY
             - ROLE_IN_USE
             - LAST_PLATFORM_ADMIN
+            - WIREGUARD_HUB_NOT_FOUND
+            - WIREGUARD_POOL_NOT_FOUND
+            - WIREGUARD_POOL_OVERLAP
+            - WIREGUARD_POOL_INVALID
+            - WIREGUARD_POOL_IN_USE
         - type: string
           pattern: '^[A-Z][A-Z0-9_]*$'
     ActorRef:

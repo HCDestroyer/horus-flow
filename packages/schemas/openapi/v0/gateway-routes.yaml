@@ -566,6 +566,30 @@ modules:
       scope: platform
       methods:
         GET: platform.status.read
+    - prefix: /api/v1/platform/wireguard/hubs/{hub_id}
+      scope: platform
+      methods:
+        PATCH: platform.wireguard.manage
+      reauth:
+        - PATCH
+      audited:
+        - PATCH
+    - prefix: /api/v1/platform/wireguard/hubs/{hub_id}/pools
+      scope: platform
+      methods:
+        POST: platform.wireguard.manage
+      reauth:
+        - POST
+      audited:
+        - POST
+    - prefix: /api/v1/platform/wireguard/hubs/{hub_id}/pools/{pool_id}
+      scope: platform
+      methods:
+        DELETE: platform.wireguard.manage
+      reauth:
+        - DELETE
+      audited:
+        - DELETE
     - prefix: /api/v1/routers/{router_id}/deprovisioning-script
       scope: tenant
       methods:

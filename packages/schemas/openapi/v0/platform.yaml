@@ -666,6 +666,120 @@ paths:
                     type: array
                     items: { $ref: '#/components/schemas/WireguardHub' }
         '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+  /platform/wireguard/hubs/{hub_id}:
+    parameters:
+      - name: hub_id
+        in: path
+        required: true
+        schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    patch:
+      tags: [platform]
+      operationId: platformUpdateWireguardHub
+      summary: |
+        Edita el hub (nombre, endpoint público, MTU y keepalive por defecto). Los routers ya conectados
+        siguen con su configuración hasta que se les genere un script nuevo; el puerto UDP no se cambia
+        aquí (lo publica Docker: horus-ctl / install.sh --wg-port).
+      x-module: wireguard
+      x-scope: platform
+      x-permission: platform.wireguard.manage
+      x-reauth: true
+      x-audited: true
+      x-increment: I1
+      security:
+        - platformBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                name: { type: string, minLength: 1, maxLength: 64 }
+                endpoint: { type: string, minLength: 1, maxLength: 253, description: Host o IP pública que usan los routers para llegar al hub. }
+                mtu: { type: integer, minimum: 1280, maximum: 1500 }
+                persistent_keepalive_seconds: { type: integer, minimum: 0, maximum: 120 }
+      responses:
+        '200':
+          description: Hub actualizado.
+          headers:
+            ETag: { $ref: './common.yaml#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WireguardHub' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+        '428': { $ref: './common.yaml#/components/responses/PreconditionRequired' }
+  /platform/wireguard/hubs/{hub_id}/pools:
+    parameters:
+      - name: hub_id
+        in: path
+        required: true
+        schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    post:
+      tags: [platform]
+      operationId: platformAddWireguardPool
+      summary: |
+        Añade un rango de direcciones de túnel. Solo se añaden rangos: las direcciones ya asignadas son
+        la identidad de cada router y no se mueven. Sin solaparse con otros rangos ni con el de servicios,
+        fuera de 100.64.0.0/10 y entre /16 y /28 (IPv4) o /64 y /120 (IPv6).
+      x-module: wireguard
+      x-scope: platform
+      x-permission: platform.wireguard.manage
+      x-reauth: true
+      x-audited: true
+      x-increment: I1
+      security:
+        - platformBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cidr]
+              additionalProperties: false
+              properties:
+                cidr: { $ref: './common.yaml#/components/schemas/Cidr' }
+      responses:
+        '201':
+          description: Rango añadido.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WireguardPool' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /platform/wireguard/hubs/{hub_id}/pools/{pool_id}:
+    parameters:
+      - name: hub_id
+        in: path
+        required: true
+        schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+      - name: pool_id
+        in: path
+        required: true
+        schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    delete:
+      tags: [platform]
+      operationId: platformDeleteWireguardPool
+      summary: Quita un rango sin direcciones asignadas ni en cuarentena (409 WIREGUARD_POOL_IN_USE); nunca el último.
+      x-module: wireguard
+      x-scope: platform
+      x-permission: platform.wireguard.manage
+      x-reauth: true
+      x-audited: true
+      x-increment: I1
+      security:
+        - platformBearer: []
+      responses:
+        '204': { $ref: './common.yaml#/components/responses/NoContent' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
   /platform/remote-destinations:
     get:
       tags: [platform]
@@ -852,6 +966,22 @@ components:
         addresses_used: { type: integer, examples: [37] }
         peers_active: { type: integer }
         tenants: { type: integer }
+        version: { $ref: './common.yaml#/components/schemas/Version' }
+        mtu: { type: integer, examples: [1420] }
+        persistent_keepalive_seconds: { type: integer, examples: [25] }
+        pools:
+          type: array
+          description: Todos los rangos del hub (tunnel_cidr es el primero, por compatibilidad).
+          items: { $ref: '#/components/schemas/WireguardPool' }
+    WireguardPool:
+      type: object
+      required: [id, cidr, addresses_total, addresses_used]
+      properties:
+        id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        cidr: { $ref: './common.yaml#/components/schemas/Cidr' }
+        addresses_total: { type: integer }
+        addresses_used: { type: integer }
+        created_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
     AccessMode:
       type: string
       description: |

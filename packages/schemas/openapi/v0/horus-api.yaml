@@ -214,6 +214,12 @@ paths:
     $ref: ./platform.yaml#/paths/~1platform~1users~1{user_id}~1platform-roles
   /platform/wireguard/hubs:
     $ref: ./platform.yaml#/paths/~1platform~1wireguard~1hubs
+  /platform/wireguard/hubs/{hub_id}:
+    $ref: ./platform.yaml#/paths/~1platform~1wireguard~1hubs~1{hub_id}
+  /platform/wireguard/hubs/{hub_id}/pools:
+    $ref: ./platform.yaml#/paths/~1platform~1wireguard~1hubs~1{hub_id}~1pools
+  /platform/wireguard/hubs/{hub_id}/pools/{pool_id}:
+    $ref: ./platform.yaml#/paths/~1platform~1wireguard~1hubs~1{hub_id}~1pools~1{pool_id}
   /playlists:
     $ref: ./analytics.yaml#/paths/~1playlists
   /playlists/{playlist_id}:
