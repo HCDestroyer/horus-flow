@@ -1020,7 +1020,8 @@
     },
     "noRemote": {
       "title": "Sin copia remota configurada",
-      "body": "Todos los datos están solo en el disco de este servidor: si el disco falla, se pierden. Configura un destino remoto (SFTP u otro) cuando esté disponible."
+      "body": "Todos los datos están solo en el disco de este servidor: si el disco falla, se pierden. Añade un destino SFTP para tener una copia cifrada fuera del servidor.",
+      "configure": "Configurar copia remota"
     },
     "isps": {
       "routers": "Routers",
@@ -1133,7 +1134,226 @@
       "high": "Uso por encima del 85 %: revisa retenciones o amplía el disco.",
       "byTypePending": "El desglose por tipo de dato y la retención efectiva aparecerán cuando el contrato los exponga.",
       "remote": "Destinos remotos",
-      "remoteNone": "Ninguno. El alta de destinos (SFTP primero) llega en una versión posterior."
+      "remoteNone": "Aún no hay ningún destino. Añade uno para que las copias salgan de este servidor.",
+      "remoteIntro": "Copias cifradas de las copias locales en otro servidor por SFTP.",
+      "add": "Añadir destino SFTP",
+      "reauth": "Administrar los destinos de las copias es una acción sensible: confirma tu identidad para continuar.",
+      "reauthCancelled": "No se guardó: hace falta confirmar tu identidad.",
+      "gone": "Este destino ya no existe. Se ha recargado la lista.",
+      "notReady": "Aún no se puede activar: faltan las credenciales o la huella confirmada del servidor.",
+      "conflictTitle": "Otra persona cambió este destino",
+      "conflictRetry": "Otra persona cambió este destino mientras tanto. Se ha recargado: revísalo y vuelve a intentarlo.",
+      "status": {
+        "ok": "Al día",
+        "lagging": "Con retraso",
+        "failing": "Fallando",
+        "disabled": "Desactivado",
+        "pending": "Pendiente"
+      },
+      "statusExplain": {
+        "ok": "La última copia llegó a tiempo: si se pierde este servidor, se puede restaurar desde aquí.",
+        "lagging": "La copia va con más de una hora de retraso y hay archivos esperando. Horus reintenta solo; si dura, revisa la red o el espacio del destino.",
+        "failing": "Las últimas copias fallaron. Lo pendiente espera en el disco local (no se pierde nada); revisa el error y prueba la conexión.",
+        "disabled": "No se copia nada a este destino. Actívalo cuando tenga credenciales y la huella del servidor confirmada.",
+        "pending": "Aún no se ha hecho la primera copia. Se hará tras el próximo backup local, o pulsa «Copiar ahora»."
+      },
+      "lag": {
+        "label": "Retraso",
+        "seconds": "{n} s",
+        "minutes": "{n} min",
+        "hours": "{n} h",
+        "days": "{n} días"
+      },
+      "lastSuccess": "Última copia correcta",
+      "neverCopied": "Nunca",
+      "pending": "Pendiente de copiar",
+      "pendingValue": "{files} archivos · {bytes}",
+      "nothingPending": "Nada",
+      "retention": "Retención en el destino",
+      "retentionValue": "{n} días",
+      "fingerprint": "Huella de la clave del servidor (SHA-256)",
+      "noFingerprint": "Sin confirmar: prueba la conexión para verla y confirmarla.",
+      "lastError": "Último error",
+      "enabledLabel": "Copias activadas",
+      "enabledHelp": "Se copia tras cada backup local.",
+      "disabledHelp": "No se copia nada a este destino.",
+      "enableBlocked": "Para activarlo, pon las credenciales, prueba la conexión y confirma la huella.",
+      "enable": "Activar copias",
+      "enabledToast": "Copias a {name} activadas",
+      "disabledToast": "Copias a {name} desactivadas",
+      "missing": {
+        "title": "Falta completar la configuración",
+        "body": "Pendiente: {items}.",
+        "credentials": "credenciales",
+        "fingerprint": "huella del servidor confirmada"
+      },
+      "actions": {
+        "test": "Probar conexión",
+        "edit": "Editar",
+        "credentials": "Cambiar credenciales",
+        "delete": "Eliminar"
+      },
+      "explain": {
+        "title": "Cómo funcionan las copias remotas",
+        "encrypted": "Las copias se cifran con age en este servidor antes de salir: el destino solo recibe archivos cifrados y nunca ve los datos en claro.",
+        "restore": "Para restaurar hace falta la llave age del paquete de secretos offline; sin ella, las copias remotas no sirven. Se exporta con",
+        "docs": "guía de recuperación en",
+        "copyOnly": "Horus solo copia: nunca borra datos locales ni deja de funcionar si el destino falla (lo pendiente espera en el disco local).",
+        "retention": "La retención de cada destino borra allí las copias de más de N días (30 por defecto).",
+        "retentionN": "La retención del destino borra allí las copias de más de {n} días."
+      },
+      "form": {
+        "name": "Nombre",
+        "nameHelp": "Para reconocerlo, p. ej. «NAS de la oficina».",
+        "host": "Servidor (host)",
+        "hostHelp": "Nombre de host o IP del servidor SFTP, sin sftp:// ni puerto.",
+        "port": "Puerto",
+        "username": "Usuario",
+        "usernameHelp": "Una cuenta dedicada a las copias, con permiso de escritura solo en la ruta.",
+        "path": "Ruta remota",
+        "pathHelp": "Directorio absoluto donde se dejarán las copias cifradas; debe existir.",
+        "retention": "Días de retención en el destino",
+        "retentionHelp": "Las copias con más días se borran del destino. Las copias locales no se tocan.",
+        "errors": {
+          "name": "Escribe un nombre de 1 a 120 caracteres.",
+          "hostScheme": "Escribe solo el host, sin sftp:// delante.",
+          "hostUser": "Escribe solo el host: el usuario va en su propio campo.",
+          "host": "Escribe un nombre de host o una IP válida, sin puerto.",
+          "port": "El puerto debe estar entre 1 y 65535.",
+          "username": "Escribe el usuario (letras, números, punto, guion o guion bajo).",
+          "path": "Escribe la ruta del directorio remoto.",
+          "pathAbsolute": "La ruta debe ser absoluta (empezar por /).",
+          "retention": "Entre 1 y 3650 días."
+        }
+      },
+      "credentials": {
+        "title": "Credenciales de {name}",
+        "writeOnlyTitle": "Solo escritura: no se vuelven a mostrar",
+        "writeOnlyBody": "Se guardan cifradas en el servidor y nunca se devuelven: ni tú ni nadie podrá volver a verlas aquí.",
+        "replaceBody": "Ya hay credenciales guardadas. Las nuevas las reemplazan; las anteriores no se pueden ver.",
+        "mode": "Cómo se identifica Horus en el servidor",
+        "modeKey": "Clave privada SSH (recomendado)",
+        "modeKeyHelp": "Crea un par de claves solo para Horus y añade la pública a authorized_keys del usuario.",
+        "modePassword": "Contraseña",
+        "modePasswordHelp": "La del usuario SFTP.",
+        "password": "Contraseña",
+        "passwordHelp": "Contraseña del usuario {user} en el servidor SFTP.",
+        "privateKey": "Clave privada OpenSSH",
+        "privateKeyHelp": "Pega la clave completa, desde -----BEGIN hasta -----END. Se muestra oculta.",
+        "showKey": "Mostrar clave",
+        "hideKey": "Ocultar clave",
+        "passphrase": "Frase de paso de la clave",
+        "passphraseHelp": "Solo si la clave está protegida con una.",
+        "submit": "Guardar credenciales",
+        "saved": "Credenciales de {name} guardadas",
+        "savedHint": "Prueba la conexión para comprobar que funcionan.",
+        "errors": {
+          "passwordRequired": "Escribe la contraseña.",
+          "tooLong": "Es demasiado larga.",
+          "keyRequired": "Pega la clave privada.",
+          "keyIsPublic": "Eso es una clave pública: aquí va la privada (la que empieza por -----BEGIN … PRIVATE KEY-----). La pública va en el servidor.",
+          "keyPutty": "Es una clave de PuTTY (.ppk): conviértela a formato OpenSSH con PuTTYgen (Conversions → Export OpenSSH key).",
+          "keyFormat": "No parece una clave privada OpenSSH completa: debe empezar por -----BEGIN … PRIVATE KEY----- y terminar por -----END … PRIVATE KEY-----."
+        }
+      },
+      "test": {
+        "title": "Probar {name}",
+        "intro": "Horus se conecta, comprueba la clave del servidor, se autentica y escribe y borra un archivo de prueba en la ruta.",
+        "run": "Probar conexión",
+        "again": "Volver a probar",
+        "stagesLabel": "Pasos de la prueba",
+        "stages": {
+          "connect": "Conexión con el servidor",
+          "host_key": "Clave del servidor (huella)",
+          "auth": "Autenticación",
+          "write": "Escritura de prueba en la ruta",
+          "done": "Listo"
+        },
+        "state": {
+          "done": "correcto",
+          "failed": "falló",
+          "waiting": "esperando tu confirmación",
+          "skipped": "no se llegó"
+        },
+        "okTitle": "Conexión correcta",
+        "okBody": "Horus puede dejar copias cifradas en {path}.",
+        "confirmTitle": "Verifica la huella del servidor antes de confirmarla",
+        "confirmBody": "Es la primera vez que Horus se conecta a {host}. Esta es la huella de la clave que presenta el servidor:",
+        "confirmHow": "En el servidor SFTP (en su consola, no a través de esta conexión), ejecuta:",
+        "confirmHowOther": "Si el servidor usa otra clave (RSA, ECDSA), cambia el nombre del archivo .pub. La huella que muestra debe ser idéntica, carácter a carácter.",
+        "confirmWarn": "Si no coincide, no confirmes: alguien podría estar haciéndose pasar por el servidor.",
+        "confirm": "Confirmar huella",
+        "mismatchTitle": "La clave del servidor cambió",
+        "mismatchBody": "{host} presenta una clave distinta de la que confirmaste. Puede ser una reinstalación del servidor o alguien haciéndose pasar por él (ataque de intermediario). Horus no ha enviado credenciales ni copias.",
+        "mismatchPinned": "Huella confirmada",
+        "mismatchPresented": "Huella que presenta ahora",
+        "mismatchWhat": "Pregunta a quien administra el servidor si cambió su clave y comprueba la huella nueva en el propio servidor:",
+        "mismatchVerified": "He comprobado en el servidor que la clave cambió a propósito y que la huella nueva es esa",
+        "mismatchAccept": "Confirmar la huella nueva",
+        "failedTitle": "La prueba falló en: {stage}",
+        "hint": {
+          "connect": "Comprueba el host, el puerto y que el cortafuegos permita la conexión desde este servidor.",
+          "host_key": "Vuelve a probar la conexión.",
+          "auth": "Revisa el usuario y las credenciales (si usas clave, que la pública esté en authorized_keys).",
+          "write": "Comprueba que la ruta existe y que el usuario puede escribir en ella.",
+          "done": "Vuelve a probar la conexión."
+        }
+      },
+      "wizard": {
+        "title": "Añadir destino SFTP",
+        "description": "Datos del servidor, credenciales, prueba de conexión y activación.",
+        "stepsLabel": "Pasos",
+        "steps": {
+          "details": "Datos",
+          "credentials": "Credenciales",
+          "test": "Probar",
+          "activate": "Activar"
+        },
+        "create": "Crear y continuar",
+        "credentialsIntro": "Destino creado (desactivado): {url}. Ahora, cómo se identifica Horus en él.",
+        "credentialsSubmit": "Guardar y continuar",
+        "next": "Continuar",
+        "later": "Terminar más tarde",
+        "activateTitle": "Todo listo para activar",
+        "activateBody": "Al activarlo, Horus copiará al destino tras cada backup local. Las copias de más de {days} días se borrarán del destino.",
+        "activate": "Activar copias",
+        "activatedTitle": "Copias a {name} activadas",
+        "activatedBody": "La primera copia se hará tras el próximo backup local. Puedes lanzarla ya con «Copiar ahora».",
+        "syncQueuedBody": "Copia en marcha: verás el progreso en la tarjeta del destino.",
+        "finish": "Terminar",
+        "leftDisabled": "{name} queda desactivado: complétalo desde su tarjeta."
+      },
+      "sync": {
+        "now": "Copiar ahora",
+        "queued": "Copia a {name} en marcha",
+        "queuedHint": "Se suben las copias locales pendientes, cifradas.",
+        "running": "Ya hay una copia en curso a este destino. Espera a que termine.",
+        "notReadyTitle": "Este destino aún no puede copiar",
+        "notReadyBody": "Tiene que estar activado, con credenciales y con la huella del servidor confirmada.",
+        "done": "Copia a {name} completada",
+        "inProgress": "Copiando…"
+      },
+      "edit": {
+        "title": "Editar {name}",
+        "description": "Datos del servidor SFTP y retención. Las credenciales se cambian aparte.",
+        "saved": "Destino {name} actualizado",
+        "savedRetest": "Cambió el servidor: el destino queda desactivado hasta que pruebes la conexión y confirmes su huella.",
+        "conflictTitle": "Otra persona cambió este destino",
+        "conflictBody": "Hemos cargado los valores actuales. Revísalos y vuelve a guardar.",
+        "serverWarnTitle": "Cambiar el host o el puerto obliga a volver a probar",
+        "serverWarnBody": "Se borrará la huella confirmada y el destino quedará desactivado hasta que pruebes la conexión y confirmes la huella del nuevo servidor."
+      },
+      "delete": {
+        "title": "¿Eliminar el destino {name}?",
+        "description": "Horus dejará de copiar a este servidor.",
+        "remoteKept": "Los archivos ya copiados en el servidor remoto no se borran: si quieres eliminarlos, hazlo en ese servidor.",
+        "localKept": "Las copias locales de este servidor no cambian.",
+        "credentialsGone": "Se borran sus credenciales y la huella confirmada.",
+        "submit": "Eliminar destino",
+        "done": "Destino {name} eliminado",
+        "doneHint": "Los archivos del servidor remoto siguen allí.",
+        "conflict": "Otra persona cambió este destino mientras tanto. Revisa la tarjeta y vuelve a intentarlo."
+      }
     },
     "system": {
       "capabilities": "Capacidades",

@@ -17,6 +17,7 @@ import { platformRoute, platformUserStatus, restorePlatformUsers } from './platf
 import { PERMISSION_CATALOG, restoreRoles, ROLES } from './roles'
 import { tenantRoute } from './tenant-routes'
 import { createTenant, restoreTenants } from './tenants'
+import { remoteStorageComponent, restoreRemoteDestinations } from './remote-destinations'
 import { restoreWireguard } from './wireguard'
 import { widgetData } from './widget-data'
 
@@ -193,6 +194,8 @@ export function createMockFetch(options: MockOptions = {}) {
   restorePlatformUsers(storage)
   // Cambios del hub WireGuard (endpoint, MTU, rangos…).
   restoreWireguard(storage)
+  // Destinos remotos SFTP (alta, credenciales, huella, copias…).
+  restoreRemoteDestinations(storage)
 
   const saveAccount = (u: MockUser) =>
     storage?.setItem(
@@ -428,7 +431,7 @@ export function createMockFetch(options: MockOptions = {}) {
               status: readDiskRatio() >= 0.85 ? 'degraded' : 'up',
               detail: `${Math.round(readDiskRatio() * 100)} % de 2 TB en /var/lib/horus`,
             },
-            { name: 'remote_storage', status: 'not_configured' },
+            remoteStorageComponent(now()),
           ]
         : [],
       disk_usage_ratio: detail ? readDiskRatio() : null,

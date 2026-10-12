@@ -43,7 +43,7 @@ const modeIcon = {
     <ErrorState v-else-if="error" :error="error" @retry="refresh()" />
     <template v-else-if="system">
       <DiskUsageNotice :ratio="system.disk_usage_ratio" />
-      <NoRemoteCopyNotice v-if="noRemote" />
+      <NoRemoteCopyNotice v-if="noRemote" to="/platform/storage" />
 
       <UCard data-testid="installation-access">
         <h2 class="text-highlighted text-base font-semibold">{{ t('platform.access.title') }}</h2>
