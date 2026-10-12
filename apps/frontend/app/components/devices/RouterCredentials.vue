@@ -24,7 +24,7 @@ const status = (kind: Kind) => credentialStatus(props.router, kind, saved[kind])
 
 const snmp = reactive({
   username: '',
-  authProtocol: 'sha256' as 'sha1' | 'sha256',
+  authProtocol: 'sha1' as 'sha1' | 'sha256',
   authPassword: '',
   privPassword: '',
 })
@@ -121,8 +121,8 @@ const snippet = computed(() =>
   }),
 )
 const authItems = [
-  { label: 'SHA-256', value: 'sha256' },
   { label: 'SHA-1', value: 'sha1' },
+  { label: 'SHA-256', value: 'sha256' },
 ]
 const KINDS: Kind[] = ['snmp', 'routeros_api']
 </script>

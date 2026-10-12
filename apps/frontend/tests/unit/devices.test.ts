@@ -105,6 +105,8 @@ describe('credenciales', () => {
     expect(s).toContain('/user add name=horus-ro group=horus-ro address=10.255.0.1/32')
     expect(s).toContain('/snmp community add name=horus-snmp security=private')
     expect(s).toContain('write-access=no')
+    // SHA256 no existe en todas las versiones de RouterOS 7 ("syntax error").
+    expect(s).toContain('authentication-protocol=SHA1')
     expect(s).not.toMatch(/write-access=yes|policy=[^ ]*(?<!!)write/)
   })
 })

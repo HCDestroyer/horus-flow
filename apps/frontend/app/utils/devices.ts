@@ -109,8 +109,8 @@ export function routerOsReadOnlySnippet(o: ReadOnlySnippetOptions) {
     `/user add name=${o.apiUser} group=horus-ro address=${from}/32 password="CAMBIA-ESTA-CLAVE-16+" comment="horus"`,
     '# API-SSL solo desde el túnel de Horus.',
     `/ip service set api-ssl address=${from}/32 disabled=no`,
-    '# SNMPv3 authPriv de solo lectura (SHA-256 + AES-128).',
-    `/snmp community add name=${o.snmpUser} security=private authentication-protocol=SHA256 authentication-password="CLAVE-AUTH-8+" encryption-protocol=AES encryption-password="CLAVE-PRIV-8+" read-access=yes write-access=no addresses=${from}/32 comment="horus"`,
+    '# SNMPv3 authPriv de solo lectura (SHA-1 + AES-128, lo que acepta todo RouterOS 7).',
+    `/snmp community add name=${o.snmpUser} security=private authentication-protocol=SHA1 authentication-password="CLAVE-AUTH-8+" encryption-protocol=AES encryption-password="CLAVE-PRIV-8+" read-access=yes write-access=no addresses=${from}/32 comment="horus"`,
     '/snmp set enabled=yes',
     '',
   ].join('\n')
