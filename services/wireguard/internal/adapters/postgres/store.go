@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"slices"
 	"strings"
 	"time"
 
@@ -33,7 +34,7 @@ var _ app.Store = (*Store)(nil)
 const schema = "wireguard"
 
 // Quarantine: una IP liberada no se reasigna en 24 h (database.md §2.4).
-const Quarantine = 24 * time.Hour
+const Quarantine = domain.Quarantine
 
 func emit(ctx context.Context, tx pgx.Tx, evs []outbox.Event) error {
 	for _, ev := range evs {
@@ -51,17 +52,54 @@ func (s *Store) Emit(ctx context.Context, evs []outbox.Event) error {
 
 // ------------------------------------------------------------------ hub
 
-// EnsureHub implementa app.Store.
-func (s *Store) EnsureHub(ctx context.Context, h app.Hub) error {
-	return s.db.PlatformTx(ctx, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `INSERT INTO wireguard.server (id, name, endpoint, listen_port, public_key, services_cidr)
-			VALUES ($1, $2, $3, $4, nullif($5, ''), $6::cidr)
-			ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, endpoint = EXCLUDED.endpoint, listen_port = EXCLUDED.listen_port,
-				public_key = coalesce(EXCLUDED.public_key, wireguard.server.public_key), services_cidr = EXCLUDED.services_cidr, updated_at = now()`,
-			h.ID, h.Name, h.Endpoint, h.ListenPort, h.PublicKey, h.ServicesCIDR.String())
-		if err != nil {
+// EnsureHub implementa app.Store. La configuración (HORUS_WG_*) da de alta
+// el hub; después solo actualiza lo que no se editó desde la consola
+// (console_overrides). La clave pública, el puerto (lo publica Docker) y la
+// red de servicios siempre vienen del entorno. Los rangos nuevos del entorno
+// se insertan; ninguno se borra (ni los quitados del entorno ni los añadidos
+// desde la consola).
+func (s *Store) EnsureHub(ctx context.Context, h app.Hub) ([]app.EnvIgnored, error) {
+	var ignored []app.EnvIgnored
+	err := s.db.PlatformTx(ctx, func(tx pgx.Tx) error {
+		ignored = nil
+		var (
+			name, endpoint string
+			overrides      []string
+		)
+		err := tx.QueryRow(ctx, `SELECT name, endpoint, console_overrides FROM wireguard.server WHERE id = $1 FOR UPDATE`, h.ID).
+			Scan(&name, &endpoint, &overrides)
+		created := errors.Is(err, pgx.ErrNoRows)
+		switch {
+		case created:
+			if _, err := tx.Exec(ctx, `INSERT INTO wireguard.server (id, name, endpoint, listen_port, public_key, services_cidr)
+				VALUES ($1, $2, $3, $4, nullif($5, ''), $6::cidr)`,
+				h.ID, h.Name, h.Endpoint, h.ListenPort, h.PublicKey, h.ServicesCIDR.String()); err != nil {
+				return fmt.Errorf("ensure hub: %w", err)
+			}
+		case err != nil:
 			return fmt.Errorf("ensure hub: %w", err)
+		default:
+			if slices.Contains(overrides, domain.FieldName) && name != h.Name {
+				ignored = append(ignored, app.EnvIgnored{Field: domain.FieldName, Env: h.Name, Current: name})
+			}
+			if slices.Contains(overrides, domain.FieldEndpoint) && endpoint != h.Endpoint {
+				ignored = append(ignored, app.EnvIgnored{Field: domain.FieldEndpoint, Env: h.Endpoint, Current: endpoint})
+			}
+			// version (ETag) sube solo si cambia algo visible del hub.
+			if _, err := tx.Exec(ctx, `UPDATE wireguard.server s SET name = n.name, endpoint = n.endpoint, listen_port = n.listen_port,
+					public_key = n.public_key, services_cidr = n.services_cidr, updated_at = now(),
+					version = s.version + CASE WHEN (n.name, n.endpoint, n.listen_port, n.public_key, n.services_cidr)
+						IS DISTINCT FROM (s.name, s.endpoint, s.listen_port, s.public_key, s.services_cidr) THEN 1 ELSE 0 END
+				FROM (SELECT CASE WHEN 'name' = ANY (o.console_overrides) THEN o.name ELSE $2 END AS name,
+						CASE WHEN 'endpoint' = ANY (o.console_overrides) THEN o.endpoint ELSE $3 END AS endpoint,
+						$4::integer AS listen_port, coalesce(nullif($5, ''), o.public_key) AS public_key, $6::cidr AS services_cidr
+					FROM wireguard.server o WHERE o.id = $1) n
+				WHERE s.id = $1`,
+				h.ID, h.Name, h.Endpoint, h.ListenPort, h.PublicKey, h.ServicesCIDR.String()); err != nil {
+				return fmt.Errorf("ensure hub: %w", err)
+			}
 		}
+		added := false
 		for _, p := range h.Pools {
 			var exists bool
 			if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM wireguard.ip_pool WHERE server_id = $1 AND cidr = $2::cidr)`,
@@ -71,32 +109,44 @@ func (s *Store) EnsureHub(ctx context.Context, h app.Hub) error {
 			if exists {
 				continue
 			}
-			if _, err := tx.Exec(ctx, `INSERT INTO wireguard.ip_pool (id, server_id, cidr) VALUES ($1, $2, $3::cidr)`,
-				uuid.Must(uuid.NewV7()), h.ID, p.String()); err != nil {
+			if _, err := tx.Exec(ctx, `INSERT INTO wireguard.ip_pool (id, server_id, cidr, family) VALUES ($1, $2, $3::cidr, $4)`,
+				uuid.Must(uuid.NewV7()), h.ID, p.String(), family(p)); err != nil {
 				if pgdb.IsCode(err, pgdb.SQLStateExclusionViolation) {
 					return fmt.Errorf("%w: %s overlaps an existing tunnel range", domain.ErrInvalidPool, p)
 				}
 				return fmt.Errorf("ensure pool %s: %w", p, err)
 			}
+			added = true
+		}
+		if added && !created {
+			// Rango nuevo en un hub existente: nueva versión del hub y del estado deseado.
+			if _, err := tx.Exec(ctx, `UPDATE wireguard.server SET version = version + 1, desired_version = desired_version + 1,
+				updated_at = now() WHERE id = $1`, h.ID); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
+	return ignored, err
 }
 
-func parsePrefixes(ss []string) []netip.Prefix {
-	out := make([]netip.Prefix, 0, len(ss))
-	for _, s := range ss {
-		if p, err := netip.ParsePrefix(s); err == nil {
-			out = append(out, p)
-		}
+func family(p netip.Prefix) int {
+	if p.Addr().Is4() {
+		return 4
 	}
-	return out
+	return 6
 }
+
+// poolsOrder ordena los rangos como los recorre la IPAM.
+const poolsOrder = `ORDER BY p.created_at, p.id`
 
 const hubCols = `s.id, s.name, s.endpoint, s.listen_port, coalesce(s.public_key, ''), s.services_cidr::text, s.status, s.desired_version,
-	s.applied_version, s.last_report_at,
-	coalesce((SELECT array_agg(p.cidr::text ORDER BY p.created_at) FROM wireguard.ip_pool p WHERE p.server_id = s.id), '{}'),
-	(SELECT count(*) FROM wireguard.ip_allocation a JOIN wireguard.ip_pool p ON p.id = a.pool_id WHERE p.server_id = s.id AND a.released_at IS NULL),
+	s.applied_version, s.last_report_at, s.mtu, s.persistent_keepalive_seconds, s.version, s.console_overrides,
+	coalesce((SELECT array_agg(p.id ` + poolsOrder + `) FROM wireguard.ip_pool p WHERE p.server_id = s.id), '{}'),
+	coalesce((SELECT array_agg(p.cidr::text ` + poolsOrder + `) FROM wireguard.ip_pool p WHERE p.server_id = s.id), '{}'),
+	coalesce((SELECT array_agg(p.created_at ` + poolsOrder + `) FROM wireguard.ip_pool p WHERE p.server_id = s.id), '{}'),
+	coalesce((SELECT array_agg((SELECT count(*) FROM wireguard.ip_allocation a WHERE a.pool_id = p.id AND a.released_at IS NULL) ` +
+	poolsOrder + `) FROM wireguard.ip_pool p WHERE p.server_id = s.id), '{}'),
 	(SELECT count(*) FROM wireguard.peer pe WHERE pe.server_id = s.id AND pe.status = 'active'),
 	(SELECT count(DISTINCT pe.tenant_id) FROM wireguard.peer pe WHERE pe.server_id = s.id AND pe.revoked_at IS NULL)`
 
@@ -104,18 +154,34 @@ func scanHub(row pgx.Row) (*app.Hub, error) {
 	var (
 		h        app.Hub
 		services string
-		pools    []string
+		ids      []uuid.UUID
+		cidrs    []string
+		created  []time.Time
+		used     []int64
 	)
 	if err := row.Scan(&h.ID, &h.Name, &h.Endpoint, &h.ListenPort, &h.PublicKey, &services, &h.Status, &h.DesiredVersion,
-		&h.AppliedVersion, &h.LastReportAt, &pools, &h.AddressesUsed, &h.PeersActive, &h.Tenants); err != nil {
+		&h.AppliedVersion, &h.LastReportAt, &h.MTU, &h.Keepalive, &h.Version, &h.Overrides, &ids, &cidrs, &created, &used,
+		&h.PeersActive, &h.Tenants); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
 		}
 		return nil, err
 	}
 	h.ServicesCIDR, _ = netip.ParsePrefix(services)
-	h.Pools = parsePrefixes(pools)
+	for i, c := range cidrs {
+		p, err := netip.ParsePrefix(c)
+		if err != nil || i >= len(ids) || i >= len(created) || i >= len(used) {
+			continue
+		}
+		h.Pools = append(h.Pools, p)
+		h.PoolInfo = append(h.PoolInfo, app.Pool{ID: ids[i], CIDR: p, CreatedAt: created[i], Used: int(used[i])})
+		h.AddressesUsed += int(used[i])
+	}
 	return &h, nil
+}
+
+func getHubTx(ctx context.Context, tx pgx.Tx, id uuid.UUID) (*app.Hub, error) {
+	return scanHub(tx.QueryRow(ctx, `SELECT `+hubCols+` FROM wireguard.server s WHERE s.id = $1`, id))
 }
 
 // GetHub implementa app.Store.
@@ -123,7 +189,7 @@ func (s *Store) GetHub(ctx context.Context, id uuid.UUID) (*app.Hub, error) {
 	var h *app.Hub
 	err := s.db.PlatformTx(ctx, func(tx pgx.Tx) error {
 		var err error
-		h, err = scanHub(tx.QueryRow(ctx, `SELECT `+hubCols+` FROM wireguard.server s WHERE s.id = $1`, id))
+		h, err = getHubTx(ctx, tx, id)
 		return err
 	})
 	return h, err
@@ -146,6 +212,152 @@ func (s *Store) ListHubs(ctx context.Context) ([]app.Hub, error) {
 			out = append(out, *h)
 		}
 		return rows.Err()
+	})
+	return out, err
+}
+
+// UpdateHub implementa app.Store.
+func (s *Store) UpdateHub(ctx context.Context, id uuid.UUID, expect int, patch app.HubPatch) (*app.Hub, error) {
+	var fields []string
+	if patch.Name != nil {
+		fields = append(fields, domain.FieldName)
+	}
+	if patch.Endpoint != nil {
+		fields = append(fields, domain.FieldEndpoint)
+	}
+	if patch.MTU != nil {
+		fields = append(fields, domain.FieldMTU)
+	}
+	if patch.Keepalive != nil {
+		fields = append(fields, domain.FieldKeepalive)
+	}
+	var out *app.Hub
+	err := s.db.PlatformTx(ctx, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `UPDATE wireguard.server SET name = coalesce($3, name), endpoint = coalesce($4, endpoint),
+				mtu = coalesce($5, mtu), persistent_keepalive_seconds = coalesce($6, persistent_keepalive_seconds),
+				console_overrides = ARRAY(SELECT DISTINCT f FROM unnest(console_overrides || $7::text[]) f ORDER BY f),
+				version = version + 1, updated_at = now()
+			WHERE id = $1 AND version = $2`, id, expect, patch.Name, patch.Endpoint, patch.MTU, patch.Keepalive, fields)
+		if err != nil {
+			if pgdb.IsCode(err, pgdb.SQLStateUniqueViolation) {
+				return app.ErrHubNameInUse
+			}
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			var exists bool
+			if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM wireguard.server WHERE id = $1)`, id).Scan(&exists); err != nil {
+				return err
+			}
+			if !exists {
+				return domain.ErrNotFound
+			}
+			return app.ErrVersionChanged
+		}
+		out, err = getHubTx(ctx, tx, id)
+		return err
+	})
+	return out, err
+}
+
+// lockHub bloquea la fila del hub: serializa la IPAM (CreatePeer) y los
+// cambios de rangos.
+func lockHub(ctx context.Context, tx pgx.Tx, id uuid.UUID) error {
+	var one int
+	err := tx.QueryRow(ctx, `SELECT 1 FROM wireguard.server WHERE id = $1 FOR UPDATE`, id).Scan(&one)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ErrNotFound
+	}
+	return err
+}
+
+// bumpHub sube la versión del hub (ETag) y la deseada del agente.
+func bumpHub(ctx context.Context, tx pgx.Tx, id uuid.UUID) error {
+	_, err := tx.Exec(ctx, `UPDATE wireguard.server SET version = version + 1, desired_version = desired_version + 1,
+		updated_at = now() WHERE id = $1`, id)
+	return err
+}
+
+// AddPool implementa app.Store.
+func (s *Store) AddPool(ctx context.Context, hubID uuid.UUID, cidr netip.Prefix) (*app.Pool, error) {
+	var out *app.Pool
+	err := s.db.PlatformTx(ctx, func(tx pgx.Tx) error {
+		if err := lockHub(ctx, tx, hubID); err != nil {
+			return err
+		}
+		// created_at de la base, como los rangos del entorno: la IPAM los recorre en ese orden.
+		p := &app.Pool{ID: uuid.Must(uuid.NewV7()), CIDR: cidr}
+		if err := tx.QueryRow(ctx, `INSERT INTO wireguard.ip_pool (id, server_id, cidr, family) VALUES ($1, $2, $3::cidr, $4)
+			RETURNING created_at`, p.ID, hubID, cidr.String(), family(cidr)).Scan(&p.CreatedAt); err != nil {
+			switch {
+			case pgdb.IsCode(err, pgdb.SQLStateExclusionViolation):
+				return app.ErrPoolOverlap
+			case pgdb.IsCode(err, pgdb.SQLStateCheckViolation):
+				return fmt.Errorf("%w: %s", domain.ErrInvalidPool, cidr)
+			}
+			return err
+		}
+		if err := bumpHub(ctx, tx, hubID); err != nil {
+			return err
+		}
+		out = p
+		return nil
+	})
+	return out, err
+}
+
+// DeletePool implementa app.Store. Las asignaciones liberadas antes de la
+// cuarentena se borran con el rango (el historial de direcciones sigue en
+// wireguard.peer.address).
+func (s *Store) DeletePool(ctx context.Context, hubID, poolID uuid.UUID, quarantineSince time.Time, guard func(app.Pool) error) (*app.Pool, error) {
+	var out *app.Pool
+	err := s.db.PlatformTx(ctx, func(tx pgx.Tx) error {
+		if err := lockHub(ctx, tx, hubID); err != nil {
+			return err
+		}
+		var (
+			p    app.Pool
+			cidr string
+		)
+		err := tx.QueryRow(ctx, `SELECT id, cidr::text, created_at FROM wireguard.ip_pool WHERE id = $1 AND server_id = $2`, poolID, hubID).
+			Scan(&p.ID, &cidr, &p.CreatedAt)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return app.ErrPoolNotFound
+		}
+		if err != nil {
+			return err
+		}
+		p.CIDR, _ = netip.ParsePrefix(cidr)
+		var pools int
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM wireguard.ip_pool WHERE server_id = $1`, hubID).Scan(&pools); err != nil {
+			return err
+		}
+		if pools <= 1 {
+			return app.ErrLastPool
+		}
+		if guard != nil {
+			if err := guard(p); err != nil {
+				return err
+			}
+		}
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM wireguard.ip_allocation
+			WHERE pool_id = $1 AND (released_at IS NULL OR released_at > $2)`, poolID, quarantineSince).Scan(&p.Used); err != nil {
+			return err
+		}
+		if p.Used > 0 {
+			return app.ErrPoolInUse
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM wireguard.ip_allocation WHERE pool_id = $1`, poolID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM wireguard.ip_pool WHERE id = $1`, poolID); err != nil {
+			return err
+		}
+		if err := bumpHub(ctx, tx, hubID); err != nil {
+			return err
+		}
+		out = &p
+		return nil
 	})
 	return out, err
 }
@@ -305,7 +517,9 @@ func (s *Store) AllPeers(ctx context.Context) ([]domain.Peer, error) {
 func (s *Store) CreatePeer(ctx context.Context, t pgdb.TenantID, p *domain.Peer, ev app.PeerEvents) error {
 	return s.db.PlatformTx(ctx, func(tx pgx.Tx) error {
 		var services string
-		if err := tx.QueryRow(ctx, `SELECT services_cidr::text FROM wireguard.server WHERE id = $1 FOR UPDATE`, p.ServerID).Scan(&services); err != nil {
+		// Los peers nuevos heredan el keepalive del hub (editable desde la consola).
+		if err := tx.QueryRow(ctx, `SELECT services_cidr::text, persistent_keepalive_seconds FROM wireguard.server WHERE id = $1 FOR UPDATE`,
+			p.ServerID).Scan(&services, &p.Keepalive); err != nil {
 			return fmt.Errorf("hub %s: %w", p.ServerID, err)
 		}
 		svc, _ := netip.ParsePrefix(services)
@@ -317,7 +531,7 @@ func (s *Store) CreatePeer(ctx context.Context, t pgdb.TenantID, p *domain.Peer,
 		if exists {
 			return app.ErrPeerExists
 		}
-		rows, err := tx.Query(ctx, `SELECT id, cidr::text FROM wireguard.ip_pool WHERE server_id = $1 ORDER BY created_at, id`, p.ServerID)
+		rows, err := tx.Query(ctx, `SELECT id, cidr::text FROM wireguard.ip_pool WHERE server_id = $1 AND family = 4 ORDER BY created_at, id`, p.ServerID)
 		if err != nil {
 			return err
 		}
@@ -498,8 +712,10 @@ func (s *Store) Enroll(ctx context.Context, hash []byte, publicKey string, from 
 			v := from.String()
 			fromIP = &v
 		}
+		// Un script nuevo lleva el keepalive actual del hub: el peer lo adopta al enrolar.
 		tag, err := tx.Exec(ctx, `UPDATE wireguard.peer SET public_key = $3, status = 'pending_handshake', handshake_state = 'never',
-				last_handshake_at = NULL, activated_at = NULL, enrolled_at = $4, enrolled_from_ip = $5::inet, updated_at = $4, version = version + 1
+				last_handshake_at = NULL, activated_at = NULL, enrolled_at = $4, enrolled_from_ip = $5::inet, updated_at = $4, version = version + 1,
+				persistent_keepalive_seconds = (SELECT s.persistent_keepalive_seconds FROM wireguard.server s WHERE s.id = peer.server_id)
 			WHERE tenant_id = $1 AND id = $2 AND revoked_at IS NULL`, tok.TenantID, tok.PeerID, publicKey, at, fromIP)
 		if err != nil {
 			if pgdb.IsCode(err, pgdb.SQLStateUniqueViolation) {

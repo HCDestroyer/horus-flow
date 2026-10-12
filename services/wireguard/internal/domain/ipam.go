@@ -78,6 +78,9 @@ func lastAddr(p netip.Prefix) netip.Addr {
 // fuera de la red de servicios y no presente en used (asignadas o en
 // cuarentena).
 func NextFree(pool, services netip.Prefix, used map[netip.Addr]bool) (netip.Addr, error) {
+	if !pool.IsValid() || !pool.Addr().Is4() {
+		return netip.Addr{}, ErrPoolExhausted // la IPAM solo asigna IPv4
+	}
 	last := lastAddr(pool)
 	for a := pool.Addr().Next(); a.IsValid() && a.Less(last); a = a.Next() {
 		if services.Contains(a) {
@@ -93,6 +96,9 @@ func NextFree(pool, services netip.Prefix, used map[netip.Addr]bool) (netip.Addr
 
 // Capacity es el número de /32 asignables a routers en pool.
 func Capacity(pool, services netip.Prefix) int {
+	if !pool.IsValid() || !pool.Addr().Is4() {
+		return 0 // la IPAM solo asigna IPv4
+	}
 	n := 1<<(32-pool.Bits()) - 2
 	if pool.Bits() <= services.Bits() && pool.Contains(services.Addr()) {
 		n -= 1 << (32 - services.Bits())

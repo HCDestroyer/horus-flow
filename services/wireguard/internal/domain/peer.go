@@ -44,6 +44,10 @@ const Keepalive = 25
 // sano nunca pasa de ~2 min).
 const StaleAfter = 180 * time.Second
 
+// Quarantine: una IP liberada no se reasigna (ni se borra su rango) en 24 h
+// (database.md §2.4).
+const Quarantine = 24 * time.Hour
+
 // TokenTTL es la vida de un token de enrolamiento.
 const TokenTTL = 24 * time.Hour
 

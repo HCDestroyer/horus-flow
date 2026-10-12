@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"net/netip"
 
 	"github.com/hcdestroyer/horus-flow/services/wgagent/internal/domain"
 )
@@ -16,4 +17,13 @@ type Device interface {
 	Peers(ctx context.Context) ([]domain.Peer, error)
 	// Apply añade o actualiza upsert (allowed-ips reemplazadas) y borra remove.
 	Apply(ctx context.Context, upsert []domain.Peer, remove []string) error
+}
+
+// Router lo implementa un Device que además mantiene las rutas del host
+// hacia los peers (como wg-quick: una ruta por allowed-ip por la interfaz).
+// Así un rango de túneles añadido desde la consola es alcanzable sin tocar
+// el despliegue (horus-tunnel solo enruta el rango inicial).
+type Router interface {
+	// SyncRoutes deja exactamente want como rutas propias por la interfaz.
+	SyncRoutes(ctx context.Context, want []netip.Prefix) error
 }

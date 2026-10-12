@@ -61,6 +61,10 @@ func upInterface(t *testing.T, name string) {
 func TestAgentOnRealInterface(t *testing.T) {
 	const name = "hfwgtest0"
 	upInterface(t, name)
+	// Como horus-tunnel: interfaz arriba (sin ella el kernel no admite rutas).
+	if out, err := exec.Command("ip", "link", "set", name, "up").CombinedOutput(); err != nil {
+		t.Fatalf("ip link set up: %v %s", err, out)
+	}
 	dev, err := Open(name)
 	if err != nil {
 		t.Fatal(err)
@@ -91,6 +95,10 @@ func TestAgentOnRealInterface(t *testing.T) {
 			t.Fatalf("allowed-ips = %v", p.AllowedIPs)
 		}
 	}
+	// Una ruta por peer por la interfaz (rangos añadidos desde la consola).
+	if got := routesOn(t, name, "104"); len(got) != 2 || got[0] != "10.255.0.2" || got[1] != "10.255.0.3" {
+		t.Fatalf("rutas de peers = %v", got)
+	}
 	// Reinicio del agente (fail-static) y reconstrucción con el estado completo.
 	a2 := app.New(app.Options{Device: dev, HubID: "hub", PrivateKey: hub.String(), ListenPort: 51999})
 	req.DesiredVersion, req.Peers = 2, req.Peers[:1]
@@ -99,5 +107,8 @@ func TestAgentOnRealInterface(t *testing.T) {
 	}
 	if peers, _ := dev.Peers(ctx); len(peers) != 1 || peers[0].PublicKey != r1.PublicKey().String() {
 		t.Fatalf("peers tras reconstruir = %v", peers)
+	}
+	if got := routesOn(t, name, "104"); len(got) != 1 || got[0] != "10.255.0.2" {
+		t.Fatalf("rutas tras reconstruir = %v", got)
 	}
 }

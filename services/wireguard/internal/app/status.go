@@ -248,24 +248,6 @@ func (s *Service) GetPeer(ctx context.Context, id uuid.UUID) (*domain.Peer, erro
 	return peer, nil
 }
 
-// ListHubs lista los hubs con su ocupación (plataforma).
-func (s *Service) ListHubs(ctx context.Context) ([]Hub, error) {
-	hubs, err := s.o.Store.ListHubs(ctx)
-	if err != nil {
-		return nil, err
-	}
-	for i := range hubs {
-		if hubs[i].PublicKey == "" && hubs[i].ID == s.o.Hub.ID {
-			hubs[i].PublicKey = s.o.HubPublicKey()
-		}
-		hubs[i].AddressesTotal = 0
-		for _, pool := range hubs[i].Pools {
-			hubs[i].AddressesTotal += domain.Capacity(pool, hubs[i].ServicesCIDR)
-		}
-	}
-	return hubs, nil
-}
-
 // HandshakeState es el estado de handshake de p ahora.
 func (s *Service) HandshakeState(p *domain.Peer) string {
 	return domain.HandshakeStateAt(p.LastHandshakeAt, s.now())

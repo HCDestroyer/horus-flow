@@ -3,6 +3,8 @@ package app_test
 import (
 	"context"
 	"errors"
+	"net/netip"
+	"slices"
 	"testing"
 	"time"
 
@@ -127,5 +129,45 @@ func TestFailStaticAndRebuild(t *testing.T) {
 	dev.Fail = true
 	if st := a2.Status(ctx); st.GetInterfaceUp() {
 		t.Fatal("interfaz caída reportada como activa")
+	}
+}
+
+// routingDev es memdev con rutas (como el adaptador kernel en Linux).
+type routingDev struct {
+	*memdev.Device
+	routes [][]netip.Prefix
+	fail   bool
+}
+
+func (d *routingDev) SyncRoutes(_ context.Context, want []netip.Prefix) error {
+	d.routes = append(d.routes, slices.Clone(want))
+	if d.fail {
+		return errors.New("ruta rechazada")
+	}
+	return nil
+}
+
+// Cada estado deseado deja una ruta por allowed-ip; si las rutas fallan, los
+// peers siguen aplicados (fail-static) y la versión avanza.
+func TestApplyDesiredStateSyncsRoutes(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dev := &routingDev{Device: memdev.New()}
+	a := app.New(app.Options{Device: dev, PrivateKey: hubPriv, ListenPort: 51820})
+	if _, err := a.ApplyDesiredState(ctx, desired(1, k1, k2)); err != nil {
+		t.Fatal(err)
+	}
+	got := dev.routes[len(dev.routes)-1]
+	slices.SortFunc(got, func(x, y netip.Prefix) int { return x.Addr().Compare(y.Addr()) })
+	if len(got) != 2 || got[0] != netip.MustParsePrefix("10.255.0.2/32") || got[1] != netip.MustParsePrefix("10.255.0.3/32") {
+		t.Fatalf("rutas = %v", got)
+	}
+	dev.fail = true
+	r, err := a.ApplyDesiredState(ctx, desired(2, k1))
+	if err != nil || r.GetAppliedVersion() != 2 || r.GetPeersRemoved() != 1 {
+		t.Fatalf("apply con rutas fallidas = %v, %v", r, err)
+	}
+	if got := dev.routes[len(dev.routes)-1]; len(got) != 1 {
+		t.Fatalf("rutas = %v", got)
 	}
 }

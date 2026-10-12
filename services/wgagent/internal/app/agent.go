@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -128,6 +129,18 @@ func (a *Agent) ApplyDesiredState(ctx context.Context, req *agentv1.ApplyDesired
 	plan := domain.Diff(want, observed)
 	if err := a.o.Device.Apply(ctx, plan.Upsert, plan.Remove); err != nil {
 		return nil, fmt.Errorf("apply peers: %w", err)
+	}
+	if r, ok := a.o.Device.(Router); ok {
+		routes := make([]netip.Prefix, 0, len(want))
+		for _, p := range want {
+			routes = append(routes, p.AllowedIPs...)
+		}
+		// Los peers ya están aplicados: una ruta que falla no los deshace
+		// (el rango inicial lo enruta además horus-tunnel); se reintenta en
+		// el siguiente estado deseado.
+		if err := r.SyncRoutes(ctx, routes); err != nil {
+			a.o.Logger.WarnContext(ctx, "wireguard peer routes not fully applied", slog.String("error", err.Error()))
+		}
 	}
 	a.applied = req.GetDesiredVersion()
 	a.o.Logger.InfoContext(ctx, "wireguard desired state applied", slog.Int64("version", a.applied),

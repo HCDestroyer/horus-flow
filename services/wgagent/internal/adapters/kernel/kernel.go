@@ -4,7 +4,9 @@
 // (espacio de usuario; sirve en hosts y CI sin módulo de kernel). La interfaz
 // y su dirección las crea el despliegue (`ip link add wg0 type wireguard` o
 // `wireguard-go wg0`; `ip addr add 10.255.0.1/16 dev wg0; ip link set wg0 up`):
-// el agente solo gestiona clave, puerto y peers. Requiere CAP_NET_ADMIN.
+// el agente gestiona clave, puerto, peers y (en Linux) una ruta por
+// allowed-ip de cada peer por la interfaz, para que los rangos de túnel
+// añadidos desde la consola sean alcanzables. Requiere CAP_NET_ADMIN.
 package kernel
 
 import (
@@ -12,6 +14,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"sync"
 
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -24,6 +27,10 @@ import (
 type Device struct {
 	name   string
 	client *wgctrl.Client
+
+	routesMu sync.Mutex
+	// routes son las rutas propias instaladas (nil = aún sin leer del kernel).
+	routes map[netip.Prefix]bool
 }
 
 var _ app.Device = (*Device)(nil)

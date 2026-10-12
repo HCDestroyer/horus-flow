@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/netip"
 	"strings"
 	"time"
@@ -56,6 +57,11 @@ func (s *Service) CreateProvisioningScript(ctx context.Context, routerID uuid.UU
 	if hubKey == "" {
 		return nil, apperr.New(apperr.KindUnavailable, problem.CodeServiceUnavailable, "El hub WireGuard aún no tiene clave pública (wg-agent).")
 	}
+	// Endpoint, MTU y keepalive del hub (editables desde la consola).
+	hub, err := s.o.Store.GetHub(ctx, s.o.Hub.ID)
+	if err != nil {
+		return nil, fmt.Errorf("hub: %w", err)
+	}
 	peer, err := s.EnsurePeer(ctx, r)
 	if errors.Is(err, domain.ErrPoolExhausted) {
 		return nil, apperr.Conflict(domain.CodePoolExhausted, "No quedan IPs de túnel libres: el operador de plataforma debe añadir un rango.")
@@ -83,7 +89,8 @@ func (s *Service) CreateProvisioningScript(ctx context.Context, routerID uuid.UU
 	}
 	text, err := script.Onboarding(script.Values{
 		Template: tpl, RouterID: r.ID.String(), RouterName: r.Name, RouterWGIP: peer.Address, HubPublicKey: hubKey,
-		WGEndpoint: s.o.Hub.Endpoint, WGPort: s.o.Hub.ListenPort, ServicesCIDR: s.o.Hub.ServicesCIDR, CollectorIP: s.o.CollectorIP,
+		WGEndpoint: hub.Endpoint, WGPort: hub.ListenPort, MTU: hub.MTU, Keepalive: hub.Keepalive,
+		ServicesCIDR: s.o.Hub.ServicesCIDR, CollectorIP: s.o.CollectorIP,
 		APIUser: creds.APIUser, APIPassword: creds.APIPassword, SNMPUser: creds.SNMPUser, SNMPAuthPass: creds.SNMPAuthPassword,
 		SNMPPrivPass: creds.SNMPPrivPassword, NTPServer: ntp, EnrollURL: strings.TrimRight(s.o.PublicBaseURL, "/") + "/api/v1/enroll/wireguard",
 		Token: plain, CacheEntries: s.o.CacheEntries, AccessMode: s.o.AccessMode, CACertPEM: s.o.CACertPEM,

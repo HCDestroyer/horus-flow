@@ -65,6 +65,10 @@ type Values struct {
 	HubPublicKey string
 	WGEndpoint   string
 	WGPort       int
+	// MTU de wg-horus y persistent-keepalive (s; 0 = desactivado) del peer
+	// hacia el hub: los del hub al generar el script.
+	MTU          int
+	Keepalive    int
 	ServicesCIDR netip.Prefix
 	CollectorIP  netip.Addr
 	APIUser      string
@@ -117,6 +121,8 @@ func (v *Values) validate() error {
 	check(keyRe.MatchString(v.HubPublicKey), "hub public key")
 	check(host(v.WGEndpoint), "wireguard endpoint")
 	check(v.WGPort > 0 && v.WGPort < 65536, "wireguard port")
+	check(v.MTU >= 1280 && v.MTU <= 1500, "mtu")
+	check(v.Keepalive >= 0 && v.Keepalive <= 120, "keepalive")
 	check(v.ServicesCIDR.IsValid() && v.ServicesCIDR.Addr().Is4(), "services cidr")
 	check(v.CollectorIP.Is4() && v.ServicesCIDR.Contains(v.CollectorIP), "collector ip")
 	check(userRe.MatchString(v.APIUser) && userRe.MatchString(v.SNMPUser), "users")

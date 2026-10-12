@@ -49,10 +49,22 @@ func (h *Handler) Mount(r *httpx.ServiceMux) {
 	r.Handle("GET /api/v1/wireguard/peers", h.guard.Tenant("wireguard.read", h.listPeers))
 	r.Handle("GET /api/v1/wireguard/peers/{peer_id}", h.guard.Tenant("wireguard.read", h.getPeer))
 	r.Handle("GET /api/v1/platform/wireguard/hubs", h.guard.Platform("platform.status.read", h.listHubs))
+	r.Handle("PATCH /api/v1/platform/wireguard/hubs/{hub_id}", h.guard.Platform(app.PermManage, h.updateHub))
+	r.Handle("POST /api/v1/platform/wireguard/hubs/{hub_id}/pools", h.guard.Platform(app.PermManage, h.addPool))
+	r.Handle("DELETE /api/v1/platform/wireguard/hubs/{hub_id}/pools/{pool_id}", h.guard.Platform(app.PermManage, h.deletePool))
 	r.HandleFunc("POST /api/v1/enroll/wireguard", h.enroll)
 }
 
 func (h *Handler) fail(w http.ResponseWriter, r *http.Request, err error) {
+	// 412: la representación actual del hub con el formato del contrato.
+	if e, ok := apperr.As(err); ok {
+		if hub, ok := e.Current.(*app.Hub); ok {
+			c := *e
+			c.Current = hubJSON(hub)
+			w.Header().Set("ETag", jsonapi.ETag(hub.Version))
+			err = &c
+		}
+	}
 	apperr.WriteHTTP(w, r, h.logger, err)
 }
 
@@ -214,25 +226,4 @@ func (h *Handler) getPeer(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("ETag", jsonapi.ETag(p.Version))
 	jsonapi.Write(w, http.StatusOK, h.peerJSON(p))
-}
-
-func (h *Handler) listHubs(w http.ResponseWriter, r *http.Request) {
-	hubs, err := h.svc.ListHubs(r.Context())
-	if err != nil {
-		h.fail(w, r, err)
-		return
-	}
-	out := make([]map[string]any, 0, len(hubs))
-	for _, x := range hubs {
-		cidr := ""
-		if len(x.Pools) > 0 {
-			cidr = x.Pools[0].String()
-		}
-		out = append(out, map[string]any{
-			"id": x.ID, "name": x.Name, "endpoint": x.Endpoint, "listen_port": x.ListenPort, "public_key": x.PublicKey,
-			"status": x.Status, "tunnel_cidr": cidr, "services_cidr": x.ServicesCIDR.String(), "addresses_total": x.AddressesTotal,
-			"addresses_used": x.AddressesUsed, "peers_active": x.PeersActive, "tenants": x.Tenants,
-		})
-	}
-	jsonapi.Write(w, http.StatusOK, map[string]any{"data": out})
 }

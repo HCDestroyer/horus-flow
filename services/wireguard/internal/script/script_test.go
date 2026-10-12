@@ -22,7 +22,7 @@ func values(tpl string) Values {
 	return Values{
 		Template: tpl, RouterID: "0192e333-0000-7000-8000-000000000033", RouterName: "rt-centro \"1\"$x",
 		RouterWGIP: netip.MustParseAddr("10.255.3.17"), HubPublicKey: "xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg=",
-		WGEndpoint: "horus.example.net", WGPort: 51820, ServicesCIDR: netip.MustParsePrefix("10.255.0.0/24"),
+		WGEndpoint: "horus.example.net", WGPort: 51820, MTU: 1420, Keepalive: 25, ServicesCIDR: netip.MustParsePrefix("10.255.0.0/24"),
 		CollectorIP: netip.MustParseAddr("10.255.0.1"), APIUser: "horus", APIPassword: "Api9pass9word9Api9pass9w",
 		SNMPUser: "horus-00000033", SNMPAuthPass: "Auth9pass9word9Auth9pass", SNMPPrivPass: "Priv9pass9word9Priv9pass",
 		NTPServer: "pool.ntp.org", EnrollURL: "https://horus.example.net/api/v1/enroll/wireguard",
@@ -188,11 +188,38 @@ func TestValidationRejectsInjection(t *testing.T) {
 		"url":       func(v *Values) { v.EnrollURL = "http://horus.example.net/api/v1/enroll/wireguard" },
 		"collector": func(v *Values) { v.CollectorIP = netip.MustParseAddr("192.0.2.1") },
 		"template":  func(v *Values) { v.Template = "6.49" },
+		"mtu-low":   func(v *Values) { v.MTU = 1279 },
+		"mtu-high":  func(v *Values) { v.MTU = 1501 },
+		"mtu-zero":  func(v *Values) { v.MTU = 0 },
+		"ka-neg":    func(v *Values) { v.Keepalive = -1 },
+		"ka-high":   func(v *Values) { v.Keepalive = 121 },
 	} {
 		v := values(Template712)
 		mut(&v)
 		if _, err := Onboarding(v); err == nil {
 			t.Errorf("%s: valor peligroso aceptado", name)
+		}
+	}
+}
+
+// El script usa el endpoint, la MTU y el keepalive del hub (editables desde
+// la consola).
+func TestOnboardingUsesHubSettings(t *testing.T) {
+	t.Parallel()
+	for _, tpl := range []string{Template712, TemplateLongTerm} {
+		v := values(tpl)
+		v.WGEndpoint, v.MTU, v.Keepalive = "wg.isp.example", 1380, 0
+		s, err := Onboarding(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, must := range []string{"add name=wg-horus mtu=1380 comment=", "persistent-keepalive=0s", "endpoint-address=wg.isp.example "} {
+			if !strings.Contains(s, must) {
+				t.Errorf("%s: falta %q", tpl, must)
+			}
+		}
+		if strings.Contains(s, "mtu=1420") || strings.Contains(s, "persistent-keepalive=25s") {
+			t.Errorf("%s: valores fijos en la plantilla", tpl)
 		}
 	}
 }

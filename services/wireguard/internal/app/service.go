@@ -97,7 +97,15 @@ func (s *Service) Init(ctx context.Context) error {
 	}
 	h := s.o.Hub
 	h.PublicKey = s.o.HubPublicKey()
-	return s.o.Store.EnsureHub(ctx, h)
+	ignored, err := s.o.Store.EnsureHub(ctx, h)
+	if err != nil {
+		return err
+	}
+	for _, ig := range ignored {
+		s.o.Logger.InfoContext(ctx, "wireguard hub: environment value not applied (field edited from the console)",
+			slog.String("field", ig.Field), slog.String("env", ig.Env), slog.String("current", ig.Current))
+	}
+	return nil
 }
 
 // Kick pide reenviar el estado deseado al agente.

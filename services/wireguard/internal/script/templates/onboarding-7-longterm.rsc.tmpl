@@ -10,12 +10,12 @@
 /system ntp client set enabled=yes servers={{.NTPServer}}
 
 # 1) Túnel WireGuard hacia Horus (la clave privada se genera aquí y nunca sale del router)
-/interface wireguard add name=wg-horus mtu=1420 comment="horus"
+/interface wireguard add name=wg-horus mtu={{.MTU}} comment="horus"
 /ip address add address={{.RouterWGIP}}/32 interface=wg-horus comment="horus"
 /interface wireguard peers add interface=wg-horus name=horus-hub \
     public-key="{{.HubPublicKey}}" \
     endpoint-address={{.WGEndpoint}} endpoint-port={{.WGPort}} \
-    allowed-address={{.ServicesCIDR}} persistent-keepalive=25s comment="horus"
+    allowed-address={{.ServicesCIDR}} persistent-keepalive={{.Keepalive}}s comment="horus"
 /ip route add dst-address={{.ServicesCIDR}} gateway=wg-horus comment="horus"
 
 # 2) Firewall: gestión solo desde Horus por el túnel (al principio de input; revise el orden si usa

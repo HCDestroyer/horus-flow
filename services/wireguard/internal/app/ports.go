@@ -23,17 +23,36 @@ var (
 	ErrKeyInUse     = errors.New("wireguard: public key in use")
 	ErrBadKey       = errors.New("wireguard: invalid public key")
 	ErrPeerExists   = errors.New("wireguard: router already has a peer")
+	// ErrVersionChanged: If-Match no coincide con la versión del hub.
+	ErrVersionChanged = errors.New("wireguard: hub version changed")
+	// ErrPoolOverlap: el rango se solapa con otro (EXCLUDE de ip_pool).
+	ErrPoolOverlap = errors.New("wireguard: pool overlaps an existing range")
+	// ErrPoolInUse: el rango tiene direcciones asignadas o en cuarentena.
+	ErrPoolInUse = errors.New("wireguard: pool has allocations")
+	// ErrLastPool: el hub se quedaría sin rangos.
+	ErrLastPool = errors.New("wireguard: last pool of the hub")
+	// ErrPoolNotFound: el rango no existe en ese hub.
+	ErrPoolNotFound = errors.New("wireguard: pool not found")
+	// ErrHubNameInUse: otro hub ya tiene ese nombre.
+	ErrHubNameInUse = errors.New("wireguard: hub name in use")
 )
 
 // Hub es el servidor WireGuard de plataforma.
 type Hub struct {
-	ID             uuid.UUID
-	Name           string
-	Endpoint       string
-	ListenPort     int
-	PublicKey      string
-	ServicesCIDR   netip.Prefix
-	Pools          []netip.Prefix
+	ID           uuid.UUID
+	Name         string
+	Endpoint     string
+	ListenPort   int
+	PublicKey    string
+	ServicesCIDR netip.Prefix
+	Pools        []netip.Prefix
+	// PoolInfo son los rangos con su id, alta y ocupación (mismo orden que Pools).
+	PoolInfo  []Pool
+	MTU       int
+	Keepalive int
+	Version   int
+	// Overrides son los campos editados desde la consola (domain.Field*).
+	Overrides      []string
 	Status         string
 	DesiredVersion int64
 	AppliedVersion int64
@@ -43,6 +62,32 @@ type Hub struct {
 	AddressesUsed  int
 	PeersActive    int
 	Tenants        int
+}
+
+// Pool es un rango de túneles del hub.
+type Pool struct {
+	ID        uuid.UUID
+	CIDR      netip.Prefix
+	CreatedAt time.Time
+	// Total: /32 asignables a routers; Used: asignaciones no liberadas.
+	Total int
+	Used  int
+}
+
+// HubPatch son los campos editables del hub (nil = sin cambio).
+type HubPatch struct {
+	Name      *string `json:"name"`
+	Endpoint  *string `json:"endpoint"`
+	MTU       *int    `json:"mtu"`
+	Keepalive *int    `json:"persistent_keepalive_seconds"`
+}
+
+// EnvIgnored es un valor de HORUS_WG_* que el arranque no aplicó porque el
+// campo se editó desde la consola.
+type EnvIgnored struct {
+	Field   string
+	Env     string
+	Current string
 }
 
 // PeerQuery filtra el listado de peers.
@@ -80,10 +125,23 @@ type PeerEvents func(p *domain.Peer) []outbox.Event
 
 // Store es el repositorio PostgreSQL del módulo.
 type Store interface {
-	// EnsureHub da de alta (o actualiza) el hub y sus rangos de túneles.
-	EnsureHub(ctx context.Context, h Hub) error
+	// EnsureHub da de alta (o actualiza) el hub y sus rangos de túneles
+	// desde la configuración. No sobrescribe los campos editados desde la
+	// consola (los devuelve si el entorno trae otro valor) ni borra rangos.
+	EnsureHub(ctx context.Context, h Hub) ([]EnvIgnored, error)
 	GetHub(ctx context.Context, id uuid.UUID) (*Hub, error)
 	ListHubs(ctx context.Context) ([]Hub, error)
+	// UpdateHub aplica patch si la versión es expect (ErrVersionChanged si
+	// no; domain.ErrNotFound si no existe), marca los campos como editados
+	// desde la consola y sube la versión.
+	UpdateHub(ctx context.Context, id uuid.UUID, expect int, patch HubPatch) (*Hub, error)
+	// AddPool añade un rango al hub (ErrPoolOverlap si se solapa con otro de
+	// cualquier hub), sube la versión del hub y la deseada del agente.
+	AddPool(ctx context.Context, hubID uuid.UUID, cidr netip.Prefix) (*Pool, error)
+	// DeletePool quita un rango del hub: domain.ErrNotFound si no es suyo,
+	// ErrPoolInUse con asignaciones vivas o liberadas después de
+	// quarantineSince, ErrLastPool si es el último. Devuelve el rango borrado.
+	DeletePool(ctx context.Context, hubID, poolID uuid.UUID, quarantineSince time.Time, guard func(Pool) error) (*Pool, error)
 
 	// ActivePeer devuelve el peer vivo del router (domain.ErrNotFound si no).
 	ActivePeer(ctx context.Context, t pgdb.TenantID, routerID uuid.UUID) (*domain.Peer, error)

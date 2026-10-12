@@ -15,6 +15,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/klauspost/compress v1.19.1
+	github.com/mdlayher/netlink v1.7.2
 	github.com/nats-io/nats-server/v2 v2.12.1
 	github.com/nats-io/nats.go v1.47.0
 	github.com/netsampler/goflow2/v2 v2.2.3
@@ -25,6 +26,7 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.39.0
 	golang.org/x/crypto v0.57.0
 	golang.org/x/sync v0.23.0
+	golang.org/x/sys v0.48.0
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20241231184526-a9ab2273dd10
 	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.12
@@ -66,7 +68,6 @@ require (
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/magiconair/properties v1.8.10 // indirect
 	github.com/mdlayher/genetlink v1.3.2 // indirect
-	github.com/mdlayher/netlink v1.7.2 // indirect
 	github.com/mdlayher/socket v0.5.1 // indirect
 	github.com/mfridman/interpolate v0.0.2 // indirect
 	github.com/minio/highwayhash v1.0.3 // indirect
@@ -108,7 +109,6 @@ require (
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba // indirect
 	golang.org/x/net v0.59.0 // indirect
-	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 	golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173 // indirect

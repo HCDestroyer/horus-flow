@@ -165,6 +165,8 @@ type env struct {
 	admin *pgxpool.Pool
 	now   *time.Time
 	hubID uuid.UUID
+	store *postgres.Store
+	opts  app.Options
 }
 
 func setup(t *testing.T) *env {
@@ -195,9 +197,10 @@ func setupWith(t *testing.T, pools []string, services string) *env {
 	}
 	svcCIDR := netip.MustParsePrefix(services)
 	now := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
-	e := &env{dev: newDevices(), agent: &fakeAgent{}, audit: &fakeAudit{}, admin: admin, now: &now, hubID: uuid.Must(uuid.NewV7())}
-	e.svc = app.New(app.Options{
-		Store:   postgres.New(db),
+	e := &env{dev: newDevices(), agent: &fakeAgent{}, audit: &fakeAudit{}, admin: admin, now: &now, hubID: uuid.Must(uuid.NewV7()),
+		store: postgres.New(db)}
+	e.opts = app.Options{
+		Store:   e.store,
 		Devices: func() (devapi.Onboarding, bool) { return e.dev, true },
 		Agent:   func() (wgapi.Agent, bool) { return e.agent, true },
 		Audit:   func() (authapi.AuditRecorder, bool) { return e.audit, true },
@@ -205,7 +208,8 @@ func setupWith(t *testing.T, pools []string, services string) *env {
 			ServicesCIDR: svcCIDR, Pools: pp},
 		CollectorIP: svcCIDR.Addr().Next(), PublicBaseURL: "https://horus.example.net", AccessMode: "domain",
 		Now: func() time.Time { return *e.now },
-	})
+	}
+	e.svc = app.New(e.opts)
 	if err := e.svc.Init(ctx); err != nil {
 		t.Fatal(err)
 	}

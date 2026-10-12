@@ -15,7 +15,7 @@
 - Cada 15 s (`HORUS_WGAGENT_REPORT_EVERY`) envía `ReportStatus` (handshakes, endpoint, contadores, `interface_up`).
 - **Fail-static:** si el control no responde no se toca ningún peer; tras reiniciar no borra nada hasta recibir un estado deseado
   completo (el control lo reenvía al ver `applied_version = 0`). Al parar no se limpia la interfaz.
-- La interfaz y su dirección las crea el despliegue (el agente gestiona clave, puerto y peers):
+- La interfaz y su dirección las crea el despliegue (el agente gestiona clave, puerto, peers y una ruta por allowed-ip de cada peer por la interfaz, protocolo 104, para los rangos añadidos desde la consola):
   `ip link add wg0 type wireguard` (módulo de kernel) o `wireguard-go wg0` (espacio de usuario), y
   `ip addr add 10.255.0.1/16 dev wg0 && ip link set wg0 up`.
 
