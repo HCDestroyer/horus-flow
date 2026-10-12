@@ -6,7 +6,6 @@ import type {
   ReputationSource,
   ReputationSourceCreate,
   TenantOverview,
-  WireguardHub,
 } from '~~/types/api'
 import { openFindings } from './base'
 import { ALL_TENANTS, TENANTS, USERS, type MockUser } from './data'
@@ -15,6 +14,7 @@ import { routersOf } from './inventory'
 import { parseIp } from './net'
 import { hash, mockUuid } from './random'
 import { mockState } from './state'
+import { wireguardHubs, wireguardRoute } from './wireguard'
 
 /**
  * Consola de plataforma simulada (I1-31, D19, D20): resumen por ISP, hubs WireGuard, acceso a
@@ -117,27 +117,6 @@ function overview(now: Date): TenantOverview[] {
       flows_dropped_quota_last_hour: '0',
     }
   })
-}
-
-function hubs(now: Date): WireguardHub[] {
-  const peers = ALL_TENANTS.flatMap((t) => routersOf(t, now)).filter((r) => r.router.tunnel_address)
-  return [
-    {
-      id: mockUuid('0192e999', 1),
-      name: 'hub-principal',
-      endpoint: installationAccess(now).wireguard_endpoint,
-      listen_port: 51820,
-      public_key: 'HoRuSHubPublicKeyExampleBase64xxxxxxxxxxxxx=',
-      tunnel_cidr: '10.255.0.0/16',
-      services_cidr: '10.254.0.0/24',
-      addresses_total: 65534,
-      // El hub ocupa una dirección además de los peers.
-      addresses_used: peers.length + 1,
-      peers_active: peers.filter((r) => r.peer.handshake_state === 'ok').length,
-      tenants: ALL_TENANTS.length,
-      status: 'up',
-    },
-  ]
 }
 
 const CATALOG: Omit<ReputationSource, 'created_at' | 'updated_at'>[] = [
@@ -473,6 +452,7 @@ export const PLATFORM_ROLE_PERMISSIONS: Record<string, string[]> = {
     'platform.status.read',
     'platform.updates.read',
     'platform.storage.manage',
+    'platform.wireguard.manage',
     'platform.catalog.manage',
     'platform.reputation_sources.manage',
   ],
@@ -715,7 +695,10 @@ function usersRoutes(ctx: PlatformRouteContext): Response | undefined {
 }
 
 export function platformRoute(ctx: PlatformRouteContext): Response | undefined {
-  const rep = reputationRoutes(ctx) ?? usersRoutes(ctx)
+  const rep =
+    reputationRoutes(ctx) ??
+    usersRoutes(ctx) ??
+    wireguardRoute({ ...ctx, defaultEndpoint: installationAccess(ctx.now).wireguard_endpoint })
   if (rep) return rep
   if (ctx.method !== 'GET') return
   switch (ctx.path) {
@@ -724,7 +707,9 @@ export function platformRoute(ctx: PlatformRouteContext): Response | undefined {
       return json({ data: overview(ctx.now), generated_at: ctx.now.toISOString() })
     case '/platform/wireguard/hubs':
       if (!ctx.can('platform.status.read')) return forbidden()
-      return json({ data: hubs(ctx.now) })
+      return json({
+        data: wireguardHubs(ctx.now, installationAccess(ctx.now).wireguard_endpoint),
+      })
     case '/platform/installation':
       if (!ctx.can('platform.status.read')) return forbidden()
       return json(installationAccess(ctx.now))

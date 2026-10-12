@@ -83,6 +83,10 @@ export const PERMISSION_CATALOG: Permission[] = [
   platform('platform.audit.read', 'Auditoría de plataforma'),
   platform('platform.status.read', 'Estado detallado de la instalación, hubs WireGuard'),
   platform('platform.storage.manage', 'Destinos remotos de copias'),
+  platform(
+    'platform.wireguard.manage',
+    'Hub WireGuard: endpoint, MTU, keepalive y rangos de túnel',
+  ),
   platform('platform.catalog.manage', 'Catálogo de clasificación de tráfico'),
   platform('platform.reputation_sources.manage', 'Fuentes de reputación'),
 ]

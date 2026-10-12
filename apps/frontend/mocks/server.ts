@@ -17,6 +17,7 @@ import { platformRoute, platformUserStatus, restorePlatformUsers } from './platf
 import { PERMISSION_CATALOG, restoreRoles, ROLES } from './roles'
 import { tenantRoute } from './tenant-routes'
 import { createTenant, restoreTenants } from './tenants'
+import { restoreWireguard } from './wireguard'
 import { widgetData } from './widget-data'
 
 /**
@@ -190,6 +191,8 @@ export function createMockFetch(options: MockOptions = {}) {
   restoreRoles(storage)
   // Cambios de cuentas hechos desde la consola de plataforma.
   restorePlatformUsers(storage)
+  // Cambios del hub WireGuard (endpoint, MTU, rangos…).
+  restoreWireguard(storage)
 
   const saveAccount = (u: MockUser) =>
     storage?.setItem(
