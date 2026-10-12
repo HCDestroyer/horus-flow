@@ -35,7 +35,7 @@
 
 # 4) Certificado autofirmado para REST (www-ssl) y API-SSL (Horus fija su huella en el primer contacto)
 /certificate add name=horus-api common-name=10.255.3.17 subject-alt-name=IP:10.255.3.17 \
-    key-usage=digital-signature,key-encipherment,tls-server days-valid=3650
+    key-usage=digital-signature,key-encipherment,key-cert-sign,tls-server days-valid=3650
 /certificate sign horus-api
 /ip service set www-ssl certificate=horus-api disabled=no
 /ip service set api-ssl certificate=horus-api disabled=no

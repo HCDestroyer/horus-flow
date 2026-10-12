@@ -485,7 +485,7 @@ Placeholders:
 
 # 4) Certificado autofirmado para REST (www-ssl) y API-SSL (Horus fija la huella en el primer contacto)
 /certificate add name=horus-api common-name=<ROUTER_WG_IP> subject-alt-name=IP:<ROUTER_WG_IP> \
-    key-usage=digital-signature,key-encipherment,tls-server days-valid=3650
+    key-usage=digital-signature,key-encipherment,key-cert-sign,tls-server days-valid=3650
 /certificate sign horus-api
 /ip service set www-ssl certificate=horus-api disabled=no
 /ip service set api-ssl certificate=horus-api disabled=no
