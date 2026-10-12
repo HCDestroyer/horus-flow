@@ -25,7 +25,13 @@ import {
 import { ALL_TENANTS, type MockTenant } from './data'
 import { contains, parseCidr, parseIp } from './net'
 import { hash, iso, mockUuid, rng } from './random'
-import { mockState, type OnboardingRun } from './state'
+import {
+  emptyDeviceState,
+  mockState,
+  type CreatedRouter,
+  type DeviceState,
+  type OnboardingRun,
+} from './state'
 
 /**
  * Inventario simulado (nodos, routers, túneles, exportadores, prefijos y clientes) derivado
@@ -40,7 +46,7 @@ export function tenantIndex(tenant: MockTenant) {
   return ALL_TENANTS.findIndex((t) => t.tenant_id === tenant.tenant_id) + 1
 }
 
-export type SiteRole = 'active' | 'discovery' | 'pending'
+export type SiteRole = 'active' | 'discovery' | 'pending' | 'created'
 export interface MockSite {
   id: string
   name: string
@@ -48,7 +54,27 @@ export interface MockSite {
   index: number
 }
 
-export function sitesOf(tenant: MockTenant): MockSite[] {
+/** Inventario vacío (pruebas del primer alta): `localStorage['horus.mock.emptyInventory'] = '1'`. */
+function emptyInventory() {
+  try {
+    return globalThis.localStorage?.getItem('horus.mock.emptyInventory') === '1'
+  } catch {
+    return false
+  }
+}
+
+/** Altas, ediciones y bajas hechas desde la UI en este ISP. */
+export function devicesOf(tenant: MockTenant): DeviceState {
+  let state = mockState.devices.get(tenant.tenant_id)
+  if (!state) {
+    state = emptyDeviceState()
+    mockState.devices.set(tenant.tenant_id, state)
+  }
+  return state
+}
+
+/** Nodos de partida (deterministas), estén o no visibles. */
+export function seededSites(tenant: MockTenant): MockSite[] {
   const sites: MockSite[] = tenant.sites.map((s, index) => ({ ...s, role: 'active', index }))
   if (tenant.tenant_slug === 'fibra-norte') {
     sites.push(
@@ -59,8 +85,81 @@ export function sitesOf(tenant: MockTenant): MockSite[] {
   return sites
 }
 
+/** Nodos visibles del ISP: los de partida no borrados y los dados de alta desde la UI. */
+export function sitesOf(tenant: MockTenant): MockSite[] {
+  const dev = devicesOf(tenant)
+  const seeded = emptyInventory() ? [] : seededSites(tenant)
+  const created: MockSite[] = dev.sites.map((c) => ({
+    id: c.id,
+    name: dev.siteEdits.get(c.id)?.fields.name ?? '',
+    role: 'created',
+    index: c.index,
+  }))
+  return [...seeded, ...created]
+    .filter((s) => !dev.deletedSites.has(s.id))
+    .map((s) => ({ ...s, name: dev.siteEdits.get(s.id)?.fields.name ?? s.name }))
+}
+
 export function findSite(tenant: MockTenant, id: string) {
   return sitesOf(tenant).find((s) => s.id === id)
+}
+
+/** Id del router de partida de un nodo de partida. */
+export function seededRouterId(tenant: MockTenant, site: MockSite) {
+  return mockUuid('0192e333', tenantIndex(tenant) * 100 + site.index + 1)
+}
+
+interface RouterSpec {
+  id: string
+  site: MockSite
+  /** Índice para la IP de túnel y el peer sintéticos. */
+  index: number
+  /** Alta reciente: pasa por el asistente de conexión. */
+  pending: boolean
+  created?: CreatedRouter
+}
+
+/** Routers visibles (sin construir): de partida no borrados + dados de alta desde la UI. */
+function routerSpecs(tenant: MockTenant): RouterSpec[] {
+  const dev = devicesOf(tenant)
+  const visible = new Map(sitesOf(tenant).map((s) => [s.id, s]))
+  const seeded: RouterSpec[] = seededSites(tenant)
+    .filter((s) => visible.has(s.id))
+    .map((s) => ({
+      id: seededRouterId(tenant, s),
+      site: visible.get(s.id)!,
+      index: s.index,
+      pending: s.role === 'pending',
+    }))
+  const created: RouterSpec[] = dev.routers
+    .filter((r) => visible.has(r.site_id))
+    .map((r) => ({
+      id: r.id,
+      site: visible.get(r.site_id)!,
+      index: r.index,
+      pending: true,
+      created: r,
+    }))
+  return [...seeded, ...created].filter((r) => !dev.deletedRouters.has(r.id))
+}
+
+/** Routers visibles de un nodo (id y si es el principal), sin construir el resto. */
+export function siteRouters(tenant: MockTenant, siteId: string) {
+  const dev = devicesOf(tenant)
+  return routerSpecs(tenant)
+    .filter((r) => r.site.id === siteId)
+    .map((r) => ({
+      id: r.id,
+      is_primary: r.created ? dev.routerEdits.get(r.id)?.fields.is_primary !== false : true,
+    }))
+}
+
+/** RouterOS ≥ 7.12 (D15); `null` si no se conoce la versión. */
+export function routerOsSupported(version: string | null | undefined): boolean | null {
+  const m = version?.match(/^7\.(\d+)/)
+  if (!version) return null
+  if (!m) return false
+  return Number(m[1]) >= 12
 }
 
 function stamp(tenant: MockTenant) {
@@ -92,6 +191,26 @@ function initialPrefixes(tenant: MockTenant, site: MockSite): ClientPrefix[] {
     site_id: site.id,
     confirmed: true,
   }
+  // Un prefijo leído del MikroTik y aún sin confirmar (en el segundo nodo de cada ISP).
+  const unconfirmed: ClientPrefix[] =
+    site.index === 1
+      ? [
+          {
+            ...common,
+            confirmed: false,
+            id: mockUuid('0192e666', n + 4),
+            prefix: `${tenant.prefix}.48.0/24`,
+            role: 'customers',
+            assignment_mode: 'dynamic',
+            default_kind: 'residential',
+            source: 'routeros_api',
+            note: 'pool-hotspot',
+            realm_id: privateRealm(tenant, site),
+            realm_kind: 'node_private',
+            ipv6_client_len: null,
+          },
+        ]
+      : []
   return [
     {
       ...common,
@@ -132,6 +251,7 @@ function initialPrefixes(tenant: MockTenant, site: MockSite): ClientPrefix[] {
       realm_kind: 'node_private',
       ipv6_client_len: null,
     },
+    ...unconfirmed,
   ]
 }
 
@@ -232,22 +352,41 @@ export function routersOf(
   const t = now.getTime()
   const ti = tenantIndex(tenant)
   const r = rng(hash(tenant.tenant_id + 'exporters'))
-  const sites = sitesOf(tenant)
-  const active = sites.filter((s) => s.role === 'active')
-  return sites.map((site) => {
-    const id = mockUuid('0192e333', ti * 100 + site.index + 1)
-    const pending = site.role === 'pending'
+  const rCreated = rng(hash(tenant.tenant_id + 'exporters-created'))
+  const dev = devicesOf(tenant)
+  const visible = new Map(routerSpecs(tenant).map((s) => [s.id, s]))
+  const seeded = seededSites(tenant)
+  const activeLast = seeded.filter((s) => s.role === 'active').at(-1)
+  // Los de partida se construyen todos (misma secuencia aleatoria aunque alguno esté oculto)
+  // y luego se filtran; los dados de alta desde la UI van detrás.
+  const specs: RouterSpec[] = [
+    ...seeded.map((s) => ({
+      id: seededRouterId(tenant, s),
+      site: s,
+      index: s.index,
+      pending: s.role === 'pending',
+    })),
+    ...dev.routers.flatMap((c) => visible.get(c.id) ?? []),
+  ]
+  return specs.map((spec) => buildRouter(spec)).filter((item) => visible.has(item.router.id))
+
+  function buildRouter(spec: RouterSpec): MockRouter {
+    const rand = spec.created ? rCreated : r
+    const site = visible.get(spec.id)?.site ?? spec.site
+    const id = spec.id
+    const pending = spec.pending
     const progress = pending
       ? onboardingProgress(id, t, options.stepMs ?? 6000)
       : ({ stage: 'exporting', tokenState: 'used' } as OnboardingProgress)
     const exporting = progress.stage === 'exporting'
-    const silentAlways = tenant.tenant_slug === 'valle-conecta' && site.index === 1
-    const silentDegraded = !!options.degraded && site.role === 'active' && site === active.at(-1)
+    const seededActive = !spec.created && site.role === 'active'
+    const silentAlways = !spec.created && tenant.tenant_slug === 'valle-conecta' && site.index === 1
+    const silentDegraded = !!options.degraded && seededActive && site.id === activeLast?.id
     const silent = !pending && (silentAlways || silentDegraded)
-    const lossy = !silent && site.role === 'active' && site.index === 1
-    const fps = Math.round(250 + r() * 600)
-    const loss = Math.round(r() * 20) / 10_000
-    const tunnel = `10.255.${ti}.${site.index + 2}/32`
+    const lossy = !silent && seededActive && site.index === 1
+    const fps = Math.round(250 + rand() * 600)
+    const loss = Math.round(rand() * 20) / 10_000
+    const tunnel = `10.255.${ti}.${spec.index + 2}/32`
     const silentSince = t - (silentAlways ? 42 : 7) * 60_000
     const hasTunnel = !pending || progress.stage !== 'pending_configuration'
 
@@ -286,7 +425,7 @@ export function routersOf(
       admin_state: 'active',
       onboarding_state: progress.stage,
       tunnel_address: hasTunnel ? tunnel : null,
-      wireguard_peer_id: mockUuid('0192e888', ti * 100 + site.index + 1),
+      wireguard_peer_id: mockUuid('0192e888', ti * 100 + spec.index + 1),
       warnings: lossy ? ['hardware_offload_suspected'] : [],
       credentials: [
         {
@@ -298,6 +437,39 @@ export function routersOf(
       ],
     }
     if (pending) router.created_at = iso(t - 25 * 60_000)
+    if (spec.created) {
+      Object.assign(router, {
+        created_at: spec.created.created_at,
+        updated_at: spec.created.created_at,
+        display_name: null,
+        model: null,
+        routeros_version: null,
+        version: 1,
+      })
+    }
+    const edit = dev.routerEdits.get(id)
+    if (edit) {
+      Object.assign(router, edit.fields)
+      router.version = edit.version
+      router.updated_at = edit.updated_at
+      router.is_primary = spec.created ? edit.fields.is_primary !== false : true
+    }
+    if (spec.created && hasTunnel) {
+      router.routeros_version_detected = router.routeros_version ?? '7.16.2'
+    }
+    router.routeros_version_supported = routerOsSupported(
+      router.routeros_version_detected ?? router.routeros_version,
+    )
+    if (router.routeros_version_supported === false) {
+      router.warnings = [...router.warnings, 'routeros_version_unsupported']
+    }
+    const creds = dev.credentials.get(id)
+    if (creds) {
+      router.credentials = [
+        ...(router.credentials ?? []).filter((c) => !creds.some((x) => x.kind === c.kind)),
+        ...creds,
+      ]
+    }
 
     const exporter: FlowExporter = {
       tenant_id: tenant.tenant_id,
@@ -312,7 +484,7 @@ export function routersOf(
       last_flow_at:
         state === 'pending_configuration'
           ? null
-          : iso(silent ? silentSince : t - Math.round(1 + r() * 4) * 1000),
+          : iso(silent ? silentSince : t - Math.round(1 + rand() * 4) * 1000),
       loss_ratio_5m: state === 'exporting' ? loss : lossy ? 0.031 : null,
       sampling_rate: state === 'pending_configuration' ? null : 1,
       clock_skew_seconds: state === 'pending_configuration' ? null : 0.2,
@@ -340,7 +512,7 @@ export function routersOf(
       server_id: mockUuid('0192e999', 1),
       address: tunnel,
       public_key: hasTunnel ? `${btoaId(id)}=` : null,
-      endpoint: hasTunnel ? `190.85.${ti}.${20 + site.index}:13231` : null,
+      endpoint: hasTunnel ? `190.85.${ti}.${20 + spec.index}:13231` : null,
       persistent_keepalive_seconds: 25,
       handshake_state: handshake,
       last_handshake_at:
@@ -364,7 +536,7 @@ export function routersOf(
       },
     }
     return { site, router, exporter, peer, progress }
-  })
+  }
 }
 
 /** Clave pública WireGuard sintética (44 caracteres base64). */
@@ -382,7 +554,7 @@ export function provisioningScript(
   token: string,
   endpoint: string,
 ) {
-  const tunnel = `10.255.${tenantIndex(tenant)}.${item.site.index + 2}`
+  const tunnel = item.peer.address.replace('/32', '')
   return [
     `# Horus Flow · alta de ${item.router.name} (${item.site.name}) · ${tenant.tenant_name}`,
     '# Requisitos: RouterOS v7 >= 7.12. Pegar en una terminal del router (Winbox o SSH).',
@@ -525,7 +697,7 @@ export function prefixImportPreview(
 /** Propuestas del modo descubrimiento (I1-29): agregados de flujos fuera de prefijos. */
 export function prefixProposals(tenant: MockTenant, site: MockSite): PrefixProposal[] {
   if (site.role === 'active' || prefixesOf(tenant, site).length) return []
-  if (site.role === 'pending') return []
+  if (site.role === 'pending' || site.role === 'created') return []
   const declared = (p: string) => !!overlapping(tenant, site, p)
   return (
     [
@@ -562,21 +734,31 @@ export function prefixProposals(tenant: MockTenant, site: MockSite): PrefixPropo
 }
 
 export function toSite(tenant: MockTenant, site: MockSite): Site {
-  return {
+  const dev = devicesOf(tenant)
+  const edit = dev.siteEdits.get(site.id)
+  const created = dev.sites.find((c) => c.id === site.id)
+  const routers = siteRouters(tenant, site.id)
+  const base: Site = {
     ...stamp(tenant),
     updated_at: '2026-09-02T14:00:00.000Z',
     version: 1,
     id: site.id,
     name: site.name,
-    code: site.name.replace('Nodo ', '').slice(0, 3).toUpperCase(),
+    code: created ? null : site.name.replace('Nodo ', '').slice(0, 3).toUpperCase(),
     kind: 'node',
-    timezone: 'America/Bogota',
+    timezone: created ? null : 'America/Bogota',
     tags: [],
     address: null,
+    latitude: null,
+    longitude: null,
+    parent_id: null,
     discovery_mode: prefixesOf(tenant, site).filter((p) => p.role === 'customers').length === 0,
-    primary_router_id: mockUuid('0192e333', tenantIndex(tenant) * 100 + site.index + 1),
+    primary_router_id: routers.find((r) => r.is_primary)?.id ?? null,
     private_realm_id: privateRealm(tenant, site),
   }
+  if (created) base.created_at = base.updated_at = created.created_at
+  if (!edit) return base
+  return { ...base, ...edit.fields, version: edit.version, updated_at: edit.updated_at }
 }
 
 // --- Clientes --------------------------------------------------------------------------------
@@ -639,7 +821,7 @@ export function buildCustomer(
   const t = now.getTime()
   const { total, newToday } = customerCounts(tenant)
   const site = customerSite(tenant, i)
-  const mSite = sitesOf(tenant).find((s) => s.id === site.id)!
+  const mSite = seededSites(tenant).find((s) => s.id === site.id)!
   const id = customerId(tenant, i)
   const inactive = isInactive(i)
   const isNew = i >= total - newToday

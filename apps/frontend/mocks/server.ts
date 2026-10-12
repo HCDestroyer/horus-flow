@@ -635,6 +635,7 @@ export function createMockFetch(options: MockOptions = {}) {
         degraded: mode === 'degraded',
         empty: mode === 'empty',
         stepMs: readNumber('horus.mock.onboardingStepMs') ?? 6000,
+        reauthRequired: reauthRequired(user),
       }) ??
       channelRoute(shared) ??
       kioskAdminRoute(shared) ??

@@ -10,7 +10,8 @@ import type {
  * Prefijos de clientes de un nodo (I1-19, frontend.md §8.4; traffic-model.md §4.1): tabla con
  * prefijo, rol, asignación, origen y clientes; alta manual con solapes en línea
  * (`CLIENT_PREFIX_OVERLAP`); importación desde el MikroTik; modo descubrimiento con
- * propuestas. Quitar un prefijo avisa de cuántos clientes pasarán a Inactivo.
+ * propuestas. Quitar un prefijo avisa de cuántos clientes pasarán a Inactivo. Un prefijo sin
+ * confirmar (p. ej. leído del MikroTik) se confirma con `POST /client-prefixes/{id}/confirm`.
  */
 const props = defineProps<{ siteId: string; routerId?: string | null; routerReady?: boolean }>()
 const { t } = useI18n()
@@ -191,6 +192,35 @@ async function remove() {
   refresh()
 }
 
+// --- Confirmar un prefijo sin confirmar ------------------------------------------------------
+const confirming = ref<string | null>(null)
+async function confirmPrefix(p: ClientPrefix) {
+  confirming.value = p.id
+  try {
+    await unwrap(
+      $api.POST('/client-prefixes/{client_prefix_id}/confirm', {
+        params: { path: { client_prefix_id: p.id }, header: { 'If-Match': ifMatch(p.version) } },
+      }),
+    )
+    toast.add({
+      title: t('prefixes.confirm.done', { prefix: p.prefix }),
+      icon: 'i-lucide-check',
+      color: 'success',
+    })
+  } catch (e) {
+    toast.add({
+      title:
+        e instanceof ApiError && e.status === 412
+          ? t('prefixes.confirm.conflict')
+          : t(describeError(e).messageKey),
+      color: e instanceof ApiError && e.status === 412 ? 'warning' : 'error',
+    })
+  } finally {
+    confirming.value = null
+    refresh()
+  }
+}
+
 const importOpen = ref(false)
 function imported() {
   refresh()
@@ -332,10 +362,28 @@ const lenItems = [48, 56, 60, 64].map((n) => ({ label: `/${n}`, value: n }))
           </span>
         </div>
         <div class="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1">
+          <UBadge
+            v-if="!p.confirmed"
+            color="warning"
+            variant="subtle"
+            icon="i-lucide-circle-help"
+            :label="t('prefixes.confirm.pending')"
+            data-testid="prefix-unconfirmed"
+          />
           <PrefixRoleBadge :role="p.role" />
           <span v-if="p.role === 'customers'" class="text-muted text-sm tabular">
             {{ t('prefixes.customers', { n: formatNumber(p.customers_count ?? 0) }) }}
           </span>
+          <UButton
+            v-if="canEdit && !p.confirmed"
+            size="sm"
+            icon="i-lucide-check"
+            :loading="confirming === p.id"
+            :label="t('prefixes.confirm.action')"
+            :aria-label="t('prefixes.confirm.aria', { prefix: p.prefix })"
+            data-testid="prefix-confirm"
+            @click="confirmPrefix(p)"
+          />
           <UButton
             v-if="canEdit"
             color="neutral"

@@ -1,5 +1,6 @@
 import type {
   ClientPrefix,
+  CredentialStatus,
   Member,
   Finding,
   KindChange,
@@ -45,6 +46,76 @@ export interface OnboardingRun {
   revokedAt?: number
 }
 
+/** Campos editables de un nodo (`SiteInput`) guardados por la API simulada. */
+export interface SiteFields {
+  name: string
+  code?: string | null
+  kind?: 'node' | 'region' | 'datacenter' | 'other'
+  address?: string | null
+  latitude?: number | null
+  longitude?: number | null
+  timezone?: string | null
+  tags?: string[]
+}
+
+/** Campos de un router (`RouterInput` + `admin_state`) guardados por la API simulada. */
+export interface RouterFields {
+  name: string
+  display_name?: string | null
+  is_primary?: boolean
+  model?: string | null
+  routeros_version?: string | null
+  admin_state?: 'active' | 'maintenance' | 'decommissioned'
+  tags?: string[]
+}
+
+/** Nodo dado de alta desde la UI (`POST /sites`). */
+export interface CreatedSite {
+  id: string
+  /** Índice estable (para realms y direcciones sintéticas). */
+  index: number
+  created_at: string
+}
+
+/** Router dado de alta desde la UI (`POST /routers`). */
+export interface CreatedRouter {
+  id: string
+  site_id: string
+  index: number
+  created_at: string
+}
+
+/** Edición (`PATCH`) sobre un nodo o router: versión y campos cambiados. */
+export interface Edit<T> {
+  version: number
+  updated_at: string
+  fields: Partial<T>
+}
+
+/** Altas, ediciones y bajas de nodos y routers de un ISP (sobre la base determinista). */
+export interface DeviceState {
+  sites: CreatedSite[]
+  siteEdits: Map<string, Edit<SiteFields>>
+  deletedSites: Set<string>
+  routers: CreatedRouter[]
+  routerEdits: Map<string, Edit<RouterFields>>
+  deletedRouters: Set<string>
+  /** Estado de credenciales (sin secretos) por router. */
+  credentials: Map<string, CredentialStatus[]>
+}
+
+export function emptyDeviceState(): DeviceState {
+  return {
+    sites: [],
+    siteEdits: new Map(),
+    deletedSites: new Set(),
+    routers: [],
+    routerEdits: new Map(),
+    deletedRouters: new Set(),
+    credentials: new Map(),
+  }
+}
+
 export const mockState = {
   findings: new Map<string, FindingOverride>(),
   customers: new Map<string, CustomerOverride>(),
@@ -73,6 +144,8 @@ export const mockState = {
     string,
     { status?: PlatformUserStatus; platform_roles?: PlatformRoleKey[] }
   >(),
+  /** Nodos y routers dados de alta, editados o borrados, por ISP (`mocks/devices.ts`). */
+  devices: new Map<string, DeviceState>(),
 }
 
 export function resetMockState() {
@@ -92,6 +165,7 @@ export function resetMockState() {
   mockState.customRoles.clear()
   mockState.roleConflictServed.clear()
   mockState.platformUsers.clear()
+  mockState.devices.clear()
 }
 
 /** Hallazgo cerrado por una acción del usuario: sale de los agregados de "abiertos". */
