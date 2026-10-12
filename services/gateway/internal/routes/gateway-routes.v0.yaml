@@ -122,10 +122,6 @@ modules:
         GET: kiosk_self
       principals:
         - kiosk
-    - prefix: /api/v1/platform/remote-destinations
-      scope: platform
-      methods:
-        GET: platform.storage.manage
     - prefix: /api/v1/playlists
       scope: tenant
       methods:
@@ -552,6 +548,51 @@ modules:
         - api_token
         - kiosk
   jobs:
+    - prefix: /api/v1/platform/remote-destinations
+      scope: platform
+      methods:
+        GET: platform.storage.manage
+        POST: platform.storage.manage
+      reauth:
+        - POST
+      audited:
+        - POST
+    - prefix: /api/v1/platform/remote-destinations/{destination_id}
+      scope: platform
+      methods:
+        PATCH: platform.storage.manage
+        DELETE: platform.storage.manage
+      reauth:
+        - PATCH
+        - DELETE
+      audited:
+        - PATCH
+        - DELETE
+    - prefix: /api/v1/platform/remote-destinations/{destination_id}/credentials
+      scope: platform
+      methods:
+        PUT: platform.storage.manage
+      reauth:
+        - PUT
+      audited:
+        - PUT
+    - prefix: /api/v1/platform/remote-destinations/{destination_id}/sync
+      scope: platform
+      methods:
+        POST: platform.storage.manage
+      idempotency_key_required:
+        - POST
+      audited:
+        - POST
+    - prefix: /api/v1/platform/remote-destinations/{destination_id}/test
+      scope: platform
+      methods:
+        POST: platform.storage.manage
+      rate_limit: action
+      reauth:
+        - POST
+      audited:
+        - POST
     - prefix: /api/v1/platform/updates
       scope: platform
       methods:

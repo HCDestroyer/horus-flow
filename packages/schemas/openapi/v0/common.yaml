@@ -419,6 +419,9 @@ components:
             - WIREGUARD_POOL_OVERLAP
             - WIREGUARD_POOL_INVALID
             - WIREGUARD_POOL_IN_USE
+            - REMOTE_DESTINATION_NOT_FOUND
+            - REMOTE_DESTINATION_NOT_READY
+            - REMOTE_DESTINATION_SYNC_RUNNING
         - type: string
           pattern: '^[A-Z][A-Z0-9_]*$'
     ActorRef:

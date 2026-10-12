@@ -3178,8 +3178,8 @@ paths:
       tags:
         - platform
       operationId: platformListRemoteDestinations
-      summary: Destinos remotos de copias (lectura en I1; cero destinos es válido; escritura en I3)
-      x-module: analytics
+      summary: Destinos remotos de copias (cero destinos es válido; la UI avisa de que no hay copia fuera del servidor)
+      x-module: jobs
       x-scope: platform
       x-permission: platform.storage.manage
       x-increment: I1
@@ -3198,41 +3198,233 @@ paths:
                   data:
                     type: array
                     items:
-                      type: object
-                      required:
-                        - id
-                        - kind
-                        - name
-                        - status
-                      properties:
-                        id:
-                          $ref: '#/components/schemas/Uuid'
-                        kind:
-                          type: string
-                          enum:
-                            - sftp
-                            - gdrive
-                            - dropbox
-                            - mega
-                        name:
-                          type: string
-                        status:
-                          type: string
-                          enum:
-                            - ok
-                            - lagging
-                            - failing
-                            - disabled
-                        last_success_at:
-                          oneOf:
-                            - $ref: '#/components/schemas/Timestamp'
-                            - type: 'null'
-                        lag_seconds:
-                          type:
-                            - integer
-                            - 'null'
+                      $ref: '#/components/schemas/RemoteDestination'
         '401':
           $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+        - platform
+      operationId: platformCreateRemoteDestination
+      summary: Alta de un destino SFTP (sin credenciales; se ponen con PUT .../credentials y se prueba con POST .../test)
+      x-module: jobs
+      x-scope: platform
+      x-permission: platform.storage.manage
+      x-reauth: true
+      x-audited: true
+      x-increment: I1
+      security:
+        - platformBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RemoteDestinationCreate'
+      responses:
+        '201':
+          description: Destino creado (deshabilitado hasta que tenga credenciales y huella del servidor confirmada).
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemoteDestination'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /platform/remote-destinations/{destination_id}:
+    parameters:
+      - $ref: '#/components/parameters/DestinationId'
+    patch:
+      tags:
+        - platform
+      operationId: platformUpdateRemoteDestination
+      summary: Edita un destino (cambiar host o puerto borra la huella confirmada y lo deshabilita hasta volver a probarlo)
+      x-module: jobs
+      x-scope: platform
+      x-permission: platform.storage.manage
+      x-reauth: true
+      x-audited: true
+      x-increment: I1
+      security:
+        - platformBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RemoteDestinationPatch'
+      responses:
+        '200':
+          description: Destino.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemoteDestination'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+    delete:
+      tags:
+        - platform
+      operationId: platformDeleteRemoteDestination
+      summary: Borra el destino y sus credenciales (los archivos ya copiados en el servidor remoto no se tocan)
+      x-module: jobs
+      x-scope: platform
+      x-permission: platform.storage.manage
+      x-reauth: true
+      x-audited: true
+      x-increment: I1
+      security:
+        - platformBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContent'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+  /platform/remote-destinations/{destination_id}/credentials:
+    parameters:
+      - $ref: '#/components/parameters/DestinationId'
+    put:
+      tags:
+        - platform
+      operationId: platformPutRemoteDestinationCredentials
+      summary: Credenciales SFTP write-only (contraseña o clave privada OpenSSH); cifradas, nunca se devuelven
+      x-module: jobs
+      x-scope: platform
+      x-permission: platform.storage.manage
+      x-reauth: true
+      x-audited: true
+      x-increment: I1
+      security:
+        - platformBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                password:
+                  type: string
+                  writeOnly: true
+                  minLength: 1
+                  maxLength: 1024
+                private_key:
+                  type: string
+                  writeOnly: true
+                  minLength: 1
+                  maxLength: 16384
+                  description: Clave privada OpenSSH (PEM).
+                passphrase:
+                  type:
+                    - string
+                    - 'null'
+                  writeOnly: true
+                  maxLength: 1024
+      responses:
+        '200':
+          description: Destino (has_credentials=true).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemoteDestination'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /platform/remote-destinations/{destination_id}/sync:
+    parameters:
+      - $ref: '#/components/parameters/DestinationId'
+    post:
+      tags:
+        - platform
+      operationId: platformSyncRemoteDestination
+      summary: Encola una copia inmediata al destino (además del calendario automático tras cada backup local)
+      x-module: jobs
+      x-scope: platform
+      x-permission: platform.storage.manage
+      x-audited: true
+      x-increment: I1
+      security:
+        - platformBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyRequired'
+      responses:
+        '202':
+          description: Copia encolada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemoteDestination'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /platform/remote-destinations/{destination_id}/test:
+    parameters:
+      - $ref: '#/components/parameters/DestinationId'
+    post:
+      tags:
+        - platform
+      operationId: platformTestRemoteDestination
+      summary: |
+        Prueba la conexión: se conecta, devuelve la huella SHA-256 de la clave del servidor y, si
+        coincide con la confirmada (o se envía confirm_host_key con ella), autentica y escribe y borra
+        un archivo de prueba en la ruta. La primera vez la huella hay que confirmarla (TOFU).
+      x-module: jobs
+      x-scope: platform
+      x-permission: platform.storage.manage
+      x-reauth: true
+      x-audited: true
+      x-rate-limit: action
+      x-increment: I1
+      security:
+        - platformBearer: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                confirm_host_key:
+                  type:
+                    - string
+                    - 'null'
+                  description: Huella SHA256:… que la persona confirma para fijarla.
+      responses:
+        '200':
+          description: Resultado de la prueba (ok=false con error legible si falla; no es un 5xx).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemoteDestinationTestResult'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /platform/reputation/sources:
     get:
       tags:
@@ -5787,6 +5979,9 @@ components:
             - WIREGUARD_POOL_OVERLAP
             - WIREGUARD_POOL_INVALID
             - WIREGUARD_POOL_IN_USE
+            - REMOTE_DESTINATION_NOT_FOUND
+            - REMOTE_DESTINATION_NOT_READY
+            - REMOTE_DESTINATION_SYNC_RUNNING
         - type: string
           pattern: ^[A-Z][A-Z0-9_]*$
     FieldError:
@@ -9131,6 +9326,191 @@ components:
           type:
             - number
             - 'null'
+    RemoteDestination:
+      type: object
+      required:
+        - id
+        - kind
+        - name
+        - status
+        - host
+        - port
+        - username
+        - path
+        - enabled
+        - has_credentials
+        - version
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        kind:
+          type: string
+          enum:
+            - sftp
+            - gdrive
+            - dropbox
+            - mega
+        name:
+          type: string
+        status:
+          type: string
+          enum:
+            - ok
+            - lagging
+            - failing
+            - disabled
+            - pending
+          description: pending = aún sin primera copia.
+        host:
+          type: string
+        port:
+          type: integer
+        username:
+          type: string
+        path:
+          type: string
+          description: Directorio remoto donde se dejan las copias cifradas.
+        enabled:
+          type: boolean
+        has_credentials:
+          type: boolean
+        host_key_fingerprint:
+          type:
+            - string
+            - 'null'
+          description: Huella SHA256:… confirmada de la clave del servidor.
+        retention_days:
+          type: integer
+          minimum: 1
+          maximum: 3650
+          description: Días que se conservan las copias en el destino.
+        last_success_at:
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: 'null'
+        last_attempt_at:
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: 'null'
+        last_error:
+          type:
+            - string
+            - 'null'
+        lag_seconds:
+          type:
+            - integer
+            - 'null'
+        files_pending:
+          type:
+            - integer
+            - 'null'
+        bytes_pending:
+          type:
+            - integer
+            - 'null'
+        version:
+          $ref: '#/components/schemas/Version'
+    RemoteDestinationCreate:
+      type: object
+      required:
+        - kind
+        - name
+        - host
+        - username
+        - path
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum:
+            - sftp
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        host:
+          type: string
+          minLength: 1
+          maxLength: 253
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+          default: 22
+        username:
+          type: string
+          minLength: 1
+          maxLength: 128
+        path:
+          type: string
+          minLength: 1
+          maxLength: 1024
+        retention_days:
+          type: integer
+          minimum: 1
+          maximum: 3650
+          default: 30
+    RemoteDestinationPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        host:
+          type: string
+          minLength: 1
+          maxLength: 253
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        username:
+          type: string
+          minLength: 1
+          maxLength: 128
+        path:
+          type: string
+          minLength: 1
+          maxLength: 1024
+        retention_days:
+          type: integer
+          minimum: 1
+          maximum: 3650
+        enabled:
+          type: boolean
+          description: Solo se habilita con credenciales y huella confirmada.
+    RemoteDestinationTestResult:
+      type: object
+      required:
+        - ok
+        - stage
+      properties:
+        ok:
+          type: boolean
+        stage:
+          type: string
+          enum:
+            - connect
+            - host_key
+            - auth
+            - write
+            - done
+          description: Último paso alcanzado.
+        host_key_fingerprint:
+          type:
+            - string
+            - 'null'
+        host_key_confirmed:
+          type: boolean
+        error:
+          type:
+            - string
+            - 'null'
+        destination:
+          $ref: '#/components/schemas/RemoteDestination'
     ReputationSourceOrigin:
       type: string
       description: '`catalog`: catálogo base de la instalación (D20: uso comercial aprobado). `custom`: agregada por el superadministrador.'
@@ -10779,6 +11159,12 @@ components:
         maxLength: 128
     ChannelId:
       name: channel_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+    DestinationId:
+      name: destination_id
       in: path
       required: true
       schema:
