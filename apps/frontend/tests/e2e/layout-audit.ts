@@ -16,7 +16,8 @@ export interface LayoutProblem {
  * - **solaparse** con otro texto (rectángulos de los nodos de texto, `Range.getClientRects`).
  * Además, la página no puede tener scroll horizontal (y, con `noScroll`, tampoco vertical).
  *
- * Lo oculto a propósito (`display: none`, `visibility: hidden`, `.sr-only`) no cuenta:
+ * Lo oculto a propósito (`display: none`, `visibility: hidden`, `.sr-only`, texto con relleno
+ * transparente) no cuenta:
  * ocultar lo secundario es la degradación correcta. El texto dentro de `<canvas>` (ECharts)
  * no es DOM: los widgets murales no dibujan etiquetas de texto propias en el canvas.
  */
@@ -70,6 +71,9 @@ export async function layoutProblems(
         if (el.closest('.sr-only')) return false
         const cs = getComputedStyle(el)
         if (cs.visibility !== 'visible') return false
+        // Texto transparente: no se ve (p. ej. el dígito real de `.roll-digit`, cuya tira
+        // visible es un pseudoelemento dentro de su caja).
+        if (cs.webkitTextFillColor === 'rgba(0, 0, 0, 0)') return false
         return el.getClientRects().length > 0
       }
       const isTruncation = (el: Element) => {
