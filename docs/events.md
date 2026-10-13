@@ -552,7 +552,7 @@ estado + `version` + `deleted_at`.
 | `horus.auth.tenant.created` / `.updated` | platform¹ | todos los dueños de datos (crear particiones/KEK del tenant), api-gateway | 1 |
 | `horus.auth.tenant.suspended` / `.resumed` | platform¹ | **api-gateway** (corta acceso y WS), flows (pausa de ingesta si `pause_ingest`), alerts | 1 |
 | `horus.auth.tenant.offboarded` / `.purged` | platform¹ | todos los dueños de datos (purga, crypto-shredding), jobs | 1 |
-| `horus.auth.user.created` / `.updated` / `.deleted` | platform | alerts (destinatarios), analytics (nombres) | 2 |
+| `horus.auth.user.created` / `.updated` / `.deleted` | platform | alerts (destinatarios), analytics (nombres). `.updated` se emite al cambiar correo o nombre (`PATCH /me`, `/members/{id}`, `/platform/users/{id}`; `data.changed`); `.deleted` en la baja lógica (`data.tenants` = membresías revocadas). `.created` aún no se emite (el alta es por invitación: `membership.granted`). | 2 |
 | `horus.auth.user.disabled` / `.enabled` | platform | **api-gateway** (cierra WS), alerts | 2 |
 | `horus.auth.membership.granted` / `.updated` / `.revoked` (sustituye a `user.role_assignments_changed`) | tenant | **api-gateway** (permisos de WS y caché de membresías revocadas) | 2 |
 | `horus.auth.role.created` / `.updated` / `.deleted` | tenant (roles propios) / platform (plantillas) | **api-gateway** | 2 |

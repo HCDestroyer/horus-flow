@@ -104,8 +104,10 @@ type Store interface {
 	EnsureSeedAdmin(ctx context.Context, u *domain.User) (bool, error)
 	InsertAudit(ctx context.Context, e api.AuditEntry) error
 
-	// UpdateProfile guarda nombre, idioma, zona horaria y tenant por defecto.
-	UpdateProfile(ctx context.Context, u *domain.User, now time.Time) error
+	// UpdateProfile guarda nombre, correo, idioma, zona horaria y tenant por
+	// defecto (ErrEmailTaken si otra cuenta usa el correo) y escribe ev si no
+	// es nil (horus.auth.user.updated).
+	UpdateProfile(ctx context.Context, u *domain.User, now time.Time, ev *OutboxEvent) error
 	// ListUsers lista los usuarios de la plataforma con sus membresías no
 	// revocadas (multi-tenant declarado: auth_platform).
 	ListUsers(ctx context.Context, f UserFilter) ([]domain.PlatformUser, error)
@@ -160,6 +162,112 @@ type Store interface {
 	// ReplacePlatformRoles sustituye los roles de plataforma; si quita alguno
 	// revoca las sesiones del usuario. ErrLastPlatformAdmin igual que arriba.
 	ReplacePlatformRoles(ctx context.Context, in PlatformRolesChange) (*PlatformRolesResult, error)
+
+	// Cuenta: identidad, pertenencia y baja (identidad global, auth_app).
+	// UpdateUserIdentity cambia correo o nombre (ErrEmailTaken si otra cuenta
+	// usa el correo) y escribe ev si no es nil.
+	UpdateUserIdentity(ctx context.Context, in UserIdentityChange) (*domain.User, error)
+	// UserSharedOutside dice si la cuenta tiene membresías no revocadas en
+	// otros tenants distintos de tenant o roles de plataforma (entonces solo
+	// la gestiona la plataforma).
+	UserSharedOutside(ctx context.Context, userID, tenant uuid.UUID) (bool, error)
+	// DeleteUser da de baja lógica la cuenta: revoca sesiones y membresías
+	// (con sus eventos), quita roles de plataforma y 2FA, libera el correo.
+	// ErrLastPlatformAdmin si era el último platform_admin activo.
+	DeleteUser(ctx context.Context, in UserDelete) (*UserDeleteResult, error)
+
+	// Restablecimiento de contraseña (token de un uso; solo su hash).
+	// CreatePasswordReset guarda un enlace nuevo e invalida los anteriores sin
+	// usar de la cuenta.
+	CreatePasswordReset(ctx context.Context, in NewPasswordReset) error
+	// PasswordResetByHash busca un enlace por el hash del token (público).
+	PasswordResetByHash(ctx context.Context, hash []byte) (*domain.PasswordReset, error)
+	// ConsumePasswordReset canjea el enlace (CAS sobre used_at), fija la
+	// contraseña, quita el bloqueo por intentos y revoca todas las sesiones.
+	// ErrResetUsed si ya no servía.
+	ConsumePasswordReset(ctx context.Context, in ConsumedPasswordReset) (*PasswordResetResult, error)
+}
+
+// UserIdentityChange es un cambio de correo o nombre de una cuenta.
+type UserIdentityChange struct {
+	UserID      uuid.UUID
+	Email       *string
+	DisplayName *string
+	Now         time.Time
+	// Event construye horus.auth.user.updated a partir del usuario resultante
+	// (nil = sin evento).
+	Event func(u domain.User, changed []string) OutboxEvent
+}
+
+// UserDelete es la baja lógica de una cuenta.
+type UserDelete struct {
+	UserID uuid.UUID
+	Actor  Actor
+	Now    time.Time
+	// Event construye horus.auth.user.deleted a partir del usuario dado de baja.
+	Event func(u domain.User, tenants []uuid.UUID) OutboxEvent
+}
+
+// UserDeleteResult describe lo que se revocó.
+type UserDeleteResult struct {
+	Email string
+	// Revoked son las sesiones revocadas; Tenants los ISP cuya membresía se
+	// revocó; PlatformRoles los roles de plataforma quitados.
+	Revoked       []uuid.UUID
+	Tenants       []uuid.UUID
+	PlatformRoles []string
+}
+
+// NewPasswordReset es un enlace de restablecimiento nuevo.
+type NewPasswordReset struct {
+	ID        uuid.UUID
+	UserID    uuid.UUID
+	TokenHash []byte
+	ExpiresAt time.Time
+	// CreatedBy es quien lo emitió (uuid.Nil = la propia persona); TenantID
+	// el ISP desde el que se emitió (nil = plataforma o la propia persona).
+	CreatedBy uuid.UUID
+	TenantID  *uuid.UUID
+	Now       time.Time
+}
+
+// ConsumedPasswordReset es el canje de un enlace.
+type ConsumedPasswordReset struct {
+	Reset        domain.PasswordReset
+	PasswordHash string
+	Now          time.Time
+}
+
+// PasswordResetResult describe el canje.
+type PasswordResetResult struct {
+	Revoked []uuid.UUID
+}
+
+// Errores del repositorio de cuentas.
+var (
+	// ErrEmailTaken: otra cuenta usa ese correo.
+	ErrEmailTaken = errors.New("auth: email taken")
+	// ErrResetUsed: el enlace de restablecimiento ya se usó, caducó o la
+	// cuenta cambió.
+	ErrResetUsed = errors.New("auth: password reset not usable")
+)
+
+// PasswordResetSender entrega un enlace de restablecimiento por correo. Como
+// InvitationSender, un error no debe incluir el token ni el enlace.
+type PasswordResetSender interface {
+	SendPasswordReset(ctx context.Context, d PasswordResetDelivery) error
+}
+
+// PasswordResetDelivery es lo que necesita el canal de entrega.
+type PasswordResetDelivery struct {
+	Email       string
+	DisplayName string
+	Token       string
+	// URL es el enlace (<HORUS_PUBLIC_BASE_URL>/reset-password#token=…).
+	URL       string
+	ExpiresAt time.Time
+	// RequestedByAdmin: lo emitió un administrador (el texto lo dice).
+	RequestedByAdmin bool
 }
 
 // UserStatusChange es PATCH /platform/users/{id} {status}.

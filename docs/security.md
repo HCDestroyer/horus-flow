@@ -344,16 +344,30 @@ por usuario; `amr=hwk`. Planificado para después del Sprint 2 (backlog del Agen
 
 ### 4.5 Recuperación de cuenta
 
-1. Usuario pide reset → respuesta idéntica exista o no la cuenta.
-2. Se envía enlace con token de 32 B aleatorios; en BD solo se guarda `SHA-256(token)`;
-   caducidad 30 min, un solo uso, invalida tokens anteriores.
+1. Usuario pide reset (`POST /auth/password/forgot`) → respuesta idéntica exista o no la cuenta; el
+   correo se envía en segundo plano para que el tiempo de respuesta tampoco delate nada. Sin SMTP la
+   instalación no emite enlaces por esta vía (`email_delivery=false`) y la persona pide el enlace a un
+   administrador: de su ISP (`POST /members/{user_id}/password-reset`, solo cuentas que pertenecen
+   únicamente a ese ISP: `409 USER_SHARED` si tienen otras membresías o roles de plataforma, para que un
+   ISP no tome una cuenta que también entra en otro) o de la plataforma
+   (`POST /platform/users/{user_id}/password-reset`). Ambos exigen re-autenticación y quedan auditados;
+   el enlace se muestra una vez y, con SMTP, también se envía.
+2. Enlace con token de 32 B aleatorios; en BD solo se guarda `SHA-256(token)` (`auth.password_reset`);
+   caducidad 30 min, un solo uso, invalida tokens anteriores. Límite 5/min por cuenta + 20/min por IP.
 3. El reset de contraseña **no** desactiva el 2FA: después de fijar la nueva contraseña se pide
    TOTP o código de recuperación.
 4. Si el usuario perdió contraseña y 2FA: un administrador ejecuta "reset de 2FA" (requiere
    re-autenticación del admin, motivo obligatorio, auditado y notificado por email al usuario).
-5. Todo reset revoca **todas** las sesiones del usuario.
-6. **Bootstrap del primer admin:** comando `auth bootstrap-admin` dentro del contenedor que
-   imprime un enlace de un solo uso (TTL 1 h); no hay credenciales por defecto.
+   *Pendiente.*
+5. Todo reset revoca **todas** las sesiones del usuario (`horus.auth.session.revoked`,
+   `reason=password_reset`) y quita el bloqueo por intentos fallidos.
+6. **Bootstrap del primer admin:** `HORUS_SEED_ADMIN_EMAIL` + `HORUS_SEED_ADMIN_PASSWORD_FILE` crean al
+   superadministrador con cambio de contraseña y 2FA obligatorios en el primer acceso; no hay
+   credenciales por defecto. (El comando `auth bootstrap-admin` con enlace de un uso sigue en el
+   backlog.)
+7. **Baja de una cuenta** (`DELETE /platform/users/{id}`): lógica (`deleted_at`), libera el correo,
+   revoca sesiones y membresías con sus eventos, quita roles de plataforma y 2FA; la auditoría y el
+   historial se conservan. Nunca la propia ni el último `platform_admin` activo.
 
 ## 5. Sesiones y tokens
 

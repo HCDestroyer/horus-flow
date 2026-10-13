@@ -81,6 +81,8 @@ func cases() map[string]tenanttest.Case {
 	c["inviteMember"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"email": "pirata@isp.test",
 		"role_assignments": []any{map[string]any{"role_id": "0192f000-0000-7000-8000-00000000a001", "scope": "tenant"}}}}
 	c["removeMember"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["updateMember"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"display_name": "pirata"}}
+	c["resetMemberPassword"] = tenanttest.Case{Kind: tenanttest.ByID}
 	c["reissueMemberInvitation"] = tenanttest.Case{Kind: tenanttest.ByID}
 	c["replaceMemberRoleAssignments"] = tenanttest.Case{Kind: tenanttest.ByID}
 	c["createRole"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"key": "pirata", "name": "Pirata", "permissions": []string{"devices.read"}}}

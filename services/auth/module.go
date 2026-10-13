@@ -109,9 +109,11 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 	// Invitaciones por correo con el SMTP de la instalación (si lo hay); sin
 	// SMTP, quien invita comparte el enlace de la respuesta.
 	var invitations app.InvitationSender
+	var resets app.PasswordResetSender
 	if cfg.SMTPHost != "" {
-		invitations = invitemail.New(mailer.Config{Host: cfg.SMTPHost, Port: cfg.SMTPPort, Username: cfg.SMTPUsername,
+		sender := invitemail.New(mailer.Config{Host: cfg.SMTPHost, Port: cfg.SMTPPort, Username: cfg.SMTPUsername,
 			Password: cfg.SMTPPassword.Reveal(), From: cfg.SMTPFrom, TLS: cfg.SMTPTLS})
+		invitations, resets = sender, sender
 	}
 	if cfg.PublicBaseURL == "" {
 		logger.WarnContext(ctx, "auth: HORUS_PUBLIC_BASE_URL not set: invitation links are relative")
@@ -120,7 +122,7 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		Signer: signer, Sealer: sealer, Catalog: catalog,
 		Argon:       domain.Argon2Params{Memory: cfg.Argon2MemoryKiB, Time: cfg.Argon2Time, Threads: 1, SaltLen: 16, KeyLen: 32},
 		RefreshIdle: cfg.RefreshIdle, SessionMax: cfg.SessionMaxAge, Logger: logger,
-		Invitations: invitations, PublicBaseURL: cfg.PublicBaseURL,
+		Invitations: invitations, PasswordResets: resets, PublicBaseURL: cfg.PublicBaseURL,
 	})
 	if err != nil {
 		db.Close()

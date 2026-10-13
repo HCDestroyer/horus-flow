@@ -636,6 +636,7 @@ func (s *Service) UpdateMe(ctx context.Context, p *authz.Principal, patch map[st
 	}
 	var errs []problem.FieldError
 	var changed []string
+	emailChanged := false
 	nullable := func(raw json.RawMessage) (*string, bool) {
 		var v *string
 		if json.Unmarshal(raw, &v) != nil {
@@ -652,6 +653,22 @@ func (s *Service) UpdateMe(ctx context.Context, p *authz.Principal, patch map[st
 				continue
 			}
 			u.DisplayName = strings.TrimSpace(v)
+		case "email":
+			var v string
+			if json.Unmarshal(raw, &v) != nil {
+				errs = append(errs, apperr.Field(k, "INVALID_EMAIL", "Email no válido."))
+				continue
+			}
+			e, fe := validEmail(v)
+			if fe != nil {
+				errs = append(errs, *fe)
+				continue
+			}
+			if e == u.Email {
+				continue
+			}
+			emailChanged = true
+			u.Email = e
 		case "locale":
 			v, ok := nullable(raw)
 			if !ok || (v != nil && !localeRe.MatchString(*v)) {
@@ -693,11 +710,26 @@ func (s *Service) UpdateMe(ctx context.Context, p *authz.Principal, patch map[st
 		slices.SortFunc(errs, func(a, b problem.FieldError) int { return strings.Compare(a.Field, b.Field) })
 		return nil, apperr.Validation(errs...)
 	}
-	if len(changed) > 0 {
-		if err := s.store.UpdateProfile(ctx, u, s.now()); err != nil {
+	// El correo es la identidad de la cuenta: solo con autenticación reciente.
+	if emailChanged {
+		if err := requireRecentAuth(p, s.now()); err != nil {
 			return nil, err
 		}
+	}
+	if len(changed) > 0 {
 		slices.Sort(changed)
+		var ev *OutboxEvent
+		if slices.Contains(changed, "email") || slices.Contains(changed, "display_name") {
+			e := userEvent(Actor{Type: "user", ID: u.ID.String()}, "updated", s.now())(*u, changed)
+			ev = &e
+		}
+		err := s.store.UpdateProfile(ctx, u, s.now(), ev)
+		if errors.Is(err, ErrEmailTaken) {
+			return nil, errEmailTaken()
+		}
+		if err != nil {
+			return nil, err
+		}
 		_ = s.Record(ctx, api.AuditEntry{ActorType: "user", ActorID: u.ID.String(), Action: "auth.profile.updated",
 			ResourceType: "user", ResourceID: u.ID.String(), IP: requestIP, Changes: map[string]any{"fields": changed}})
 	}

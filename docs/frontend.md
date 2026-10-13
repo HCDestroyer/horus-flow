@@ -146,7 +146,8 @@ PLATAFORMA (solo superadmin, §3.4)
 ├─ Almacenamiento             /platform/storage (+ destinos remotos en I3)       I1 · I3
 └─ Estado del sistema         /platform/system                                   I1
 
-Fuera de la barra: /login · /account · /kiosk (modo NOC, §7)
+Fuera de la barra: /login · /forgot-password · /reset-password (#token) · /invitation (#token) ·
+/account (nombre, zona horaria, correo con re-autenticación, contraseña, 2FA) · /kiosk (modo NOC, §7)
 ```
 
 | Sección | Inc. | Permiso de lectura (nombres finales en `security.md`) | Tiempo real |

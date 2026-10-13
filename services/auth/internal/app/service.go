@@ -49,6 +49,9 @@ type Options struct {
 	Invitations InvitationSender
 	// InvitationSendTimeout acota el envío síncrono (por defecto 10 s).
 	InvitationSendTimeout time.Duration
+	// PasswordResets entrega los enlaces de restablecimiento de contraseña
+	// (SMTP); nil = sin correo (un administrador comparte el enlace).
+	PasswordResets PasswordResetSender
 	// PublicBaseURL es la base del enlace de invitación
 	// (HORUS_PUBLIC_BASE_URL); vacía = enlace relativo (desarrollo).
 	PublicBaseURL string
@@ -64,6 +67,8 @@ type Service struct {
 
 	mu    sync.Mutex
 	cache map[string]cachedStatus
+	// forgot es el límite por cuenta de /auth/password/forgot (ventana de 1 min).
+	forgot map[string][]time.Time
 }
 
 type cachedStatus struct {

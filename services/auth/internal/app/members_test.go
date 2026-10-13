@@ -118,7 +118,7 @@ func (m *memMemberStore) Memberships(context.Context, uuid.UUID) ([]domain.Membe
 func (m *memMemberStore) TOTP(context.Context, uuid.UUID) (*domain.TOTP, error) {
 	return nil, domain.ErrNotFound
 }
-func (m *memMemberStore) UpdateProfile(_ context.Context, u *domain.User, _ time.Time) error {
+func (m *memMemberStore) UpdateProfile(_ context.Context, u *domain.User, _ time.Time, _ *OutboxEvent) error {
 	c := *u
 	m.profile = &c
 	return nil
@@ -593,9 +593,9 @@ func TestUpdateMe(t *testing.T) {
 		return m
 	}
 
-	_, err := svc.UpdateMe(ctx, p, patch(`{"email":"x@y.z","timezone":"Mars/Base","locale":"???","display_name":"","default_tenant_id":"`+uuid.NewString()+`"}`), "")
+	_, err := svc.UpdateMe(ctx, p, patch(`{"email":"no-es-email","timezone":"Mars/Base","locale":"???","display_name":"","default_tenant_id":"`+uuid.NewString()+`"}`), "")
 	e := wantErr(t, err, 422, problem.CodeValidationFailed)
-	for f, code := range map[string]string{"email": "UNKNOWN_FIELD", "timezone": "INVALID_TIMEZONE", "locale": "INVALID_FORMAT",
+	for f, code := range map[string]string{"email": "INVALID_EMAIL", "timezone": "INVALID_TIMEZONE", "locale": "INVALID_FORMAT",
 		"display_name": "INVALID_VALUE", "default_tenant_id": CodeNotAMember} {
 		if !hasField(e, f, code) {
 			t.Fatalf("falta %s %s: %+v", f, code, e.Fields)

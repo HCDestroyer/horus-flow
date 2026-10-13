@@ -21,13 +21,25 @@ func likePattern(q string) string {
 	return "%" + r.Replace(q) + "%"
 }
 
-// UpdateProfile implementa app.Store.
-func (s *Store) UpdateProfile(ctx context.Context, u *domain.User, now time.Time) error {
+// UpdateProfile implementa app.Store (también el correo: app.ErrEmailTaken
+// si otra cuenta lo usa; el evento, si lo hay, va en la misma transacción).
+func (s *Store) UpdateProfile(ctx context.Context, u *domain.User, now time.Time, ev *app.OutboxEvent) error {
 	return s.db.AppTx(ctx, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `UPDATE auth."user" SET display_name = $2, locale = $3, timezone = $4, default_tenant_id = $5,
-				updated_at = $6, version = version + 1
+		err := tx.QueryRow(ctx, `UPDATE auth."user" SET display_name = $2, locale = $3, timezone = $4, default_tenant_id = $5, email = $6,
+				updated_at = $7, version = version + 1
 			WHERE id = $1 AND deleted_at IS NULL RETURNING version`,
-			u.ID, u.DisplayName, u.Locale, u.Timezone, u.DefaultTenantID, now).Scan(&u.Version)
+			u.ID, u.DisplayName, u.Locale, u.Timezone, u.DefaultTenantID, u.Email, now).Scan(&u.Version)
+		if pgdb.IsCode(err, pgdb.SQLStateUniqueViolation) {
+			return app.ErrEmailTaken
+		}
+		if err != nil {
+			return err
+		}
+		if ev == nil {
+			return nil
+		}
+		ev.AggregateVersion = u.Version
+		return insertOutbox(ctx, tx, *ev)
 	})
 }
 

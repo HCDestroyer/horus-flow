@@ -92,7 +92,7 @@ func (h *Handler) updatePlatformUser(w http.ResponseWriter, r *http.Request) {
 	if !jsonapi.Decode(w, r, &body, false) {
 		return
 	}
-	u, err := h.svc.SetUserStatus(r.Context(), id, body, clientIP(r))
+	u, err := h.svc.UpdatePlatformUser(r.Context(), id, body, clientIP(r))
 	if err != nil {
 		h.fail(w, r, err)
 		return
