@@ -21,14 +21,19 @@ function fit(el: HTMLElement) {
 
 const observers = new WeakMap<HTMLElement, ResizeObserver>()
 
+// El ajuste se hace en el acto (el DOM ya está parcheado al llegar aquí) y se repite en el
+// siguiente cuadro: en pantallas 4K con varias gráficas, el primer cuadro puede tardar
+// cientos de ms y mientras tanto las filas sobrantes se verían cortadas.
 const fitRows: Directive<HTMLElement> = {
   mounted(el) {
     const observer = new ResizeObserver(() => fit(el))
     observer.observe(el)
     observers.set(el, observer)
+    fit(el)
     requestAnimationFrame(() => fit(el))
   },
   updated(el) {
+    fit(el)
     requestAnimationFrame(() => fit(el))
   },
   unmounted(el) {
