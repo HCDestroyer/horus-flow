@@ -8,6 +8,7 @@ package app
 import (
 	"context"
 	"errors"
+	"net/netip"
 
 	"github.com/google/uuid"
 
@@ -70,6 +71,23 @@ type Store interface {
 	ListPrefixes(ctx context.Context, t pgdb.TenantID, q ListQuery) ([]domain.ClientPrefix, error)
 	GetPrefix(ctx context.Context, t pgdb.TenantID, id uuid.UUID) (*domain.ClientPrefix, error)
 	CreatePrefix(ctx context.Context, t pgdb.TenantID, p *domain.ClientPrefix, ev Events[domain.ClientPrefix]) error
+	OverlapFinder
 	UpdatePrefix(ctx context.Context, t pgdb.TenantID, p *domain.ClientPrefix, expect int, ev Events[domain.ClientPrefix]) error
 	DeletePrefix(ctx context.Context, t pgdb.TenantID, id uuid.UUID, expect int, ev Events[domain.ClientPrefix]) error
+}
+
+// PrefixClash es el prefijo activo que impide declarar otro (solape en el realm).
+type PrefixClash struct {
+	Prefix   netip.Prefix
+	Role     string
+	SiteID   uuid.UUID
+	SiteName string
+}
+
+// OverlapFinder localiza el prefijo con el que se solapa uno nuevo, para que
+// el 409 CLIENT_PREFIX_OVERLAP diga con cuál (el más específico si hay varios).
+type OverlapFinder interface {
+	// OverlappingPrefix busca en el realm que le tocaría a p (privado del nodo
+	// siteID o público del ISP). Sin solape → domain.ErrNotFound.
+	OverlappingPrefix(ctx context.Context, t pgdb.TenantID, siteID uuid.UUID, realmKind string, p netip.Prefix) (*PrefixClash, error)
 }

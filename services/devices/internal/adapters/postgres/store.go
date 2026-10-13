@@ -534,6 +534,36 @@ func realmFor(ctx context.Context, tx pgx.Tx, t pgdb.TenantID, site uuid.UUID, k
 	return id, err
 }
 
+// OverlappingPrefix implementa app.OverlapFinder: el prefijo activo del realm
+// (privado del nodo o público del ISP) que se cruza con p; el más específico
+// primero. Es la misma condición que la restricción ex_client_prefix__no_overlap.
+func (s *Store) OverlappingPrefix(ctx context.Context, t pgdb.TenantID, siteID uuid.UUID, realmKind string, p netip.Prefix) (*app.PrefixClash, error) {
+	var (
+		c   app.PrefixClash
+		pfx string
+	)
+	err := s.db.TenantTx(ctx, t, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT p.prefix::text, p.role, p.site_id, st.name
+			FROM devices.client_prefix p
+			JOIN devices.ip_realm rl ON rl.tenant_id = p.tenant_id AND rl.id = p.realm_id
+			JOIN devices.site st ON st.tenant_id = p.tenant_id AND st.id = p.site_id
+			WHERE p.tenant_id = $1 AND p.deleted_at IS NULL AND rl.deleted_at IS NULL AND rl.kind = $2
+				AND ($2 = 'public' OR rl.site_id = $3) AND p.prefix::inet && $4::inet
+			ORDER BY masklen(p.prefix) DESC, p.created_at LIMIT 1`,
+			t.UUID(), realmKind, siteID, p.String()).Scan(&pfx, &c.Role, &c.SiteID, &c.SiteName)
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, domain.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if c.Prefix, err = netip.ParsePrefix(pfx); err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
 func prefixErr(err error) error {
 	if pgdb.IsCode(err, pgdb.SQLStateExclusionViolation) {
 		return app.ErrOverlap

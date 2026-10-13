@@ -49,6 +49,7 @@ type ImportStore interface {
 	ListPrefixes(ctx context.Context, t pgdb.TenantID, q ListQuery) ([]domain.ClientPrefix, error)
 	// CreatePrefixes crea todos o ninguno (solape → ErrOverlap).
 	CreatePrefixes(ctx context.Context, t pgdb.TenantID, ps []*domain.ClientPrefix, ev Events[domain.ClientPrefix]) error
+	OverlapFinder
 	RecordCredentialUse(ctx context.Context, t pgdb.TenantID, id uuid.UUID, result string, fingerprint *string, at time.Time) error
 	Emit(ctx context.Context, evs []outbox.Event) error
 }
@@ -193,6 +194,9 @@ func (im *Importer) BatchCreatePrefixes(ctx context.Context, siteID uuid.UUID, i
 	err = im.store.CreatePrefixes(ctx, t, out, func(v *domain.ClientPrefix) []outbox.Event {
 		return []outbox.Event{event(pr, t, "horus.devices.client_prefix.created", "client_prefix", v.ID, v.Version, now, PrefixEventData(v, nil))}
 	})
+	if errors.Is(err, ErrOverlap) {
+		return nil, overlapConflict(ctx, im.store, t, out, func(i int) string { return fmt.Sprintf("items[%d].prefix", i) })
+	}
 	if err != nil {
 		return nil, mapStoreErr(err, domain.CodeSiteNotFound)
 	}

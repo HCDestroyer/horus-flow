@@ -2293,7 +2293,13 @@ export interface paths {
         /** Prefijos del nodo (vacío = modo descubrimiento) */
         get: operations["listClientPrefixes"];
         put?: never;
-        /** Declara un prefijo (solape en el realm → 409 CLIENT_PREFIX_OVERLAP) */
+        /**
+         * Declara un prefijo (solape en el realm → 409 CLIENT_PREFIX_OVERLAP)
+         * @description El realm lo decide el servidor (privado/CGNAT → realm del nodo; público → realm del ISP). Si el
+         *     prefijo se cruza con otro activo del realm, 409 CLIENT_PREFIX_OVERLAP cuyo `detail` y
+         *     `errors[0]` (field `prefix`, code `OVERLAP`) dicen con qué prefijo choca, su rol y en qué nodo
+         *     está; los prefijos quitados no cuentan.
+         */
         post: operations["createClientPrefix"];
         delete?: never;
         options?: never;
@@ -2312,7 +2318,12 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Confirma una selección (importación del MikroTik o propuestas del modo descubrimiento), todo o nada */
+        /**
+         * Confirma una selección (importación del MikroTik o propuestas del modo descubrimiento), todo o nada
+         * @description Todo o nada. Si un elemento se cruza con un prefijo activo del realm, o con otro de la misma
+         *     selección, 409 CLIENT_PREFIX_OVERLAP con `errors[0].field = items[i].prefix` señalando cuál y
+         *     con qué choca.
+         */
         post: operations["batchCreateClientPrefixes"];
         delete?: never;
         options?: never;

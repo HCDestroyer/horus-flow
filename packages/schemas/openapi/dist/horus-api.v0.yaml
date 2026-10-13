@@ -5989,6 +5989,11 @@ paths:
         - client-prefixes
       operationId: createClientPrefix
       summary: Declara un prefijo (solape en el realm → 409 CLIENT_PREFIX_OVERLAP)
+      description: |
+        El realm lo decide el servidor (privado/CGNAT → realm del nodo; público → realm del ISP). Si el
+        prefijo se cruza con otro activo del realm, 409 CLIENT_PREFIX_OVERLAP cuyo `detail` y
+        `errors[0]` (field `prefix`, code `OVERLAP`) dicen con qué prefijo choca, su rol y en qué nodo
+        está; los prefijos quitados no cuentan.
       x-module: devices
       x-scope: tenant
       x-permission: sites.update
@@ -6031,6 +6036,10 @@ paths:
         - client-prefixes
       operationId: batchCreateClientPrefixes
       summary: Confirma una selección (importación del MikroTik o propuestas del modo descubrimiento), todo o nada
+      description: |
+        Todo o nada. Si un elemento se cruza con un prefijo activo del realm, o con otro de la misma
+        selección, 409 CLIENT_PREFIX_OVERLAP con `errors[0].field = items[i].prefix` señalando cuál y
+        con qué choca.
       x-module: devices
       x-scope: tenant
       x-permission: sites.update

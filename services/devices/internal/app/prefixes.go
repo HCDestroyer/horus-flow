@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
 	"slices"
 
@@ -11,6 +12,8 @@ import (
 
 	"github.com/hcdestroyer/horus-flow/packages/go/apperr"
 	"github.com/hcdestroyer/horus-flow/packages/go/outbox"
+	"github.com/hcdestroyer/horus-flow/packages/go/pgdb"
+	"github.com/hcdestroyer/horus-flow/packages/go/problem"
 	"github.com/hcdestroyer/horus-flow/services/devices/internal/domain"
 )
 
@@ -148,10 +151,65 @@ func (s *Service) CreatePrefix(ctx context.Context, siteID uuid.UUID, fields Fie
 	err := s.store.CreatePrefix(ctx, t, cp, func(v *domain.ClientPrefix) []outbox.Event {
 		return []outbox.Event{event(pr, t, "horus.devices.client_prefix.created", "client_prefix", v.ID, v.Version, now, PrefixEventData(v, nil))}
 	})
+	if errors.Is(err, ErrOverlap) {
+		return nil, overlapConflict(ctx, s.store, t, []*domain.ClientPrefix{cp}, func(int) string { return "prefix" })
+	}
 	if err != nil {
 		return nil, mapStoreErr(err, domain.CodeSiteNotFound)
 	}
 	return cp, nil
+}
+
+// overlapConflict construye el 409 CLIENT_PREFIX_OVERLAP diciendo con qué
+// prefijo choca cada uno de los nuevos (el primero que choque con uno ya
+// declarado; si no, el primero que choque con otro del mismo lote). El error
+// de campo lleva el mismo texto para que el formulario lo muestre junto al
+// prefijo. Si la búsqueda falla, se mantiene el mensaje genérico.
+func overlapConflict(ctx context.Context, finder OverlapFinder, t pgdb.TenantID, cps []*domain.ClientPrefix, field func(i int) string) error {
+	generic := mapStoreErr(ErrOverlap, domain.CodeSiteNotFound)
+	for i, cp := range cps {
+		c, err := finder.OverlappingPrefix(ctx, t, cp.SiteID, cp.RealmKind, cp.Prefix)
+		if err != nil || c == nil {
+			continue
+		}
+		var msg string
+		switch {
+		case c.SiteID != cp.SiteID:
+			msg = fmt.Sprintf("Solapa con %s (%s), ya declarado en el nodo %q: el mismo rango público no puede estar en dos nodos.",
+				c.Prefix, prefixRoleLabel(c.Role), c.SiteName)
+		case c.Role == "excluded":
+			msg = fmt.Sprintf("Solapa con %s, que está excluido en este nodo: cámbiale el rol o quítalo antes de añadir este.", c.Prefix)
+		default:
+			msg = fmt.Sprintf("Solapa con %s (%s), ya declarado en este nodo: quítalo o edítalo en lugar de añadir otro.",
+				c.Prefix, prefixRoleLabel(c.Role))
+		}
+		e := apperr.Conflict(domain.CodeClientPrefixOverlap, msg)
+		e.Fields = []problem.FieldError{apperr.Field(field(i), "OVERLAP", msg)}
+		return e
+	}
+	for i := range cps {
+		for j := range i {
+			if cps[i].Prefix.Overlaps(cps[j].Prefix) {
+				msg := fmt.Sprintf("Solapa con %s, que también está en esta misma selección.", cps[j].Prefix)
+				e := apperr.Conflict(domain.CodeClientPrefixOverlap, msg)
+				e.Fields = []problem.FieldError{apperr.Field(field(i), "OVERLAP", msg)}
+				return e
+			}
+		}
+	}
+	return generic
+}
+
+func prefixRoleLabel(role string) string {
+	switch role {
+	case "customers":
+		return "Clientes"
+	case "infrastructure":
+		return "Infraestructura"
+	case "excluded":
+		return "Excluido"
+	}
+	return role
 }
 
 func (s *Service) prefixInScope(ctx context.Context, perm string, id uuid.UUID) (*domain.ClientPrefix, error) {

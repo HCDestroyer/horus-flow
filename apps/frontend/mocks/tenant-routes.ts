@@ -768,12 +768,12 @@ function checkPrefix(
       'El prefijo solapa con otro del nodo',
       {},
       {
-        detail: `Solapa con ${clash.prefix}`,
+        detail: `Solapa con ${clash.prefix}, ya declarado en este nodo: quítalo o edítalo en lugar de añadir otro.`,
         errors: [
           {
             field,
             code: 'OVERLAP',
-            message: `Solapa con ${clash.prefix} (ya declarado en este nodo)`,
+            message: `Solapa con ${clash.prefix}, ya declarado en este nodo: quítalo o edítalo en lugar de añadir otro.`,
           },
         ],
       },
