@@ -272,6 +272,112 @@ paths:
         '204': { $ref: './common.yaml#/components/responses/NoContent' }
         '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
         '429': { $ref: './common.yaml#/components/responses/TooManyRequests' }
+  /auth/password/forgot:
+    post:
+      tags: [auth]
+      operationId: authForgotPassword
+      summary: Pide un enlace para restablecer la contraseña (respuesta idéntica exista o no la cuenta)
+      description: |
+        Si el correo corresponde a una cuenta activa y la instalación tiene SMTP, se le envía un enlace de un
+        uso (30 min) a <HORUS_PUBLIC_BASE_URL>/reset-password#token=…; en cualquier otro caso la respuesta es
+        la misma. `email_delivery` solo dice si la instalación puede enviar correo (no depende de la cuenta):
+        sin SMTP, la persona debe pedir el enlace a un administrador (POST /members/{user_id}/password-reset).
+        Límite: 20/min por IP y 5/min por cuenta.
+      x-module: auth
+      x-scope: public
+      x-permission: public
+      x-rate-limit: login
+      x-increment: I1
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email, maxLength: 254 }
+      responses:
+        '202':
+          description: Aceptado (siempre).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [email_delivery]
+                properties:
+                  email_delivery:
+                    type: boolean
+                    description: true si la instalación envía correo; false si no hay SMTP configurado.
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+        '429': { $ref: './common.yaml#/components/responses/TooManyRequests' }
+  /auth/password/reset/inspect:
+    post:
+      tags: [auth]
+      operationId: authInspectPasswordReset
+      summary: Datos de un enlace de restablecimiento para la página (sin consumirlo)
+      x-module: auth
+      x-scope: public
+      x-permission: public
+      x-rate-limit: login
+      x-increment: I1
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string, minLength: 32 }
+      responses:
+        '200':
+          description: Enlace vigente.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [email, display_name, expires_at]
+                properties:
+                  email: { type: string, format: email }
+                  display_name: { type: string }
+                  expires_at: { type: string, format: date-time }
+        '422':
+          description: Enlace inválido, caducado o ya usado (`errors[0].field = token`, code INVALID_TOKEN | EXPIRED | USED).
+          content:
+            application/problem+json:
+              schema: { $ref: './common.yaml#/components/schemas/Problem' }
+        '429': { $ref: './common.yaml#/components/responses/TooManyRequests' }
+  /auth/password/reset:
+    post:
+      tags: [auth]
+      operationId: authResetPassword
+      summary: Fija una contraseña nueva con un enlace de restablecimiento (un uso; revoca todas las sesiones)
+      description: |
+        Consume el token, guarda la contraseña (misma política que /me/password), quita el bloqueo por
+        intentos fallidos y revoca todas las sesiones de la cuenta (reason password_reset). El 2FA no se toca.
+      x-module: auth
+      x-scope: public
+      x-permission: public
+      x-rate-limit: login
+      x-increment: I1
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, new_password]
+              properties:
+                token: { type: string, minLength: 32 }
+                new_password: { type: string, writeOnly: true, minLength: 12 }
+      responses:
+        '204': { $ref: './common.yaml#/components/responses/NoContent' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+        '429': { $ref: './common.yaml#/components/responses/TooManyRequests' }
   /me:
     get:
       tags: [me]
@@ -295,7 +401,10 @@ paths:
     patch:
       tags: [me]
       operationId: updateMe
-      summary: Nombre, idioma, zona horaria, tenant por defecto
+      summary: Nombre, idioma, zona horaria, tenant por defecto y correo (el correo exige re-autenticación reciente)
+      description: |
+        Cambiar `email` requiere auth_time de menos de 5 min (403 REAUTH_REQUIRED si no; POST /auth/reauth);
+        409 ALREADY_EXISTS si otra cuenta ya usa ese correo. Los demás campos no exigen re-autenticación.
       x-module: auth
       x-scope: session
       x-permission: authenticated
@@ -316,6 +425,8 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Me' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
         '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
   /me/password:
     post:
@@ -527,6 +638,73 @@ paths:
       responses:
         '204': { $ref: './common.yaml#/components/responses/NoContent' }
         '404': { $ref: './common.yaml#/components/responses/NotFound' }
+    patch:
+      tags: [members]
+      operationId: updateMember
+      summary: Corrige el nombre o el correo de un miembro que solo pertenece a este ISP
+      description: |
+        La cuenta es global: un administrador del ISP solo puede editarla si no tiene membresías activas en
+        otros ISP ni roles de plataforma (409 USER_SHARED si las tiene: lo hace la plataforma). 409
+        ALREADY_EXISTS si otra cuenta usa ese correo. Exige re-autenticación reciente y queda auditado.
+      x-module: auth
+      x-scope: tenant
+      x-permission: users.manage
+      x-reauth: true
+      x-audited: true
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/MemberPatch' }
+          application/json:
+            schema: { $ref: '#/components/schemas/MemberPatch' }
+      responses:
+        '200':
+          description: Miembro actualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Member' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /members/{user_id}/password-reset:
+    parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    post:
+      tags: [members]
+      operationId: resetMemberPassword
+      summary: Genera un enlace de restablecimiento de contraseña para un miembro que solo pertenece a este ISP
+      description: |
+        Enlace de un uso (30 min) a <HORUS_PUBLIC_BASE_URL>/reset-password#token=…, que se muestra una vez y,
+        si hay SMTP, también se envía por correo. Invalida los enlaces anteriores sin usar. Las sesiones se
+        revocan cuando la persona lo canjea, no al emitirlo. 409 USER_SHARED si la cuenta tiene membresías
+        activas en otros ISP o roles de plataforma; 409 CONFLICT si el miembro está invitado (reenvíe la
+        invitación) o la cuenta está bloqueada. Anti-escalada: quien lo emite debe tener todos los permisos de
+        los roles del miembro.
+      x-module: auth
+      x-scope: tenant
+      x-permission: users.manage
+      x-reauth: true
+      x-audited: true
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Enlace emitido.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PasswordResetIssued' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
   /members/{user_id}/role-assignments:
     parameters:
       - name: user_id
@@ -946,6 +1124,11 @@ components:
       additionalProperties: false
       properties:
         display_name: { type: string, maxLength: 120 }
+        email:
+          type: string
+          format: email
+          maxLength: 254
+          description: Correo nuevo (identidad de la cuenta en toda la plataforma). Exige re-autenticación reciente.
         locale: { type: [string, 'null'] }
         timezone: { type: [string, 'null'] }
         default_tenant_id:
@@ -996,6 +1179,24 @@ components:
           description: Solo con outcome=invited. <HORUS_PUBLIC_BASE_URL>/invitation#token=<token>; se muestra una vez.
         expires_at: { type: [string, 'null'], format: date-time }
         email_sent: { type: boolean }
+    PasswordResetIssued:
+      type: object
+      required: [user_id, reset_url, expires_at, email_sent]
+      properties:
+        user_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        reset_url:
+          type: string
+          format: uri
+          description: <HORUS_PUBLIC_BASE_URL>/reset-password#token=<token>; se muestra una vez (Cache-Control no-store).
+        expires_at: { type: string, format: date-time }
+        email_sent: { type: boolean }
+    MemberPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        display_name: { type: string, minLength: 1, maxLength: 120 }
+        email: { type: string, format: email, maxLength: 254 }
     Member:
       type: object
       required: [user_id, display_name, email, status, mfa_enabled, role_assignments, version]

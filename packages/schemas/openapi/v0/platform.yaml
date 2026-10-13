@@ -234,7 +234,10 @@ paths:
     patch:
       tags: [platform]
       operationId: platformUpdateUser
-      summary: Activa o bloquea una cuenta (bloquear revoca sus sesiones; nunca la propia ni el último platform_admin activo)
+      summary: Edita una cuenta (estado, correo o nombre); bloquear revoca sus sesiones, nunca la propia ni el último platform_admin activo
+      description: |
+        Merge parcial: `status` (active | disabled), `email` (409 ALREADY_EXISTS si otra cuenta lo usa) y
+        `display_name`. Un cambio de correo o nombre emite horus.auth.user.updated.
       x-module: auth
       x-scope: platform
       x-permission: platform.users.manage
@@ -247,12 +250,7 @@ paths:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              required: [status]
-              additionalProperties: false
-              properties:
-                status: { type: string, enum: [active, disabled] }
+            schema: { $ref: '#/components/schemas/PlatformUserPatch' }
       responses:
         '200':
           description: Usuario.
@@ -263,6 +261,61 @@ paths:
         '404': { $ref: './common.yaml#/components/responses/NotFound' }
         '409': { $ref: './common.yaml#/components/responses/Conflict' }
         '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+    delete:
+      tags: [platform]
+      operationId: platformDeleteUser
+      summary: Elimina una cuenta (baja lógica; revoca sus sesiones y membresías; nunca la propia ni el último platform_admin)
+      description: |
+        Baja lógica (deleted_at): el correo queda libre para una cuenta nueva, se revocan todas sus sesiones
+        (reason user_deleted) y sus membresías (horus.auth.membership.revoked), se quitan sus roles de
+        plataforma y se emite horus.auth.user.deleted. Su rastro en auditoría e historial se conserva.
+        422 CANNOT_DELETE_SELF; 409 LAST_PLATFORM_ADMIN.
+      x-module: auth
+      x-scope: platform
+      x-permission: platform.users.manage
+      x-reauth: true
+      x-audited: true
+      x-increment: I1
+      security:
+        - platformBearer: []
+      responses:
+        '204': { $ref: './common.yaml#/components/responses/NoContent' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /platform/users/{user_id}/password-reset:
+    parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    post:
+      tags: [platform]
+      operationId: platformResetUserPassword
+      summary: Genera un enlace de restablecimiento de contraseña para una cuenta (un uso, 30 min)
+      description: |
+        Como POST /members/{user_id}/password-reset pero para cualquier cuenta activa de la plataforma. El
+        enlace se muestra una vez y, si hay SMTP, se envía por correo; invalida los anteriores sin usar. Las
+        sesiones se revocan al canjearlo. 409 CONFLICT si la cuenta está pendiente (reenvíe la invitación) o
+        bloqueada.
+      x-module: auth
+      x-scope: platform
+      x-permission: platform.users.manage
+      x-reauth: true
+      x-audited: true
+      x-increment: I1
+      security:
+        - platformBearer: []
+      responses:
+        '200':
+          description: Enlace emitido.
+          content:
+            application/json:
+              schema: { $ref: './auth.yaml#/components/schemas/PasswordResetIssued' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
   /platform/users/{user_id}/platform-roles:
     parameters:
       - name: user_id
@@ -1060,6 +1113,14 @@ components:
             members: { type: integer }
         created_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
         updated_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+    PlatformUserPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        status: { type: string, enum: [active, disabled] }
+        email: { type: string, format: email, maxLength: 254 }
+        display_name: { type: string, minLength: 1, maxLength: 120 }
     PlatformUser:
       type: object
       required: [id, email, display_name, status, platform_roles, memberships]

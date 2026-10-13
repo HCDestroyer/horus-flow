@@ -106,6 +106,12 @@ paths:
     $ref: ./auth.yaml#/paths/~1auth~1logout
   /auth/mfa/verify:
     $ref: ./auth.yaml#/paths/~1auth~1mfa~1verify
+  /auth/password/forgot:
+    $ref: ./auth.yaml#/paths/~1auth~1password~1forgot
+  /auth/password/reset:
+    $ref: ./auth.yaml#/paths/~1auth~1password~1reset
+  /auth/password/reset/inspect:
+    $ref: ./auth.yaml#/paths/~1auth~1password~1reset~1inspect
   /auth/reauth:
     $ref: ./auth.yaml#/paths/~1auth~1reauth
   /auth/refresh:
@@ -198,6 +204,8 @@ paths:
     $ref: ./auth.yaml#/paths/~1members~1{user_id}
   /members/{user_id}/invitation:
     $ref: ./auth.yaml#/paths/~1members~1{user_id}~1invitation
+  /members/{user_id}/password-reset:
+    $ref: ./auth.yaml#/paths/~1members~1{user_id}~1password-reset
   /members/{user_id}/role-assignments:
     $ref: ./auth.yaml#/paths/~1members~1{user_id}~1role-assignments
   /notification-channels:
@@ -252,6 +260,8 @@ paths:
     $ref: ./platform.yaml#/paths/~1platform~1users
   /platform/users/{user_id}:
     $ref: ./platform.yaml#/paths/~1platform~1users~1{user_id}
+  /platform/users/{user_id}/password-reset:
+    $ref: ./platform.yaml#/paths/~1platform~1users~1{user_id}~1password-reset
   /platform/users/{user_id}/platform-roles:
     $ref: ./platform.yaml#/paths/~1platform~1users~1{user_id}~1platform-roles
   /platform/wireguard/hubs:

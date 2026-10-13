@@ -226,6 +226,21 @@ modules:
       methods:
         POST: public
       rate_limit: login
+    - prefix: /api/v1/auth/password/forgot
+      scope: public
+      methods:
+        POST: public
+      rate_limit: login
+    - prefix: /api/v1/auth/password/reset
+      scope: public
+      methods:
+        POST: public
+      rate_limit: login
+    - prefix: /api/v1/auth/password/reset/inspect
+      scope: public
+      methods:
+        POST: public
+      rate_limit: login
     - prefix: /api/v1/auth/reauth
       scope: session
       methods:
@@ -294,11 +309,24 @@ modules:
     - prefix: /api/v1/members/{user_id}
       scope: tenant
       methods:
+        PATCH: users.manage
         DELETE: users.manage
+      reauth:
+        - PATCH
+      audited:
+        - PATCH
     - prefix: /api/v1/members/{user_id}/invitation
       scope: tenant
       methods:
         POST: users.manage
+    - prefix: /api/v1/members/{user_id}/password-reset
+      scope: tenant
+      methods:
+        POST: users.manage
+      reauth:
+        - POST
+      audited:
+        - POST
     - prefix: /api/v1/members/{user_id}/role-assignments
       scope: tenant
       methods:
@@ -343,10 +371,21 @@ modules:
       scope: platform
       methods:
         PATCH: platform.users.manage
+        DELETE: platform.users.manage
       reauth:
         - PATCH
+        - DELETE
       audited:
         - PATCH
+        - DELETE
+    - prefix: /api/v1/platform/users/{user_id}/password-reset
+      scope: platform
+      methods:
+        POST: platform.users.manage
+      reauth:
+        - POST
+      audited:
+        - POST
     - prefix: /api/v1/platform/users/{user_id}/platform-roles
       scope: platform
       methods:

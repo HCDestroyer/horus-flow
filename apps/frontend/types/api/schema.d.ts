@@ -411,6 +411,68 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/password/forgot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pide un enlace para restablecer la contraseña (respuesta idéntica exista o no la cuenta)
+         * @description Si el correo corresponde a una cuenta activa y la instalación tiene SMTP, se le envía un enlace de un
+         *     uso (30 min) a <HORUS_PUBLIC_BASE_URL>/reset-password#token=…; en cualquier otro caso la respuesta es
+         *     la misma. `email_delivery` solo dice si la instalación puede enviar correo (no depende de la cuenta):
+         *     sin SMTP, la persona debe pedir el enlace a un administrador (POST /members/{user_id}/password-reset).
+         *     Límite: 20/min por IP y 5/min por cuenta.
+         */
+        post: operations["authForgotPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/password/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fija una contraseña nueva con un enlace de restablecimiento (un uso; revoca todas las sesiones)
+         * @description Consume el token, guarda la contraseña (misma política que /me/password), quita el bloqueo por
+         *     intentos fallidos y revoca todas las sesiones de la cuenta (reason password_reset). El 2FA no se toca.
+         */
+        post: operations["authResetPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/password/reset/inspect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Datos de un enlace de restablecimiento para la página (sin consumirlo) */
+        post: operations["authInspectPasswordReset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/reauth": {
         parameters: {
             query?: never;
@@ -1187,7 +1249,11 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Nombre, idioma, zona horaria, tenant por defecto */
+        /**
+         * Nombre, idioma, zona horaria, tenant por defecto y correo (el correo exige re-autenticación reciente)
+         * @description Cambiar `email` requiere auth_time de menos de 5 min (403 REAUTH_REQUIRED si no; POST /auth/reauth);
+         *     409 ALREADY_EXISTS si otra cuenta ya usa ese correo. Los demás campos no exigen re-autenticación.
+         */
         patch: operations["updateMe"];
         trace?: never;
     };
@@ -1279,7 +1345,13 @@ export interface paths {
         delete: operations["removeMember"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Corrige el nombre o el correo de un miembro que solo pertenece a este ISP
+         * @description La cuenta es global: un administrador del ISP solo puede editarla si no tiene membresías activas en
+         *     otros ISP ni roles de plataforma (409 USER_SHARED si las tiene: lo hace la plataforma). 409
+         *     ALREADY_EXISTS si otra cuenta usa ese correo. Exige re-autenticación reciente y queda auditado.
+         */
+        patch: operations["updateMember"];
         trace?: never;
     };
     "/members/{user_id}/invitation": {
@@ -1295,6 +1367,33 @@ export interface paths {
         put?: never;
         /** Genera un enlace de invitación nuevo para un miembro invitado (invalida los anteriores) */
         post: operations["reissueMemberInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/members/{user_id}/password-reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Genera un enlace de restablecimiento de contraseña para un miembro que solo pertenece a este ISP
+         * @description Enlace de un uso (30 min) a <HORUS_PUBLIC_BASE_URL>/reset-password#token=…, que se muestra una vez y,
+         *     si hay SMTP, también se envía por correo. Invalida los enlaces anteriores sin usar. Las sesiones se
+         *     revocan cuando la persona lo canjea, no al emitirlo. 409 USER_SHARED si la cuenta tiene membresías
+         *     activas en otros ISP o roles de plataforma; 409 CONFLICT si el miembro está invitado (reenvíe la
+         *     invitación) o la cuenta está bloqueada. Anti-escalada: quien lo emite debe tener todos los permisos de
+         *     los roles del miembro.
+         */
+        post: operations["resetMemberPassword"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1848,11 +1947,47 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
+        /**
+         * Elimina una cuenta (baja lógica; revoca sus sesiones y membresías; nunca la propia ni el último platform_admin)
+         * @description Baja lógica (deleted_at): el correo queda libre para una cuenta nueva, se revocan todas sus sesiones
+         *     (reason user_deleted) y sus membresías (horus.auth.membership.revoked), se quitan sus roles de
+         *     plataforma y se emite horus.auth.user.deleted. Su rastro en auditoría e historial se conserva.
+         *     422 CANNOT_DELETE_SELF; 409 LAST_PLATFORM_ADMIN.
+         */
+        delete: operations["platformDeleteUser"];
+        options?: never;
+        head?: never;
+        /**
+         * Edita una cuenta (estado, correo o nombre); bloquear revoca sus sesiones, nunca la propia ni el último platform_admin activo
+         * @description Merge parcial: `status` (active | disabled), `email` (409 ALREADY_EXISTS si otra cuenta lo usa) y
+         *     `display_name`. Un cambio de correo o nombre emite horus.auth.user.updated.
+         */
+        patch: operations["platformUpdateUser"];
+        trace?: never;
+    };
+    "/platform/users/{user_id}/password-reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Genera un enlace de restablecimiento de contraseña para una cuenta (un uso, 30 min)
+         * @description Como POST /members/{user_id}/password-reset pero para cualquier cuenta activa de la plataforma. El
+         *     enlace se muestra una vez y, si hay SMTP, se envía por correo; invalida los anteriores sin usar. Las
+         *     sesiones se revocan al canjearlo. 409 CONFLICT si la cuenta está pendiente (reenvíe la invitación) o
+         *     bloqueada.
+         */
+        post: operations["platformResetUserPassword"];
         delete?: never;
         options?: never;
         head?: never;
-        /** Activa o bloquea una cuenta (bloquear revoca sus sesiones; nunca la propia ni el último platform_admin activo) */
-        patch: operations["platformUpdateUser"];
+        patch?: never;
         trace?: never;
     };
     "/platform/users/{user_id}/platform-roles": {
@@ -3353,6 +3488,11 @@ export interface components {
             user_id: components["schemas"]["Uuid"];
             version: components["schemas"]["Version"];
         };
+        MemberPatch: {
+            display_name?: string;
+            /** Format: email */
+            email?: string;
+        };
         Membership: {
             /**
              * @description Permiso → alcances (`["*"]` = todo el tenant; `site:<uuid>`, `router_group:<uuid>`).
@@ -3378,6 +3518,11 @@ export interface components {
         MePatch: {
             default_tenant_id?: components["schemas"]["Uuid"] | null;
             display_name?: string;
+            /**
+             * Format: email
+             * @description Correo nuevo (identidad de la cuenta en toda la plataforma). Exige re-autenticación reciente.
+             */
+            email?: string;
             locale?: string | null;
             timezone?: string | null;
         };
@@ -3477,6 +3622,17 @@ export interface components {
             /** @description Solo con `include_total=true` en colecciones administrativas. */
             total?: number | null;
         };
+        PasswordResetIssued: {
+            email_sent: boolean;
+            /** Format: date-time */
+            expires_at: string;
+            /**
+             * Format: uri
+             * @description <HORUS_PUBLIC_BASE_URL>/reset-password#token=<token>; se muestra una vez (Cache-Control no-store).
+             */
+            reset_url: string;
+            user_id: components["schemas"]["Uuid"];
+        };
         Peer: components["schemas"]["TenantScopedResource"] & {
             /**
              * @description /32 de túnel (identidad del exportador)
@@ -3555,6 +3711,13 @@ export interface components {
             platform_roles: string[];
             /** @enum {string} */
             status: "active" | "disabled" | "locked" | "pending";
+        };
+        PlatformUserPatch: {
+            display_name?: string;
+            /** Format: email */
+            email?: string;
+            /** @enum {string} */
+            status?: "active" | "disabled";
         };
         /**
          * Playlist
@@ -5286,6 +5449,101 @@ export interface operations {
             429: components["responses"]["TooManyRequests"];
         };
     };
+    authForgotPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: email */
+                    email: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Aceptado (siempre). */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @description true si la instalación envía correo; false si no hay SMTP configurado. */
+                        email_delivery: boolean;
+                    };
+                };
+            };
+            422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    authResetPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    new_password: string;
+                    token: string;
+                };
+            };
+        };
+        responses: {
+            204: components["responses"]["NoContent"];
+            422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    authInspectPasswordReset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    token: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Enlace vigente. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        display_name: string;
+                        /** Format: email */
+                        email: string;
+                        /** Format: date-time */
+                        expires_at: string;
+                    };
+                };
+            };
+            /** @description Enlace inválido, caducado o ya usado (`errors[0].field = token`, code INVALID_TOKEN | EXPIRED | USED). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
     authReauth: {
         parameters: {
             query?: never;
@@ -6810,6 +7068,8 @@ export interface operations {
                     "application/json": components["schemas"]["Me"];
                 };
             };
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
             422: components["responses"]["UnprocessableEntity"];
         };
     };
@@ -6973,6 +7233,37 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
+    updateMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemberPatch"];
+                "application/merge-patch+json": components["schemas"]["MemberPatch"];
+            };
+        };
+        responses: {
+            /** @description Miembro actualizado. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Member"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
+        };
+    };
     reissueMemberInvitation: {
         parameters: {
             query?: never;
@@ -6993,6 +7284,31 @@ export interface operations {
                     "application/json": components["schemas"]["InvitationIssued"];
                 };
             };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    resetMemberPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Enlace emitido. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasswordResetIssued"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
         };
@@ -8018,6 +8334,24 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
         };
     };
+    platformDeleteUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: components["responses"]["NoContent"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
+        };
+    };
     platformUpdateUser: {
         parameters: {
             query?: never;
@@ -8029,10 +8363,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": {
-                    /** @enum {string} */
-                    status: "active" | "disabled";
-                };
+                "application/json": components["schemas"]["PlatformUserPatch"];
             };
         };
         responses: {
@@ -8049,6 +8380,31 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["UnprocessableEntity"];
+        };
+    };
+    platformResetUserPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Enlace emitido. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasswordResetIssued"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     platformSetUserRoles: {
