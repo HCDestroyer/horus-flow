@@ -1,13 +1,21 @@
-/* Pantalla NOC ligera: CSS clásico (sin @layer, oklch, color-mix ni :has) para navegadores de TV antiguos. */
+/*
+ * Pantalla NOC ligera: CSS clásico para navegadores de TV antiguos (sin @layer, colores
+ * modernos, :has, CSS Grid ni gap; flexbox con prefijo -webkit-). Misma estética que la
+ * pantalla mural de la consola. Las posiciones de las tarjetas las calcula kiosk-lite.js.
+ */
 html,
 body {
   margin: 0;
   height: 100%;
-  background: #0b0f14;
-  color: #e6edf3;
-  font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  background: #121418;
+  color: #e8edf3;
+  font-family: 'Segoe UI', Roboto, Ubuntu, Helvetica, Arial, sans-serif;
   overflow: hidden;
   cursor: none;
+}
+body.stack,
+body.scroll {
+  overflow-y: auto;
 }
 .hidden {
   display: none !important;
@@ -34,17 +42,17 @@ body {
   padding: 32px;
   box-sizing: border-box;
 }
-.big {
+.big-msg {
   font-size: 34px;
   margin: 0 0 16px;
 }
 .muted {
-  color: #8b949e;
+  color: #9aa5b4;
   font-size: 22px;
   max-width: 900px;
 }
 .error {
-  color: #ff7b72;
+  color: #f25c69;
   font-size: 28px;
   min-height: 34px;
 }
@@ -52,8 +60,8 @@ body {
   width: 56px;
   height: 56px;
   margin-bottom: 24px;
-  border: 5px solid #30363d;
-  border-top-color: #58a6ff;
+  border: 5px solid #2a2e36;
+  border-top-color: #4f8ff7;
   border-radius: 50%;
   -webkit-animation: spin 1s linear infinite;
   animation: spin 1s linear infinite;
@@ -81,10 +89,11 @@ body {
   text-transform: uppercase;
   text-align: center;
   width: 420px;
+  max-width: 90%;
   padding: 12px;
-  background: #161b22;
-  color: #e6edf3;
-  border: 2px solid #30363d;
+  background: #17191e;
+  color: #e8edf3;
+  border: 2px solid #2a2e36;
   border-radius: 8px;
 }
 #enroll-submit {
@@ -97,6 +106,8 @@ body {
   border: 0;
   border-radius: 8px;
 }
+
+/* --- Reproductor ------------------------------------------------------------------------ */
 #player {
   position: absolute;
   top: 0;
@@ -104,115 +115,331 @@ body {
   bottom: 0;
   left: 0;
 }
-.bar {
-  height: 56px;
-  line-height: 56px;
-  padding: 0 24px;
-  font-size: 22px;
-  color: #8b949e;
-  border-bottom: 1px solid #21262d;
-  overflow: hidden;
-  white-space: nowrap;
+body.stack #player {
+  position: relative;
 }
-.bar span {
-  margin-right: 32px;
+.bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: 0 1.1em;
+  white-space: nowrap;
+  overflow: hidden;
+  color: #9aa5b4;
+}
+body.stack .bar {
+  position: relative;
+}
+body.stack #updated,
+body.stack #date,
+body.stack #dash-name {
+  display: none;
+}
+#tenant {
+  color: #e8edf3;
+  font-weight: 700;
+  font-size: 1.25em;
 }
 #dash-name {
-  color: #e6edf3;
-  font-weight: 600;
+  margin-left: 0.5em;
+}
+.bar-right {
+  float: right;
+}
+.bar-right span {
+  margin-left: 1.4em;
+}
+#live {
+  color: #3fb97f;
+}
+#live.off {
+  color: #e9b949;
+}
+.dot {
+  display: inline-block;
+  width: 0.5em;
+  height: 0.5em;
+  border-radius: 50%;
+  background: currentColor;
+  margin-right: 0.4em;
+  vertical-align: 0.1em;
 }
 #clock {
-  float: right;
-  margin-right: 0;
+  color: #e8edf3;
+  font-weight: 700;
+  font-size: 1.35em;
+}
+#progress {
+  position: absolute;
+  left: 0;
+  height: 3px;
+  width: 0;
+  background: #4f8ff7;
+  opacity: 0.7;
 }
 .grid {
   position: absolute;
-  top: 57px;
-  right: 0;
-  bottom: 0;
   left: 0;
-  padding: 12px;
-  overflow: hidden;
+  right: 0;
+  -webkit-transition: opacity 0.3s ease;
+  transition: opacity 0.3s ease;
+}
+.grid.fading {
+  opacity: 0;
+}
+body.stack .grid {
+  position: relative;
 }
 .card {
-  float: left;
+  position: absolute;
   box-sizing: border-box;
-  width: 33.333%;
-  height: 50%;
-  padding: 8px;
+  padding: 0.35em;
 }
-.card.wide {
-  width: 66.666%;
+body.stack .card {
+  position: relative;
 }
 .card > div {
   height: 100%;
   box-sizing: border-box;
-  background: #161b22;
-  border: 1px solid #21262d;
-  border-radius: 10px;
-  padding: 14px 18px;
+  background: #17191e;
+  border: 1px solid #2a2e36;
+  border-radius: 0.6em;
+  padding: 0.7em 0.9em;
   overflow: hidden;
 }
+body.stack .card > div {
+  height: auto;
+}
 .card h2 {
-  margin: 0 0 10px;
-  font-size: 20px;
+  margin: 0 0 0.3em;
+  font-size: 1.05em;
   font-weight: 600;
-  color: #8b949e;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.kv {
-  margin: 0;
+.sub {
+  color: #9aa5b4;
+  font-size: 0.82em;
+  margin: 0.35em 0 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.kv div {
-  margin-bottom: 8px;
+.big {
+  font-size: 2.6em;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1;
 }
-.kv dt {
-  font-size: 16px;
-  color: #8b949e;
+.mid {
+  font-size: 1.6em;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1;
 }
-.kv dd {
-  margin: 0;
-  font-size: 34px;
-  font-weight: 600;
+.unit {
+  font-size: 0.42em;
+  font-weight: 500;
+  letter-spacing: 0;
+  margin-left: 0.15em;
+}
+.arrow {
+  color: #9aa5b4;
+  font-size: 0.45em;
+  vertical-align: top;
+  margin-right: 0.1em;
+}
+.kpi {
+  line-height: 1;
+}
+.kpi > * {
+  display: inline-block;
+  vertical-align: bottom;
+  margin-right: 0.8em;
+}
+.chips {
+  font-size: 0.85em;
+  line-height: 1.45;
+  white-space: nowrap;
+}
+.chips div > span {
+  display: inline-block;
+  margin: 0 0.9em 0.2em 0;
+  font-size: 0.95em;
+  white-space: nowrap;
+}
+.chips b {
+  color: #e8edf3;
+  margin-left: 0.25em;
+}
+.critical,
+.infected {
+  color: #f25c69;
+}
+.high {
+  color: #f2894a;
+}
+.medium,
+.suspected {
+  color: #e9b949;
+}
+.low,
+.info,
+.mitigated {
+  color: #9aa5b4;
+}
+.bars .row {
+  margin-bottom: 0.55em;
+}
+.bars .lbl {
+  overflow: hidden;
+  font-size: 0.95em;
+  white-space: nowrap;
+}
+.bars .lbl .v {
+  float: right;
+  margin-left: 0.5em;
+}
+.track {
+  height: 0.32em;
+  background: #23272f;
+  border-radius: 1em;
+  margin-top: 0.25em;
+}
+.fill {
+  height: 100%;
+  background: #4f8ff7;
+  border-radius: 1em;
 }
 table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 18px;
+  table-layout: fixed;
+  font-size: 0.92em;
 }
 td,
 th {
   text-align: left;
-  padding: 4px 6px;
-  border-bottom: 1px solid #21262d;
+  padding: 0.4em 0.2em;
+  border-bottom: 1px solid #2a2e36;
   white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
 }
 th {
-  color: #8b949e;
+  color: #9aa5b4;
   font-weight: 400;
+  font-size: 0.9em;
 }
-td.num {
+td.num,
+th.num {
   text-align: right;
 }
-.spark {
-  width: 100%;
-  height: 70%;
+td.sev {
+  width: 6.5em;
 }
-.last {
-  font-size: 30px;
+td.when {
+  width: 6.5em;
+  color: #9aa5b4;
+  text-align: right;
+}
+.ip {
+  font-family: Consolas, Menlo, monospace;
+  color: #9aa5b4;
+  font-size: 0.92em;
+  margin-left: 0.3em;
+}
+.exp span {
+  display: inline-block;
+  margin: 0.2em 1.2em 0 0;
+  color: #9aa5b4;
+  font-size: 0.92em;
+  white-space: nowrap;
+}
+.ok {
+  color: #3fb97f;
+}
+.warn {
+  color: #e9b949;
+}
+.bad {
+  color: #f25c69;
+}
+.dot.ok {
+  background: #3fb97f;
+}
+.dot.warn {
+  background: #e9b949;
+}
+.dot.bad {
+  background: #f25c69;
+}
+.sep {
+  display: inline-block;
+  width: 1px;
+  height: 0.9em;
+  margin: 0 1em -0.1em 0.1em;
+  background: #2a2e36;
+}
+.legend span {
+  display: inline-block;
+  margin-right: 1.2em;
+  font-size: 0.92em;
+  color: #9aa5b4;
+  white-space: nowrap;
+}
+.legend b {
+  color: #e8edf3;
+}
+.swatch {
+  display: inline-block;
+  width: 0.9em;
+  height: 0.2em;
+  border-radius: 1em;
+  margin-right: 0.35em;
+  vertical-align: 0.25em;
+}
+.chart {
+  display: block;
+  width: 100%;
+}
+.kv div {
+  margin-bottom: 0.4em;
+}
+.kv dt {
+  font-size: 0.8em;
+  color: #9aa5b4;
+}
+.kv dd {
+  margin: 0;
+  font-size: 1.6em;
   font-weight: 600;
 }
+.kv {
+  margin: 0;
+}
 .nodata {
-  color: #8b949e;
-  font-size: 18px;
+  color: #9aa5b4;
+  font-size: 0.9em;
 }
 .offline {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 0;
+  top: 0;
+  z-index: 3;
   background: #9e6a03;
   color: #fff;
+  text-align: center;
+  font-weight: 600;
   font-size: 22px;
-  padding: 10px 24px;
+  padding: 0.35em;
+}
+@media (prefers-reduced-motion: reduce) {
+  .grid {
+    -webkit-transition: none;
+    transition: none;
+  }
 }

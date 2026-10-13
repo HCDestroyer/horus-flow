@@ -11,17 +11,17 @@
   <body>
     <!--
       Pantalla NOC ligera para navegadores de TV antiguos (webOS, Tizen, Android TV sin
-      actualizar): HTML, CSS y JavaScript ES5 sin módulos ni dependencias. Misma API que /kiosk
-      (enrolamiento por código, JWT de kiosco, configuración y datos de widgets).
+      actualizar): HTML, CSS y JavaScript ES5 sin módulos ni dependencias. Misma API y misma
+      distribución que /kiosk (posiciones de los widgets del dashboard en 12 columnas).
     -->
     <main id="app">
       <section id="loading" class="center">
         <div class="spinner"></div>
-        <p class="big">Cargando Horus Flow…</p>
+        <p class="big-msg">Cargando Horus Flow…</p>
       </section>
 
       <section id="enroll" class="center hidden">
-        <h1 class="big">Conectar esta pantalla</h1>
+        <h1 class="big-msg">Conectar esta pantalla</h1>
         <p class="muted">
           Escribe el código de 8 caracteres que aparece en Horus Flow, en Administración › Pantallas
           NOC.
@@ -41,17 +41,22 @@
       </section>
 
       <section id="player" class="hidden">
-        <header class="bar">
-          <span id="tenant"></span>
-          <span id="dash-name"></span>
-          <span id="clock"></span>
+        <header class="bar" id="bar">
+          <span class="bar-right">
+            <span id="live"><span class="dot"></span>En vivo</span>
+            <span id="updated"></span>
+            <span id="date"></span>
+            <span id="clock"></span>
+          </span>
+          <span id="tenant"></span><span id="dash-name"></span>
         </header>
+        <div id="progress"></div>
         <div id="grid" class="grid"></div>
-        <footer id="offline" class="offline hidden"></footer>
+        <div id="offline" class="offline hidden"></div>
       </section>
 
       <section id="empty" class="center hidden">
-        <p class="big">Esta pantalla no tiene dashboards que mostrar</p>
+        <p class="big-msg">Esta pantalla no tiene dashboards que mostrar</p>
         <p class="muted">Asígnale una lista en Horus Flow, en Administración › Pantallas NOC.</p>
       </section>
     </main>
