@@ -21,8 +21,10 @@ export default defineAppConfig({
         {
           color: 'primary',
           variant: 'solid',
+          // hover/active más oscuro en claro y al 90 % en oscuro (Nuxt UI aclara al 75 %: el texto
+          // quedaba en 3,4:1, por debajo de AA).
           class:
-            'shadow-[0_0_18px_var(--hf-glow-brand)] hover:shadow-[0_0_26px_var(--hf-glow-brand)] transition-shadow',
+            'shadow-[0_0_18px_var(--hf-glow-brand)] hover:shadow-[0_0_26px_var(--hf-glow-brand)] hover:bg-(--ui-color-primary-800) active:bg-(--ui-color-primary-800) dark:hover:bg-primary/90 dark:active:bg-primary/90',
         },
       ],
     },
