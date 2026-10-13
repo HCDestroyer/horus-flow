@@ -53,6 +53,7 @@ func TestClassify(t *testing.T) {
 		{"198.51.100.7", 0, 17, 6672, "gta_online", MethodPort, "gaming"},
 		{"203.0.113.5", 6507, 17, 5000, "riot_games", MethodASN, "gaming"},
 		{"198.51.100.7", 0, 6, 8080, "speedtest_ookla", MethodPort, "network_services"},
+		{"203.0.113.5", 11983, 6, 443, "tiktok", MethodASN, "social"},
 	}
 	for _, k := range cases {
 		r := c.Classify(netip.MustParseAddr(k.ip), k.asn, k.proto, k.port)

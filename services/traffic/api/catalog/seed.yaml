@@ -3,7 +3,7 @@
 # deterministas (prefix > asn_port > asn > port). Sin editor hasta I4: se cambia aquí y se publica
 # como snapshot versionado (horus-catalog publish). Los prefijos son rangos publicados por cada
 # proveedor; se clasifica al nivel que la evidencia soporta (genéricos de CDN/nube, nunca más).
-version: 2
+version: 3
 categories:
   - {slug: video_streaming, name: Streaming de video}
   - {slug: social, name: Redes sociales}
@@ -29,7 +29,7 @@ organizations:
   - {slug: apple, name: Apple, country: US, asns: [714, 6185]}
   - {slug: zoom, name: Zoom, country: US, asns: [30103]}
   - {slug: spotify, name: Spotify, country: SE, asns: [8403]}
-  - {slug: bytedance, name: ByteDance (TikTok), country: SG, asns: [138699, 396986]}
+  - {slug: bytedance, name: ByteDance (TikTok), country: SG, asns: [138699, 396986, 11983]}
   - {slug: twitch, name: Twitch, country: US, asns: [46489]}
   - {slug: valve, name: Valve (Steam), country: US, asns: [32590]}
   - {slug: discord, name: Discord, country: US, asns: [49544]}
@@ -83,7 +83,7 @@ services:
   - {slug: spotify, name: Spotify, category: music, org: spotify,
      rules: [{asn: [8403], confidence: 85}]}
   - {slug: tiktok, name: TikTok, category: social, org: bytedance,
-     rules: [{asn: [138699, 396986], confidence: 80}]}
+     rules: [{asn: [138699, 396986, 11983], confidence: 80}]}
   - {slug: twitch, name: Twitch, category: video_streaming, org: twitch,
      rules: [{asn: [46489], confidence: 85}]}
   - {slug: steam, name: Steam, category: gaming, org: valve,
