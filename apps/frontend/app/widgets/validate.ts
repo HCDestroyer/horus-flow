@@ -4,7 +4,7 @@
  * `widget-types.json`. La usan el módulo de build (`modules/widget-manifests.ts`) y los
  * tests. Imports relativos: se carga fuera de Nuxt (jiti) en el build.
  */
-import * as z from 'zod'
+import { z } from '../utils/zod'
 import { WIDGET_CATALOG } from '../../types/api/widget-catalog'
 
 const size = z.strictObject({ w: z.int().min(1).max(12), h: z.int().min(1).max(12) })
