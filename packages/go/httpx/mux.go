@@ -1,7 +1,9 @@
 package httpx
 
 import (
+	"context"
 	"errors"
+	"github.com/go-chi/chi/v5"
 	"log/slog"
 	"net/http"
 	"net/http/pprof"
@@ -122,7 +124,15 @@ func (s *ServiceMux) SetEdge(mw func(http.Handler) http.Handler) error {
 // permiso y RLS que una petición externa. Se resuelve en cada petición (el
 // borde se instala al registrar el gateway, después de los demás roles).
 func (s *ServiceMux) Loopback() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { s.parent.Handler().ServeHTTP(w, r) })
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// La llamada interna suele heredar el contexto de la petición que la
+		// origina, y ese contexto ya lleva el estado de enrutado de chi de la
+		// petición externa: el borde lo reutilizaría y despacharía la ruta
+		// equivocada (405/404). Se anula para que el borde enrute de nuevo,
+		// conservando cancelación y traza.
+		r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, (*chi.Context)(nil)))
+		s.parent.Handler().ServeHTTP(w, r)
+	})
 }
 
 // Matches indica si alguna ruta del proceso atiende r.

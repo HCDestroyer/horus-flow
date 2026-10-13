@@ -61,8 +61,21 @@ func startApp(t *testing.T) *app {
 	return startAppEnv(t)
 }
 
+// roleFactory es un rol adicional que un test monta en el proceso.
+type roleFactory struct {
+	name string
+	f    module.Factory
+}
+
 // startAppEnv arranca el binario en proceso con variables extra.
 func startAppEnv(t *testing.T, extra ...string) *app {
+	t.Helper()
+	return startAppWith(t, nil, extra...)
+}
+
+// startAppWith arranca el proceso con roles adicionales (p. ej. assist) y
+// variables extra.
+func startAppWith(t *testing.T, more []roleFactory, extra ...string) *app {
 	t.Helper()
 	dsn := pgtest.New(t)
 	environ := []string{
@@ -81,11 +94,11 @@ func startAppEnv(t *testing.T, extra ...string) *app {
 	services := module.NewServices()
 	hreg := health.NewRegistry(health.Options{Service: "test"})
 	var mods []module.Module
-	for _, r := range []struct {
-		name string
-		f    module.Factory
-	}{{auth.Role, auth.Register}, {devices.Role, devices.Register}, {wireguard.Role, wireguard.Register},
-		{wgagent.Role, wgagent.Register}, {detection.Role, detection.Register}, {alerts.Role, alerts.Register}, {analytics.Role, registerDashboards}, {gateway.Role, gateway.Register}} {
+	roles := []roleFactory{{auth.Role, auth.Register}, {devices.Role, devices.Register}, {wireguard.Role, wireguard.Register},
+		{wgagent.Role, wgagent.Register}, {detection.Role, detection.Register}, {alerts.Role, alerts.Register}, {analytics.Role, registerDashboards}}
+	roles = append(roles, more...)
+	roles = append(roles, roleFactory{gateway.Role, gateway.Register})
+	for _, r := range roles {
 		m, err := r.f(ctx, module.Deps{Role: r.name, Health: hreg.Role(r.name), Routes: mux.ForService(r.name),
 			Common: config.Common{Env: "dev"}, Environ: environ, Services: services})
 		if err != nil {
