@@ -71,6 +71,37 @@ test.describe('modo kiosco @kiosk', () => {
     ).toHaveText('En línea')
   })
 
+  test('enlace del código (/kiosk/enroll#code=…): la TV se conecta sin pasar por el login', async ({
+    page,
+    context,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+    const code = await codeFor(page)
+    const tv = await context.newPage()
+    await tv.setViewportSize(WALL)
+    await tv.goto(`/kiosk/enroll#code=${code}`)
+    await expect(tv).toHaveURL(/\/kiosk(#|$)/)
+    await expect(tv.getByTestId('kiosk-current')).toBeVisible()
+    // La pantalla de arranque desaparece al montar la app.
+    await expect(tv.locator('#horus-boot')).toHaveCount(0)
+  })
+
+  test('si la app no arranca (navegador de TV sin soporte), explica el motivo en vez de quedar en blanco', async ({
+    context,
+  }) => {
+    const tv = await context.newPage()
+    await tv.setViewportSize(WALL)
+    await tv.clock.install()
+    // Simula un navegador que no ejecuta los módulos de la app.
+    await tv.route('**/_nuxt/**/*.js', (route) => route.abort())
+    await tv.goto('/kiosk')
+    await expect(tv.locator('#horus-boot')).toContainText('Cargando Horus Flow')
+    await tv.clock.fastForward(21_000)
+    await expect(tv.locator('#horus-boot')).toContainText('Este navegador no pudo abrir Horus Flow')
+    await expect(tv.locator('#horus-boot')).toContainText('Navegador:')
+  })
+
   test('listas: crear una, asignarla a una pantalla y generar código confirmando identidad', async ({
     page,
   }) => {

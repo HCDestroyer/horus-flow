@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
  * Modo kiosco (I1-21, frontend.md §7): enrolamiento por código y reproductor.
- * - Sin credencial: pantalla de código legible a 3–5 m (el código puede venir en el
- *   fragmento `#code=…` del QR: no viaja al servidor).
+ * - Sin credencial: pantalla de código legible a 3–5 m. El enlace compartido
+ *   (`/kiosk/enroll#code=…`, el fragmento no viaja al servidor) conecta la TV directamente.
  * - Enrolada: dashboards a pantalla completa en tema oscuro, sin controles; rotación según la
  *   playlist con precarga del siguiente (nunca un esqueleto salvo el primer arranque);
  *   Espacio pausa/reanuda y ←/→ cambian de dashboard (WCAG 2.2.2); fundido ≤ 300 ms o
@@ -31,8 +31,20 @@ onMounted(() => {
   if (m) {
     code.value = m[1]!.toUpperCase()
     history.replaceState(null, '', window.location.pathname)
+    linkCode = true
+    tryLinkCode()
   }
 })
+// El enlace compartido ya trae el código: se conecta sin teclear nada en la TV, en cuanto la
+// comprobación inicial confirma que esta pantalla aún no tiene credencial.
+let linkCode = false
+function tryLinkCode() {
+  if (linkCode && phase.value === 'enroll') {
+    linkCode = false
+    submitCode()
+  }
+}
+watch(phase, tryLinkCode)
 
 async function submitCode() {
   enrollError.value = null

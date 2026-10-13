@@ -296,7 +296,7 @@ export function kioskAdminRoute(ctx: KioskAdminContext): Response | undefined {
         code,
         expires_at: new Date(expiresAt).toISOString(),
         // El código va en el fragmento: no viaja al servidor ni a los logs (frontend.md §7.2).
-        qr_url: `${globalThis.location?.origin ?? 'https://horus.example'}/kiosk#code=${code}`,
+        qr_url: `${globalThis.location?.origin ?? 'https://horus.example'}/kiosk/enroll#code=${code}`,
       },
       201,
       { 'Cache-Control': 'no-store' },
