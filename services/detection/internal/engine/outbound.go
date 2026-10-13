@@ -126,8 +126,9 @@ func detectOutbound(ctx context.Context, e *env) ([]domain.Candidate, error) {
 		ev := map[string]any{"flows": int(st.TCP), "distinct_destinations": int(st.Dests), "distinct_nets24": int(st.Nets24),
 			"syn_ratio": domain.Round2(synRatio), "destination_sample": st.Sample}
 		if s.UpBytes > 0 {
-			ev["bytes_est"] = strconv.FormatUint(s.UpBytes*uint64(max(st.MaxSampling, 1)), 10)
-			ev["packets_est"] = strconv.FormatUint(s.UpPackets*uint64(max(st.MaxSampling, 1)), 10)
+			// Ya corregidos por muestreo en el ingester (traffic-model.md §3).
+			ev["bytes_est"] = strconv.FormatUint(s.UpBytes, 10)
+			ev["packets_est"] = strconv.FormatUint(s.UpPackets, 10)
 		}
 		if m := perMin[k]; len(m) > 0 {
 			ev["destinations_per_minute"] = m

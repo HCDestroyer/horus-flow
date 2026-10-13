@@ -65,16 +65,17 @@ func byMinute(flows []FlowRec, amp []uint16) map[ClientKey]map[int64]*minuteAgg 
 					ampDsts: map[uint16]map[netip.Addr]bool{}}
 				mm[m] = a
 			}
-			s := float64(max(f.Sampling, 1))
+			// bytes y packets ya vienen corregidos por el muestreo (el ingester los
+			// escala al guardarlos, traffic-model.md §3): no se vuelven a escalar.
 			if !f.Up {
-				a.downBytes += frac * float64(f.Bytes) * s
+				a.downBytes += frac * float64(f.Bytes)
 				return
 			}
-			a.upBytes += frac * float64(f.Bytes) * s
-			a.dstPkts[f.Remote] += frac * float64(f.Packets) * s
-			a.dstBytes[f.Remote] += frac * float64(f.Bytes) * s
+			a.upBytes += frac * float64(f.Bytes)
+			a.dstPkts[f.Remote] += frac * float64(f.Packets)
+			a.dstBytes[f.Remote] += frac * float64(f.Bytes)
 			if isAmp {
-				a.ampPkts[f.RemotePort] += frac * float64(f.Packets) * s
+				a.ampPkts[f.RemotePort] += frac * float64(f.Packets)
 				if a.ampDsts[f.RemotePort] == nil {
 					a.ampDsts[f.RemotePort] = map[netip.Addr]bool{}
 				}
@@ -177,7 +178,7 @@ func detectDDoS(ctx context.Context, e *env) ([]domain.Candidate, error) {
 			continue
 		}
 		run, best, prev := 0, 0, int64(math.MinInt64)
-		var peak, peakBps float64
+		var peak, peakBps, peakAvg float64
 		targets := map[netip.Addr]float64{}
 		for _, m := range sortedMinutes(mm) {
 			a := mm[m]
@@ -187,7 +188,14 @@ func detectDDoS(ctx context.Context, e *env) ([]domain.Candidate, error) {
 				pk += a.dstPkts[t]
 				by += a.dstBytes[t]
 			}
-			if pps := pk / 60; pps > p.MinPPS {
+			// Una inundación va en paquetes pequeños; una subida legítima (copia de
+			// seguridad, vídeo) hace los mismos pps con paquetes llenos (~1 400 B) y
+			// no cuenta como ráfaga (max_avg_packet_bytes).
+			avg := 0.0
+			if pk > 0 {
+				avg = by / pk
+			}
+			if pps := pk / 60; pps > p.MinPPS && (p.MaxAvgPacketBytes <= 0 || avg <= p.MaxAvgPacketBytes) {
 				if run > 0 && m == prev+1 {
 					run++
 				} else {
@@ -198,7 +206,9 @@ func detectDDoS(ctx context.Context, e *env) ([]domain.Candidate, error) {
 						targets[t] += a.dstPkts[t]
 					}
 				}
-				peak, peakBps = math.Max(peak, pps), math.Max(peakBps, by*8/60)
+				if pps > peak {
+					peak, peakBps, peakAvg = pps, by*8/60, avg
+				}
 			} else {
 				run = 0
 			}
@@ -207,7 +217,7 @@ func detectDDoS(ctx context.Context, e *env) ([]domain.Candidate, error) {
 		}
 		r := site[k]
 		if best >= p.MinMinutes {
-			out = append(out, ddosCandidate(e, k, r, meta[k], targets, asns, best, peak, peakBps))
+			out = append(out, ddosCandidate(e, k, r, meta[k], targets, asns, best, peak, peakBps, peakAvg))
 			continue
 		}
 		if c, ok := ampCandidate(e, k, r, meta[k], mm); ok {
@@ -218,7 +228,7 @@ func detectDDoS(ctx context.Context, e *env) ([]domain.Candidate, error) {
 }
 
 func ddosCandidate(e *env, k ClientKey, r SecurityRow, meta FlowRec, targets map[netip.Addr]float64, asns map[netip.Addr]uint32,
-	minutesRun int, peak, peakBps float64) domain.Candidate {
+	minutesRun int, peak, peakBps, avgPacket float64) domain.Candidate {
 	ts := topDests(targets, len(targets))
 	main := ts[0]
 	list := make([]string, len(ts))
@@ -234,16 +244,17 @@ func ddosCandidate(e *env, k ClientKey, r SecurityRow, meta FlowRec, targets map
 	}
 	c.AddSignal(domain.SignalDDoS)
 	c.Reasons = []domain.Reason{
-		{Code: "ddos_pps_burst", Detail: fmt.Sprintf("Ráfaga de %s paquetes/s (pico) durante %d min seguidos", fmtInt(int64(peak)), minutesRun),
-			Weight: domain.W(0.6), Data: map[string]any{"pps_peak": math.Round(peak), "bps_peak": math.Round(peakBps), "minutes": minutesRun, "threshold_pps": e.p.DDoS.MinPPS}},
+		{Code: "ddos_pps_burst", Detail: fmt.Sprintf("Ráfaga de %s paquetes/s (pico) durante %d min seguidos, paquetes de %d B de media", fmtInt(int64(peak)), minutesRun, int(math.Round(avgPacket))),
+			Weight: domain.W(0.6), Data: map[string]any{"pps_peak": math.Round(peak), "bps_peak": math.Round(peakBps), "minutes": minutesRun, "threshold_pps": e.p.DDoS.MinPPS,
+				"avg_packet_bytes": math.Round(avgPacket), "max_avg_packet_bytes": e.p.DDoS.MaxAvgPacketBytes}},
 		{Code: "ddos_few_targets", Detail: fmt.Sprintf("Concentrada en %d destino(s): %s", len(list), joinStr(list, 3)),
 			Weight: domain.W(0.3), Data: map[string]any{"targets": list}},
 	}
 	c.Summary = domain.Summary{Code: "ddos_burst", Text: fmt.Sprintf("Ráfaga de %s pps hacia %s durante %d min", fmtInt(int64(peak)), ipStr(main), minutesRun),
 		Params: map[string]any{"pps_peak": math.Round(peak), "target": ipStr(main), "minutes": minutesRun}}
-	c.Evidence = map[string]any{"pps_peak": math.Round(peak), "bps_peak": math.Round(peakBps), "distinct_destinations": len(list),
-		"destination_sample": list, "duration_seconds": minutesRun * 60, "spoofing_suspected": false,
-		"bytes_est": strconv.FormatUint(r.UpBytes*uint64(max(r.MaxSampling, 1)), 10), "packets_est": strconv.FormatUint(r.UpPackets*uint64(max(r.MaxSampling, 1)), 10)}
+	c.Evidence = map[string]any{"pps_peak": math.Round(peak), "bps_peak": math.Round(peakBps), "avg_packet_bytes": math.Round(avgPacket),
+		"distinct_destinations": len(list), "destination_sample": list, "duration_seconds": minutesRun * 60, "spoofing_suspected": false,
+		"bytes_est": strconv.FormatUint(r.UpBytes, 10), "packets_est": strconv.FormatUint(r.UpPackets, 10)}
 	if a := asns[main]; a != 0 {
 		c.Evidence["target_asn"] = int(a)
 	}
@@ -414,7 +425,7 @@ func detectSustained(ctx context.Context, e *env) ([]domain.Candidate, error) {
 			list[i] = ipStr(t)
 		}
 		c.Evidence = map[string]any{"upload_ratio": domain.Round2(upRatio), "duration_seconds": best * 60, "bps_peak": math.Round(peak),
-			"destination_sample": list, "bytes_est": strconv.FormatUint(r.UpBytes*uint64(max(r.MaxSampling, 1)), 10)}
+			"destination_sample": list, "bytes_est": strconv.FormatUint(r.UpBytes, 10)}
 		if a := asns[main]; a != 0 {
 			c.Evidence["target_asn"] = int(a)
 		}

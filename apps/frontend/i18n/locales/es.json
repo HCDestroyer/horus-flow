@@ -714,7 +714,7 @@
       "reputation_hit": "Esta IP contactó con una dirección que figura en una lista de reputación. Por sí solo puede ser casual (publicidad, enlaces); se vigila por si aparecen otras señales.",
       "spam_smtp_outbound": "Esta IP envió correo directamente a muchos servidores de correo distintos, algo que un cliente residencial no suele hacer. Es compatible con un equipo infectado con un bot de spam y puede llevar a que las IP del ISP acaben en listas negras.",
       "beaconing": "Esta IP se conecta al mismo destino a intervalos casi exactos y con muy pocos datos por conexión. La periodicidad es compatible con un equipo que consulta a su servidor de control, aunque también la producen algunas aplicaciones legítimas.",
-      "ddos_participation": "Esta IP envió una ráfaga de tráfico muy por encima de lo habitual hacia muy pocos destinos. Es compatible con la participación en un ataque de denegación de servicio desde un equipo comprometido.",
+      "ddos_participation": "Esta IP envió una ráfaga de paquetes pequeños hacia muy pocos destinos durante varios minutos. Es compatible con la participación en un ataque de denegación de servicio desde un equipo comprometido. Para comprobarlo: mira el tamaño medio de paquete en la evidencia (una inundación va en paquetes de menos de 400 B; una copia de seguridad o una videollamada llenan los paquetes), el destino (¿un servicio conocido?) y, en el router, /tool torch sobre la IP mientras dure.",
       "other": "Horus encontró señales compatibles con actividad de botnet en el tráfico de esta IP. Revisa las razones y la evidencia antes de decidir."
     },
     "evidence": {
@@ -2356,6 +2356,7 @@
       "min_pps": "Paquetes por segundo (mínimo)",
       "min_minutes": "Minutos sostenidos (mínimo)",
       "max_targets": "Destinos (máximo)",
+      "max_avg_packet_bytes": "Tamaño medio de paquete (máximo, bytes)",
       "amp_ports": "Puertos de amplificación",
       "amp_min_pps": "Paquetes por segundo en amplificación",
       "amp_min_targets": "Destinos en amplificación (mínimo)",

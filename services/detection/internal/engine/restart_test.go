@@ -19,7 +19,9 @@ type statefulSink struct {
 	failNext bool
 }
 
-func (s *statefulSink) State(_ context.Context, _ uuid.UUID, k string) (string, error) { return s.state[k], nil }
+func (s *statefulSink) State(_ context.Context, _ uuid.UUID, k string) (string, error) {
+	return s.state[k], nil
+}
 
 func (s *statefulSink) SetState(_ context.Context, _ uuid.UUID, k, v string) error {
 	s.state[k] = v

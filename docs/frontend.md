@@ -580,7 +580,7 @@ entran arriba sin mover el scroll.
 | `botnet_c2_communication` / `reputation_hit` | Contacto con C2 conocido (reputación) | IP remota, ASN/organización, feed y fecha de inclusión, con respuesta o solo SYN, nº de conexiones, línea de tiempo | I1 |
 | `outbound_scanning` | Escaneo, fan-out, puertos vigilados | Puerto(s), nº de destinos y de redes /24, % sin respuesta, destinos por minuto, muestra de destinos | I1 |
 | `spam_smtp_outbound` | SMTP saliente directo | Nº de servidores SMTP distintos por hora, muestra, tipo del cliente | I1 |
-| `ddos_participation` | Ráfaga hacia ≤ 3 destinos, puertos de amplificación | pps/bps, protocolo, destinos, duración vs. línea base | I1 |
+| `ddos_participation` | Ráfaga de paquetes pequeños (≤ `max_avg_packet_bytes`, 400 B) hacia ≤ 3 destinos durante ≥ 2 min; puertos de amplificación | pps/bps, tamaño medio de paquete, protocolo, destinos, duración | I1 |
 | `beaconing` | Periodicidad hacia un mismo remoto | Intervalo medio y coeficiente de variación, bytes por conexión, duración | I1 (*should*) |
 | `open_proxy_abuse` / `cryptomining` | Salida sostenida, destinos característicos | Proporción de subida, duración, destinos | I1 salida sostenida (*should*) · I4 |
 | — | DNS anómalo, servicios entrantes inesperados, propagación interna | — | I4 |

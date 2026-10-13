@@ -267,8 +267,8 @@ func c2Candidate(snap *reputation.Snapshot, f RepPair, known *reputation.Indicat
 		c.Summary.Text = fmt.Sprintf("Contacto con C2 de botnet conocido %s:%s (%s)", remote, port, ind.Source)
 	}
 	c.Evidence = map[string]any{
-		"flows": f.Conns + f.Responded, "bytes_est": strconv.FormatUint(f.Bytes*uint64(max(f.Sampling, 1)), 10),
-		"packets_est": strconv.FormatUint(f.Packets*uint64(max(f.Sampling, 1)), 10), "distinct_destinations": 1,
+		"flows": f.Conns + f.Responded, "bytes_est": strconv.FormatUint(f.Bytes, 10),
+		"packets_est": strconv.FormatUint(f.Packets, 10), "distinct_destinations": 1,
 		"destination_ports": []int{int(f.RemotePort)}, "destination_sample": []string{remote}, "protocol": protoName(f.Protocol),
 		"reputation_sources": []map[string]any{{"source": ind.Source, "indicator": remote, "category": f.Category,
 			"listed_at": listed.UTC().Format(time.RFC3339), "responded": responded}},
