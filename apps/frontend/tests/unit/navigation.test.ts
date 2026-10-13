@@ -28,6 +28,29 @@ describe('buildNavigation', () => {
     expect(visible).not.toContain('users') // sin users.read
   })
 
+  it('"Salud de routers" exige devices.read, como Nodos y routers', () => {
+    const routers = findSection('tenant', 'routers')!
+    // Entregado con la consola I1: visible con la compilación por defecto.
+    expect(routers.increment).toBe('I1')
+    expect(ids(buildNavigation(noc, 'fibra-norte', 'I1'))).toContain('routers')
+    const withoutDevices = {
+      ...noc,
+      memberships: noc.memberships.map((m) => ({
+        ...m,
+        permissions_with_scope: Object.fromEntries(
+          Object.entries(m.permissions_with_scope).filter(([k]) => k !== 'devices.read'),
+        ),
+      })),
+    }
+    const visible = ids(buildNavigation(withoutDevices, 'fibra-norte', 'I2'))
+    expect(visible).not.toContain('routers')
+    expect(visible).not.toContain('nodes')
+    expect(sectionAccess(routers, withoutDevices, 'fibra-norte', 'I2')).toBe('forbidden')
+    // El ítem va justo después de "Nodos y routers" en el grupo Operación.
+    const operation = NAV_SECTIONS.filter((s) => s.group === 'operation').map((s) => s.id)
+    expect(operation.slice(0, 2)).toEqual(['nodes', 'routers'])
+  })
+
   it('elimina los grupos que se quedan vacíos', () => {
     const nav = buildNavigation(noc, 'fibra-norte', 'I1')
     expect(nav.map((g) => g.id)).not.toContain('platform')

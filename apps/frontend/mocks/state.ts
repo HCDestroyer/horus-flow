@@ -170,6 +170,8 @@ export const mockState = {
   wireguard: new Map<string, WireguardHubState>(),
   /** Destinos remotos SFTP (`mocks/remote-destinations.ts`; también en el storage). */
   remoteDestinations: null as StoredDestination[] | null,
+  /** Sondeos SNMP pedidos desde la UI (`POST /routers/{id}/poll`): router → instante en que concluye (ms). */
+  snmpPolls: new Map<string, number>(),
 }
 
 export function resetMockState() {
@@ -193,6 +195,7 @@ export function resetMockState() {
   mockState.devices.clear()
   mockState.wireguard.clear()
   mockState.remoteDestinations = null
+  mockState.snmpPolls.clear()
 }
 
 /** Hallazgo cerrado por una acción del usuario: sale de los agregados de "abiertos". */

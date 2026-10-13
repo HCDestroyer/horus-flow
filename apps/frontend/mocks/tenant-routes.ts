@@ -48,6 +48,12 @@ import { contains, parseCidr, parseIp } from './net'
 import { hash, iso, mockUuid, rng } from './random'
 import { mockState } from './state'
 import { widgetData } from './widget-data'
+import {
+  analyticsDown as analyticsUnavailable,
+  analyticsMeta as seriesMeta,
+  rangeMs,
+} from './analytics-meta'
+import { snmpRoutes } from './snmp'
 
 /**
  * Rutas de negocio con token de ISP de la API simulada (I1): inventario, prefijos y onboarding,
@@ -115,40 +121,12 @@ function validation(field: string, message: string, code = 'REQUIRED') {
   )
 }
 
-/** Rango relativo → ms. */
-function rangeMs(range: string | null) {
-  const map: Record<string, number> = {
-    '15m': 0.25,
-    '1h': 1,
-    '6h': 6,
-    '24h': 24,
-    '7d': 168,
-    '30d': 720,
-    '90d': 2160,
-  }
-  return (map[range ?? '24h'] ?? 24) * 3_600_000
-}
-
 function analyticsMeta(ctx: TenantRouteContext, range: string | null, step: number | null) {
-  const to = ctx.now.getTime()
-  const span = rangeMs(range)
-  // 30 días o más: una parte del rango cae antes de que el router empezara a exportar.
-  const partial = span >= 30 * 86_400_000
-  return {
-    from: iso(to - span),
-    to: iso(to),
-    step,
-    coverage: partial ? 0.71 : 0.97,
-    partial,
-    generated_at: ctx.now.toISOString(),
-    source: 'flows',
-  }
+  return seriesMeta(ctx.now, range, step)
 }
 
 function analyticsDown(ctx: TenantRouteContext) {
-  return ctx.degraded
-    ? problem(503, 'ANALYTICS_UNAVAILABLE', 'Analítica no disponible', { 'Retry-After': '30' })
-    : null
+  return analyticsUnavailable(ctx.degraded)
 }
 
 // --- Clientes --------------------------------------------------------------------------------
@@ -979,7 +957,7 @@ function analyticsRoutes(ctx: TenantRouteContext): Response | undefined {
         canSeePersonalData: ctx.can('customers.read'),
         empty: ctx.empty,
       },
-      { degraded: false },
+      { degraded: false, scenario: ctx.scenario },
     )
     if (!data) return problem(422, 'WIDGET_TYPE_UNKNOWN', 'Tipo de widget desconocido')
     // Rangos largos: parte del periodo antes de que el router exportara (datos incompletos).
@@ -1119,6 +1097,7 @@ export function tenantRoute(ctx: TenantRouteContext): Response | undefined {
     customerRoutes(ctx) ??
     findingRoutes(ctx) ??
     deviceRoutes(ctx) ??
+    snmpRoutes(ctx) ??
     inventoryRoutes(ctx) ??
     classificationRoute(ctx) ??
     analyticsRoutes(ctx) ??

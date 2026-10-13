@@ -1,13 +1,19 @@
 <script setup lang="ts">
 import type { DropdownMenuItem, TabsItem } from '@nuxt/ui'
+import type { RelativeRange } from '~~/types/api'
+import { CPU_THRESHOLDS, TEMP_THRESHOLDS } from '~/utils/router-health'
 
 /**
  * Ficha del router (I1-19, frontend.md §8.4): cabecera con estado del exportador, túnel,
  * flujos/s; pestañas Resumen · Conexión (onboarding en tres pasos) · Credenciales · Prefijos de
  * clientes · Tráfico. "Editar router" (If-Match), "Script de desinstalación" y "Eliminar
  * router" en la barra y en "Más". La pestaña va en la ruta (`/routers/:id/:tab`).
+ * I2 (EP-08): estado efectivo del router en la cabecera (`RouterStatusBadge` con razón) y
+ * CPU / memoria / temperatura / uptime en vivo (`router.{id}.metrics`), "Sondear ahora"
+ * (`POST /routers/{id}/poll`, `devices.update`), pestañas Métricas e Interfaces y el modo
+ * mural de un solo router (`?scale=wall`, `RouterWall`).
  */
-const { t } = useI18n()
+const { t, te } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const { $api } = useNuxtApp()
@@ -62,13 +68,104 @@ function refreshAll() {
   refreshExporter()
   refreshPeer()
   refreshStats()
+  refreshLive()
 }
+
+// Estado efectivo y última muestra SNMP (en vivo). La lista de estados da el estado aunque el
+// usuario no tenga `snmp.read` (solo necesita `devices.read`).
+const canSnmp = computed(() => can('snmp.read'))
+const { live, liveAt, refresh: refreshLive } = useRouterLive(id, canSnmp)
+const { data: statusList } = useTenantQuery('routers:status', () =>
+  unwrap($api.GET('/routers/status')),
+)
+const routerStatus = computed(
+  () => live.value?.status ?? statusList.value?.data.find((r) => r.router_id === id.value) ?? null,
+)
+const liveSample = computed(() => routerStatus.value?.device ?? null)
+const hasSample = computed(() => liveSample.value?.cpu_percent != null)
+
+// "Sondear ahora": 202 en cola → toast; deshabilitado 10 s para no encolar en ráfaga.
+const pollBusy = ref(false)
+async function pollNow() {
+  if (pollBusy.value) return
+  pollBusy.value = true
+  setTimeout(() => (pollBusy.value = false), 10_000)
+  try {
+    const res = await unwrap(
+      $api.POST('/routers/{router_id}/poll', {
+        params: { path: { router_id: id.value }, header: { 'Idempotency-Key': idempotencyKey() } },
+      }),
+    )
+    if (res.queued) {
+      toast.add({
+        title: t('router.pollQueued'),
+        description: t('router.pollQueuedBody'),
+        icon: 'i-lucide-radar',
+        color: 'success',
+      })
+    } else {
+      const reason = res.reason ?? ''
+      toast.add({
+        title: t('router.pollNotQueued'),
+        description: te(`router.pollReasons.${reason}`)
+          ? t(`router.pollReasons.${reason}`)
+          : reason,
+        icon: 'i-lucide-triangle-alert',
+        color: 'warning',
+      })
+    }
+  } catch (e) {
+    toast.add({
+      title: t('router.pollNotQueued'),
+      description: t(describeError(e).messageKey),
+      icon: 'i-lucide-circle-alert',
+      color: 'error',
+    })
+  }
+}
+
+// Rango de las pestañas Métricas e Interfaces, en la URL.
+const RANGES = ['1h', '6h', '24h', '7d', '30d'] as const
+const range = useQueryParam('range', '24h', RANGES)
+const rangeOptions = computed(() => RANGES.map((r) => ({ label: t(`ranges.${r}`), value: r })))
+
+// Mural de un solo router: layout `wall`, Esc vuelve.
+const wall = computed(() => route.query.scale === 'wall')
+setPageLayout(wall.value ? 'wall' : 'default')
+watch(wall, (w) => setPageLayout(w ? 'wall' : 'default'))
+const exitVisible = ref(false)
+let hideTimer: ReturnType<typeof setTimeout> | undefined
+function poke() {
+  exitVisible.value = true
+  clearTimeout(hideTimer)
+  hideTimer = setTimeout(() => (exitVisible.value = false), 3000)
+}
+function exitWall() {
+  const { scale: _s, ...rest } = route.query
+  navigateTo({ path: route.path, query: rest })
+}
+function onKey(e: KeyboardEvent) {
+  if (wall.value && e.key === 'Escape') exitWall()
+}
+onMounted(() => window.addEventListener('keydown', onKey))
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKey)
+  clearTimeout(hideTimer)
+})
 
 const activeCustomers = computed(
   () => stats.value?.by_site.find((s) => s.site_id === rt.value?.site_id)?.active ?? 0,
 )
 
-const TABS = ['summary', 'connection', 'credentials', 'prefixes', 'traffic'] as const
+const TABS = [
+  'summary',
+  'connection',
+  'credentials',
+  'prefixes',
+  'metrics',
+  'interfaces',
+  'traffic',
+] as const
 type Tab = (typeof TABS)[number]
 const pending = computed(() => rt.value?.onboarding_state !== 'exporting')
 const tab = computed<Tab>({
@@ -86,6 +183,8 @@ const tabs = computed<TabsItem[]>(() => [
   { label: t('router.tabs.connection'), value: 'connection', icon: 'i-lucide-plug' },
   { label: t('router.tabs.credentials'), value: 'credentials', icon: 'i-lucide-key-round' },
   { label: t('router.tabs.prefixes'), value: 'prefixes', icon: 'i-lucide-list-tree' },
+  { label: t('router.tabs.metrics'), value: 'metrics', icon: 'i-lucide-activity' },
+  { label: t('router.tabs.interfaces'), value: 'interfaces', icon: 'i-lucide-ethernet-port' },
   { label: t('router.tabs.traffic'), value: 'traffic', icon: 'i-lucide-arrow-down-up' },
 ])
 
@@ -179,17 +278,70 @@ useHead({ title: () => rt.value?.name ?? t('router.title') })
 </script>
 
 <template>
-  <AppPage :title="rt?.name ?? t('router.title')" panel-id="router-detail">
+  <div
+    v-if="wall"
+    class="relative h-dvh"
+    :class="{ 'cursor-none': !exitVisible }"
+    @pointermove="poke"
+  >
+    <RouterWall
+      v-if="rt"
+      :router="rt"
+      :site-name="site?.name ?? ''"
+      :tenant-name="membership?.tenant_name ?? ''"
+      :live="live"
+      :live-at="liveAt"
+      :fallback="routerStatus"
+    />
+    <UButton
+      color="neutral"
+      variant="solid"
+      icon="i-lucide-minimize-2"
+      :label="t('router.exitWall')"
+      class="absolute end-3 bottom-3 transition-opacity focus-visible:opacity-100"
+      :class="exitVisible ? 'opacity-100' : 'opacity-0'"
+      data-testid="exit-wall"
+      @click="exitWall"
+      @focus="poke"
+    />
+  </div>
+
+  <AppPage v-else :title="rt?.name ?? t('router.title')" panel-id="router-detail">
     <template #navbar-right>
       <UButton
         v-if="rt && can('devices.update')"
         color="neutral"
         variant="outline"
+        icon="i-lucide-radar"
+        :aria-label="t('router.pollNow')"
+        :disabled="pollBusy"
+        data-testid="poll-now"
+        @click="pollNow"
+      >
+        <span class="hidden sm:inline">{{ t('router.pollNow') }}</span>
+      </UButton>
+      <UButton
+        v-if="rt"
+        color="neutral"
+        variant="outline"
+        icon="i-lucide-maximize-2"
+        :aria-label="t('router.wall')"
+        :to="{ path: route.path, query: { ...route.query, scale: 'wall' } }"
+        data-testid="open-wall"
+      >
+        <span class="hidden sm:inline">{{ t('router.wall') }}</span>
+      </UButton>
+      <UButton
+        v-if="rt && can('devices.update')"
+        color="neutral"
+        variant="outline"
         icon="i-lucide-pencil"
-        :label="t('devices.router.edit')"
+        :aria-label="t('devices.router.edit')"
         data-testid="edit-router"
         @click="editOpen = true"
-      />
+      >
+        <span class="hidden sm:inline">{{ t('devices.router.edit') }}</span>
+      </UButton>
       <UDropdownMenu v-if="more.length" :items="more">
         <UButton
           color="neutral"
@@ -206,6 +358,68 @@ useHead({ title: () => rt.value?.name ?? t('router.title') })
     <template v-else-if="rt">
       <UCard data-testid="router-header">
         <div class="flex flex-col gap-2">
+          <div
+            class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between"
+            data-testid="router-health"
+          >
+            <RouterStatusBadge
+              v-if="routerStatus"
+              :status="routerStatus.status"
+              :reason="routerStatus.reason"
+              :since="routerStatus.since"
+              class="text-base"
+              data-testid="router-status-badge"
+            />
+            <div
+              v-if="hasSample && liveSample"
+              class="flex flex-wrap items-center gap-x-4 gap-y-1"
+              data-testid="router-live"
+            >
+              <dl class="text-muted flex flex-wrap gap-x-4 gap-y-1 text-sm tabular">
+                <div class="flex gap-1">
+                  <dt>{{ t('router.live.cpu') }}</dt>
+                  <dd
+                    class="text-highlighted font-medium"
+                    :class="{
+                      'text-warning':
+                        meterLevel(liveSample.cpu_percent, CPU_THRESHOLDS) === 'warning',
+                      'text-error':
+                        meterLevel(liveSample.cpu_percent, CPU_THRESHOLDS) === 'critical',
+                    }"
+                  >
+                    <RollingNumber :value="formatPct(liveSample.cpu_percent)" />
+                  </dd>
+                </div>
+                <div class="flex gap-1">
+                  <dt>{{ t('router.live.memory') }}</dt>
+                  <dd class="text-highlighted font-medium">
+                    <RollingNumber :value="formatPct(liveSample.memory_percent)" />
+                  </dd>
+                </div>
+                <div class="flex gap-1">
+                  <dt>{{ t('router.live.temperature') }}</dt>
+                  <dd
+                    class="text-highlighted font-medium"
+                    :class="{
+                      'text-warning':
+                        meterLevel(liveSample.temperature_celsius, TEMP_THRESHOLDS) === 'warning',
+                      'text-error':
+                        meterLevel(liveSample.temperature_celsius, TEMP_THRESHOLDS) === 'critical',
+                    }"
+                  >
+                    <RollingNumber :value="formatCelsius(liveSample.temperature_celsius)" />
+                  </dd>
+                </div>
+                <div class="flex gap-1">
+                  <dt>{{ t('router.live.uptime') }}</dt>
+                  <dd class="text-highlighted font-medium">
+                    {{ formatUptime(liveSample.uptime_seconds) }}
+                  </dd>
+                </div>
+              </dl>
+              <FreshnessLabel v-if="liveAt" :at="liveAt" :expected-seconds="60" live />
+            </div>
+          </div>
           <p class="flex flex-wrap items-center gap-x-4 gap-y-1">
             <ExporterStateBadge
               :state="exporter?.state ?? 'pending_configuration'"
@@ -232,6 +446,19 @@ useHead({ title: () => rt.value?.name ?? t('router.title') })
       </UCard>
 
       <UTabs v-model="tab" :items="tabs" :content="false" variant="link" class="w-full" />
+
+      <div
+        v-if="tab === 'metrics' || tab === 'interfaces'"
+        class="flex flex-wrap items-center justify-between gap-2"
+      >
+        <USelect
+          v-model="range"
+          :items="rangeOptions"
+          class="w-44"
+          :aria-label="t('router.metrics.range')"
+          data-testid="router-range"
+        />
+      </div>
 
       <template v-if="tab === 'summary'">
         <UCard>
@@ -281,6 +508,19 @@ useHead({ title: () => rt.value?.name ?? t('router.title') })
         :site-id="rt.site_id"
         :router-id="rt.id"
         :router-ready="rt.onboarding_state !== 'pending_configuration'"
+      />
+      <template v-else-if="tab === 'metrics'">
+        <RouterMetricsPanel v-if="canSnmp" :router-id="rt.id" :range="range as RelativeRange" />
+        <UCard v-else class="py-4">
+          <EmptyState icon="i-lucide-lock" :title="t('router.noSnmpAccess')" />
+        </UCard>
+      </template>
+      <RouterInterfacesPanel
+        v-else-if="tab === 'interfaces'"
+        :router-id="rt.id"
+        :range="range as RelativeRange"
+        :live="live"
+        :can-series="canSnmp"
       />
       <UCard v-else class="py-4">
         <EmptyState

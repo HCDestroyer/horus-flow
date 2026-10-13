@@ -10,6 +10,18 @@ import { isClosedByUser, mockState } from './state'
  * resumen de seguridad, para que ninguna pantalla contradiga a otra (README › Decisiones).
  */
 
+/** Curva diaria de tráfico (bps) con pico nocturno, típica de un ISP residencial. */
+export function dailyCurve(scale: number, ms: number, timeZoneOffsetHours = -5) {
+  const hour = (new Date(ms).getUTCHours() + timeZoneOffsetHours + 24) % 24
+  const minute = new Date(ms).getUTCMinutes()
+  const h = hour + minute / 60
+  // Distancia circular a las 21 h: el pico nocturno sigue pasada la medianoche.
+  const toEvening = Math.min(Math.abs(h - 21), 24 - Math.abs(h - 21))
+  const evening = Math.exp(-(toEvening ** 2) / 8)
+  const midday = 0.55 * Math.exp(-((h - 13) ** 2) / 10)
+  return scale * (0.22 + 0.78 * Math.max(evening, midday))
+}
+
 export function tenantScale(tenant: MockTenant) {
   return 1 + (hash(tenant.tenant_id) % 7) / 4 // 1–2.5
 }

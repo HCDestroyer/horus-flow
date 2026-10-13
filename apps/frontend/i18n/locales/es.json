@@ -83,7 +83,8 @@
       "notifications": "Canales de notificación",
       "platformReputation": "Fuentes de reputación",
       "roles": "Roles y permisos",
-      "ai": "Inteligencia artificial"
+      "ai": "Inteligencia artificial",
+      "routers": "Salud de routers"
     },
     "search": "Buscar",
     "searchPlaceholder": "Buscar secciones…",
@@ -222,6 +223,9 @@
     },
     "ai": {
       "question": "¿Qué modelo de IA analiza los casos de este ISP y quién lo consultó?"
+    },
+    "routers": {
+      "question": "¿Están vivos mis routers y con qué carga?"
     }
   },
   "account": {
@@ -527,6 +531,12 @@
       "description": "Muestra las organizaciones (ASN) hacia las que va más tráfico.",
       "empty": "Sin tráfico atribuido a organizaciones en este periodo.",
       "listLabel": "Organizaciones con más tráfico"
+    },
+    "routers_status_grid": {
+      "description": "Muestra si cada router está vivo: estado con razón, CPU, temperatura y tráfico del enlace de subida.",
+      "empty": "Ningún router monitoreado todavía.",
+      "summary": "{ok} de {total} en línea",
+      "listLabel": "Estado de routers"
     }
   },
   "common": {
@@ -926,7 +936,9 @@
       "connection": "Conexión",
       "credentials": "Credenciales",
       "prefixes": "Prefijos de clientes",
-      "traffic": "Tráfico"
+      "traffic": "Tráfico",
+      "metrics": "Métricas",
+      "interfaces": "Interfaces"
     },
     "facts": {
       "lastFlow": "Último flujo",
@@ -949,7 +961,88 @@
       "routeros_version_unsupported": "RouterOS anterior a 7.12: no es compatible (solo RouterOS 7).",
       "traffic_flow_target_drift": "El destino de Traffic Flow del router no coincide con Horus.",
       "hardware_offload_suspected": "Posible offload por hardware: parte del tráfico no genera flujos (pérdidas)."
-    }
+    },
+    "pollNow": "Sondear ahora",
+    "pollQueued": "Sondeo en cola",
+    "pollQueuedBody": "El resultado llega en unos segundos por el canal en vivo.",
+    "pollNotQueued": "No se pudo encolar el sondeo",
+    "pollReasons": {
+      "no_tunnel": "El router no tiene túnel todavía.",
+      "poller_disabled": "El sondeador SNMP está desactivado.",
+      "no_snmp_credentials": "El router no tiene credenciales SNMP."
+    },
+    "live": {
+      "cpu": "CPU",
+      "memory": "Memoria",
+      "temperature": "Temperatura",
+      "uptime": "Uptime",
+      "rtt": "RTT",
+      "noSample": "Sin muestra SNMP todavía"
+    },
+    "metrics": {
+      "range": "Rango",
+      "cpu": "CPU",
+      "cpuAvg": "Media",
+      "cpuMax": "Núcleo máximo",
+      "memory": "Memoria",
+      "memoryUsed": "Memoria",
+      "temperature": "Temperatura",
+      "board": "Placa",
+      "cpuTemp": "CPU",
+      "latency": "Latencia ICMP",
+      "rtt": "RTT",
+      "availability": "Disponibilidad",
+      "availabilityRatio": "Sondeos respondidos",
+      "thresholdWarning": "Aviso {v}",
+      "thresholdCritical": "Crítico {v}",
+      "chartLabel": "{metric} · {range}",
+      "empty": "Sin series en este rango: el router aún no se ha sondeado.",
+      "gaps": "Los huecos son tramos sin observación (router apagado o sondeador caído), nunca ceros."
+    },
+    "interfaces": {
+      "name": "Interfaz",
+      "alias": "Alias",
+      "type": "Tipo",
+      "oper": "Estado",
+      "speed": "Velocidad",
+      "rx": "Bajada",
+      "tx": "Subida",
+      "errors": "Errores",
+      "drops": "Descartes",
+      "uplink": "uplink",
+      "notMonitored": "no sondeada",
+      "select": "Graficar {name}",
+      "selected": "{n} de 4 seleccionadas",
+      "maxSelected": "Como mucho 4 interfaces a la vez",
+      "chartTitle": "Tráfico por interfaz",
+      "chartLabel": "Bajada y subida de {names} · {range}",
+      "empty": "Sin interfaces descubiertas todavía: llegan con el primer sondeo SNMP.",
+      "discovered": "Descubiertas",
+      "noSelection": "Marca una interfaz para ver su tráfico.",
+      "operStates": {
+        "up": "activa",
+        "down": "caída",
+        "testing": "en prueba",
+        "unknown": "desconocida",
+        "dormant": "latente",
+        "not_present": "ausente",
+        "lower_layer_down": "capa inferior caída"
+      },
+      "types": {
+        "ethernetCsmacd": "Ethernet",
+        "l2vlan": "VLAN",
+        "bridge": "Bridge",
+        "ieee8023adLag": "Bonding",
+        "ppp": "PPP",
+        "tunnel": "Túnel",
+        "other": "Otro"
+      }
+    },
+    "wall": "Mural",
+    "exitWall": "Salir del mural",
+    "wallUplink": "Enlace de subida · últimas 6 h",
+    "wallInterfaces": "Interfaces físicas",
+    "noSnmpAccess": "Sin permiso para ver las métricas SNMP de este router (snmp.read)."
   },
   "onboarding": {
     "stepN": "Paso {n}",
@@ -2737,5 +2830,90 @@
       "advice": "Pide uno nuevo desde «¿Olvidaste tu contraseña?» o a un administrador de tu ISP.",
       "again": "Pedir otro enlace"
     }
+  },
+  "routerStatus": {
+    "online": "En línea",
+    "warning": "Aviso",
+    "critical": "Crítico",
+    "degraded": "Degradado",
+    "offline": "Fuera de línea",
+    "stale": "Sin datos recientes",
+    "unknown": "Nunca observado",
+    "maintenance": "En mantenimiento"
+  },
+  "routerReason": {
+    "ok": "Dentro de umbrales",
+    "cpu_high": "CPU alta",
+    "memory_high": "Memoria alta",
+    "temperature_high": "Temperatura alta",
+    "snmp_unreachable": "SNMP no responde",
+    "snmp_auth_failed": "Credenciales SNMP rechazadas",
+    "tunnel_down": "Túnel caído",
+    "host_unreachable_via_tunnel": "No responde por el túnel",
+    "exporter_silent": "Exportador silencioso",
+    "interface_down": "Interfaz caída",
+    "psu_failed": "Fuente de alimentación fallida",
+    "fan_failed": "Ventilador fallido"
+  },
+  "routerSignal": {
+    "icmp": "ICMP",
+    "snmp": "SNMP",
+    "wireguard": "Túnel",
+    "exporter": "Exportador",
+    "values": {
+      "ok": "ok",
+      "fail": "falla",
+      "auth_failed": "credenciales",
+      "unknown": "sin datos",
+      "stale": "sin handshake",
+      "never": "nunca"
+    },
+    "label": "Señal {signal}: {value}"
+  },
+  "routersHealth": {
+    "title": "Salud de routers",
+    "summary": {
+      "online": "En línea",
+      "warning": "Aviso",
+      "critical": "Crítico",
+      "degraded": "Degradado",
+      "offline": "Fuera de línea",
+      "nodata": "Sin datos",
+      "label": "Routers por estado"
+    },
+    "filters": {
+      "site": "Nodo",
+      "status": "Estado",
+      "allStatuses": "Todos los estados",
+      "problems": "Solo problemas"
+    },
+    "poller": {
+      "unhealthyTitle": "El sondeo SNMP no está activo: los estados son los últimos conocidos",
+      "unhealthyBody": "Ningún router se marca fuera de línea por falta de monitoreo: lo que ves es la última observación. Último ciclo del sondeador:",
+      "disabledTitle": "El sondeo SNMP está desactivado en esta instalación: HORUS_SNMP_ENABLED",
+      "disabledBody": "Los estados son los últimos conocidos. Actívalo (HORUS_SNMP_ENABLED=true) para volver a observar los routers.",
+      "ok": "{n} routers en sondeo · cada {s} s · último ciclo"
+    },
+    "empty": "Ningún router coincide con estos filtros.",
+    "emptyAll": "Aún no hay routers. Da de alta un nodo y su router en Nodos y routers.",
+    "card": {
+      "cpu": "CPU",
+      "memory": "Memoria",
+      "temperature": "Temperatura",
+      "uptime": "Uptime",
+      "rtt": "RTT",
+      "uplink": "Enlace de subida",
+      "utilization": "{pct} de {speed}",
+      "interfaces": "{up} de {total} interfaces activas",
+      "observed": "observado",
+      "noSample": "Sin muestra todavía",
+      "sparkline": "Bajada por {name} en la última hora",
+      "open": "Abrir la ficha de {name}",
+      "signals": "Señales"
+    },
+    "wall": "Mural",
+    "exitWall": "Salir del mural",
+    "listLabel": "Routers",
+    "updated": "Actualizado"
   }
 }

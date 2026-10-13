@@ -38,7 +38,7 @@ import { widgetData } from './widget-data'
  */
 
 export type MockScenario =
-  'normal' | 'degraded' | 'system-error' | 'widget-error' | 'empty' | 'no-asn'
+  'normal' | 'degraded' | 'system-error' | 'widget-error' | 'empty' | 'no-asn' | 'snmp-off'
 
 export interface MockOptions {
   /** Latencia simulada en ms (para ver los estados de carga). */
@@ -60,6 +60,7 @@ const SCENARIOS: MockScenario[] = [
   'widget-error',
   'empty',
   'no-asn',
+  'snmp-off',
 ]
 /** Ventana de re-autenticación reciente (`auth_time`, security.md §4: 5 min). */
 const REAUTH_WINDOW_MS = 5 * 60_000
@@ -560,7 +561,7 @@ export function createMockFetch(options: MockOptions = {}) {
             : hasPermission(viewer.user, tenantId, 'customers.read'),
         empty: mode === 'empty',
       },
-      { degraded: mode === 'degraded' },
+      { degraded: mode === 'degraded', scenario: mode },
     )
     if (!data) return problem(404, 'NOT_FOUND', 'Este widget no tiene datos')
     return json(data, 200, { 'Cache-Control': 'private, max-age=7' })

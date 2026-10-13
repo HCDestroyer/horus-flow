@@ -6,7 +6,12 @@
  * esquemas de origen (SecuritySummary, CustomerStats, FlowExporter, mensaje WS
  * `traffic.summary`). Pendiente de fijarlas en C9 (ver README › Pendientes).
  */
-import type { FlowExporterState, SecurityState, Severity } from '~~/types/api'
+import type {
+  FlowExporterState,
+  RouterEffectiveStatus,
+  SecurityState,
+  Severity,
+} from '~~/types/api'
 
 /** `traffic_now` (state): mismas claves que el mensaje WS `traffic.summary` + comparación. */
 export interface TrafficNowValues {
@@ -111,4 +116,30 @@ export interface WatchedPortRow {
   service: string
   customers: number
   flows: number
+}
+
+/**
+ * `routers_status_grid` (table), de `GET /routers/status` (snmp.yaml): columnas tal como las
+ * sirve analytics. `uplink` es el nombre de la interfaz de subida; tasas y muestras `null`
+ * cuando no hay observación (`stale`, `unknown`, `offline`).
+ */
+export interface RouterStatusRow {
+  router: string
+  site: string
+  router_id: string
+  status: RouterEffectiveStatus
+  reason: string | null
+  since: string | null
+  last_observed_at: string | null
+  cpu_percent: number | null
+  memory_percent: number | null
+  temperature_celsius: number | null
+  uptime_seconds: number | null
+  rx_bps: number | null
+  tx_bps: number | null
+  uplink: string | null
+  exporter_state: string | null
+  tunnel_state: string | null
+  interfaces_up: number | null
+  interfaces_total: number | null
 }

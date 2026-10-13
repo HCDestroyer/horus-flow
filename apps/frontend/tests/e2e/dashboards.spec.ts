@@ -163,4 +163,37 @@ test.describe('vista mural @widgets', () => {
       await expect(page.getByTestId(`dev-widget-${type}`)).toBeVisible()
     }
   })
+
+  test('routers_status_grid (I2): filas por router, problemas primero; en mural una línea por fila', async ({
+    page,
+  }) => {
+    await loginAsAdmin(page)
+    await page.goto('/t/fibra-norte/dev/widgets')
+    const section = page.getByTestId('dev-widget-routers_status_grid')
+    await section.scrollIntoViewIfNeeded()
+    const w = section.locator('[data-testid="widget"]')
+    await expect(w).toHaveAttribute('data-state', 'ready')
+    await expect(w).toContainText('de 6 en línea')
+    const rows = w.locator('li[data-router-status]')
+    await expect(rows).toHaveCount(6)
+    await expect(rows.first()).toHaveAttribute('data-router-status', 'warning')
+    await expect(rows.first()).toContainText('CPU alta')
+    // Mural: una línea por router (sin cortes), con las que no caben ocultas enteras.
+    await page.goto('/t/fibra-norte/dev/widgets?scale=wall')
+    const wall = page
+      .getByTestId('dev-widget-routers_status_grid')
+      .locator('[data-testid="widget"]')
+    await wall.scrollIntoViewIfNeeded()
+    await expect(wall).toHaveAttribute('data-state', 'ready')
+    await page.waitForTimeout(400)
+    const visible = await wall
+      .locator('[data-fit-item]')
+      .evaluateAll((els) =>
+        els
+          .filter((e) => getComputedStyle(e).visibility !== 'hidden')
+          .map((e) => e.getBoundingClientRect().height),
+      )
+    expect(visible.length).toBeGreaterThan(0)
+    for (const h of visible) expect(h).toBeLessThan(60)
+  })
 })

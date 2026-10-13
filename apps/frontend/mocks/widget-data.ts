@@ -6,6 +6,7 @@ import {
   type ExporterRow,
   type FindingFeedRow,
   type FindingsSummaryValues,
+  type RouterStatusRow,
   type SecurityByNodeRow,
   type TopCustomerRow,
   type TopRow,
@@ -21,6 +22,7 @@ import type {
 } from '~~/types/api'
 import {
   CATEGORIES,
+  dailyCurve,
   maskIp,
   ORGANIZATIONS,
   SERVICES,
@@ -33,6 +35,7 @@ import {
 import type { MockTenant } from './data'
 import { customerCounts, customersOf, isInactive, routersOf, sitesOf } from './inventory'
 import { hash, iso, rng } from './random'
+import { routerStatusList, sortRouterStatus } from './snmp'
 
 export { openFindings, type MockFinding } from './base'
 
@@ -52,18 +55,6 @@ export interface WidgetDataContext {
   /** El espectador puede ver IPs de clientes (`customers.read`). */
   canSeePersonalData: boolean
   empty: boolean
-}
-
-/** Curva diaria de tráfico (bps) con pico nocturno, típica de un ISP residencial. */
-function dailyCurve(scale: number, ms: number, timeZoneOffsetHours = -5) {
-  const hour = (new Date(ms).getUTCHours() + timeZoneOffsetHours + 24) % 24
-  const minute = new Date(ms).getUTCMinutes()
-  const h = hour + minute / 60
-  // Distancia circular a las 21 h: el pico nocturno sigue pasada la medianoche.
-  const toEvening = Math.min(Math.abs(h - 21), 24 - Math.abs(h - 21))
-  const evening = Math.exp(-(toEvening ** 2) / 8)
-  const midday = 0.55 * Math.exp(-((h - 13) ** 2) / 10)
-  return scale * (0.22 + 0.78 * Math.max(evening, midday))
 }
 
 function meta(
@@ -170,6 +161,80 @@ function exportersStatus(ctx: WidgetDataContext, degraded: boolean): WidgetData 
       { key: 'loss_ratio', type: 'percent' },
     ],
     rows,
+  )
+}
+
+/**
+ * `routers_status_grid` (table): una fila por router con el estado efectivo y su última
+ * muestra (misma base que `GET /routers/status`); respeta `site_ids`, `show` y `sort`.
+ */
+function routersStatusGrid(ctx: WidgetDataContext, options: WidgetDataOptions): WidgetData {
+  const siteIds = (ctx.widget.config.site_ids as string[] | undefined) ?? []
+  const show = (ctx.widget.config.show as string[] | undefined) ?? []
+  const sort = String(ctx.widget.config.sort ?? 'status')
+  const list = routerStatusList(ctx.tenant, ctx.now, {
+    degraded: options.degraded,
+    scenario: options.scenario,
+  })
+  let rows: RouterStatusRow[] = list.data
+    .filter(
+      (r) =>
+        (!siteIds.length || siteIds.includes(r.site_id)) &&
+        (!show.length || show.includes(r.status)),
+    )
+    .map((r) => ({
+      router: r.name,
+      site: r.site_name,
+      router_id: r.router_id,
+      status: r.status,
+      reason: r.reason,
+      since: r.since,
+      last_observed_at: r.last_observed_at,
+      cpu_percent: r.device.cpu_percent ?? null,
+      memory_percent: r.device.memory_percent ?? null,
+      temperature_celsius: r.device.temperature_celsius ?? null,
+      uptime_seconds: r.device.uptime_seconds ?? null,
+      rx_bps: r.uplink?.rx_bps ?? null,
+      tx_bps: r.uplink?.tx_bps ?? null,
+      uplink: r.uplink?.name ?? null,
+      exporter_state: r.signals.exporter,
+      tunnel_state: r.signals.wireguard,
+      interfaces_up: r.interfaces_up,
+      interfaces_total: r.interfaces_total,
+    }))
+  const num = (v: number | null) => v ?? -1
+  if (sort === 'name') rows = [...rows].sort((a, b) => a.router.localeCompare(b.router))
+  else if (sort === 'cpu') rows = [...rows].sort((a, b) => num(b.cpu_percent) - num(a.cpu_percent))
+  else if (sort === 'traffic')
+    rows = [...rows].sort((a, b) => num(b.rx_bps) + num(b.tx_bps) - num(a.rx_bps) - num(a.tx_bps))
+  else
+    rows = sortRouterStatus(rows.map((r) => ({ ...r, name: r.router }))).map(
+      ({ name: _n, ...r }) => r,
+    )
+  return table(
+    ctx,
+    [
+      { key: 'router', type: 'string' },
+      { key: 'site', type: 'string' },
+      { key: 'router_id', type: 'string' },
+      { key: 'status', type: 'state' },
+      { key: 'reason', type: 'string' },
+      { key: 'since', type: 'timestamp' },
+      { key: 'last_observed_at', type: 'timestamp' },
+      { key: 'cpu_percent', type: 'percent' },
+      { key: 'memory_percent', type: 'percent' },
+      { key: 'temperature_celsius', type: 'number' },
+      { key: 'uptime_seconds', type: 'number' },
+      { key: 'rx_bps', type: 'bps' },
+      { key: 'tx_bps', type: 'bps' },
+      { key: 'uplink', type: 'string' },
+      { key: 'exporter_state', type: 'state' },
+      { key: 'tunnel_state', type: 'state' },
+      { key: 'interfaces_up', type: 'number' },
+      { key: 'interfaces_total', type: 'number' },
+    ],
+    rows,
+    { meta: { freshness_seconds: 20 } },
   )
 }
 
@@ -479,9 +544,15 @@ function watchedPorts(ctx: WidgetDataContext): WidgetData {
 }
 
 /** Datos para un widget; `undefined` si el tipo no tiene datos (`data_endpoint_kind: none`). */
+export interface WidgetDataOptions {
+  degraded: boolean
+  /** Escenario del mock (`snmp-off` deja los routers en `stale`). */
+  scenario?: string
+}
+
 export function widgetData(
   ctx: WidgetDataContext,
-  options: { degraded: boolean },
+  options: WidgetDataOptions,
 ): WidgetData | undefined {
   switch (ctx.widget.type) {
     case 'traffic_now':
@@ -494,6 +565,8 @@ export function widgetData(
       return botnetSignals(ctx)
     case 'exporters_status':
       return exportersStatus(ctx, options.degraded)
+    case 'routers_status_grid':
+      return routersStatusGrid(ctx, options)
     case 'traffic_timeseries':
       return trafficTimeseries(ctx)
     case 'top_categories':

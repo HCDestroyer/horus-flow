@@ -31,21 +31,62 @@ watch(
   { immediate: true },
 )
 
-/** Un mini-dashboard por tipo: el widget de la plantilla que lo usa, en su tamaño. */
+/**
+ * Un mini-dashboard por tipo: el widget de la plantilla que lo usa, en su tamaño; los tipos
+ * que ninguna plantilla usa todavía (p. ej. `routers_status_grid`) se muestran con su tamaño
+ * por defecto y datos por vista previa (`POST /widget-data/preview`).
+ */
 const items = computed(() =>
   registeredTypes().flatMap((type) => {
+    const registered = widgetFor(type)!
     const template = templates.value.find((d) => d.widgets.some((w) => w.type === type))
     const widget = template?.widgets.find((w) => w.type === type)
-    if (!template || !widget) return []
+    if (template && widget) {
+      return [
+        {
+          type,
+          title: registered.catalog.title,
+          description: t(registered.manifest.description),
+          size: `${widget.position.w}×${widget.position.h}`,
+          preview: false,
+          dashboard: {
+            ...template,
+            widgets: [{ ...widget, position: { ...widget.position, x: 0, y: 0 } }],
+          } satisfies Dashboard,
+        },
+      ]
+    }
+    if (!templates.value.length) return []
+    const size = registered.manifest.sizes[scale.value].default
     return [
       {
         type,
-        title: widgetFor(type)!.catalog.title,
-        description: t(widgetFor(type)!.manifest.description),
-        size: `${widget.position.w}×${widget.position.h}`,
+        title: registered.catalog.title,
+        description: t(registered.manifest.description),
+        size: `${size.w}×${size.h}`,
+        preview: true,
         dashboard: {
-          ...template,
-          widgets: [{ ...widget, position: { ...widget.position, x: 0, y: 0 } }],
+          id: `dev-${type}`,
+          tenant_id: null,
+          version: 1,
+          name: registered.catalog.title,
+          visibility: 'private',
+          owner_id: null,
+          layout: { grid: '12-col', columns: 12, row_height_px: 80 },
+          default_range: '24h',
+          refresh_seconds: 60,
+          created_at: '2026-10-01T00:00:00.000Z',
+          updated_at: '2026-10-01T00:00:00.000Z',
+          widgets: [
+            {
+              id: `dev-${type}`,
+              type,
+              title: null,
+              position: { x: 0, y: 0, w: size.w, h: size.h },
+              config: {},
+              refresh_seconds: 60,
+            },
+          ],
         } satisfies Dashboard,
       },
     ]
@@ -86,6 +127,7 @@ useHead({ title: () => t('devWidgets.title') })
           :scale="scale"
           :live="config.public.apiMock"
           :fill="false"
+          :preview="item.preview"
         />
       </div>
     </section>

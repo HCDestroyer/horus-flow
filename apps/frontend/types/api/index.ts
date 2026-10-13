@@ -170,3 +170,21 @@ export type AssistAnalysis = Schemas['AssistAnalysis']
 export type AssistAuditEntry = Schemas['AssistAuditEntry']
 export type McpToken = Schemas['McpToken']
 export type McpTokenIssued = Schemas['McpTokenIssued']
+
+// Monitoreo de routers (EP-08, I2): estado efectivo, muestras SNMP/ICMP y series.
+export type RouterStatus = Schemas['RouterStatus']
+export type RouterEffectiveStatus = Schemas['RouterEffectiveStatus']
+export type RouterObservedState = Schemas['RouterObservedState']
+export type RouterSignals = Schemas['RouterSignals']
+export type RouterDeviceSample = Schemas['RouterDeviceSample']
+export type RouterUplink = Schemas['RouterUplink']
+export type RouterThresholdHit = Schemas['RouterThresholdHit']
+export type RouterLiveMetrics = Schemas['RouterLiveMetrics']
+export type RouterInterface = Schemas['RouterInterface']
+export type InterfaceSample = Schemas['InterfaceSample']
+export type InterfaceOperStatus = Schemas['InterfaceOperStatus']
+export type PollerHealth = Schemas['PollerHealth']
+export type RouterStatusList =
+  operations['listRouterStatus']['responses'][200]['content']['application/json']
+export type RouterInterfaceList =
+  operations['listRouterInterfaces']['responses'][200]['content']['application/json']

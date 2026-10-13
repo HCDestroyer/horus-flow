@@ -39,6 +39,12 @@ export const CHART_INK = {
 
 export type ChartMode = keyof typeof CHART_INK
 
+/** Líneas de umbral (aviso / crítico): los colores de estado, solo como referencia, nunca como serie. */
+export const THRESHOLD_INK = {
+  light: { warning: '#a16207', critical: '#dc2626' },
+  dark: { warning: '#e9b949', critical: '#f25c69' },
+} as const
+
 /** Fila de `BarList` (top N). */
 export interface BarItem {
   label: string

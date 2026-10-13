@@ -37,10 +37,23 @@ export function useTenant() {
   }
 }
 
-/** Incremento máximo visible (`NUXT_PUBLIC_NAV_INCREMENT`, por defecto I1), normalizado. */
+/**
+ * Incremento máximo visible (`NUXT_PUBLIC_NAV_INCREMENT`, por defecto I1), normalizado. Con la
+ * API simulada, `localStorage['horus.mock.navIncrement']` lo sobrescribe (pruebas y demos de
+ * secciones del siguiente incremento sin otra build).
+ */
 export function useNavIncrement() {
   const config = useRuntimeConfig()
-  return computed<Increment>(() => parseIncrement(config.public.navIncrement))
+  return computed<Increment>(() => {
+    const base = parseIncrement(config.public.navIncrement)
+    if (!config.public.apiMock || !import.meta.client) return base
+    try {
+      const override = window.localStorage.getItem('horus.mock.navIncrement')
+      return override ? parseIncrement(override, base) : base
+    } catch {
+      return base
+    }
+  })
 }
 
 /** Navegación visible para el usuario en el ISP actual. */

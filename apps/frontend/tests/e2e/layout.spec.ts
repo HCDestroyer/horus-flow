@@ -87,6 +87,11 @@ const I1_SCREENS = [
   '/t/fibra-norte/nodes/0192e111-0000-7000-8000-000000000105',
   '/t/fibra-norte/routers/0192e333-0000-7000-8000-000000000106/connection',
   '/t/fibra-norte/routers/0192e333-0000-7000-8000-000000000101/prefixes',
+  // I2 (EP-08): salud de routers y las pestañas Métricas e Interfaces de la ficha.
+  '/t/fibra-norte/routers',
+  '/t/fibra-norte/routers?status=problems',
+  '/t/fibra-norte/routers/0192e333-0000-7000-8000-000000000102/metrics',
+  '/t/fibra-norte/routers/0192e333-0000-7000-8000-000000000102/interfaces',
   '/t/fibra-norte/admin/kiosks',
   '/t/fibra-norte/admin/notifications',
   '/t/fibra-norte/admin/roles',
@@ -106,7 +111,11 @@ test.describe('pantallas de I1 sin desbordamiento @layout', () => {
       test.setTimeout(180_000)
       await page.setViewportSize({ width, height: 900 })
       await page.emulateMedia({ reducedMotion: 'reduce' })
-      await page.addInitScript(() => window.localStorage.setItem('horus.mock.findingEveryMs', '0'))
+      await page.addInitScript(() => {
+        window.localStorage.setItem('horus.mock.findingEveryMs', '0')
+        // Salud de routers es de I2: visible con la API simulada vía este override.
+        window.localStorage.setItem('horus.mock.navIncrement', 'I2')
+      })
       await loginAsAdmin(page)
       for (const path of I1_SCREENS) {
         await page.goto(path)

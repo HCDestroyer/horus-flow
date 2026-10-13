@@ -25,8 +25,22 @@ const props = withDefaults(
     stacked?: boolean
     area?: boolean
     showLegend?: boolean
+    /** Líneas de umbral (aviso/crítico) en el eje Y, con su etiqueta. */
+    thresholds?: { value: number; label: string; level: 'warning' | 'critical' }[]
+    /** Límites fijos del eje Y (p. ej. 0–100 en porcentajes). */
+    min?: number
+    max?: number
   }>(),
-  { kind: 'line', timeFormat: 'time', stacked: false, area: false, showLegend: true },
+  {
+    kind: 'line',
+    timeFormat: 'time',
+    stacked: false,
+    area: false,
+    showLegend: true,
+    thresholds: () => [],
+    min: undefined,
+    max: undefined,
+  },
 )
 
 const theme = useChartTheme()
@@ -125,6 +139,8 @@ const option = computed<ChartOption>(() => {
     },
     yAxis: {
       type: 'value',
+      min: props.min,
+      max: props.max,
       splitNumber: wall.value ? 3 : 4,
       axisLabel: {
         color: ink.muted,
@@ -161,6 +177,30 @@ const option = computed<ChartOption>(() => {
         },
         areaStyle: props.area && i === 0 ? { opacity: 0.08 } : undefined,
         emphasis: { disabled: wall.value },
+        // Umbrales: líneas discontinuas con el color del nivel, etiquetadas en el extremo.
+        markLine:
+          i === 0 && props.thresholds.length
+            ? {
+                silent: true,
+                symbol: 'none',
+                animation: false,
+                data: props.thresholds.map((th) => ({
+                  yAxis: th.value,
+                  name: th.label,
+                  lineStyle: {
+                    color: THRESHOLD_INK[theme.value.mode][th.level],
+                    type: 'dashed',
+                    width: wall.value ? 2 : 1,
+                  },
+                  label: {
+                    formatter: th.label,
+                    position: 'insideEndTop',
+                    color: THRESHOLD_INK[theme.value.mode][th.level],
+                    fontSize: wall.value ? px(20) : 11,
+                  },
+                })),
+              }
+            : undefined,
       }
     }),
   }

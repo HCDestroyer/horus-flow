@@ -429,6 +429,9 @@
         case 'exporters_status':
           if (data.kind === 'table') return drawExporters(body, rows)
           break
+        case 'routers_status_grid':
+          if (data.kind === 'table') return drawRouters(body, rows)
+          break
         case 'traffic_timeseries':
           if (data.kind === 'series') return drawChart(c, data.series || [])
           break
@@ -582,6 +585,63 @@
       if (r.state === 'exporting' && typeof r.flows_per_second === 'number')
         extra = format('', r.flows_per_second) + ' flujos/s'
       s.appendChild(document.createTextNode(' · ' + extra))
+    }
+  }
+
+  // Estado de routers (SNMP): resumen "N de M en línea" y una línea por router, problemas
+  // primero: punto de color + nombre + estado (y razón) + CPU + temperatura + bajada.
+  var RT_STATE = {
+    online: ['ok', 'En línea'],
+    warning: ['warn', 'Aviso'],
+    critical: ['bad', 'Crítico'],
+    degraded: ['warn', 'Degradado'],
+    offline: ['bad', 'Fuera de línea'],
+    stale: ['warn', 'Sin datos recientes'],
+    unknown: ['warn', 'Nunca observado'],
+    maintenance: ['warn', 'Mantenimiento']
+  }
+  var RT_ORDER = { critical: 0, offline: 1, degraded: 2, warning: 3, stale: 4, unknown: 5, maintenance: 6 }
+  var RT_REASON = {
+    cpu_high: 'CPU alta',
+    memory_high: 'memoria alta',
+    temperature_high: 'temperatura alta',
+    snmp_unreachable: 'SNMP no responde',
+    snmp_auth_failed: 'credenciales SNMP',
+    tunnel_down: 'túnel caído',
+    host_unreachable_via_tunnel: 'no responde por el túnel',
+    exporter_silent: 'exportador silencioso',
+    interface_down: 'interfaz caída',
+    psu_failed: 'fuente fallida',
+    fan_failed: 'ventilador fallido'
+  }
+  function drawRouters(body, rows) {
+    if (!rows.length) return nodata(body)
+    var ok = 0
+    for (var i = 0; i < rows.length; i++) if (rows[i].status === 'online') ok++
+    var head = add(body, el('p', 'sub'))
+    add(head, el('b', ok === rows.length ? 'ok' : 'warn', ok + ' de ' + rows.length))
+    head.appendChild(document.createTextNode(' en línea'))
+    var list = rows.slice(0)
+    list.sort(function (a, b) {
+      var oa = RT_ORDER.hasOwnProperty(a.status) ? RT_ORDER[a.status] : 9
+      var ob = RT_ORDER.hasOwnProperty(b.status) ? RT_ORDER[b.status] : 9
+      return oa - ob || String(a.router || '').localeCompare(String(b.router || ''))
+    })
+    list = list.slice(0, 8)
+    var t = add(body, el('table'))
+    for (var j = 0; j < list.length; j++) {
+      var r = list[j]
+      var st = RT_STATE[r.status] || ['warn', label(r.status)]
+      var tr = add(t, el('tr'))
+      var who = add(tr, el('td'))
+      add(who, el('span', 'dot ' + st[0]))
+      who.appendChild(document.createTextNode(' ' + (r.router || '—')))
+      var what = st[1]
+      if (r.reason && r.reason !== 'ok') what += ' · ' + (RT_REASON[r.reason] || label(r.reason))
+      add(tr, el('td', st[0], what))
+      add(tr, el('td', 'num', typeof r.cpu_percent === 'number' ? 'CPU ' + Math.round(r.cpu_percent) + ' %' : '—'))
+      add(tr, el('td', 'num', typeof r.temperature_celsius === 'number' ? Math.round(r.temperature_celsius) + ' °C' : '—'))
+      add(tr, el('td', 'num', typeof r.rx_bps === 'number' ? '↓ ' + format('bps', r.rx_bps) : '—'))
     }
   }
 
@@ -778,6 +838,7 @@
     customers_active: 'Clientes activos',
     findings_summary: 'Hallazgos abiertos',
     exporters_status: 'Exportadores',
+    routers_status_grid: 'Routers',
     traffic_timeseries: 'Tráfico',
     top_categories: 'Top categorías',
     top_services: 'Top servicios',

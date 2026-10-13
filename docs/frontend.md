@@ -124,6 +124,7 @@ Dashboards                    /t/:slug/dashboards[/:id]                         
 OPERACIÓN
 ├─ Nodos y routers            /t/:slug/nodes[/:nodeId]
 │                              /t/:slug/routers/:routerId[/:tab]                 I0 · I1
+├─ Salud de routers           /t/:slug/routers (vista NOC; ?scale=wall)         EP-08 (entregada en I1)
 ├─ Clientes                   /t/:slug/clients[/:clientId]                      I1
 └─ Tráfico                    /t/:slug/traffic                                  I1
 SEGURIDAD
@@ -154,6 +155,7 @@ Fuera de la barra: /login · /forgot-password · /reset-password (#token) · /in
 | --- | --- | --- | --- |
 | Dashboards | I1 | autenticado; cada widget exige el suyo | ✔ |
 | Nodos y routers | I0 (alta) · I1 (onboarding, exportador) · I2 (SNMP) | `devices.read` | estado del exportador ✔ |
+| Salud de routers | EP-08, entregada en I1 (visible con la compilación por defecto) | `devices.read` (series y muestra en vivo: `snmp.read`) | `routers.status` y `router.{id}.metrics` ✔ |
 | Clientes | I1 | `customers.read` (detalle auditado) | contador de nuevos ✔ |
 | Tráfico | I1 | `traffic.read` | resumen ✔ |
 | Hallazgos | I1 | `security.findings.read` (gestionar: `security.findings.manage`; evidencia: `security.evidence.read`) | ✔ |
@@ -254,7 +256,7 @@ information"*). Los nombres de tipo siguen la convención de [`api.md`](api.md) 
 | `findings_trend` | ¿Aumentan los hallazgos? (por día y tipo, 7/30 días) | 6×3 | REST | ✔ | I1 |
 | `security_by_node` | ¿Qué nodos tienen más clientes con señales? | 4×4 | `GET /security/summary` | ✔ | I1 |
 | `watched_ports` | ¿A qué puertos vigilados (23, 2323, 445, 7547, 8291…) sale tráfico y desde cuántos clientes? | 4×3 | agregados de seguridad | ✔ | I1 |
-| `routers_status_grid` | ¿Están vivos mis routers? (online/degradado/offline con razón, CPU) | 4×3, 12×2 | WS SNMP | ✔ | I2 |
+| `routers_status_grid` | ¿Están vivos mis routers? (los 8 estados con razón, CPU, temperatura, rx/tx del uplink; "N de M en línea") | 4×3, 6×3, 6×4, 12×2, 12×4 | `GET /routers/status` + WS `routers.status` | ✔ | I2 ✔ hecho |
 | `commercial_candidates` | ¿Qué IPs residenciales parecen comerciales? (confianza, razón principal) | 6×4 | REST | — · DP | I2 |
 | `activity_heatmap` | ¿Cuándo hay más uso? (hora × día) | 6×3 | agregados | ✔ | I2 |
 | `platform_summary` | ¿Cómo están todos los ISP? (exportadores, tráfico, hallazgos críticos, sin datos de clientes) | 12×4 | plataforma | ✔ (kiosco de plataforma) | I2 |
@@ -354,6 +356,10 @@ enmascarada (§7.4).
 
 Pantallas murales que muestran dashboards **indefinidamente, sin interacción**, legibles a
 distancia y que se recuperan solas. Ruta `/kiosk`, layout propio sin barra lateral ni toolbar.
+Dentro de la app, `?scale=wall` abre la misma presentación (layout `wall`, Escape para salir)
+en un dashboard, en **Salud de routers** (rejilla de tarjetas que reparte N routers en columnas y
+filas que llenan la pantalla sin scroll, `v-fit-optional` oculta lo secundario, halo solo en
+crítico/caído) y en la **ficha de un router** (pantalla NOC de un solo router, §8.4).
 
 ### 7.1 Requisitos
 
@@ -616,10 +622,32 @@ Google o Meta) y qué revisar; la capacidad `classification` aparece en el estad
 
 - **Nodos:** lista con su router principal, estado del exportador y del túnel, clientes activos y
   estado de los prefijos ("Sin prefijos · modo descubrimiento").
-- **Ficha del router:** cabecera con estado del exportador (*Pendiente de configurar*,
-  *Exportando*, *Silencioso*, *Con pérdidas*, *Reloj desfasado*), túnel ("último handshake hace
-  12 s"), flujos/s y cobertura. Pestañas: Resumen · Conexión · Prefijos de clientes · Tráfico ·
-  (I2) Métricas, Interfaces.
+- **Ficha del router:** cabecera con el **estado efectivo** (`RouterStatusBadge`: los 8 estados
+  de [`api.md`](api.md) §2.6 con icono + texto + color, razón traducida y "desde hace…"; `stale`
+  se lee "Sin datos recientes", nunca caído) y, si hay muestra, CPU / memoria / temperatura /
+  uptime en vivo (`GET /routers/{id}/metrics/live` + tema `router.{id}.metrics`), estado del
+  exportador (*Pendiente de configurar*, *Exportando*, *Silencioso*, *Con pérdidas*, *Reloj
+  desfasado*), túnel ("último handshake hace 12 s"), flujos/s y cobertura. **"Sondear ahora"**
+  (`devices.update`): `POST /routers/{id}/poll` con `Idempotency-Key` → toast "Sondeo en cola" y
+  botón deshabilitado 10 s; el resultado llega por el canal en vivo. Pestañas: Resumen ·
+  Conexión · Credenciales · Prefijos de clientes · **Métricas** (rango 1 h…30 d en la URL;
+  CPU media y núcleo máximo, memoria, temperatura de placa y CPU, latencia ICMP y disponibilidad,
+  con líneas de umbral 80/95 % y 70/85 °C y los huecos como huecos; analítica caída → aviso de
+  degradado) · **Interfaces** (inventario IF-MIB unido a la última muestra: estado con punto de
+  color, velocidad, rx/tx con barras de utilización, errores y descartes, insignia "uplink", "no
+  sondeada"; al marcar hasta 4 se grafica su rx/tx del rango, el uplink por defecto) · Tráfico.
+  `?scale=wall` → **mural de un solo router**: cabecera grande con nombre, nodo, estado y razón;
+  medidores grandes de CPU / memoria / temperatura (`RollingNumber`), uptime y RTT; gráfica del
+  uplink (rx/tx, 6 h) y las interfaces físicas en una línea por fila (`v-fit-rows`).
+- **Salud de routers** (`/t/:slug/routers`, I2): la vista NOC de los routers del ISP. Resumen
+  por estado (en línea, aviso, crítico, degradado, fuera de línea, sin datos; números que
+  ruedan), filtros de nodo y estado en la URL, aviso cuando el sondeador no late ("El sondeo SNMP
+  no está activo: los estados son los últimos conocidos") o está desactivado
+  (`HORUS_SNMP_ENABLED`), y una rejilla de tarjetas, problemas primero: nombre y nodo, estado con
+  razón, señales (ICMP, SNMP, túnel, exportador), medidores con umbral visible, uptime, RTT,
+  enlace de subida con rx/tx y utilización y un sparkline de la bajada del uplink (última hora,
+  pedido al entrar en pantalla). `GET /routers/status` cada 30 s; el tema `routers.status`
+  corrige solo la fila del router que cambió. Click → ficha. Modo mural (§7).
 - **Conexión (onboarding)** en tres pasos con estado en vivo, sin leer documentación
   ([`vendors/mikrotik.md`](vendors/mikrotik.md) §5.2, §7; [ADR-0022](adr/0022-mikrotik-routeros-v7-primer-fabricante.md)):
   1. **Generar script** — requisitos visibles (RouterOS v7 ≥ 7.12; Horus no escribe en el router:
@@ -887,7 +915,7 @@ apps/frontend/
 ├── app/
 │   ├── layouts/        default.vue, auth.vue, kiosk.vue
 │   ├── pages/
-│   │   ├── t/[slug]/    dashboards/, nodes/, routers/, clients/, traffic/, security/, admin/
+│   │   ├── t/[slug]/    dashboards/, nodes/, routers/ (salud + ficha), clients/, traffic/, security/, admin/
 │   │   ├── global/ platform/ account/ login/
 │   │   └── kiosk/      emparejamiento y reproductor
 │   ├── widgets/        un directorio por tipo: manifest.ts + Widget.vue (+ tests); registro.ts
