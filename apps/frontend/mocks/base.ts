@@ -109,6 +109,28 @@ export const ORGANIZATIONS = [
   'Fastly · AS54113',
 ]
 
+/**
+ * ASN remotos del top por ASN/organización (`/analytics/traffic/top`). `name` es el nombre del
+ * registro (null si no se conoce: la API devuelve solo "AS<n>"); `org`, la organización del
+ * catálogo a la que pertenece (null si no está en el catálogo).
+ */
+export const REMOTE_ASNS: { asn: number; name: string | null; org: string | null }[] = [
+  { asn: 15169, name: 'Google LLC', org: 'Google' },
+  { asn: 2906, name: 'Netflix Streaming Services', org: 'Netflix' },
+  { asn: 32934, name: 'Meta Platforms', org: 'Meta Platforms' },
+  { asn: 20940, name: 'Akamai International', org: 'Akamai' },
+  { asn: 36040, name: 'YouTube (Google)', org: 'Google' },
+  { asn: 16509, name: 'Amazon.com', org: 'Amazon' },
+  { asn: 263237, name: null, org: null },
+  { asn: 13335, name: 'Cloudflare', org: 'Cloudflare' },
+  { asn: 8075, name: 'Microsoft Corporation', org: 'Microsoft' },
+  { asn: 396986, name: 'ByteDance', org: 'ByteDance' },
+  { asn: 32590, name: 'Valve Corporation', org: 'Valve' },
+  { asn: 54113, name: 'Fastly', org: 'Fastly' },
+  { asn: 14618, name: 'Amazon AES', org: 'Amazon' },
+  { asn: 52468, name: null, org: null },
+]
+
 export function maskIp(ip: string) {
   if (ip.includes(':')) {
     const groups = ip.split(':')

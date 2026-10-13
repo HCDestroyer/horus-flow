@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import type { Dashboard, DashboardWidget, RelativeRange } from '~~/types/api'
+import type { TableColumn } from '@nuxt/ui'
+import type { Dashboard, DashboardWidget, RelativeRange, TopResult } from '~~/types/api'
 
 /**
  * Tráfico (I1-17, frontend.md §8.3): rango y nodo en la URL (nunca IPs); serie ↓/↑ y tops
@@ -7,6 +8,9 @@ import type { Dashboard, DashboardWidget, RelativeRange } from '~~/types/api'
  * (§6.2), alimentados por vista previa. Cobertura de atribución; `meta.partial` →
  * "Datos incompletos en este rango"; analítica caída (503) → aviso de degradado y el resto
  * de la app sigue funcionando.
+ * Desglose por organización o ASN remoto (`/analytics/traffic/top`): pestaña y sentido en la
+ * URL; tabla con puesto, nombre, ↓/↑ y cuota. El ASN se muestra como "AS15169" con su nombre
+ * si se conoce (si no, solo el número).
  */
 const { t } = useI18n()
 const route = useRoute()
@@ -124,6 +128,121 @@ const view = computed<Dashboard>(() => ({
 }))
 const viewKey = computed(() => `${range.value}:${site.value}`)
 const { membership } = useTenant()
+
+// --- Desglose por organización / ASN ---------------------------------------------------------
+const DIMENSIONS = ['organizations', 'asns'] as const
+const DIRECTIONS = ['both', 'download', 'upload'] as const
+const by = useQueryParam('by', 'organizations', DIMENSIONS)
+const direction = useQueryParam('direction', 'both', DIRECTIONS)
+const byTabs = computed(() => [
+  {
+    label: t('traffic.breakdown.tabs.organizations'),
+    value: 'organizations',
+    icon: 'i-lucide-building-2',
+  },
+  { label: t('traffic.breakdown.tabs.asns'), value: 'asns', icon: 'i-lucide-network' },
+])
+const directionOptions = computed(() =>
+  DIRECTIONS.map((d) => ({ label: t(`traffic.breakdown.directions.${d}`), value: d })),
+)
+
+const {
+  data: top,
+  error: topError,
+  status: topStatus,
+  refresh: refreshTop,
+} = useTenantQuery(
+  () => `traffic:top:${by.value}:${direction.value}:${range.value}:${site.value}`,
+  () =>
+    unwrap(
+      $api.GET('/analytics/traffic/top', {
+        params: {
+          query: {
+            dimension: by.value,
+            direction: direction.value,
+            n: 10,
+            range: range.value as RelativeRange,
+            site_id: site.value === 'all' ? undefined : site.value,
+          },
+        },
+      }),
+    ).then((r) => r.data),
+  { watch: [by, direction, range, site] },
+)
+
+interface BreakdownRow {
+  /** Puesto en el top; null en la fila "Otros". */
+  rank: number | null
+  /** "AS15169" en la vista por ASN; null en organizaciones y en "Otros". */
+  asn: string | null
+  name: string
+  down: number
+  up: number
+  share: number | null
+}
+
+/** Nombre del ASN sin el prefijo "AS<n> · " que pone la API (vacío si no se conoce). */
+function asnName(key: string, label: string) {
+  const prefix = `AS${key}`
+  if (!label.startsWith(prefix)) return label
+  return label
+    .slice(prefix.length)
+    .replace(/^\s*·\s*/, '')
+    .trim()
+}
+
+function breakdownRows(result: TopResult, dimension: (typeof DIMENSIONS)[number]) {
+  const rows: BreakdownRow[] = result.rows.map((r, i) => ({
+    rank: i + 1,
+    asn: dimension === 'asns' ? `AS${r.key}` : null,
+    name: dimension === 'asns' ? asnName(r.key, r.label) : r.label,
+    down: Number(r.down_bytes),
+    up: Number(r.up_bytes),
+    share: r.share,
+  }))
+  const others = { down: Number(result.others.down_bytes), up: Number(result.others.up_bytes) }
+  if (others.down + others.up > 0) {
+    rows.push({ rank: null, asn: null, name: t('widgets.common.others'), ...others, share: null })
+  }
+  return rows
+}
+
+const breakdown = computed(() =>
+  top.value && top.value.dimension === by.value ? breakdownRows(top.value, by.value) : [],
+)
+const breakdownLoading = computed(() => topStatus.value === 'pending' && !breakdown.value.length)
+
+const breakdownColumns = computed<TableColumn<BreakdownRow>[]>(() => [
+  {
+    id: 'rank',
+    header: () => t('traffic.breakdown.col.rank'),
+    meta: { class: { th: 'w-12 pe-0 sm:pe-4', td: 'w-12 pe-0 sm:pe-4' } },
+  },
+  {
+    id: 'name',
+    header: () =>
+      by.value === 'asns'
+        ? t('traffic.breakdown.col.asn')
+        : t('traffic.breakdown.col.organization'),
+    meta: { class: { td: 'whitespace-normal' } },
+  },
+  {
+    id: 'down',
+    header: () => t('traffic.breakdown.col.down'),
+    meta: { class: { th: 'text-end', td: 'text-end' } },
+  },
+  {
+    id: 'up',
+    header: () => t('traffic.breakdown.col.up'),
+    // En móvil, la subida va bajo la bajada (sin scroll horizontal).
+    meta: { class: { th: 'hidden text-end sm:table-cell', td: 'hidden text-end sm:table-cell' } },
+  },
+  {
+    id: 'share',
+    header: () => t('traffic.breakdown.col.share'),
+    meta: { class: { th: 'text-end', td: 'text-end' } },
+  },
+])
 </script>
 
 <template>
@@ -213,5 +332,96 @@ const { membership } = useTenant()
       :tenant-name="membership?.tenant_name ?? ''"
       preview
     />
+
+    <UCard
+      v-if="!degraded"
+      :ui="{ header: 'p-4 sm:px-4', body: 'p-0 sm:p-0' }"
+      data-testid="traffic-breakdown"
+    >
+      <template #header>
+        <section class="flex flex-col gap-3" aria-labelledby="traffic-breakdown-title">
+          <div class="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 id="traffic-breakdown-title" class="text-highlighted text-base font-semibold">
+              {{ t('traffic.breakdown.title') }}
+            </h2>
+            <p class="text-muted text-sm">{{ t('traffic.breakdown.hint') }}</p>
+          </div>
+          <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <UTabs
+              v-model="by"
+              :items="byTabs"
+              :content="false"
+              size="sm"
+              class="w-full sm:w-auto"
+              data-testid="traffic-breakdown-tabs"
+            />
+            <USelect
+              v-model="direction"
+              :items="directionOptions"
+              size="sm"
+              class="w-full sm:w-48"
+              :aria-label="t('traffic.breakdown.direction')"
+              data-testid="traffic-direction"
+            />
+          </div>
+        </section>
+      </template>
+
+      <div v-if="breakdownLoading" class="p-4">
+        <LoadingState :rows="5" />
+      </div>
+      <div v-else-if="topError" class="p-4">
+        <ErrorState :error="topError" @retry="refreshTop()" />
+      </div>
+      <div v-else-if="!breakdown.length" class="p-4">
+        <EmptyState icon="i-lucide-network" :title="t('traffic.breakdown.empty')" />
+      </div>
+      <UTable
+        v-else
+        :data="breakdown"
+        :columns="breakdownColumns"
+        class="w-full"
+        :ui="{ td: 'px-3 py-2.5 sm:px-4', th: 'px-3 text-xs whitespace-nowrap sm:px-4' }"
+        data-testid="traffic-breakdown-table"
+      >
+        <template #rank-cell="{ row }">
+          <span class="text-muted tabular">{{ row.original.rank ?? '' }}</span>
+        </template>
+        <template #name-cell="{ row }">
+          <span
+            v-if="row.original.asn"
+            class="flex flex-wrap items-baseline gap-x-2"
+            data-testid="traffic-breakdown-asn"
+          >
+            <span class="text-highlighted font-mono font-medium">{{ row.original.asn }}</span>
+            <span v-if="row.original.name" class="text-muted">{{ row.original.name }}</span>
+          </span>
+          <span
+            v-else
+            :class="row.original.rank === null ? 'text-muted' : 'text-highlighted font-medium'"
+            >{{ row.original.name }}</span
+          >
+        </template>
+        <template #down-cell="{ row }">
+          <span class="tabular block whitespace-nowrap"
+            >↓ {{ joinUnit(formatBytes(row.original.down)) }}</span
+          >
+          <span class="text-muted tabular block text-xs whitespace-nowrap sm:hidden"
+            >↑ {{ joinUnit(formatBytes(row.original.up)) }}</span
+          >
+        </template>
+        <template #up-cell="{ row }">
+          <span class="text-muted tabular whitespace-nowrap"
+            >↑ {{ joinUnit(formatBytes(row.original.up)) }}</span
+          >
+        </template>
+        <template #share-cell="{ row }">
+          <span v-if="row.original.share !== null" class="tabular">{{
+            formatPercent(row.original.share, 1)
+          }}</span>
+          <span v-else class="text-dimmed">—</span>
+        </template>
+      </UTable>
+    </UCard>
   </AppPage>
 </template>

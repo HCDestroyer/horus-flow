@@ -814,7 +814,30 @@
     "attributed": "de los bytes atribuidos a clientes",
     "unattributed": "{pct} fuera de los prefijos declarados",
     "infrastructure": "{pct} de infraestructura",
-    "reviewPrefixes": "Revisar prefijos de clientes"
+    "reviewPrefixes": "Revisar prefijos de clientes",
+    "breakdown": {
+      "title": "Destinos del tráfico",
+      "hint": "Top 10 por organización o por sistema autónomo remoto; el resto, en «Otros».",
+      "tabs": {
+        "organizations": "Organizaciones",
+        "asns": "ASN"
+      },
+      "direction": "Sentido del tráfico",
+      "directions": {
+        "both": "↓↑ Ambos sentidos",
+        "download": "↓ Bajada",
+        "upload": "↑ Subida"
+      },
+      "col": {
+        "rank": "#",
+        "organization": "Organización",
+        "asn": "ASN",
+        "down": "Bajada",
+        "up": "Subida",
+        "share": "Cuota"
+      },
+      "empty": "Sin tráfico en este rango"
+    }
   },
   "nodes": {
     "discovery": "Sin prefijos · modo descubrimiento",

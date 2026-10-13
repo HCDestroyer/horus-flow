@@ -32,6 +32,45 @@ test.describe('tráfico @traffic', () => {
     await expect(page.getByTestId('traffic-range')).toContainText('Últimos 7 días')
   })
 
+  test('desglose por organización y por ASN (pestaña y sentido en la URL)', async ({ page }) => {
+    await loginAsAdmin(page)
+    await page.goto(PAGE)
+    const breakdown = page.getByTestId('traffic-breakdown')
+    const table = page.getByTestId('traffic-breakdown-table')
+    // Por defecto, organizaciones.
+    await expect(table).toContainText('Google')
+    await expect(table).toContainText('Otros')
+    await expect(table.getByRole('columnheader', { name: 'Organización' })).toBeVisible()
+
+    await breakdown.getByRole('tab', { name: 'ASN' }).click()
+    await expect(page).toHaveURL(/by=asns/)
+    await expect(table.getByRole('columnheader', { name: 'ASN' })).toBeVisible()
+    const asns = page.getByTestId('traffic-breakdown-asn')
+    await expect(asns.first()).toHaveText(/^AS15169\s*Google LLC$/)
+    await expect(table).toContainText('AS2906')
+    // ASN sin nombre conocido: solo el número.
+    await expect(asns.filter({ hasText: 'AS263237' })).toHaveText(/^AS263237$/)
+    const firstRow = table.locator('tbody tr').first()
+    await expect(firstRow).toContainText('↓')
+    await expect(firstRow).toContainText('%')
+    expect(await seriousViolations(page)).toEqual([])
+
+    // El sentido reordena y queda en la URL junto a rango y nodo.
+    await page.getByTestId('traffic-direction').click()
+    await page.getByRole('option', { name: '↑ Subida' }).click()
+    await expect(page).toHaveURL(/direction=upload/)
+    await page.getByTestId('traffic-site').click()
+    await page.getByRole('option', { name: 'Nodo Norte' }).click()
+    await expect(page).toHaveURL(/site=/)
+    await expect(asns.first()).toHaveText(/^AS\d+/)
+    await page.reload()
+    await expect(breakdown.getByRole('tab', { name: 'ASN' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    await expect(page.getByTestId('traffic-direction')).toContainText('Subida')
+  })
+
   test('meta.partial muestra "Datos incompletos en este rango"', async ({ page }) => {
     await loginAsAdmin(page)
     await page.goto(`${PAGE}?range=30d`)

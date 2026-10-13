@@ -7,7 +7,7 @@ import type {
   SeriesResponse,
   TopResult,
 } from '~~/types/api'
-import { CATEGORIES, maskIp } from './base'
+import { CATEGORIES, maskIp, REMOTE_ASNS, tenantScale } from './base'
 import type { MockTenant } from './data'
 import { detectionSettingsRoute } from './detection-settings'
 import { deviceRoutes } from './devices'
@@ -754,6 +754,77 @@ function checkPrefix(
 
 // --- Analítica y vista previa de widgets -------------------------------------------------------
 
+/**
+ * Top por ASN remoto u organización, como el servicio de analítica: clave = número de ASN
+ * (`asns`) o slug de la organización (`organizations`; "AS<n>" si el ASN no está en el
+ * catálogo); etiqueta "AS15169 · Google LLC" o solo "AS263237" si no se conoce el nombre.
+ * Ordena y reparte la cuota según `direction`; lo que no cabe en N va a "Otros".
+ */
+function remoteTop(ctx: TenantRouteContext, dimension: 'asns' | 'organizations', n: number) {
+  const q = ctx.url.searchParams
+  const r = rng(hash(`${ctx.tenant.tenant_id}:asns`))
+  const sites = q.get('site_id')?.split(',').filter(Boolean) ?? []
+  const siteShare = sites.length ? Math.min(1, sites.length / ctx.tenant.sites.length) : 1
+  const total =
+    38e12 *
+    tenantScale(ctx.tenant) *
+    siteShare *
+    (rangeMs(q.get('range')) / 86_400_000) *
+    // Cada nodo tiene una mezcla algo distinta.
+    (sites.length ? 0.9 + (hash(sites.join(',')) % 20) / 100 : 1)
+  let rest = total
+  const perAsn = REMOTE_ASNS.map((a, i) => {
+    const down = Math.round(rest * (i === 0 ? 0.34 : 0.18 + r() * 0.1))
+    rest -= down
+    return { ...a, down, up: Math.round(down * (0.03 + r() * 0.12)) }
+  })
+  const groups = new Map<string, { key: string; label: string; down: number; up: number }>()
+  for (const a of perAsn) {
+    const key = dimension === 'asns' ? String(a.asn) : a.org ? slugify(a.org) : `AS${a.asn}`
+    const label =
+      dimension === 'asns'
+        ? `AS${a.asn}${a.name ? ` · ${a.name}` : ''}`
+        : (a.org ?? a.name ?? `AS${a.asn}`)
+    const g = groups.get(key) ?? { key, label, down: 0, up: 0 }
+    g.down += a.down
+    g.up += a.up
+    groups.set(key, g)
+  }
+  const direction = q.get('direction') ?? 'both'
+  const weight = (g: { down: number; up: number }) =>
+    direction === 'download' ? g.down : direction === 'upload' ? g.up : g.down + g.up
+  const all = [...groups.values()].sort((a, b) => weight(b) - weight(a))
+  const unclassified = { down: Math.round(rest), up: Math.round(rest * 0.08) }
+  const totalWeight = all.reduce((acc, g) => acc + weight(g), weight(unclassified))
+  const top = all.slice(0, n)
+  const others = all
+    .slice(n)
+    .reduce((acc, g) => ({ down: acc.down + g.down, up: acc.up + g.up }), unclassified)
+  const totals = all.reduce((acc, g) => ({ down: acc.down + g.down, up: acc.up + g.up }), {
+    ...unclassified,
+  })
+  return {
+    rows: top.map((g) => ({
+      key: g.key,
+      label: g.label,
+      down_bytes: String(g.down),
+      up_bytes: String(g.up),
+      share: totalWeight ? weight(g) / totalWeight : 0,
+    })),
+    others: { down_bytes: String(others.down), up_bytes: String(others.up) },
+    totals: { down_bytes: String(totals.down), up_bytes: String(totals.up) },
+  }
+}
+
+function slugify(text: string) {
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+}
+
 function analyticsRoutes(ctx: TenantRouteContext): Response | undefined {
   const { tenant, now } = ctx
   if (!ctx.path.startsWith('/analytics/traffic') && ctx.path !== '/widget-data/preview') return
@@ -771,6 +842,12 @@ function analyticsRoutes(ctx: TenantRouteContext): Response | undefined {
   if (match(ctx, 'GET', '/analytics/traffic/top')) {
     const dimension = ctx.url.searchParams.get('dimension') ?? 'categories'
     const n = Number(ctx.url.searchParams.get('n') ?? 10)
+    if (dimension === 'asns' || dimension === 'organizations') {
+      return json({
+        data: { dimension, ...remoteTop(ctx, dimension, n) },
+        meta: analyticsMeta(ctx, range, null),
+      })
+    }
     const scale = rangeMs(range) / 86_400_000
     let rows: TopResult['rows']
     if (dimension === 'customers') {
