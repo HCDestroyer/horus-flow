@@ -1630,6 +1630,10 @@
         "rate_limited": "Demasiados intentos. Espera un minuto y genera un código nuevo.",
         "network": "No se puede conectar con Horus Flow. Revisa la red de esta pantalla."
       }
+    },
+    "empty": {
+      "title": "Esta pantalla no tiene dashboards que mostrar",
+      "body": "Asígnale una lista en Horus Flow, en Administración › Pantallas NOC. Se actualiza sola en menos de un minuto."
     }
   },
   "kiosks": {

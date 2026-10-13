@@ -68,12 +68,12 @@ export function useKiosk() {
     const next = new Map(dashboards.value)
     for (const item of cfg.items) {
       if (next.has(item.dashboard_id)) continue
-      const d = await unwrap(
-        $api.GET('/dashboards/{dashboard_id}', {
-          params: { path: { dashboard_id: item.dashboard_id } },
-        }),
-      )
-      next.set(d.id, d)
+      // Un dashboard borrado o que el kiosco ya no puede leer se salta: no deja la TV sin nada.
+      const res = await $api.GET('/dashboards/{dashboard_id}', {
+        params: { path: { dashboard_id: item.dashboard_id } },
+      })
+      if (res.data) next.set(res.data.id, res.data)
+      else if (!res.response.ok && res.response.status >= 500) throw new NetworkError()
     }
     dashboards.value = next
   }

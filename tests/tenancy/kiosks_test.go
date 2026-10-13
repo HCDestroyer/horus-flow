@@ -91,6 +91,15 @@ func TestKioskEnrollmentAndCredential(t *testing.T) {
 		t.Fatalf("token = %s", tok.Raw)
 	}
 
+	// Sin lista ni dashboards asignados: la plantilla NOC del sistema, legible por el kiosco
+	// (antes la TV quedaba en negro).
+	cfg := a.must(a.do(req{Method: "GET", Path: "/api/v1/kiosk/config", Token: jwt}), 200)
+	items, _ := cfg.Body["items"].([]any)
+	if len(items) != 1 || items[0].(map[string]any)["dashboard_id"] != "0192f000-0000-7000-8000-00000000d001" {
+		t.Fatalf("config de un kiosco sin lista: %s", cfg.Raw)
+	}
+	a.must(a.do(req{Method: "GET", Path: "/api/v1/dashboards/0192f000-0000-7000-8000-00000000d001", Token: jwt}), 200)
+
 	// Criterio 3: lista blanca.
 	if r := a.do(req{Method: "GET", Path: "/api/v1/customers/stats", Token: jwt}); r.Status != 200 {
 		t.Fatalf("kiosco en /customers/stats: %d %s", r.Status, r.Raw)

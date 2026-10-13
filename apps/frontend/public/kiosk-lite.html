@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <title>Pantalla NOC · Horus Flow</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="stylesheet" href="/kiosk-lite.css" />
+  </head>
+  <body>
+    <!--
+      Pantalla NOC ligera para navegadores de TV antiguos (webOS, Tizen, Android TV sin
+      actualizar): HTML, CSS y JavaScript ES5 sin módulos ni dependencias. Misma API que /kiosk
+      (enrolamiento por código, JWT de kiosco, configuración y datos de widgets).
+    -->
+    <main id="app">
+      <section id="loading" class="center">
+        <div class="spinner"></div>
+        <p class="big">Cargando Horus Flow…</p>
+      </section>
+
+      <section id="enroll" class="center hidden">
+        <h1 class="big">Conectar esta pantalla</h1>
+        <p class="muted">
+          Escribe el código de 8 caracteres que aparece en Horus Flow, en Administración › Pantallas
+          NOC.
+        </p>
+        <form id="enroll-form" autocomplete="off">
+          <label for="code" class="muted">Código de la pantalla</label>
+          <input
+            id="code"
+            name="code"
+            maxlength="9"
+            autocapitalize="characters"
+            spellcheck="false"
+          />
+          <button type="submit" id="enroll-submit">Conectar</button>
+        </form>
+        <p id="enroll-error" class="error" role="alert"></p>
+      </section>
+
+      <section id="player" class="hidden">
+        <header class="bar">
+          <span id="tenant"></span>
+          <span id="dash-name"></span>
+          <span id="clock"></span>
+        </header>
+        <div id="grid" class="grid"></div>
+        <footer id="offline" class="offline hidden"></footer>
+      </section>
+
+      <section id="empty" class="center hidden">
+        <p class="big">Esta pantalla no tiene dashboards que mostrar</p>
+        <p class="muted">Asígnale una lista en Horus Flow, en Administración › Pantallas NOC.</p>
+      </section>
+    </main>
+    <script src="/kiosk-lite.js"></script>
+  </body>
+</html>

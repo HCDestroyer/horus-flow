@@ -287,6 +287,19 @@ const rotation = computed(() => ({ index: index.value, total: total.value, pause
       </div>
     </template>
 
+    <!-- Enrolada pero sin nada que mostrar: nunca una pantalla en negro -->
+    <div
+      v-else-if="phase === 'playing'"
+      class="kiosk-center"
+      role="status"
+      data-testid="kiosk-empty"
+    >
+      <p class="kiosk-title text-highlighted text-center font-semibold">
+        {{ t('kiosk.empty.title') }}
+      </p>
+      <p class="kiosk-text text-muted max-w-[28em] text-center">{{ t('kiosk.empty.body') }}</p>
+    </div>
+
     <!-- Sin conexión: banda ámbar a todo el ancho, sin parpadeo -->
     <div
       v-if="offlineSince"

@@ -87,7 +87,7 @@ test.describe('modo kiosco @kiosk', () => {
     await expect(tv.locator('#horus-boot')).toHaveCount(0)
   })
 
-  test('si la app no arranca (navegador de TV sin soporte), explica el motivo en vez de quedar en blanco', async ({
+  test('si la app no arranca: en /kiosk pasa a la versión ligera; en la consola explica el motivo', async ({
     context,
   }) => {
     const tv = await context.newPage()
@@ -98,8 +98,17 @@ test.describe('modo kiosco @kiosk', () => {
     await tv.goto('/kiosk')
     await expect(tv.locator('#horus-boot')).toContainText('Cargando Horus Flow')
     await tv.clock.fastForward(21_000)
-    await expect(tv.locator('#horus-boot')).toContainText('Este navegador no pudo abrir Horus Flow')
-    await expect(tv.locator('#horus-boot')).toContainText('Navegador:')
+    await expect(tv).toHaveURL(/\/kiosk-lite\.html/)
+
+    const admin = await context.newPage()
+    await admin.clock.install()
+    await admin.route('**/_nuxt/**/*.js', (route) => route.abort())
+    await admin.goto('/login')
+    await admin.clock.fastForward(21_000)
+    await expect(admin.locator('#horus-boot')).toContainText(
+      'Este navegador no pudo abrir Horus Flow',
+    )
+    await expect(admin.locator('#horus-boot')).toContainText('Navegador:')
   })
 
   test('listas: crear una, asignarla a una pantalla y generar código confirmando identidad', async ({

@@ -53,6 +53,11 @@ type viewer struct {
 
 func (v *viewer) isKiosk() bool { return v.kiosk != nil }
 
+// DefaultKioskDashboard es la plantilla de sistema "NOC del ISP" (contract/templates/noc-isp.json):
+// un kiosco sin lista ni dashboards asignados (o con la lista borrada) la muestra en lugar de
+// quedarse en negro.
+var DefaultKioskDashboard = uuid.MustParse("0192f000-0000-7000-8000-00000000d001")
+
 func (s *Service) viewer(ctx context.Context) (*viewer, error) {
 	p := authz.FromContext(ctx)
 	tid, err := authz.TenantOf(ctx)
@@ -84,6 +89,9 @@ func (s *Service) viewer(ctx context.Context) (*viewer, error) {
 				v.assign[it.DashboardID] = true
 			}
 		}
+	}
+	if len(v.assign) == 0 {
+		v.assign[DefaultKioskDashboard] = true
 	}
 	return v, nil
 }
@@ -720,6 +728,9 @@ func (s *Service) KioskConfig(ctx context.Context) (*KioskConfig, error) {
 			out.Items = append(out.Items, PlaylistItem{DashboardID: id, DurationSeconds: 30})
 		}
 	}
+	if len(out.Items) == 0 {
+		out.Items = []PlaylistItem{{DashboardID: DefaultKioskDashboard, DurationSeconds: 30}}
+	}
 	return out, nil
 }
 
@@ -743,6 +754,9 @@ func (s *Service) KioskTopics(ctx context.Context, tenantID, kioskID uuid.UUID) 
 				ids = append(ids, it.DashboardID)
 			}
 		}
+	}
+	if len(ids) == 0 {
+		ids = []uuid.UUID{DefaultKioskDashboard}
 	}
 	topics := []string{"system"}
 	var types []string

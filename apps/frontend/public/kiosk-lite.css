@@ -1,0 +1,218 @@
+/* Pantalla NOC ligera: CSS clásico (sin @layer, oklch, color-mix ni :has) para navegadores de TV antiguos. */
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: #0b0f14;
+  color: #e6edf3;
+  font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  overflow: hidden;
+  cursor: none;
+}
+.hidden {
+  display: none !important;
+}
+.center {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-box-orient: vertical;
+  -webkit-flex-direction: column;
+  flex-direction: column;
+  -webkit-box-align: center;
+  -webkit-align-items: center;
+  align-items: center;
+  -webkit-box-pack: center;
+  -webkit-justify-content: center;
+  justify-content: center;
+  text-align: center;
+  padding: 32px;
+  box-sizing: border-box;
+}
+.big {
+  font-size: 34px;
+  margin: 0 0 16px;
+}
+.muted {
+  color: #8b949e;
+  font-size: 22px;
+  max-width: 900px;
+}
+.error {
+  color: #ff7b72;
+  font-size: 28px;
+  min-height: 34px;
+}
+.spinner {
+  width: 56px;
+  height: 56px;
+  margin-bottom: 24px;
+  border: 5px solid #30363d;
+  border-top-color: #58a6ff;
+  border-radius: 50%;
+  -webkit-animation: spin 1s linear infinite;
+  animation: spin 1s linear infinite;
+}
+@-webkit-keyframes spin {
+  to {
+    -webkit-transform: rotate(360deg);
+  }
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+#enroll-form {
+  margin-top: 16px;
+}
+#enroll-form label {
+  display: block;
+  margin-bottom: 8px;
+}
+#code {
+  font-size: 48px;
+  letter-spacing: 8px;
+  text-transform: uppercase;
+  text-align: center;
+  width: 420px;
+  padding: 12px;
+  background: #161b22;
+  color: #e6edf3;
+  border: 2px solid #30363d;
+  border-radius: 8px;
+}
+#enroll-submit {
+  display: block;
+  margin: 24px auto 0;
+  font-size: 30px;
+  padding: 14px 48px;
+  background: #1f6feb;
+  color: #fff;
+  border: 0;
+  border-radius: 8px;
+}
+#player {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+}
+.bar {
+  height: 56px;
+  line-height: 56px;
+  padding: 0 24px;
+  font-size: 22px;
+  color: #8b949e;
+  border-bottom: 1px solid #21262d;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.bar span {
+  margin-right: 32px;
+}
+#dash-name {
+  color: #e6edf3;
+  font-weight: 600;
+}
+#clock {
+  float: right;
+  margin-right: 0;
+}
+.grid {
+  position: absolute;
+  top: 57px;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  padding: 12px;
+  overflow: hidden;
+}
+.card {
+  float: left;
+  box-sizing: border-box;
+  width: 33.333%;
+  height: 50%;
+  padding: 8px;
+}
+.card.wide {
+  width: 66.666%;
+}
+.card > div {
+  height: 100%;
+  box-sizing: border-box;
+  background: #161b22;
+  border: 1px solid #21262d;
+  border-radius: 10px;
+  padding: 14px 18px;
+  overflow: hidden;
+}
+.card h2 {
+  margin: 0 0 10px;
+  font-size: 20px;
+  font-weight: 600;
+  color: #8b949e;
+}
+.kv {
+  margin: 0;
+}
+.kv div {
+  margin-bottom: 8px;
+}
+.kv dt {
+  font-size: 16px;
+  color: #8b949e;
+}
+.kv dd {
+  margin: 0;
+  font-size: 34px;
+  font-weight: 600;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 18px;
+}
+td,
+th {
+  text-align: left;
+  padding: 4px 6px;
+  border-bottom: 1px solid #21262d;
+  white-space: nowrap;
+  overflow: hidden;
+}
+th {
+  color: #8b949e;
+  font-weight: 400;
+}
+td.num {
+  text-align: right;
+}
+.spark {
+  width: 100%;
+  height: 70%;
+}
+.last {
+  font-size: 30px;
+  font-weight: 600;
+}
+.nodata {
+  color: #8b949e;
+  font-size: 18px;
+}
+.offline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #9e6a03;
+  color: #fff;
+  font-size: 22px;
+  padding: 10px 24px;
+}

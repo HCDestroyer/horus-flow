@@ -11,3 +11,7 @@ docs/screenshots
 types/api/schema.d.ts
 types/api/widget-catalog.ts
 types/api/contract
+# Pantalla NOC ligera: ES5 a propósito (prettier añadiría comas finales ES2017).
+public/kiosk-lite.js
+# Arranque de la SPA: su <script> es ES5 a propósito (TVs antiguas); prettier añadiría comas finales.
+app/spa-loading-template.html
