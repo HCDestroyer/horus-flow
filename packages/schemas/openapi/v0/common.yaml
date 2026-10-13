@@ -57,6 +57,11 @@ components:
       in: cookie
       name: __Secure-hf_kiosk
       description: Credencial de dispositivo kiosco (`HttpOnly; Secure; SameSite=Strict; Path=/api/v1/kiosk`, sin `Domain`).
+    mcpToken:
+      type: http
+      scheme: bearer
+      bearerFormat: hmcp
+      description: Token MCP del asistente de IA (`hmcp_…`), creado en Administración › Inteligencia artificial; solo se guarda su hash. Solo `POST /assist/mcp`.
   parameters:
     Limit:
       name: limit

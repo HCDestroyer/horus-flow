@@ -21,6 +21,7 @@ defaults:
     widget_type: required_permission del tipo de widget (lo evalúa analytics) + acceso al dashboard
     dashboard_access: dueño del dashboard o dashboards.manage si es del ISP (lo evalúa analytics)
     kiosk_self: JWT de kiosco; devuelve solo su propia configuración
+    mcp_token: token MCP (Bearer hmcp_…) del asistente de IA; lo valida assist y actúa como su usuario
 modules:
   alerts:
     - prefix: /api/v1/notification-channels
@@ -148,6 +149,50 @@ modules:
         - user
         - api_token
         - kiosk
+  assist:
+    - prefix: /api/v1/assist/analyses
+      scope: tenant
+      methods:
+        POST: authenticated
+    - prefix: /api/v1/assist/audit
+      scope: tenant
+      methods:
+        GET: settings.read
+    - prefix: /api/v1/assist/mcp
+      scope: public
+      methods:
+        POST: mcp_token
+      principals:
+        - mcp_token
+    - prefix: /api/v1/assist/mcp-tokens
+      scope: tenant
+      methods:
+        GET: api_tokens.manage
+        POST: api_tokens.manage
+      audited:
+        - POST
+    - prefix: /api/v1/assist/mcp-tokens/{token_id}
+      scope: tenant
+      methods:
+        DELETE: api_tokens.manage
+      audited:
+        - DELETE
+    - prefix: /api/v1/assist/settings
+      scope: tenant
+      methods:
+        GET: settings.read
+        PUT: settings.manage
+      audited:
+        - PUT
+    - prefix: /api/v1/assist/settings/test
+      scope: tenant
+      methods:
+        POST: settings.manage
+      rate_limit: connection_test
+    - prefix: /api/v1/assist/status
+      scope: tenant
+      methods:
+        GET: authenticated
   auth:
     - prefix: /api/v1/auth/invitations/accept
       scope: public

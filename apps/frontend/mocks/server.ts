@@ -663,6 +663,10 @@ export function createMockFetch(options: MockOptions = {}) {
       const extra = req.url.includes('/widgets/') ? Math.random() * latency * 1.5 : 0
       await new Promise((resolve) => setTimeout(resolve, latency + extra))
     }
+    // El análisis con IA tarda unos segundos de verdad: se ve el estado de carga.
+    if (req.method === 'POST' && req.url.includes('/assist/analyses')) {
+      await new Promise((resolve) => setTimeout(resolve, 1200))
+    }
     if (req.signal?.aborted) throw new DOMException('Aborted', 'AbortError')
     // Corte de red simulado (pruebas del kiosco): `localStorage['horus.mock.offline'] = '1'`.
     if (readOffline()) throw new TypeError('Failed to fetch')

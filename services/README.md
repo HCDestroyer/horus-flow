@@ -18,6 +18,7 @@ Un único módulo Go (`go.mod` en la raíz) y un único binario con roles
 | `traffic/` | `traffic` | FLOW |
 | `analytics/` | `analytics`, `reporting` | FLOW (`dashboards`: CORE) |
 | `detection/` | `detection` | SEC |
+| `assist/` | `assist` | SEC ([asistente de IA](../docs/assist.md)) |
 | `alerts/` | `alerts` | SEC (supuesto) |
 | `jobs/` | `jobs` | PLAT (supuesto) |
 

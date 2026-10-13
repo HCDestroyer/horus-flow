@@ -42,12 +42,15 @@ Las **fusiones de dominio** del Sprint 0 se mantienen como módulos:
 
 | Perfil | Contenedores propios | Roles |
 | --- | --- | --- |
-| **Mínimo** (un servidor; desarrollo, demo, producción hasta escala S de [architecture.md §9](architecture.md#9-límites-de-escala-esperados)) | `horus-app` | `gateway, auth, devices, wireguard, snmp, traffic, detection, alerts, analytics, reporting, ingester, jobs` |
+| **Mínimo** (un servidor; desarrollo, demo, producción hasta escala S de [architecture.md §9](architecture.md#9-límites-de-escala-esperados)) | `horus-app` | `gateway, auth, devices, wireguard, snmp, traffic, detection, alerts, analytics, reporting, ingester, jobs, assist` |
 | | `horus-collector` | `collector` |
 | | `horus-wg-agent` | `wg-agent` (host network, `CAP_NET_ADMIN`) |
 | **Estándar** (dos hosts, escala M) | `horus-core` | `gateway, auth, devices, wireguard, snmp, traffic, alerts` |
 | | `horus-data` | `ingester, analytics, reporting, detection, jobs` |
 | | `horus-collector`, `horus-wg-agent` | igual |
+
+El rol `assist` (asistente de IA) va con `gateway`, `auth` y los módulos de datos en el mismo proceso
+(perfil mínimo): sus herramientas leen la API del proceso como el usuario ([assist.md](assist.md) §2.1).
 
 Infraestructura: PostgreSQL, ClickHouse, NATS JetStream, Valkey, Traefik y observabilidad. **Sin
 MinIO, sin NAS obligatorio** ([ADR-0019](adr/0019-almacenamiento-local-y-destino-remoto.md)).
@@ -219,6 +222,18 @@ NATS KV); **Sharded** = N instancias con *leases*.
 | Incremento | 4 (reputation), 5 (correlation), 7 (scoring) |
 | Estado | API **stateless**; jobs de ventana **singleton** por job (lease), particionables por tenant. |
 
+### assist (asistente de IA)
+
+| Campo | Valor |
+| --- | --- |
+| Responsabilidad | Análisis con IA de un hallazgo o un router ("Analizar con IA") con un proveedor configurable por ISP (Claude por la API de Anthropic o un servidor compatible con OpenAI para un modelo local) que usa **herramientas de solo lectura** sobre datos **enmascarados**; las mismas herramientas como **servidor MCP**. Límite diario por ISP y auditoría de cada consulta. Nunca escribe en routers. Detalle en [assist.md](assist.md). |
+| Dueño de datos (PG `assist`) | `settings` (proveedor, modelo, clave de API cifrada), `audit` (sin datos de clientes), `mcp_token` (solo hash). |
+| API pública | `/api/v1/assist/status`, `/settings`, `/settings/test`, `/analyses`, `/audit`, `/mcp-tokens`, `/mcp` (MCP, token `hmcp_…`). |
+| Contrato síncrono | Consume `auth.Delegation` (token delegado de 2 min para MCP) y `auth.Audit`. Las herramientas leen la API REST **del propio proceso** como el usuario (`httpx.ServiceMux.Loopback`): mismo borde, permisos y RLS. |
+| Publica / consume | Nada (sin eventos). |
+| Dependencias | PostgreSQL (crítica), gateway y módulos de datos en el mismo proceso, proveedor de IA (externo o en la red del ISP; degradable: sin él solo falla el análisis). |
+| Estado | **Stateless**. |
+
 ### alerts
 
 | Campo | Valor |
@@ -279,6 +294,7 @@ dominio separado (es un rol de `analytics`), aprovisionamiento con escritura en 
      ingester ──► devices.ListRealms, ListKnownClients (arranque / resync)
      wireguard ◄──gRPC mTLS──► wg-agent                (estado deseado / observado)
      analytics ──► devices.GetRouters, auth.GetUsers   (nombres, con caché)
+     assist ──► auth.Delegation (MCP) · API REST del proceso como el usuario (herramientas)
 
    Eventos (NATS JetStream):
      devices ─────► snmp, collector, ingester, wireguard, analytics, detection
@@ -312,4 +328,5 @@ Ciclos: ninguno síncrono. `devices ⇄ ingester` (realms/clientes ↔ IPs nueva
 | detection (jobs de ventana) | Singleton por job | 1 | IPs × reglas | lease; partición por tenant si crece |
 | alerts (evaluador) | Singleton | 1 | reglas | lease |
 | reporting | Stateless | 1 | reportes | work-queue |
+| assist | Stateless | 1 (en `horus-app`) | análisis/día | límite diario por ISP en PostgreSQL |
 | jobs | Singleton por tarea | 1 | — | lease |

@@ -733,6 +733,7 @@ make_secrets() {
   new_secret alerts_kek gen_hex32
   new_secret detection_kek gen_hex32 # credenciales de fuentes de reputación (v1.0.4; se crea al actualizar)
   new_secret jobs_kek gen_hex32      # credenciales de los destinos remotos de copias (se crea al actualizar)
+  new_secret assist_kek gen_hex32    # claves de API del asistente de IA por ISP (se crea al actualizar)
   # Identidad age de las copias remotas: la privada solo va al paquete offline (sin ella las copias
   # remotas son irrecuperables); horus-app recibe solo la pública (backup_age_recipient).
   new_secret backup_age_identity gen_age_identity
@@ -742,6 +743,9 @@ make_secrets() {
   fi
   [ -e "$secrets_dir/smtp_password" ] || : >"$secrets_dir/smtp_password"
   chmod 0644 "$secrets_dir/smtp_password"
+  # Clave de API de plataforma del asistente de IA (opcional; vacía = cada ISP pone la suya).
+  [ -e "$secrets_dir/assist_api_key" ] || : >"$secrets_dir/assist_api_key"
+  chmod 0644 "$secrets_dir/assist_api_key"
   new_secret auth_signing_key.pem gen_ed25519
   new_secret wg_hub_private_key gen_wg_private
   [ -s "$secrets_dir/seed_admin_password" ] || new_secret seed_admin_password gen_admin_password

@@ -233,9 +233,12 @@ useHead({ title: () => rt.value?.name ?? t('router.title') })
 
       <UTabs v-model="tab" :items="tabs" :content="false" variant="link" class="w-full" />
 
-      <UCard v-if="tab === 'summary'">
-        <ExporterSummary :router="rt" :exporter="exporter ?? null" :peer="peer ?? null" />
-      </UCard>
+      <template v-if="tab === 'summary'">
+        <UCard>
+          <ExporterSummary :router="rt" :exporter="exporter ?? null" :peer="peer ?? null" />
+        </UCard>
+        <AiAnalysis feature="router" :context-id="rt.id" />
+      </template>
       <template v-else-if="tab === 'connection'">
         <UAlert
           v-if="rt.routeros_version_supported === false"

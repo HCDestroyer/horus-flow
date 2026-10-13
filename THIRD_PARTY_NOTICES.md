@@ -25,7 +25,7 @@ BusyBox (GPL-2.0) se usa como imagen auxiliar independiente, sin enlazarse con H
 se distribuye en el paquete offline, se ofrece su código fuente correspondiente a petición o en
 el enlace indicado, como exige la GPL.
 
-## Módulos Go enlazados en el binario `horus` (54)
+## Módulos Go enlazados en el binario `horus` (71)
 
 | Módulo | Versión | Licencia |
 | --- | --- | --- |
@@ -34,7 +34,10 @@ el enlace indicado, como exige la GPL.
 | `github.com/ClickHouse/ch-go` | v0.74.0 | Apache-2.0 |
 | `github.com/ClickHouse/clickhouse-go/v2` | v2.40.3 | Apache-2.0 |
 | `github.com/andybalholm/brotli` | v1.2.2 | MIT |
+| `github.com/anthropics/anthropic-sdk-go` | v1.80.0 | MIT |
+| `github.com/bahlo/generic-list-go` | v0.2.0 | BSD-3-Clause |
 | `github.com/beorn7/perks` | v1.0.1 | MIT |
+| `github.com/buger/jsonparser` | v1.1.2 | MIT |
 | `github.com/caarlos0/env/v11` | v11.3.1 | MIT |
 | `github.com/cespare/xxhash/v2` | v2.3.0 | MIT |
 | `github.com/coder/websocket` | v1.8.12 | ISC |
@@ -42,7 +45,9 @@ el enlace indicado, como exige la GPL.
 | `github.com/go-faster/city` | v1.0.1 | MIT |
 | `github.com/go-faster/errors` | v0.7.1 | BSD-3-Clause |
 | `github.com/golang-jwt/jwt/v5` | v5.3.1 | MIT |
+| `github.com/google/jsonschema-go` | v0.4.3 | MIT |
 | `github.com/google/uuid` | v1.6.0 | BSD-3-Clause |
+| `github.com/invopop/jsonschema` | v0.14.0 | MIT |
 | `github.com/jackc/pgpassfile` | v1.0.0 | MIT |
 | `github.com/jackc/pgservicefile` | v0.0.0-20240606120523-5a60cdf6a761 | MIT |
 | `github.com/jackc/pgx/v5` | v5.7.6 | MIT |
@@ -54,11 +59,13 @@ el enlace indicado, como exige la GPL.
 | `github.com/mdlayher/netlink` | v1.7.2 | MIT |
 | `github.com/mdlayher/socket` | v0.5.1 | MIT |
 | `github.com/mfridman/interpolate` | v0.0.2 | MIT |
+| `github.com/modelcontextprotocol/go-sdk` | v1.8.0 | Apache-2.0 |
 | `github.com/munnerz/goautoneg` | v0.0.0-20191010083416-a7dc8b61c822 | BSD-3-Clause |
 | `github.com/nats-io/nats.go` | v1.47.0 | Apache-2.0 |
 | `github.com/nats-io/nkeys` | v0.4.11 | Apache-2.0 |
 | `github.com/nats-io/nuid` | v1.0.1 | Apache-2.0 |
 | `github.com/paulmach/orb` | v0.13.0 | MIT |
+| `github.com/pb33f/ordered-map/v2` | v2.3.1 | Apache-2.0 |
 | `github.com/pierrec/lz4/v4` | v4.1.27 | BSD-3-Clause |
 | `github.com/pkg/sftp` | v1.13.11 | BSD-2-Clause |
 | `github.com/pressly/goose/v3` | v3.26.0 | MIT |
@@ -67,17 +74,27 @@ el enlace indicado, como exige la GPL.
 | `github.com/prometheus/common` | v0.62.0 | Apache-2.0 |
 | `github.com/prometheus/procfs` | v0.21.1 | Apache-2.0 |
 | `github.com/segmentio/asm` | v1.2.1 | MIT |
+| `github.com/segmentio/encoding` | v0.5.4 | MIT |
 | `github.com/sethvargo/go-retry` | v0.4.0 | Apache-2.0 |
 | `github.com/shopspring/decimal` | v1.4.0 | MIT |
+| `github.com/standard-webhooks/standard-webhooks/libraries` | v0.0.1 | MIT |
+| `github.com/tidwall/gjson` | v1.18.0 | MIT |
+| `github.com/tidwall/match` | v1.1.1 | MIT |
+| `github.com/tidwall/pretty` | v1.2.1 | MIT |
+| `github.com/tidwall/sjson` | v1.2.5 | MIT |
+| `github.com/yosida95/uritemplate/v3` | v3.0.2 | BSD-3-Clause |
 | `go.opentelemetry.io/otel` | v1.46.0 | Apache-2.0 |
 | `go.opentelemetry.io/otel/trace` | v1.46.0 | Apache-2.0 |
 | `go.uber.org/multierr` | v1.11.0 | MIT |
 | `go.yaml.in/yaml/v3` | v3.0.5 | Apache-2.0 |
+| `go.yaml.in/yaml/v4` | v4.0.0-rc.2 | Apache-2.0 |
 | `golang.org/x/crypto` | v0.57.0 | BSD-3-Clause |
 | `golang.org/x/net` | v0.59.0 | BSD-3-Clause |
+| `golang.org/x/oauth2` | v0.36.0 | BSD-3-Clause |
 | `golang.org/x/sync` | v0.23.0 | BSD-3-Clause |
 | `golang.org/x/sys` | v0.48.0 | BSD-3-Clause |
 | `golang.org/x/text` | v0.42.0 | BSD-3-Clause |
+| `golang.org/x/time` | v0.15.0 | BSD-3-Clause |
 | `golang.zx2c4.com/wireguard/wgctrl` | v0.0.0-20241231184526-a9ab2273dd10 | MIT |
 | `google.golang.org/genproto/googleapis/rpc` | v0.0.0-20260918162117-cecb64721679 | Apache-2.0 |
 | `google.golang.org/grpc` | v1.84.0 | Apache-2.0 |

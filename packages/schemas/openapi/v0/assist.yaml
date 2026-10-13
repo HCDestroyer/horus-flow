@@ -1,0 +1,478 @@
+openapi: 3.1.0
+info:
+  title: Horus Flow API — módulo assist, asistente de IA (contrato v0)
+  version: 0.1.0
+  description: |
+    Asistente de IA (docs/assist.md). Un modelo configurable por ISP —Claude por la API de Anthropic o un
+    servidor compatible con la API de chat de OpenAI (Ollama, vLLM, LM Studio) para un modelo local— analiza un
+    hallazgo o un router con **herramientas de solo lectura** que leen la API de Horus **como el usuario** que
+    pide el análisis. La IA solo ve datos **enmascarados**: las IP de clientes se seudonimizan
+    (`Cliente N (10.20.x.x)`) y se eliminan alias, nombres y contactos. Horus nunca escribe en los routers: la
+    respuesta puede sugerir comandos RouterOS (con su deshacer) para que una persona los copie.
+    Cada consulta se audita (quién, feature, proveedor, modelo, tokens, herramientas, duración y resultado; sin
+    datos de clientes). La clave de API es write-only y se guarda cifrada (`api_key_set`).
+    Las mismas herramientas se publican como servidor MCP (`POST /assist/mcp`, token `hmcp_…`).
+  license:
+    name: Propietaria
+    identifier: LicenseRef-Horus-Proprietary
+servers:
+  - url: https://{domain}/api/v1
+    variables:
+      domain:
+        default: horus.example.net
+tags:
+  - name: assist
+    description: Asistente de IA, configuración del proveedor y auditoría.
+  - name: mcp
+    description: Servidor MCP con las herramientas de solo lectura del asistente.
+paths:
+  /assist/status:
+    get:
+      tags: [assist]
+      operationId: getAssistStatus
+      summary: Si el asistente está activo en el ISP (para mostrar u ocultar los botones "Analizar con IA")
+      x-module: assist
+      x-scope: tenant
+      x-permission: authenticated
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Estado del asistente.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssistStatus' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+  /assist/settings:
+    get:
+      tags: [assist]
+      operationId: getAssistSettings
+      summary: Configuración efectiva del asistente del ISP (la propia o la de plataforma), sin la clave
+      x-module: assist
+      x-scope: tenant
+      x-permission: settings.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Configuración.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssistSettings' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+    put:
+      tags: [assist]
+      operationId: putAssistSettings
+      summary: Guarda la configuración del asistente del ISP (la clave de API es write-only)
+      description: |
+        `api_key` se cifra (envelope encryption con la KEK de assist) y nunca vuelve en la respuesta; omitida =
+        sin cambios; `clear_api_key: true` la borra. Al cambiar de proveedor sin enviar clave nueva, la clave
+        guardada se descarta. Activar `anthropic` exige una clave (del ISP o de plataforma). `base_url` solo
+        aplica a `openai_compatible` (obligatoria). Auditado en la auditoría del ISP.
+      x-module: assist
+      x-scope: tenant
+      x-permission: settings.manage
+      x-audited: true
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AssistSettingsUpdate' }
+      responses:
+        '200':
+          description: Configuración guardada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssistSettings' }
+        '400': { $ref: './common.yaml#/components/responses/BadRequest' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+        '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
+  /assist/settings/test:
+    post:
+      tags: [assist]
+      operationId: testAssistSettings
+      summary: Prueba de conexión con el proveedor configurado (petición mínima; no cuenta para el límite diario)
+      x-module: assist
+      x-scope: tenant
+      x-permission: settings.manage
+      x-rate-limit: connection_test
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Resultado (también cuando falla el proveedor; ver `ok`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssistTestResult' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+        '429': { $ref: './common.yaml#/components/responses/TooManyRequests' }
+        '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
+  /assist/analyses:
+    post:
+      tags: [assist]
+      operationId: createAssistAnalysis
+      summary: Analiza un hallazgo o un router con IA (síncrono; puede tardar hasta HORUS_ASSIST_REQUEST_TIMEOUT)
+      description: |
+        Permiso: el de lectura del recurso analizado (`finding` → `security.findings.read`, `router` →
+        `devices.read`) y el asistente activo en el ISP. El recurso se lee como el usuario: si no lo ve,
+        `404 ASSIST_CONTEXT_NOT_FOUND`. Errores: `409 ASSIST_DISABLED` / `ASSIST_NOT_CONFIGURED`,
+        `429 ASSIST_LIMIT_REACHED` (con `Retry-After` hasta el próximo día UTC), `422 ASSIST_REFUSED` (el modelo
+        declinó), `502 ASSIST_PROVIDER_UNAVAILABLE` / `ASSIST_INCOMPLETE`.
+      x-module: assist
+      x-scope: tenant
+      x-permission: authenticated
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AssistAnalysisRequest' }
+      responses:
+        '200':
+          description: Análisis en Markdown (enmascarado; sin HTML).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssistAnalysis' }
+        '400': { $ref: './common.yaml#/components/responses/BadRequest' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+        '429': { $ref: './common.yaml#/components/responses/TooManyRequests' }
+        '502': { $ref: '#/components/responses/BadGateway' }
+        '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
+  /assist/audit:
+    get:
+      tags: [assist]
+      operationId: listAssistAudit
+      summary: Auditoría de las consultas a la IA del ISP (sin datos de clientes), de la más reciente a la más antigua
+      x-module: assist
+      x-scope: tenant
+      x-permission: settings.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Limit'
+        - $ref: './common.yaml#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Página de auditoría.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/AssistAuditEntry' } }
+                  page: { $ref: './common.yaml#/components/schemas/PageInfo' }
+        '400': { $ref: './common.yaml#/components/responses/BadRequest' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+  /assist/mcp-tokens:
+    get:
+      tags: [mcp]
+      operationId: listAssistMcpTokens
+      summary: Tokens del servidor MCP del ISP (sin su valor)
+      x-module: assist
+      x-scope: tenant
+      x-permission: api_tokens.manage
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Tokens.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/McpToken' } }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+    post:
+      tags: [mcp]
+      operationId: createAssistMcpToken
+      summary: Crea un token MCP que actúa como quien lo crea (el valor se muestra una sola vez)
+      description: |
+        El token solo da acceso a las herramientas de solo lectura del asistente, con la intersección entre sus
+        permisos de lectura y los permisos **actuales** del usuario (si pierde un rol o la membresía, el token deja
+        de servir). Se guarda solo su hash SHA-256. Caduca a los HORUS_ASSIST_MCP_TOKEN_TTL (90 días por defecto).
+      x-module: assist
+      x-scope: tenant
+      x-permission: api_tokens.manage
+      x-audited: true
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 80, examples: [Claude Desktop de Ana] }
+      responses:
+        '201':
+          description: Token creado (incluye `token`, que no se vuelve a mostrar).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/McpTokenIssued' }
+        '400': { $ref: './common.yaml#/components/responses/BadRequest' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /assist/mcp-tokens/{token_id}:
+    parameters:
+      - name: token_id
+        in: path
+        required: true
+        schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    delete:
+      tags: [mcp]
+      operationId: revokeAssistMcpToken
+      summary: Revoca un token MCP
+      x-module: assist
+      x-scope: tenant
+      x-permission: api_tokens.manage
+      x-audited: true
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '204': { $ref: './common.yaml#/components/responses/NoContent' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+  /assist/mcp:
+    post:
+      tags: [mcp]
+      operationId: assistMcp
+      summary: Servidor MCP (Streamable HTTP, sin estado) con las herramientas de solo lectura del asistente
+      description: |
+        Mensajes JSON-RPC 2.0 de MCP (`initialize`, `tools/list`, `tools/call`…) con respuesta JSON. Autenticación
+        `Authorization: Bearer hmcp_…` (no un JWT de Horus): el gateway no la valida, lo hace assist. Las
+        herramientas actúan como el usuario dueño del token, con datos enmascarados, y cada llamada se audita
+        (feature `mcp`). Requiere el asistente activo en el ISP. Configuración de Claude Desktop en docs/assist.md.
+      x-module: assist
+      x-scope: public
+      x-permission: mcp_token
+      x-principals: [mcp_token]
+      x-increment: I1
+      security:
+        - mcpToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true, description: Mensaje JSON-RPC 2.0 de MCP. }
+      responses:
+        '200':
+          description: Respuesta JSON-RPC 2.0.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '202':
+          description: Notificación aceptada (sin cuerpo).
+        '400': { $ref: './common.yaml#/components/responses/BadRequest' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
+components:
+  securitySchemes:
+    tenantBearer: { $ref: './common.yaml#/components/securitySchemes/tenantBearer' }
+    mcpToken: { $ref: './common.yaml#/components/securitySchemes/mcpToken' }
+  responses:
+    BadGateway:
+      description: El proveedor de IA falló o no llegó a una respuesta (`ASSIST_PROVIDER_UNAVAILABLE`, `ASSIST_INCOMPLETE`).
+      content:
+        application/problem+json:
+          schema: { $ref: './common.yaml#/components/schemas/Problem' }
+  schemas:
+    AssistProvider:
+      type: string
+      enum: [anthropic, openai_compatible]
+    AssistEffort:
+      type: string
+      enum: [low, medium, high]
+    AssistFeature:
+      type: string
+      description: Punto de entrada (enum abierto; llegarán más).
+      enum: [finding, router]
+    AssistStatus:
+      type: object
+      required: [enabled, provider, model, remaining_today]
+      properties:
+        enabled: { type: boolean, description: Activo y con proveedor utilizable. }
+        provider: { $ref: '#/components/schemas/AssistProvider' }
+        model: { type: string }
+        remaining_today: { type: integer, minimum: 0 }
+    AssistSettings:
+      type: object
+      required: [enabled, provider, model, base_url, effort, daily_request_limit, api_key_set, api_key_source, source, usage_today,
+        key_store_available, platform_default, mcp_enabled, updated_at, updated_by, version]
+      properties:
+        enabled: { type: boolean }
+        provider: { $ref: '#/components/schemas/AssistProvider' }
+        model: { type: string, examples: [claude-opus-5-5, llama3.1] }
+        base_url: { type: [string, 'null'], description: Solo openai_compatible (p. ej. http://10.0.0.5:11434). }
+        effort: { $ref: '#/components/schemas/AssistEffort' }
+        daily_request_limit: { type: integer, minimum: 1, maximum: 10000 }
+        api_key_set: { type: boolean, description: El ISP guardó su propia clave (nunca se devuelve). }
+        api_key_source:
+          type: string
+          enum: [tenant, platform, none]
+          description: De dónde sale la clave que se usará.
+        source:
+          type: string
+          enum: [tenant, platform]
+          description: La configuración es del ISP o el valor por defecto de plataforma.
+        usage_today: { type: integer, minimum: 0, description: Consultas de hoy (UTC) que cuentan para el límite. }
+        key_store_available: { type: boolean, description: El servidor puede cifrar claves por ISP (HORUS_ASSIST_KEK_FILE). }
+        platform_default:
+          type: object
+          required: [enabled, provider, model, api_key_set]
+          properties:
+            enabled: { type: boolean }
+            provider: { $ref: '#/components/schemas/AssistProvider' }
+            model: { type: string }
+            api_key_set: { type: boolean }
+        mcp_enabled: { type: boolean, description: El servidor MCP está disponible en esta instalación. }
+        updated_at:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
+        updated_by:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Uuid'
+            - type: 'null'
+        version: { type: integer, minimum: 0 }
+    AssistSettingsUpdate:
+      type: object
+      additionalProperties: false
+      required: [enabled, provider, daily_request_limit]
+      properties:
+        enabled: { type: boolean }
+        provider: { $ref: '#/components/schemas/AssistProvider' }
+        model: { type: string, maxLength: 100, description: Vacío = el del proveedor por defecto. }
+        base_url: { type: [string, 'null'], maxLength: 300 }
+        effort: { $ref: '#/components/schemas/AssistEffort' }
+        daily_request_limit: { type: integer, minimum: 1, maximum: 10000 }
+        api_key: { type: string, minLength: 8, maxLength: 512, writeOnly: true }
+        clear_api_key: { type: boolean }
+    AssistTestResult:
+      type: object
+      required: [ok, provider, model, latency_ms, message]
+      properties:
+        ok: { type: boolean }
+        provider: { $ref: '#/components/schemas/AssistProvider' }
+        model: { type: string }
+        latency_ms: { type: integer, minimum: 0 }
+        error_code:
+          type: string
+          enum: [PROVIDER_UNAUTHORIZED, PROVIDER_RATE_LIMITED, PROVIDER_MODEL_NOT_FOUND, PROVIDER_BAD_REQUEST, PROVIDER_TIMEOUT,
+            PROVIDER_UNAVAILABLE]
+        message: { type: string }
+    AssistAnalysisRequest:
+      type: object
+      additionalProperties: false
+      required: [feature, context_id]
+      properties:
+        feature: { $ref: '#/components/schemas/AssistFeature' }
+        context_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+    AssistToolUse:
+      type: object
+      required: [name, count]
+      properties:
+        name: { type: string, examples: [get_finding] }
+        count: { type: integer, minimum: 1 }
+        errors: { type: integer, minimum: 0 }
+    AssistAnalysis:
+      type: object
+      required: [id, feature, context_id, markdown, provider, model, generated_at, tool_calls, usage, duration_ms, truncated, disclaimer]
+      properties:
+        id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        feature: { $ref: '#/components/schemas/AssistFeature' }
+        context_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        markdown:
+          type: string
+          description: Markdown (secciones Qué está pasando, Posibles causas, Qué hacer, Para deshacer). Datos de clientes seudonimizados. La UI lo muestra sin HTML.
+        provider: { $ref: '#/components/schemas/AssistProvider' }
+        model: { type: string }
+        generated_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        tool_calls: { type: array, items: { $ref: '#/components/schemas/AssistToolUse' } }
+        usage:
+          type: object
+          required: [input_tokens, output_tokens]
+          properties:
+            input_tokens: { type: integer, minimum: 0 }
+            output_tokens: { type: integer, minimum: 0 }
+        duration_ms: { type: integer, minimum: 0 }
+        truncated: { type: boolean, description: La respuesta se cortó por el máximo de tokens. }
+        disclaimer: { type: string, examples: ['Generado por IA; revisa antes de aplicar. Horus no ejecuta nada en tus routers.'] }
+    AssistAuditEntry:
+      type: object
+      required: [id, user_id, feature, context_id, provider, model, input_tokens, output_tokens, tool_calls, duration_ms, outcome,
+        error_code, created_at]
+      properties:
+        id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        user_id:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Uuid'
+            - type: 'null'
+        feature: { type: string, enum: [finding, router, mcp, test] }
+        context_id: { type: string, description: ID del recurso analizado o nombre de la herramienta MCP. }
+        provider: { type: string }
+        model: { type: string }
+        input_tokens: { type: integer, minimum: 0 }
+        output_tokens: { type: integer, minimum: 0 }
+        tool_calls: { type: array, items: { $ref: '#/components/schemas/AssistToolUse' } }
+        duration_ms: { type: integer, minimum: 0 }
+        outcome: { type: string, enum: [success, refused, error, limited, denied] }
+        error_code: { type: [string, 'null'] }
+        created_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+    McpToken:
+      type: object
+      required: [id, name, prefix, user_id, created_at, expires_at, last_used_at, revoked_at, active]
+      properties:
+        id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        name: { type: string }
+        prefix: { type: string, description: Primeros caracteres del token (para reconocerlo). }
+        user_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        created_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        expires_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        last_used_at:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
+        revoked_at:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
+        active: { type: boolean }
+    McpTokenIssued:
+      allOf:
+        - $ref: '#/components/schemas/McpToken'
+        - type: object
+          required: [token]
+          properties:
+            token: { type: string, description: Valor del token (hmcp_…). Solo en esta respuesta. }

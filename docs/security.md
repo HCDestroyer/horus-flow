@@ -1007,6 +1007,15 @@ propios registros a quién avisar.
    indica.
 5. Se conserva sólo la auditoría exigible (registro de la baja y metadatos mínimos).
 
+### 13.5 bis Asistente de IA
+
+El asistente ([`assist.md`](assist.md)) envía a un proveedor de IA (externo, o un modelo local en la red
+del ISP) solo **datos enmascarados**: IP de clientes seudonimizadas (`Cliente N (10.20.x.x)`), sin alias,
+nombres ni contactos. Sus herramientas son de solo lectura y leen la API como el usuario (mismo RBAC, RLS y
+`customers.read`). Cada consulta se audita sin datos de clientes; la clave de API es write-only y va
+cifrada (envelope, AAD por ISP). Los tokens MCP solo se guardan como hash y actúan con los permisos
+**actuales** de su usuario (token delegado de auth de 2 min, `typ=service`).
+
 ### 13.6 Pregunta abierta (legal)
 
 La legislación aplicable depende del **país de cada ISP** y debe validarla un asesor legal:

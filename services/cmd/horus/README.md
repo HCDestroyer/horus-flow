@@ -30,7 +30,7 @@ go run ./services/cmd/horus --version        # versión y roles disponibles
 ## Roles
 
 `auth`, `devices`, `wireguard`, `snmp`, `traffic`, `detection`, `alerts`, `analytics`,
-`reporting`, `ingester`, `jobs`, `collector`, `wg-agent`, `gateway` (este es el orden de arranque;
+`reporting`, `ingester`, `jobs`, `collector`, `wg-agent`, `assist`, `gateway` (este es el orden de arranque;
 se para en orden inverso). `example` ([`services/_example`](../../_example/README.md)) existe pero no
 entra en `all`.
 

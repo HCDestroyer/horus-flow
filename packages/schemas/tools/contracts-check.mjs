@@ -22,9 +22,10 @@ const PACKAGES = resolve(SCHEMAS, '..')
 const EVENTS = join(PACKAGES, 'events')
 const PROTO = join(PACKAGES, 'protobuf')
 const OAS_DIR = join(SCHEMAS, 'openapi', 'v0')
-const MODULE_FILES = ['auth', 'gateway', 'platform', 'devices', 'wireguard', 'flows', 'analytics', 'detection', 'alerts']
+const MODULE_FILES = ['auth', 'gateway', 'platform', 'devices', 'wireguard', 'flows', 'analytics', 'detection', 'alerts', 'assist']
 const SPECIAL_PERMISSIONS = new Set([
   'public', 'authenticated', 'refresh_cookie', 'kiosk_cookie', 'enrollment_token', 'widget_type', 'dashboard_access', 'kiosk_self',
+  'mcp_token',
 ])
 const HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete']
 
@@ -212,6 +213,7 @@ const routesDoc = {
       widget_type: 'required_permission del tipo de widget (lo evalúa analytics) + acceso al dashboard',
       dashboard_access: 'dueño del dashboard o dashboards.manage si es del ISP (lo evalúa analytics)',
       kiosk_self: 'JWT de kiosco; devuelve solo su propia configuración',
+      mcp_token: 'token MCP (Bearer hmcp_…) del asistente de IA; lo valida assist y actúa como su usuario',
     },
   },
   modules: Object.fromEntries(Object.keys(routesByModule).sort().map((m) => [

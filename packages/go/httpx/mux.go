@@ -116,6 +116,15 @@ func (s *ServiceMux) SetEdge(mw func(http.Handler) http.Handler) error {
 	return nil
 }
 
+// Loopback devuelve el handler completo de la API del proceso (con el borde
+// del gateway si está instalado) para llamadas en proceso que actúan como un
+// usuario: la petición lleva su Bearer y pasa por la misma autenticación,
+// permiso y RLS que una petición externa. Se resuelve en cada petición (el
+// borde se instala al registrar el gateway, después de los demás roles).
+func (s *ServiceMux) Loopback() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { s.parent.Handler().ServeHTTP(w, r) })
+}
+
 // Matches indica si alguna ruta del proceso atiende r.
 func (s *ServiceMux) Matches(r *http.Request) bool { return s.parent.Matches(r) }
 

@@ -82,7 +82,8 @@
       "platformSystem": "Estado del sistema",
       "notifications": "Canales de notificación",
       "platformReputation": "Fuentes de reputación",
-      "roles": "Roles y permisos"
+      "roles": "Roles y permisos",
+      "ai": "Inteligencia artificial"
     },
     "search": "Buscar",
     "searchPlaceholder": "Buscar secciones…",
@@ -214,6 +215,9 @@
     },
     "platform-reputation": {
       "question": "¿Qué listas de reputación usa la detección?"
+    },
+    "ai": {
+      "question": "¿Qué modelo de IA analiza los casos de este ISP y quién lo consultó?"
     }
   },
   "account": {
@@ -2373,6 +2377,140 @@
         "tor_exit": "Salidas de Tor",
         "blocklist": "Lista de bloqueo"
       }
+    }
+  },
+  "assist": {
+    "providers": {
+      "anthropic": "Claude (Anthropic)",
+      "openai_compatible": "Servidor compatible con OpenAI (modelo local)"
+    },
+    "toolNames": {
+      "get_finding": "hallazgo",
+      "list_open_findings": "hallazgos abiertos",
+      "get_exporter_status": "exportador",
+      "get_router": "router",
+      "get_traffic_top": "tráfico",
+      "get_customer_profile": "perfil del cliente",
+      "reputation_lookup": "reputación"
+    },
+    "analysis": {
+      "title": "Análisis con IA",
+      "intro": {
+        "finding": "La IA revisa la evidencia con datos enmascarados (sin IP ni nombres de clientes) y propone próximos pasos.",
+        "router": "La IA revisa el exportador, el túnel y el alta del router con datos de Horus y propone comprobaciones."
+      },
+      "run": "Analizar con IA",
+      "rerun": "Volver a analizar",
+      "disclaimer": "Generado por IA; revisa antes de aplicar. Horus no ejecuta nada en tus routers.",
+      "disabled": "El asistente de IA no está activado en este ISP.",
+      "configure": "Configurarlo",
+      "askAdmin": "Pide a un administrador del ISP que lo active en Administración › Inteligencia artificial.",
+      "progress": {
+        "collect": "Reuniendo los datos de Horus…",
+        "evidence": "Revisando la evidencia y la reputación…",
+        "router": "Revisando el exportador y el túnel WireGuard…",
+        "write": "Redactando el análisis…"
+      },
+      "meta": "{model} · {provider} · {time}",
+      "tools": "datos consultados: {list}",
+      "tokens": "{input} tokens de entrada y {output} de salida",
+      "truncated": "La respuesta se cortó por longitud: vuelve a analizar si falta algo.",
+      "remaining": "No quedan consultas hoy en este ISP | Queda 1 consulta hoy en este ISP | Quedan {n} consultas hoy en este ISP",
+      "codeRouteros": "Comando RouterOS sugerido (revísalo antes de copiarlo; Horus no lo ejecuta)",
+      "code": "Código ({lang})",
+      "copy": "Copiar",
+      "errors": {
+        "limit": "Se alcanzó el límite diario de consultas a la IA de este ISP.",
+        "provider": "No se pudo obtener respuesta del proveedor de IA.",
+        "refused": "El modelo declinó responder a esta consulta.",
+        "disabled": "El asistente de IA no está activado en este ISP.",
+        "notConfigured": "El asistente no tiene un proveedor utilizable (falta la clave de API).",
+        "incomplete": "El modelo no llegó a una respuesta completa. Inténtalo de nuevo.",
+        "notFound": "No se encontró el recurso a analizar o no tienes acceso a él."
+      }
+    },
+    "admin": {
+      "intro": "Qué modelo de IA analiza hallazgos y routers en este ISP, cuántas consultas admite al día y quién lo usó.",
+      "privacyTitle": "Qué ve la IA",
+      "privacyBody": "Solo datos enmascarados: las IP de clientes se sustituyen por seudónimos (Cliente 3 · 10.20.x.x) y nunca se envían alias, nombres ni contactos. Ve comportamiento, puertos, ASN y el estado de routers y exportadores. Cada consulta queda auditada. Con un modelo local (servidor compatible con OpenAI) ningún dato sale de la red del ISP.",
+      "providerTitle": "Proveedor y modelo",
+      "sourceTenant": "Configuración propia del ISP",
+      "sourcePlatform": "Usa el valor por defecto de la plataforma",
+      "usage": "{used} de {limit} consultas hoy",
+      "on": "Activado",
+      "off": "Desactivado",
+      "enabled": "Activar el asistente",
+      "enabledHelp": "Muestra \"Analizar con IA\" en los hallazgos y en la ficha de los routers.",
+      "provider": "Proveedor",
+      "model": "Modelo",
+      "modelHelp": {
+        "anthropic": "Identificador del modelo de Claude.",
+        "openai_compatible": "Nombre del modelo en tu servidor (debe admitir herramientas, p. ej. llama3.1 o qwen2.5)."
+      },
+      "baseUrl": "URL del servidor",
+      "baseUrlHelp": "Ollama, vLLM o LM Studio en tu red (p. ej. http://10.0.0.5:11434). Horus llama a /v1/chat/completions.",
+      "apiKey": "Clave de API",
+      "keySet": "Hay una clave guardada (cifrada; nunca se muestra). Escribe otra para reemplazarla.",
+      "keyPlatform": "Sin clave propia se usa la clave de la plataforma.",
+      "keyRequired": "Obligatoria para Claude.",
+      "keyOptional": "Opcional: solo si tu servidor la exige.",
+      "keyKeep": "•••••••• (se conserva la actual)",
+      "keyPlaceholder": "Pega la clave de API",
+      "keyStoreMissing": "El servidor no puede cifrar claves por ISP (falta HORUS_ASSIST_KEK_FILE).",
+      "clearKey": "Borrar la clave guardada",
+      "effort": "Esfuerzo",
+      "effortHelp": "Más esfuerzo da análisis más completos pero tarda más y consume más tokens.",
+      "efforts": {
+        "low": "Bajo",
+        "medium": "Medio (recomendado)",
+        "high": "Alto"
+      },
+      "limit": "Límite diario de consultas",
+      "limitHelp": "Consultas a la IA por día (UTC) en todo el ISP.",
+      "saved": "Configuración del asistente guardada",
+      "test": "Probar conexión",
+      "testOk": "Conexión correcta ({ms} ms)"
+    },
+    "audit": {
+      "title": "Auditoría de consultas",
+      "body": "Quién usó la IA, con qué modelo, cuántos tokens y qué datos consultó. No guarda las respuestas ni datos de clientes.",
+      "empty": "Todavía no hay consultas.",
+      "duration": "{s} s",
+      "tokens": "{input} / {output} tokens",
+      "more": "Cargar más",
+      "feature": {
+        "finding": "Análisis de hallazgo",
+        "router": "Diagnóstico de router",
+        "mcp": "Consulta MCP",
+        "test": "Prueba de conexión"
+      },
+      "outcome": {
+        "success": "Correcta",
+        "refused": "Declinada",
+        "error": "Error",
+        "limited": "Límite alcanzado",
+        "denied": "Denegada"
+      }
+    },
+    "mcp": {
+      "title": "Servidor MCP",
+      "body": "Las mismas herramientas de solo lectura, con los mismos datos enmascarados, para Claude Desktop u otros clientes MCP. Cada token actúa con tus permisos actuales y cada consulta se audita.",
+      "unavailable": "El servidor MCP no está disponible en esta instalación.",
+      "noPermission": "Para crear tokens MCP necesitas el permiso de API tokens del ISP.",
+      "url": "URL del servidor MCP",
+      "name": "Nombre del token",
+      "namePlaceholder": "Claude Desktop de Ana",
+      "create": "Crear token",
+      "created": "Copia el token ahora: no se volverá a mostrar.",
+      "token": "Token MCP",
+      "desktop": "Configuración de Claude Desktop (claude_desktop_config.json)",
+      "empty": "No hay tokens MCP.",
+      "expires": "Caduca {time}",
+      "revokedAt": "Revocado {time}",
+      "lastUsed": "último uso {time}",
+      "neverUsed": "sin usar",
+      "revoke": "Revocar",
+      "revoked": "Token revocado"
     }
   }
 }

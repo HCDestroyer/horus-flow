@@ -57,6 +57,10 @@ tags:
     description: Feeds de reputación (plataforma) y allowlist (ISP).
   - name: notifications
     description: Canales de notificación del ISP y entregas.
+  - name: assist
+    description: Asistente de IA, configuración del proveedor y auditoría.
+  - name: mcp
+    description: Servidor MCP con las herramientas de solo lectura del asistente.
 paths:
   /analytics/customers/{customer_id}/traffic:
     $ref: ./analytics.yaml#/paths/~1analytics~1customers~1{customer_id}~1traffic
@@ -66,6 +70,22 @@ paths:
     $ref: ./analytics.yaml#/paths/~1analytics~1traffic~1timeseries
   /analytics/traffic/top:
     $ref: ./analytics.yaml#/paths/~1analytics~1traffic~1top
+  /assist/analyses:
+    $ref: ./assist.yaml#/paths/~1assist~1analyses
+  /assist/audit:
+    $ref: ./assist.yaml#/paths/~1assist~1audit
+  /assist/mcp:
+    $ref: ./assist.yaml#/paths/~1assist~1mcp
+  /assist/mcp-tokens:
+    $ref: ./assist.yaml#/paths/~1assist~1mcp-tokens
+  /assist/mcp-tokens/{token_id}:
+    $ref: ./assist.yaml#/paths/~1assist~1mcp-tokens~1{token_id}
+  /assist/settings:
+    $ref: ./assist.yaml#/paths/~1assist~1settings
+  /assist/settings/test:
+    $ref: ./assist.yaml#/paths/~1assist~1settings~1test
+  /assist/status:
+    $ref: ./assist.yaml#/paths/~1assist~1status
   /auth/invitations/accept:
     $ref: ./auth.yaml#/paths/~1auth~1invitations~1accept
   /auth/invitations/inspect:
@@ -296,3 +316,5 @@ components:
       $ref: ./common.yaml#/components/securitySchemes/refreshCookie
     kioskCookie:
       $ref: ./common.yaml#/components/securitySchemes/kioskCookie
+    mcpToken:
+      $ref: ./common.yaml#/components/securitySchemes/mcpToken

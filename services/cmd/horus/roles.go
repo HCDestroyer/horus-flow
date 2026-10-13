@@ -10,6 +10,7 @@ import (
 	example "github.com/hcdestroyer/horus-flow/services/_example"
 	"github.com/hcdestroyer/horus-flow/services/alerts"
 	"github.com/hcdestroyer/horus-flow/services/analytics"
+	"github.com/hcdestroyer/horus-flow/services/assist"
 	"github.com/hcdestroyer/horus-flow/services/auth"
 	"github.com/hcdestroyer/horus-flow/services/collector"
 	"github.com/hcdestroyer/horus-flow/services/detection"
@@ -50,6 +51,7 @@ var roleCatalog = []roleSpec{
 	{name: jobs.Role, factory: jobs.Register},
 	{name: collector.Role, factory: collector.Register},
 	{name: wgagent.Role, factory: wgagent.Register},
+	{name: assist.Role, factory: assist.Register},
 	{name: example.Role, factory: example.Register, hidden: true},
 	// new-module.sh:roles
 	{name: gateway.Role, factory: gateway.Register},

@@ -42,6 +42,8 @@ const audience = (a: string) =>
         {{ t('findings.actions.manualNote') }}
       </p>
     </div>
+    <!-- Puntos de entrada extra de "Qué hacer" (p. ej. "Analizar con IA"). -->
+    <slot />
     <ol class="flex flex-col gap-3">
       <li v-for="a in sorted" :key="a.code" data-testid="recommended-action" :data-action="a.code">
         <UCard :ui="{ body: 'p-4 sm:p-4 flex flex-col gap-3' }">
