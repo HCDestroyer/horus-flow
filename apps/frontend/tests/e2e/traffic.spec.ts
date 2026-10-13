@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { loginAsAdmin, seriousViolations } from './helpers'
+import { layoutReport } from './layout-audit'
 
 /** I1-17 · Tráfico: tops y series. `pnpm e2e --grep @traffic`. */
 
@@ -77,9 +78,12 @@ test.describe('tráfico @traffic', () => {
     await loginAsAdmin(page)
     await page.goto(PAGE)
     const rest = page.getByTestId('traffic-unattributed')
-    await rest.locator('summary').click()
+    await page.setViewportSize({ width: 390, height: 900 })
+    await rest.getByTestId('traffic-unattributed-toggle').click()
     const row = rest.locator('[data-unattributed="100.64.12.0/22"]')
     await expect(row).toContainText('IP vistas')
+    // Abierta, la lista tampoco se corta ni se solapa en un móvil.
+    expect(await layoutReport(page, { extra: ['#main-content'] })).toEqual([])
     await row.getByRole('link', { name: 'Revisar en el nodo' }).click()
     await expect(page).toHaveURL(/\/t\/fibra-norte\/nodes\/[0-9a-f-]+/)
   })

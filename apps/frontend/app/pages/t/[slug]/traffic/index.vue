@@ -74,6 +74,7 @@ const { data: unattributed } = useTenantQuery(
   },
   { watch: [range, site, () => sites.value?.length] },
 )
+const showRest = ref(false)
 const siteName = (id: string) => sites.value?.find((s) => s.id === id)?.name ?? id
 
 const degraded = computed(
@@ -351,54 +352,64 @@ const breakdownColumns = computed<TableColumn<BreakdownRow>[]>(() => [
             :style="{ width: `${attribution.data.unattributed_ratio * 100}%` }"
           />
         </div>
-        <details
+        <div
           v-if="attribution.data.unattributed_ratio > 0"
           class="mt-3"
           data-testid="traffic-unattributed"
         >
-          <summary class="text-default cursor-pointer text-sm font-medium">
-            {{ t('traffic.rest.title') }}
-          </summary>
-          <p class="text-muted mt-2 text-sm">{{ t('traffic.rest.body') }}</p>
-          <p v-if="!unattributed?.length" class="text-muted mt-2 text-sm">
-            {{ t('traffic.rest.empty') }}
-          </p>
-          <ul v-else class="divide-default mt-2 divide-y text-sm">
-            <li
-              v-for="r in unattributed"
-              :key="`${r.siteId}-${r.prefix}`"
-              class="flex flex-wrap items-center justify-between gap-2 py-2"
-              :data-unattributed="r.prefix"
-            >
-              <span class="min-w-0">
-                <span class="text-highlighted font-mono">{{ r.prefix }}</span>
-                <span class="text-muted">
-                  · {{ siteName(r.siteId) }} ·
-                  {{
-                    t('prefixes.discovery.stats', {
-                      ips: formatNumber(r.distinct_ips),
-                      bytes: joinUnit(formatBytes(Number(r.bytes))),
-                    })
-                  }}
-                  ·
-                  {{
-                    t('prefixes.discovery.suggested', {
-                      role: t(`prefixes.role.${r.suggested_role}`),
-                    })
-                  }}
+          <UButton
+            color="neutral"
+            variant="link"
+            size="sm"
+            class="px-0"
+            :icon="showRest ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'"
+            :label="t('traffic.rest.title')"
+            :aria-expanded="showRest"
+            data-testid="traffic-unattributed-toggle"
+            @click="showRest = !showRest"
+          />
+          <template v-if="showRest">
+            <p class="text-muted mt-2 text-sm">{{ t('traffic.rest.body') }}</p>
+            <p v-if="!unattributed?.length" class="text-muted mt-2 text-sm">
+              {{ t('traffic.rest.empty') }}
+            </p>
+            <ul v-else class="divide-default mt-2 divide-y text-sm">
+              <li
+                v-for="r in unattributed"
+                :key="`${r.siteId}-${r.prefix}`"
+                class="flex flex-wrap items-center justify-between gap-2 py-2"
+                :data-unattributed="r.prefix"
+              >
+                <span class="min-w-0">
+                  <span class="text-highlighted font-mono">{{ r.prefix }}</span>
+                  <span class="text-muted">
+                    · {{ siteName(r.siteId) }} ·
+                    {{
+                      t('prefixes.discovery.stats', {
+                        ips: formatNumber(r.distinct_ips),
+                        bytes: joinUnit(formatBytes(Number(r.bytes))),
+                      })
+                    }}
+                    ·
+                    {{
+                      t('prefixes.discovery.suggested', {
+                        role: t(`prefixes.role.${r.suggested_role}`),
+                      })
+                    }}
+                  </span>
                 </span>
-              </span>
-              <UButton
-                :to="`/t/${slug}/nodes/${r.siteId}`"
-                size="xs"
-                color="neutral"
-                variant="outline"
-                icon="i-lucide-list-tree"
-                :label="t('traffic.rest.review')"
-              />
-            </li>
-          </ul>
-        </details>
+                <UButton
+                  :to="`/t/${slug}/nodes/${r.siteId}`"
+                  size="xs"
+                  color="neutral"
+                  variant="outline"
+                  icon="i-lucide-list-tree"
+                  :label="t('traffic.rest.review')"
+                />
+              </li>
+            </ul>
+          </template>
+        </div>
       </UCard>
     </template>
 
