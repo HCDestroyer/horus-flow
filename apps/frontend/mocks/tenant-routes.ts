@@ -10,6 +10,7 @@ import type {
 import { asnRulesOf, asnRulesRoute } from './asn-rules'
 import { CATEGORIES, maskIp, REMOTE_ASNS, tenantScale } from './base'
 import type { MockTenant } from './data'
+import { assistRoute } from './assist'
 import { detectionSettingsRoute } from './detection-settings'
 import { deviceRoutes } from './devices'
 import { evidenceFlows, findFinding, findingsOf, securitySummary, sortFindings } from './findings'
@@ -1044,6 +1045,7 @@ export function tenantRoute(ctx: TenantRouteContext): Response | undefined {
     analyticsRoutes(ctx) ??
     playlistRoutes(ctx) ??
     detectionSettingsRoute(ctx) ??
-    asnRulesRoute(ctx)
+    asnRulesRoute(ctx) ??
+    assistRoute(ctx)
   )
 }

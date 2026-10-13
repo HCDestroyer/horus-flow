@@ -31,6 +31,7 @@ const (
 	PermWidgetType      = "widget_type"
 	PermDashboardAccess = "dashboard_access"
 	PermKioskSelf       = "kiosk_self"
+	PermMCPToken        = "mcp_token"
 )
 
 // Route es una entrada (prefijo + método) de la tabla.
@@ -51,7 +52,7 @@ type Route struct {
 // propio (el gateway no exige Bearer).
 func (r Route) SelfAuthenticating() bool {
 	switch r.Permission {
-	case PermPublic, PermRefreshCookie, PermKioskCookie, PermEnrollmentToken:
+	case PermPublic, PermRefreshCookie, PermKioskCookie, PermEnrollmentToken, PermMCPToken:
 		return true
 	}
 	return false

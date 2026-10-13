@@ -25,6 +25,7 @@ Diseño de Horus Flow antes de escribir código. Dos rondas:
 | [`disaster-recovery.md`](disaster-recovery.md) | RPO/RTO, backups locales + remoto, runbooks |
 | [`conventions.md`](conventions.md) | Código, monorepo, flujo de trabajo de agentes de IA, CI, Definición de Terminado |
 | [`vendors/mikrotik.md`](vendors/mikrotik.md) | Integración MikroTik RouterOS v7: Traffic Flow, SNMP, API, WireGuard, onboarding, laboratorio CHR |
+| [`assist.md`](assist.md) | Asistente de IA: proveedores (Claude o modelo local), herramientas de solo lectura, enmascarado, auditoría y servidor MCP |
 | [`frontend.md`](frontend.md) | UI multi-ISP, dashboard modular, modo NOC/kiosco, clientes, hallazgos |
 | [`roadmap.md`](roadmap.md) | Plan por incrementos de valor (I0–I6) y trazabilidad con los sprints originales |
 | [`backlog/`](backlog/README.md) | Épicas, historias de [I0](backlog/increment-0.md) e [I1](backlog/increment-1.md), [reparto entre agentes](backlog/team.md) |

@@ -79,6 +79,8 @@
 
 # Agente: SEC
 /services/detection/                @hcdestroyer
+# Asistente de IA (docs/assist.md): datos enmascarados hacia proveedores externos y claves de API.
+/services/assist/                   @hcdestroyer
 
 # Agente: CORE
 # Decisión D21 (po-decisions.md): alerts → CORE (canales e integraciones, incluido LibreNMS).

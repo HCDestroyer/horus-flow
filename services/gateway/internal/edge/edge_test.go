@@ -267,3 +267,39 @@ func TestRateLimitRealClientIP(t *testing.T) {
 		t.Fatal("el cliente B no debe heredar el límite de A (antes todos compartían la IP del proxy)")
 	}
 }
+
+// Token delegado del servidor MCP del asistente (auth.Delegation): typ=service, sin sesión. El borde
+// no consulta la revocación de sesión (auth comprueba usuario, membresía e ISP al emitirlo) pero sí
+// aplica ámbito y permiso.
+func TestDelegatedServiceToken(t *testing.T) {
+	e := newEnv(t)
+	tid := uuid.New()
+	svc := func(perms map[string][]string) string {
+		return e.token(t, authz.ScopeTenant, tid, perms, func(c *authz.Claims) { c.Typ, c.SID = authz.TypeService, "" })
+	}
+	w, _ := e.do("GET", "/api/v1/sites", svc(map[string][]string{"sites.read": {"*"}}), nil, nil)
+	if w.Code != http.StatusNoContent || e.sessions.calls != 0 {
+		t.Fatalf("delegado con permiso = %d (session checks %d)", w.Code, e.sessions.calls)
+	}
+	w, m := e.do("GET", "/api/v1/sites", svc(map[string][]string{"devices.read": {"*"}}), nil, nil)
+	if w.Code != http.StatusForbidden || m["code"] != "PERMISSION_DENIED" {
+		t.Fatalf("delegado sin permiso = %d %v", w.Code, m)
+	}
+}
+
+// POST /assist/mcp se autentica con el token MCP propio (lo valida assist): el borde no exige JWT.
+func TestMCPRouteSelfAuthenticating(t *testing.T) {
+	table, err := routes.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range table {
+		if r.Prefix == "/api/v1/assist/mcp" {
+			if r.Method != http.MethodPost || !r.SelfAuthenticating() || r.Permission != routes.PermMCPToken {
+				t.Fatalf("ruta MCP = %+v", r)
+			}
+			return
+		}
+	}
+	t.Fatal("falta /api/v1/assist/mcp en la tabla")
+}

@@ -724,6 +724,20 @@ por tenant y permiso; no hay URLs prefirmadas.
 | --- | --- | --- |
 | `GET /reports/{id}/download` · `GET /exports/{id}/download` | Stream del archivo (`Content-Disposition: attachment`, `no-store`). Auditado. Otro tenant → `404`. | `reports.read` / permiso de la exportación |
 
+### 2.10 quater Asistente de IA (`assist`)
+
+Contrato en [`assist.yaml`](../packages/schemas/openapi/v0/assist.yaml); diseño en [`assist.md`](assist.md).
+
+| Método y ruta | Descripción | Permiso |
+| --- | --- | --- |
+| `GET /assist/status` | ¿Activo en el ISP? (botones "Analizar con IA") | cualquier miembro |
+| `GET` · `PUT /assist/settings` | Proveedor, modelo, esfuerzo, límite diario; `api_key` write-only (`api_key_set`) | `settings.read` / `settings.manage` |
+| `POST /assist/settings/test` | Prueba de conexión con el proveedor | `settings.manage` |
+| `POST /assist/analyses` | `{feature: finding\|router, context_id}` → Markdown enmascarado, modelo, herramientas y tokens | lectura del recurso (`security.findings.read` / `devices.read`) |
+| `GET /assist/audit` | Consultas a la IA del ISP (sin datos de clientes) | `settings.read` |
+| `GET` · `POST /assist/mcp-tokens` · `DELETE /assist/mcp-tokens/{id}` | Tokens del servidor MCP (valor mostrado una vez) | `api_tokens.manage` |
+| `POST /assist/mcp` | Servidor MCP (Streamable HTTP); permiso especial `mcp_token` del gateway | token `hmcp_…` |
+
 ### 2.11 Dashboards modulares (D8)
 
 Dueño: módulo `analytics` ([`services.md`](./services.md)), que resuelve también los datos de los widgets. Un dashboard es **un documento** con su layout y sus widgets; widgets y layout también tienen rutas propias

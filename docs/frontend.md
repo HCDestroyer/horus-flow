@@ -635,6 +635,15 @@ Mismos widgets que el catálogo (§6.2).
   Quitar o reducir un prefijo avisa de cuántos clientes pasarán a *Inactivo*.
 - "Script de desinstalación" en "Más".
 
+### 8.x Asistente de IA
+
+"Analizar con IA" (`components/assist/AiAnalysis.vue`) en la sección "Qué hacer" del detalle de un hallazgo
+y en el Resumen de la ficha de un router: oculto sin permiso de lectura del recurso; si el asistente no
+está activo, un aviso con enlace a Administración › Inteligencia artificial (`pages/t/[slug]/admin/ai.vue`).
+La respuesta es Markdown **seguro** (`utils/markdown.ts` → plantillas, nunca `v-html`; enlaces como
+texto), con el aviso "Generado por IA; revisa antes de aplicar. Horus no ejecuta nada en tus routers." y
+los comandos RouterOS en `CodeBlock` para copiar. Ver [`assist.md`](assist.md).
+
 ## 9. Estados
 
 Toda vista y **todo widget** implementan los cuatro estados (parte de la DoD de frontend,

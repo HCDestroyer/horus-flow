@@ -26,7 +26,7 @@ x-horus-env: &horus-env
   HORUS_ENV: dev
   HORUS_LOG_LEVEL: ${HORUS_LOG_LEVEL:-info}
   HORUS_LOG_FORMAT: json
-  HORUS_ROLES: gateway,auth,devices,wireguard,snmp,traffic,detection,alerts,analytics,reporting,ingester,jobs
+  HORUS_ROLES: gateway,auth,devices,wireguard,snmp,traffic,detection,alerts,analytics,reporting,ingester,jobs,assist
   HORUS_HTTP_ADDR: ":8080"
   HORUS_GRPC_ADDR: ":9090"
   HORUS_ADMIN_ADDR: ":8081"

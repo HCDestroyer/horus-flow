@@ -353,7 +353,9 @@ useHead({ title: () => finding.value?.summary.text ?? t('findings.detailTitle') 
           v-model:applied="applied"
           :actions="finding.recommended_actions"
           :finding-id="finding.id"
-        />
+        >
+          <AiAnalysis feature="finding" :context-id="finding.id" />
+        </RecommendedActions>
       </div>
 
       <FindingTransitionModal

@@ -157,6 +157,170 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/assist/analyses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Analiza un hallazgo o un router con IA (síncrono; puede tardar hasta HORUS_ASSIST_REQUEST_TIMEOUT)
+         * @description Permiso: el de lectura del recurso analizado (`finding` → `security.findings.read`, `router` →
+         *     `devices.read`) y el asistente activo en el ISP. El recurso se lee como el usuario: si no lo ve,
+         *     `404 ASSIST_CONTEXT_NOT_FOUND`. Errores: `409 ASSIST_DISABLED` / `ASSIST_NOT_CONFIGURED`,
+         *     `429 ASSIST_LIMIT_REACHED` (con `Retry-After` hasta el próximo día UTC), `422 ASSIST_REFUSED` (el modelo
+         *     declinó), `502 ASSIST_PROVIDER_UNAVAILABLE` / `ASSIST_INCOMPLETE`.
+         */
+        post: operations["createAssistAnalysis"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assist/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Auditoría de las consultas a la IA del ISP (sin datos de clientes), de la más reciente a la más antigua */
+        get: operations["listAssistAudit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assist/mcp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Servidor MCP (Streamable HTTP, sin estado) con las herramientas de solo lectura del asistente
+         * @description Mensajes JSON-RPC 2.0 de MCP (`initialize`, `tools/list`, `tools/call`…) con respuesta JSON. Autenticación
+         *     `Authorization: Bearer hmcp_…` (no un JWT de Horus): el gateway no la valida, lo hace assist. Las
+         *     herramientas actúan como el usuario dueño del token, con datos enmascarados, y cada llamada se audita
+         *     (feature `mcp`). Requiere el asistente activo en el ISP. Configuración de Claude Desktop en docs/assist.md.
+         */
+        post: operations["assistMcp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assist/mcp-tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Tokens del servidor MCP del ISP (sin su valor) */
+        get: operations["listAssistMcpTokens"];
+        put?: never;
+        /**
+         * Crea un token MCP que actúa como quien lo crea (el valor se muestra una sola vez)
+         * @description El token solo da acceso a las herramientas de solo lectura del asistente, con la intersección entre sus
+         *     permisos de lectura y los permisos **actuales** del usuario (si pierde un rol o la membresía, el token deja
+         *     de servir). Se guarda solo su hash SHA-256. Caduca a los HORUS_ASSIST_MCP_TOKEN_TTL (90 días por defecto).
+         */
+        post: operations["createAssistMcpToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assist/mcp-tokens/{token_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoca un token MCP */
+        delete: operations["revokeAssistMcpToken"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assist/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Configuración efectiva del asistente del ISP (la propia o la de plataforma), sin la clave */
+        get: operations["getAssistSettings"];
+        /**
+         * Guarda la configuración del asistente del ISP (la clave de API es write-only)
+         * @description `api_key` se cifra (envelope encryption con la KEK de assist) y nunca vuelve en la respuesta; omitida =
+         *     sin cambios; `clear_api_key: true` la borra. Al cambiar de proveedor sin enviar clave nueva, la clave
+         *     guardada se descarta. Activar `anthropic` exige una clave (del ISP o de plataforma). `base_url` solo
+         *     aplica a `openai_compatible` (obligatoria). Auditado en la auditoría del ISP.
+         */
+        put: operations["putAssistSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assist/settings/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Prueba de conexión con el proveedor configurado (petición mínima; no cuenta para el límite diario) */
+        post: operations["testAssistSettings"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assist/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Si el asistente está activo en el ISP (para mostrar u ocultar los botones "Analizar con IA") */
+        get: operations["getAssistStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/invitations/accept": {
         parameters: {
             query?: never;
@@ -2398,6 +2562,130 @@ export interface components {
             note?: string | null;
             service?: string | null;
         };
+        AssistAnalysis: {
+            context_id: components["schemas"]["Uuid"];
+            /** @example Generado por IA; revisa antes de aplicar. Horus no ejecuta nada en tus routers. */
+            disclaimer: string;
+            duration_ms: number;
+            feature: components["schemas"]["AssistFeature"];
+            generated_at: components["schemas"]["Timestamp"];
+            id: components["schemas"]["Uuid"];
+            /** @description Markdown (secciones Qué está pasando, Posibles causas, Qué hacer, Para deshacer). Datos de clientes seudonimizados. La UI lo muestra sin HTML. */
+            markdown: string;
+            model: string;
+            provider: components["schemas"]["AssistProvider"];
+            tool_calls: components["schemas"]["AssistToolUse"][];
+            /** @description La respuesta se cortó por el máximo de tokens. */
+            truncated: boolean;
+            usage: {
+                input_tokens: number;
+                output_tokens: number;
+            };
+        };
+        AssistAnalysisRequest: {
+            context_id: components["schemas"]["Uuid"];
+            feature: components["schemas"]["AssistFeature"];
+        };
+        AssistAuditEntry: {
+            /** @description ID del recurso analizado o nombre de la herramienta MCP. */
+            context_id: string;
+            created_at: components["schemas"]["Timestamp"];
+            duration_ms: number;
+            error_code: string | null;
+            /** @enum {string} */
+            feature: "finding" | "router" | "mcp" | "test";
+            id: components["schemas"]["Uuid"];
+            input_tokens: number;
+            model: string;
+            /** @enum {string} */
+            outcome: "success" | "refused" | "error" | "limited" | "denied";
+            output_tokens: number;
+            provider: string;
+            tool_calls: components["schemas"]["AssistToolUse"][];
+            user_id: components["schemas"]["Uuid"] | null;
+        };
+        /** @enum {string} */
+        AssistEffort: "low" | "medium" | "high";
+        /**
+         * @description Punto de entrada (enum abierto; llegarán más).
+         * @enum {string}
+         */
+        AssistFeature: "finding" | "router";
+        /** @enum {string} */
+        AssistProvider: "anthropic" | "openai_compatible";
+        AssistSettings: {
+            /** @description El ISP guardó su propia clave (nunca se devuelve). */
+            api_key_set: boolean;
+            /**
+             * @description De dónde sale la clave que se usará.
+             * @enum {string}
+             */
+            api_key_source: "tenant" | "platform" | "none";
+            /** @description Solo openai_compatible (p. ej. http://10.0.0.5:11434). */
+            base_url: string | null;
+            daily_request_limit: number;
+            effort: components["schemas"]["AssistEffort"];
+            enabled: boolean;
+            /** @description El servidor puede cifrar claves por ISP (HORUS_ASSIST_KEK_FILE). */
+            key_store_available: boolean;
+            /** @description El servidor MCP está disponible en esta instalación. */
+            mcp_enabled: boolean;
+            /**
+             * @example claude-opus-5-5
+             * @example llama3.1
+             */
+            model: string;
+            platform_default: {
+                api_key_set: boolean;
+                enabled: boolean;
+                model: string;
+                provider: components["schemas"]["AssistProvider"];
+            };
+            provider: components["schemas"]["AssistProvider"];
+            /**
+             * @description La configuración es del ISP o el valor por defecto de plataforma.
+             * @enum {string}
+             */
+            source: "tenant" | "platform";
+            updated_at: components["schemas"]["Timestamp"] | null;
+            updated_by: components["schemas"]["Uuid"] | null;
+            /** @description Consultas de hoy (UTC) que cuentan para el límite. */
+            usage_today: number;
+            version: number;
+        };
+        AssistSettingsUpdate: {
+            api_key?: string;
+            base_url?: string | null;
+            clear_api_key?: boolean;
+            daily_request_limit: number;
+            effort?: components["schemas"]["AssistEffort"];
+            enabled: boolean;
+            /** @description Vacío = el del proveedor por defecto. */
+            model?: string;
+            provider: components["schemas"]["AssistProvider"];
+        };
+        AssistStatus: {
+            /** @description Activo y con proveedor utilizable. */
+            enabled: boolean;
+            model: string;
+            provider: components["schemas"]["AssistProvider"];
+            remaining_today: number;
+        };
+        AssistTestResult: {
+            /** @enum {string} */
+            error_code?: "PROVIDER_UNAUTHORIZED" | "PROVIDER_RATE_LIMITED" | "PROVIDER_MODEL_NOT_FOUND" | "PROVIDER_BAD_REQUEST" | "PROVIDER_TIMEOUT" | "PROVIDER_UNAVAILABLE";
+            latency_ms: number;
+            message: string;
+            model: string;
+            ok: boolean;
+            provider: components["schemas"]["AssistProvider"];
+        };
+        AssistToolUse: {
+            count: number;
+            errors?: number;
+            /** @example get_finding */
+            name: string;
+        };
         /** @enum {string} */
         CapabilityState: "ok" | "degraded" | "stale" | "unavailable";
         ChannelSubscription: {
@@ -2933,6 +3221,22 @@ export interface components {
             tls_verify?: boolean;
             /** @description Usuario de LibreNMS dedicado a Horus. */
             username: string;
+        };
+        McpToken: {
+            active: boolean;
+            created_at: components["schemas"]["Timestamp"];
+            expires_at: components["schemas"]["Timestamp"];
+            id: components["schemas"]["Uuid"];
+            last_used_at: components["schemas"]["Timestamp"] | null;
+            name: string;
+            /** @description Primeros caracteres del token (para reconocerlo). */
+            prefix: string;
+            revoked_at: components["schemas"]["Timestamp"] | null;
+            user_id: components["schemas"]["Uuid"];
+        };
+        McpTokenIssued: components["schemas"]["McpToken"] & {
+            /** @description Valor del token (hmcp_…). Solo en esta respuesta. */
+            token: string;
         };
         Me: {
             default_tenant_id?: components["schemas"]["Uuid"] | null;
@@ -4001,6 +4305,15 @@ export interface components {
         };
     };
     responses: {
+        /** @description El proveedor de IA falló o no llegó a una respuesta (`ASSIST_PROVIDER_UNAVAILABLE`, `ASSIST_INCOMPLETE`). */
+        BadGateway: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
         /** @description JSON mal formado, parámetro inválido, cursor corrupto, filtro u orden no permitido. */
         BadRequest: {
             headers: {
@@ -4476,6 +4789,278 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    createAssistAnalysis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssistAnalysisRequest"];
+            };
+        };
+        responses: {
+            /** @description Análisis en Markdown (enmascarado; sin HTML). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistAnalysis"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
+            502: components["responses"]["BadGateway"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    listAssistAudit: {
+        parameters: {
+            query?: {
+                /** @description Cursor opaco (`page.next_cursor`); ligado a filtros, orden y `tid`. Ajeno → `400 INVALID_CURSOR`. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Tamaño de página (1–200, por defecto 50). Fuera de rango → 400. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Página de auditoría. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AssistAuditEntry"][];
+                        page: components["schemas"]["PageInfo"];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    assistMcp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        responses: {
+            /** @description Respuesta JSON-RPC 2.0. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Notificación aceptada (sin cuerpo). */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    listAssistMcpTokens: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tokens. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["McpToken"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createAssistMcpToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @example Claude Desktop de Ana */
+                    name: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Token creado (incluye `token`, que no se vuelve a mostrar). */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpTokenIssued"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["UnprocessableEntity"];
+        };
+    };
+    revokeAssistMcpToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: components["responses"]["NoContent"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getAssistSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Configuración. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistSettings"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    putAssistSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssistSettingsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Configuración guardada. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistSettings"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["UnprocessableEntity"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    testAssistSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Resultado (también cuando falla el proveedor; ver `ok`). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistTestResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    getAssistStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Estado del asistente. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistStatus"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     authAcceptInvitation: {

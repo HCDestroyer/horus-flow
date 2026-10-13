@@ -140,6 +140,11 @@ func cases() map[string]tenanttest.Case {
 	c["updateAsnRule"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"name": "pirata"}}
 	c["deleteAsnRule"] = tenanttest.Case{Kind: tenanttest.ByID}
 	pending("FLOW I1 (analytics: nombre de un ASN; el arnés solo monta los dashboards de analytics)", "getAsnInfo")
+	// assist: el arnés no monta el asistente (necesita el proceso completo para sus herramientas);
+	// su aislamiento lo cubren services/assist/internal/adapters/postgres (RLS forzada, cruce de ISP).
+	pending("ASSIST (asistente IA: suite propia de aislamiento en services/assist)",
+		"getAssistStatus", "getAssistSettings", "putAssistSettings", "testAssistSettings", "createAssistAnalysis",
+		"listAssistAudit", "listAssistMcpTokens", "createAssistMcpToken", "revokeAssistMcpToken")
 	pending("FLOW I1 (flows: exportadores)", "listFlowExporters", "getFlowExporter")
 	return c
 }

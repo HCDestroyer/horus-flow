@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/hcdestroyer/horus-flow/packages/go/authz"
 	"github.com/hcdestroyer/horus-flow/packages/go/config"
@@ -127,8 +128,10 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 	}
 	cursor := pagination.NewCodec(sealer.MAC("cursor", nil))
 	kiosks := app.NewKiosks(store, signer, svc, cursor, cfg.PublicBaseURL, nil, logger)
+	// Tokens delegados de 2 min para el servidor MCP del asistente (docs/assist.md).
+	delegation := app.NewDelegation(store, authz.NewSigner(signKey, cfg.Issuer, 2*time.Minute, nil))
 	for name, v := range map[string]any{api.ServiceSessions: svc, api.ServiceVerifier: verifier, api.ServiceAudit: svc, api.ServiceKiosks: kiosks,
-		api.ServiceTenants: svc} {
+		api.ServiceTenants: svc, api.ServiceDelegation: delegation} {
 		if deps.Services == nil {
 			break
 		}

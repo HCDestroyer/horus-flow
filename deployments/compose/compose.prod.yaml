@@ -280,7 +280,7 @@ services:
     read_only: true
     environment:
       <<: *horus-env
-      HORUS_ROLES: gateway,auth,devices,wireguard,snmp,traffic,detection,alerts,analytics,reporting,ingester,jobs
+      HORUS_ROLES: gateway,auth,devices,wireguard,snmp,traffic,detection,alerts,analytics,reporting,ingester,jobs,assist
       HORUS_PROCESS: horus-app
       HORUS_AUTH_SIGNING_KEY_FILE: /run/secrets/auth_signing_key
       HORUS_AUTH_KEK_FILE: /run/secrets/auth_kek
@@ -291,6 +291,16 @@ services:
       # con la KEK de jobs y copias cifradas con age para la clave PÚBLICA de la instalación; la
       # identidad privada (backup_age_identity) no entra en el contenedor: solo en el paquete offline.
       HORUS_JOBS_KEK_FILE: /run/secrets/jobs_kek
+      # Asistente de IA (rol assist, docs/assist.md): KEK de las claves de API por ISP y valor por
+      # defecto de plataforma. Desactivado salvo HORUS_ASSIST_DEFAULT_ENABLED=true o que un ISP lo active
+      # en Administración › Inteligencia artificial. assist_api_key vacío = sin clave de plataforma.
+      HORUS_ASSIST_KEK_FILE: /run/secrets/assist_kek
+      HORUS_ASSIST_API_KEY_FILE: /run/secrets/assist_api_key
+      HORUS_ASSIST_DEFAULT_ENABLED: ${HORUS_ASSIST_DEFAULT_ENABLED:-false}
+      HORUS_ASSIST_PROVIDER: ${HORUS_ASSIST_PROVIDER:-anthropic}
+      HORUS_ASSIST_MODEL: ${HORUS_ASSIST_MODEL:-}
+      HORUS_ASSIST_BASE_URL: ${HORUS_ASSIST_BASE_URL:-}
+      HORUS_ASSIST_DAILY_LIMIT: ${HORUS_ASSIST_DAILY_LIMIT:-100}
       HORUS_BACKUP_AGE_RECIPIENT_FILE: /run/secrets/backup_age_recipient
       HORUS_ALERTS_CURSOR_KEY_FILE: /run/secrets/cursor_key
       # Reputación (SEC): detection sincroniza las fuentes y publica el snapshot en el almacén;
@@ -353,6 +363,8 @@ services:
       - alerts_kek
       - detection_kek
       - jobs_kek
+      - assist_kek
+      - assist_api_key
       - backup_age_recipient
       - smtp_password
       - cursor_key
@@ -548,6 +560,10 @@ secrets:
     file: ${HORUS_SECRETS_DIR}/detection_kek
   jobs_kek:
     file: ${HORUS_SECRETS_DIR}/jobs_kek
+  assist_kek:
+    file: ${HORUS_SECRETS_DIR}/assist_kek
+  assist_api_key:
+    file: ${HORUS_SECRETS_DIR}/assist_api_key
   backup_age_recipient:
     file: ${HORUS_SECRETS_DIR}/backup_age_recipient
   smtp_password:

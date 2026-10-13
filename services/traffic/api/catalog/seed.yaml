@@ -101,7 +101,7 @@ services:
   - {slug: gta_online, name: GTA Online, category: gaming, org: take_two,
      rules: [{asn: [46555], confidence: 80},
              {ports: [6672, 61455, 61456, 61457, 61458], protocols: [17], confidence: 55}]}
-  - {slug: riot_games, name: Riot Games (LoL, VALORANT), category: gaming, org: riot,
+  - {slug: riot_games, name: "Riot Games (LoL, VALORANT)", category: gaming, org: riot,
      rules: [{asn: [6507], confidence: 85}]}
   - {slug: xbox_live, name: Xbox Live, category: gaming, org: microsoft,
      rules: [{asn: [8075], ports: [3074], confidence: 75}]}
