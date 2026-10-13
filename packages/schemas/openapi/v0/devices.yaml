@@ -27,6 +27,8 @@ tags:
     description: Qué IPs son de clientes en cada nodo.
   - name: customers
     description: Clientes = IPs observadas (D1).
+  - name: asn-rules
+    description: ASN propios del ISP — nombre, categoría y servicio que se aplican al clasificar el tráfico nuevo.
 paths:
   /sites:
     get:
@@ -882,6 +884,134 @@ paths:
                   page: { $ref: './common.yaml#/components/schemas/PageInfo' }
         '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
         '404': { $ref: './common.yaml#/components/responses/NotFound' }
+  /asn-rules:
+    get:
+      tags: [asn-rules]
+      operationId: listAsnRules
+      summary: Reglas ASN propias del ISP (nombre, categoría y servicio por ASN)
+      description: |
+        Lista completa (como mucho 1000 reglas por ISP, sin paginar), ordenada por ASN. Las reglas se aplican
+        a los flujos que se ingieren desde su alta (`classification_method = local_override`); el histórico
+        no se reclasifica. El nombre sí se muestra en los tops por ASN y organización de cualquier rango.
+      x-module: devices
+      x-scope: tenant
+      x-permission: settings.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Reglas del ISP.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/AsnRule' } }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+    post:
+      tags: [asn-rules]
+      operationId: createAsnRule
+      summary: Nombra un ASN para el ISP (ASN repetido → 422 con error en `asn`)
+      x-module: devices
+      x-scope: tenant
+      x-permission: settings.manage
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AsnRuleInput' }
+      responses:
+        '201':
+          description: Creada.
+          headers:
+            Location: { $ref: './common.yaml#/components/headers/Location' }
+            ETag: { $ref: './common.yaml#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AsnRule' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /asn-rules/catalog:
+    get:
+      tags: [asn-rules]
+      operationId: getAsnRuleCatalog
+      summary: Categorías y servicios del catálogo de plataforma que admite una regla ASN
+      x-module: devices
+      x-scope: tenant
+      x-permission: settings.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Opciones del catálogo vigente.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AsnRuleCatalog' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+  /asn-rules/{asn_rule_id}:
+    parameters:
+      - $ref: '#/components/parameters/AsnRuleId'
+    patch:
+      tags: [asn-rules]
+      operationId: updateAsnRule
+      summary: Edita el nombre, la categoría, el servicio o la nota de una regla (el ASN no cambia)
+      x-module: devices
+      x-scope: tenant
+      x-permission: settings.manage
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/AsnRulePatch' }
+          application/json:
+            schema: { $ref: '#/components/schemas/AsnRulePatch' }
+      responses:
+        '200':
+          description: Actualizada.
+          headers:
+            ETag: { $ref: './common.yaml#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AsnRule' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+        '428': { $ref: './common.yaml#/components/responses/PreconditionRequired' }
+    delete:
+      tags: [asn-rules]
+      operationId: deleteAsnRule
+      summary: Borra una regla (el tráfico nuevo vuelve a clasificarse con el catálogo)
+      x-module: devices
+      x-scope: tenant
+      x-permission: settings.manage
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      responses:
+        '204': { $ref: './common.yaml#/components/responses/NoContent' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+        '428': { $ref: './common.yaml#/components/responses/PreconditionRequired' }
 components:
   securitySchemes:
     tenantBearer: { $ref: './common.yaml#/components/securitySchemes/tenantBearer' }
@@ -907,7 +1037,67 @@ components:
       in: path
       required: true
       schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    AsnRuleId:
+      name: asn_rule_id
+      in: path
+      required: true
+      schema: { $ref: './common.yaml#/components/schemas/Uuid' }
   schemas:
+    AsnRuleInput:
+      type: object
+      additionalProperties: false
+      required: [asn, name]
+      description: |
+        `category` es obligatoria salvo que se indique `service`: con un servicio del catálogo la categoría es la de ese
+        servicio (los agregados solo guardan el servicio) y una distinta → 422 en `category`.
+      properties:
+        asn: { type: integer, format: int64, minimum: 1, maximum: 4294967295, examples: [263237] }
+        name: { type: string, minLength: 1, maxLength: 80, description: 'Nombre visible en tops, dashboards y kioscos.' }
+        category: { type: string, maxLength: 64, description: 'Slug de una categoría del catálogo (`GET /asn-rules/catalog`).' }
+        service:
+          type: [string, 'null']
+          maxLength: 64
+          description: Slug de un servicio del catálogo; null = el nombre de la regla hace de servicio.
+        note: { type: [string, 'null'], maxLength: 300 }
+    AsnRulePatch:
+      type: object
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        category: { type: string, maxLength: 64 }
+        service: { type: [string, 'null'], maxLength: 64 }
+        note: { type: [string, 'null'], maxLength: 300 }
+    AsnRule:
+      allOf:
+        - $ref: './common.yaml#/components/schemas/TenantScopedResource'
+        - $ref: '#/components/schemas/AsnRuleInput'
+        - type: object
+          required: [category, service, note]
+          properties:
+            category: { type: string }
+            service: { type: [string, 'null'] }
+            note: { type: [string, 'null'] }
+    AsnRuleCatalog:
+      type: object
+      required: [categories, services]
+      properties:
+        categories:
+          type: array
+          items:
+            type: object
+            required: [slug, name]
+            properties:
+              slug: { type: string }
+              name: { type: string }
+        services:
+          type: array
+          items:
+            type: object
+            required: [slug, name, category]
+            properties:
+              slug: { type: string }
+              name: { type: string }
+              category: { type: string }
     SiteInput:
       type: object
       additionalProperties: false

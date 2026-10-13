@@ -85,7 +85,13 @@ export type PrefixImportItem = PrefixImportPreview['items'][number]
 export type PrefixProposal =
   operations['listPrefixProposals']['responses'][200]['content']['application/json']['data'][number]
 
+// ASN propios del ISP (I1).
+export type AsnRule = Schemas['AsnRule']
+export type AsnRuleCatalog = Schemas['AsnRuleCatalog']
+export type AsnInfo = Schemas['AsnInfo']
+
 // Seguridad (I1, C8).
+export type AllowlistEntry = Schemas['AllowlistEntry']
 export type Evidence = Schemas['Evidence']
 export type RecommendedAction = Schemas['RecommendedAction']
 export type EvidenceFlow =

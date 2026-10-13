@@ -39,6 +39,8 @@ tags:
     description: Qué IPs son de clientes en cada nodo.
   - name: customers
     description: Clientes = IPs observadas (D1).
+  - name: asn-rules
+    description: ASN propios del ISP — nombre, categoría y servicio que se aplican al clasificar el tráfico nuevo.
   - name: onboarding
     description: Script de alta, enrolamiento y script inverso.
   - name: wireguard
@@ -66,6 +68,14 @@ paths:
     $ref: ./analytics.yaml#/paths/~1analytics~1traffic~1timeseries
   /analytics/traffic/top:
     $ref: ./analytics.yaml#/paths/~1analytics~1traffic~1top
+  /asn-rules:
+    $ref: ./devices.yaml#/paths/~1asn-rules
+  /asn-rules/catalog:
+    $ref: ./devices.yaml#/paths/~1asn-rules~1catalog
+  /asn-rules/{asn_rule_id}:
+    $ref: ./devices.yaml#/paths/~1asn-rules~1{asn_rule_id}
+  /asn/{asn}:
+    $ref: ./analytics.yaml#/paths/~1asn~1{asn}
   /auth/invitations/accept:
     $ref: ./auth.yaml#/paths/~1auth~1invitations~1accept
   /auth/invitations/inspect:

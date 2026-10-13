@@ -228,6 +228,7 @@ erDiagram
 | `router_credential` | `tenant_id`, `router_id`, `credential_id`, `purpose`, `priority` | PK `(router_id, purpose, priority)` | físico |
 | `ip_realm` | Espacio donde una dirección es única: `id`, `tenant_id`, `kind` (`public` = uno por tenant / `node_private` = uno por nodo, para RFC1918 y 100.64.0.0/10), `site_id NULL`, `name` | `ux(tenant_id) WHERE kind='public'`; `ux(tenant_id, site_id) WHERE kind='node_private'` | lógico |
 | `client_prefix` | **Qué IPs son de clientes** en cada nodo (forma física de `ip_realm.client_prefixes` de [ADR-0018](adr/0018-la-ip-es-el-cliente.md)): `id`, `tenant_id`, `site_id`, `realm_id`, `prefix cidr`, `source` (`manual`/`discovery_confirmed`/`routeros_api` — importado de pools/rutas del MikroTik), `role` (`customers`/`infrastructure`/`excluded`), `default_kind` (`residential` por defecto; `commercial`/`unknown` para pools dedicados), `assignment_mode` (`static`/`dynamic`/`unknown` — informa la confianza de la detección), `ipv6_client_len smallint` (longitud que identifica a un cliente IPv6: 56 o 64; NULL en IPv4), `note` | `EXCLUDE USING gist (realm_id WITH =, prefix inet_ops WITH &&) WHERE deleted_at IS NULL` (sin solapes en un realm; un prefijo más específico se modela partiendo el rango); `ix GiST(prefix inet_ops)` | lógico |
+| `asn_rule` | **ASN propios** del ISP ([`traffic-model.md` §6](traffic-model.md)): `id`, `tenant_id`, `asn bigint` (1–4294967295), `name` (≤ 80), `category_slug`, `service_slug NULL` (slugs del catálogo global; los valida la aplicación), `note`, `created_by`, `version` | `ux(tenant_id, asn) WHERE deleted_at IS NULL`; RLS | lógico; eventos `horus.devices.asn_rule.*` |
 | `tag`, `tag_assignment`, `group`, `group_member` | `tenant_id` en todas; `resource_type` incluye `customer` | `ux(tenant_id, …)` | físico/lógico |
 | `router_status` | `tenant_id`, `router_id PK`, `status`, `reason`, `since`, `last_poll_at`, `last_seen_at` | `ix(tenant_id, status)` | 1 fila por router |
 
@@ -379,6 +380,13 @@ es **global** (lo mantiene la plataforma) y cada tenant tiene **reglas locales**
 
 El ingester carga el catálogo global vN + el overlay del tenant vM; la fila guarda ambos
 (`catalog_version`, `tenant_rules_version`).
+
+**Implementado (I1): ASN propios.** El primer overlay por tenant son reglas **por ASN** y viven en
+`devices.asn_rule` (§2.2), no en `traffic.tenant_rule`: el rol traffic no tiene PostgreSQL y el ingester no lee
+PostgreSQL; devices ya publica su inventario por outbox a `DEVICES_EVENTS`, que flows y analytics proyectan
+(`packages/go/flowinv`). `tenant_rules_version` = suma de las `aggregate_version` de las reglas del tenant (bajas
+incluidas): crece con cada alta, edición o baja. `tenant_rule_set`/`tenant_rule` quedan para las reglas por prefijo
+(cachés embebidos, resolvers propios) cuando lleguen.
 
 ### 2.7 Esquemas secundarios
 

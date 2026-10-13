@@ -725,6 +725,35 @@ paths:
                   frontend_min_version: { type: [string, 'null'], description: 'Si la versión del frontend cambió, la TV se recarga en el siguiente cambio de dashboard.' }
         '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
         '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+  /asn/{asn}:
+    get:
+      tags: [traffic]
+      operationId: getAsnInfo
+      summary: Cómo se llama hoy un ASN (dataset público, catálogo de plataforma y regla propia del ISP)
+      description: |
+        Nombre y país del snapshot IP→ASN de plataforma, organización del catálogo si el ASN está en él y la
+        regla ASN propia del ISP si existe (proyección de los eventos de devices: puede tardar unos segundos
+        en reflejar un cambio). Un ASN desconocido responde 200 con `name` null.
+      x-module: analytics
+      x-scope: tenant
+      x-permission: traffic.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - name: asn
+          in: path
+          required: true
+          schema: { type: integer, format: int64, minimum: 1, maximum: 4294967295 }
+      responses:
+        '200':
+          description: Datos del ASN.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AsnInfo' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
 components:
   securitySchemes:
     tenantBearer: { $ref: './common.yaml#/components/securitySchemes/tenantBearer' }
@@ -742,6 +771,26 @@ components:
       required: true
       schema: { type: string, pattern: '^[a-z0-9][a-z0-9_-]{0,63}$' }
   schemas:
+    AsnInfo:
+      type: object
+      required: [asn, name, country, catalog_organization, tenant_rule]
+      properties:
+        asn: { type: integer, format: int64 }
+        name: { type: [string, 'null'], description: Nombre en el dataset público (null si no se conoce). }
+        country: { type: [string, 'null'], description: ISO 3166-1 alfa-2. }
+        catalog_organization:
+          type: [object, 'null']
+          required: [slug, name]
+          properties:
+            slug: { type: string }
+            name: { type: string }
+        tenant_rule:
+          type: [object, 'null']
+          required: [name, category, service]
+          properties:
+            name: { type: string }
+            category: { type: string }
+            service: { type: [string, 'null'] }
     TopRow:
       type: object
       required: [key, label, down_bytes, up_bytes, share]

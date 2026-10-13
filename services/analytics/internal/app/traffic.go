@@ -107,12 +107,12 @@ func (s *Service) Top(ctx context.Context, q TopQuery) (*TopResult, error) {
 	case DimServices, DimCategories:
 		aggs, err = s.byColumn(ctx, q, "service_id")
 		if err == nil && q.Dimension == DimCategories {
-			aggs = s.toCategories(aggs)
+			aggs = s.toCategories(q.Scope.Tenant, aggs)
 		}
 	case DimOrganizations, DimASNs:
 		aggs, err = s.byColumn(ctx, q, "remote_asn")
 		if err == nil && q.Dimension == DimOrganizations {
-			aggs = s.toOrganizations(aggs)
+			aggs = s.toOrganizations(q.Scope.Tenant, aggs)
 		}
 	case DimCustomers:
 		aggs, err = s.byCustomer(ctx, q)
@@ -123,6 +123,7 @@ func (s *Service) Top(ctx context.Context, q TopQuery) (*TopResult, error) {
 		return nil, err
 	}
 	res := &TopResult{Dimension: q.Dimension}
+	rules := s.rules(q.Scope.Tenant)
 	weight := func(a agg) uint64 {
 		switch q.Direction {
 		case "download":
@@ -152,7 +153,7 @@ func (s *Service) Top(ctx context.Context, q TopQuery) (*TopResult, error) {
 			res.OthersUp += a.up
 			continue
 		}
-		row := TopRow{Key: a.key, Label: s.label(q.Dimension, a.key), Down: a.down, Up: a.up, Site: a.site, CustomerIP: a.ip}
+		row := TopRow{Key: a.key, Label: s.label(rules, q.Dimension, a.key), Down: a.down, Up: a.up, Site: a.site, CustomerIP: a.ip}
 		if total > 0 {
 			row.Share = float64(weight(a)) / float64(total)
 		}
@@ -276,12 +277,11 @@ func (s *Service) attachCustomers(ctx context.Context, tenant uuid.UUID, rows []
 	}
 }
 
-func (s *Service) toCategories(in []agg) []agg {
-	c := s.catalog()
-	svcCat := map[string]string{}
-	for _, sv := range c.Def.Services {
-		svcCat[catalog.ID("service", sv.Slug).String()] = catalog.ID("category", sv.Category).String()
-	}
+// toCategories reparte el top por servicio en categorías: servicios del
+// catálogo con su categoría y servicios propios (reglas ASN sin servicio del
+// catálogo) con la categoría de la regla.
+func (s *Service) toCategories(tenant uuid.UUID, in []agg) []agg {
+	svcCat := serviceCategories(s.catalog(), s.rules(tenant))
 	m := map[string]*agg{}
 	for _, a := range in {
 		k := svcCat[a.key]
@@ -300,13 +300,31 @@ func (s *Service) toCategories(in []agg) []agg {
 	return out
 }
 
-func (s *Service) toOrganizations(in []agg) []agg {
+// serviceCategories es service_id → category_id (catálogo + servicios propios del tenant).
+func serviceCategories(c *catalog.Catalog, rules tenantRules) map[string]string {
+	out := make(map[string]string, len(c.Def.Services)+len(rules.svc))
+	for _, sv := range c.Def.Services {
+		out[catalog.ID("service", sv.Slug).String()] = catalog.ID("category", sv.Category).String()
+	}
+	for id, r := range rules.svc {
+		out[id] = catalog.ID("category", r.Category).String()
+	}
+	return out
+}
+
+// toOrganizations agrupa el top por ASN en organizaciones: la regla propia
+// del tenant si la hay (gana al catálogo), la organización del catálogo o
+// "AS<n>" si el ASN no es de ninguna.
+func (s *Service) toOrganizations(tenant uuid.UUID, in []agg) []agg {
 	c := s.catalog()
+	rules := s.rules(tenant)
 	m := map[string]*agg{}
 	for _, a := range in {
 		k := ""
 		if n, err := strconv.ParseUint(a.key, 10, 32); err == nil && n > 0 {
-			if o, ok := c.Organization(uint32(n)); ok {
+			if _, ok := rules.byASN[uint32(n)]; ok {
+				k = catalog.TenantASNOrgID(tenant, uint32(n)).String()
+			} else if o, ok := c.Organization(uint32(n)); ok {
 				k = catalog.ID("org", o.Slug).String()
 			} else {
 				k = "AS" + a.key
@@ -337,11 +355,15 @@ func (s *Service) catalog() *catalog.Catalog {
 	return c
 }
 
-// label devuelve la etiqueta de una clave del top.
-func (s *Service) label(dim, key string) string {
+// label devuelve la etiqueta de una clave del top; las reglas ASN propias del
+// tenant ganan al catálogo y al dataset público.
+func (s *Service) label(rules tenantRules, dim, key string) string {
 	c := s.catalog()
 	switch dim {
 	case DimServices:
+		if r := rules.svc[key]; r != nil {
+			return r.Name
+		}
 		for _, sv := range c.Def.Services {
 			if catalog.ID("service", sv.Slug).String() == key {
 				return sv.Name
@@ -354,6 +376,9 @@ func (s *Service) label(dim, key string) string {
 			}
 		}
 	case DimOrganizations:
+		if r := rules.org[key]; r != nil {
+			return r.Name
+		}
 		for _, o := range c.Def.Organizations {
 			if catalog.ID("org", o.Slug).String() == key {
 				return o.Name
@@ -369,7 +394,9 @@ func (s *Service) label(dim, key string) string {
 	case DimASNs:
 		if v, err := strconv.ParseUint(key, 10, 32); err == nil {
 			name := "AS" + key
-			if n, ok := s.names().ASN(uint32(v)); ok {
+			if r := rules.byASN[uint32(v)]; r != nil {
+				name += " · " + r.Name
+			} else if n, ok := s.names().ASN(uint32(v)); ok {
 				name += " · " + n
 			} else if o, ok := c.Organization(uint32(v)); ok {
 				name += " · " + o.Name

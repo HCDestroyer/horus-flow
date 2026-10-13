@@ -14,7 +14,9 @@ métricas y eventos publicados/consumidos cuando el módulo tenga implementació
 
 Rutas (OpenAPI `packages/schemas/openapi/v0/analytics.yaml`): `GET /analytics/traffic/top`,
 `/analytics/traffic/timeseries`, `/analytics/traffic/attribution`,
-`/analytics/customers/{customer_id}/traffic` y `/sites/{site_id}/prefix-proposals`. Consultan los
+`/analytics/customers/{customer_id}/traffic`, `/sites/{site_id}/prefix-proposals` y `GET /asn/{asn}`
+(nombre del ASN en el dataset, catálogo y regla propia del ISP). Las etiquetas de los tops usan las
+reglas ASN propias del tenant (`horus.devices.asn_rule.*`, proyectadas en el inventario `flowinv`). Consultan los
 agregados de ClickHouse (5 min / 1 h / 1 d según el rango) como `horus_analytics` con
 `SQL_horus_tenant` (row policy) y filtro `tenant_id`; ClickHouse caído ⇒ `503 ANALYTICS_UNAVAILABLE`.
 

@@ -38,7 +38,12 @@ const (
 	MethodASNPort = "asn_port"
 	MethodASN     = "asn"
 	MethodPort    = "port"
+	// MethodLocalOverride: regla ASN propia del tenant (devices.asn_rule), gana a todo el catálogo.
+	MethodLocalOverride = "local_override"
 )
+
+// ConfidenceLocalOverride es la confianza de una regla propia del tenant (la declara el ISP).
+const ConfidenceLocalOverride = 100
 
 // Namespace de los UUID deterministas del catálogo (UUIDv5).
 var Namespace = uuid.MustParse("6f1d7c2a-4b8e-5d3f-9a10-3c5e7b9d1f20")
@@ -48,6 +53,18 @@ func ID(kind, slug string) uuid.UUID { return uuid.NewSHA1(Namespace, []byte(kin
 
 // OrgIDForASN es el remote_org_id de un ASN sin organización en el catálogo.
 func OrgIDForASN(asn uint32) uuid.UUID { return ID("asn", strconv.FormatUint(uint64(asn), 10)) }
+
+// TenantASNOrgID es el remote_org_id de un ASN con regla propia del tenant
+// (la organización es la regla: cada ISP la nombra a su manera).
+func TenantASNOrgID(tenant uuid.UUID, asn uint32) uuid.UUID {
+	return ID("tenant-asn", tenant.String()+":"+strconv.FormatUint(uint64(asn), 10))
+}
+
+// TenantASNServiceID es el service_id de una regla propia sin servicio del
+// catálogo: el nombre de la regla hace de servicio.
+func TenantASNServiceID(tenant uuid.UUID, asn uint32) uuid.UUID {
+	return ID("tenant-asn-service", tenant.String()+":"+strconv.FormatUint(uint64(asn), 10))
+}
 
 // Category es una categoría.
 type Category struct {

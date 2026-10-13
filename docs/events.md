@@ -303,7 +303,7 @@ mensaje DLQ a su subject original (seguro por idempotencia).
 | `devices-snmp-state` | `SNMP_EVENTS` | `horus.snmp.router.>` | devices | Proyección `router_status_cache`; interfaces sugeridas | 5 |
 | `wireguard-devices` | `DEVICES_EVENTS` | `horus.devices.router.created.>`, `…deleted.>` | wireguard | Sugerir/limpiar peer asociado (nunca borra solo) | 4 |
 | `flows-ingester` | `TLM_FLOWS` | `horus.telemetry.flows.>` | flows (ingester) | Clasificar en ingesta con el snapshot y escribir `flows_raw` (escritor único) | 6 |
-| `flows-inventory` | `DEVICES_EVENTS` | `router.>`, `interface.>` | flows (collector e ingester) | Mapas exportador→(tenant, router) e ifIndex→interfaz/`flow_role` (ClickHouse no guarda `customer_id`: [ADR-0018](./adr/0018-la-ip-es-el-cliente.md) §1) | 6 |
+| `flows-inventory` | `DEVICES_EVENTS` | `router.>`, `interface.>`, `site.>`, `realm.>`, `client_prefix.>`, `asn_rule.>` | flows (collector e ingester) | Mapas exportador→(tenant, router) e ifIndex→interfaz/`flow_role` (ClickHouse no guarda `customer_id`: [ADR-0018](./adr/0018-la-ip-es-el-cliente.md) §1) | 6 |
 | `devices-client-first-seen` | `FLOWS_EVENTS` | `horus.flows.client.first_seen.>` | devices | Alta idempotente por `(tenant, realm, address)` → `customer.discovered` (queue group) | 6 |
 | `devices-client-activity` | `TLM_FLOWS` | `horus.telemetry.flows.client_activity.>` | devices | `last_seen` (resolución 1 h) y `inactive → active` (`customer.reactivated`) | 6 |
 | `devices-customer-detection` | `DETECTION_EVENTS` | `horus.detection.customer.kind_suggested.>`, `horus.detection.customer.security_state_changed.>` | devices | Aplica el tipo sugerido si `kind_locked = false` y la confianza ≥ umbral del tenant → `customer.kind_changed` (`source=scoring`); proyecta `security_state` | 10 |
@@ -614,6 +614,7 @@ tenant; se listan como "platform" porque sólo los emite un rol de plataforma.
 | `horus.devices.router.capabilities_detected` | snmp, flows, api-gateway | 5 |
 | `horus.devices.realm.updated` | **flows** (ingester: realms del router) | 6 |
 | `horus.devices.client_prefix.created` / `.updated` / `.deleted` | **flows** (ingester: qué IP es cliente), detection | 6 |
+| `horus.devices.asn_rule.created` / `.updated` / `.deleted` | **flows** (ingester: `local_override`), analytics (etiquetas de los tops) | I1 |
 | `horus.devices.customer.discovered` | **flows** (conjunto de IPs conocidas), detection, analytics, api-gateway | 6 |
 | `horus.devices.customer.updated` (alias/notas, desbloqueo de tipo) | analytics, api-gateway | 6 |
 | `horus.devices.customer.kind_changed` | detection, analytics, alerts, api-gateway | 6/10 |

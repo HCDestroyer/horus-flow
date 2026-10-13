@@ -19,7 +19,7 @@ import (
 
 // Projector construye el inventario a partir de los eventos de dominio de
 // devices (DEVICES_EVENTS: router.*, site.*, realm.*, client_prefix.*,
-// customer.*; docs/events.md §4.5 `flows-inventory`) sobre una base
+// asn_rule.*; docs/events.md §4.5 `flows-inventory`) sobre una base
 // (fichero de inventario, opcional) y lo publica en un Store. Aplica
 // last-writer-wins por aggregate_version y es idempotente.
 type Projector struct {
@@ -32,6 +32,7 @@ type Projector struct {
 	siteNames map[uuid.UUID]string
 	realms    map[uuid.UUID]versioned[Realm]
 	prefixes  map[uuid.UUID]versioned[ClientPrefix]
+	asnRules  map[uuid.UUID]ASNRule
 	versions  map[uuid.UUID]int
 }
 
@@ -52,7 +53,7 @@ func NewProjector(store *Store, base Data, log *slog.Logger) *Projector {
 	}
 	return &Projector{store: store, base: base, log: log, routers: map[uuid.UUID]routerState{},
 		siteNames: map[uuid.UUID]string{}, realms: map[uuid.UUID]versioned[Realm]{},
-		prefixes: map[uuid.UUID]versioned[ClientPrefix]{}, versions: map[uuid.UUID]int{}}
+		prefixes: map[uuid.UUID]versioned[ClientPrefix]{}, asnRules: map[uuid.UUID]ASNRule{}, versions: map[uuid.UUID]int{}}
 }
 
 type envelope struct {
@@ -87,6 +88,16 @@ type realmData struct {
 	Kind   string    `json:"kind"`
 	SiteID uuid.UUID `json:"site_id"`
 	Name   string    `json:"name"`
+}
+
+type asnRuleData struct {
+	ID        uuid.UUID `json:"id"`
+	Version   int       `json:"version"`
+	ASN       int64     `json:"asn"`
+	Name      string    `json:"name"`
+	Category  string    `json:"category"`
+	Service   *string   `json:"service"`
+	DeletedAt *string   `json:"deleted_at"`
 }
 
 type siteData struct {
@@ -170,6 +181,23 @@ func (p *Projector) Apply(body []byte) (bool, error) {
 			cp.IPv6ClientLen = *d.IPv6ClientLen
 		}
 		p.prefixes[d.ID] = versioned[ClientPrefix]{v: cp, deleted: deleted || d.DeletedAt != nil}
+	case "asn_rule":
+		var d asnRuleData
+		if err := json.Unmarshal(env.Data, &d); err != nil {
+			return false, err
+		}
+		if d.ASN < 1 || d.ASN > 1<<32-1 {
+			return false, errors.New("flowinv: asn_rule with invalid asn")
+		}
+		r := ASNRule{ID: d.ID, TenantID: tenant, ASN: uint32(d.ASN), Name: d.Name, Category: d.Category, //nolint:gosec // validado arriba
+			Version: env.AggregateVersion, Deleted: deleted || d.DeletedAt != nil}
+		if r.Version == 0 {
+			r.Version = d.Version
+		}
+		if d.Service != nil {
+			r.Service = *d.Service
+		}
+		p.asnRules[d.ID] = r
 	default:
 		return false, nil
 	}
@@ -222,6 +250,17 @@ func (p *Projector) Data() Data {
 			d.Prefixes = append(d.Prefixes, cp)
 		}
 	}
+	seenRule := map[uuid.UUID]bool{}
+	for id, r := range p.asnRules {
+		seenRule[id] = true
+		d.ASNRules = append(d.ASNRules, r)
+	}
+	for _, r := range p.base.ASNRules {
+		if !seenRule[r.ID] {
+			d.ASNRules = append(d.ASNRules, r)
+		}
+	}
+	sort.Slice(d.ASNRules, func(i, j int) bool { return d.ASNRules[i].ID.String() < d.ASNRules[j].ID.String() })
 	sort.Slice(d.Exporters, func(i, j int) bool { return d.Exporters[i].RouterID.String() < d.Exporters[j].RouterID.String() })
 	sort.Slice(d.Realms, func(i, j int) bool { return d.Realms[i].ID.String() < d.Realms[j].ID.String() })
 	sort.Slice(d.Prefixes, func(i, j int) bool { return d.Prefixes[i].ID.String() < d.Prefixes[j].ID.String() })
@@ -240,11 +279,12 @@ func (p *Projector) publish() {
 
 // projectionState es la forma serializada de la proyección (instantánea).
 type projectionState struct {
-	Routers   []routerSnap              `json:"routers"`
-	SiteNames map[uuid.UUID]string      `json:"site_names"`
-	Realms    []realmSnap               `json:"realms"`
-	Prefixes  []prefixSnap              `json:"prefixes"`
-	Versions  map[uuid.UUID]int         `json:"versions"`
+	Routers   []routerSnap         `json:"routers"`
+	SiteNames map[uuid.UUID]string `json:"site_names"`
+	Realms    []realmSnap          `json:"realms"`
+	Prefixes  []prefixSnap         `json:"prefixes"`
+	ASNRules  []ASNRule            `json:"asn_rules,omitempty"`
+	Versions  map[uuid.UUID]int    `json:"versions"`
 }
 
 type routerSnap struct {
@@ -276,6 +316,9 @@ func (p *Projector) Snapshot() (json.RawMessage, error) {
 	for _, c := range p.prefixes {
 		st.Prefixes = append(st.Prefixes, prefixSnap{V: c.v, Deleted: c.deleted})
 	}
+	for _, r := range p.asnRules {
+		st.ASNRules = append(st.ASNRules, r)
+	}
 	return json.Marshal(st)
 }
 
@@ -289,6 +332,10 @@ func (p *Projector) Restore(b json.RawMessage) error {
 	defer p.mu.Unlock()
 	p.routers, p.realms = map[uuid.UUID]routerState{}, map[uuid.UUID]versioned[Realm]{}
 	p.prefixes, p.siteNames, p.versions = map[uuid.UUID]versioned[ClientPrefix]{}, map[uuid.UUID]string{}, map[uuid.UUID]int{}
+	p.asnRules = map[uuid.UUID]ASNRule{}
+	for _, r := range st.ASNRules {
+		p.asnRules[r.ID] = r
+	}
 	for _, r := range st.Routers {
 		p.routers[r.E.RouterID] = routerState{e: r.E, deleted: r.Deleted}
 	}
@@ -308,7 +355,8 @@ func (p *Projector) Restore(b json.RawMessage) error {
 }
 
 // Subjects son los eventos de DEVICES_EVENTS que proyecta el inventario.
-var Subjects = []string{"horus.devices.router.>", "horus.devices.site.>", "horus.devices.realm.>", "horus.devices.client_prefix.>"}
+var Subjects = []string{"horus.devices.router.>", "horus.devices.site.>", "horus.devices.realm.>", "horus.devices.client_prefix.>",
+	"horus.devices.asn_rule.>"}
 
 // Run mantiene la proyección de DEVICES_EVENTS hasta que ctx se cancela.
 // ready se cierra al alcanzar el final del stream por primera vez. Si el

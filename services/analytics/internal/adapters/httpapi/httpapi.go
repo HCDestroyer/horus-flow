@@ -49,6 +49,7 @@ func New(guard *authz.Guard, svc *app.Service) *Handler { return &Handler{guard:
 func (h *Handler) Mount(r *httpx.ServiceMux) {
 	r.Handle("GET /api/v1/sites/{site_id}/prefix-proposals", h.guard.Tenant("sites.read", h.prefixProposals))
 	h.mountTraffic(r)
+	h.mountASN(r)
 }
 
 func tenantOf(r *http.Request) uuid.UUID {

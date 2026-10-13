@@ -121,6 +121,22 @@ message ClientPrefix {
   repeated string changed_fields = 14;
 }
 
+// AsnRule: horus.devices.asn_rule.created | updated | deleted. Regla ASN propia del ISP
+// (nombre, categoría y servicio) que flows aplica al clasificar el tráfico nuevo (local_override).
+message AsnRule {
+  string id = 1;
+  int32 version = 2;
+  int64 asn = 3;
+  string name = 4;
+  // Slug de categoría del catálogo de plataforma.
+  string category = 5;
+  // Slug de servicio del catálogo; ausente = el nombre de la regla hace de servicio.
+  optional string service = 6;
+  optional google.protobuf.Timestamp created_at = 7;
+  optional google.protobuf.Timestamp deleted_at = 8;
+  repeated string changed_fields = 9;
+}
+
 // KindChange detalle de un cambio de tipo (se copia al historial; no depende de la retención de detection).
 message KindChange {
   optional string from_kind = 1;

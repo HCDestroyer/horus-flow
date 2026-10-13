@@ -8,8 +8,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-
-	"github.com/hcdestroyer/horus-flow/services/traffic/api/catalog"
 )
 
 // Point es un punto de una serie; Value nil = hueco (ausencia ≠ cero).
@@ -216,7 +214,8 @@ func (s *Service) CustomerTraffic(ctx context.Context, tenant uuid.UUID, c *Cust
 	}
 	vals := map[key][2]float64{}
 	groups := map[string]bool{}
-	cat := s.catalog()
+	rules := s.rules(tenant)
+	svcCat := serviceCategories(s.catalog(), rules)
 	for rows.Next() {
 		var t time.Time
 		var grp string
@@ -225,7 +224,7 @@ func (s *Service) CustomerTraffic(ctx context.Context, tenant uuid.UUID, c *Cust
 			return nil, err
 		}
 		if groupBy == "category" {
-			grp = categoryOf(cat, grp)
+			grp = svcCat[grp]
 		}
 		k := key{t.Unix(), grp}
 		v := vals[k]
@@ -243,7 +242,7 @@ func (s *Service) CustomerTraffic(ctx context.Context, tenant uuid.UUID, c *Cust
 	for grp := range groups {
 		var label *string
 		if groupBy != "" && groupBy != "none" {
-			l := s.label(map[string]string{"service": DimServices, "category": DimCategories, "asn": DimASNs}[groupBy], grp)
+			l := s.label(rules, map[string]string{"service": DimServices, "category": DimCategories, "asn": DimASNs}[groupBy], grp)
 			if grp == "" || strings.HasPrefix(grp, "000000") || grp == "0" {
 				l = "Sin clasificar"
 			}
@@ -267,13 +266,4 @@ func (s *Service) CustomerTraffic(ctx context.Context, tenant uuid.UUID, c *Cust
 	}
 	res.Coverage = 1
 	return res, rows.Err()
-}
-
-func categoryOf(c *catalog.Catalog, serviceID string) string {
-	for _, sv := range c.Def.Services {
-		if catalog.ID("service", sv.Slug).String() == serviceID {
-			return catalog.ID("category", sv.Category).String()
-		}
-	}
-	return ""
 }

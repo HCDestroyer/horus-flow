@@ -132,6 +132,14 @@ func cases() map[string]tenanttest.Case {
 	c["createAllowlistEntry"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"prefix": "198.51.100.0/24", "reason": "pirata"}}
 	c["deleteAllowlistEntry"] = tenanttest.Case{Kind: tenanttest.ByID}
 	c["listReputationSources"] = tenanttest.Case{Kind: tenanttest.List}
+	c["getDetectionConfig"] = tenanttest.Case{Kind: tenanttest.List}
+	// devices: ASN propios (Administración › ASN propios)
+	c["listAsnRules"] = tenanttest.Case{Kind: tenanttest.List}
+	c["getAsnRuleCatalog"] = tenanttest.Case{Kind: tenanttest.List}
+	c["createAsnRule"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"asn": 64999, "name": "pirata", "category": "web"}}
+	c["updateAsnRule"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"name": "pirata"}}
+	c["deleteAsnRule"] = tenanttest.Case{Kind: tenanttest.ByID}
+	pending("FLOW I1 (analytics: nombre de un ASN; el arnés solo monta los dashboards de analytics)", "getAsnInfo")
 	pending("FLOW I1 (flows: exportadores)", "listFlowExporters", "getFlowExporter")
 	return c
 }
@@ -174,6 +182,9 @@ func (a *app) fixtureISP(x isp, cidr string) map[string]string {
 	out["role_id"] = a.must(a.post(x.token, "/api/v1/roles", map[string]any{"key": "soporte_nodo", "name": "Soporte de nodo",
 		"permissions": []string{"sites.read", "devices.read"}}), 201).str("id")
 	out["kind"] = "snmp" // /routers/{router_id}/credentials/{kind}: no es un ID (fuera de ForeignIDs)
+	// Regla ASN propia del ISP para /asn-rules/{asn_rule_id}.
+	out["asn_rule_id"] = a.must(a.post(x.token, "/api/v1/asn-rules", map[string]any{"asn": 263237, "name": "Tránsito local",
+		"category": "cdn_infra"}), 201).str("id")
 	if _, err := a.admin.Exec(context.Background(), `UPDATE detection.finding SET customer_id = $1 WHERE id = $2`,
 		out["customer_id"], out["finding_id"]); err != nil {
 		a.t.Fatal(err)
@@ -228,7 +239,7 @@ func TestTenantIsolationMatrix(t *testing.T) {
 				"{finding_id}", paramsA["finding_id"], "{customer_id}", paramsA["customer_id"], "{entry_id}", paramsA["entry_id"],
 				"{kiosk_id}", paramsA["kiosk_id"], "{dashboard_id}", paramsA["dashboard_id"], "{widget_id}", paramsA["widget_id"],
 				"{playlist_id}", paramsA["playlist_id"], "{channel_id}", paramsA["channel_id"], "{user_id}", paramsA["user_id"],
-				"{kind}", paramsA["kind"], "{role_id}", paramsA["role_id"],
+				"{kind}", paramsA["kind"], "{role_id}", paramsA["role_id"], "{asn_rule_id}", paramsA["asn_rule_id"], "{asn}", "263237",
 			).Replace(tmpl), nil)
 			return a.mux.Matches(r)
 		},

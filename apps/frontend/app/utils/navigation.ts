@@ -56,6 +56,7 @@ export const NAV_SECTIONS: NavSection[] = [
   { id: 'kiosks', group: 'admin', labelKey: 'nav.items.kiosks', icon: 'i-lucide-monitor', path: 'admin/kiosks', scope: 'tenant', increment: 'I1', permission: 'kiosks.manage' },
   { id: 'notifications', group: 'admin', labelKey: 'nav.items.notifications', icon: 'i-lucide-send', path: 'admin/notifications', scope: 'tenant', increment: 'I1', permission: 'alerts.read' },
   { id: 'detection', group: 'admin', labelKey: 'nav.items.detection', icon: 'i-lucide-scan-search', path: 'admin/detection', scope: 'tenant', increment: 'I1', permission: 'settings.read' },
+  { id: 'asn', group: 'admin', labelKey: 'nav.items.asn', icon: 'i-lucide-network', path: 'admin/asn', scope: 'tenant', increment: 'I1', permission: 'settings.read' },
   { id: 'audit', group: 'admin', labelKey: 'nav.items.audit', icon: 'i-lucide-scroll-text', path: 'admin/audit', scope: 'tenant', increment: 'I2', permission: 'audit.read' },
   { id: 'platform-isps', group: 'platform', labelKey: 'nav.items.platformIsps', icon: 'i-lucide-building-2', path: '/platform/isps', scope: 'platform', increment: 'I0', permission: 'platform.tenants.read' },
   { id: 'platform-users', group: 'platform', labelKey: 'nav.items.platformUsers', icon: 'i-lucide-users-round', path: '/platform/users', scope: 'platform', increment: 'I0', permission: 'platform.users.read' },

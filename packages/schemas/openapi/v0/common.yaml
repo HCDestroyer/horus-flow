@@ -393,6 +393,7 @@ components:
             - CUSTOMER_KIND_LOCKED
             - CLIENT_PREFIX_OVERLAP
             - CLIENT_PREFIX_NOT_FOUND
+            - ASN_RULE_NOT_FOUND
             - FINDING_NOT_FOUND
             - FINDING_STATE_INVALID
             - DASHBOARD_NOT_FOUND

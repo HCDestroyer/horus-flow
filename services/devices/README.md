@@ -9,6 +9,13 @@
 Esqueleto creado en I0-01: todavía sin código. Este README se ampliará con variables de entorno,
 métricas y eventos publicados/consumidos cuando el módulo tenga implementación.
 
+## ASN propios (Administración › ASN propios)
+
+- `GET/POST /asn-rules`, `PATCH/DELETE /asn-rules/{id}` (If-Match) y `GET /asn-rules/catalog`: reglas ASN → nombre,
+  categoría y servicio del catálogo de plataforma (`services/traffic/api/catalog`) en `devices.asn_rule` (RLS, una viva
+  por ASN). Publica `horus.devices.asn_rule.created|updated|deleted` por el outbox; flows (ingester) las aplica al tráfico
+  nuevo como `local_override` y analytics las usa en las etiquetas de los tops. Permisos `settings.read` / `settings.manage`.
+
 ## Alta de routers e importación del MikroTik (I1-01, I1-02, I1-28)
 
 - `api/onboarding.go` (`devices.Onboarding` en `module.Services`): lo usa `wireguard` para leer routers, proyectar el túnel

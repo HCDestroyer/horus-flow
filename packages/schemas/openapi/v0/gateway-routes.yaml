@@ -76,6 +76,10 @@ modules:
       scope: tenant
       methods:
         GET: traffic.read
+    - prefix: /api/v1/asn/{asn}
+      scope: tenant
+      methods:
+        GET: traffic.read
     - prefix: /api/v1/dashboards
       scope: tenant
       methods:
@@ -403,6 +407,20 @@ modules:
         - api_token
         - kiosk
   devices:
+    - prefix: /api/v1/asn-rules
+      scope: tenant
+      methods:
+        GET: settings.read
+        POST: settings.manage
+    - prefix: /api/v1/asn-rules/catalog
+      scope: tenant
+      methods:
+        GET: settings.read
+    - prefix: /api/v1/asn-rules/{asn_rule_id}
+      scope: tenant
+      methods:
+        PATCH: settings.manage
+        DELETE: settings.manage
     - prefix: /api/v1/client-prefixes/{client_prefix_id}
       scope: tenant
       methods:
