@@ -154,7 +154,8 @@ func (h *Handler) top(w http.ResponseWriter, r *http.Request) {
 // Pick devuelve el paso de los agregados que usa un rango.
 func Pick(rg app.Range) time.Duration { return app.Pick(rg, 0).Step }
 
-func seriesJSON(res *app.SeriesResult) map[string]any {
+// seriesJSON es SeriesResponse; source es meta.source (flows | snmp).
+func seriesJSON(res *app.SeriesResult, source string) map[string]any {
 	series := make([]map[string]any, 0, len(res.Series))
 	for _, s := range res.Series {
 		pts := make([][2]any, 0, len(s.Points))
@@ -169,7 +170,7 @@ func seriesJSON(res *app.SeriesResult) map[string]any {
 	}
 	step := int(res.Step.Seconds())
 	return map[string]any{"data": map[string]any{"series": series},
-		"meta": Meta{From: res.Range.From, To: res.Range.To, Step: &step, Source: "flows", Partial: res.Partial, Coverage: res.Coverage}}
+		"meta": Meta{From: res.Range.From, To: res.Range.To, Step: &step, Source: source, Partial: res.Partial, Coverage: res.Coverage}}
 }
 
 func parseStep(s string) (time.Duration, bool) {
@@ -209,7 +210,7 @@ func (h *Handler) timeseries(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	jsonapi.Write(w, http.StatusOK, seriesJSON(res))
+	jsonapi.Write(w, http.StatusOK, seriesJSON(res, "flows"))
 }
 
 func (h *Handler) attribution(w http.ResponseWriter, r *http.Request) {
@@ -267,5 +268,5 @@ func (h *Handler) customerTraffic(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	jsonapi.Write(w, http.StatusOK, seriesJSON(res))
+	jsonapi.Write(w, http.StatusOK, seriesJSON(res, "flows"))
 }

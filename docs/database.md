@@ -703,11 +703,34 @@ en < 5 min); `client_security_1h` combina los mismos estados para líneas base d
 
 ### 6.3 Métricas SNMP
 
-Como en el Sprint 0 (`snmp.interface_metrics`, `snmp.device_metrics`) con `tenant_id` primero en el
-ORDER BY: `(tenant_id, router_id, interface_id, ts)`. Tasas y deltas ya calculados por el colector;
-agregados 5 min (90 d) / 1 h (13 meses) / 1 d (5 años) con `avg`, `max`, `quantiles(0.95)`.
-Interfaces dinámicas PPPoE del MikroTik no se sondean por defecto (el consumo por cliente sale de
-flujos). Viven en ClickHouse desde el primer incremento con SNMP (D4).
+Implementado en I2 (`services/snmp/migrations/clickhouse/20261013120000_snmp_metrics.sql`; base `snmp`,
+tabla de control propia `snmp.goose_db_version`; escritor único el rol `snmp` con el usuario
+`horus_snmp`/`horus_snmp_role`; lectura por tenant con `horus_tenant_reader` y la misma política
+`p_tenant` de flows). Tasas y deltas ya calculados por el poller; `null` = el sondeo no obtuvo el dato.
+
+- `snmp.device_metrics` — `MergeTree`, `PARTITION BY toYYYYMMDD(ts)`, `ORDER BY (tenant_id, router_id, ts)`,
+  TTL 30 d: `tenant_id, site_id, router_id, ts DateTime('UTC'), poll_duration_ms UInt32, icmp_ok UInt8,
+  snmp_ok UInt8, uptime_seconds Nullable(UInt64), cpu_percent, cpu_max_core_percent, memory_percent
+  Nullable(Float32), memory_used_bytes, memory_total_bytes Nullable(UInt64), temperature_celsius,
+  cpu_temperature_celsius, voltage, icmp_rtt_ms, icmp_loss_ratio Nullable(Float32)`.
+- `snmp.interface_metrics` — ídem, `ORDER BY (tenant_id, router_id, interface_id, ts)`, TTL 30 d:
+  `interface_id UUID, if_index UInt32, name LowCardinality(String), oper_up UInt8, speed_bps Nullable(UInt64),
+  rx_bps, tx_bps, rx_pps, tx_pps Nullable(Float64), rx_errors_delta, tx_errors_delta, rx_drops_delta,
+  tx_drops_delta Nullable(UInt64), utilization_rx, utilization_tx Nullable(Float32)`.
+- Agregados `snmp.device_5m` (90 d) y `snmp.device_1h` (13 meses; MV en cascada desde `device_5m`):
+  `AggregatingMergeTree`, `ORDER BY (tenant_id, router_id, bucket)`, columnas
+  `SimpleAggregateFunction`: `site_id (anyLast)`, `samples`, `icmp_total`, `icmp_ok_count`, `snmp_total`,
+  `snmp_ok_count`, `poll_duration_ms_sum/_max`, `uptime_seconds_max` y, para `cpu_percent`,
+  `cpu_max_core_percent`, `memory_percent`, `temperature_celsius`, `cpu_temperature_celsius`, `icmp_rtt_ms`:
+  `<m>_sum (Float64)`, `<m>_count (UInt64)`, `<m>_max`. Se leen con `sum()`/`max()` normales:
+  media = `sum(<m>_sum) / nullIf(sum(<m>_count), 0)`, `availability_ratio = sum(icmp_ok_count) / nullIf(sum(icmp_total), 0)`.
+- Agregados `snmp.interface_5m` (90 d) y `snmp.interface_1h` (13 meses): `ORDER BY (tenant_id, router_id,
+  interface_id, bucket)`; `if_index`, `name` (anyLast), `samples`, `oper_up_count`, `speed_bps_max`,
+  `rx_bps/tx_bps/rx_pps/tx_pps` como `_sum/_count/_max`, `rx_errors`, `tx_errors`, `rx_drops`, `tx_drops`
+  (sumas de deltas), `utilization_rx_max`, `utilization_tx_max`.
+
+No hay agregado diario ni cuantiles en I2 (13 meses de 1 h bastan para las series de `analytics`).
+Interfaces dinámicas PPPoE del MikroTik no se sondean (el consumo por cliente sale de flujos).
 
 ### 6.4 Otras tablas ClickHouse
 
@@ -852,7 +875,8 @@ tamaño de los prefijos configurados en IPv4. `customer_kind_change`: pocas fila
 
 **Decisión (confirmada por D4)**: series de red en **ClickHouse** desde el primer incremento que
 tenga SNMP; **Prometheus solo para la salud de la plataforma**. El estado actual de cada router vive
-en NATS KV y se proyecta a `devices.router_status` (el dashboard de estado funciona sin ClickHouse).
+en NATS KV (`snmp_router_state`, I2) y lo sirve el propio rol `snmp` en `GET /routers/status` (el
+dashboard de estado funciona sin ClickHouse).
 **Se elimina** la alternativa de tabla puente en PostgreSQL.
 
 ---

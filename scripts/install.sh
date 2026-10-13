@@ -725,7 +725,7 @@ make_secrets() {
   say "Secretos ($secrets_dir, nunca se regeneran)"
   local s
   for s in postgres_password clickhouse_password valkey_password nats_password cursor_key pgbackrest_cipher_pass \
-    ch_ingester_password ch_analytics_password ch_detection_password ch_alerts_password ch_jobs_password; do
+    ch_ingester_password ch_analytics_password ch_detection_password ch_alerts_password ch_jobs_password ch_snmp_password; do
     new_secret "$s" gen_alnum
   done
   new_secret auth_kek gen_hex32

@@ -47,6 +47,8 @@ tags:
     description: Estado de los peers (túneles) del ISP.
   - name: exporters
     description: Exportadores de flujos (router principal de cada nodo).
+  - name: routers-monitoring
+    description: Estado observado y métricas en vivo de los routers (SNMP + ICMP por el túnel).
   - name: traffic
     description: Tops y series de tráfico.
   - name: dashboards
@@ -66,6 +68,10 @@ tags:
 paths:
   /analytics/customers/{customer_id}/traffic:
     $ref: ./analytics.yaml#/paths/~1analytics~1customers~1{customer_id}~1traffic
+  /analytics/routers/{router_id}/interfaces/metrics:
+    $ref: ./analytics.yaml#/paths/~1analytics~1routers~1{router_id}~1interfaces~1metrics
+  /analytics/routers/{router_id}/metrics:
+    $ref: ./analytics.yaml#/paths/~1analytics~1routers~1{router_id}~1metrics
   /analytics/traffic/attribution:
     $ref: ./analytics.yaml#/paths/~1analytics~1traffic~1attribution
   /analytics/traffic/timeseries:
@@ -288,12 +294,20 @@ paths:
     $ref: ./auth.yaml#/paths/~1roles~1{role_id}
   /routers:
     $ref: ./devices.yaml#/paths/~1routers
+  /routers/status:
+    $ref: ./snmp.yaml#/paths/~1routers~1status
   /routers/{router_id}:
     $ref: ./devices.yaml#/paths/~1routers~1{router_id}
   /routers/{router_id}/credentials/{kind}:
     $ref: ./devices.yaml#/paths/~1routers~1{router_id}~1credentials~1{kind}
   /routers/{router_id}/deprovisioning-script:
     $ref: ./wireguard.yaml#/paths/~1routers~1{router_id}~1deprovisioning-script
+  /routers/{router_id}/interfaces:
+    $ref: ./snmp.yaml#/paths/~1routers~1{router_id}~1interfaces
+  /routers/{router_id}/metrics/live:
+    $ref: ./snmp.yaml#/paths/~1routers~1{router_id}~1metrics~1live
+  /routers/{router_id}/poll:
+    $ref: ./snmp.yaml#/paths/~1routers~1{router_id}~1poll
   /routers/{router_id}/prefix-import-preview:
     $ref: ./devices.yaml#/paths/~1routers~1{router_id}~1prefix-import-preview
   /routers/{router_id}/provisioning-script:

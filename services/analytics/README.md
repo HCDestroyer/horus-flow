@@ -23,10 +23,35 @@ agregados de ClickHouse (5 min / 1 h / 1 d según el rango) como `horus_analytic
 Datos de widgets resueltos en servidor: proveedor en proceso
 `services/analytics/api/trafficwidgets` (`module.Services` → `analytics.TrafficWidgetData`) para el
 catálogo de dashboards de CORE: `traffic_now`, `customers_active`, `exporters_status`,
-`traffic_timeseries`, `top_customers`, `top_services`, `top_categories`, `top_organizations`
-(formas de `apps/frontend/app/widgets/shapes.ts`), caché por tenant/tipo/config/rango/alcance con
-*singleflight* e IPs enmascaradas sin `show_personal_data`. Escribe `dim.category`,
-`dim.service`, `dim.organization` y `dim.asn` desde el catálogo.
+`traffic_timeseries`, `top_customers`, `top_services`, `top_categories`, `top_organizations` y
+`routers_status_grid` (formas de `apps/frontend/app/widgets/shapes.ts`), caché por
+tenant/tipo/config/rango/alcance con *singleflight* e IPs enmascaradas sin `show_personal_data`.
+Escribe `dim.category`, `dim.service`, `dim.organization` y `dim.asn` desde el catálogo.
+
+## Routers (EP-08: series históricas y widget de estado)
+
+Rutas: `GET /analytics/routers/{router_id}/metrics` (series de dispositivo: CPU, memoria,
+temperatura, latencia ICMP, `availability_ratio` = sondeos respondidos / total por bucket, uptime,
+duración del sondeo) y `GET /analytics/routers/{router_id}/interfaces/metrics` (una serie por
+métrica e interfaz, `group` = nombre; `interface_id` csv de hasta 8 UUID; sin él, los uplinks del
+estado vivo del rol `snmp` o las 4 interfaces con más tráfico). Leen `snmp.device_metrics` y
+`snmp.interface_metrics` (escritor: rol `snmp`) con `tenant_id` + `router_id`; crudo con paso ≥ 1 min
+hasta 24 h y los agregados `snmp.device_5m/1h` y `snmp.interface_5m/1h` (SimpleAggregateFunction:
+media = `_sum / _count`, nunca 0 sin muestras) para rangos mayores (5 min hasta 2 d, 1 h después). Huecos como `null` (nunca 0), `meta.source:
+snmp`, `partial`/`coverage` como en tráfico. El router se valida contra el inventario `flowinv`, el
+estado del rol `snmp` o `dim.router`: de otro ISP o fuera del alcance por nodo ⇒ 404. Permiso
+`snmp.read`; el JWT de kiosco entra sin permisos (lista blanca de `permissions.yaml`).
+
+Widget `routers_status_grid` (kind `table`, tema `routers.status`): filas de
+`snmpapi.RouterStatusReader.List` (publicado por el rol `snmp` en `module.Services` como
+`snmp.RouterStatus`) filtradas por `config.show` y ordenadas por `config.sort` (`status` = problemas
+primero como ordena `List`, `name`, `cpu` desc, `traffic` desc por rx+tx del uplink); columnas
+`router, site, router_id, status, reason, since, last_observed_at, cpu_percent, memory_percent,
+temperature_celsius, uptime_seconds, rx_bps, tx_bps, uplink, exporter_state, tunnel_state,
+interfaces_up, interfaces_total`; `meta.freshness_seconds` desde `PollerHealth.LastCycleAt` y
+`partial` si el sondeador no está sano. Sin el rol `snmp` en el proceso el widget responde
+`ErrUnavailable` (503 `ANALYTICS_UNAVAILABLE`, "no disponible"), nunca una lista vacía. Sin datos
+personales.
 
 Variables: `HORUS_CLICKHOUSE_DSN`, `HORUS_CLICKHOUSE_ANALYTICS_PASSWORD`,
 `HORUS_ANALYTICS_QUERY_TIMEOUT` (10s), `HORUS_ANALYTICS_CACHE_TTL` (10s),

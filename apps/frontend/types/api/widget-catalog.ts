@@ -918,6 +918,93 @@ export const WIDGET_CATALOG = [
     },
     "increment": "I1",
     "version": 1
+  },
+  {
+    "type": "routers_status_grid",
+    "title": "Estado de routers",
+    "description": "¿Están vivos mis routers? Estado con razón (online, aviso, crítico, degradado, offline, sin datos), CPU, memoria, temperatura, uptime y tráfico del enlace de subida, por router.",
+    "category": "infrastructure",
+    "config_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "site_ids": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "default": [],
+          "description": "Vacío = todo el ISP o la variable del dashboard."
+        },
+        "show": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "online",
+              "warning",
+              "critical",
+              "degraded",
+              "offline",
+              "stale",
+              "unknown",
+              "maintenance"
+            ]
+          },
+          "default": [],
+          "description": "Vacío = todos los estados."
+        },
+        "sort": {
+          "type": "string",
+          "enum": [
+            "status",
+            "name",
+            "cpu",
+            "traffic"
+          ],
+          "default": "status"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "required_permission": "devices.read",
+    "data_endpoint_kind": "table",
+    "realtime_topic": "routers.status",
+    "contains_personal_data": false,
+    "kiosk_allowed": true,
+    "sizes": {
+      "allowed": [
+        {
+          "w": 4,
+          "h": 3
+        },
+        {
+          "w": 6,
+          "h": 3
+        },
+        {
+          "w": 6,
+          "h": 4
+        },
+        {
+          "w": 12,
+          "h": 2
+        },
+        {
+          "w": 12,
+          "h": 4
+        }
+      ],
+      "default": {
+        "w": 6,
+        "h": 3
+      }
+    },
+    "increment": "I2",
+    "version": 1
   }
 ] as const
 

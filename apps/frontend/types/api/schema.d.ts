@@ -21,6 +21,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analytics/routers/{router_id}/interfaces/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Series por interfaz (tráfico, paquetes, errores, descartes) con rango
+         * @description Una serie por métrica e interfaz (`group` = nombre de la interfaz). Sin `interface_id`, las interfaces
+         *     de subida (uplink) y, si no hay, las físicas con tráfico; como mucho 8 interfaces por consulta.
+         */
+        get: operations["getRouterInterfaceMetrics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/analytics/routers/{router_id}/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Series del dispositivo (CPU, memoria, temperatura, latencia, disponibilidad) con rango
+         * @description Desde `snmp.device_metrics` (crudo 30 d, 5 min 90 d, 1 h 13 meses). `availability_ratio` es la fracción
+         *     de sondeos ICMP respondidos en el bucket; los huecos (router apagado, sondeador caído) son `null`, nunca 0.
+         */
+        get: operations["getRouterMetrics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/analytics/traffic/attribution": {
         parameters: {
             query?: never;
@@ -172,7 +218,9 @@ export interface paths {
          *     `devices.read`) y el asistente activo en el ISP. El recurso se lee como el usuario: si no lo ve,
          *     `404 ASSIST_CONTEXT_NOT_FOUND`. Errores: `409 ASSIST_DISABLED` / `ASSIST_NOT_CONFIGURED`,
          *     `429 ASSIST_LIMIT_REACHED` (con `Retry-After` hasta el próximo día UTC), `422 ASSIST_REFUSED` (el modelo
-         *     declinó), `502 ASSIST_PROVIDER_UNAVAILABLE` / `ASSIST_INCOMPLETE`.
+         *     declinó), `502 ASSIST_PROVIDER_UNAVAILABLE` / `ASSIST_INCOMPLETE`, `502|503 ASSIST_CONTEXT_UNAVAILABLE` (la
+         *     API de Horus no pudo servir el recurso: el `detail` trae el estado y el código que respondió el módulo),
+         *     `503 ASSIST_STORE_UNAVAILABLE` (el almacén del asistente no responde).
          */
         post: operations["createAssistAnalysis"];
         delete?: never;
@@ -2306,6 +2354,69 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/routers/{router_id}/interfaces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Interfaces descubiertas por SNMP y cuáles se sondean
+         * @description Inventario leído de IF-MIB en el último descubrimiento (cada hora y al reconectar). Se sondean las
+         *     físicas (ether, sfp, wlan), VLAN, bridge y bonding; no las dinámicas por cliente (`<pppoe-…>`), cuyo
+         *     consumo sale de los flujos. `uplink` marca la interfaz con más tráfico de subida al exterior, que es
+         *     la que resume el estado del router.
+         */
+        get: operations["listRouterInterfaces"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/routers/{router_id}/metrics/live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        /** Última muestra completa de un router (dispositivo, sensores e interfaces) */
+        get: operations["getRouterLiveMetrics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/routers/{router_id}/poll": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sondeo inmediato (el resultado llega por WebSocket router.{id}.metrics y en /metrics/live) */
+        post: operations["pollRouterNow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/routers/{router_id}/prefix-import-preview": {
         parameters: {
             query?: never;
@@ -2354,6 +2465,30 @@ export interface paths {
          *     fetch; nunca desactiva la verificación.
          */
         post: operations["createProvisioningScript"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/routers/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Estado efectivo y últimas métricas de cada router (vista NOC de routers)
+         * @description Una fila por router del ISP (o del nodo) con el estado efectivo, su razón, las señales que lo sostienen
+         *     (ICMP, SNMP, túnel, exportador) y la última muestra (CPU, memoria, temperatura, uptime, latencia, enlace
+         *     de subida). `meta.poller` dice si el sondeador late: sin latido, todo router pasa a `stale`. Apto para
+         *     kioscos (sin datos personales). Orden: problemas primero (critical, offline, degraded, warning, stale),
+         *     después por nombre.
+         */
+        get: operations["listRouterStatus"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3339,6 +3474,31 @@ export interface components {
             /** @description HORUS_WG_ENDPOINT (nombre o IP). */
             wireguard_endpoint: string;
         };
+        /** @enum {string} */
+        InterfaceOperStatus: "up" | "down" | "testing" | "unknown" | "dormant" | "not_present" | "lower_layer_down";
+        /** @description Última muestra de una interfaz sondeada. Tasas null en el primer sondeo o tras una discontinuidad de contador. */
+        InterfaceSample: {
+            alias?: string | null;
+            /** @default false */
+            counter_discontinuity?: boolean;
+            if_index: number;
+            interface_id: components["schemas"]["Uuid"];
+            name: string;
+            oper_status: components["schemas"]["InterfaceOperStatus"] | null;
+            rx_bps: number | null;
+            rx_drops_delta?: number | null;
+            rx_errors_delta?: number | null;
+            rx_pps?: number | null;
+            speed_bps?: number | null;
+            tx_bps: number | null;
+            tx_drops_delta?: number | null;
+            tx_errors_delta?: number | null;
+            tx_pps?: number | null;
+            /** @default false */
+            uplink?: boolean;
+            utilization_rx?: number | null;
+            utilization_tx?: number | null;
+        };
         InvitationIssued: {
             email_sent: boolean;
             /** Format: date-time */
@@ -3757,6 +3917,20 @@ export interface components {
                 site_id?: string | null;
             };
         };
+        PollerHealth: {
+            /**
+             * @description false si HORUS_SNMP_ENABLED=false en la instalación.
+             * @default true
+             */
+            enabled?: boolean;
+            /** @description El sondeador late (último ciclo hace menos de 3 intervalos). */
+            healthy: boolean;
+            /** @description Intervalo del sondeo de sistema e interfaces (60 por defecto). */
+            interval_seconds: number;
+            last_cycle_at: components["schemas"]["Timestamp"] | null;
+            /** @description Routers que este ISP tiene en sondeo (con túnel y credenciales SNMP). */
+            targets: number;
+        };
         Position: {
             h: number;
             w: number;
@@ -4083,6 +4257,42 @@ export interface components {
             warnings: ("routeros_version_unsupported" | "traffic_flow_target_drift" | "hardware_offload_suspected")[];
             wireguard_peer_id?: components["schemas"]["Uuid"] | null;
         };
+        /** @description Última muestra del dispositivo. Cada campo es null si el sondeo no lo obtuvo (modelo sin sensor, OID ausente). */
+        RouterDeviceSample: {
+            cpu_cores?: number | null;
+            /** @description Núcleo más cargado (Traffic Flow carga uno). */
+            cpu_max_core_percent?: number | null;
+            /** @description Media de los núcleos. */
+            cpu_percent?: number | null;
+            cpu_temperature_celsius?: number | null;
+            /** @example 7.16.2 */
+            firmware?: string | null;
+            icmp_loss_ratio?: number | null;
+            icmp_rtt_ms?: number | null;
+            memory_percent?: number | null;
+            memory_total_bytes?: components["schemas"]["Uint64String"] | null;
+            memory_used_bytes?: components["schemas"]["Uint64String"] | null;
+            /** @example CCR2116-12G-4S+ */
+            model?: string | null;
+            poll_duration_ms?: number | null;
+            sampled_at: components["schemas"]["Timestamp"] | null;
+            /** @description Sensores propios del fabricante (mtxrGaugeTable) tal cual los expone. */
+            sensors?: {
+                name: string;
+                unit?: string | null;
+                value: number;
+            }[];
+            serial_number?: string | null;
+            /** @description Placa (mtxrHlTemperature). */
+            temperature_celsius?: number | null;
+            uptime_seconds?: number | null;
+            voltage?: number | null;
+        };
+        /**
+         * @description Estado efectivo (api.md §2.6). `stale` = la observación es vieja o el sondeador no late; `unknown` = nunca observado.
+         * @enum {string}
+         */
+        RouterEffectiveStatus: "online" | "warning" | "critical" | "degraded" | "offline" | "stale" | "unknown" | "maintenance";
         RouterInput: {
             display_name?: string | null;
             /** @default true */
@@ -4101,6 +4311,30 @@ export interface components {
              */
             vendor?: "mikrotik";
         };
+        RouterInterface: {
+            admin_up: boolean | null;
+            /** @example UPLINK-TRANSIT-A */
+            alias: string | null;
+            id: components["schemas"]["Uuid"];
+            if_index: number;
+            last_seen_at: components["schemas"]["Timestamp"] | null;
+            /** @description Se sondean sus contadores cada intervalo. */
+            monitored: boolean;
+            /** @example sfp-sfpplus1 */
+            name: string;
+            oper_status: components["schemas"]["InterfaceOperStatus"] | null;
+            speed_bps: number | null;
+            /** @description ifType como nombre IANA: ethernetCsmacd, l2vlan, bridge, ieee8023adLag, ppp, tunnel, other. */
+            type: string;
+            uplink: boolean;
+        };
+        RouterLiveMetrics: {
+            interfaces: components["schemas"]["InterfaceSample"][];
+            interval_seconds: number;
+            status: components["schemas"]["RouterStatus"];
+        };
+        /** @enum {string} */
+        RouterObservedState: "online" | "warning" | "critical" | "degraded" | "offline";
         /** @description Línea de comando RouterOS con placeholders {{nombre}}; todo lo que crea lleva comment="horus finding {{finding_id}}" para poder deshacerlo. */
         RouterosTemplate: string;
         RouterPatch: {
@@ -4111,6 +4345,70 @@ export interface components {
             name?: string;
             routeros_version?: string | null;
             tags?: string[];
+        };
+        /** @description Las señales que sostienen el estado; `unknown` mientras no haya observación. */
+        RouterSignals: {
+            /** @description Estado del exportador de flujos (flows.yaml FlowExporterState) o null si no aplica. */
+            exporter: string | null;
+            /** @enum {string} */
+            icmp: "ok" | "fail" | "unknown";
+            /** @enum {string} */
+            snmp: "ok" | "fail" | "auth_failed" | "unknown";
+            /** @enum {string} */
+            wireguard: "ok" | "stale" | "never" | "unknown";
+        };
+        /**
+         * @description Enum abierto (events.md §8.4).
+         * @example ok
+         * @example cpu_high
+         * @example memory_high
+         * @example temperature_high
+         * @example snmp_unreachable
+         * @example snmp_auth_failed
+         * @example tunnel_down
+         * @example host_unreachable_via_tunnel
+         * @example exporter_silent
+         * @example interface_down
+         * @example psu_failed
+         * @example fan_failed
+         */
+        RouterStateReason: string;
+        RouterStatus: {
+            device: components["schemas"]["RouterDeviceSample"];
+            interfaces_total: number | null;
+            interfaces_up: number | null;
+            last_observed_at: components["schemas"]["Timestamp"] | null;
+            name: string;
+            observed_state: components["schemas"]["RouterObservedState"] | null;
+            reason: components["schemas"]["RouterStateReason"] | null;
+            router_id: components["schemas"]["Uuid"];
+            signals: components["schemas"]["RouterSignals"];
+            /** @description Desde cuándo está en el estado efectivo actual. */
+            since: components["schemas"]["Timestamp"] | null;
+            site_id: components["schemas"]["Uuid"];
+            site_name: string;
+            status: components["schemas"]["RouterEffectiveStatus"];
+            thresholds: components["schemas"]["RouterThresholdHit"][];
+            uplink: components["schemas"]["RouterUplink"] | null;
+        };
+        RouterThresholdHit: {
+            interface_name?: string | null;
+            /** @enum {string} */
+            level: "warning" | "critical";
+            /** @enum {string} */
+            metric: "cpu_percent" | "cpu_max_core_percent" | "memory_percent" | "temperature_celsius" | "cpu_temperature_celsius" | "interface_errors" | "interface_down";
+            threshold: number;
+            value: number;
+        };
+        /** @description Interfaz que resume el tráfico del router (la de más subida hacia fuera; `flow_role` upstream si está marcado). */
+        RouterUplink: {
+            interface_id: components["schemas"]["Uuid"];
+            name: string;
+            rx_bps?: number | null;
+            speed_bps?: number | null;
+            tx_bps?: number | null;
+            /** @description max(rx, tx) / velocidad. */
+            utilization?: number | null;
         };
         /**
          * @description Proyectado desde detection. Etiquetas de presentación (D18; `dashboard/v0/widget-data.schema.json#/$defs/SecurityState`):
@@ -4757,6 +5055,79 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Series. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeriesResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    getRouterInterfaceMetrics: {
+        parameters: {
+            query?: {
+                /** @description Inicio RFC 3339 UTC, intervalo semiabierto `[from, to)`. Excluyente con `range`. */
+                from?: components["parameters"]["From"];
+                /** @description UUID de interfaces separados por comas (máximo 8). */
+                interface_id?: string;
+                metrics?: string;
+                /** @description Atajo relativo; el servidor lo resuelve y lo devuelve en `meta`. */
+                range?: components["parameters"]["Range"];
+                /** @description Segundos por bucket; omitido → el servidor elige (≤ ~500 puntos/serie). */
+                step?: components["parameters"]["Step"];
+                /** @description Fin RFC 3339 UTC (por defecto, ahora). */
+                to?: components["parameters"]["To"];
+            };
+            header?: never;
+            path: {
+                router_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Series. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeriesResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["UnprocessableEntity"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    getRouterMetrics: {
+        parameters: {
+            query?: {
+                /** @description Inicio RFC 3339 UTC, intervalo semiabierto `[from, to)`. Excluyente con `range`. */
+                from?: components["parameters"]["From"];
+                metrics?: string;
+                /** @description Atajo relativo; el servidor lo resuelve y lo devuelve en `meta`. */
+                range?: components["parameters"]["Range"];
+                /** @description Segundos por bucket; omitido → el servidor elige (≤ ~500 puntos/serie). */
+                step?: components["parameters"]["Step"];
+                /** @description Fin RFC 3339 UTC (por defecto, ahora). */
+                to?: components["parameters"]["To"];
+            };
+            header?: never;
+            path: {
+                router_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Series (`metric` = nombre pedido; `unit` percent | celsius | ms | ratio | seconds). */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9099,6 +9470,93 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
+    listRouterInterfaces: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Interfaces. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["RouterInterface"][];
+                        discovered_at: components["schemas"]["Timestamp"] | null;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getRouterLiveMetrics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Última muestra (los campos son null hasta el primer sondeo con éxito). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RouterLiveMetrics"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    pollRouterNow: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUID generado por el cliente; obligatorio en acciones con efecto externo (falta → 428). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKeyRequired"];
+            };
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Encolado. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        queued: boolean;
+                        /** @description Si no se encola (sin túnel, sin credenciales SNMP, sondeador inactivo), por qué. */
+                        reason?: string | null;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            428: components["responses"]["PreconditionRequired"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
     previewRouterPrefixImport: {
         parameters: {
             query?: never;
@@ -9180,6 +9638,39 @@ export interface operations {
             409: components["responses"]["Conflict"];
             422: components["responses"]["UnprocessableEntity"];
             428: components["responses"]["PreconditionRequired"];
+        };
+    };
+    listRouterStatus: {
+        parameters: {
+            query?: {
+                /** @description Filtro por nodo (multivalor por comas). */
+                site_id?: components["parameters"]["SiteIdFilter"];
+                /** @description Filtra por estado efectivo (lista separada por comas). */
+                status?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Routers con su estado. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["RouterStatus"][];
+                        meta: {
+                            generated_at: components["schemas"]["Timestamp"];
+                            poller: components["schemas"]["PollerHealth"];
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     getSecuritySummary: {

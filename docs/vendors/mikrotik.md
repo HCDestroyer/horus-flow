@@ -267,6 +267,20 @@ MIKROTIK-MIB (raíz `1.3.6.1.4.1.14988.1.1`):
 | Árbol de colas `mtxrQueueTreeTable` | `…1.1.2.2` | |
 | Vecinos (MNDP/CDP/LLDP) `mtxrNeighbor` | `…1.1.11` | Topología opcional. |
 
+**Qué usa de verdad el rol `snmp` (I2, `services/snmp/internal/adapters/snmpclient`)**: cada ciclo
+`sysDescr` (modelo = palabra tras "RouterOS "), `sysUpTime` (reinicio si baja), walk de `hrProcessorLoad`
+(media y máximo), walk de `hrStorageTable` (fila `hrStorageRam`: `used × units`, `size × units`) y GET de
+`ifHCInOctets/ifHCOutOctets/ifHCInUcastPkts/ifHCOutUcastPkts/ifInErrors/ifOutErrors/ifInDiscards/ifOutDiscards/ifOperStatus`
+solo de los ifIndex sondeados (bloques de 6 interfaces por GET). Cada 300 s: `mtxrHlTemperature`
+(`…1.1.3.10.0`), `mtxrHlProcessorTemperature` (`…1.1.3.11.0`), voltaje (`…1.1.3.8.0`), versión RouterOS
+`mtxrLicVersion` (`…1.1.4.4.0`), serie `mtxrSerialNumber` (`…1.1.7.3.0`) y walk de `mtxrGaugeTable`
+(`…1.1.3.100.1`: nombre `.2`, valor `.3`, unidad `.4`: 1 °C, 2 rpm, 3 dV, 4 dA, 5 dW, 6 estado; dV/dA/dW se
+dividen por 10). Si falta el OID fijo de temperatura/CPU/voltaje se toma de la tabla (`temperature`,
+`cpu-temperature`, `voltage`). **Todo OID ausente da `null`** (modelo sin sensor): solo un fallo de
+transporte o de credencial cuenta como error. Cada hora: walk de `ifName`, `ifAlias`, `ifType`,
+`ifHighSpeed`, `ifAdminStatus`, `ifOperStatus`; se sondean ethernet/sfp/wlan, `l2vlan`, `bridge` y
+`ieee8023adLag` y nunca `<pppoe-…>`, PPP, túneles ni `lo`.
+
 **Regla para el adaptador MikroTik de `snmp`**: los OIDs exactos de cada modelo se obtienen en el
 propio router con `print oid` (`/system health print oid`, `/system resource print oid`,
 `/interface print oid`, `/queue simple print oid`). El laboratorio (§8) debe guardar esas salidas

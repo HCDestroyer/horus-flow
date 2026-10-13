@@ -12,6 +12,7 @@ import (
 
 	"github.com/hcdestroyer/horus-flow/packages/go/flowinv"
 	"github.com/hcdestroyer/horus-flow/services/analytics/internal/adapters/chread"
+	snmpapi "github.com/hcdestroyer/horus-flow/services/snmp/api"
 	"github.com/hcdestroyer/horus-flow/services/traffic/api/catalog"
 )
 
@@ -29,6 +30,10 @@ type Service struct {
 	Names Names
 	// Catalog devuelve el catálogo vigente (nil = semilla).
 	Catalog func() *catalog.Catalog
+	// Routers devuelve el estado de los routers que publica el rol snmp en
+	// el proceso (module.Services, snmpapi.ServiceRouterStatus); nil si el
+	// rol no está: el widget routers_status_grid responde "no disponible".
+	Routers func() snmpapi.RouterStatusReader
 }
 
 func (s *Service) now() time.Time {

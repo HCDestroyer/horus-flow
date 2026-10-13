@@ -278,6 +278,11 @@ services:
     <<: *hardening
     image: *horus-image
     read_only: true
+    # ICMP sin privilegios para el rol snmp (ping a los routers por el túnel): sockets
+    # ICMP "datagram" (udp4) permitidos a cualquier GID del contenedor. Sin esto el rol
+    # sigue, pero sin señal ICMP (docs/install-debian.md, docs/services.md ficha snmp).
+    sysctls:
+      - net.ipv4.ping_group_range=0 2147483647
     environment:
       <<: *horus-env
       HORUS_ROLES: gateway,auth,devices,wireguard,snmp,traffic,detection,alerts,analytics,reporting,ingester,jobs,assist
@@ -329,6 +334,7 @@ services:
       HORUS_CLICKHOUSE_DETECTION_PASSWORD_FILE: /run/secrets/ch_detection_password
       HORUS_CLICKHOUSE_ALERTS_PASSWORD_FILE: /run/secrets/ch_alerts_password
       HORUS_CLICKHOUSE_JOBS_PASSWORD_FILE: /run/secrets/ch_jobs_password
+      HORUS_CLICKHOUSE_SNMP_PASSWORD_FILE: /run/secrets/ch_snmp_password
       # Aviso de versión nueva (rol jobs): versión instalada, canal y fuente de versiones.
       # HORUS_UPDATE_CHECK=false lo desactiva (servidores sin salida a Internet: "no comprobado").
       HORUS_VERSION: ${HORUS_VERSION:-dev}
@@ -373,6 +379,7 @@ services:
       - ch_detection_password
       - ch_alerts_password
       - ch_jobs_password
+      - ch_snmp_password
       - grpc_ca
       - grpc_wireguard_crt
       - grpc_wireguard_key
@@ -580,6 +587,8 @@ secrets:
     file: ${HORUS_SECRETS_DIR}/ch_alerts_password
   ch_jobs_password:
     file: ${HORUS_SECRETS_DIR}/ch_jobs_password
+  ch_snmp_password:
+    file: ${HORUS_SECRETS_DIR}/ch_snmp_password
   pgbackrest_conf:
     file: ${HORUS_SECRETS_DIR}/pgbackrest.conf
   wg_hub_private_key:

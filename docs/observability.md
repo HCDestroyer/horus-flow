@@ -124,6 +124,8 @@ interfaces.
 | `horus_snmp_router_last_success_timestamp_seconds` | gauge | `router_id` (condicionado) | Frescura por router (SLO de §6) |
 | `horus_snmp_targets_stale` | gauge | — | Routers sin datos en > 3 intervalos (estado `stale`) |
 | `horus_snmp_poller_heartbeat_timestamp_seconds` | gauge | — | Complementa el evento `horus.snmp.poller.heartbeat` (15 s); Prometheus alerta sin depender de NATS |
+| `horus_snmp_targets`, `horus_snmp_routers{status}` | gauge | `status` (los 7 estados efectivos) | Routers en sondeo y por estado efectivo (I2; `router_id` por router no se exporta por cardinalidad) |
+| `horus_snmp_clickhouse_dropped_total`, `horus_snmp_clickhouse_insert_rows_total{table}`, `horus_snmp_publish_errors_total{kind}` | counter | `table`, `kind` (`event`, `telemetry`, `state`) | Lotes de métricas descartados (ClickHouse caído o cola llena), filas insertadas y publicaciones NATS fallidas del rol `snmp` |
 | `horus_clickhouse_up` | gauge | `service` | Visto desde cada servicio que escribe/lee ClickHouse |
 | `horus_flows_packets_received_total` | counter | `protocol` | Paquetes/s de entrada |
 | `horus_flows_records_received_total` | counter | `protocol` | **Flujos/s** |

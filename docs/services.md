@@ -166,14 +166,15 @@ NATS KV); **Sharded** = N instancias con *leases*.
 
 | Campo | Valor |
 | --- | --- |
-| Responsabilidad | Sondeo SNMPv3 (v2c opcional) e ICMP por el túnel, perfiles por fabricante (`SNMPProfile`; MikroTik primero, MIB-II genérico), deltas de contadores, **estado observado** (online/degraded/offline/stale + razón) correlacionando ICMP, SNMP y handshakes WG, detección de caída del hub (una alerta, no cientos). No recorre interfaces PPPoE dinámicas. |
-| Dueño de datos | ClickHouse (escritas por el rol `ingester` en su nombre): `snmp_device_metrics`, `snmp_interface_metrics` (+ agregados). NATS KV: `snmp_shards`, `snmp_router_state`. Sin PostgreSQL propio. |
-| API pública | `/api/v1/routers/{id}/metrics/live`, `/api/v1/routers/{id}/poll`. |
-| Publica | `snmp.metrics.batch` (telemetría), `snmp.router.state_changed`, `snmp.router.rebooted`, `snmp.router.interfaces_discovered`, `snmp.poller.heartbeat`. |
-| Consume | `devices.router.*`, `devices.router.credentials_rotated`, `wireguard.peer.handshake_*`, `wireguard.peer.activated`. |
-| Dependencias | devices (snapshot), NATS (con buffer), túneles WG. |
-| Incremento | 2 |
-| Estado | **Sharded** (64 shards virtuales, leases en NATS KV); 1 réplica toma todos en v1. |
+| Responsabilidad | Sondeo SNMPv3 (authPriv) e ICMP por el túnel, MikroTik primero (MIB-II, IF-MIB, HOST-RESOURCES, MIKROTIK-MIB), deltas de contadores, **estado observado** (online/warning/critical/degraded/offline + razón) correlacionando ICMP, SNMP, handshake WG y exportador con histéresis de 2 observaciones; **estado efectivo** (`stale`, `unknown`) al servir. No recorre interfaces PPPoE dinámicas. |
+| Dueño de datos | ClickHouse (escribe él mismo con el usuario `horus_snmp`): `snmp.device_metrics`, `snmp.interface_metrics` (30 d) y agregados `snmp.device_5m/1h`, `snmp.interface_5m/1h` ([database.md §6.3](database.md)). NATS KV: `snmp_router_state`. Sin PostgreSQL propio. |
+| API pública | `GET /api/v1/routers/status`, `GET /api/v1/routers/{id}/metrics/live`, `GET /api/v1/routers/{id}/interfaces`, `POST /api/v1/routers/{id}/poll`. En proceso: `snmp.RouterStatus` (`api.RouterStatusReader` + `InterfaceLister`) para analytics y el gateway. |
+| Publica | `snmp.router.state_changed`, `snmp.router.rebooted`, `snmp.router.interfaces_discovered`, `snmp.interface.oper_status_changed`, `snmp.poller.heartbeat` (15 s); telemetría `horus.telemetry.snmp.device.<router_id>` e `…interface.<router_id>` (JSON, TLM_SNMP). |
+| Consume | `devices.Onboarding.ListRouters` + `devices.SNMPCredentialReader` (en proceso), `devices.router.*` (recarga de objetivos y credenciales), `wireguard.peer.handshake_stale/handshake_recovered/activated` (durable `snmp-wireguard`), KV `flow_exporter_state` (señal exportador). |
+| Dependencias | devices local, NATS (opcional: sin él, solo memoria), ClickHouse (opcional: sin él, sin histórico), socket ICMP (`net.ipv4.ping_group_range` en el compose; sin él la señal ICMP queda `unknown`), túneles WG. |
+| Variables | `HORUS_SNMP_ENABLED`, `HORUS_SNMP_INTERVAL` (60s), `HORUS_SNMP_HEALTH_INTERVAL` (300s), `HORUS_SNMP_ICMP_INTERVAL` (30s), `HORUS_SNMP_DISCOVERY_INTERVAL` (1h), `HORUS_SNMP_TIMEOUT` (5s), `HORUS_SNMP_RETRIES` (1), `HORUS_SNMP_CONCURRENCY` (32), `HORUS_SNMP_{CPU,MEMORY,TEMPERATURE}_{WARNING,CRITICAL}` (80/95, 85/95, 70/85), `HORUS_CLICKHOUSE_DSN`, `HORUS_CLICKHOUSE_PASSWORD`, `HORUS_CLICKHOUSE_SNMP_PASSWORD`, `HORUS_SNMP_CH_MIGRATE`, `HORUS_SNMP_CH_QUEUE`, `HORUS_SNMP_INSTANCE_ID`. Ver [`services/snmp/README.md`](../services/snmp/README.md). |
+| Incremento | 2 (**implementado**, I2) |
+| Estado | 1 instancia toma todos los routers (sin shards en v1; el heartbeat informa `shards_owned: 1`). |
 
 ### collector (rol de flows)
 

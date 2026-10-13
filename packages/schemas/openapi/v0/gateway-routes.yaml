@@ -65,6 +65,22 @@ modules:
         GET: traffic.customer.read
       audited:
         - GET
+    - prefix: /api/v1/analytics/routers/{router_id}/interfaces/metrics
+      scope: tenant
+      methods:
+        GET: snmp.read
+      principals:
+        - user
+        - api_token
+        - kiosk
+    - prefix: /api/v1/analytics/routers/{router_id}/metrics
+      scope: tenant
+      methods:
+        GET: snmp.read
+      principals:
+        - user
+        - api_token
+        - kiosk
     - prefix: /api/v1/analytics/traffic/attribution
       scope: tenant
       methods:
@@ -714,6 +730,39 @@ modules:
       scope: platform
       methods:
         GET: platform.updates.read
+  snmp:
+    - prefix: /api/v1/routers/status
+      scope: tenant
+      methods:
+        GET: devices.read
+      principals:
+        - user
+        - api_token
+        - kiosk
+    - prefix: /api/v1/routers/{router_id}/interfaces
+      scope: tenant
+      methods:
+        GET: devices.read
+      principals:
+        - user
+        - api_token
+        - kiosk
+    - prefix: /api/v1/routers/{router_id}/metrics/live
+      scope: tenant
+      methods:
+        GET: snmp.read
+      principals:
+        - user
+        - api_token
+        - kiosk
+    - prefix: /api/v1/routers/{router_id}/poll
+      scope: tenant
+      methods:
+        POST: devices.update
+      idempotency_key_required:
+        - POST
+      audited:
+        - POST
   wireguard:
     - prefix: /api/v1/enroll/wireguard
       scope: public

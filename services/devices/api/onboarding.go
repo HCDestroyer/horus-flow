@@ -23,8 +23,16 @@ import (
 // ServiceOnboarding → Onboarding.
 const ServiceOnboarding = "devices.Onboarding"
 
+// ServiceSNMPCredentials → SNMPCredentialReader (lo usa el rol snmp para
+// sondear por SNMPv3; la implementación de devices es el mismo Onboarding).
+const ServiceSNMPCredentials = "devices.SNMPCredentials"
+
 // ErrRouterNotFound: el router no existe en el tenant (o está de baja).
 var ErrRouterNotFound = errors.New("devices: router not found")
+
+// ErrNoCredential: el router no tiene credencial de ese tipo (nunca se
+// emitió o se borró).
+var ErrNoCredential = errors.New("devices: credential not found")
 
 // RouterInfo es lo que wireguard necesita de un router.
 type RouterInfo struct {
@@ -76,4 +84,22 @@ type Onboarding interface {
 	// IssueCredentials genera credenciales nuevas (invalida las anteriores),
 	// las guarda cifradas y las devuelve en claro una sola vez.
 	IssueCredentials(ctx context.Context, tenant, routerID uuid.UUID) (OnboardingCredentials, error)
+}
+
+// SNMPCredential es la credencial SNMPv3 de solo lectura de un router, en
+// claro solo en memoria (kind `snmp_v3` de devices.credential, descifrada con
+// la KEK de devices). AuthProtocol: sha1 | sha256; PrivProtocol: aes128.
+type SNMPCredential struct {
+	Username     string
+	AuthProtocol string
+	AuthPassword string
+	PrivProtocol string
+	PrivPassword string
+}
+
+// SNMPCredentialReader revela la credencial SNMPv3 vigente de un router
+// (I2, rol snmp). ErrRouterNotFound si el router no es del tenant;
+// ErrNoCredential si no tiene credencial SNMP.
+type SNMPCredentialReader interface {
+	RevealSNMPCredential(ctx context.Context, tenant, routerID uuid.UUID) (SNMPCredential, error)
 }

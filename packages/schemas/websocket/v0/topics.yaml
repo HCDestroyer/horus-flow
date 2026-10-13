@@ -79,10 +79,24 @@ topics:
     payload: system_status
     nats_subjects: []
     description: capabilities de GET /system/status y realtime_status.
+  - topic: routers.status
+    class: event
+    increment: I2
+    permission: devices.read
+    scope_filter: site_id
+    payload: event_projection
+    nats_subjects: ['horus.snmp.router.state_changed.*', 'horus.snmp.router.rebooted.*']
+    description: Cambios de estado observado de los routers (razón y señales) y reinicios detectados. Vista NOC de routers y widget routers_status_grid.
+  - topic: 'router.{router_id}.metrics'
+    class: state
+    increment: I2
+    permission: snmp.read
+    keys: ['router_id']
+    payload: router_metrics_sample
+    nats_subjects: ['horus.telemetry.snmp.device.{router_id}', 'horus.telemetry.snmp.interface.{router_id}']
+    description: Cada sondeo del router (dispositivo e interfaces, forma de GET /routers/{id}/metrics/live). Snapshot al suscribirse.
 deferred:
-  - { topic: routers.status, increment: I2, reason: estado observado por SNMP }
-  - { topic: 'router.{router_id}', increment: I2 }
-  - { topic: 'router.{router_id}.metrics', increment: I2 }
+  - { topic: 'router.{router_id}', increment: I2, reason: eventos de inventario por router }
   - { topic: alerts, increment: I3, reason: motor de alertas completo }
   - { topic: summary, increment: I2 }
   - { topic: platform.overview, increment: I2 }

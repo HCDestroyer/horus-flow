@@ -150,8 +150,11 @@ func (e *env) token(perms map[string][]string, scope string) string {
 	if scope == authz.ScopeKiosk {
 		typ = authz.TypeKiosk
 	}
-	tok, _, err := e.signer.Sign(authz.Claims{RegisteredClaims: jwt.RegisteredClaims{Subject: sub},
-		Typ: typ, Scope: scope, TID: e.tenant.String(), Perms: perms})
+	c := authz.Claims{RegisteredClaims: jwt.RegisteredClaims{Subject: sub}, Typ: typ, Scope: scope, TID: e.tenant.String(), Perms: perms}
+	if typ == authz.TypeKiosk {
+		c.KioskID = uuid.NewString() // el verificador exige kiosk_id en los tokens de kiosco
+	}
+	tok, _, err := e.signer.Sign(c)
 	if err != nil {
 		e.t.Fatal(err)
 	}

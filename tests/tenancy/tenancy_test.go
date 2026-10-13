@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -149,6 +150,10 @@ func cases() map[string]tenanttest.Case {
 		"getAssistStatus", "getAssistSettings", "putAssistSettings", "testAssistSettings", "createAssistAnalysis",
 		"listAssistAudit", "listAssistMcpTokens", "createAssistMcpToken", "revokeAssistMcpToken")
 	pending("FLOW I1 (flows: exportadores)", "listFlowExporters", "getFlowExporter", "getClassificationStatus")
+	// snmp (EP-08): el arnés no monta snmp y de analytics solo los dashboards.
+	pending("FLOW I2 (snmp: estado y series de routers; suite propia con ClickHouse)",
+		"listRouterStatus", "getRouterLiveMetrics", "listRouterInterfaces", "pollRouterNow", "getRouterMetrics",
+		"getRouterInterfaceMetrics")
 	return c
 }
 
@@ -233,6 +238,8 @@ func TestTenantIsolationMatrix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Rutas que, sin su rol en el proceso, casan con el comodín de otra ruta.
+	shadowed := map[string]bool{"GET /api/v1/routers/status": true}
 	suite := &tenanttest.Suite{
 		Ops: ops, Cases: cases(), TokenA: A.token, SessionA: A.admin.token, TenantB: B.id,
 		ParamsA: paramsA, ParamsB: paramsB, ForeignIDs: foreign,
@@ -241,6 +248,15 @@ func TestTenantIsolationMatrix(t *testing.T) {
 			return r.Status, r.Raw
 		},
 		Mounted: func(method, tmpl string) bool {
+			// Patrón exacto primero: por comodín, /routers/status casaría con
+			// GET /routers/{router_id} (devices) y daría por montada una ruta
+			// del rol snmp que el arnés no monta.
+			if slices.Contains(a.mux.Patterns(), method+" "+tmpl) {
+				return true
+			}
+			if shadowed[method+" "+tmpl] {
+				return false
+			}
 			r, _ := http.NewRequestWithContext(context.Background(), method, strings.NewReplacer(
 				"{site_id}", paramsA["site_id"], "{router_id}", paramsA["router_id"], "{client_prefix_id}", paramsA["client_prefix_id"],
 				"{peer_id}", paramsA["peer_id"], "{token_id}", paramsA["token_id"],

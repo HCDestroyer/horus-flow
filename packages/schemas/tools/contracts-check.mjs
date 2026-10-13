@@ -22,7 +22,7 @@ const PACKAGES = resolve(SCHEMAS, '..')
 const EVENTS = join(PACKAGES, 'events')
 const PROTO = join(PACKAGES, 'protobuf')
 const OAS_DIR = join(SCHEMAS, 'openapi', 'v0')
-const MODULE_FILES = ['auth', 'gateway', 'platform', 'devices', 'wireguard', 'flows', 'analytics', 'detection', 'alerts', 'assist']
+const MODULE_FILES = ['auth', 'gateway', 'platform', 'devices', 'wireguard', 'flows', 'snmp', 'analytics', 'detection', 'alerts', 'assist']
 const SPECIAL_PERMISSIONS = new Set([
   'public', 'authenticated', 'refresh_cookie', 'kiosk_cookie', 'enrollment_token', 'widget_type', 'dashboard_access', 'kiosk_self',
   'mcp_token',

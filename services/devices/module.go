@@ -96,6 +96,10 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 			db.Close()
 			return nil, err
 		}
+		if err := deps.Services.Provide(devapi.ServiceSNMPCredentials, onboarding); err != nil {
+			db.Close()
+			return nil, err
+		}
 	}
 	if deps.Health != nil {
 		deps.Health.AddCheck(health.Check{Name: "postgres", Critical: true, Probe: db.Ping})

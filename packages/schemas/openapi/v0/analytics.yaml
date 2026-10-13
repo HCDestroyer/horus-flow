@@ -22,6 +22,8 @@ tags:
     description: Dashboards, widgets y playlists (D8).
   - name: kiosk
     description: Configuración del kiosco.
+  - name: routers
+    description: Series históricas de los routers (SNMP e ICMP), para la ficha y la vista NOC.
 paths:
   /analytics/traffic/top:
     get:
@@ -167,6 +169,87 @@ paths:
               schema: { $ref: '#/components/schemas/SeriesResponse' }
         '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
         '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
+  /analytics/routers/{router_id}/metrics:
+    parameters:
+      - name: router_id
+        in: path
+        required: true
+        schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    get:
+      tags: [routers]
+      operationId: getRouterMetrics
+      summary: Series del dispositivo (CPU, memoria, temperatura, latencia, disponibilidad) con rango
+      description: |
+        Desde `snmp.device_metrics` (crudo 30 d, 5 min 90 d, 1 h 13 meses). `availability_ratio` es la fracción
+        de sondeos ICMP respondidos en el bucket; los huecos (router apagado, sondeador caído) son `null`, nunca 0.
+      x-module: analytics
+      x-scope: tenant
+      x-permission: snmp.read
+      x-principals: [user, api_token, kiosk]
+      x-increment: I2
+      security:
+        - tenantBearer: []
+        - kioskBearer: []
+      parameters:
+        - name: metrics
+          in: query
+          schema: { type: string, default: 'cpu_percent,memory_percent,temperature_celsius', description: 'cpu_percent,cpu_max_core_percent,memory_percent,temperature_celsius,cpu_temperature_celsius,icmp_rtt_ms,icmp_loss_ratio,availability_ratio,poll_duration_ms,uptime_seconds' }
+        - $ref: './common.yaml#/components/parameters/Range'
+        - $ref: './common.yaml#/components/parameters/From'
+        - $ref: './common.yaml#/components/parameters/To'
+        - $ref: './common.yaml#/components/parameters/Step'
+      responses:
+        '200':
+          description: Series (`metric` = nombre pedido; `unit` percent | celsius | ms | ratio | seconds).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SeriesResponse' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
+  /analytics/routers/{router_id}/interfaces/metrics:
+    parameters:
+      - name: router_id
+        in: path
+        required: true
+        schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    get:
+      tags: [routers]
+      operationId: getRouterInterfaceMetrics
+      summary: Series por interfaz (tráfico, paquetes, errores, descartes) con rango
+      description: |
+        Una serie por métrica e interfaz (`group` = nombre de la interfaz). Sin `interface_id`, las interfaces
+        de subida (uplink) y, si no hay, las físicas con tráfico; como mucho 8 interfaces por consulta.
+      x-module: analytics
+      x-scope: tenant
+      x-permission: snmp.read
+      x-principals: [user, api_token, kiosk]
+      x-increment: I2
+      security:
+        - tenantBearer: []
+        - kioskBearer: []
+      parameters:
+        - name: interface_id
+          in: query
+          description: UUID de interfaces separados por comas (máximo 8).
+          schema: { type: string }
+        - name: metrics
+          in: query
+          schema: { type: string, default: 'rx_bps,tx_bps', description: 'rx_bps,tx_bps,rx_pps,tx_pps,rx_errors,tx_errors,rx_drops,tx_drops,utilization_rx,utilization_tx' }
+        - $ref: './common.yaml#/components/parameters/Range'
+        - $ref: './common.yaml#/components/parameters/From'
+        - $ref: './common.yaml#/components/parameters/To'
+        - $ref: './common.yaml#/components/parameters/Step'
+      responses:
+        '200':
+          description: Series.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SeriesResponse' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
         '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
   /sites/{site_id}/prefix-proposals:
     parameters:

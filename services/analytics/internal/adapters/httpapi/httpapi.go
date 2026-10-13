@@ -53,6 +53,7 @@ func (h *Handler) Mount(r *httpx.ServiceMux) {
 	r.Handle("POST /api/v1/sites/{site_id}/unattributed-addresses", h.guard.Tenant("customers.read", h.unattributedAddresses))
 	h.mountTraffic(r)
 	h.mountASN(r)
+	h.mountRouters(r)
 }
 
 // unattributedAddresses sirve GET /sites/{site_id}/unattributed-addresses: las IP

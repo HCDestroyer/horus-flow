@@ -53,7 +53,7 @@ func TestWidgetData(t *testing.T) {
 	e.insert(rows)
 	p := provider(t, e)
 	ctx := context.Background()
-	if len(p.Types()) != 8 {
+	if len(p.Types()) != 9 {
 		t.Fatalf("types = %v", p.Types())
 	}
 

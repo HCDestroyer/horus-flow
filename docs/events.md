@@ -772,6 +772,9 @@ tenant; se listan como "platform" porque sólo los emite un rol de plataforma.
 
 ### 8.4 `snmp` (productor `snmp`)
 
+> **Estado: I2 implementado** (`services/snmp`). Publicación directa con PubAck (sin outbox: el rol no
+> tiene PostgreSQL). Los payloads de abajo son los que emite el código.
+
 Dominio → `SNMP_EVENTS` (publicación §6.3):
 
 | Tipo | Consumidores | Sprint |
@@ -791,31 +794,38 @@ Dominio → `SNMP_EVENTS` (publicación §6.3):
 > ([`architecture.md`](./architecture.md) §10.2).
 
 ```jsonc
-// horus.snmp.router.state_changed
+// horus.snmp.router.state_changed   (subject entity = router_id; aggregate_version = version)
 { "router_id": "0192...", "site_id": "0192...", "version": 42,
   "previous_state": "online", "state": "offline", "reason": "tunnel_down",
-  "signals": { "icmp": "fail", "snmp": "fail", "wireguard": "stale" },
+  "signals": { "icmp": "fail", "snmp": "fail", "wireguard": "stale", "exporter": "silent" },
   "changed_at": "2026-10-07T14:03:11Z" }
-// state: online | warning | critical | degraded | offline
-// reason: ok | cpu_high | temperature_high | snmp_unreachable | snmp_auth_failed | tunnel_down | host_unreachable_via_tunnel
+// previous_state: null en la primera observación. state: online | warning | critical | degraded | offline
+// reason: ok | cpu_high | memory_high | temperature_high | interface_down | exporter_silent | snmp_unreachable |
+//         snmp_auth_failed | no_snmp_credentials | tunnel_down | host_unreachable_via_tunnel
+// signals.icmp: ok | fail | unknown; snmp: ok | fail | auth_failed | unknown; wireguard: ok | stale | never | unknown;
+// exporter: FlowExporterState o null.
 
 // horus.snmp.router.rebooted
 { "router_id": "0192...", "previous_uptime_seconds": 1209600, "uptime_seconds": 95, "detected_at": "2026-10-07T14:20:00Z" }
 
-// horus.snmp.router.interfaces_discovered
-{ "router_id": "0192...", "interfaces": [ { "if_index": 7, "name": "sfp-sfpplus1", "alias": "UPLINK-TRANSIT-A",
-  "type": "ethernet_csmacd", "speed_bps": 10000000000 } ], "discovered_at": "2026-10-07T14:05:00Z" }
+// horus.snmp.router.interfaces_discovered   (al arrancar y cada hora; interface_id = UUIDv5(router_id, ifName))
+{ "router_id": "0192...", "interfaces": [ { "interface_id": "0192...", "if_index": 7, "name": "sfp-sfpplus1",
+  "alias": "UPLINK-TRANSIT-A", "type": "ethernetCsmacd", "speed_bps": 10000000000, "monitored": true } ],
+  "discovered_at": "2026-10-07T14:05:00Z" }
 
 // horus.snmp.interface.oper_status_changed   (entity_id = interface_id)
-{ "interface_id": "0192...", "router_id": "0192...", "if_index": 7, "previous": "up", "current": "down",
-  "observed_at": "2026-10-07T14:03:00Z" }
+{ "interface_id": "0192...", "router_id": "0192...", "if_index": 7, "name": "sfp-sfpplus1", "previous": "up",
+  "current": "down", "observed_at": "2026-10-07T14:03:00Z" }
 
-// horus.snmp.poller.heartbeat   (cada 15 s, sin spool)
-{ "instance_id": "snmp-1", "shards_owned": 64, "targets": 312, "last_cycle_at": "2026-10-07T14:03:00Z",
-  "poll_errors_last_cycle": 3 }
+// horus.snmp.poller.heartbeat   (cada 15 s, tenant platform, entity_id = UUIDv5 de instance_id)
+{ "instance_id": "horus-app", "shards_owned": 1, "targets": 312, "last_cycle_at": "2026-10-07T14:03:00Z",
+  "poll_errors_last_cycle": 3, "interval_seconds": 60 }
 ```
 
-Telemetría → `TLM_SNMP`, con **deltas y tasas ya calculados** en el poller (contadores crudos incluidos para depuración):
+Telemetría → `TLM_SNMP`, **JSON** (`Content-Type: application/json`, sobre en cabeceras: `Horus-Tenant`,
+`Horus-Type`, `Nats-Msg-Id = batch_id`), con **deltas y tasas ya calculados** en el poller (contadores crudos
+incluidos para depuración). El gateway la convierte en el topic `router.{id}.metrics` (snapshot completo con la
+forma de `GET /routers/{id}/metrics/live` cuando el rol snmp está en su proceso):
 
 | Tipo | Subject | Consumidores |
 | --- | --- | --- |
@@ -823,10 +833,14 @@ Telemetría → `TLM_SNMP`, con **deltas y tasas ya calculados** en el poller (c
 | `horus.snmp.interface.sampled` | `horus.telemetry.snmp.interface.<router_id>` | ídem |
 
 ```jsonc
-// horus.snmp.device.sampled
-{ "batch_id": "0192...", "router_id": "0192...", "sampled_at": "2026-10-07T14:03:00Z", "poll_duration_ms": 412,
-  "uptime_seconds": 1209600, "cpu_percent": 13.2, "memory_used_bytes": "1288490188", "memory_total_bytes": "2147483648",
-  "memory_percent": 60.0, "temperature_celsius": 47, "firmware": "7.16.1", "icmp_rtt_ms": 8.4, "icmp_loss_ratio": 0.0 }
+// horus.snmp.device.sampled   (una por ciclo y router, también cuando SNMP falla: snmp_ok=false y métricas null)
+{ "batch_id": "0192...", "router_id": "0192...", "site_id": "0192...", "sampled_at": "2026-10-07T14:03:00Z",
+  "poll_duration_ms": 412, "snmp_ok": true, "uptime_seconds": 1209600, "cpu_percent": 13.2, "cpu_max_core_percent": 71,
+  "cpu_cores": 16, "memory_used_bytes": "1288490188", "memory_total_bytes": "2147483648", "memory_percent": 60.0,
+  "temperature_celsius": 47, "cpu_temperature_celsius": 61.5, "voltage": 24.1, "firmware": "7.16.1",
+  "model": "CCR2116-12G-4S+", "icmp_rtt_ms": 8.4, "icmp_loss_ratio": 0.0,
+  "sensors": [ { "name": "fan1-speed", "value": 4200, "unit": "rpm" } ],
+  "state": "online", "reason": "ok", "signals": { "icmp": "ok", "snmp": "ok", "wireguard": "ok", "exporter": "exporting" } }
 
 // horus.snmp.interface.sampled   (un lote por sondeo de router)
 { "batch_id": "0192...", "router_id": "0192...", "sampled_at": "2026-10-07T14:03:00Z", "interval_seconds": 60,

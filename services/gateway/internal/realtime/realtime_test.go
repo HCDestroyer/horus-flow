@@ -23,6 +23,8 @@ func TestTopicsForType(t *testing.T) {
 		"horus.analytics.dashboard.updated":               "dashboard." + id,
 		"horus.analytics.playlist.updated":                "dashboard.*",
 		"horus.auth.session.revoked":                      "me",
+		"horus.snmp.router.state_changed":                 "routers.status",
+		"horus.snmp.router.rebooted":                      "routers.status",
 	} {
 		if got := TopicsForType(typ, id); !slices.Contains(got, want) {
 			t.Errorf("%s → %v, quiero %s", typ, got, want)
@@ -30,6 +32,15 @@ func TestTopicsForType(t *testing.T) {
 	}
 	if TopicsForType("horus.devices.audit.recorded", id) != nil || TopicsForType("x", id) != nil {
 		t.Error("auditoría o tipo inválido no debe ir a ningún topic")
+	}
+	if TopicsForType("horus.snmp.poller.heartbeat", id) != nil || TopicsForType("horus.snmp.interface.oper_status_changed", id) != nil {
+		t.Error("heartbeat y oper_status_changed no van a routers.status")
+	}
+	if def, ok := LookupTopic("router." + id + ".metrics"); !ok || def.Class != ClassState || def.Permission != "snmp.read" {
+		t.Errorf("router.<id>.metrics = %+v, %v", def, ok)
+	}
+	if _, ok := LookupTopic("router.no-uuid.metrics"); ok {
+		t.Error("router.<no uuid>.metrics aceptado")
 	}
 	if _, ok := LookupTopic("dashboard.no-uuid"); ok {
 		t.Error("dashboard.<no uuid> aceptado")

@@ -45,6 +45,22 @@ var Topics = map[string]TopicDef{
 	"wireguard.peers": {Name: "wireguard.peers", Class: ClassEvent, Permission: "wireguard.read"},
 	"me":              {Name: "me", Class: ClassEvent},
 	"system":          {Name: "system", Class: ClassState},
+	// I2 (EP-08): estado observado de los routers y, por router, cada sondeo.
+	"routers.status": {Name: "routers.status", Class: ClassEvent, Permission: "devices.read", SiteFilter: true},
+}
+
+// RouterMetricsTopic devuelve el UUID de un topic router.<id>.metrics.
+func RouterMetricsTopic(topic string) (uuid.UUID, bool) {
+	rest, ok := strings.CutPrefix(topic, "router.")
+	if !ok {
+		return uuid.Nil, false
+	}
+	id, ok := strings.CutSuffix(rest, ".metrics")
+	if !ok {
+		return uuid.Nil, false
+	}
+	u, err := uuid.Parse(id)
+	return u, err == nil
 }
 
 // DashboardTopic devuelve el UUID de un topic dashboard.<id>.
@@ -65,6 +81,9 @@ func LookupTopic(topic string) (TopicDef, bool) {
 	if _, ok := DashboardTopic(topic); ok {
 		return TopicDef{Name: topic, Class: ClassEvent}, true
 	}
+	if _, ok := RouterMetricsTopic(topic); ok {
+		return TopicDef{Name: topic, Class: ClassState, Permission: "snmp.read"}, true
+	}
 	return TopicDef{}, false
 }
 
@@ -74,6 +93,7 @@ var Subjects = []string{
 	"horus.wireguard.peer.>", "horus.analytics.dashboard.>", "horus.analytics.playlist.>", "horus.alerts.notification.>",
 	"horus.auth.session.>", "horus.auth.membership.>", "horus.auth.kiosk.>", "horus.auth.tenant.>",
 	"horus.telemetry.flows.summary.>",
+	"horus.snmp.>", "horus.telemetry.snmp.>",
 }
 
 // TopicsForType devuelve los topics de un tipo de evento (subject sin la
@@ -97,6 +117,8 @@ func TopicsForType(typ, entity string) []string {
 		return []string{"exporters"}
 	case domain == "wireguard" && ent == "peer":
 		return []string{"wireguard.peers"}
+	case domain == "snmp" && ent == "router" && (ev == "state_changed" || ev == "rebooted"):
+		return []string{"routers.status"}
 	case domain == "analytics" && ent == "dashboard":
 		return []string{"dashboard." + entity}
 	case domain == "analytics" && ent == "playlist":

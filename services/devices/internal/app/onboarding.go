@@ -49,7 +49,10 @@ func NewOnboarding(store OnboardingStore, sealer *envelope.Sealer, now func() ti
 	return &Onboarding{store: store, sealer: sealer, now: now}
 }
 
-var _ devapi.Onboarding = (*Onboarding)(nil)
+var (
+	_ devapi.Onboarding           = (*Onboarding)(nil)
+	_ devapi.SNMPCredentialReader = (*Onboarding)(nil)
+)
 
 func routerInfo(r *domain.Router) devapi.RouterInfo {
 	info := devapi.RouterInfo{ID: r.ID, TenantID: r.TenantID, SiteID: r.SiteID, Name: r.Hostname,
@@ -248,6 +251,36 @@ func (o *Onboarding) IssueCredentials(ctx context.Context, tenant, routerID uuid
 		return devapi.OnboardingCredentials{}, err
 	}
 	return c, nil
+}
+
+// RevealSNMPCredential implementa api.SNMPCredentialReader: descifra la
+// credencial SNMPv3 vigente del router para el rol snmp (I2). Nunca se
+// registra ni se devuelve por HTTP.
+func (o *Onboarding) RevealSNMPCredential(ctx context.Context, tenant, routerID uuid.UUID) (devapi.SNMPCredential, error) {
+	t := pgdb.TenantID(tenant)
+	if _, err := o.store.GetRouter(ctx, t, routerID); err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return devapi.SNMPCredential{}, devapi.ErrRouterNotFound
+		}
+		return devapi.SNMPCredential{}, err
+	}
+	c, err := o.store.GetCredential(ctx, t, routerID, domain.CredentialSNMPv3)
+	if errors.Is(err, domain.ErrNotFound) {
+		return devapi.SNMPCredential{}, devapi.ErrNoCredential
+	}
+	if err != nil {
+		return devapi.SNMPCredential{}, err
+	}
+	pt, err := o.sealer.Open(c.Ciphertext, c.DEKWrapped, CredentialAAD(tenant, routerID, c.Kind))
+	if err != nil {
+		return devapi.SNMPCredential{}, fmt.Errorf("devices: open credential: %w", err)
+	}
+	var s snmpSecret
+	if err := json.Unmarshal(pt, &s); err != nil {
+		return devapi.SNMPCredential{}, fmt.Errorf("devices: snmp credential: %w", err)
+	}
+	return devapi.SNMPCredential{Username: c.Username, AuthProtocol: s.AuthProtocol, AuthPassword: s.AuthPassword,
+		PrivProtocol: s.PrivProtocol, PrivPassword: s.PrivPassword}, nil
 }
 
 // APICredential descifra la credencial de la API RouterOS del router (para

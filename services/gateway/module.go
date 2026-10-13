@@ -31,6 +31,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/services/gateway/internal/installation"
 	"github.com/hcdestroyer/horus-flow/services/gateway/internal/realtime"
 	"github.com/hcdestroyer/horus-flow/services/gateway/internal/routes"
+	snmpapi "github.com/hcdestroyer/horus-flow/services/snmp/api"
 )
 
 // Role es el nombre del rol en HORUS_ROLES: borde HTTP de la app: authN, rate limit, WebSocket y montaje de las rutas de los roles locales.
@@ -109,6 +110,9 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		Dashboards: func() (dashapi.Access, bool) {
 			return module.Lookup[dashapi.Access](deps.Services, dashapi.ServiceAccess)
 		},
+		Routers: func() (snmpapi.RouterStatusReader, bool) {
+			return module.Lookup[snmpapi.RouterStatusReader](deps.Services, snmpapi.ServiceRouterStatus)
+		},
 	})
 	deps.Routes.HandleFunc("POST /api/v1/ws/tickets", hub.HandleTicket)
 	deps.Routes.HandleFunc("GET /api/v1/ws", hub.HandleWS)
@@ -169,6 +173,7 @@ func systemStatus(local edge.Matcher) http.HandlerFunc {
 			"analytics":      probe(http.MethodGet, "/api/v1/analytics/traffic/top"),
 			"detection":      probe(http.MethodGet, "/api/v1/security/summary"),
 			"notifications":  probe(http.MethodGet, "/api/v1/notification-channels"),
+			"monitoring":     probe(http.MethodGet, "/api/v1/routers/status"),
 		}
 		status := "ok"
 		if caps["auth"] != "ok" || caps["inventory"] != "ok" {

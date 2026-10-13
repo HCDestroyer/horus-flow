@@ -23,6 +23,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/problem"
 	dashapi "github.com/hcdestroyer/horus-flow/services/analytics/api/dashboards"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
+	snmpapi "github.com/hcdestroyer/horus-flow/services/snmp/api"
 )
 
 // Códigos de cierre propios (topics.yaml close_codes).
@@ -37,10 +38,13 @@ const (
 
 // Options configura el hub.
 type Options struct {
-	Verifier      *authz.Verifier
-	Sessions      authapi.SessionChecker
-	Kiosks        authapi.KioskChecker
-	Dashboards    func() (dashapi.Access, bool)
+	Verifier   *authz.Verifier
+	Sessions   authapi.SessionChecker
+	Kiosks     authapi.KioskChecker
+	Dashboards func() (dashapi.Access, bool)
+	// Routers: lector del rol snmp si está en el proceso (snapshot de
+	// router.<id>.metrics al suscribirse y estado completo en cada sondeo).
+	Routers       func() (snmpapi.RouterStatusReader, bool)
 	Origins       authz.Origins
 	PublicBaseURL string
 	Logger        *slog.Logger
@@ -106,6 +110,9 @@ func New(o Options) *Hub {
 	}
 	if o.Dashboards == nil {
 		o.Dashboards = func() (dashapi.Access, bool) { return nil, false }
+	}
+	if o.Routers == nil {
+		o.Routers = func() (snmpapi.RouterStatusReader, bool) { return nil, false }
 	}
 	h := &Hub{o: o, tickets: newTickets(o.Now), conns: map[*conn]struct{}{}, rings: map[uuid.UUID]*ring{}, state: map[string]stateMsg{},
 		mismatch: prometheus.NewCounter(prometheus.CounterOpts{Name: "horus_gateway_ws_tenant_mismatch_total",
@@ -185,6 +192,10 @@ func (h *Hub) Dispatch(m *nats.Msg) {
 	ht := m.Header.Get(natsx.HeaderTenant)
 	if strings.HasPrefix(m.Subject, "horus.telemetry.flows.summary.") {
 		h.dispatchSummary(ht, m)
+		return
+	}
+	if strings.HasPrefix(m.Subject, "horus.telemetry.snmp.") {
+		h.dispatchRouterMetrics(ht, m)
 		return
 	}
 	env, err := natsx.DecodeEnvelope(m.Data)
@@ -328,15 +339,86 @@ func (h *Hub) dispatchSummary(ht string, m *nats.Msg) {
 	}
 }
 
+// dispatchRouterMetrics convierte la telemetría SNMP de un router en el
+// estado del topic router.<id>.metrics (clave = router_id). Con el rol snmp
+// en el proceso el estado es la muestra completa (forma de
+// GET /routers/{id}/metrics/live); si no, el cuerpo JSON de la telemetría
+// con `kind` device | interface.
+func (h *Hub) dispatchRouterMetrics(ht string, m *nats.Msg) {
+	tenant, err := uuid.Parse(ht)
+	if err != nil {
+		h.mismatch.Inc()
+		return
+	}
+	idx := strings.LastIndex(m.Subject, ".")
+	if idx < 0 {
+		return
+	}
+	routerID, err := uuid.Parse(m.Subject[idx+1:])
+	if err != nil {
+		return
+	}
+	kind := "device"
+	if strings.HasPrefix(m.Subject, "horus.telemetry.snmp.interface.") {
+		kind = "interface"
+	}
+	var raw json.RawMessage
+	if rd, ok := h.o.Routers(); ok {
+		live, found, err := rd.Live(context.Background(), tenant, routerID)
+		if err != nil || !found {
+			return
+		}
+		raw, _ = json.Marshal(live)
+	} else {
+		if !strings.HasPrefix(m.Header.Get(natsx.HeaderContentType), "application/json") || !json.Valid(m.Data) {
+			return
+		}
+		var body map[string]any
+		if json.Unmarshal(m.Data, &body) != nil {
+			return
+		}
+		body["kind"] = kind
+		raw, _ = json.Marshal(body)
+	}
+	h.pushRouterState(tenant, routerID, raw)
+}
+
+func (h *Hub) pushRouterState(tenant, routerID uuid.UUID, raw json.RawMessage) {
+	topic := "router." + routerID.String() + ".metrics"
+	st := stateMsg{Type: "state", Topic: topic, Key: routerID.String(), Time: h.o.Now().UTC().Format(natsx.TimeFormat), Data: raw}
+	h.mu.Lock()
+	h.state[tenant.String()+"|"+topic+"|"+st.Key] = st
+	h.mu.Unlock()
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for c := range h.conns {
+		if c.tenant == tenant {
+			c.pushState(st)
+		}
+	}
+}
+
 // snapshot devuelve los últimos estados de un topic del tenant.
 func (h *Hub) snapshot(tenant uuid.UUID, topic string) []stateMsg {
 	h.mu.RLock()
-	defer h.mu.RUnlock()
 	prefix := tenant.String() + "|" + topic + "|"
 	var out []stateMsg
 	for k, v := range h.state {
 		if strings.HasPrefix(k, prefix) {
 			out = append(out, v)
+		}
+	}
+	h.mu.RUnlock()
+	if len(out) > 0 {
+		return out
+	}
+	// router.<id>.metrics sin estado aún: snapshot desde el rol snmp local.
+	if id, ok := RouterMetricsTopic(topic); ok {
+		if rd, ok := h.o.Routers(); ok {
+			if live, found, err := rd.Live(context.Background(), tenant, id); err == nil && found {
+				raw, _ := json.Marshal(live)
+				out = append(out, stateMsg{Type: "state", Topic: topic, Key: id.String(), Time: h.o.Now().UTC().Format(natsx.TimeFormat), Data: raw})
+			}
 		}
 	}
 	return out

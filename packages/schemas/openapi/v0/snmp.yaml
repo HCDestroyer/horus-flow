@@ -1,0 +1,361 @@
+openapi: 3.1.0
+info:
+  title: Horus Flow API — módulo snmp (contrato v0)
+  version: 0.1.0
+  description: |
+    Monitoreo de routers (EP-08, docs/api.md §2.5–§2.6, docs/architecture.md §10.4): el rol `snmp` sondea cada
+    router por el túnel WireGuard (ICMP cada 30 s; SNMPv3 cada 60 s para sistema e interfaces, cada 300 s para
+    salud) y mantiene su **estado observado** con razón (`online | warning | critical | degraded | offline`)
+    correlacionando ICMP, SNMP, handshake WireGuard y exportador de flujos, con histéresis de 2 observaciones.
+    El **estado efectivo** que muestra la consola añade `stale` (última observación con más de 3 intervalos o
+    sondeador sin latido: "no sabemos", nunca `offline` por falta de monitoreo), `unknown` (nunca observado) y
+    `maintenance` (reservado). Las series históricas las sirve `analytics` (`/analytics/routers/{id}/…`).
+    Ausencia de dato = `null`, nunca cero.
+  license:
+    name: Propietaria
+    identifier: LicenseRef-Horus-Proprietary
+servers:
+  - url: https://{domain}/api/v1
+    variables:
+      domain:
+        default: horus.example.net
+tags:
+  - name: routers-monitoring
+    description: Estado observado y métricas en vivo de los routers (SNMP + ICMP por el túnel).
+paths:
+  /routers/status:
+    get:
+      tags: [routers-monitoring]
+      operationId: listRouterStatus
+      summary: Estado efectivo y últimas métricas de cada router (vista NOC de routers)
+      description: |
+        Una fila por router del ISP (o del nodo) con el estado efectivo, su razón, las señales que lo sostienen
+        (ICMP, SNMP, túnel, exportador) y la última muestra (CPU, memoria, temperatura, uptime, latencia, enlace
+        de subida). `meta.poller` dice si el sondeador late: sin latido, todo router pasa a `stale`. Apto para
+        kioscos (sin datos personales). Orden: problemas primero (critical, offline, degraded, warning, stale),
+        después por nombre.
+      x-module: snmp
+      x-scope: tenant
+      x-permission: devices.read
+      x-principals: [user, api_token, kiosk]
+      x-increment: I2
+      security:
+        - tenantBearer: []
+        - kioskBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/SiteIdFilter'
+        - name: status
+          in: query
+          description: Filtra por estado efectivo (lista separada por comas).
+          schema: { type: string, examples: ['offline,critical'] }
+      responses:
+        '200':
+          description: Routers con su estado.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/RouterStatus' } }
+                  meta:
+                    type: object
+                    required: [poller, generated_at]
+                    properties:
+                      poller: { $ref: '#/components/schemas/PollerHealth' }
+                      generated_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+  /routers/{router_id}/metrics/live:
+    parameters:
+      - $ref: '#/components/parameters/RouterId'
+    get:
+      tags: [routers-monitoring]
+      operationId: getRouterLiveMetrics
+      summary: Última muestra completa de un router (dispositivo, sensores e interfaces)
+      x-module: snmp
+      x-scope: tenant
+      x-permission: snmp.read
+      x-principals: [user, api_token, kiosk]
+      x-increment: I2
+      security:
+        - tenantBearer: []
+        - kioskBearer: []
+      responses:
+        '200':
+          description: Última muestra (los campos son null hasta el primer sondeo con éxito).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RouterLiveMetrics' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+  /routers/{router_id}/interfaces:
+    parameters:
+      - $ref: '#/components/parameters/RouterId'
+    get:
+      tags: [routers-monitoring]
+      operationId: listRouterInterfaces
+      summary: Interfaces descubiertas por SNMP y cuáles se sondean
+      description: |
+        Inventario leído de IF-MIB en el último descubrimiento (cada hora y al reconectar). Se sondean las
+        físicas (ether, sfp, wlan), VLAN, bridge y bonding; no las dinámicas por cliente (`<pppoe-…>`), cuyo
+        consumo sale de los flujos. `uplink` marca la interfaz con más tráfico de subida al exterior, que es
+        la que resume el estado del router.
+      x-module: snmp
+      x-scope: tenant
+      x-permission: devices.read
+      x-principals: [user, api_token, kiosk]
+      x-increment: I2
+      security:
+        - tenantBearer: []
+        - kioskBearer: []
+      responses:
+        '200':
+          description: Interfaces.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, discovered_at]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/RouterInterface' } }
+                  discovered_at:
+                    oneOf:
+                      - $ref: './common.yaml#/components/schemas/Timestamp'
+                      - type: 'null'
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+  /routers/{router_id}/poll:
+    parameters:
+      - $ref: '#/components/parameters/RouterId'
+    post:
+      tags: [routers-monitoring]
+      operationId: pollRouterNow
+      summary: Sondeo inmediato (el resultado llega por WebSocket router.{id}.metrics y en /metrics/live)
+      x-module: snmp
+      x-scope: tenant
+      x-permission: devices.update
+      x-audited: true
+      x-increment: I2
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IdempotencyKeyRequired'
+      responses:
+        '202':
+          description: Encolado.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [queued]
+                properties:
+                  queued: { type: boolean }
+                  reason:
+                    type: [string, 'null']
+                    description: Si no se encola (sin túnel, sin credenciales SNMP, sondeador inactivo), por qué.
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '428': { $ref: './common.yaml#/components/responses/PreconditionRequired' }
+        '429': { $ref: './common.yaml#/components/responses/TooManyRequests' }
+components:
+  securitySchemes:
+    tenantBearer: { $ref: './common.yaml#/components/securitySchemes/tenantBearer' }
+    kioskBearer: { $ref: './common.yaml#/components/securitySchemes/kioskBearer' }
+  parameters:
+    RouterId:
+      name: router_id
+      in: path
+      required: true
+      schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+  schemas:
+    RouterEffectiveStatus:
+      type: string
+      description: Estado efectivo (api.md §2.6). `stale` = la observación es vieja o el sondeador no late; `unknown` = nunca observado.
+      enum: [online, warning, critical, degraded, offline, stale, unknown, maintenance]
+    RouterObservedState:
+      type: string
+      enum: [online, warning, critical, degraded, offline]
+    RouterStateReason:
+      type: string
+      description: Enum abierto (events.md §8.4).
+      examples: [ok, cpu_high, memory_high, temperature_high, snmp_unreachable, snmp_auth_failed, tunnel_down, host_unreachable_via_tunnel, exporter_silent, interface_down, psu_failed, fan_failed]
+    RouterSignals:
+      type: object
+      description: Las señales que sostienen el estado; `unknown` mientras no haya observación.
+      required: [icmp, snmp, wireguard, exporter]
+      properties:
+        icmp: { type: string, enum: [ok, fail, unknown] }
+        snmp: { type: string, enum: [ok, fail, auth_failed, unknown] }
+        wireguard: { type: string, enum: [ok, stale, never, unknown] }
+        exporter:
+          type: [string, 'null']
+          description: Estado del exportador de flujos (flows.yaml FlowExporterState) o null si no aplica.
+    RouterDeviceSample:
+      type: object
+      description: Última muestra del dispositivo. Cada campo es null si el sondeo no lo obtuvo (modelo sin sensor, OID ausente).
+      required: [sampled_at]
+      properties:
+        sampled_at:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
+        poll_duration_ms: { type: [integer, 'null'] }
+        uptime_seconds: { type: [integer, 'null'] }
+        cpu_percent: { type: [number, 'null'], description: Media de los núcleos. }
+        cpu_max_core_percent: { type: [number, 'null'], description: Núcleo más cargado (Traffic Flow carga uno). }
+        cpu_cores: { type: [integer, 'null'] }
+        memory_percent: { type: [number, 'null'] }
+        memory_used_bytes:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Uint64String'
+            - type: 'null'
+        memory_total_bytes:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Uint64String'
+            - type: 'null'
+        temperature_celsius: { type: [number, 'null'], description: Placa (mtxrHlTemperature). }
+        cpu_temperature_celsius: { type: [number, 'null'] }
+        voltage: { type: [number, 'null'] }
+        firmware: { type: [string, 'null'], examples: ['7.16.2'] }
+        model: { type: [string, 'null'], examples: ['CCR2116-12G-4S+'] }
+        serial_number: { type: [string, 'null'] }
+        icmp_rtt_ms: { type: [number, 'null'] }
+        icmp_loss_ratio: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        sensors:
+          type: array
+          description: Sensores propios del fabricante (mtxrGaugeTable) tal cual los expone.
+          items:
+            type: object
+            required: [name, value]
+            properties:
+              name: { type: string }
+              value: { type: number }
+              unit: { type: [string, 'null'] }
+    RouterUplink:
+      type: object
+      description: Interfaz que resume el tráfico del router (la de más subida hacia fuera; `flow_role` upstream si está marcado).
+      required: [interface_id, name]
+      properties:
+        interface_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        name: { type: string }
+        rx_bps: { type: [number, 'null'] }
+        tx_bps: { type: [number, 'null'] }
+        speed_bps: { type: [integer, 'null'] }
+        utilization: { type: [number, 'null'], minimum: 0, maximum: 1, description: 'max(rx, tx) / velocidad.' }
+    RouterThresholdHit:
+      type: object
+      required: [metric, level, value, threshold]
+      properties:
+        metric: { type: string, enum: [cpu_percent, cpu_max_core_percent, memory_percent, temperature_celsius, cpu_temperature_celsius, interface_errors, interface_down] }
+        level: { type: string, enum: [warning, critical] }
+        value: { type: number }
+        threshold: { type: number }
+        interface_name: { type: [string, 'null'] }
+    RouterStatus:
+      type: object
+      required: [router_id, site_id, name, site_name, status, observed_state, reason, since, last_observed_at, signals, device, uplink, interfaces_up, interfaces_total, thresholds]
+      properties:
+        router_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        site_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        name: { type: string }
+        site_name: { type: string }
+        status: { $ref: '#/components/schemas/RouterEffectiveStatus' }
+        observed_state:
+          oneOf:
+            - $ref: '#/components/schemas/RouterObservedState'
+            - type: 'null'
+        reason:
+          oneOf:
+            - $ref: '#/components/schemas/RouterStateReason'
+            - type: 'null'
+        since:
+          description: Desde cuándo está en el estado efectivo actual.
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
+        last_observed_at:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
+        signals: { $ref: '#/components/schemas/RouterSignals' }
+        device: { $ref: '#/components/schemas/RouterDeviceSample' }
+        uplink:
+          oneOf:
+            - $ref: '#/components/schemas/RouterUplink'
+            - type: 'null'
+        interfaces_up: { type: [integer, 'null'] }
+        interfaces_total: { type: [integer, 'null'] }
+        thresholds: { type: array, items: { $ref: '#/components/schemas/RouterThresholdHit' } }
+    PollerHealth:
+      type: object
+      required: [healthy, last_cycle_at, interval_seconds, targets]
+      properties:
+        healthy: { type: boolean, description: El sondeador late (último ciclo hace menos de 3 intervalos). }
+        last_cycle_at:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
+        interval_seconds: { type: integer, description: Intervalo del sondeo de sistema e interfaces (60 por defecto). }
+        targets: { type: integer, description: Routers que este ISP tiene en sondeo (con túnel y credenciales SNMP). }
+        enabled: { type: boolean, default: true, description: false si HORUS_SNMP_ENABLED=false en la instalación. }
+    InterfaceOperStatus:
+      type: string
+      enum: [up, down, testing, unknown, dormant, not_present, lower_layer_down]
+    RouterInterface:
+      type: object
+      required: [id, if_index, name, alias, type, speed_bps, monitored, uplink, oper_status, admin_up, last_seen_at]
+      properties:
+        id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        if_index: { type: integer }
+        name: { type: string, examples: ['sfp-sfpplus1'] }
+        alias: { type: [string, 'null'], examples: ['UPLINK-TRANSIT-A'] }
+        type: { type: string, description: 'ifType como nombre IANA: ethernetCsmacd, l2vlan, bridge, ieee8023adLag, ppp, tunnel, other.' }
+        speed_bps: { type: [integer, 'null'] }
+        monitored: { type: boolean, description: Se sondean sus contadores cada intervalo. }
+        uplink: { type: boolean }
+        oper_status:
+          oneOf:
+            - $ref: '#/components/schemas/InterfaceOperStatus'
+            - type: 'null'
+        admin_up: { type: [boolean, 'null'] }
+        last_seen_at:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
+    InterfaceSample:
+      type: object
+      description: Última muestra de una interfaz sondeada. Tasas null en el primer sondeo o tras una discontinuidad de contador.
+      required: [interface_id, if_index, name, oper_status, rx_bps, tx_bps]
+      properties:
+        interface_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        if_index: { type: integer }
+        name: { type: string }
+        alias: { type: [string, 'null'] }
+        uplink: { type: boolean, default: false }
+        oper_status:
+          oneOf:
+            - $ref: '#/components/schemas/InterfaceOperStatus'
+            - type: 'null'
+        speed_bps: { type: [integer, 'null'] }
+        rx_bps: { type: [number, 'null'] }
+        tx_bps: { type: [number, 'null'] }
+        rx_pps: { type: [number, 'null'] }
+        tx_pps: { type: [number, 'null'] }
+        rx_errors_delta: { type: [integer, 'null'] }
+        tx_errors_delta: { type: [integer, 'null'] }
+        rx_drops_delta: { type: [integer, 'null'] }
+        tx_drops_delta: { type: [integer, 'null'] }
+        utilization_rx: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        utilization_tx: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        counter_discontinuity: { type: boolean, default: false }
+    RouterLiveMetrics:
+      type: object
+      required: [status, interfaces, interval_seconds]
+      properties:
+        status: { $ref: '#/components/schemas/RouterStatus' }
+        interval_seconds: { type: integer }
+        interfaces: { type: array, items: { $ref: '#/components/schemas/InterfaceSample' } }
