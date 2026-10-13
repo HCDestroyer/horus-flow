@@ -32,49 +32,69 @@ func Horus() []Tool {
 	return []Tool{
 		{
 			Name: "get_finding",
-			Description: "Detalle de un hallazgo de seguridad: tipo, severidad, confianza, razones, evidencia agregada " +
-				"(destinos remotos, puertos, ASN, bytes), línea de tiempo y acciones recomendadas. La IP del cliente " +
-				"llega seudonimizada.",
+			Description: "Detalle de UN hallazgo de seguridad por su finding_id (UUID). Úsala primero en cualquier análisis de " +
+				"hallazgo. Devuelve: tipo, severidad, confianza (0–1), estado, razones, señales, cliente afectado (IP " +
+				"seudonimizada, tipo, estado de seguridad), línea de tiempo y la evidencia de flujos agregada por destino " +
+				"remoto, puerto, protocolo y sentido (flujos, bytes, primer y último instante, ASN, categoría de reputación). " +
+				"No devuelve: nombres ni contactos del cliente, ni flujos individuales. Si falta permiso de evidencia, " +
+				"evidence_flows lo dice.",
 			Schema: object(map[string]any{
 				"finding_id":       uuidProp("ID del hallazgo."),
 				"include_evidence": map[string]any{"type": "boolean", "description": "Incluir flujos de evidencia agregados (por defecto true)."},
 			}, "finding_id"),
 			Permissions: []string{"security.findings.read", "security.evidence.read"},
 			Run:         getFinding,
+			Facts:       findingFacts,
 		},
 		{
-			Name:        "list_open_findings",
-			Description: "Hallazgos abiertos o reconocidos del ISP, ordenados por severidad (resumen compacto).",
+			Name: "list_open_findings",
+			Description: "Lista los hallazgos abiertos o reconocidos del ISP, de mayor a menor severidad (resumen por hallazgo: " +
+				"id, tipo, severidad, confianza, cliente seudonimizado, última señal). Úsala para contexto general o para " +
+				"ver si otros clientes muestran la misma señal; para el detalle de uno, get_finding. Una lista vacía significa " +
+				"que no hay hallazgos abiertos con ese filtro, no que falten datos.",
 			Schema: object(map[string]any{
 				"limit":    map[string]any{"type": "integer", "minimum": 1, "maximum": 50, "description": "Máximo de hallazgos (por defecto 20)."},
 				"severity": map[string]any{"type": "string", "enum": []string{"low", "medium", "high", "critical"}},
 			}),
 			Permissions: []string{"security.findings.read"},
 			Run:         listOpenFindings,
+			Facts:       findingsListFacts,
 		},
 		{
 			Name: "get_exporter_status",
-			Description: "Estado de los exportadores de flujos (NetFlow/IPFIX): exporting, silent, lossy, clock_skew o " +
-				"pending_configuration, último flujo, flujos/s, pérdida, desfase de reloj y muestreo. Sin router_id lista todos.",
+			Description: "Estado de los exportadores de flujos (NetFlow/IPFIX) del ISP, o de un router con router_id. Devuelve " +
+				"por exportador: estado (exporting = normal; silent = sin flujos recientes; lossy = pérdida de registros; " +
+				"clock_skew = reloj desfasado; pending_configuration = nunca envió), desde cuándo, último flujo, flujos/s, " +
+				"loss_ratio (0–1), desfase de reloj en segundos y muestreo. Úsala para saber si Horus está recibiendo tráfico " +
+				"y de qué routers. No devuelve configuración del router ni del túnel (para eso, get_router).",
 			Schema: object(map[string]any{
 				"router_id": uuidProp("Router concreto (opcional)."),
 			}),
 			Permissions: []string{"flows.read"},
 			Run:         getExporterStatus,
+			Facts:       exporterFacts,
 		},
 		{
 			Name: "get_router",
-			Description: "Ficha de un router: estado de alta (onboarding), versión de RouterOS, avisos, credenciales " +
-				"configuradas, túnel WireGuard (estado, antigüedad del último handshake) y exportador de flujos.",
+			Description: "Ficha completa de UN router por su router_id (UUID). Úsala primero en cualquier diagnóstico de router. " +
+				"Devuelve: nombre, nodo, estado, estado del alta (onboarding), versión de RouterOS, modelo, avisos, qué " +
+				"credenciales están configuradas (nunca sus valores), el peer WireGuard (estado, último handshake y su " +
+				"antigüedad en segundos, endpoint, keepalive) y su exportador de flujos. Si el router no tiene peer o " +
+				"exportador, el campo lo dice (null o texto). No devuelve la configuración interna del router ni ejecuta " +
+				"nada en él.",
 			Schema: object(map[string]any{
 				"router_id": uuidProp("ID del router."),
 			}, "router_id"),
 			Permissions: []string{"devices.read", "wireguard.read", "flows.read"},
 			Run:         getRouter,
+			Facts:       routerFacts,
 		},
 		{
-			Name:        "get_traffic_top",
-			Description: "Top 10 del tráfico del ISP por servicios, categorías, organizaciones, ASN o clientes (seudonimizados).",
+			Name: "get_traffic_top",
+			Description: "Top 10 del tráfico del ISP en un rango (por defecto 24h) por services, categories, organizations, asns " +
+				"o customers (seudonimizados), con bytes de bajada y subida por fila. Úsala para contexto de volumen; no " +
+				"sirve para ver el tráfico de un cliente concreto (usa la evidencia del hallazgo). Las cifras son del rango " +
+				"pedido, no tasas instantáneas.",
 			Schema: object(map[string]any{
 				"dimension": map[string]any{"type": "string", "enum": []string{"services", "categories", "organizations", "asns", "customers"}},
 				"range":     map[string]any{"type": "string", "enum": []string{"15m", "1h", "6h", "24h", "7d", "30d"}, "description": "Por defecto 24h."},
@@ -83,28 +103,36 @@ func Horus() []Tool {
 			}, "dimension"),
 			Permissions: []string{"traffic.read"},
 			Run:         getTrafficTop,
+			Facts:       trafficTopFacts,
 		},
 		{
 			Name: "get_customer_profile",
-			Description: "Perfil de un cliente (sin datos personales): tipo (residencial/comercial), estado, estado de " +
-				"seguridad y sus hallazgos recientes. customer_ref es el customer_id de un hallazgo.",
+			Description: "Perfil de un cliente por su customer_id (el campo customer_id de un hallazgo), sin datos personales: " +
+				"tipo (residential/commercial), estado, estado de seguridad (clean/suspected/infected/mitigated), nodo y " +
+				"sus hallazgos recientes. Úsala para saber si el cliente reincide o tiene otras señales. No devuelve " +
+				"nombre, alias, contacto ni ubicación.",
 			Schema: object(map[string]any{
 				"customer_ref": uuidProp("customer_id del cliente."),
 			}, "customer_ref"),
 			Permissions: []string{"customers.read", "security.findings.read"},
 			Run:         getCustomerProfile,
+			Facts:       customerFacts,
 		},
 		{
 			Name: "reputation_lookup",
-			Description: "Contexto de reputación de un ASN o prefijo remoto: si está en la allowlist del ISP, si es el " +
-				"objetivo de hallazgos abiertos y qué feeds de reputación están activos. Indica asn o prefix.",
+			Description: "Contexto de reputación de un ASN (asn) O de una IP/prefijo remoto (prefix), uno de los dos: si está " +
+				"en la allowlist del ISP (tráfico esperado), qué hallazgos abiertos lo tienen como objetivo y qué feeds de " +
+				"reputación están activos. LIMITACIÓN: no dice si el indicador está en un feed; esa coincidencia viene como " +
+				"reputation_category en la evidencia de get_finding. No afirmes que una IP es maliciosa solo por esta herramienta.",
 			Schema: object(map[string]any{
 				"asn":    map[string]any{"type": "integer", "minimum": 1, "maximum": 4294967295},
 				"prefix": map[string]any{"type": "string", "maxLength": 50, "description": "IP o prefijo CIDR remoto."},
 			}),
 			Permissions: []string{"security.findings.read"},
 			Run:         reputationLookup,
+			Facts:       reputationFacts,
 		},
+		routerosTool(),
 	}
 }
 

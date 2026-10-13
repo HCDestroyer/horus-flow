@@ -88,6 +88,9 @@ type Conversation interface {
 	// AddToolResults añade los resultados de TODAS las llamadas del último
 	// turno (en un único mensaje).
 	AddToolResults(results []ToolResult)
+	// AddUserMessage añade un mensaje de usuario (turno de corrección tras la
+	// verificación de la respuesta).
+	AddUserMessage(text string)
 }
 
 // Provider crea conversaciones con un modelo concreto.

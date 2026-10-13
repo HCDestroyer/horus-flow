@@ -335,6 +335,13 @@ function analyze(ctx: Ctx, s: TenantState) {
     duration_ms: 9400,
     truncated: false,
     disclaimer: 'Generado por IA; revisa antes de aplicar. Horus no ejecuta nada en tus routers.',
+    grounding: {
+      status: 'verified',
+      unsupported: [],
+      unverified_commands: [],
+      missing_sections: [],
+      repaired: feature === 'router',
+    },
   })
 }
 

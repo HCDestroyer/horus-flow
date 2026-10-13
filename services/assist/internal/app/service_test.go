@@ -199,7 +199,7 @@ func newHarness(t *testing.T, d Defaults) *harness {
 		prov: &fake.Provider{Turns: []provider.Turn{
 			{StopReason: provider.StopToolUse, ToolCalls: []provider.ToolCall{{ID: "1", Name: "get_finding",
 				Input: json.RawMessage(`{"finding_id":"` + findingID + `"}`)}}, Usage: provider.Usage{InputTokens: 900, OutputTokens: 60}},
-			{Text: "## Qué está pasando\nEl Cliente 1 (100.70.x.x) contactó 100.70.1.25", StopReason: provider.StopEnd,
+			{Text: fullAnswer("El Cliente 1 (100.70.x.x) contactó 100.70.1.25"), StopReason: provider.StopEnd,
 				Usage: provider.Usage{InputTokens: 1200, OutputTokens: 300}},
 		}},
 		reader: &apiReader{resp: map[string]string{
@@ -220,6 +220,11 @@ func newHarness(t *testing.T, d Defaults) *harness {
 		},
 	})
 	return h
+}
+
+// fullAnswer envuelve un texto en las cinco secciones obligatorias.
+func fullAnswer(body string) string {
+	return "## Qué está pasando\n" + body + "\n## Posibles causas\n-\n## Qué hacer\n-\n## Para deshacer\n-\n## Fuentes\n- get_finding [F1]"
 }
 
 func ctxWith(tenant uuid.UUID, perms ...string) context.Context {
@@ -380,8 +385,15 @@ func TestAnalyzeSuccessMaskedAndAudited(t *testing.T) {
 	if strings.Contains(res.Markdown, "100.70.1.25") || !strings.Contains(res.Markdown, "Cliente 1 (100.70.x.x)") {
 		t.Fatalf("markdown = %q", res.Markdown)
 	}
-	if res.Disclaimer != Disclaimer || res.Usage.InputTokens != 2100 || len(res.ToolCalls) != 1 || res.ToolCalls[0].Name != "get_finding" {
+	// get_finding se consultó dos veces: precargado (anclaje) y a petición del modelo.
+	if res.Disclaimer != Disclaimer || res.Usage.InputTokens != 2100 || len(res.ToolCalls) != 1 || res.ToolCalls[0].Name != "get_finding" ||
+		res.ToolCalls[0].Count != 2 || res.Grounding.Status != "verified" || res.Grounding.Repaired {
 		t.Fatalf("res = %+v", res)
+	}
+	// El primer mensaje lleva los datos primarios enmascarados y el catálogo de comandos.
+	if u := h.prov.Requests[0].User; !strings.Contains(u, "Datos ya consultados") || !strings.Contains(u, `"tool":"get_finding"`) ||
+		strings.Contains(u, "Juan") || strings.Contains(u, "100.70.1.25") || !strings.Contains(u, "/ip firewall address-list add") {
+		t.Fatalf("user = %s", u)
 	}
 	// Lo que llega al proveedor (resultado de la herramienta) está enmascarado.
 	sent := mustJSON(t, h.prov.Results)
@@ -390,7 +402,7 @@ func TestAnalyzeSuccessMaskedAndAudited(t *testing.T) {
 	}
 	// El sistema es estable (sin fechas) y las herramientas van en orden.
 	req := h.prov.Requests[0]
-	if strings.Contains(req.System, "2026") || len(req.Tools) != 7 || req.Tools[0].Name != "get_customer_profile" {
+	if strings.Contains(req.System, "2026") || len(req.Tools) != 8 || req.Tools[0].Name != "get_customer_profile" {
 		t.Fatalf("petición = %+v", req.Tools)
 	}
 	// Las herramientas leen como el usuario.
@@ -583,5 +595,44 @@ func TestMCPTokenLifecycle(t *testing.T) {
 	h.now = h.now.Add(91 * 24 * time.Hour)
 	if _, err := h.svc.AuthenticateMCP(context.Background(), issued2.Token); !errors.Is(err, ErrMCPUnauthenticated) {
 		t.Fatalf("token caducado: %v", err)
+	}
+}
+
+func TestAnalyzeRepairsUngroundedAnswer(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, Defaults{})
+	// Primera respuesta: una IP y un ASN que no están en ningún dato, y un comando fuera del catálogo.
+	h.prov.Turns = []provider.Turn{
+		{Text: "## Qué está pasando\nContactó 203.0.113.9 (AS64496).\n```\n/system reboot\n```", StopReason: provider.StopEnd,
+			Usage: provider.Usage{InputTokens: 100, OutputTokens: 10}},
+		{Text: fullAnswer("Contactó un destino sin dato [F1]."), StopReason: provider.StopEnd, Usage: provider.Usage{InputTokens: 200, OutputTokens: 20}},
+	}
+	enable(t, h, domain.Update{Enabled: true, Provider: "anthropic", DailyRequestLimit: 5, APIKey: str("sk-ant-0123456789")})
+	res, err := h.svc.Analyze(ctxWith(tenantA, PermFindingsRead), AnalysisRequest{Feature: "finding", ContextID: findingID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(h.prov.UserMessages) != 1 || !strings.Contains(h.prov.UserMessages[0], "203.0.113.9") ||
+		!strings.Contains(h.prov.UserMessages[0], "/system reboot") || !strings.Contains(h.prov.UserMessages[0], "Faltan las secciones") {
+		t.Fatalf("corrección = %q", h.prov.UserMessages)
+	}
+	if res.Grounding.Status != "verified" || !res.Grounding.Repaired || strings.Contains(res.Markdown, "⚠") || res.Usage.InputTokens != 300 {
+		t.Fatalf("res = %+v md = %q", res.Grounding, res.Markdown)
+	}
+}
+
+func TestAnalyzeWarnsWhenRepairFails(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, Defaults{})
+	bad := fullAnswer("Contactó 203.0.113.9 con 9,8 GB.")
+	h.prov.Turns = []provider.Turn{{Text: bad, StopReason: provider.StopEnd, Usage: provider.Usage{InputTokens: 100, OutputTokens: 10}}}
+	enable(t, h, domain.Update{Enabled: true, Provider: "anthropic", DailyRequestLimit: 5, APIKey: str("sk-ant-0123456789")})
+	res, err := h.svc.Analyze(ctxWith(tenantA, PermFindingsRead), AnalysisRequest{Feature: "finding", ContextID: findingID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Grounding.Status != "partial" || !res.Grounding.Repaired || len(res.Grounding.Unsupported) != 2 ||
+		!strings.Contains(res.Markdown, "⚠ Verificación: datos que no aparecen en Horus: 203.0.113.9, 9,8 GB") {
+		t.Fatalf("res = %+v md = %q", res.Grounding, res.Markdown)
 	}
 }

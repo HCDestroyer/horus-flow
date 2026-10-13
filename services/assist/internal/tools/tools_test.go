@@ -54,7 +54,7 @@ func TestRegistrySpecsSortedAndPermissions(t *testing.T) {
 	t.Parallel()
 	r := registry(t)
 	specs := r.Specs()
-	if len(specs) != 7 {
+	if len(specs) != 8 {
 		t.Fatalf("specs = %d", len(specs))
 	}
 	for i := 1; i < len(specs); i++ {
@@ -254,7 +254,84 @@ func TestResultTruncated(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, err := r.Call(context.Background(), Env{}, "big", nil)
-	if err != nil || len(out) > MaxResultBytes+64 || !strings.HasSuffix(out, "[recortado]") {
+	if err != nil || len(out) > MaxResultBytes+64 || !strings.Contains(out, `"truncated":true`) || !json.Valid([]byte(out)) {
 		t.Fatalf("len = %d err = %v", len(out), err)
+	}
+	// Una lista larga se acorta por mitades y el JSON sigue siendo válido.
+	rows := make([]any, 3000)
+	for i := range rows {
+		rows[i] = map[string]any{"i": i, "pad": strings.Repeat("y", 20)}
+	}
+	r2, _ := NewRegistry(Tool{Name: "rows", Schema: object(nil), Run: func(context.Context, Env, map[string]any) (any, error) {
+		return map[string]any{"rows": rows}, nil
+	}})
+	out, err = r2.Call(context.Background(), Env{}, "rows", nil)
+	var env Envelope
+	if err != nil || len(out) > MaxResultBytes+64 || json.Unmarshal([]byte(out), &env) != nil || !env.Truncated {
+		t.Fatalf("len = %d err = %v", len(out), err)
+	}
+	if got := len(asList(asMap(env.Data)["rows"])); got == 0 || got >= 3000 {
+		t.Fatalf("rows = %d", got)
+	}
+}
+
+func TestEnvelopeFactsAndMissing(t *testing.T) {
+	t.Parallel()
+	r, _ := NewRegistry(Tool{Name: "tt", Schema: object(nil), Run: func(context.Context, Env, map[string]any) (any, error) {
+		return map[string]any{"router": map[string]any{"name": "rt-norte", "state": "online"}, "wireguard_peer": "sin permiso para este dato",
+			"flow_exporter": nil}, nil
+	}})
+	out, err := r.Call(context.Background(), Env{}, "tt", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var env Envelope
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		t.Fatal(err)
+	}
+	if env.Tool != "tt" || env.AsOf == "" || !strings.Contains(env.Units, "bits/s") {
+		t.Fatalf("envelope = %+v", env)
+	}
+	if strings.Join(env.Missing, ";") != "flow_exporter: sin dato;wireguard_peer: sin permiso para este dato" {
+		t.Fatalf("missing = %v", env.Missing)
+	}
+	if len(env.Facts) == 0 || !strings.Contains(strings.Join(env.Facts, "\n"), "router.name = rt-norte") {
+		t.Fatalf("facts = %v", env.Facts)
+	}
+}
+
+func TestRouterOSCatalogAndAllowed(t *testing.T) {
+	t.Parallel()
+	cases := map[string]bool{
+		"/system resource print": true,
+		"/ip firewall connection print count-only where src-address~\"10.20.1.5\"": true,
+		"/ping 10.70.0.1 count=5": true,
+		"/tool torch interface=ether2 src-address=10.20.1.5 duration=10":                                                                                                       true,
+		"/ip firewall address-list add list=horus-revisar address=10.20.1.5 comment=\"horus f1\" timeout=1d":                                                                   true,
+		"/ip firewall address-list add list=blocked address=10.20.1.5":                                                                                                         false, // sin etiqueta horus, lista distinta
+		"/ip firewall filter add chain=forward src-address=10.20.1.5 protocol=tcp dst-port=25 action=drop log=yes log-prefix=\"horus-f1\" comment=\"horus f1\" place-before=0": true,
+		"/ip firewall filter add chain=input action=accept":                                                                                                                    false,
+		"/ip firewall filter add chain=forward src-address=10.20.1.5 action=accept comment=\"horus f1\"":                                                                       false, // action fijo = drop
+		"/ip firewall filter remove [find comment=\"horus f1\"]":                                                                                                               true,
+		"/ip firewall filter remove [find chain=forward]":                                                                                                                      false,
+		"/interface ethernet disable ether1":                                                                                                                                   false,
+		"/system reboot":                                                                                                                                                       false,
+		"/ip traffic-flow set enabled=yes interfaces=all":                                                                                                                      true,
+		"/system ntp client set enabled=yes servers=time.cloudflare.com,pool.ntp.org":                                                                                          true,
+		"/user add name=x password=y":                                                                                                                                          false,
+		"echo hola":                                                                                                                                                            false,
+	}
+	for cmd, want := range cases {
+		if got := CommandAllowed(cmd); got != want {
+			t.Errorf("%s: allowed = %v, quiero %v", cmd, got, want)
+		}
+	}
+	if len(Catalog()) < 20 || len(CatalogByTopic("containment")) < 3 || !strings.Contains(CatalogMarkdown("clock"), "/system ntp client print") {
+		t.Fatal("catálogo incompleto")
+	}
+	r := registry(t)
+	out, err := r.Call(context.Background(), Env{}, "routeros_commands", json.RawMessage(`{"topic":"wireguard"}`))
+	if err != nil || !strings.Contains(out, "/interface wireguard peers print detail") || strings.Contains(out, "/system ntp") {
+		t.Fatalf("out = %s err = %v", out, err)
 	}
 }

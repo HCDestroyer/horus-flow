@@ -160,6 +160,7 @@ Todo resultado de herramienta pasa por `mask.Masker` antes de salir hacia el pro
 | `get_traffic_top(dimension, range, site_id, direction)` | `GET /analytics/traffic/top` | `traffic.read` (`customers` exige `customers.read`) |
 | `get_customer_profile(customer_ref)` | `GET /customers/{id}` + sus hallazgos | `customers.read` |
 | `reputation_lookup(asn \| prefix)` | allowlist del ISP, hallazgos abiertos con ese objetivo y feeds activos | `security.findings.read` |
+| `routeros_commands(topic)` | catálogo de comandos RouterOS v7 verificados con su deshacer (no lee la API) | — |
 
 `reputation_lookup` no es una consulta indicador por indicador (la API no la expone todavía): la
 coincidencia con feeds se refleja en `reputation_category` de los hallazgos.
@@ -217,7 +218,37 @@ El servidor es sin estado (cada petición JSON-RPC se atiende sola, respuestas J
 estar activo en el ISP; si el usuario pierde un rol o la membresía, las herramientas afectadas devuelven
 "sin permiso" o el token deja de servir.
 
-## 9. Pruebas
+## 9. Anclaje a los datos (anti-alucinación)
+
+El asistente debe funcionar con cualquier modelo, también uno local pequeño que llame mal a las
+herramientas o invente cifras con soltura. Por eso el anclaje no depende de la calidad del modelo:
+se construye alrededor de él, en cinco capas (`internal/tools`, `internal/prompt`,
+`internal/grounding`, `internal/app`).
+
+| Capa | Qué hace | Dónde |
+| --- | --- | --- |
+| **Sobre de hechos** | Toda herramienta devuelve `{tool, as_of, facts[], missing[], units, data}`. `facts` son frases con los valores exactos y sus unidades, numeradas [F1], [F2]… para citarlas; `missing` lista lo que no se obtuvo (sin permiso, no disponible, sin dato) para que el modelo lo diga en vez de rellenarlo; `units` fija las unidades. Las listas largas se acortan por mitades (nunca se corta el JSON a medias). | `tools.Envelope`, `tools/facts.go` |
+| **Datos precargados** | Antes del primer turno, el servicio ejecuta las herramientas primarias de la feature (`get_finding`; `get_router` + `get_exporter_status`) y las incluye en el mensaje junto con el catálogo de comandos del tema. Un modelo que no sepa llamar herramientas sigue teniendo todos los datos. Cuentan como uso de herramienta en la auditoría. | `app.seed`, `prompt.User` |
+| **Catálogo RouterOS verificado** | `routeros_commands(topic)` devuelve plantillas de RouterOS v7 con su deshacer y marcadores `{…}`. Son los únicos comandos de escritura admitidos; además se admite cualquier consulta de solo lectura (`/… print`, `/ping`, `/tool torch`…). La verificación comprueba prefijo, parámetros (los fijos con su valor: `action=drop`, `chain=forward`, `list=horus-revisar`) y la etiqueta `comment="horus …"`. | `tools/routeros.go` |
+| **Reglas de veracidad** | El prompt de sistema obliga a copiar literalmente cifras, IP, ASN, puertos, fechas y estados de los datos; a tratar `missing` como ausente; a no nombrar empresas, países ni malware que no estén en los datos; a decir "sin dato" o "no se puede determinar"; y a citar [F#]. Secciones fijas: Qué está pasando, Posibles causas, Qué hacer, Para deshacer, **Fuentes**. | `prompt.System` |
+| **Verificación y corrección** | Tras la respuesta (ya enmascarada), `grounding.Check` extrae cada IP, ASN, UUID, puerto, porcentaje y cifra con unidad del texto y comprueba que exista en la evidencia (sobres de herramientas, datos precargados, prompt); los comandos de los bloques de código se validan contra el catálogo. Si algo falla, el modelo recibe **un turno de corrección** con la lista exacta (hasta 3 pasos). Si sigue fallando, la respuesta lleva un aviso `⚠ Verificación: …` y `grounding.status = partial` con lo no verificado; la UI lo muestra en ámbar. | `grounding`, `app.run`, `AssistGrounding` |
+
+Detalles que evitan falsos positivos de la verificación: los números se comparan en todas sus
+formas (`12.400.000`, `12400000`, `12,4`, redondeos a un decimal), un porcentaje se acepta si la
+evidencia trae la proporción 0–1 (`confidence: 0.92` respalda "92 %"), y los enteros pequeños (≤ 12)
+se consideran conteos de redacción ("3 pasos").
+
+En el proveedor compatible con OpenAI se envía `temperature: 0` (menos invención al no muestrear).
+En Claude el esfuerzo se controla con `effort`.
+
+**MCP.** El servidor expone el mismo anclaje a clientes externos: cada herramienta devuelve el sobre
+como texto y como `structuredContent` (con `outputSchema`); las *instructions* del servidor incluyen
+las reglas de veracidad; los prompts `analizar_hallazgo(finding_id)` y `diagnosticar_router(router_id)`
+devuelven el mensaje completo con los datos precargados y el catálogo; y los recursos `horus://guia`,
+`horus://glosario` y `horus://routeros` dan el contexto de referencia. La verificación posterior la
+hace solo la app (el cliente MCP controla su propio modelo).
+
+## 10. Pruebas
 
 - Go (unitarios): enmascarado, registro y validación de argumentos, bucle con proveedor falso (herramientas
   en paralelo en un único mensaje, error de herramienta, tope de iteraciones, rechazo), adaptador

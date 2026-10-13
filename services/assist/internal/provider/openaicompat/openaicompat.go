@@ -136,6 +136,9 @@ type chatRequest struct {
 	Tools     []toolDef `json:"tools,omitempty"`
 	MaxTokens int64     `json:"max_tokens,omitempty"`
 	Stream    bool      `json:"stream"`
+	// Temperature 0: un modelo local pequeño inventa menos cuando no muestrea
+	// (docs/assist.md §Anclaje). Se envía siempre (0 es significativo).
+	Temperature float64 `json:"temperature"`
 }
 
 type chatResponse struct {
@@ -162,7 +165,7 @@ func (p *Provider) Start(req provider.Request) provider.Conversation {
 		tools = append(tools, d)
 	}
 	return &conversation{p: p, req: chatRequest{
-		Model: p.o.Model, Tools: tools, MaxTokens: req.MaxTokens,
+		Model: p.o.Model, Tools: tools, MaxTokens: req.MaxTokens, Temperature: 0,
 		Messages: []message{{Role: "system", Content: str(req.System)}, {Role: "user", Content: str(req.User)}},
 	}}
 }
@@ -233,6 +236,11 @@ func (c *conversation) AddToolResults(results []provider.ToolResult) {
 		}
 		c.req.Messages = append(c.req.Messages, message{Role: "tool", ToolCallID: r.CallID, Content: str(content)})
 	}
+}
+
+// AddUserMessage implementa provider.Conversation.
+func (c *conversation) AddUserMessage(text string) {
+	c.req.Messages = append(c.req.Messages, message{Role: "user", Content: str(text)})
 }
 
 // Ping implementa provider.Provider: una petición mínima sin herramientas.

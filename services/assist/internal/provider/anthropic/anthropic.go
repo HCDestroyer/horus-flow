@@ -173,6 +173,11 @@ func (c *conversation) AddToolResults(results []provider.ToolResult) {
 	c.params.Messages = append(c.params.Messages, anthropic.NewBetaUserMessage(blocks...))
 }
 
+// AddUserMessage implementa provider.Conversation.
+func (c *conversation) AddUserMessage(text string) {
+	c.params.Messages = append(c.params.Messages, anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(text)))
+}
+
 // Ping implementa provider.Provider: una petición mínima (sin herramientas).
 func (p *Provider) Ping(ctx context.Context) error {
 	params := anthropic.BetaMessageNewParams{

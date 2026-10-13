@@ -41,6 +41,30 @@ const progressText = computed(() => {
 })
 onBeforeUnmount(() => clearInterval(timer))
 
+const groundingTitle = computed(() => {
+  const g = result.value?.grounding
+  if (!g) return ''
+  if (g.status === 'verified') {
+    return t(
+      g.repaired
+        ? 'assist.analysis.grounding.verifiedRepaired'
+        : 'assist.analysis.grounding.verified',
+    )
+  }
+  return t(`assist.analysis.grounding.${g.status}`)
+})
+const groundingDetail = computed(() => {
+  const g = result.value?.grounding
+  if (!g || g.status === 'verified') return undefined
+  const parts: string[] = []
+  if (g.unsupported.length)
+    parts.push(t('assist.analysis.grounding.unsupported', { list: g.unsupported.join(', ') }))
+  if (g.unverified_commands.length) {
+    parts.push(t('assist.analysis.grounding.commands', { list: g.unverified_commands.join(' · ') }))
+  }
+  return parts.length ? parts.join(' ') : t('assist.analysis.grounding.partialDetail')
+})
+
 const ERRORS: Record<string, string> = {
   ASSIST_LIMIT_REACHED: 'limit',
   ASSIST_PROVIDER_UNAVAILABLE: 'provider',
@@ -163,6 +187,19 @@ const providerLabel = (p: string) => t(`assist.providers.${p}`, p)
         data-testid="assist-disclaimer"
       />
       <AssistMarkdown :source="result.markdown" />
+      <!-- Anclaje (docs/assist.md §Anclaje): qué pudo verificarse contra los datos de Horus. -->
+      <UAlert
+        v-if="result.grounding"
+        :color="result.grounding.status === 'verified' ? 'success' : 'warning'"
+        variant="subtle"
+        :icon="
+          result.grounding.status === 'verified' ? 'i-lucide-shield-check' : 'i-lucide-shield-alert'
+        "
+        :title="groundingTitle"
+        :description="groundingDetail"
+        data-testid="assist-grounding"
+        :data-status="result.grounding.status"
+      />
       <UAlert
         v-if="result.truncated"
         color="neutral"

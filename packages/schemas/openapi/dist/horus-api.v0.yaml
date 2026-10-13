@@ -6948,6 +6948,44 @@ components:
         errors:
           type: integer
           minimum: 0
+    AssistGrounding:
+      type: object
+      description: |
+        Verificación de la respuesta contra los datos de Horus (docs/assist.md §Anclaje): cada IP, ASN, UUID, puerto,
+        porcentaje y cifra con unidad debe aparecer en los resultados de las herramientas, y cada comando RouterOS de
+        escritura en el catálogo verificado. Si falla, el modelo recibe un turno de corrección; si sigue fallando, la
+        respuesta lleva un aviso y aquí se lista lo que no se pudo verificar.
+      required:
+        - status
+        - unsupported
+        - unverified_commands
+        - missing_sections
+        - repaired
+      properties:
+        status:
+          type: string
+          enum:
+            - verified
+            - partial
+            - unverified
+          description: verified = todo respaldado; partial = hay datos o comandos sin respaldo (listados); unverified = sin evidencia.
+        unsupported:
+          type: array
+          items:
+            type: string
+          description: Datos de la respuesta que no aparecen en Horus.
+        unverified_commands:
+          type: array
+          items:
+            type: string
+          description: Comandos RouterOS fuera del catálogo verificado.
+        missing_sections:
+          type: array
+          items:
+            type: string
+        repaired:
+          type: boolean
+          description: Hubo un turno de corrección.
     AssistAnalysis:
       type: object
       required:
@@ -6963,6 +7001,7 @@ components:
         - duration_ms
         - truncated
         - disclaimer
+        - grounding
       properties:
         id:
           $ref: '#/components/schemas/Uuid'
@@ -7005,6 +7044,8 @@ components:
           type: string
           examples:
             - Generado por IA; revisa antes de aplicar. Horus no ejecuta nada en tus routers.
+        grounding:
+          $ref: '#/components/schemas/AssistGrounding'
     AssistAuditEntry:
       type: object
       required:

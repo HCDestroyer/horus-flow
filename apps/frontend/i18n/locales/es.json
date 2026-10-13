@@ -2475,6 +2475,16 @@
       "tools": "datos consultados: {list}",
       "tokens": "{input} tokens de entrada y {output} de salida",
       "truncated": "La respuesta se cortó por longitud: vuelve a analizar si falta algo.",
+      "grounding": {
+        "verified": "Verificada: todos los datos y comandos de la respuesta están en Horus",
+        "verifiedRepaired": "Verificada tras una corrección automática",
+        "partial": "Parcialmente verificada",
+        "partialDetail": "Hay datos o comandos que no aparecen en Horus; compruébalos antes de actuar.",
+        "unverified": "Sin verificar: la respuesta no se apoya en datos de Horus",
+        "unsupported": "Datos no encontrados en Horus: {list}",
+        "commands": "Comandos fuera del catálogo verificado: {list}",
+        "learnMore": "Cómo se verifica"
+      },
       "remaining": "No quedan consultas hoy en este ISP | Queda 1 consulta hoy en este ISP | Quedan {n} consultas hoy en este ISP",
       "codeRouteros": "Comando RouterOS sugerido (revísalo antes de copiarlo; Horus no lo ejecuta)",
       "code": "Código ({lang})",

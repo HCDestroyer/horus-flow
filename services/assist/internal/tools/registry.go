@@ -18,6 +18,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/hcdestroyer/horus-flow/services/assist/internal/mask"
 )
@@ -55,7 +56,41 @@ type Tool struct {
 	// Permissions son los permisos que necesita (informativo; los aplica la API).
 	Permissions []string
 	Run         func(ctx context.Context, env Env, args map[string]any) (any, error)
+	// Facts, opcional, resume el resultado en frases cortas con los valores
+	// exactos (anclaje: el modelo copia hechos en vez de interpretar JSON).
+	// Si falta, se generan a partir de las hojas del JSON.
+	Facts func(data any) []string
 }
+
+// Envelope es lo que recibe el modelo de cada herramienta (docs/assist.md
+// §Anclaje): el dato, los hechos ya redactados, lo que no se pudo obtener y la
+// hora de consulta. Las unidades son fijas para que no haya que adivinarlas.
+type Envelope struct {
+	Tool string `json:"tool"`
+	// AsOf es la hora de la consulta (UTC).
+	AsOf string `json:"as_of"`
+	// Facts son frases con los valores exactos; se citan como [F1], [F2]…
+	Facts []string `json:"facts"`
+	// Missing lista lo que la herramienta no pudo obtener (sin permiso, no
+	// disponible…): el modelo debe decirlo, no suponerlo.
+	Missing []string `json:"missing"`
+	Units   string   `json:"units"`
+	Data    any      `json:"data"`
+	// Truncated indica que las listas se acortaron para caber en el contexto.
+	Truncated bool `json:"truncated,omitempty"`
+}
+
+// Units documenta las unidades de todos los resultados.
+const Units = "bytes en bytes; *_bps en bits/s; *_at y *_ts en ISO 8601 UTC; loss_ratio y confidence de 0 a 1; duraciones en segundos salvo sufijo"
+
+// MaxFacts acota los hechos por herramienta; MaxFactBytes, el largo de cada uno.
+const (
+	MaxFacts     = 40
+	MaxFactBytes = 400
+)
+
+// now se sustituye en tests.
+var now = time.Now
 
 // Spec es la definición pública de una herramienta (para el proveedor y MCP).
 type Spec struct {
@@ -156,14 +191,198 @@ func (r *Registry) Call(ctx context.Context, env Env, name string, raw json.RawM
 	if err != nil {
 		return "", publicError(err)
 	}
-	b, err := json.Marshal(res)
+	e := Envelope{Tool: name, AsOf: now().UTC().Format(time.RFC3339), Units: Units, Data: res,
+		Missing: collectMissing(res)}
+	if t.Facts != nil {
+		e.Facts = t.Facts(res)
+	}
+	if len(e.Facts) == 0 {
+		e.Facts = flattenFacts(res)
+	}
+	if len(e.Facts) > MaxFacts {
+		e.Facts = e.Facts[:MaxFacts]
+	}
+	for i, f := range e.Facts {
+		if len(f) > MaxFactBytes {
+			e.Facts[i] = f[:MaxFactBytes] + "…"
+		}
+	}
+	if e.Missing == nil {
+		e.Missing = []string{}
+	}
+	b, err := json.Marshal(e)
 	if err != nil {
 		return "", Public("No se pudo serializar el resultado.")
 	}
+	for round := 0; len(b) > MaxResultBytes && round < 8; round++ {
+		// Se acortan las listas más largas (nunca se corta el JSON a medias).
+		if !shrink(&e.Data) {
+			break
+		}
+		e.Truncated = true
+		b, err = json.Marshal(e)
+		if err != nil {
+			return "", Public("No se pudo serializar el resultado.")
+		}
+	}
 	if len(b) > MaxResultBytes {
-		b = append(b[:MaxResultBytes:MaxResultBytes], []byte(`… [recortado]`)...)
+		e.Data = "resultado demasiado grande; pide un subconjunto"
+		e.Truncated = true
+		b, _ = json.Marshal(e)
 	}
 	return string(b), nil
+}
+
+// shrink reduce a la mitad la lista más larga de v (recursivo). false si no hay listas.
+func shrink(v *any) bool {
+	var setter func([]any)
+	best := 1
+	var walk func(x any)
+	walk = func(x any) {
+		switch t := x.(type) {
+		case map[string]any:
+			for k, val := range t {
+				if l, ok := val.([]any); ok && len(l) > best {
+					best, setter = len(l), func(nl []any) { t[k] = nl }
+				}
+				walk(val)
+			}
+		case []any:
+			for i, val := range t {
+				if l, ok := val.([]any); ok && len(l) > best {
+					best, setter = len(l), func(nl []any) { t[i] = nl }
+				}
+				walk(val)
+			}
+		}
+	}
+	if l, ok := (*v).([]any); ok && len(l) > best {
+		best, setter = len(l), func(nl []any) { *v = nl }
+	}
+	walk(*v)
+	if setter == nil {
+		return false
+	}
+	// Se vuelve a localizar la lista por tamaño para recortarla a la mitad.
+	var find func(x any) []any
+	find = func(x any) []any {
+		switch t := x.(type) {
+		case []any:
+			if len(t) == best {
+				return t
+			}
+			for _, val := range t {
+				if r := find(val); r != nil {
+					return r
+				}
+			}
+		case map[string]any:
+			for _, val := range t {
+				if r := find(val); r != nil {
+					return r
+				}
+			}
+		}
+		return nil
+	}
+	l := find(*v)
+	if l == nil {
+		return false
+	}
+	setter(l[:len(l)/2])
+	return true
+}
+
+// collectMissing recoge los valores "no disponible / sin permiso / no existe"
+// que las herramientas ponen en lugar de un dato.
+func collectMissing(v any) []string {
+	var out []string
+	var walk func(prefix string, x any)
+	walk = func(prefix string, x any) {
+		switch t := x.(type) {
+		case map[string]any:
+			keys := make([]string, 0, len(t))
+			for k := range t {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				walk(join(prefix, k), t[k])
+			}
+		case string:
+			switch t {
+			case "sin permiso para este dato", "no existe", "no disponible ahora":
+				out = append(out, prefix+": "+t)
+			}
+		case nil:
+			if prefix != "" && !strings.Contains(prefix, ".") {
+				out = append(out, prefix+": sin dato")
+			}
+		}
+	}
+	walk("", v)
+	return out
+}
+
+func join(prefix, k string) string {
+	if prefix == "" {
+		return k
+	}
+	return prefix + "." + k
+}
+
+// flattenFacts genera hechos "ruta = valor" a partir de las hojas del JSON
+// (listas: las 5 primeras filas), para herramientas sin Facts propio.
+func flattenFacts(v any) []string {
+	var out []string
+	var walk func(prefix string, x any, depth int)
+	walk = func(prefix string, x any, depth int) {
+		if len(out) >= MaxFacts || depth > 5 {
+			return
+		}
+		switch t := x.(type) {
+		case map[string]any:
+			keys := make([]string, 0, len(t))
+			for k := range t {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				walk(join(prefix, k), t[k], depth+1)
+			}
+		case []any:
+			for i, it := range t {
+				if i >= 5 {
+					out = append(out, fmt.Sprintf("%s: %d elementos en total (se muestran 5)", prefix, len(t)))
+					return
+				}
+				walk(fmt.Sprintf("%s[%d]", prefix, i), it, depth+1)
+			}
+		case nil:
+			out = append(out, prefix+" = sin dato")
+		case string:
+			if t != "" {
+				out = append(out, prefix+" = "+t)
+			}
+		case float64:
+			out = append(out, prefix+" = "+strconvFloat(t))
+		case bool:
+			out = append(out, fmt.Sprintf("%s = %t", prefix, t))
+		default:
+			if b, err := json.Marshal(t); err == nil {
+				out = append(out, prefix+" = "+string(b))
+			}
+		}
+	}
+	walk("", v, 0)
+	return out
+}
+
+func strconvFloat(f float64) string {
+	if f == float64(int64(f)) {
+		return fmt.Sprintf("%d", int64(f))
+	}
+	return fmt.Sprintf("%g", f)
 }
 
 // publicError convierte un error de la API en un mensaje apto para el modelo.

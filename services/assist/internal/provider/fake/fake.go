@@ -24,7 +24,9 @@ type Provider struct {
 	Requests []provider.Request
 	// Results son los lotes de resultados recibidos (uno por AddToolResults).
 	Results [][]provider.ToolResult
-	calls   int
+	// UserMessages son los mensajes de usuario añadidos (turnos de corrección).
+	UserMessages []string
+	calls        int
 }
 
 // Name implementa provider.Provider.
@@ -82,4 +84,10 @@ func (c *conv) AddToolResults(results []provider.ToolResult) {
 	c.p.mu.Lock()
 	defer c.p.mu.Unlock()
 	c.p.Results = append(c.p.Results, results)
+}
+
+func (c *conv) AddUserMessage(text string) {
+	c.p.mu.Lock()
+	defer c.p.mu.Unlock()
+	c.p.UserMessages = append(c.p.UserMessages, text)
 }

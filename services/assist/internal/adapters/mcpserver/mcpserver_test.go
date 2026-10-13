@@ -152,7 +152,7 @@ func TestMCPListAndCallTools(t *testing.T) {
 		t.Fatalf("tools/list = %d %v", code, out)
 	}
 	list := out["result"].(map[string]any)["tools"].([]any)
-	if len(list) != 7 {
+	if len(list) != 8 {
 		t.Fatalf("herramientas = %d", len(list))
 	}
 	first := list[0].(map[string]any)
@@ -167,6 +167,23 @@ func TestMCPListAndCallTools(t *testing.T) {
 	text := res["content"].([]any)[0].(map[string]any)["text"].(string)
 	if res["isError"] == true || !strings.Contains(text, "silent") || strings.Contains(text, "tenant_id") {
 		t.Fatalf("resultado = %v", res)
+	}
+	// Sobre anclado: hechos, faltantes y contenido estructurado.
+	sc, _ := res["structuredContent"].(map[string]any)
+	if sc["tool"] != "get_exporter_status" || len(sc["facts"].([]any)) == 0 || sc["missing"] == nil || !strings.Contains(text, `"facts"`) {
+		t.Fatalf("sobre = %v", sc)
+	}
+	// Prompts y recursos de referencia.
+	code, out = rpc(t, ts.URL, tok, `{"jsonrpc":"2.0","id":5,"method":"prompts/list","params":{}}`)
+	if code != http.StatusOK || len(out["result"].(map[string]any)["prompts"].([]any)) != 2 {
+		t.Fatalf("prompts/list = %d %v", code, out)
+	}
+	code, out = rpc(t, ts.URL, tok, `{"jsonrpc":"2.0","id":6,"method":"resources/read","params":{"uri":"horus://routeros"}}`)
+	if code != http.StatusOK {
+		t.Fatalf("resources/read = %d %v", code, out)
+	}
+	if rt := out["result"].(map[string]any)["contents"].([]any)[0].(map[string]any)["text"].(string); !strings.Contains(rt, "/interface wireguard peers print detail") {
+		t.Fatalf("recurso = %s", rt)
 	}
 	code, out = rpc(t, ts.URL, tok, `{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"get_router","arguments":{"router_id":"nope"}}}`)
 	if code != http.StatusOK || out["result"].(map[string]any)["isError"] != true {

@@ -72,6 +72,7 @@ test.describe('asistente de IA @assist', () => {
     await expect(result).toContainText('Comando RouterOS sugerido')
     await expect(result).toContainText('Cliente 1 (10.20.x.x)')
     await expect(page.getByTestId('assist-meta')).toContainText('claude-opus-5-5')
+    await expect(page.getByTestId('assist-grounding')).toHaveAttribute('data-status', 'verified')
     expect(await seriousViolations(page)).toEqual([])
 
     // La consulta queda en la auditoría.

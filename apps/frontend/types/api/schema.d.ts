@@ -2569,6 +2569,7 @@ export interface components {
             duration_ms: number;
             feature: components["schemas"]["AssistFeature"];
             generated_at: components["schemas"]["Timestamp"];
+            grounding: components["schemas"]["AssistGrounding"];
             id: components["schemas"]["Uuid"];
             /** @description Markdown (secciones Qué está pasando, Posibles causas, Qué hacer, Para deshacer). Datos de clientes seudonimizados. La UI lo muestra sin HTML. */
             markdown: string;
@@ -2611,6 +2612,26 @@ export interface components {
          * @enum {string}
          */
         AssistFeature: "finding" | "router";
+        /**
+         * @description Verificación de la respuesta contra los datos de Horus (docs/assist.md §Anclaje): cada IP, ASN, UUID, puerto,
+         *     porcentaje y cifra con unidad debe aparecer en los resultados de las herramientas, y cada comando RouterOS de
+         *     escritura en el catálogo verificado. Si falla, el modelo recibe un turno de corrección; si sigue fallando, la
+         *     respuesta lleva un aviso y aquí se lista lo que no se pudo verificar.
+         */
+        AssistGrounding: {
+            missing_sections: string[];
+            /** @description Hubo un turno de corrección. */
+            repaired: boolean;
+            /**
+             * @description verified = todo respaldado; partial = hay datos o comandos sin respaldo (listados); unverified = sin evidencia.
+             * @enum {string}
+             */
+            status: "verified" | "partial" | "unverified";
+            /** @description Datos de la respuesta que no aparecen en Horus. */
+            unsupported: string[];
+            /** @description Comandos RouterOS fuera del catálogo verificado. */
+            unverified_commands: string[];
+        };
         /** @enum {string} */
         AssistProvider: "anthropic" | "openai_compatible";
         AssistSettings: {

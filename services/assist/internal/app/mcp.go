@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/authz"
 	"github.com/hcdestroyer/horus-flow/services/assist/internal/domain"
 	"github.com/hcdestroyer/horus-flow/services/assist/internal/mask"
+	"github.com/hcdestroyer/horus-flow/services/assist/internal/prompt"
 	"github.com/hcdestroyer/horus-flow/services/assist/internal/tools"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
 )
@@ -223,4 +225,28 @@ func (s *Service) MCPCall(ctx context.Context, sess *MCPSession, m *mask.Masker,
 	}
 	s.record(ctx, entry)
 	return out, cerr
+}
+
+// MCPPrompt construye el mensaje de análisis para un cliente MCP (prompt
+// "analizar_hallazgo" / "diagnosticar_router"): los mismos datos primarios
+// precargados y el mismo catálogo de comandos que recibe el asistente de la
+// app, de modo que cualquier modelo externo parta del mismo contexto anclado.
+// Cada herramienta precargada se audita como una llamada MCP.
+func (s *Service) MCPPrompt(ctx context.Context, sess *MCPSession, m *mask.Masker, feature, contextID string) (string, error) {
+	if _, err := uuid.Parse(contextID); err != nil {
+		return "", tools.Public("El identificador debe ser un UUID.")
+	}
+	var seeds []prompt.Seed
+	for _, st := range seedTools[feature] {
+		args, _ := json.Marshal(map[string]string{st.arg: contextID})
+		out, err := s.MCPCall(ctx, sess, m, st.tool, args)
+		if err != nil {
+			if len(seeds) == 0 && st.tool == seedTools[feature][0].tool {
+				return "", err
+			}
+			continue
+		}
+		seeds = append(seeds, prompt.Seed{Tool: st.tool, Envelope: out})
+	}
+	return prompt.User(feature, contextID, seeds, tools.CatalogMarkdown(prompt.Topics(feature)...)), nil
 }

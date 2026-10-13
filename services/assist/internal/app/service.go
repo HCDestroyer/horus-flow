@@ -7,10 +7,13 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,6 +23,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/problem"
 	"github.com/hcdestroyer/horus-flow/services/assist/internal/agent"
 	"github.com/hcdestroyer/horus-flow/services/assist/internal/domain"
+	"github.com/hcdestroyer/horus-flow/services/assist/internal/grounding"
 	"github.com/hcdestroyer/horus-flow/services/assist/internal/mask"
 	"github.com/hcdestroyer/horus-flow/services/assist/internal/prompt"
 	"github.com/hcdestroyer/horus-flow/services/assist/internal/provider"
@@ -513,6 +517,8 @@ type Analysis struct {
 	DurationMS  int              `json:"duration_ms"`
 	Truncated   bool             `json:"truncated"`
 	Disclaimer  string           `json:"disclaimer"`
+	// Grounding es la verificación de la respuesta contra los datos (docs/assist.md §Anclaje).
+	Grounding grounding.Report `json:"grounding"`
 }
 
 // UsageView son los tokens de un análisis.
@@ -586,11 +592,46 @@ func (s *Service) Analyze(ctx context.Context, req AnalysisRequest) (*Analysis, 
 		return nil, err
 	}
 	env := tools.Env{Reader: reader, Masker: mask.New()}
-	return s.run(ctx, prov, env, entry, prompt.User(req.Feature, req.ContextID))
+	// Datos primarios ya consultados: el modelo los recibe en el primer mensaje
+	// (anclaje) y cuentan como uso de herramienta en la auditoría.
+	seeds, seedUses, evidence := s.seed(ctx, env, req.Feature, req.ContextID)
+	user := prompt.User(req.Feature, req.ContextID, seeds, tools.CatalogMarkdown(prompt.Topics(req.Feature)...))
+	return s.run(ctx, prov, env, entry, user, seedUses, evidence)
+}
+
+// seedTools son las herramientas primarias de cada feature.
+var seedTools = map[string][]struct{ tool, arg string }{
+	domain.FeatureFinding: {{"get_finding", "finding_id"}},
+	domain.FeatureRouter:  {{"get_router", "router_id"}, {"get_exporter_status", "router_id"}},
+}
+
+// seed consulta las herramientas primarias; si una falla, el modelo la pedirá él.
+func (s *Service) seed(ctx context.Context, env tools.Env, feature, contextID string) ([]prompt.Seed, []domain.ToolUse, []string) {
+	var seeds []prompt.Seed
+	var uses []domain.ToolUse
+	var evidence []string
+	for _, st := range seedTools[feature] {
+		args, _ := json.Marshal(map[string]string{st.arg: contextID})
+		out, err := s.o.Registry.Call(ctx, env, st.tool, args)
+		u := domain.ToolUse{Name: st.tool, Count: 1}
+		if err != nil {
+			u.Errors = 1
+			uses = append(uses, u)
+			continue
+		}
+		uses = append(uses, u)
+		seeds = append(seeds, prompt.Seed{Tool: st.tool, Envelope: out})
+		evidence = append(evidence, out)
+	}
+	return seeds, uses, evidence
 }
 
 // run ejecuta el bucle del agente, audita y traduce el resultado.
-func (s *Service) run(ctx context.Context, prov provider.Provider, env tools.Env, entry *domain.AuditEntry, user string) (*Analysis, error) {
+// RepairIterations es el tope de pasos del turno de corrección.
+const RepairIterations = 3
+
+func (s *Service) run(ctx context.Context, prov provider.Provider, env tools.Env, entry *domain.AuditEntry, user string,
+	seedUses []domain.ToolUse, evidence []string) (*Analysis, error) {
 	start := s.o.Now()
 	rctx, cancel := context.WithTimeout(ctx, s.o.RequestTimeout)
 	defer cancel()
@@ -600,13 +641,47 @@ func (s *Service) run(ctx context.Context, prov provider.Provider, env tools.Env
 		ts[i] = provider.ToolSpec{Name: sp.Name, Description: sp.Description, Schema: sp.Schema}
 	}
 	conv := prov.Start(provider.Request{System: prompt.System, Tools: ts, User: user, MaxTokens: s.o.MaxOutputTokens})
+	// Toda salida de herramienta es evidencia para la verificación.
+	var evMu sync.Mutex
+	evidence = append(evidence, prompt.System, user)
 	exec := func(ctx context.Context, c provider.ToolCall) (string, error) {
-		return s.o.Registry.Call(ctx, env, c.Name, c.Input)
+		out, err := s.o.Registry.Call(ctx, env, c.Name, c.Input)
+		if err == nil {
+			evMu.Lock()
+			evidence = append(evidence, out)
+			evMu.Unlock()
+		}
+		return out, err
 	}
 	res, err := agent.Run(rctx, conv, exec, agent.Options{MaxIterations: s.o.MaxIterations})
+	var report grounding.Report
+	if err == nil {
+		// Verificación contra los datos (sobre el texto ya enmascarado: ningún dato
+		// personal llega al informe ni al turno de corrección).
+		report = grounding.Check(env.Masker.Text(res.Markdown), evidence)
+		if !report.OK() {
+			conv.AddUserMessage(grounding.RepairMessage(report))
+			res2, err2 := agent.Run(rctx, conv, exec, agent.Options{MaxIterations: RepairIterations})
+			res.Usage.Add(res2.Usage)
+			res.ToolUses = mergeUses(res.ToolUses, res2.ToolUses)
+			res.Iterations += res2.Iterations
+			if err2 == nil && res2.Markdown != "" {
+				res.Markdown, res.Truncated = res2.Markdown, res2.Truncated
+				if res2.Model != "" {
+					res.Model = res2.Model
+				}
+				report = grounding.Check(env.Masker.Text(res.Markdown), evidence)
+			}
+			report.Repaired = true
+		}
+	}
 	entry.DurationMS = int(s.o.Now().Sub(start).Milliseconds())
 	entry.InputTokens, entry.OutputTokens = res.Usage.InputTokens, res.Usage.OutputTokens
-	entry.ToolCalls = res.ToolUses
+	entry.ToolCalls = mergeUses(seedUses, res.ToolUses)
+	if report.Status != "" && report.Status != grounding.Verified {
+		s.o.Logger.InfoContext(ctx, "assist: answer not fully grounded", slog.String("status", string(report.Status)),
+			slog.Int("unsupported", len(report.Unsupported)), slog.Int("commands", len(report.UnverifiedCommands)), slog.Bool("repaired", report.Repaired))
+	}
 	if res.Model != "" {
 		entry.Model = res.Model
 	}
@@ -634,12 +709,36 @@ func (s *Service) run(ctx context.Context, prov provider.Provider, env tools.Env
 		s.o.Logger.WarnContext(ctx, "assist: provider error", slog.String("code", code), slog.Any("error", err))
 		return nil, apperr.New(apperr.KindBadGateway, CodeProviderUnavailable, providerMessage(code))
 	}
+	markdown := env.Masker.Text(res.Markdown)
+	if w := grounding.Warning(report); w != "" {
+		markdown += "\n\n> ⚠ " + w
+	}
 	return &Analysis{
-		ID: entry.ID, Feature: entry.Feature, ContextID: entry.ContextID, Markdown: env.Masker.Text(res.Markdown),
+		ID: entry.ID, Feature: entry.Feature, ContextID: entry.ContextID, Markdown: markdown,
 		Provider: prov.Name(), Model: entry.Model, GeneratedAt: s.now().Format("2006-01-02T15:04:05.000Z"),
-		ToolCalls: res.ToolUses, Usage: UsageView{InputTokens: res.Usage.InputTokens, OutputTokens: res.Usage.OutputTokens},
-		DurationMS: entry.DurationMS, Truncated: res.Truncated, Disclaimer: Disclaimer,
+		ToolCalls: entry.ToolCalls, Usage: UsageView{InputTokens: res.Usage.InputTokens, OutputTokens: res.Usage.OutputTokens},
+		DurationMS: entry.DurationMS, Truncated: res.Truncated, Disclaimer: Disclaimer, Grounding: report,
 	}, nil
+}
+
+// mergeUses suma los usos de herramienta por nombre (orden por nombre).
+func mergeUses(a, b []domain.ToolUse) []domain.ToolUse {
+	m := map[string]domain.ToolUse{}
+	for _, list := range [][]domain.ToolUse{a, b} {
+		for _, u := range list {
+			x := m[u.Name]
+			x.Name = u.Name
+			x.Count += u.Count
+			x.Errors += u.Errors
+			m[u.Name] = x
+		}
+	}
+	out := make([]domain.ToolUse, 0, len(m))
+	for _, u := range m {
+		out = append(out, u)
+	}
+	slices.SortFunc(out, func(x, y domain.ToolUse) int { return strings.Compare(x.Name, y.Name) })
+	return out
 }
 
 // AuditItem es una fila de GET /assist/audit.
