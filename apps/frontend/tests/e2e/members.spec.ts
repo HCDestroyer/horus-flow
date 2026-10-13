@@ -242,6 +242,98 @@ test.describe('usuarios y roles @members', () => {
     await expect(page).toHaveURL(/\/admin\/users/)
   })
 
+  test('editar nombre y correo; correo en uso', async ({ page }) => {
+    await loginAsAdmin(page)
+    await openMembers(page)
+    await rowOf(page, 'jorge.diaz@').getByTestId('member-actions').click()
+    await page.getByRole('menuitem', { name: 'Editar' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Editar a Jorge Díaz' })
+    await expect(dialog).toContainText('usuario para iniciar sesión')
+    await expect(page.getByTestId('member-edit-email')).toHaveValue('jorge.diaz@fibranorte.example')
+    await page.getByTestId('member-edit-name').fill('Jorge Díaz Ríos')
+    await page.getByTestId('member-edit-email').fill('jorge.rios@fibranorte.example')
+    expect(await seriousViolations(page)).toEqual([])
+    await page.getByTestId('member-edit-save').click()
+    await expect(
+      page.getByText('Datos de Jorge Díaz Ríos actualizados', { exact: true }),
+    ).toBeVisible()
+    await expect(rowOf(page, 'jorge.rios@fibranorte.example')).toContainText('Jorge Díaz Ríos')
+    await expect(rowOf(page, 'jorge.diaz@')).toHaveCount(0)
+
+    // Correo de otra cuenta: 409 ALREADY_EXISTS en el campo.
+    await rowOf(page, 'jorge.rios@').getByTestId('member-actions').click()
+    await page.getByRole('menuitem', { name: 'Editar' }).click()
+    await page.getByTestId('member-edit-email').fill('marta.gomez@fibranorte.example')
+    await page.getByTestId('member-edit-save').click()
+    await expect(page.getByTestId('member-edit-form')).toContainText(
+      'Ya existe una cuenta con ese correo.',
+    )
+  })
+
+  test('cuenta compartida con otro ISP: solo la edita la plataforma (USER_SHARED)', async ({
+    page,
+  }) => {
+    await loginAsAdmin(page)
+    await openMembers(page)
+    await rowOf(page, 'marta.gomez@').getByTestId('member-actions').click()
+    await page.getByRole('menuitem', { name: 'Editar' }).click()
+    await page.getByTestId('member-edit-name').fill('Marta G.')
+    await page.getByTestId('member-edit-save').click()
+    await expect(page.getByTestId('member-edit-error')).toContainText(
+      'solo puede editarla un administrador de la plataforma',
+    )
+    await page.getByRole('button', { name: 'Cancelar' }).click()
+    await expect(rowOf(page, 'marta.gomez@')).toContainText('Marta Gómez')
+
+    await rowOf(page, 'marta.gomez@').getByTestId('member-actions').click()
+    await page.getByRole('menuitem', { name: 'Restablecer contraseña' }).click()
+    await page.getByTestId('member-reset-confirm').click()
+    await expect(page.getByTestId('member-reset-error')).toContainText(
+      'solo puede editarla un administrador de la plataforma',
+    )
+    await expect(page.getByTestId('reset-link-panel')).toHaveCount(0)
+  })
+
+  test('restablecer contraseña con re-autenticación: enlace de un solo uso', async ({ page }) => {
+    await page.addInitScript(() => window.localStorage.setItem('horus.mock.reauthRequired', '1'))
+    await loginAsAdmin(page)
+    await openMembers(page)
+    // Solo para miembros activos: un invitado no la tiene.
+    await rowOf(page, 'pedro.salas@').getByTestId('member-actions').click()
+    await expect(page.getByRole('menuitem', { name: 'Generar enlace' })).toBeVisible()
+    await expect(page.getByRole('menuitem', { name: 'Restablecer contraseña' })).toHaveCount(0)
+    await page.keyboard.press('Escape')
+
+    await rowOf(page, 'jorge.diaz@').getByTestId('member-actions').click()
+    await page.getByRole('menuitem', { name: 'Restablecer contraseña' }).click()
+    const confirm = page.getByRole('dialog', { name: '¿Restablecer la contraseña de Jorge Díaz?' })
+    await expect(confirm).toContainText('válido 30 minutos')
+    expect(await seriousViolations(page)).toEqual([])
+    await page.getByTestId('member-reset-confirm').click()
+
+    const reauth = page.getByRole('dialog', { name: 'Confirma tu identidad' })
+    await expect(reauth).toContainText('restablecer la contraseña')
+    await page.getByTestId('reauth-password').fill(PASSWORD)
+    await page.getByTestId('reauth-code').fill(TOTP)
+    await page.getByTestId('reauth-submit').click()
+
+    const panel = page.getByTestId('reset-link-panel')
+    await expect(panel).toBeVisible()
+    await expect(page.getByRole('dialog', { name: 'Enlace para Jorge Díaz' })).toContainText(
+      'jorge.diaz@fibranorte.example',
+    )
+    const url = await page.getByTestId('reset-link-url').inputValue()
+    expect(url).toMatch(/\/reset-password#token=[\w-]{32,}$/)
+    await expect(page.getByTestId('reset-link-expires')).not.toBeEmpty()
+    await expect(page.getByTestId('reset-link-email-note')).toContainText(
+      'No hay correo configurado',
+    )
+    await expect(panel).toContainText('solo se muestra ahora')
+    expect(await seriousViolations(page)).toEqual([])
+    await page.getByTestId('member-reset-close').click()
+    await expect(panel).toHaveCount(0)
+  })
+
   test('sin users.read la sección no existe para el operador NOC', async ({ page }) => {
     await loginAsNoc(page)
     await expect(

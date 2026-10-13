@@ -136,6 +136,78 @@ test.describe('usuarios de plataforma @platform-users', () => {
     await expect(rowOf(page, 'ana.ruiz@')).toContainText('Superadministrador')
   })
 
+  test('editar nombre y correo; correo en uso', async ({ page }) => {
+    await loginAsAdmin(page)
+    await openUsers(page)
+    await action(page, 'carlos.mendez@', 'Editar')
+    const dialog = page.getByRole('dialog', { name: 'Editar a Carlos Méndez' })
+    await expect(dialog).toContainText('usuario para iniciar sesión')
+    await page.getByTestId('platform-user-edit-name').fill('Carlos Méndez Rojas')
+    await page.getByTestId('platform-user-edit-email').fill('carlos.rojas@horus.example')
+    expect(await seriousViolations(page)).toEqual([])
+    await page.getByTestId('platform-user-edit-save').click()
+    await expect(
+      page.getByText('Datos de Carlos Méndez Rojas actualizados', { exact: true }),
+    ).toBeVisible()
+    await expect(rowOf(page, 'carlos.rojas@horus.example')).toContainText('Carlos Méndez Rojas')
+    await expect(rowOf(page, 'carlos.mendez@')).toHaveCount(0)
+
+    await action(page, 'sofia.herrera@', 'Editar')
+    await page.getByTestId('platform-user-edit-email').fill('ana.ruiz@fibranorte.example')
+    await page.getByTestId('platform-user-edit-save').click()
+    await expect(page.getByTestId('platform-user-edit-form')).toContainText(
+      'Ya existe una cuenta con ese correo.',
+    )
+  })
+
+  test('restablecer contraseña: enlace de un solo uso', async ({ page }) => {
+    await loginAsAdmin(page)
+    await openUsers(page)
+    await action(page, 'sofia.herrera@', 'Restablecer contraseña')
+    const confirm = page.getByRole('dialog', {
+      name: '¿Restablecer la contraseña de Sofía Herrera?',
+    })
+    await expect(confirm).toContainText('válido 30 minutos')
+    await page.getByTestId('platform-reset-confirm').click()
+    const panel = page.getByTestId('reset-link-panel')
+    await expect(panel).toBeVisible()
+    const url = await page.getByTestId('reset-link-url').inputValue()
+    expect(url).toMatch(/\/reset-password#token=[\w-]{32,}$/)
+    await expect(page.getByTestId('reset-link-expires')).not.toBeEmpty()
+    await expect(page.getByTestId('reset-link-email-note')).toContainText(
+      'No hay correo configurado',
+    )
+    expect(await seriousViolations(page)).toEqual([])
+    await page.getByTestId('platform-reset-close').click()
+    await expect(panel).toHaveCount(0)
+  })
+
+  test('eliminar una cuenta con re-autenticación; nunca la propia', async ({ page }) => {
+    await page.addInitScript(() => window.localStorage.setItem('horus.mock.reauthRequired', '1'))
+    await loginAsAdmin(page)
+    await openUsers(page)
+    await rowOf(page, 'ana.ruiz@').getByTestId('platform-user-actions').click()
+    await expect(page.getByRole('menuitem', { name: 'Eliminar cuenta' })).toBeDisabled()
+    await page.keyboard.press('Escape')
+
+    await action(page, 'pablo.ortega@', 'Eliminar cuenta')
+    const confirm = page.getByRole('dialog', { name: '¿Eliminar la cuenta de Pablo Ortega?' })
+    await expect(confirm).toContainText('Se cierran todas sus sesiones')
+    await expect(confirm).toContainText('La auditoría conserva lo que hizo')
+    expect(await seriousViolations(page)).toEqual([])
+    await page.getByTestId('platform-delete-confirm').click()
+
+    const reauth = page.getByRole('dialog', { name: 'Confirma tu identidad' })
+    await expect(reauth).toContainText('usuarios de plataforma')
+    await page.getByTestId('reauth-password').fill(PASSWORD)
+    await page.getByTestId('reauth-code').fill(TOTP)
+    await page.getByTestId('reauth-submit').click()
+    await expect(
+      page.getByText('La cuenta de Pablo Ortega se ha eliminado', { exact: true }),
+    ).toBeVisible()
+    await expect(rowOf(page, 'pablo.ortega@')).toHaveCount(0)
+  })
+
   test('sin permisos de plataforma la sección no existe', async ({ page }) => {
     await loginAsNoc(page)
     await page.goto(PAGE)

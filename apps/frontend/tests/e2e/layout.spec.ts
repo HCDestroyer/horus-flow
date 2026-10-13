@@ -97,6 +97,7 @@ const I1_SCREENS = [
   '/platform/system',
   '/platform/reputation',
   '/platform/users',
+  '/account',
 ]
 
 test.describe('pantallas de I1 sin desbordamiento @layout', () => {
@@ -115,6 +116,33 @@ test.describe('pantallas de I1 sin desbordamiento @layout', () => {
         const problems = await layoutReport(page, {
           extra: ['[data-testid="app-navbar"]', '#main-content'],
         })
+        expect(problems, `${path} a ${width}px`).toEqual([])
+      }
+    })
+  }
+})
+
+/** Páginas públicas (sin sesión): login, recuperar contraseña y nueva contraseña. */
+const PUBLIC_SCREENS = [
+  '/login',
+  '/forgot-password',
+  // Token fijo de la API simulada (`mocks/password-reset.ts`); solo se inspecciona, no se usa.
+  '/reset-password#token=reset-demo-token-0000000000000000',
+]
+
+test.describe('páginas públicas sin desbordamiento @layout', () => {
+  for (const width of [320, 390, 1440]) {
+    test(`páginas públicas a ${width} px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 })
+      await page.emulateMedia({ reducedMotion: 'reduce' })
+      for (const path of PUBLIC_SCREENS) {
+        // Solo cambia el fragmento entre algunas rutas: se sale antes para recargar de verdad.
+        await page.goto('about:blank')
+        await page.goto(path)
+        await page.waitForLoadState('load')
+        await expect(page.locator('#main-content')).toBeVisible()
+        await page.waitForTimeout(800)
+        const problems = await layoutReport(page, { extra: ['#main-content'] })
         expect(problems, `${path} a ${width}px`).toEqual([])
       }
     })

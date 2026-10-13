@@ -12,8 +12,9 @@ import { ALL_TENANTS, TENANTS, USERS, type MockUser } from './data'
 import { forbidden, ifMatch, json, noContent, notFound, paginate, problem } from './http'
 import { routersOf } from './inventory'
 import { parseIp } from './net'
+import { issuePasswordReset } from './password-reset'
 import { hash, mockUuid } from './random'
-import { mockState } from './state'
+import { mockState, type PlatformUserChange } from './state'
 import { remoteDestinationRoute } from './remote-destinations'
 import { wireguardHubs, wireguardRoute } from './wireguard'
 
@@ -558,12 +559,13 @@ export function restorePlatformUsers(storage: Storage) {
   try {
     const saved = JSON.parse(storage?.getItem(USERS_KEY) ?? '{}') as Record<
       string,
-      { status?: PlatformUserStatus; platform_roles?: PlatformRoleKey[] }
+      PlatformUserChange
     >
     for (const [id, change] of Object.entries(saved)) {
       if (!mockState.platformUsers.has(id)) mockState.platformUsers.set(id, change)
       const user = USERS.find((u) => u.me.id === id)
       if (user && change.platform_roles) applyPlatformRoles(user, change.platform_roles)
+      if (user) applyProfile(user, change)
     }
   } catch {
     // estado guardado ilegible: se ignora
@@ -578,6 +580,15 @@ function saveUsers() {
   }
 }
 
+/** Nombre y correo cambiados desde la consola (el correo también es el usuario de login). */
+function applyProfile(user: MockUser, change: PlatformUserChange) {
+  if (change.email) {
+    user.me.email = change.email
+    user.username = change.email.toLowerCase()
+  }
+  if (change.display_name) user.me.display_name = change.display_name
+}
+
 function applyPlatformRoles(user: MockUser, roles: PlatformRoleKey[]) {
   user.me.platform_roles = [...roles]
   user.me.platform_permissions = [
@@ -587,8 +598,10 @@ function applyPlatformRoles(user: MockUser, roles: PlatformRoleKey[]) {
 
 /** Estado de una cuenta que inicia sesión: el fijado desde la consola o el derivado. */
 export function platformUserStatus(user: MockUser): PlatformUserStatus {
-  const override = mockState.platformUsers.get(user.me.id)?.status
-  if (override) return override
+  const change = mockState.platformUsers.get(user.me.id)
+  // Una cuenta eliminada no inicia sesión (mismo mensaje que una bloqueada).
+  if (change?.deleted) return 'disabled'
+  if (change?.status) return change.status
   return user.me.must_change_password && !user.me.mfa_enabled ? 'pending' : 'active'
 }
 
@@ -612,9 +625,13 @@ function platformUsers(): PlatformUser[] {
       ...u,
       status: change?.status ?? u.status,
       platform_roles: change?.platform_roles ?? u.platform_roles,
+      email: change?.email ?? u.email,
+      display_name: change?.display_name ?? u.display_name,
     }
   })
-  return [...real, ...extra].sort((a, b) => a.display_name.localeCompare(b.display_name, 'es'))
+  return [...real, ...extra]
+    .filter((u) => !mockState.platformUsers.get(u.id)?.deleted)
+    .sort((a, b) => a.display_name.localeCompare(b.display_name, 'es'))
 }
 
 const PLATFORM_ROLES = Object.keys(PLATFORM_ROLE_PERMISSIONS) as PlatformRoleKey[]
@@ -632,10 +649,17 @@ function usersRoutes(ctx: PlatformRouteContext): Response | undefined {
     )
     return json(paginate(rows, ctx.url))
   }
-  const m = ctx.path.match(/^\/platform\/users\/([^/]+)(\/platform-roles)?$/)
+  const m = ctx.path.match(/^\/platform\/users\/([^/]+)(\/(platform-roles|password-reset))?$/)
   if (!m) return
-  const isRoles = !!m[2]
-  if ((isRoles && ctx.method !== 'PUT') || (!isRoles && ctx.method !== 'PATCH')) return
+  const sub = m[3]
+  const isRoles = sub === 'platform-roles'
+  const isReset = sub === 'password-reset'
+  const allowed = isRoles
+    ? ctx.method === 'PUT'
+    : isReset
+      ? ctx.method === 'POST'
+      : ctx.method === 'PATCH' || ctx.method === 'DELETE'
+  if (!allowed) return
   if (!ctx.can('platform.users.manage')) return forbidden()
   const all = platformUsers()
   const target = all.find((u) => u.id === m[1])
@@ -645,6 +669,34 @@ function usersRoutes(ctx: PlatformRouteContext): Response | undefined {
   }
   const activeAdmins = (list: PlatformUser[]) =>
     list.filter((u) => u.status === 'active' && u.platform_roles.includes('platform_admin')).length
+  const change: PlatformUserChange = { ...mockState.platformUsers.get(target.id) }
+  const account = USERS.find((u) => u.me.id === target.id)
+
+  if (isReset) {
+    return json(
+      issuePasswordReset(
+        { user_id: target.id, email: target.email, display_name: target.display_name },
+        ctx.now,
+      ),
+      200,
+      { 'Cache-Control': 'no-store' },
+    )
+  }
+
+  if (ctx.method === 'DELETE') {
+    if (target.id === ctx.userId) {
+      return problem(422, 'CANNOT_DELETE_SELF', 'No puedes eliminar tu propia cuenta')
+    }
+    if (activeAdmins(all.filter((u) => u.id !== target.id)) === 0) return lastAdminConflict()
+    change.deleted = true
+    mockState.platformUsers.set(target.id, change)
+    for (const list of mockState.members.values()) {
+      const i = list.findIndex((mem) => mem.user_id === target.id)
+      if (i >= 0) list.splice(i, 1)
+    }
+    saveUsers()
+    return noContent()
+  }
 
   let next: PlatformUser
   if (isRoles) {
@@ -653,44 +705,52 @@ function usersRoutes(ctx: PlatformRouteContext): Response | undefined {
       !Array.isArray(roles) ||
       roles.some((r) => !PLATFORM_ROLES.includes(r as PlatformRoleKey))
     ) {
-      return problem(
-        422,
-        'VALIDATION_FAILED',
-        'Revisa los campos marcados',
-        {},
-        {
-          errors: [
-            { field: 'platform_roles', code: 'INVALID', message: 'Rol de plataforma no válido' },
-          ],
-        },
-      )
+      return invalid('platform_roles', 'Rol de plataforma no válido')
     }
     next = { ...target, platform_roles: [...new Set(roles as PlatformRoleKey[])] }
+    change.platform_roles = next.platform_roles as PlatformRoleKey[]
   } else {
-    const status = String((ctx.body as { status?: unknown }).status ?? '')
-    if (status !== 'active' && status !== 'disabled') {
-      return problem(
-        422,
-        'VALIDATION_FAILED',
-        'Revisa los campos marcados',
-        {},
-        { errors: [{ field: 'status', code: 'INVALID', message: 'Estado no válido' }] },
-      )
+    const body = ctx.body as { status?: unknown; email?: unknown; display_name?: unknown }
+    next = { ...target }
+    if (body.status !== undefined) {
+      const status = String(body.status)
+      if (status !== 'active' && status !== 'disabled') return invalid('status', 'Estado no válido')
+      if (status === 'disabled' && target.id === ctx.userId) {
+        return problem(409, 'CONFLICT', 'No puedes bloquear tu propia cuenta')
+      }
+      next.status = status
+      change.status = status
     }
-    if (status === 'disabled' && target.id === ctx.userId) {
-      return problem(409, 'CONFLICT', 'No puedes bloquear tu propia cuenta')
+    if (body.display_name !== undefined) {
+      const name = String(body.display_name).trim()
+      if (!name || name.length > 120) return invalid('display_name', 'Escribe un nombre')
+      next.display_name = name
+      change.display_name = name
     }
-    next = { ...target, status }
+    if (body.email !== undefined) {
+      const email = String(body.email).trim().toLowerCase()
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+        return invalid('email', 'Escribe un correo válido')
+      }
+      if (all.some((u) => u.id !== target.id && u.email.toLowerCase() === email)) {
+        return problem(409, 'ALREADY_EXISTS', 'Ya existe una cuenta con ese correo')
+      }
+      next.email = email
+      change.email = email
+    }
   }
   if (activeAdmins(all.map((u) => (u.id === next.id ? next : u))) === 0) return lastAdminConflict()
 
-  const roles = next.platform_roles as PlatformRoleKey[]
-  const change = { ...mockState.platformUsers.get(target.id) }
-  if (isRoles) change.platform_roles = roles
-  else change.status = next.status
   mockState.platformUsers.set(target.id, change)
-  const account = USERS.find((u) => u.me.id === target.id)
-  if (account && isRoles) applyPlatformRoles(account, roles)
+  if (account && isRoles) applyPlatformRoles(account, next.platform_roles as PlatformRoleKey[])
+  if (account && !isRoles) applyProfile(account, change)
+  // Los miembros de los ISP muestran el mismo nombre y correo.
+  if (!isRoles) {
+    for (const list of mockState.members.values()) {
+      const mem = list.find((x) => x.user_id === target.id)
+      if (mem) Object.assign(mem, { email: next.email, display_name: next.display_name })
+    }
+  }
   saveUsers()
   return json(next)
 }

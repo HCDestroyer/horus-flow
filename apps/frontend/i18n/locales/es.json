@@ -14,7 +14,6 @@
     "hidePassword": "Ocultar contraseña",
     "submit": "Iniciar sesión",
     "forgot": "¿Olvidaste tu contraseña?",
-    "forgotHint": "Pide a la administración de tu ISP que restablezca tu acceso.",
     "errors": {
       "emailRequired": "Escribe tu correo electrónico",
       "emailInvalid": "Escribe un correo válido, por ejemplo nombre{'@'}tu-isp.com",
@@ -279,6 +278,29 @@
       "wrongCredentials": "La contraseña actual o el código no son correctos.",
       "invalid": "Los datos no son válidos; revisa los campos.",
       "network": "No se pudo contactar con el servidor. Inténtalo de nuevo."
+    },
+    "profile": {
+      "title": "Datos de la cuenta",
+      "hint": "Tu nombre aparece en los ISP de los que eres miembro y en la auditoría.",
+      "name": "Nombre",
+      "nameRequired": "Escribe tu nombre.",
+      "timezone": "Zona horaria",
+      "timezoneSearch": "Buscar zona horaria…",
+      "timezoneHint": "Se usa para mostrar fechas y horas en esta consola.",
+      "submit": "Guardar cambios",
+      "saved": "Datos de la cuenta guardados."
+    },
+    "emailChange": {
+      "title": "Correo electrónico",
+      "hint": "Es tu usuario para iniciar sesión en toda la plataforma. Cambiarlo exige confirmar tu identidad.",
+      "label": "Correo nuevo",
+      "invalid": "Escribe un correo válido, por ejemplo nombre{'@'}tu-isp.com",
+      "same": "Es el mismo correo que ya tienes.",
+      "submit": "Cambiar correo",
+      "saved": "Correo cambiado: a partir de ahora inicias sesión con {email}.",
+      "exists": "Ya existe una cuenta con ese correo.",
+      "reauthBody": "Por seguridad, cambiar el correo exige confirmar que eres tú: escribe de nuevo tu contraseña.",
+      "reauthCancelled": "No se cambió el correo: confirma tu identidad para continuar."
     }
   },
   "states": {
@@ -1779,7 +1801,9 @@
       "menu": "Acciones para {name}",
       "reissue": "Generar enlace",
       "roles": "Cambiar roles",
-      "remove": "Quitar del ISP"
+      "remove": "Quitar del ISP",
+      "edit": "Editar",
+      "resetPassword": "Restablecer contraseña"
     },
     "invite": {
       "open": "Invitar",
@@ -1838,7 +1862,44 @@
       "reauthCancelled": "No se guardó el cambio: confirma tu identidad para continuar.",
       "customHint": "¿Necesitas otra combinación de permisos?"
     },
-    "manageRoles": "Gestionar roles"
+    "manageRoles": "Gestionar roles",
+    "edit": {
+      "title": "Editar a {name}",
+      "description": "El nombre y el correo cambian en toda la plataforma; el correo es su usuario para iniciar sesión.",
+      "name": "Nombre",
+      "nameRequired": "Escribe un nombre.",
+      "email": "Correo electrónico",
+      "emailInvalid": "Escribe un correo válido, por ejemplo nombre{'@'}tu-isp.com",
+      "saved": "Datos de {name} actualizados",
+      "exists": "Ya existe una cuenta con ese correo.",
+      "shared": "Esta cuenta también pertenece a otro ISP o tiene roles de plataforma: solo puede editarla un administrador de la plataforma.",
+      "reauthBody": "Por seguridad, editar los datos de un miembro exige confirmar que eres tú: escribe de nuevo tu contraseña.",
+      "reauthCancelled": "No se guardó: confirma tu identidad para continuar."
+    },
+    "reset": {
+      "title": "¿Restablecer la contraseña de {name}?",
+      "body": "Se genera un enlace de un solo uso, válido 30 minutos, para que {email} elija una contraseña nueva. Al usarlo se cierran todas sus sesiones. Su contraseña actual sigue valiendo hasta entonces.",
+      "submit": "Generar enlace",
+      "linkTitle": "Enlace para {name}",
+      "linkDescription": "Comparte este enlace solo con {email}: sirve para entrar en su cuenta.",
+      "reauthBody": "Por seguridad, restablecer la contraseña de un miembro exige confirmar que eres tú: escribe de nuevo tu contraseña.",
+      "reauthCancelled": "No se generó el enlace: confirma tu identidad para continuar."
+    },
+    "resetLink": {
+      "onceTitle": "Este enlace solo se muestra ahora",
+      "onceBody": "Funciona una sola vez y durante 30 minutos. Quien lo abra podrá fijar la contraseña de la cuenta: entrégalo solo a su titular.",
+      "label": "Enlace de restablecimiento",
+      "expires": "Caduca:",
+      "emailSent": "También se envió por correo a {email}.",
+      "noEmail": "No hay correo configurado: haz llegar el enlace a la persona.",
+      "share": "Compartir",
+      "copy": "Copiar enlace",
+      "copied": "Enlace copiado",
+      "copyFailed": "No se pudo copiar. Selecciona el enlace y cópialo a mano.",
+      "shareFailed": "No se pudo abrir el menú de compartir. Copia el enlace.",
+      "shareTitle": "Restablecer contraseña en Horus Flow",
+      "shareText": "Abre este enlace para elegir una contraseña nueva en Horus Flow (funciona una sola vez, 30 minutos):"
+    }
   },
   "roles": {
     "intro": "Qué puede hacer cada rol en este ISP. Los roles de sistema no se modifican; crea roles propios para combinaciones a medida.",
@@ -1988,7 +2049,10 @@
       "menu": "Acciones para {name}",
       "roles": "Roles de plataforma",
       "block": "Bloquear",
-      "activate": "Activar"
+      "activate": "Activar",
+      "edit": "Editar",
+      "resetPassword": "Restablecer contraseña",
+      "delete": "Eliminar cuenta"
     },
     "block": {
       "title": "¿Bloquear a {name}?",
@@ -2017,7 +2081,31 @@
     "rolesSaved": "Roles de plataforma de {name} actualizados",
     "lastAdmin": "Debe quedar al menos un superadministrador activo",
     "reauthBody": "Por seguridad, gestionar usuarios de plataforma exige confirmar que eres tú: escribe de nuevo tu contraseña.",
-    "reauthCancelled": "No se guardó: confirma tu identidad para continuar."
+    "reauthCancelled": "No se guardó: confirma tu identidad para continuar.",
+    "edit": {
+      "title": "Editar a {name}",
+      "description": "El nombre y el correo cambian en toda la instalación; el correo es su usuario para iniciar sesión.",
+      "name": "Nombre",
+      "nameRequired": "Escribe un nombre.",
+      "email": "Correo electrónico",
+      "emailInvalid": "Escribe un correo válido, por ejemplo nombre{'@'}tu-isp.com",
+      "saved": "Datos de {name} actualizados",
+      "exists": "Ya existe una cuenta con ese correo."
+    },
+    "reset": {
+      "title": "¿Restablecer la contraseña de {name}?",
+      "body": "Se genera un enlace de un solo uso, válido 30 minutos, para que {email} elija una contraseña nueva. Al usarlo se cierran todas sus sesiones.",
+      "submit": "Generar enlace",
+      "linkTitle": "Enlace para {name}",
+      "linkDescription": "Comparte este enlace solo con {email}: sirve para entrar en su cuenta."
+    },
+    "delete": {
+      "title": "¿Eliminar la cuenta de {name}?",
+      "body": "Se cierran todas sus sesiones y pierde el acceso a todos los ISP de los que es miembro. La auditoría conserva lo que hizo. Esta acción no se puede deshacer.",
+      "submit": "Eliminar cuenta",
+      "done": "La cuenta de {name} se ha eliminado",
+      "self": "No puedes eliminar tu propia cuenta."
+    }
   },
   "invitation": {
     "title": "Invitación",
@@ -2606,6 +2694,48 @@
       "neverUsed": "sin usar",
       "revoke": "Revocar",
       "revoked": "Token revocado"
+    }
+  },
+  "forgotPassword": {
+    "title": "Recuperar contraseña",
+    "description": "Escribe el correo de tu cuenta y te enviaremos un enlace para elegir una contraseña nueva.",
+    "email": "Correo electrónico",
+    "submit": "Enviar enlace",
+    "back": "Volver a iniciar sesión",
+    "sent": {
+      "title": "Revisa tu correo",
+      "body": "Si el correo está registrado, recibirás un enlace válido durante 30 minutos. Si no llega, mira la carpeta de correo no deseado."
+    },
+    "noEmail": {
+      "title": "Esta instalación no envía correo",
+      "body": "Pide a un administrador de tu ISP que te genere un enlace de restablecimiento desde Usuarios y roles y te lo haga llegar."
+    },
+    "errors": {
+      "emailRequired": "Escribe tu correo electrónico",
+      "emailInvalid": "Escribe un correo válido, por ejemplo nombre{'@'}tu-isp.com"
+    }
+  },
+  "resetPassword": {
+    "title": "Nueva contraseña",
+    "heading": "Elige una contraseña nueva",
+    "summary": "Para la cuenta de {name} ({email}).",
+    "expires": "El enlace vale hasta {time}.",
+    "password": "Nueva contraseña",
+    "passwordHint": "Mínimo 12 caracteres. Al guardarla se cierran todas tus sesiones abiertas.",
+    "repeat": "Repite la nueva contraseña",
+    "submit": "Guardar contraseña",
+    "goLogin": "Ir a iniciar sesión",
+    "done": {
+      "title": "Contraseña guardada",
+      "body": "Ya puedes iniciar sesión con {email} y tu contraseña nueva."
+    },
+    "invalid": {
+      "title": "Este enlace no sirve",
+      "INVALID_TOKEN": "El enlace de restablecimiento no es válido.",
+      "EXPIRED": "El enlace de restablecimiento ha caducado: valía 30 minutos.",
+      "USED": "Este enlace ya se usó. Cada enlace sirve una sola vez.",
+      "advice": "Pide uno nuevo desde «¿Olvidaste tu contraseña?» o a un administrador de tu ISP.",
+      "again": "Pedir otro enlace"
     }
   }
 }

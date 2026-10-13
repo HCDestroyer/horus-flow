@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import type { DropdownMenuItem, TableColumn } from '@nuxt/ui'
-import type { PlatformRoleKey, PlatformUser, PlatformUserStatus } from '~~/types/api'
+import type {
+  PasswordResetIssued,
+  PlatformRoleKey,
+  PlatformUser,
+  PlatformUserStatus,
+} from '~~/types/api'
 
 /**
  * Usuarios de la instalación (consola de plataforma, `platform.users.read`): estado de la
@@ -10,6 +15,9 @@ import type { PlatformRoleKey, PlatformUser, PlatformUserStatus } from '~~/types
  * Con `platform.users.manage` (re-autenticación reciente, useReauth):
  * - "Bloquear" / "Activar": bloquear revoca sus sesiones al momento; nunca la propia cuenta.
  * - "Roles de plataforma": platform_admin / platform_operator / platform_auditor.
+ * - "Editar" (nombre y correo), "Restablecer contraseña" (enlace de un solo uso, 30 min, con
+ *   el mismo panel que las invitaciones) y "Eliminar cuenta" (revoca sesiones y membresías,
+ *   conserva la auditoría; nunca la propia cuenta).
  * Siempre debe quedar un superadministrador activo (409 LAST_PLATFORM_ADMIN).
  */
 const { t } = useI18n()
@@ -119,9 +127,19 @@ function actionsFor(u: PlatformUser): DropdownMenuItem[][] {
   if (!canManage.value) return []
   const main: DropdownMenuItem[] = [
     {
+      label: t('platformUsers.actions.edit'),
+      icon: 'i-lucide-pencil',
+      onSelect: () => openEdit(u),
+    },
+    {
       label: t('platformUsers.actions.roles'),
       icon: 'i-lucide-shield-user',
       onSelect: () => openRoles(u),
+    },
+    {
+      label: t('platformUsers.actions.resetPassword'),
+      icon: 'i-lucide-key-round',
+      onSelect: () => openReset(u),
     },
   ]
   const status: DropdownMenuItem[] = []
@@ -142,7 +160,17 @@ function actionsFor(u: PlatformUser): DropdownMenuItem[][] {
       onSelect: () => openStatus(u, 'active'),
     })
   }
-  return [main, status].filter((g) => g.length)
+  // Eliminar: nunca la propia cuenta (422 CANNOT_DELETE_SELF); se deja ver, deshabilitado.
+  const danger: DropdownMenuItem[] = [
+    {
+      label: t('platformUsers.actions.delete'),
+      icon: 'i-lucide-user-x',
+      color: 'error',
+      disabled: isSelf(u),
+      onSelect: () => openDelete(u),
+    },
+  ]
+  return [main, status, danger].filter((g) => g.length)
 }
 
 const columns: TableColumn<PlatformUser>[] = [
@@ -210,6 +238,170 @@ async function applyStatus() {
     if (e instanceof ApiError && e.status === 404) load()
   } finally {
     statusBusy.value = false
+  }
+}
+
+// --- Editar (nombre y correo) ----------------------------------------------------------------
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
+const editTarget = ref<PlatformUser | null>(null)
+const editForm = reactive({ name: '', email: '' })
+const editErrors = ref<Record<string, string>>({})
+const editBusy = ref(false)
+const editOpen = computed({
+  get: () => !!editTarget.value,
+  set: (v) => {
+    if (!v) editTarget.value = null
+  },
+})
+function openEdit(user: PlatformUser) {
+  editTarget.value = user
+  editForm.name = user.display_name
+  editForm.email = user.email
+  editErrors.value = {}
+}
+async function saveEdit() {
+  const user = editTarget.value
+  if (!user) return
+  editErrors.value = {}
+  const name = editForm.name.trim()
+  const email = editForm.email.trim().toLowerCase()
+  if (!name) {
+    editErrors.value = { name: t('platformUsers.edit.nameRequired') }
+    return
+  }
+  if (!EMAIL_RE.test(email)) {
+    editErrors.value = { email: t('platformUsers.edit.emailInvalid') }
+    return
+  }
+  const body: { display_name?: string; email?: string } = {}
+  if (name !== user.display_name) body.display_name = name
+  if (email !== user.email.toLowerCase()) body.email = email
+  if (!Object.keys(body).length) {
+    editTarget.value = null
+    return
+  }
+  editBusy.value = true
+  try {
+    const updated = await withReauth(
+      () =>
+        unwrap(
+          $api.PATCH('/platform/users/{user_id}', {
+            params: { path: { user_id: user.id } },
+            body,
+          }),
+        ),
+      t('platformUsers.reauthBody'),
+    )
+    replace(updated)
+    editTarget.value = null
+    toast.add({
+      title: t('platformUsers.edit.saved', { name: updated.display_name }),
+      color: 'success',
+      icon: 'i-lucide-check',
+    })
+    if (isSelf(updated)) await auth.reloadMe()
+  } catch (e) {
+    if (e instanceof ApiError && e.code === 'ALREADY_EXISTS') {
+      editErrors.value = { email: t('platformUsers.edit.exists') }
+    } else if (e instanceof ApiError && e.status === 422 && e.problem.errors?.length) {
+      editErrors.value = Object.fromEntries(
+        e.problem.errors.map((x) => [x.field === 'display_name' ? 'name' : x.field, x.message]),
+      )
+    } else editErrors.value = { _: errorMessage(e) }
+    if (e instanceof ApiError && e.status === 404) load()
+  } finally {
+    editBusy.value = false
+  }
+}
+
+// --- Restablecer contraseña --------------------------------------------------------------------
+const resetTarget = ref<PlatformUser | null>(null)
+const resetBusy = ref(false)
+const resetError = ref<string | null>(null)
+/** Enlace recién emitido: se muestra una sola vez. */
+const resetIssued = ref<PasswordResetIssued | null>(null)
+const resetOpen = computed({
+  get: () => !!resetTarget.value,
+  set: (v) => {
+    if (!v) {
+      resetTarget.value = null
+      resetIssued.value = null
+    }
+  },
+})
+function openReset(user: PlatformUser) {
+  resetTarget.value = user
+  resetIssued.value = null
+  resetError.value = null
+}
+async function issueReset() {
+  const user = resetTarget.value
+  if (!user) return
+  resetBusy.value = true
+  resetError.value = null
+  try {
+    resetIssued.value = await withReauth(
+      () =>
+        unwrap(
+          $api.POST('/platform/users/{user_id}/password-reset', {
+            params: { path: { user_id: user.id } },
+          }),
+        ),
+      t('platformUsers.reauthBody'),
+    )
+  } catch (e) {
+    resetError.value = errorMessage(e)
+    if (e instanceof ApiError && e.status === 404) load()
+  } finally {
+    resetBusy.value = false
+  }
+}
+
+// --- Eliminar cuenta -------------------------------------------------------------------------
+const deleteTarget = ref<PlatformUser | null>(null)
+const deleteBusy = ref(false)
+const deleteError = ref<string | null>(null)
+const deleteOpen = computed({
+  get: () => !!deleteTarget.value,
+  set: (v) => {
+    if (!v) deleteTarget.value = null
+  },
+})
+function openDelete(user: PlatformUser) {
+  if (isSelf(user)) return
+  deleteTarget.value = user
+  deleteError.value = null
+}
+async function applyDelete() {
+  const user = deleteTarget.value
+  if (!user) return
+  deleteBusy.value = true
+  deleteError.value = null
+  try {
+    await withReauth(
+      () =>
+        unwrap(
+          $api.DELETE('/platform/users/{user_id}', { params: { path: { user_id: user.id } } }),
+        ),
+      t('platformUsers.reauthBody'),
+    )
+    rows.value = rows.value.filter((u) => u.id !== user.id)
+    deleteTarget.value = null
+    toast.add({
+      title: t('platformUsers.delete.done', { name: user.display_name }),
+      color: 'success',
+      icon: 'i-lucide-check',
+    })
+  } catch (e) {
+    if (e instanceof ApiError && e.code === 'CANNOT_DELETE_SELF') {
+      deleteError.value = t('platformUsers.delete.self')
+    } else deleteError.value = errorMessage(e)
+    if (e instanceof ApiError && e.status === 404) {
+      deleteTarget.value = null
+      load()
+    }
+  } finally {
+    deleteBusy.value = false
   }
 }
 
@@ -524,6 +716,171 @@ async function saveRoles() {
             "
             data-testid="platform-status-confirm"
             @click="applyStatus"
+          />
+        </div>
+      </template>
+    </UModal>
+
+    <!-- Editar nombre y correo -->
+    <UModal
+      v-model:open="editOpen"
+      :title="t('platformUsers.edit.title', { name: editTarget?.display_name ?? '' })"
+      :description="t('platformUsers.edit.description')"
+    >
+      <template #body>
+        <form
+          id="platform-user-edit-form"
+          class="flex flex-col gap-4"
+          novalidate
+          data-testid="platform-user-edit-form"
+          @submit.prevent="saveEdit"
+        >
+          <UFormField :label="t('platformUsers.edit.name')" :error="editErrors.name" required>
+            <UInput
+              v-model="editForm.name"
+              autocomplete="off"
+              maxlength="120"
+              class="w-full"
+              data-testid="platform-user-edit-name"
+            />
+          </UFormField>
+          <UFormField :label="t('platformUsers.edit.email')" :error="editErrors.email" required>
+            <UInput
+              v-model="editForm.email"
+              type="email"
+              autocomplete="off"
+              inputmode="email"
+              spellcheck="false"
+              autocapitalize="none"
+              class="w-full"
+              data-testid="platform-user-edit-email"
+            />
+          </UFormField>
+          <UAlert
+            v-if="editErrors._"
+            color="error"
+            variant="subtle"
+            icon="i-lucide-circle-alert"
+            :title="editErrors._"
+            data-testid="platform-user-edit-error"
+          />
+        </form>
+      </template>
+      <template #footer>
+        <div class="flex w-full justify-end gap-2">
+          <UButton
+            color="neutral"
+            variant="ghost"
+            :label="t('common.cancel')"
+            @click="editTarget = null"
+          />
+          <UButton
+            type="submit"
+            form="platform-user-edit-form"
+            :loading="editBusy"
+            :label="t('common.save')"
+            data-testid="platform-user-edit-save"
+          />
+        </div>
+      </template>
+    </UModal>
+
+    <!-- Restablecer contraseña -->
+    <UModal
+      v-model:open="resetOpen"
+      :title="
+        resetIssued
+          ? t('platformUsers.reset.linkTitle', { name: resetTarget?.display_name ?? '' })
+          : t('platformUsers.reset.title', { name: resetTarget?.display_name ?? '' })
+      "
+      :description="
+        resetIssued
+          ? t('platformUsers.reset.linkDescription', { email: resetTarget?.email ?? '' })
+          : t('platformUsers.reset.body', {
+              name: resetTarget?.display_name ?? '',
+              email: resetTarget?.email ?? '',
+            })
+      "
+    >
+      <template v-if="resetIssued || resetError" #body>
+        <PasswordResetLinkPanel
+          v-if="resetIssued"
+          :issued="resetIssued"
+          :email="resetTarget?.email ?? ''"
+        />
+        <UAlert
+          v-else-if="resetError"
+          color="error"
+          variant="subtle"
+          icon="i-lucide-circle-alert"
+          :title="resetError"
+          data-testid="platform-reset-error"
+        />
+      </template>
+      <template #footer>
+        <div class="flex w-full justify-end gap-2">
+          <template v-if="resetIssued">
+            <UButton
+              color="neutral"
+              variant="outline"
+              :label="t('common.close')"
+              data-testid="platform-reset-close"
+              @click="resetOpen = false"
+            />
+          </template>
+          <template v-else>
+            <UButton
+              color="neutral"
+              variant="outline"
+              :label="t('common.cancel')"
+              autofocus
+              @click="resetOpen = false"
+            />
+            <UButton
+              icon="i-lucide-key-round"
+              :loading="resetBusy"
+              :label="t('platformUsers.reset.submit')"
+              data-testid="platform-reset-confirm"
+              @click="issueReset"
+            />
+          </template>
+        </div>
+      </template>
+    </UModal>
+
+    <!-- Eliminar cuenta -->
+    <UModal
+      v-model:open="deleteOpen"
+      :title="t('platformUsers.delete.title', { name: deleteTarget?.display_name ?? '' })"
+      :description="t('platformUsers.delete.body')"
+    >
+      <template #body>
+        <UAlert
+          v-if="deleteError"
+          color="error"
+          variant="subtle"
+          icon="i-lucide-circle-alert"
+          :title="deleteError"
+          data-testid="platform-delete-error"
+        />
+        <p v-else class="text-muted text-sm">{{ deleteTarget?.email }}</p>
+      </template>
+      <template #footer>
+        <div class="flex w-full justify-end gap-2">
+          <UButton
+            color="neutral"
+            variant="outline"
+            :label="t('common.cancel')"
+            autofocus
+            @click="deleteTarget = null"
+          />
+          <UButton
+            color="error"
+            icon="i-lucide-user-x"
+            :loading="deleteBusy"
+            :label="t('platformUsers.delete.submit')"
+            data-testid="platform-delete-confirm"
+            @click="applyDelete"
           />
         </div>
       </template>

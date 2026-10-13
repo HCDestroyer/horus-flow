@@ -175,18 +175,18 @@ function backToCredentials(clearError = true) {
 
       <UFormField :label="t('login.password')" name="password" required>
         <template #hint>
-          <UPopover :content="{ side: 'top' }">
-            <UButton
-              variant="link"
-              color="neutral"
-              size="xs"
-              class="px-0"
-              :label="t('login.forgot')"
-            />
-            <template #content>
-              <p class="max-w-64 p-3 text-sm">{{ t('login.forgotHint') }}</p>
-            </template>
-          </UPopover>
+          <!-- Sin robar el foco: si no, el blur del correo vacío pinta su error, la página se
+               desplaza entre mousedown y mouseup y el clic en el enlace se pierde. -->
+          <UButton
+            to="/forgot-password"
+            variant="link"
+            color="neutral"
+            size="xs"
+            class="px-0"
+            :label="t('login.forgot')"
+            data-testid="login-forgot"
+            @mousedown.prevent
+          />
         </template>
         <UInput
           v-model="credentials.password"

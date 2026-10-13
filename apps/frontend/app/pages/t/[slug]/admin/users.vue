@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { DropdownMenuItem, TableColumn } from '@nuxt/ui'
-import type { InvitationIssued, Member, RoleAssignment } from '~~/types/api'
+import type { InvitationIssued, Member, PasswordResetIssued, RoleAssignment } from '~~/types/api'
 
 /**
  * Usuarios y roles del ISP (I1): quién tiene acceso y con qué rol.
@@ -12,6 +12,10 @@ import type { InvitationIssued, Member, RoleAssignment } from '~~/types/api'
  * - "Generar enlace" para un invitado (invalida los anteriores), "Quitar" con confirmación y
  *   "Cambiar roles" (`roles.assign`, `If-Match` + re-autenticación reciente: si el backend la
  *   pide, se confirma la identidad en un diálogo y el cambio se reintenta solo).
+ * - "Editar" (nombre y correo, `PATCH /members/{id}`) y "Restablecer contraseña" (miembros
+ *   activos: enlace de un solo uso, 30 min, con el mismo panel que las invitaciones), ambas
+ *   con re-autenticación. Una cuenta que también pertenece a otro ISP o tiene roles de
+ *   plataforma solo la edita la consola de plataforma (409 USER_SHARED).
  * Ocultar por permiso, deshabilitar por estado (frontend.md §12).
  */
 type Row = { role_id: string; scope: string }
@@ -139,6 +143,20 @@ const isSelf = (m: Member) => m.user_id === me.value?.id
 
 function actionsFor(m: Member): DropdownMenuItem[][] {
   const main: DropdownMenuItem[] = []
+  if (canManage.value && m.status !== 'revoked') {
+    main.push({
+      label: t('members.actions.edit'),
+      icon: 'i-lucide-pencil',
+      onSelect: () => openEdit(m),
+    })
+  }
+  if (canManage.value && m.status === 'active') {
+    main.push({
+      label: t('members.actions.resetPassword'),
+      icon: 'i-lucide-key-round',
+      onSelect: () => openReset(m),
+    })
+  }
   if (canManage.value && m.status === 'invited') {
     main.push({
       label: t('members.actions.reissue'),
@@ -306,6 +324,131 @@ async function remove() {
     removeBusy.value = false
     removing.value = null
     load()
+  }
+}
+
+// --- Editar (nombre y correo) ----------------------------------------------------------------
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
+const editTarget = ref<Member | null>(null)
+const editForm = reactive({ name: '', email: '' })
+const editFieldErrors = ref<Record<string, string>>({})
+const editBusy = ref(false)
+const editOpen = computed({
+  get: () => !!editTarget.value,
+  set: (v) => {
+    if (!v) editTarget.value = null
+  },
+})
+function openEdit(m: Member) {
+  editTarget.value = m
+  editForm.name = m.display_name
+  editForm.email = m.email
+  editFieldErrors.value = {}
+}
+
+/** Mensaje para los 409 de editar / restablecer (cuenta compartida, correo en uso…). */
+function conflictMessage(e: unknown, fallback: string) {
+  if (e instanceof ApiError && e.status === 409) {
+    if (e.code === 'USER_SHARED') return t('members.edit.shared')
+    if (e.code === 'ALREADY_EXISTS') return t('members.edit.exists')
+    return e.problem.detail ?? e.problem.title ?? fallback
+  }
+  return fallback
+}
+
+async function saveEdit() {
+  const m = editTarget.value
+  if (!m) return
+  editFieldErrors.value = {}
+  const name = editForm.name.trim()
+  const email = editForm.email.trim().toLowerCase()
+  if (!name) {
+    editFieldErrors.value = { name: t('members.edit.nameRequired') }
+    return
+  }
+  if (!EMAIL_RE.test(email)) {
+    editFieldErrors.value = { email: t('members.edit.emailInvalid') }
+    return
+  }
+  const body: { display_name?: string; email?: string } = {}
+  if (name !== m.display_name) body.display_name = name
+  if (email !== m.email.toLowerCase()) body.email = email
+  if (!Object.keys(body).length) {
+    editTarget.value = null
+    return
+  }
+  editBusy.value = true
+  try {
+    const updated = await withReauth(
+      () =>
+        unwrap(
+          $api.PATCH('/members/{user_id}', { params: { path: { user_id: m.user_id } }, body }),
+        ),
+      t('members.edit.reauthBody'),
+    )
+    rows.value = rows.value.map((r) => (r.user_id === updated.user_id ? updated : r))
+    editTarget.value = null
+    toast.add({
+      title: t('members.edit.saved', { name: updated.display_name }),
+      color: 'success',
+      icon: 'i-lucide-check',
+    })
+  } catch (e) {
+    if (isReauthRequired(e)) editFieldErrors.value = { _: t('members.edit.reauthCancelled') }
+    else if (e instanceof ApiError && e.status === 409) {
+      const message = conflictMessage(e, t('errors.generic.title'))
+      editFieldErrors.value = e.code === 'ALREADY_EXISTS' ? { email: message } : { _: message }
+    } else if (e instanceof ApiError && e.status === 422) {
+      const { display_name: name, ...rest } = fieldErrors(e)
+      editFieldErrors.value = name ? { ...rest, name } : rest
+    } else editFieldErrors.value = { _: t(describeError(e).messageKey) }
+    if (e instanceof ApiError && e.status === 404) load()
+  } finally {
+    editBusy.value = false
+  }
+}
+
+// --- Restablecer contraseña --------------------------------------------------------------------
+const resetTarget = ref<Member | null>(null)
+const resetBusy = ref(false)
+const resetError = ref<string | null>(null)
+/** Enlace recién emitido: se muestra una sola vez. */
+const resetIssued = ref<PasswordResetIssued | null>(null)
+const resetOpen = computed({
+  get: () => !!resetTarget.value,
+  set: (v) => {
+    if (!v) {
+      resetTarget.value = null
+      resetIssued.value = null
+    }
+  },
+})
+function openReset(m: Member) {
+  resetTarget.value = m
+  resetIssued.value = null
+  resetError.value = null
+}
+async function issueReset() {
+  const m = resetTarget.value
+  if (!m) return
+  resetBusy.value = true
+  resetError.value = null
+  try {
+    resetIssued.value = await withReauth(
+      () =>
+        unwrap(
+          $api.POST('/members/{user_id}/password-reset', {
+            params: { path: { user_id: m.user_id } },
+          }),
+        ),
+      t('members.reset.reauthBody'),
+    )
+  } catch (e) {
+    if (isReauthRequired(e)) resetError.value = t('members.reset.reauthCancelled')
+    else resetError.value = conflictMessage(e, t(describeError(e).messageKey))
+    if (e instanceof ApiError && (e.status === 404 || e.status === 409)) load()
+  } finally {
+    resetBusy.value = false
   }
 }
 
@@ -663,6 +806,133 @@ async function saveRoles() {
               :disabled="!roles.length"
               :label="t('members.invite.submit')"
               data-testid="invite-submit"
+            />
+          </template>
+        </div>
+      </template>
+    </UModal>
+
+    <!-- Editar nombre y correo -->
+    <UModal
+      v-model:open="editOpen"
+      :title="t('members.edit.title', { name: editTarget?.display_name ?? '' })"
+      :description="t('members.edit.description')"
+    >
+      <template #body>
+        <form
+          id="member-edit-form"
+          class="flex flex-col gap-4"
+          novalidate
+          data-testid="member-edit-form"
+          @submit.prevent="saveEdit"
+        >
+          <UFormField :label="t('members.edit.name')" :error="editFieldErrors.name" required>
+            <UInput
+              v-model="editForm.name"
+              autocomplete="off"
+              maxlength="120"
+              class="w-full"
+              data-testid="member-edit-name"
+            />
+          </UFormField>
+          <UFormField :label="t('members.edit.email')" :error="editFieldErrors.email" required>
+            <UInput
+              v-model="editForm.email"
+              type="email"
+              autocomplete="off"
+              inputmode="email"
+              spellcheck="false"
+              autocapitalize="none"
+              class="w-full"
+              data-testid="member-edit-email"
+            />
+          </UFormField>
+          <UAlert
+            v-if="editFieldErrors._"
+            color="error"
+            variant="subtle"
+            icon="i-lucide-circle-alert"
+            :title="editFieldErrors._"
+            data-testid="member-edit-error"
+          />
+        </form>
+      </template>
+      <template #footer>
+        <div class="flex w-full justify-end gap-2">
+          <UButton
+            color="neutral"
+            variant="ghost"
+            :label="t('common.cancel')"
+            @click="editTarget = null"
+          />
+          <UButton
+            type="submit"
+            form="member-edit-form"
+            :loading="editBusy"
+            :label="t('common.save')"
+            data-testid="member-edit-save"
+          />
+        </div>
+      </template>
+    </UModal>
+
+    <!-- Restablecer contraseña -->
+    <UModal
+      v-model:open="resetOpen"
+      :title="
+        resetIssued
+          ? t('members.reset.linkTitle', { name: resetTarget?.display_name ?? '' })
+          : t('members.reset.title', { name: resetTarget?.display_name ?? '' })
+      "
+      :description="
+        resetIssued
+          ? t('members.reset.linkDescription', { email: resetTarget?.email ?? '' })
+          : t('members.reset.body', {
+              name: resetTarget?.display_name ?? '',
+              email: resetTarget?.email ?? '',
+            })
+      "
+    >
+      <template v-if="resetIssued || resetError" #body>
+        <PasswordResetLinkPanel
+          v-if="resetIssued"
+          :issued="resetIssued"
+          :email="resetTarget?.email ?? ''"
+        />
+        <UAlert
+          v-else-if="resetError"
+          color="error"
+          variant="subtle"
+          icon="i-lucide-circle-alert"
+          :title="resetError"
+          data-testid="member-reset-error"
+        />
+      </template>
+      <template #footer>
+        <div class="flex w-full justify-end gap-2">
+          <template v-if="resetIssued">
+            <UButton
+              color="neutral"
+              variant="outline"
+              :label="t('common.close')"
+              data-testid="member-reset-close"
+              @click="resetOpen = false"
+            />
+          </template>
+          <template v-else>
+            <UButton
+              color="neutral"
+              variant="outline"
+              :label="t('common.cancel')"
+              autofocus
+              @click="resetOpen = false"
+            />
+            <UButton
+              icon="i-lucide-key-round"
+              :loading="resetBusy"
+              :label="t('members.reset.submit')"
+              data-testid="member-reset-confirm"
+              @click="issueReset"
             />
           </template>
         </div>

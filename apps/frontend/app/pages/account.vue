@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /**
- * Mi cuenta (fuera de la barra, frontend.md §4): cambio de contraseña y alta del TOTP.
+ * Mi cuenta (fuera de la barra, frontend.md §4): datos de la cuenta (nombre, zona horaria),
+ * correo (exige re-autenticación reciente, `useReauth`), cambio de contraseña y alta del TOTP.
  * El superadministrador recién instalado llega aquí obligado (`?required=password|mfa`): el
  * backend no emite tokens de plataforma ni de ISP hasta que cambie la contraseña inicial
  * (PASSWORD_CHANGE_REQUIRED) y, para la plataforma, active el TOTP (MFA_ENROLLMENT_REQUIRED).
@@ -12,11 +13,115 @@ const { $api } = useNuxtApp()
 const auth = useAuth()
 const { me } = auth
 const route = useRoute()
+const toast = useToast()
+const { withReauth } = useReauth()
 
 const required = computed(() => {
   const r = route.query.required
   return r === 'password' || r === 'mfa' || r === 'mfa-login' ? r : null
 })
+
+// --- Datos de la cuenta -----------------------------------------------------------------------
+const profile = reactive({ name: '', timezone: '' })
+const profileBusy = ref(false)
+const profileError = ref<string | null>(null)
+const profileDone = ref(false)
+
+function allZones() {
+  try {
+    const intl = Intl as unknown as { supportedValuesOf?: (key: string) => string[] }
+    return intl.supportedValuesOf?.('timeZone') ?? []
+  } catch {
+    return []
+  }
+}
+const zoneItems = ref(allZones())
+/** Navegador sin `Intl.supportedValuesOf`: la zona se escribe a mano. */
+const zonesAvailable = computed(() => zoneItems.value.length > 0)
+function addZone(zone: string) {
+  const value = zone.trim()
+  if (!value) return
+  if (!zoneItems.value.includes(value)) zoneItems.value = [value, ...zoneItems.value]
+  profile.timezone = value
+}
+
+function fillProfile() {
+  profile.name = me.value?.display_name ?? ''
+  profile.timezone = me.value?.timezone ?? ''
+  if (profile.timezone && !zoneItems.value.includes(profile.timezone)) {
+    zoneItems.value = [profile.timezone, ...zoneItems.value]
+  }
+}
+watch(me, fillProfile, { immediate: true })
+
+const profileChanged = computed(
+  () =>
+    profile.name.trim() !== (me.value?.display_name ?? '') ||
+    (profile.timezone.trim() || null) !== (me.value?.timezone ?? null),
+)
+
+async function saveProfile() {
+  const name = profile.name.trim()
+  if (!name) {
+    profileError.value = t('account.profile.nameRequired')
+    return
+  }
+  if (!profileChanged.value) return
+  profileBusy.value = true
+  profileError.value = null
+  profileDone.value = false
+  try {
+    const body: { display_name?: string; timezone?: string | null } = {}
+    if (name !== me.value?.display_name) body.display_name = name
+    const zone = profile.timezone.trim() || null
+    if (zone !== (me.value?.timezone ?? null)) body.timezone = zone
+    await unwrap($api.PATCH('/me', { body }))
+    await auth.reloadMe()
+    profileDone.value = true
+    toast.add({ title: t('account.profile.saved'), color: 'success', icon: 'i-lucide-check' })
+  } catch (error) {
+    profileError.value = errorMessage(error)
+  } finally {
+    profileBusy.value = false
+  }
+}
+
+// --- Correo (re-autenticación) ------------------------------------------------------------------
+const emailForm = reactive({ email: '' })
+const emailBusy = ref(false)
+const emailError = ref<string | null>(null)
+const emailDone = ref<string | null>(null)
+const emailInvalid = computed(() => {
+  const value = emailForm.email.trim()
+  if (!value) return null
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value)) return t('account.emailChange.invalid')
+  if (value.toLowerCase() === me.value?.email.toLowerCase()) return t('account.emailChange.same')
+  return null
+})
+
+async function changeEmail() {
+  const email = emailForm.email.trim()
+  if (!email || emailInvalid.value) return
+  emailBusy.value = true
+  emailError.value = null
+  emailDone.value = null
+  try {
+    await withReauth(
+      () => unwrap($api.PATCH('/me', { body: { email } })),
+      t('account.emailChange.reauthBody'),
+    )
+    await auth.reloadMe()
+    emailDone.value = t('account.emailChange.saved', { email: me.value?.email ?? email })
+    emailForm.email = ''
+  } catch (error) {
+    if (isReauthRequired(error)) emailError.value = t('account.emailChange.reauthCancelled')
+    else if (error instanceof ApiError && error.code === 'ALREADY_EXISTS') {
+      emailError.value = t('account.emailChange.exists')
+    } else emailError.value = errorMessage(error)
+  } finally {
+    emailBusy.value = false
+  }
+}
 
 // --- Contraseña ---------------------------------------------------------------------------------
 const pw = reactive({ current: '', next: '', repeat: '' })
@@ -113,7 +218,9 @@ async function continueIfReady() {
 function errorMessage(error: unknown) {
   if (error instanceof ApiError) {
     if (error.status === 401 || error.status === 403) return t('account.errors.wrongCredentials')
-    if (error.status === 422) return t('account.errors.invalid')
+    if (error.status === 422) {
+      return error.problem.errors?.[0]?.message ?? t('account.errors.invalid')
+    }
     return error.problem.detail ?? error.problem.title ?? error.code
   }
   return t('account.errors.network')
@@ -159,6 +266,119 @@ function errorMessage(error: unknown) {
             <dd class="font-mono">{{ me.timezone ?? '—' }}</dd>
           </div>
         </dl>
+      </UCard>
+
+      <!-- Datos de la cuenta -->
+      <UCard data-testid="profile-card">
+        <h2 class="text-highlighted text-base font-semibold">{{ t('account.profile.title') }}</h2>
+        <p class="text-muted mt-1 text-sm">{{ t('account.profile.hint') }}</p>
+        <form class="mt-4 flex flex-col gap-3" novalidate @submit.prevent="saveProfile">
+          <UFormField :label="t('account.profile.name')" name="display_name" required>
+            <UInput
+              v-model="profile.name"
+              autocomplete="name"
+              maxlength="120"
+              class="w-full"
+              data-testid="profile-name"
+            />
+          </UFormField>
+          <UFormField
+            :label="t('account.profile.timezone')"
+            name="timezone"
+            :help="t('account.profile.timezoneHint')"
+          >
+            <USelectMenu
+              v-if="zonesAvailable"
+              v-model="profile.timezone"
+              :items="zoneItems"
+              create-item
+              virtualize
+              class="w-full"
+              :search-input="{ placeholder: t('account.profile.timezoneSearch') }"
+              data-testid="profile-timezone"
+              @create="addZone"
+            />
+            <UInput
+              v-else
+              v-model="profile.timezone"
+              autocomplete="off"
+              spellcheck="false"
+              class="w-full font-mono"
+              data-testid="profile-timezone"
+            />
+          </UFormField>
+          <p v-if="profileError" class="text-error text-sm" role="alert">{{ profileError }}</p>
+          <p
+            v-if="profileDone && !profileChanged"
+            class="text-success text-sm"
+            role="status"
+            data-testid="profile-done"
+          >
+            {{ t('account.profile.saved') }}
+          </p>
+          <div>
+            <UButton
+              type="submit"
+              :loading="profileBusy"
+              :disabled="!profileChanged || !profile.name.trim()"
+              data-testid="profile-submit"
+            >
+              {{ t('account.profile.submit') }}
+            </UButton>
+          </div>
+        </form>
+      </UCard>
+
+      <!-- Correo -->
+      <UCard data-testid="email-card">
+        <h2 class="text-highlighted text-base font-semibold">
+          {{ t('account.emailChange.title') }}
+        </h2>
+        <p class="text-muted mt-1 text-sm">{{ t('account.emailChange.hint') }}</p>
+        <form class="mt-4 flex flex-col gap-3" novalidate @submit.prevent="changeEmail">
+          <UFormField :label="t('account.email')" name="current_email">
+            <UInput
+              :model-value="me.email"
+              readonly
+              disabled
+              class="w-full"
+              data-testid="email-current"
+            />
+          </UFormField>
+          <UFormField
+            :label="t('account.emailChange.label')"
+            name="email"
+            :error="emailInvalid ?? undefined"
+          >
+            <UInput
+              v-model="emailForm.email"
+              type="email"
+              autocomplete="off"
+              inputmode="email"
+              spellcheck="false"
+              autocapitalize="none"
+              class="w-full"
+              data-testid="email-new"
+            />
+          </UFormField>
+          <p v-if="emailError" class="text-error text-sm" role="alert" data-testid="email-error">
+            {{ emailError }}
+          </p>
+          <p v-if="emailDone" class="text-success text-sm" role="status" data-testid="email-done">
+            {{ emailDone }}
+          </p>
+          <div>
+            <UButton
+              type="submit"
+              icon="i-lucide-lock-keyhole"
+              :loading="emailBusy"
+              :disabled="!emailForm.email.trim() || !!emailInvalid"
+              data-testid="email-submit"
+            >
+              {{ t('account.emailChange.submit') }}
+            </UButton>
+          </div>
+        </form>
       </UCard>
 
       <!-- Contraseña -->

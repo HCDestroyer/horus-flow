@@ -36,6 +36,12 @@ export type CatalogPermission = PermissionCatalog['permissions'][number]
 export type InvitationIssued = Schemas['InvitationIssued']
 export type InvitationInspection =
   operations['authInspectInvitation']['responses'][200]['content']['application/json']
+export type MemberPatch = Schemas['MemberPatch']
+export type MePatch = Schemas['MePatch']
+/** Enlace de restablecimiento de contraseña emitido por un administrador. */
+export type PasswordResetIssued = Schemas['PasswordResetIssued']
+export type PasswordResetInspection =
+  operations['authInspectPasswordReset']['responses'][200]['content']['application/json']
 
 export type SystemStatus = Schemas['SystemStatus']
 export type CapabilityState = Schemas['CapabilityState']
@@ -140,6 +146,7 @@ export type TenantCreated =
   operations['platformCreateTenant']['responses'][201]['content']['application/json']
 export type PlatformUser = Schemas['PlatformUser']
 export type PlatformUserStatus = PlatformUser['status']
+export type PlatformUserPatch = Schemas['PlatformUserPatch']
 export type PlatformRoleKey =
   operations['platformSetUserRoles']['requestBody']['content']['application/json']['platform_roles'][number]
 export type ReputationSource = Schemas['ReputationSource']

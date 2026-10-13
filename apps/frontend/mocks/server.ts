@@ -13,9 +13,11 @@ import { channelRoute } from './channels'
 import { findTenant, MOCK_TOTP_CODE, USERS, type MockUser } from './data'
 import { json, problem, randomHex } from './http'
 import { currentKiosk, enroll, kioskAdminRoute, kioskConfig, touchKiosk } from './kiosk'
-import { invitationRoute, memberRoute, readFlag } from './members'
+import { existingAccount, invitationRoute, memberRoute, readFlag } from './members'
+import { passwordResetRoute } from './password-reset'
 import { platformRoute, platformUserStatus, restorePlatformUsers } from './platform'
 import { PERMISSION_CATALOG, restoreRoles, ROLES } from './roles'
+import { mockState } from './state'
 import { tenantRoute } from './tenant-routes'
 import { createTenant, restoreTenants } from './tenants'
 import { remoteStorageComponent, restoreRemoteDestinations } from './remote-destinations'
@@ -190,6 +192,12 @@ export function createMockFetch(options: MockOptions = {}) {
         u.mfa = saved.mfa
         u.me.mfa_enabled = saved.mfa
         u.me.must_change_password = saved.mustChange
+        if (saved.email) {
+          u.me.email = saved.email
+          u.username = String(saved.email).toLowerCase()
+        }
+        if (saved.displayName) u.me.display_name = saved.displayName
+        if (saved.timezone !== undefined) u.me.timezone = saved.timezone
       }
     } catch {
       // estado guardado ilegible: se ignora
@@ -211,8 +219,68 @@ export function createMockFetch(options: MockOptions = {}) {
   const saveAccount = (u: MockUser) =>
     storage?.setItem(
       accountKey(u.me.id),
-      JSON.stringify({ password: u.password, mfa: u.mfa, mustChange: u.me.must_change_password }),
+      JSON.stringify({
+        password: u.password,
+        mfa: u.mfa,
+        mustChange: u.me.must_change_password,
+        email: u.me.email,
+        displayName: u.me.display_name,
+        timezone: u.me.timezone,
+      }),
     )
+
+  /** `PATCH /me` (merge-patch): nombre, zona horaria…; el correo exige re-autenticación. */
+  function patchMe(user: MockUser, body: Record<string, unknown>) {
+    const invalid = (field: string, message: string) =>
+      problem(
+        422,
+        'VALIDATION_FAILED',
+        'Revisa los campos marcados',
+        {},
+        { errors: [{ field, code: 'INVALID', message }] },
+      )
+    const next: Partial<MockUser['me']> = {}
+    if (body.display_name !== undefined) {
+      const name = String(body.display_name).trim()
+      if (!name || name.length > 120) return invalid('display_name', 'Escribe tu nombre')
+      next.display_name = name
+    }
+    if (body.timezone !== undefined) {
+      next.timezone = body.timezone === null ? null : String(body.timezone).trim() || null
+    }
+    if (body.locale !== undefined) next.locale = body.locale === null ? null : String(body.locale)
+    if (body.default_tenant_id !== undefined) {
+      next.default_tenant_id =
+        body.default_tenant_id === null ? null : String(body.default_tenant_id)
+    }
+    if (body.email !== undefined) {
+      const email = String(body.email).trim().toLowerCase()
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+        return invalid('email', 'Escribe un correo válido')
+      }
+      if (email !== user.username) {
+        if (reauthRequired(user)) {
+          return problem(403, 'REAUTH_REQUIRED', 'Vuelve a identificarte para cambiar el correo')
+        }
+        if (existingAccount(email)) {
+          return problem(409, 'ALREADY_EXISTS', 'Ya existe una cuenta con ese correo')
+        }
+        next.email = email
+        user.username = email
+      }
+    }
+    Object.assign(user.me, next)
+    // Los ISP de los que es miembro muestran el mismo nombre y correo.
+    for (const m of user.me.memberships) {
+      const member = mockState.members.get(m.tenant_id)?.find((x) => x.user_id === user.me.id)
+      if (member) {
+        member.email = user.me.email
+        member.display_name = user.me.display_name
+      }
+    }
+    saveAccount(user)
+    return json(user.me)
+  }
 
   function issue(user: MockUser, scope: TokenRecord['scope'], tenantId?: string) {
     const token = `mock.${scope}.${randomHex(24)}`
@@ -531,6 +599,10 @@ export function createMockFetch(options: MockOptions = {}) {
       case 'POST /auth/invitations/inspect':
       case 'POST /auth/invitations/accept':
         return invitationRoute(route, body, now())!
+      case 'POST /auth/password/forgot':
+      case 'POST /auth/password/reset/inspect':
+      case 'POST /auth/password/reset':
+        return passwordResetRoute(route, body, now(), saveAccount)!
     }
 
     const kioskRecord = rawRecord(req)
@@ -543,6 +615,8 @@ export function createMockFetch(options: MockOptions = {}) {
     switch (route) {
       case 'GET /me':
         return json(user.me)
+      case 'PATCH /me':
+        return patchMe(user, body)
       case 'POST /auth/reauth':
         return reauth(user, record, body)
       case 'POST /me/password': {

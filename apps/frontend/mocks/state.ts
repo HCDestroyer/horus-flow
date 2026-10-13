@@ -118,6 +118,25 @@ export function emptyDeviceState(): DeviceState {
   }
 }
 
+/** Cambio hecho desde la consola de plataforma sobre una cuenta. */
+export interface PlatformUserChange {
+  status?: PlatformUserStatus
+  platform_roles?: PlatformRoleKey[]
+  email?: string
+  display_name?: string
+  /** Cuenta eliminada (`DELETE /platform/users/{id}`): desaparece de la lista y no entra. */
+  deleted?: boolean
+}
+
+/** Enlace de restablecimiento de contraseña (un uso, 30 min). */
+export interface PasswordResetRecord {
+  userId: string
+  email: string
+  displayName: string
+  expires: number
+  used: boolean
+}
+
 export const mockState = {
   findings: new Map<string, FindingOverride>(),
   customers: new Map<string, CustomerOverride>(),
@@ -141,11 +160,10 @@ export const mockState = {
   customRoles: new Map<string, Role[]>(),
   /** Roles cuyo primer `PATCH` ya devolvió el 412 simulado (`horus.mock.roleConflict`). */
   roleConflictServed: new Set<string>(),
-  /** Cambios de la consola de plataforma sobre las cuentas (estado y roles de plataforma). */
-  platformUsers: new Map<
-    string,
-    { status?: PlatformUserStatus; platform_roles?: PlatformRoleKey[] }
-  >(),
+  /** Cambios de la consola de plataforma sobre las cuentas (estado, roles, datos, baja). */
+  platformUsers: new Map<string, PlatformUserChange>(),
+  /** Enlaces de restablecimiento de contraseña emitidos, por token (`mocks/password-reset.ts`). */
+  passwordResets: new Map<string, PasswordResetRecord>(),
   /** Nodos y routers dados de alta, editados o borrados, por ISP (`mocks/devices.ts`). */
   devices: new Map<string, DeviceState>(),
   /** Hubs WireGuard editados y sus rangos (`mocks/wireguard.ts`; también en el storage). */
@@ -171,6 +189,7 @@ export function resetMockState() {
   mockState.customRoles.clear()
   mockState.roleConflictServed.clear()
   mockState.platformUsers.clear()
+  mockState.passwordResets.clear()
   mockState.devices.clear()
   mockState.wireguard.clear()
   mockState.remoteDestinations = null

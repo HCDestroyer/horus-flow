@@ -9,6 +9,7 @@ import {
   type MockTenant,
 } from './data'
 import { forbidden, ifMatch, json, noContent, notFound, paginate, problem, randomHex } from './http'
+import { issuePasswordReset } from './password-reset'
 import { hash, mockUuid } from './random'
 import { effectivePermissions, findRole, ROLES, roleRoute, withKeys } from './roles'
 import { mockState } from './state'
@@ -25,9 +26,13 @@ import { mockState } from './state'
  * valer al generar uno nuevo).
  *
  * - `localStorage['horus.mock.smtp'] = '1'`: hay correo configurado (`email_sent: true`).
- * - `localStorage['horus.mock.reauthRequired'] = '1'`: cambiar roles responde
- *   `403 REAUTH_REQUIRED` (re-autenticación reciente, `x-reauth`) hasta que se confirma la
- *   identidad con `POST /auth/reauth` (`ctx.reauthRequired`, lo calcula `mocks/server.ts`).
+ * - `localStorage['horus.mock.reauthRequired'] = '1'`: cambiar roles, editar un miembro o
+ *   emitirle un enlace de contraseña responden `403 REAUTH_REQUIRED` (re-autenticación
+ *   reciente, `x-reauth`) hasta que se confirma la identidad con `POST /auth/reauth`
+ *   (`ctx.reauthRequired`, lo calcula `mocks/server.ts`).
+ * - Una cuenta "compartida" (miembro de otro ISP o con roles de plataforma) solo la edita la
+ *   consola de plataforma: `PATCH` y `password-reset` responden `409 USER_SHARED`. Entre los
+ *   sintéticos, Marta Gómez lo es (también pertenece a otro ISP).
  */
 
 const INVITATION_TTL = 7 * 86_400_000
@@ -173,6 +178,38 @@ function validInvitation(token: unknown, now: Date) {
 
 export const existingAccount = (email: string) =>
   USERS.find((u) => u.username === email.trim().toLowerCase())
+
+/** Miembros sintéticos con membresía en otro ISP (parte local del correo). */
+const SHARED_SYNTHETIC = new Set(['marta.gomez'])
+
+/** ¿La cuenta pertenece a otro ISP o tiene roles de plataforma? (solo la edita la plataforma). */
+export function isSharedAccount(member: Member) {
+  const account = existingAccount(member.email)
+  if (account) {
+    return account.me.memberships.length > 1 || account.me.platform_roles.length > 0
+  }
+  return SHARED_SYNTHETIC.has(member.email.split('@')[0]!)
+}
+
+const userShared = () =>
+  problem(
+    409,
+    'USER_SHARED',
+    'Esta cuenta también pertenece a otro ISP o tiene roles de plataforma',
+    {},
+    { detail: 'Solo puede editarla un administrador de la plataforma.' },
+  )
+
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
+
+/** ¿Hay otra cuenta o miembro con ese correo? */
+function emailTaken(email: string, exceptUserId: string) {
+  if (USERS.some((u) => u.username === email && u.me.id !== exceptUserId)) return true
+  for (const list of mockState.members.values()) {
+    if (list.some((m) => m.email.toLowerCase() === email && m.user_id !== exceptUserId)) return true
+  }
+  return false
+}
 
 export function readFlag(key: string) {
   try {
@@ -437,9 +474,65 @@ export function memberRoute(ctx: MemberRouteContext): Response | undefined {
     return json(issueInvitation(member, ctx.tenant, ctx.now), 202, { 'Cache-Control': 'no-store' })
   }
 
-  const m = ctx.path.match(/^\/members\/([^/]+)(?:\/(invitation|role-assignments))?$/)
+  const m = ctx.path.match(
+    /^\/members\/([^/]+)(?:\/(invitation|role-assignments|password-reset))?$/,
+  )
   if (!m) return notFound()
   const member = list.find((x) => x.user_id === m[1])
+
+  if (!m[2] && ctx.method === 'PATCH') {
+    if (!ctx.can('users.manage')) return forbidden()
+    if (!member) return notFound()
+    if (ctx.reauthRequired) {
+      return problem(403, 'REAUTH_REQUIRED', 'Vuelve a identificarte para editar miembros')
+    }
+    if (isSharedAccount(member)) return userShared()
+    const body = (ctx.body ?? {}) as { email?: unknown; display_name?: unknown }
+    const patch: { email?: string; display_name?: string } = {}
+    if (body.display_name !== undefined) {
+      const name = String(body.display_name).trim()
+      if (!name || name.length > 120) return validationError('display_name', 'Escribe un nombre')
+      patch.display_name = name
+    }
+    if (body.email !== undefined) {
+      const email = String(body.email).trim().toLowerCase()
+      if (!EMAIL_RE.test(email)) return validationError('email', 'Escribe un correo válido')
+      if (email !== member.email.toLowerCase() && emailTaken(email, member.user_id)) {
+        return problem(409, 'ALREADY_EXISTS', 'Ya existe una cuenta con ese correo')
+      }
+      patch.email = email
+    }
+    const account = existingAccount(member.email)
+    Object.assign(member, patch)
+    member.version++
+    if (account) {
+      if (patch.email) {
+        account.me.email = patch.email
+        account.username = patch.email
+      }
+      if (patch.display_name) account.me.display_name = patch.display_name
+    }
+    return json(member, 200, { ETag: `"${member.version}"` })
+  }
+
+  if (m[2] === 'password-reset' && ctx.method === 'POST') {
+    if (!ctx.can('users.manage')) return forbidden()
+    if (!member) return notFound()
+    if (member.status !== 'active') {
+      return problem(
+        409,
+        'CONFLICT',
+        'No se puede restablecer la contraseña',
+        {},
+        { detail: 'Solo se puede restablecer la contraseña de un miembro activo.' },
+      )
+    }
+    if (ctx.reauthRequired) {
+      return problem(403, 'REAUTH_REQUIRED', 'Vuelve a identificarte para emitir el enlace')
+    }
+    if (isSharedAccount(member)) return userShared()
+    return json(issuePasswordReset(member, ctx.now), 200, { 'Cache-Control': 'no-store' })
+  }
 
   if (m[2] === 'invitation' && ctx.method === 'POST') {
     if (!ctx.can('users.manage')) return forbidden()
