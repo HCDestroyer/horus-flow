@@ -434,6 +434,16 @@ Igual que en el Sprint 0 (categorías → servicios → organizaciones → ASN �
 - **Catálogo global** (plataforma, superadmin) + **overlay por tenant** (`tenant_rule_set`, reglas
   `local_override` prioridad 900–1000). El ingester combina global vN y overlay del tenant vM; la
   fila guarda `catalog_version` y `tenant_rules_version`.
+- **ASN propios (implementado en I1)**: el ISP nombra un ASN en Administración › ASN propios
+  (`devices.asn_rule`, API `/asn-rules`): nombre, categoría y, opcional, un servicio del catálogo. En la ingesta
+  la regla del tenant **gana a todo el catálogo** para ese ASN (también a los rangos publicados y a las reglas
+  `asn_port`): `classification_method = local_override`, confianza 100, `remote_org_id =
+  UUIDv5("tenant-asn:<tenant>:<asn>")`, `service_id` = el del catálogo o `UUIDv5("tenant-asn-service:<tenant>:<asn>")`
+  si la regla no tiene servicio (el nombre hace de servicio) y `category_id` de la regla (con servicio del catálogo,
+  la del servicio: los agregados solo guardan `service_id`). Solo afecta al tráfico ingerido desde el alta; el
+  histórico no se reclasifica, pero los tops por ASN/organización etiquetan con el nombre de la regla en cualquier
+  rango (se agrupan por `remote_asn`). Flows y analytics reciben las reglas por `horus.devices.asn_rule.*`
+  (proyección `flowinv`); `tenant_rules_version` = suma de las versiones de las reglas del tenant.
 - Los artefactos se distribuyen a las réplicas del ingester por **NATS Object Store** y se
   conservan en el almacenamiento local ([`storage.md` §3](storage.md)).
 - **Histórico**: la categoría se reinterpreta siempre (diccionario); el servicio solo se reclasifica

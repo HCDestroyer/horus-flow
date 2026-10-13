@@ -52,6 +52,7 @@ func TestMigrationsApplyRevertReapply(t *testing.T) {
 		"auth.kiosk_enrollment_code": true, "devices.site": true, "devices.router": true,
 		"devices.interface": true, "devices.credential": true, "devices.ip_realm": true,
 		"devices.client_prefix": true, "devices.customer": true, "devices.customer_kind_change": true,
+		"devices.asn_rule": true,
 	}
 	for _, tb := range tables {
 		delete(want, tb.Table)

@@ -248,6 +248,7 @@ func (m *ingester) wire(ctx context.Context, proc *app.Processor) error {
 		return err
 	}
 	enr.Reload(m.cfg.ASNSnapshotDir, m.cfg.CatalogSnapshotDir, m.cfg.ReputationSnapshotDir)
+	enr.SetInventory(m.inv)
 	proc.Enricher = enr
 	m.loops = append(m.loops, func(ctx context.Context) {
 		enr.Watch(ctx, 30*time.Second, m.cfg.ASNSnapshotDir, m.cfg.CatalogSnapshotDir, m.cfg.ReputationSnapshotDir)

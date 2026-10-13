@@ -174,6 +174,10 @@ type fieldErrs []problem.FieldError
 
 func (f *fieldErrs) add(field, code, msg string) { *f = append(*f, apperr.Field(field, code, msg)) }
 
+func (f fieldErrs) has(field string) bool {
+	return slices.ContainsFunc(f, func(e problem.FieldError) bool { return e.Field == field })
+}
+
 func isNull(raw json.RawMessage) bool { return strings.TrimSpace(string(raw)) == "null" }
 
 func (f *fieldErrs) str(fields Fields, key string, maxLen int, nullable bool) (val *string, present bool) {

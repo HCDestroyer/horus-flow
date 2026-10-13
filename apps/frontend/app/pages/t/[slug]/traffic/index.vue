@@ -10,7 +10,8 @@ import type { Dashboard, DashboardWidget, RelativeRange, TopResult } from '~~/ty
  * de la app sigue funcionando.
  * Desglose por organización o ASN remoto (`/analytics/traffic/top`): pestaña y sentido en la
  * URL; tabla con puesto, nombre, ↓/↑ y cuota. El ASN se muestra como "AS15169" con su nombre
- * si se conoce (si no, solo el número).
+ * si se conoce (si no, solo el número). Búsqueda por ASN o nombre sobre las filas cargadas y,
+ * con `settings.manage`, "Nombrar este ASN" abre Administración › ASN propios con el ASN.
  */
 const { t } = useI18n()
 const route = useRoute()
@@ -204,6 +205,8 @@ interface BreakdownRow {
   rank: number | null
   /** "AS15169" en la vista por ASN; null en organizaciones y en "Otros". */
   asn: string | null
+  /** Número de ASN de la fila (vista por ASN u organización sin nombre "AS<n>"), para nombrarlo. */
+  asnNumber: number | null
   name: string
   down: number
   up: number
@@ -224,6 +227,12 @@ function breakdownRows(result: TopResult, dimension: (typeof DIMENSIONS)[number]
   const rows: BreakdownRow[] = result.rows.map((r, i) => ({
     rank: i + 1,
     asn: dimension === 'asns' ? `AS${r.key}` : null,
+    asnNumber:
+      dimension === 'asns'
+        ? Number(r.key) || null
+        : /^AS\d+$/.test(r.key)
+          ? Number(r.key.slice(2))
+          : null,
     name: dimension === 'asns' ? asnName(r.key, r.label) : r.label,
     down: Number(r.down_bytes),
     up: Number(r.up_bytes),
@@ -231,7 +240,14 @@ function breakdownRows(result: TopResult, dimension: (typeof DIMENSIONS)[number]
   }))
   const others = { down: Number(result.others.down_bytes), up: Number(result.others.up_bytes) }
   if (others.down + others.up > 0) {
-    rows.push({ rank: null, asn: null, name: t('widgets.common.others'), ...others, share: null })
+    rows.push({
+      rank: null,
+      asn: null,
+      asnNumber: null,
+      name: t('widgets.common.others'),
+      ...others,
+      share: null,
+    })
   }
   return rows
 }
@@ -240,6 +256,23 @@ const breakdown = computed(() =>
   top.value && top.value.dimension === by.value ? breakdownRows(top.value, by.value) : [],
 )
 const breakdownLoading = computed(() => topStatus.value === 'pending' && !breakdown.value.length)
+
+// Búsqueda por ASN o nombre sobre las filas del top (sin "Otros" mientras se busca).
+const breakdownSearch = ref('')
+const filteredBreakdown = computed(() => {
+  const q = breakdownSearch.value.trim().toLowerCase()
+  if (!q) return breakdown.value
+  const digits = q.replace(/^as\s*/, '')
+  return breakdown.value.filter(
+    (r) =>
+      r.rank !== null &&
+      (r.name.toLowerCase().includes(q) ||
+        (!!r.asn && r.asn.toLowerCase().includes(q)) ||
+        (/^\d+$/.test(digits) && r.asnNumber !== null && String(r.asnNumber).includes(digits))),
+  )
+})
+const canNameAsn = computed(() => can('settings.manage'))
+const nameAsnHref = (asn: number) => `/t/${slug.value}/admin/asn?asn=${asn}`
 
 const breakdownColumns = computed<TableColumn<BreakdownRow>[]>(() => [
   {
@@ -271,6 +304,15 @@ const breakdownColumns = computed<TableColumn<BreakdownRow>[]>(() => [
     header: () => t('traffic.breakdown.col.share'),
     meta: { class: { th: 'text-end', td: 'text-end' } },
   },
+  ...(canNameAsn.value
+    ? [
+        {
+          id: 'actions',
+          header: () => '',
+          meta: { class: { th: 'w-10 ps-0', td: 'w-10 ps-0 text-end' } },
+        } as TableColumn<BreakdownRow>,
+      ]
+    : []),
 ])
 </script>
 
@@ -442,14 +484,25 @@ const breakdownColumns = computed<TableColumn<BreakdownRow>[]>(() => [
               class="w-full sm:w-auto"
               data-testid="traffic-breakdown-tabs"
             />
-            <USelect
-              v-model="direction"
-              :items="directionOptions"
-              size="sm"
-              class="w-full sm:w-48"
-              :aria-label="t('traffic.breakdown.direction')"
-              data-testid="traffic-direction"
-            />
+            <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+              <UInput
+                v-model="breakdownSearch"
+                icon="i-lucide-search"
+                size="sm"
+                class="w-full sm:w-56"
+                :placeholder="t('traffic.breakdown.search')"
+                :aria-label="t('traffic.breakdown.search')"
+                data-testid="traffic-breakdown-search"
+              />
+              <USelect
+                v-model="direction"
+                :items="directionOptions"
+                size="sm"
+                class="w-full sm:w-48"
+                :aria-label="t('traffic.breakdown.direction')"
+                data-testid="traffic-direction"
+              />
+            </div>
           </div>
         </section>
       </template>
@@ -463,9 +516,16 @@ const breakdownColumns = computed<TableColumn<BreakdownRow>[]>(() => [
       <div v-else-if="!breakdown.length" class="p-4">
         <EmptyState icon="i-lucide-network" :title="t('traffic.breakdown.empty')" />
       </div>
+      <p
+        v-else-if="!filteredBreakdown.length"
+        class="text-muted p-4 text-sm"
+        data-testid="traffic-breakdown-no-match"
+      >
+        {{ t('traffic.breakdown.noMatch') }}
+      </p>
       <UTable
         v-else
-        :data="breakdown"
+        :data="filteredBreakdown"
         :columns="breakdownColumns"
         class="w-full"
         :ui="{ td: 'px-3 py-2.5 sm:px-4', th: 'px-3 text-xs whitespace-nowrap sm:px-4' }"
@@ -507,6 +567,22 @@ const breakdownColumns = computed<TableColumn<BreakdownRow>[]>(() => [
             formatPercent(row.original.share, 1)
           }}</span>
           <span v-else class="text-dimmed">—</span>
+        </template>
+        <template #actions-cell="{ row }">
+          <UTooltip
+            v-if="row.original.asnNumber"
+            :text="t('traffic.breakdown.nameAsnFor', { asn: row.original.asnNumber })"
+          >
+            <UButton
+              :to="nameAsnHref(row.original.asnNumber)"
+              size="xs"
+              color="neutral"
+              variant="ghost"
+              icon="i-lucide-tag"
+              :aria-label="t('traffic.breakdown.nameAsnFor', { asn: row.original.asnNumber })"
+              data-testid="traffic-name-asn"
+            />
+          </UTooltip>
         </template>
       </UTable>
     </UCard>

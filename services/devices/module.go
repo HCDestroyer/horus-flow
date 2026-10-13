@@ -128,6 +128,7 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		httpapi.NewCredentials(credentials, guard, logger).Mount(deps.Routes)
 		httpapi.NewImport(importer, guard, logger).Mount(deps.Routes)
 		httpapi.NewCustomers(customers, guard, logger).Mount(deps.Routes)
+		httpapi.NewAsnRules(app.NewAsnRules(store, nil, nil), guard, cfg.PublicBaseURL, logger).Mount(deps.Routes)
 	}
 	bus, err := natsx.Shared(ctx, deps.Services, deps.Environ, logger)
 	if err != nil {

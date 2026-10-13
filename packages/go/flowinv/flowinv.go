@@ -6,6 +6,9 @@
 //   - realms (node_private | public) y prefijos de clientes con su rol
 //     (customers | infrastructure | excluded) e ipv6_client_len;
 //   - ASN propios de cada tenant (modo descubrimiento, I1-29);
+//   - reglas ASN propias de cada tenant (Administración › ASN propios):
+//     ASN → nombre, categoría y servicio con que se clasifica el tráfico nuevo
+//     (local_override) y se etiquetan los tops;
 //   - claves de clientes ya conocidos (descubrimiento, I1-05).
 //
 // Un Snapshot es inmutable; Store guarda el vigente y lo sustituye de forma
@@ -17,6 +20,7 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
+	"sort"
 	"sync/atomic"
 
 	"github.com/google/uuid"
@@ -95,6 +99,21 @@ type Tenant struct {
 	ASNs []uint32  `yaml:"asns" json:"asns"`
 }
 
+// ASNRule es una regla ASN propia de un tenant (devices.asn_rule). Category y
+// Service son slugs del catálogo de plataforma; Service vacío = el nombre de
+// la regla hace de servicio. Deleted marca una baja (lápida): no clasifica,
+// pero su versión cuenta en TenantRulesVersion para que sea monótona.
+type ASNRule struct {
+	ID       uuid.UUID `yaml:"id" json:"id"`
+	TenantID uuid.UUID `yaml:"tenant_id" json:"tenant_id"`
+	ASN      uint32    `yaml:"asn" json:"asn"`
+	Name     string    `yaml:"name" json:"name"`
+	Category string    `yaml:"category" json:"category"`
+	Service  string    `yaml:"service" json:"service"`
+	Version  int       `yaml:"version" json:"version"`
+	Deleted  bool      `yaml:"deleted,omitempty" json:"deleted,omitempty"`
+}
+
 // CustomerKey es la clave natural de un cliente conocido.
 type CustomerKey struct {
 	TenantID uuid.UUID  `yaml:"tenant_id" json:"tenant_id"`
@@ -109,6 +128,7 @@ type Data struct {
 	Realms    []Realm        `yaml:"realms" json:"realms"`
 	Prefixes  []ClientPrefix `yaml:"client_prefixes" json:"client_prefixes"`
 	Customers []CustomerKey  `yaml:"customers" json:"customers"`
+	ASNRules  []ASNRule      `yaml:"asn_rules" json:"asn_rules"`
 }
 
 // Match es el resultado de buscar una IP en los prefijos de un nodo.
@@ -130,6 +150,8 @@ type Snapshot struct {
 	realms    map[uuid.UUID]*Realm
 	tenantASN map[uuid.UUID]map[uint32]bool
 	sitePfx   map[uuid.UUID]int
+	asnRules  map[uuid.UUID]map[uint32]*ASNRule
+	rulesVer  map[uuid.UUID]uint32
 }
 
 // New valida y construye un Snapshot.
@@ -144,6 +166,8 @@ func New(d Data) (*Snapshot, error) {
 		realms:    map[uuid.UUID]*Realm{},
 		tenantASN: map[uuid.UUID]map[uint32]bool{},
 		sitePfx:   map[uuid.UUID]int{},
+		asnRules:  map[uuid.UUID]map[uint32]*ASNRule{},
+		rulesVer:  map[uuid.UUID]uint32{},
 	}
 	var errs []error
 	for i := range d.Exporters {
@@ -175,6 +199,7 @@ func New(d Data) (*Snapshot, error) {
 		}
 		s.tenantASN[t.ID] = m
 	}
+	s.indexASNRules(d.ASNRules)
 	keep := func(old, _ *ClientPrefix) *ClientPrefix { return old }
 	siteB := map[uuid.UUID]*iptrie.Builder[*ClientPrefix]{}
 	tenB := map[uuid.UUID]*iptrie.Builder[*ClientPrefix]{}
@@ -252,6 +277,55 @@ func (s *Snapshot) SitePrefixCount(site uuid.UUID) int { return s.sitePfx[site] 
 
 // TenantASN indica si asn es un ASN propio del tenant.
 func (s *Snapshot) TenantASN(tenant uuid.UUID, asn uint32) bool { return s.tenantASN[tenant][asn] }
+
+// indexASNRules indexa las reglas vivas por (tenant, ASN). Una regla
+// incompleta se ignora (nunca invalida el inventario). Si por desorden de
+// eventos hay dos vivas para el mismo ASN, gana la de mayor versión.
+func (s *Snapshot) indexASNRules(rules []ASNRule) {
+	for i := range rules {
+		r := &rules[i]
+		if r.TenantID == uuid.Nil || r.ASN == 0 {
+			continue
+		}
+		if r.Version > 0 {
+			s.rulesVer[r.TenantID] += uint32(r.Version) //nolint:gosec // versión de agregado, positiva
+		}
+		if r.Deleted || r.Name == "" || r.Category == "" {
+			continue
+		}
+		m := s.asnRules[r.TenantID]
+		if m == nil {
+			m = map[uint32]*ASNRule{}
+			s.asnRules[r.TenantID] = m
+		}
+		if old := m[r.ASN]; old == nil || r.Version > old.Version || (r.Version == old.Version && r.ID.String() > old.ID.String()) {
+			m[r.ASN] = r
+		}
+	}
+}
+
+// ASNRule devuelve la regla ASN propia del tenant para asn, si existe.
+func (s *Snapshot) ASNRule(tenant uuid.UUID, asn uint32) (*ASNRule, bool) {
+	r, ok := s.asnRules[tenant][asn]
+	return r, ok
+}
+
+// ASNRules devuelve las reglas ASN vivas del tenant ordenadas por ASN (no modificar).
+func (s *Snapshot) ASNRules(tenant uuid.UUID) []*ASNRule {
+	m := s.asnRules[tenant]
+	out := make([]*ASNRule, 0, len(m))
+	for _, r := range m {
+		out = append(out, r)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ASN < out[j].ASN })
+	return out
+}
+
+// TenantRulesVersion es la versión del conjunto de reglas del tenant
+// (flows_raw.tenant_rules_version): suma de las versiones de agregado de sus
+// reglas, bajas incluidas, así que crece con cada alta, edición o baja. 0 =
+// el tenant no tiene ni tuvo reglas.
+func (s *Snapshot) TenantRulesVersion(tenant uuid.UUID) uint32 { return s.rulesVer[tenant] }
 
 // Lookup busca ip en los prefijos del nodo site; si no está, en los prefijos
 // de clientes de otros nodos del tenant (tránsito).

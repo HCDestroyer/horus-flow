@@ -8,6 +8,7 @@ import type {
 import nocTemplate from '~~/types/api/contract/templates/noc-isp.json'
 import securityTemplate from '~~/types/api/contract/templates/security.json'
 import { WIDGET_CATALOG } from '~~/types/api/widget-catalog'
+import { restoreAsnRules } from './asn-rules'
 import { channelRoute } from './channels'
 import { findTenant, MOCK_TOTP_CODE, USERS, type MockUser } from './data'
 import { json, problem, randomHex } from './http'
@@ -196,6 +197,8 @@ export function createMockFetch(options: MockOptions = {}) {
   restoreWireguard(storage)
   // Destinos remotos SFTP (alta, credenciales, huella, copias…).
   restoreRemoteDestinations(storage)
+  // Reglas ASN propias (Administración › ASN propios).
+  restoreAsnRules(storage)
 
   const saveAccount = (u: MockUser) =>
     storage?.setItem(

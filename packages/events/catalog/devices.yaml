@@ -244,6 +244,60 @@ events:
   status: stable
   since: I0
   example: examples/horus.devices.client_prefix.deleted.json
+- type: horus.devices.asn_rule.created
+  subject: horus.devices.asn_rule.created.{asn_rule_id}
+  tenant_scope: tenant
+  stream: DEVICES_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.devices.v1.AsnRule
+  schema_version: 1
+  producer: devices
+  consumers:
+  - flows
+  - analytics
+  websocket_topics: []
+  pii: false
+  pii_fields: []
+  status: stable
+  since: I1
+  example: examples/horus.devices.asn_rule.created.json
+- type: horus.devices.asn_rule.updated
+  subject: horus.devices.asn_rule.updated.{asn_rule_id}
+  tenant_scope: tenant
+  stream: DEVICES_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.devices.v1.AsnRule
+  schema_version: 1
+  producer: devices
+  consumers:
+  - flows
+  - analytics
+  websocket_topics: []
+  pii: false
+  pii_fields: []
+  status: stable
+  since: I1
+  example: examples/horus.devices.asn_rule.updated.json
+- type: horus.devices.asn_rule.deleted
+  subject: horus.devices.asn_rule.deleted.{asn_rule_id}
+  tenant_scope: tenant
+  stream: DEVICES_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.devices.v1.AsnRule
+  schema_version: 1
+  producer: devices
+  consumers:
+  - flows
+  - analytics
+  websocket_topics: []
+  pii: false
+  pii_fields: []
+  status: stable
+  since: I1
+  example: examples/horus.devices.asn_rule.deleted.json
 - type: horus.devices.customer.discovered
   subject: horus.devices.customer.discovered.{customer_id}
   tenant_scope: tenant

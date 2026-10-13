@@ -18,6 +18,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/hcdestroyer/horus-flow/packages/go/datasets"
+	"github.com/hcdestroyer/horus-flow/packages/go/flowinv"
 	"github.com/hcdestroyer/horus-flow/services/detection/api/reputation"
 	"github.com/hcdestroyer/horus-flow/services/traffic/api/asn"
 	"github.com/hcdestroyer/horus-flow/services/traffic/api/catalog"
@@ -38,6 +39,8 @@ type Enrichment struct {
 	asn     atomic.Pointer[loaded[asn.Snapshot]]
 	catalog atomic.Pointer[loaded[catalog.Catalog]]
 	rep     atomic.Pointer[loaded[reputation.Snapshot]]
+	// inv aporta las reglas ASN propias de cada tenant (proyección de devices).
+	inv atomic.Pointer[flowinv.Store]
 
 	bytes, withASN, withService *prometheus.CounterVec
 	reloads                     *prometheus.CounterVec
@@ -83,6 +86,10 @@ func (e *Enrichment) SetCatalog(c *catalog.Catalog) {
 func (e *Enrichment) SetReputation(s *reputation.Snapshot) {
 	e.rep.Store(&loaded[reputation.Snapshot]{v: s, version: versionOf(s.Meta.Version), tag: s.Meta.Version})
 }
+
+// SetInventory conecta el inventario de flows: sus reglas ASN propias por
+// tenant (horus.devices.asn_rule.*) ganan al catálogo al clasificar.
+func (e *Enrichment) SetInventory(s *flowinv.Store) { e.inv.Store(s) }
 
 // CatalogVersion devuelve la versión del catálogo vigente.
 func (e *Enrichment) CatalogVersion() uint32 { return e.catalog.Load().version }
@@ -185,6 +192,7 @@ func (e *Enrichment) Enrich(tenant uuid.UUID, row *Row) {
 		row.ServiceID, row.CategoryID = res.ServiceID, res.CategoryID
 		row.ClassificationMethod, row.ClassificationConfidence = res.Method, res.Confidence
 	}
+	e.applyTenantRule(tenant, asnNum, row)
 	if public {
 		if l := e.rep.Load(); l != nil {
 			if hit, ok := l.v.Best(remote); ok && (hit.ExpiresAt.IsZero() || hit.ExpiresAt.After(row.TS)) {
@@ -206,6 +214,35 @@ func (e *Enrichment) Enrich(tenant uuid.UUID, row *Row) {
 			e.withService.WithLabelValues(t).Add(float64(row.Bytes))
 		}
 	}
+}
+
+// applyTenantRule aplica la regla ASN propia del tenant (local_override,
+// traffic-model.md §6): gana a todo el catálogo para ese ASN, incluidos los
+// rangos publicados y las reglas asn_port. La organización pasa a ser la
+// regla; el servicio, el del catálogo que indique o uno propio con el nombre
+// de la regla. La fila guarda la versión del conjunto de reglas del tenant.
+func (e *Enrichment) applyTenantRule(tenant uuid.UUID, asnNum uint32, row *Row) {
+	st := e.inv.Load()
+	if st == nil {
+		return
+	}
+	inv := st.Load()
+	row.TenantRulesVersion = inv.TenantRulesVersion(tenant)
+	if asnNum == 0 {
+		return
+	}
+	r, ok := inv.ASNRule(tenant, asnNum)
+	if !ok {
+		return
+	}
+	row.RemoteOrgID = catalog.TenantASNOrgID(tenant, asnNum)
+	if r.Service != "" {
+		row.ServiceID = catalog.ID("service", r.Service)
+	} else {
+		row.ServiceID = catalog.TenantASNServiceID(tenant, asnNum)
+	}
+	row.CategoryID = catalog.ID("category", r.Category)
+	row.ClassificationMethod, row.ClassificationConfidence = catalog.MethodLocalOverride, catalog.ConfidenceLocalOverride
 }
 
 // ---------------------------------------------------------------- recarga

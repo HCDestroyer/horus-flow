@@ -50,7 +50,9 @@ Con `HORUS_NATS_URL` el rol consume `TLM_FLOWS` (durable `flows-ingester`) y por
    son infraestructura. En `unknown` guarda en `client_ip` la candidata del lado
    `customer_edge` solo si es privada/CGNAT/ULA o de un ASN del ISP (modo descubrimiento, I1-29);
 3. **enriquece**: ASN/prefijo/país/organización (snapshot ASN, con los rangos publicados del
-   catálogo como respaldo), servicio/categoría del catálogo (`services/traffic/api/catalog`) y
+   catálogo como respaldo), servicio/categoría del catálogo (`services/traffic/api/catalog`), la
+   regla ASN propia del tenant si existe (`local_override`, gana al catálogo; proyección de
+   `horus.devices.asn_rule.*` en el inventario, versión en `tenant_rules_version`) y
    reputación (`reputation_*`, snapshot de detection). Los snapshots se recargan en caliente desde
    `datasets.SnapshotDir`; uno corrupto se rechaza;
 4. inserta en `flows.flows_raw` con `insert_deduplication_token = batch_id` (migración

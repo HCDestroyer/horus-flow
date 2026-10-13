@@ -136,6 +136,7 @@ ADMINISTRACIÓN DEL ISP
 ├─ Usuarios y roles           /t/:slug/admin/users                              I0 · I2
 ├─ Pantallas NOC (kioscos)    /t/:slug/admin/kiosks                             I1
 ├─ Detección                  /t/:slug/admin/detection (umbrales)               I1 lectura · I2
+├─ ASN propios                /t/:slug/admin/asn (nombre/servicio por ASN)      I1
 └─ Auditoría                  /t/:slug/admin/audit                              I2
 PLATAFORMA (solo superadmin, §3.4)
 ├─ Vista global               /global                                            I2

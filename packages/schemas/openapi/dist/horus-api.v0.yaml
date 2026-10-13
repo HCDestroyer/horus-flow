@@ -39,6 +39,8 @@ tags:
     description: Qué IPs son de clientes en cada nodo.
   - name: customers
     description: Clientes = IPs observadas (D1).
+  - name: asn-rules
+    description: ASN propios del ISP — nombre, categoría y servicio que se aplican al clasificar el tráfico nuevo.
   - name: onboarding
     description: Script de alta, enrolamiento y script inverso.
   - name: wireguard
@@ -266,6 +268,209 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
         '504':
           $ref: '#/components/responses/GatewayTimeout'
+  /asn-rules:
+    get:
+      tags:
+        - asn-rules
+      operationId: listAsnRules
+      summary: Reglas ASN propias del ISP (nombre, categoría y servicio por ASN)
+      description: |
+        Lista completa (como mucho 1000 reglas por ISP, sin paginar), ordenada por ASN. Las reglas se aplican
+        a los flujos que se ingieren desde su alta (`classification_method = local_override`); el histórico
+        no se reclasifica. El nombre sí se muestra en los tops por ASN y organización de cualquier rango.
+      x-module: devices
+      x-scope: tenant
+      x-permission: settings.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Reglas del ISP.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AsnRule'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+        - asn-rules
+      operationId: createAsnRule
+      summary: Nombra un ASN para el ISP (ASN repetido → 422 con error en `asn`)
+      x-module: devices
+      x-scope: tenant
+      x-permission: settings.manage
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AsnRuleInput'
+      responses:
+        '201':
+          description: Creada.
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AsnRule'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /asn-rules/catalog:
+    get:
+      tags:
+        - asn-rules
+      operationId: getAsnRuleCatalog
+      summary: Categorías y servicios del catálogo de plataforma que admite una regla ASN
+      x-module: devices
+      x-scope: tenant
+      x-permission: settings.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Opciones del catálogo vigente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AsnRuleCatalog'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /asn-rules/{asn_rule_id}:
+    parameters:
+      - $ref: '#/components/parameters/AsnRuleId'
+    patch:
+      tags:
+        - asn-rules
+      operationId: updateAsnRule
+      summary: Edita el nombre, la categoría, el servicio o la nota de una regla (el ASN no cambia)
+      x-module: devices
+      x-scope: tenant
+      x-permission: settings.manage
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: '#/components/schemas/AsnRulePatch'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AsnRulePatch'
+      responses:
+        '200':
+          description: Actualizada.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AsnRule'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+    delete:
+      tags:
+        - asn-rules
+      operationId: deleteAsnRule
+      summary: Borra una regla (el tráfico nuevo vuelve a clasificarse con el catálogo)
+      x-module: devices
+      x-scope: tenant
+      x-permission: settings.manage
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContent'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+  /asn/{asn}:
+    get:
+      tags:
+        - traffic
+      operationId: getAsnInfo
+      summary: Cómo se llama hoy un ASN (dataset público, catálogo de plataforma y regla propia del ISP)
+      description: |
+        Nombre y país del snapshot IP→ASN de plataforma, organización del catálogo si el ASN está en él y la
+        regla ASN propia del ISP si existe (proyección de los eventos de devices: puede tardar unos segundos
+        en reflejar un cambio). Un ASN desconocido responde 200 con `name` null.
+      x-module: analytics
+      x-scope: tenant
+      x-permission: traffic.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - name: asn
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+            maximum: 4294967295
+      responses:
+        '200':
+          description: Datos del ASN.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AsnInfo'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /auth/invitations/accept:
     post:
       tags:
@@ -5990,6 +6195,7 @@ components:
             - CUSTOMER_KIND_LOCKED
             - CLIENT_PREFIX_OVERLAP
             - CLIENT_PREFIX_NOT_FOUND
+            - ASN_RULE_NOT_FOUND
             - FINDING_NOT_FOUND
             - FINDING_STATE_INVALID
             - DASHBOARD_NOT_FOUND
@@ -6158,6 +6364,192 @@ components:
               $ref: '#/components/schemas/Uint64String'
             up_bytes:
               $ref: '#/components/schemas/Uint64String'
+    Version:
+      type: integer
+      minimum: 1
+      description: Versión para concurrencia optimista (= ETag, = `aggregate_version` de los eventos).
+    TenantScopedResource:
+      type: object
+      required:
+        - id
+        - tenant_id
+        - version
+        - created_at
+        - updated_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        tenant_id:
+          $ref: '#/components/schemas/Uuid'
+          description: Redundante con `tid`; permite al cliente detectar un token equivocado.
+        version:
+          $ref: '#/components/schemas/Version'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    AsnRuleInput:
+      type: object
+      additionalProperties: false
+      required:
+        - asn
+        - name
+      description: |
+        `category` es obligatoria salvo que se indique `service`: con un servicio del catálogo la categoría es la de ese
+        servicio (los agregados solo guardan el servicio) y una distinta → 422 en `category`.
+      properties:
+        asn:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 4294967295
+          examples:
+            - 263237
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: Nombre visible en tops, dashboards y kioscos.
+        category:
+          type: string
+          maxLength: 64
+          description: Slug de una categoría del catálogo (`GET /asn-rules/catalog`).
+        service:
+          type:
+            - string
+            - 'null'
+          maxLength: 64
+          description: Slug de un servicio del catálogo; null = el nombre de la regla hace de servicio.
+        note:
+          type:
+            - string
+            - 'null'
+          maxLength: 300
+    AsnRule:
+      allOf:
+        - $ref: '#/components/schemas/TenantScopedResource'
+        - $ref: '#/components/schemas/AsnRuleInput'
+        - type: object
+          required:
+            - category
+            - service
+            - note
+          properties:
+            category:
+              type: string
+            service:
+              type:
+                - string
+                - 'null'
+            note:
+              type:
+                - string
+                - 'null'
+    AsnRuleCatalog:
+      type: object
+      required:
+        - categories
+        - services
+      properties:
+        categories:
+          type: array
+          items:
+            type: object
+            required:
+              - slug
+              - name
+            properties:
+              slug:
+                type: string
+              name:
+                type: string
+        services:
+          type: array
+          items:
+            type: object
+            required:
+              - slug
+              - name
+              - category
+            properties:
+              slug:
+                type: string
+              name:
+                type: string
+              category:
+                type: string
+    AsnRulePatch:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        category:
+          type: string
+          maxLength: 64
+        service:
+          type:
+            - string
+            - 'null'
+          maxLength: 64
+        note:
+          type:
+            - string
+            - 'null'
+          maxLength: 300
+    AsnInfo:
+      type: object
+      required:
+        - asn
+        - name
+        - country
+        - catalog_organization
+        - tenant_rule
+      properties:
+        asn:
+          type: integer
+          format: int64
+        name:
+          type:
+            - string
+            - 'null'
+          description: Nombre en el dataset público (null si no se conoce).
+        country:
+          type:
+            - string
+            - 'null'
+          description: ISO 3166-1 alfa-2.
+        catalog_organization:
+          type:
+            - object
+            - 'null'
+          required:
+            - slug
+            - name
+          properties:
+            slug:
+              type: string
+            name:
+              type: string
+        tenant_rule:
+          type:
+            - object
+            - 'null'
+          required:
+            - name
+            - category
+            - service
+          properties:
+            name:
+              type: string
+            category:
+              type: string
+            service:
+              type:
+                - string
+                - 'null'
     AccessTokenResponse:
       type: object
       required:
@@ -6232,30 +6624,6 @@ components:
           type:
             - string
             - 'null'
-    Version:
-      type: integer
-      minimum: 1
-      description: Versión para concurrencia optimista (= ETag, = `aggregate_version` de los eventos).
-    TenantScopedResource:
-      type: object
-      required:
-        - id
-        - tenant_id
-        - version
-        - created_at
-        - updated_at
-      properties:
-        id:
-          $ref: '#/components/schemas/Uuid'
-        tenant_id:
-          $ref: '#/components/schemas/Uuid'
-          description: Redundante con `tid`; permite al cliente detectar un token equivocado.
-        version:
-          $ref: '#/components/schemas/Version'
-        created_at:
-          $ref: '#/components/schemas/Timestamp'
-        updated_at:
-          $ref: '#/components/schemas/Timestamp'
     Cidr:
       type: string
       description: Prefijo IPv4/IPv6 en notación CIDR.
@@ -11094,6 +11462,21 @@ components:
       description: Filtro por nodo (multivalor por comas).
       schema:
         type: string
+    AsnRuleId:
+      name: asn_rule_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: ETag (`"<version>"`) del recurso; falta → 428, no coincide → 412 con `current`.
+      schema:
+        type: string
+        examples:
+          - '"7"'
     XRequestedWith:
       name: X-Requested-With
       in: header
@@ -11116,15 +11499,6 @@ components:
       required: true
       schema:
         $ref: '#/components/schemas/Uuid'
-    IfMatch:
-      name: If-Match
-      in: header
-      required: true
-      description: ETag (`"<version>"`) del recurso; falta → 428, no coincide → 412 con `current`.
-      schema:
-        type: string
-        examples:
-          - '"7"'
     Limit:
       name: limit
       in: query
@@ -11284,6 +11658,18 @@ components:
             $ref: '#/components/schemas/Problem'
     NoContent:
       description: Sin contenido.
+    PreconditionFailed:
+      description: '`If-Match` no coincide; incluye `current`.'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    PreconditionRequired:
+      description: Falta `If-Match` o `Idempotency-Key` obligatorio.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
     TooManyRequests:
       description: Rate limit por sesión, IP o tenant (`RATE_LIMITED`, `TENANT_RATE_LIMITED`).
       headers:
@@ -11297,20 +11683,8 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/Problem'
-    PreconditionFailed:
-      description: '`If-Match` no coincide; incluye `current`.'
-      content:
-        application/problem+json:
-          schema:
-            $ref: '#/components/schemas/Problem'
     Conflict:
       description: Conflicto de estado o unicidad; `Idempotency-Key` en vuelo.
-      content:
-        application/problem+json:
-          schema:
-            $ref: '#/components/schemas/Problem'
-    PreconditionRequired:
-      description: Falta `If-Match` o `Idempotency-Key` obligatorio.
       content:
         application/problem+json:
           schema:
@@ -11320,19 +11694,19 @@ components:
       description: Segundos hasta reintentar.
       schema:
         type: integer
-    RateLimit:
-      description: Draft IETF ratelimit-headers, p. ej. `"default";r=412;t=23`.
-      schema:
-        type: string
-    RateLimitPolicy:
-      description: p. ej. `"default";q=600;w=60`.
+    Location:
+      description: URL absoluta o relativa del recurso creado; las absolutas se construyen con HORUS_PUBLIC_BASE_URL (D14), nunca con `Host`.
       schema:
         type: string
     ETag:
       description: Versión del recurso (`"<version>"`).
       schema:
         type: string
-    Location:
-      description: URL absoluta o relativa del recurso creado; las absolutas se construyen con HORUS_PUBLIC_BASE_URL (D14), nunca con `Host`.
+    RateLimit:
+      description: Draft IETF ratelimit-headers, p. ej. `"default";r=412;t=23`.
+      schema:
+        type: string
+    RateLimitPolicy:
+      description: p. ej. `"default";q=600;w=60`.
       schema:
         type: string

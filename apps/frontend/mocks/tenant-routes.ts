@@ -7,6 +7,7 @@ import type {
   SeriesResponse,
   TopResult,
 } from '~~/types/api'
+import { asnRulesOf, asnRulesRoute } from './asn-rules'
 import { CATEGORIES, maskIp, REMOTE_ASNS, tenantScale } from './base'
 import type { MockTenant } from './data'
 import { detectionSettingsRoute } from './detection-settings'
@@ -779,12 +780,23 @@ function remoteTop(ctx: TenantRouteContext, dimension: 'asns' | 'organizations',
     return { ...a, down, up: Math.round(down * (0.03 + r() * 0.12)) }
   })
   const groups = new Map<string, { key: string; label: string; down: number; up: number }>()
+  // Las reglas ASN propias del ISP ganan al catálogo y al dataset (Administración › ASN propios).
+  const rules = asnRulesOf(ctx.tenant.tenant_id)
   for (const a of perAsn) {
-    const key = dimension === 'asns' ? String(a.asn) : a.org ? slugify(a.org) : `AS${a.asn}`
+    const rule = rules.find((r) => r.asn === a.asn)
+    const key =
+      dimension === 'asns'
+        ? String(a.asn)
+        : rule
+          ? `tenant-asn-${a.asn}`
+          : a.org
+            ? slugify(a.org)
+            : `AS${a.asn}`
+    const name = rule?.name ?? a.name
     const label =
       dimension === 'asns'
-        ? `AS${a.asn}${a.name ? ` · ${a.name}` : ''}`
-        : (a.org ?? a.name ?? `AS${a.asn}`)
+        ? `AS${a.asn}${name ? ` · ${name}` : ''}`
+        : (rule?.name ?? a.org ?? a.name ?? `AS${a.asn}`)
     const g = groups.get(key) ?? { key, label, down: 0, up: 0 }
     g.down += a.down
     g.up += a.up
@@ -1031,6 +1043,7 @@ export function tenantRoute(ctx: TenantRouteContext): Response | undefined {
     inventoryRoutes(ctx) ??
     analyticsRoutes(ctx) ??
     playlistRoutes(ctx) ??
-    detectionSettingsRoute(ctx)
+    detectionSettingsRoute(ctx) ??
+    asnRulesRoute(ctx)
   )
 }

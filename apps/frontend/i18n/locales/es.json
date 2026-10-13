@@ -74,6 +74,7 @@
       "users": "Usuarios y roles",
       "kiosks": "Pantallas NOC",
       "detection": "Detección",
+      "asn": "ASN propios",
       "audit": "Auditoría",
       "platformIsps": "ISP",
       "platformUsers": "Usuarios de plataforma",
@@ -190,6 +191,9 @@
     },
     "detection": {
       "question": "¿Con qué umbrales se detectan las señales?"
+    },
+    "asn": {
+      "question": "¿Cómo se llaman los ASN que importan a tu red?"
     },
     "audit": {
       "question": "¿Quién hizo qué y cuándo?"
@@ -836,7 +840,10 @@
         "up": "Subida",
         "share": "Cuota"
       },
-      "empty": "Sin tráfico en este rango"
+      "empty": "Sin tráfico en este rango",
+      "search": "Buscar ASN u organización",
+      "noMatch": "Ninguna fila coincide con la búsqueda",
+      "nameAsnFor": "Nombrar AS{asn}"
     },
     "rest": {
       "title": "¿Dónde está el resto del tráfico?",
@@ -2373,6 +2380,59 @@
         "tor_exit": "Salidas de Tor",
         "blocklist": "Lista de bloqueo"
       }
+    }
+  },
+  "asnRules": {
+    "intro": "Pon nombre a los ASN de tu red: cachés, tránsitos o proveedores locales que el dataset público no conoce o nombra mal.",
+    "scope": {
+      "title": "Se aplican al tráfico nuevo",
+      "body": "Servicio y categoría cuentan para el tráfico que llega desde que guardas la regla; el tráfico anterior no se reclasifica. El nombre sí aparece en los tops por ASN y organización de cualquier rango."
+    },
+    "search": "Buscar por ASN, nombre o categoría",
+    "add": "Nombrar un ASN",
+    "edit": "Editar",
+    "remove": "Borrar",
+    "empty": {
+      "title": "Todavía no nombraste ningún ASN",
+      "body": "Busca en Tráfico › Destinos del tráfico los ASN sin nombre o mal nombrados y ponles el nombre que usa tu equipo."
+    },
+    "noMatch": "Ninguna regla coincide con la búsqueda.",
+    "serviceOwn": "Servicio propio con este nombre",
+    "serviceCatalog": "Servicio: {name}",
+    "created": "ASN nombrado",
+    "saved": "Regla guardada",
+    "removed": "Regla borrada",
+    "conflict": "Otra persona cambió esta regla. Revisa la versión actual y vuelve a intentarlo.",
+    "removeTitle": "¿Borrar la regla de AS{asn}?",
+    "removeBody": "El tráfico nuevo de este ASN volverá a clasificarse con el catálogo de Horus. El tráfico ya clasificado no cambia.",
+    "lookup": {
+      "loading": "Buscando cómo se llama hoy…",
+      "dataset": "Hoy se ve como",
+      "unknown": "sin nombre en el dataset público",
+      "catalog": "En el catálogo de Horus: {name}"
+    },
+    "form": {
+      "title": "Nombrar un ASN",
+      "editTitle": "Editar AS{asn}",
+      "body": "El nombre se muestra en tops, dashboards y kioscos de tu ISP.",
+      "asn": "ASN",
+      "asnFixed": "El ASN no se puede cambiar: borra la regla y crea otra.",
+      "asnInvalid": "Escribe un número de ASN entre 1 y 4294967295 (p. ej. AS263237).",
+      "exists": "Este ASN ya tiene una regla («{name}»): edítala en la lista.",
+      "name": "Nombre visible",
+      "nameHelp": "Como lo llama tu equipo, p. ej. «Caché Netflix (OCA local)».",
+      "nameRequired": "Escribe el nombre que verás en los tops.",
+      "service": "Servicio",
+      "serviceHelp": "Elige un servicio del catálogo o deja que el nombre haga de servicio.",
+      "serviceSearch": "Buscar servicio",
+      "ownService": "Ninguno: usar el nombre como servicio",
+      "category": "Categoría",
+      "categoryPlaceholder": "Elige una categoría",
+      "categoryRequired": "Elige una categoría.",
+      "categoryFromService": "Es la categoría del servicio elegido.",
+      "note": "Nota interna",
+      "newTrafficOnly": "La regla se aplica al tráfico que llegue desde ahora.",
+      "submit": "Guardar regla"
     }
   }
 }
