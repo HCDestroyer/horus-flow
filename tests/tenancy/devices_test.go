@@ -228,3 +228,41 @@ func TestInventory(t *testing.T) {
 	a.must(a.do(req{Method: "DELETE", Path: "/api/v1/sites/" + site2, Token: A.token, Header: map[string]string{"If-Match": `"1"`}}), 204)
 	a.must(a.do(req{Method: "GET", Path: "/api/v1/sites/" + site2, Token: A.token}), 404)
 }
+
+// Quitar un prefijo deja sus clientes inactivos (prefix_removed); volver a añadirlo, o pasar a
+// Clientes un prefijo que no lo era, los recupera sin esperar a su próximo tráfico.
+func TestPrefixReaddReactivatesCustomers(t *testing.T) {
+	t.Parallel()
+	a := startApp(t)
+	pt := a.superadmin().platformToken()
+	A := a.newISP(pt, "isp-a")
+	ids := a.fixtureISP(A, "10.10.0.0/24")
+	status := func() (string, string) {
+		c := a.must(a.do(req{Method: "GET", Path: "/api/v1/customers/" + ids["customer_id"], Token: A.token}), 200)
+		cp, _ := c.Body["client_prefix_id"].(string)
+		return c.str("status"), cp
+	}
+	if st, _ := status(); st != "active" {
+		t.Fatalf("cliente inicial: %s", st)
+	}
+	a.must(a.do(req{Method: "DELETE", Path: "/api/v1/client-prefixes/" + ids["client_prefix_id"], Token: A.token, Header: map[string]string{"If-Match": `"1"`}}), 204)
+	if st, _ := status(); st != "inactive" {
+		t.Fatalf("tras quitar el prefijo: %s", st)
+	}
+	again := a.must(a.post(A.token, "/api/v1/sites/"+ids["site_id"]+"/client-prefixes", map[string]any{"prefix": "10.10.0.0/24", "role": "customers"}), 201)
+	if st, cp := status(); st != "active" || cp != again.str("id") {
+		t.Fatalf("tras volver a añadirlo: status=%s client_prefix_id=%s", st, cp)
+	}
+
+	// Excluido → Clientes también los recupera.
+	a.must(a.do(req{Method: "DELETE", Path: "/api/v1/client-prefixes/" + again.str("id"), Token: A.token, Header: map[string]string{"If-Match": `"1"`}}), 204)
+	ex := a.must(a.post(A.token, "/api/v1/sites/"+ids["site_id"]+"/client-prefixes", map[string]any{"prefix": "10.10.0.0/24", "role": "excluded"}), 201)
+	if st, _ := status(); st != "inactive" {
+		t.Fatalf("con el prefijo excluido: %s", st)
+	}
+	a.must(a.do(req{Method: "PATCH", Path: "/api/v1/client-prefixes/" + ex.str("id"), Token: A.token, Header: map[string]string{"If-Match": `"1"`},
+		Body: map[string]any{"role": "customers"}}), 200)
+	if st, _ := status(); st != "active" {
+		t.Fatalf("excluido → clientes: %s", st)
+	}
+}

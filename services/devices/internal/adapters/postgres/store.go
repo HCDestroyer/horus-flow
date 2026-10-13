@@ -560,8 +560,26 @@ func (s *Store) CreatePrefix(ctx context.Context, t pgdb.TenantID, p *domain.Cli
 		if err != nil {
 			return prefixErr(err)
 		}
+		if err := reattachCustomers(ctx, tx, t, p); err != nil {
+			return err
+		}
 		return emit(ctx, tx, ev(p))
 	})
+}
+
+// reattachCustomers devuelve a un prefijo de clientes recién creado los clientes que quedaron
+// inactivos al quitar un prefijo que cubría su IP (prefix_removed): quitar y volver a añadir
+// un pool no deja a sus clientes como inactivos hasta su próximo tráfico.
+func reattachCustomers(ctx context.Context, tx pgx.Tx, t pgdb.TenantID, p *domain.ClientPrefix) error {
+	if p.Role != "customers" {
+		return nil
+	}
+	_, err := tx.Exec(ctx, `UPDATE devices.customer SET status = 'active', inactive_reason = NULL, client_prefix_id = $3,
+			updated_at = now(), version = version + 1
+		WHERE tenant_id = $1 AND realm_id = $2 AND client_prefix_id IS NULL AND status = 'inactive'
+			AND inactive_reason = 'prefix_removed' AND address <<= $4::cidr`,
+		t.UUID(), p.RealmID, p.ID, p.Prefix.String())
+	return err
 }
 
 // UpdatePrefix implementa app.Store.
@@ -576,6 +594,10 @@ func (s *Store) UpdatePrefix(ctx context.Context, t pgdb.TenantID, p *domain.Cli
 		}
 		if err != nil {
 			return prefixErr(err)
+		}
+		// Un prefijo que pasa a Clientes (p. ej. deja de estar excluido) recupera sus clientes.
+		if err := reattachCustomers(ctx, tx, t, p); err != nil {
+			return err
 		}
 		return emit(ctx, tx, ev(p))
 	})
