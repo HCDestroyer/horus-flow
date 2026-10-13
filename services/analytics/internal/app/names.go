@@ -1,6 +1,12 @@
 package app
 
-import "github.com/google/uuid"
+import (
+	"sync/atomic"
+
+	"github.com/google/uuid"
+
+	"github.com/hcdestroyer/horus-flow/services/traffic/api/asn"
+)
 
 // Names resuelve etiquetas de dimensiones (catálogo y ASN, I1-07).
 type Names interface {
@@ -21,4 +27,32 @@ func (s *Service) names() Names {
 		return noNames{}
 	}
 	return s.Names
+}
+
+// ASNNames resuelve nombres de ASN con el snapshot IP→ASN de plataforma (lo publica el rol
+// traffic); se sustituye en caliente al recargar. Servicios y categorías no los conoce.
+type ASNNames struct {
+	snap atomic.Pointer[asn.Snapshot]
+}
+
+// Set cambia el snapshot vigente.
+func (n *ASNNames) Set(s *asn.Snapshot) { n.snap.Store(s) }
+
+// Service implementa Names.
+func (n *ASNNames) Service(uuid.UUID) (string, bool) { return "", false }
+
+// Category implementa Names.
+func (n *ASNNames) Category(uuid.UUID) (string, bool) { return "", false }
+
+// ASN implementa Names.
+func (n *ASNNames) ASN(a uint32) (string, bool) {
+	s := n.snap.Load()
+	if s == nil {
+		return "", false
+	}
+	info, ok := s.AS(a)
+	if !ok || info.Name == "" {
+		return "", false
+	}
+	return info.Name, true
 }

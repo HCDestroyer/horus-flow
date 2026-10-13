@@ -297,6 +297,11 @@ services:
       # ingester marca los flujos con ese mismo snapshot.
       HORUS_DETECTION_FEEDS_SYNC: "true"
       HORUS_REPUTATION_SNAPSHOT_DIR: /var/lib/horus/store/catalog/reputation
+      # ASN (traffic): el rol traffic descarga iptoasn/RIR/PeeringDB cada semana y publica el
+      # snapshot IP→ASN; ingester lo usa para el ASN y la organización remotos y analytics para
+      # sus nombres. HORUS_ASN_SYNC=false lo desactiva (sin salida a Internet).
+      HORUS_ASN_SNAPSHOT_DIR: /var/lib/horus/store/catalog/asn
+      HORUS_ASN_SYNC: ${HORUS_ASN_SYNC:-true}
       # SMTP de la instalación: canal mínimo de alertas por correo (D13) y envío de las invitaciones a
       # un ISP (auth). Vacío = sin SMTP (quien invita comparte el enlace). Telegram se configura por ISP.
       HORUS_SMTP_HOST: ${HORUS_SMTP_HOST:-}

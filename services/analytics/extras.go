@@ -10,7 +10,9 @@ import (
 
 	"github.com/hcdestroyer/horus-flow/packages/go/datasets"
 	"github.com/hcdestroyer/horus-flow/packages/go/flowbus"
+	"github.com/hcdestroyer/horus-flow/services/analytics/internal/app"
 	collectorapi "github.com/hcdestroyer/horus-flow/services/collector/api"
+	"github.com/hcdestroyer/horus-flow/services/traffic/api/asn"
 	"github.com/hcdestroyer/horus-flow/services/traffic/api/catalog"
 )
 
@@ -48,6 +50,29 @@ func (m *mod) startExtras(ctx context.Context) error {
 	}
 	load(ctx)
 	m.svc.Catalog = cur.Load
+	// Nombres de ASN del snapshot que publica el rol traffic (HORUS_ASN_SNAPSHOT_DIR).
+	names := &app.ASNNames{}
+	m.svc.Names = names
+	asnTag := ""
+	loadASN := func() {
+		if m.cfg.ASNSnapshotDir == "" {
+			return
+		}
+		man, path, err := datasets.SnapshotDir{Root: m.cfg.ASNSnapshotDir}.Latest()
+		if err != nil || man.Version == asnTag {
+			return
+		}
+		f, err := os.Open(path) //nolint:gosec // directorio de configuración
+		if err != nil {
+			return
+		}
+		defer func() { _ = f.Close() }()
+		if s, err := asn.ReadSnapshot(f); err == nil {
+			names.Set(s)
+			asnTag = man.Version
+		}
+	}
+	loadASN()
 	write(ctx, cur.Load())
 	m.loops = append(m.loops, func(ctx context.Context) {
 		t := time.NewTicker(time.Minute)
@@ -58,6 +83,7 @@ func (m *mod) startExtras(ctx context.Context) error {
 				return
 			case <-t.C:
 				load(ctx)
+				loadASN()
 				if !dimsOK.Load() {
 					write(ctx, cur.Load())
 				}
