@@ -392,9 +392,26 @@ function customerRoutes(ctx: TenantRouteContext): Response | undefined {
     const down = analyticsDown(ctx)
     if (down) return down
     const range = ctx.url.searchParams.get('range') ?? '24h'
+    const groupBy = ctx.url.searchParams.get('group_by') ?? 'none'
+    if (!['none', 'service', 'category', 'asn'].includes(groupBy)) {
+      return validation('group_by', 'none, service, category o asn', 'INVALID_VALUE')
+    }
     const daily = customerDown(tenant, index) ?? 0
-    return json(customerSeries(ctx, range, (daily / 86_400) * 8, index))
+    return json(customerSeries(ctx, range, (daily / 86_400) * 8, index, groupBy !== 'none'))
   }
+}
+
+/** Reparto del tráfico de un cliente por categoría (la principal coincide con `traffic_24h`). */
+function customerGroups(index: number): { label: string; share: number }[] {
+  const main = CATEGORIES[(index * 3) % 5]!
+  const others = CATEGORIES.filter((c) => c !== main).slice(0, 3)
+  return [
+    { label: main, share: 0.46 },
+    { label: others[0]!, share: 0.27 },
+    { label: others[1]!, share: 0.15 },
+    { label: others[2]!, share: 0.08 },
+    { label: 'Sin clasificar', share: 0.04 },
+  ]
 }
 
 function customerSeries(
@@ -402,6 +419,7 @@ function customerSeries(
   range: string,
   avgBps: number,
   seed: number,
+  grouped = false,
 ): SeriesResponse {
   const span = rangeMs(range)
   const step = span <= 6 * 3_600_000 ? 300 : span <= 86_400_000 ? 900 : 3600
@@ -416,15 +434,26 @@ function customerSeries(
     down.push([iso(at), avgBps ? Math.round(v) : null])
     up.push([iso(at), avgBps ? Math.round(v * 0.12) : null])
   }
-  return {
-    data: {
-      series: [
-        { metric: 'down_bps', unit: 'bps', points: down },
-        { metric: 'up_bps', unit: 'bps', points: up },
-      ],
-    },
-    meta: analyticsMeta(ctx, range, step),
+  const meta = analyticsMeta(ctx, range, step)
+  if (!grouped) {
+    return {
+      data: {
+        series: [
+          { metric: 'down_bps', unit: 'bps', points: down },
+          { metric: 'up_bps', unit: 'bps', points: up },
+        ],
+      },
+      meta,
+    }
   }
+  const scale = (pts: [string, number | null][], share: number): [string, number | null][] =>
+    pts.map(([t, v]) => [t, v === null ? 0 : Math.round(v * share)])
+  const series: SeriesResponse['data']['series'] = []
+  for (const g of customerGroups(seed)) {
+    series.push({ metric: 'down_bps', unit: 'bps', group: g.label, points: scale(down, g.share) })
+    series.push({ metric: 'up_bps', unit: 'bps', group: g.label, points: scale(up, g.share) })
+  }
+  return { data: { series }, meta }
 }
 
 // --- Hallazgos -------------------------------------------------------------------------------

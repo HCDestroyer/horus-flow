@@ -177,7 +177,12 @@ func (m *mod) Run(ctx context.Context) error {
 	wg.Add(1)
 	go func() { defer wg.Done(); m.customers.RunLifecycleDaily(ctx, m.every) }()
 	if m.bus != nil {
-		wg.Add(3)
+		wg.Add(4)
+		go func() {
+			defer wg.Done()
+			_ = natsx.Consume(ctx, m.bus.JS, natsx.ConsumerConfig{Service: Role, Stream: "DETECTION_EVENTS", Durable: m.bus.Durable(app.DurableCustomerDetection),
+				FilterSubjects: []string{"horus.detection.customer.security_state_changed.>"}, Logger: m.logger}, m.customers.HandleSecurityState)
+		}()
 		go func() {
 			defer wg.Done()
 			_ = natsx.Consume(ctx, m.bus.JS, natsx.ConsumerConfig{Service: Role, Stream: "FLOWS_EVENTS", Durable: m.bus.Durable(app.DurableExporterState),

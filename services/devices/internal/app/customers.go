@@ -114,6 +114,10 @@ type CustomerStore interface {
 	PurgeExpired(ctx context.Context, t pgdb.TenantID, before time.Time, ev CustomerEvents) (int, error)
 	// CustomerTenants devuelve los tenants con clientes (job de ciclo de vida).
 	CustomerTenants(ctx context.Context) ([]uuid.UUID, error)
+	// SetCustomerSecurity proyecta el estado de seguridad y el número de
+	// hallazgos abiertos que publica detection; false si no había nada que
+	// cambiar o el cliente no existe.
+	SetCustomerSecurity(ctx context.Context, t pgdb.TenantID, id uuid.UUID, state string, openFindings int, now time.Time) (bool, error)
 }
 
 // Customers implementa los casos de uso de clientes (I1-06).

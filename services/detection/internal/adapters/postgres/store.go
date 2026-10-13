@@ -256,13 +256,15 @@ type SecurityRow struct {
 	State              string
 	Version            int
 	Since              time.Time
+	// OpenFindings es el conteo guardado (para publicar el cambio aunque el estado no varíe).
+	OpenFindings int
 }
 
 // GetSecurity lee el estado de seguridad de un cliente.
 func GetSecurity(ctx context.Context, tx pgx.Tx, customer uuid.UUID) (*SecurityRow, error) {
 	var s SecurityRow
-	err := tx.QueryRow(ctx, `SELECT customer_id, site_id, state, version, since FROM detection.customer_security WHERE customer_id = $1 FOR UPDATE`,
-		customer).Scan(&s.CustomerID, &s.SiteID, &s.State, &s.Version, &s.Since)
+	err := tx.QueryRow(ctx, `SELECT customer_id, site_id, state, version, since, open_findings FROM detection.customer_security WHERE customer_id = $1 FOR UPDATE`,
+		customer).Scan(&s.CustomerID, &s.SiteID, &s.State, &s.Version, &s.Since, &s.OpenFindings)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}

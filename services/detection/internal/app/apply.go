@@ -261,7 +261,7 @@ func mergeOccurrence(f *domain.Finding, c *domain.Candidate, now time.Time) {
 }
 
 // refreshSecurity recalcula el estado de seguridad del cliente y emite
-// security_state_changed si cambia (D5, D18).
+// security_state_changed si cambia el estado o el conteo de hallazgos (D5, D18).
 func (s *Service) refreshSecurity(ctx context.Context, tx pgx.Tx, t pgdb.TenantID, customer, site uuid.UUID, now time.Time) error {
 	active, err := postgres.ActiveOfCustomer(ctx, tx, customer)
 	if err != nil {
@@ -290,7 +290,9 @@ func (s *Service) refreshSecurity(ctx context.Context, tx pgx.Tx, t pgdb.TenantI
 	if err := postgres.PutSecurity(ctx, tx, t, row, st, now); err != nil {
 		return fmt.Errorf("security state: %w", err)
 	}
-	if cur != nil && cur.State == st.State {
+	// Se publica si cambia el estado o el número de hallazgos abiertos: devices
+	// proyecta ambos en la ficha del cliente (open_findings), no solo el estado.
+	if cur != nil && cur.State == st.State && cur.OpenFindings == st.OpenFindings {
 		return nil
 	}
 	tid := t.UUID()

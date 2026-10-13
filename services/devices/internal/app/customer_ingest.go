@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -21,6 +22,8 @@ import (
 const (
 	DurableFirstSeen = "devices-client-first-seen"
 	DurableActivity  = "devices-client-activity"
+	// DurableCustomerDetection proyecta el estado de seguridad que publica detection.
+	DurableCustomerDetection = "devices-customer-detection"
 )
 
 // firstSeenData es el payload de horus.flows.client.first_seen (JSON).
@@ -208,4 +211,36 @@ func (s *Customers) RunLifecycleDaily(ctx context.Context, every time.Duration) 
 		case <-time.After(every):
 		}
 	}
+}
+
+// securityStateData es el payload de horus.detection.customer.security_state_changed.
+type securityStateData struct {
+	CustomerID   uuid.UUID `json:"customer_id"`
+	State        string    `json:"state"`
+	OpenFindings int       `json:"open_findings"`
+}
+
+// HandleSecurityState proyecta en la ficha del cliente el estado de seguridad
+// y el número de hallazgos abiertos que calcula detection (events.md §8.8:
+// consumidor devices-customer-detection). Idempotente: solo escribe si cambia.
+func (s *Customers) HandleSecurityState(ctx context.Context, m *natsx.Message) error {
+	if m.Envelope == nil || m.Envelope.Type != "horus.detection.customer.security_state_changed" {
+		return nil
+	}
+	var d securityStateData
+	if err := json.Unmarshal(m.Envelope.Data, &d); err != nil {
+		return natsx.Permanent(fmt.Errorf("security_state_changed: %w", err))
+	}
+	if d.CustomerID == uuid.Nil || !slices.Contains(domain.SecurityStates, d.State) || d.OpenFindings < 0 {
+		return natsx.Permanent(fmt.Errorf("security_state_changed: payload inválido (customer %s, state %q)", d.CustomerID, d.State))
+	}
+	changed, err := s.store.SetCustomerSecurity(ctx, pgdb.TenantID(m.Tenant), d.CustomerID, d.State, d.OpenFindings, s.ts())
+	if err != nil {
+		return err
+	}
+	if changed {
+		s.logger.DebugContext(ctx, "customer security projected", slog.String("customer_id", d.CustomerID.String()),
+			slog.String("state", d.State), slog.Int("open_findings", d.OpenFindings))
+	}
+	return nil
 }

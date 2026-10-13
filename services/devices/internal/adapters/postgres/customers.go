@@ -393,6 +393,23 @@ func (s *Store) TouchCustomers(ctx context.Context, t pgdb.TenantID, realm uuid.
 	return n, err
 }
 
+// SetCustomerSecurity implementa app.CustomerStore. No emite evento propio:
+// el origen es detection y volver a publicar customer.updated haría un bucle
+// con su consumidor de clientes.
+func (s *Store) SetCustomerSecurity(ctx context.Context, t pgdb.TenantID, id uuid.UUID, state string, open int, now time.Time) (bool, error) {
+	changed := false
+	err := s.db.TenantTx(ctx, t, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `UPDATE devices.customer SET security_state = $3, open_findings = $4, updated_at = $5, version = version + 1
+			WHERE tenant_id = $1 AND id = $2 AND (security_state <> $3 OR open_findings <> $4)`, t.UUID(), id, state, open, now)
+		if err != nil {
+			return fmt.Errorf("devices: security: %w", err)
+		}
+		changed = tag.RowsAffected() > 0
+		return nil
+	})
+	return changed, err
+}
+
 // InactivateIdle implementa app.CustomerStore.
 func (s *Store) InactivateIdle(ctx context.Context, t pgdb.TenantID, before time.Time, ev app.CustomerEvents) (int, error) {
 	n := 0

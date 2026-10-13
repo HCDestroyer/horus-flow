@@ -203,6 +203,65 @@ const series = computed(() =>
   })),
 )
 const formatRate = (v: number) => joinUnit(formatBps(v))
+
+// Resumen de 24 h: el servicio de clientes no calcula tráfico; se integra la serie de
+// analítica por categoría (bps × paso = bytes) y la categoría con más bytes es el consumo
+// principal. Si analítica no responde, el resumen muestra "—", nunca ceros.
+const { data: day, refresh: refreshDay } = useTenantQuery(
+  () => `customer:${id.value}:traffic24h:categories`,
+  () =>
+    unwrap(
+      $api.GET('/analytics/customers/{customer_id}/traffic', {
+        params: { path: { customer_id: id.value }, query: { range: '24h', group_by: 'category' } },
+      }),
+    ),
+)
+const summary24h = computed(() => {
+  const r = day.value
+  if (!r || !r.meta.step) return null
+  const step = r.meta.step
+  let down = 0
+  let up = 0
+  const byGroup = new Map<string, number>()
+  for (const s of r.data.series) {
+    const bytes =
+      (s.points.reduce((acc: number, [, v]) => acc + (typeof v === 'number' ? v : 0), 0) * step) / 8
+    if (s.metric === 'down_bps') down += bytes
+    else up += bytes
+    const g = s.group ?? ''
+    byGroup.set(g, (byGroup.get(g) ?? 0) + bytes)
+  }
+  let top: string | null = null
+  let topBytes = 0
+  for (const [g, b] of byGroup) {
+    if (g && g !== 'Sin clasificar' && b > topBytes) [top, topBytes] = [g, b]
+  }
+  if (!top) for (const [g, b] of byGroup) if (g && b > topBytes) [top, topBytes] = [g, b]
+  return { down, up, top, any: down + up > 0 }
+})
+const kpi = computed(() => {
+  const s = summary24h.value
+  const legacy = customer.value?.traffic_24h
+  if (s?.any) return { down: s.down, up: s.up, top: s.top }
+  if (legacy)
+    return {
+      down: Number(legacy.down_bytes),
+      up: Number(legacy.up_bytes),
+      top: legacy.top_category,
+    }
+  return null
+})
+const openFindings = computed(() =>
+  findingsPage.value ? active.value.length : (customer.value?.open_findings ?? 0),
+)
+
+// La ficha se refresca sola cada minuto mientras está a la vista.
+useAutoRefresh(() => {
+  refresh()
+  refreshFindings()
+  refreshDay()
+  if (tab.value === 'traffic') refreshTraffic()
+})
 const rangeItems = computed(() => [
   { label: t('ranges.24h'), value: '24h' },
   { label: t('ranges.7d'), value: '7d' },
@@ -337,7 +396,7 @@ useHead({ title: () => customer.value?.alias ?? t('clients.detailTitle') })
           <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
             <SecurityStateBadge :state="customer.security_state" :confidence="securityConfidence" />
             <span class="text-muted text-sm">{{
-              t('clients.findingsCount', { n: customer.open_findings })
+              t('clients.findingsCount', { n: openFindings })
             }}</span>
           </div>
           <div>
@@ -375,34 +434,25 @@ useHead({ title: () => customer.value?.alias ?? t('clients.detailTitle') })
         class="grid gap-4 sm:grid-cols-3"
         :aria-label="t('clients.tabs.summary')"
       >
-        <UCard>
+        <UCard data-testid="client-kpi-down">
           <p class="text-muted text-sm">{{ t('clients.kpi.down') }}</p>
           <p class="text-highlighted mt-1 text-2xl font-semibold tabular">
-            {{
-              customer.traffic_24h?.down_bytes
-                ? joinUnit(formatBytes(Number(customer.traffic_24h.down_bytes)))
-                : '—'
-            }}
+            {{ kpi ? joinUnit(formatBytes(kpi.down)) : '—' }}
           </p>
           <p class="text-muted text-sm tabular">
-            ↑
-            {{
-              customer.traffic_24h?.up_bytes
-                ? joinUnit(formatBytes(Number(customer.traffic_24h.up_bytes)))
-                : '—'
-            }}
+            ↑ {{ kpi ? joinUnit(formatBytes(kpi.up)) : '—' }}
           </p>
         </UCard>
-        <UCard>
+        <UCard data-testid="client-kpi-top">
           <p class="text-muted text-sm">{{ t('clients.kpi.top') }}</p>
           <p class="text-highlighted mt-1 text-lg font-semibold">
-            {{ customer.traffic_24h?.top_category ?? '—' }}
+            {{ kpi?.top ?? '—' }}
           </p>
         </UCard>
-        <UCard>
+        <UCard data-testid="client-kpi-findings">
           <p class="text-muted text-sm">{{ t('clients.kpi.findings') }}</p>
           <p class="text-highlighted mt-1 text-2xl font-semibold tabular">
-            {{ customer.open_findings }}
+            {{ openFindings }}
           </p>
           <p v-if="customer.notes" class="text-muted mt-1 text-sm">{{ customer.notes }}</p>
         </UCard>

@@ -59,6 +59,29 @@ test.describe('clientes @clients', () => {
     expect(page.url()).not.toContain('10.20.0.41')
   })
 
+  test('el resumen muestra tráfico de 24 h calculado por analítica y los hallazgos reales', async ({
+    page,
+  }) => {
+    await page.goto(LIST)
+    await expect(page.getByTestId('clients-table')).toBeVisible()
+    // Un cliente con hallazgos: el primero marcado como infectado.
+    await page
+      .getByRole('row')
+      .filter({ hasText: 'Infectado' })
+      .first()
+      .getByTestId('client-link')
+      .click()
+    await expect(page.getByTestId('client-header')).toBeVisible()
+    await expect(page.getByTestId('client-kpi-down')).toContainText(/\d+(,\d+)?\s(GB|MB|TB|kB)/)
+    await expect(page.getByTestId('client-kpi-down')).toContainText(/↑\s\d/)
+    await expect(page.getByTestId('client-kpi-top')).not.toContainText('—')
+    // El contador de hallazgos coincide con la pestaña Seguridad (lista real, no un campo viejo).
+    const tab = await page.getByRole('tab', { name: /Seguridad \(\d+\)/ }).textContent()
+    const n = Number(/\((\d+)\)/.exec(tab ?? '')?.[1])
+    expect(n).toBeGreaterThan(0)
+    await expect(page.getByTestId('client-kpi-findings')).toContainText(String(n))
+  })
+
   test('IPv6: el cliente es su prefijo delegado (D22)', async ({ page }) => {
     await page.goto(LIST)
     await expect(page.getByTestId('clients-table')).toBeVisible()
