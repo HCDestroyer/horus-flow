@@ -240,7 +240,7 @@ paths:
           schema:
             type: integer
             minimum: 1
-            maximum: 10
+            maximum: 100
             default: 10
         - $ref: '#/components/parameters/Range'
         - $ref: '#/components/parameters/From'
@@ -1154,6 +1154,59 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /classification/status:
+    get:
+      tags:
+        - exporters
+      operationId: getClassificationStatus
+      summary: Con qué datasets se clasifica el tráfico ahora (ASN, catálogo, reputación)
+      description: |
+        Sin dataset de ASN cargado, los flujos se clasifican solo por puerto (QUIC, HTTPS…) y el tráfico no se
+        atribuye a organizaciones ni ASN. El rol traffic lo descarga al arrancar y lo renueva cada semana
+        (HORUS_ASN_SYNC); el ingester lo lee de HORUS_ASN_SNAPSHOT_DIR. `source: unknown` significa que este
+        proceso no enriquece flujos (despliegue en dos hosts) y no puede saberlo.
+      x-module: flows
+      x-scope: tenant
+      x-permission: flows.read
+      x-principals:
+        - user
+        - api_token
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Estado de los datasets.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - source
+                properties:
+                  source:
+                    type: string
+                    enum:
+                      - ingester
+                      - unknown
+                  data:
+                    type: object
+                    required:
+                      - asn_dataset
+                      - catalog
+                      - reputation
+                    properties:
+                      asn_dataset:
+                        $ref: '#/components/schemas/DatasetStatus'
+                      catalog:
+                        $ref: '#/components/schemas/DatasetStatus'
+                      reputation:
+                        $ref: '#/components/schemas/DatasetStatus'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /client-prefixes/{client_prefix_id}:
     parameters:
       - $ref: '#/components/parameters/ClientPrefixId'
@@ -6089,6 +6142,92 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /sites/{site_id}/unattributed-addresses:
+    parameters:
+      - name: site_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+    post:
+      tags:
+        - traffic
+      operationId: queryUnattributedAddresses
+      summary: IPs con más tráfico dentro de un rango sin atribuir de un nodo
+      description: |
+        Detalle de una propuesta de prefijo (`GET /sites/{site_id}/prefix-proposals`): las IP del rango que más
+        tráfico generan en el periodo, de más a menos. Son IP de clientes aún sin declarar (dato personal), por eso
+        exige `customers.read`. El rango va en el cuerpo (nunca IP en la URL). Fuente: flows.unattributed_1h (30 días).
+      x-module: analytics
+      x-scope: tenant
+      x-permission: customers.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - prefix
+              properties:
+                prefix:
+                  allOf:
+                    - $ref: '#/components/schemas/Cidr'
+                  description: Rango propuesto (IPv4 /24 o más amplio; IPv6 /48 o más amplio).
+                range:
+                  $ref: '#/components/schemas/RelativeRange'
+                'n':
+                  type: integer
+                  minimum: 1
+                  maximum: 200
+                  default: 50
+      responses:
+        '200':
+          description: IPs del rango ordenadas por bytes.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - address
+                        - bytes
+                        - packets
+                        - last_seen_at
+                      properties:
+                        address:
+                          type: string
+                          format: ip
+                          examples:
+                            - 100.64.12.17
+                        bytes:
+                          $ref: '#/components/schemas/Uint64String'
+                        packets:
+                          $ref: '#/components/schemas/Uint64String'
+                        last_seen_at:
+                          $ref: '#/components/schemas/Timestamp'
+                  meta:
+                    $ref: '#/components/schemas/AnalyticsMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /system/status:
     get:
       tags:
@@ -7400,6 +7539,23 @@ components:
           const: true
         mfa_token:
           type: string
+    DatasetStatus:
+      type: object
+      required:
+        - loaded
+      properties:
+        loaded:
+          type: boolean
+        version:
+          type: string
+          examples:
+            - '2026-10-13T00:00:00Z'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        entries:
+          type: integer
+          minimum: 0
+          description: Prefijos del dataset.
     ClientPrefixRole:
       type: string
       enum:
@@ -11954,6 +12110,8 @@ components:
             wireguard:
               $ref: '#/components/schemas/CapabilityState'
             ingest:
+              $ref: '#/components/schemas/CapabilityState'
+            classification:
               $ref: '#/components/schemas/CapabilityState'
             monitoring:
               $ref: '#/components/schemas/CapabilityState'

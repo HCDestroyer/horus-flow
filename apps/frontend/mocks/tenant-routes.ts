@@ -66,6 +66,8 @@ export interface TenantRouteContext {
   can: (permission: string) => boolean
   now: Date
   degraded: boolean
+  /** Escenario del mock (`horus.mock.scenario`): 'no-asn' = sin dataset de ASN cargado. */
+  scenario: string
   empty: boolean
   /** Paso del asistente de alta simulado (ms entre "clave recibida", "túnel" y "primer flujo"). */
   stepMs: number
@@ -588,6 +590,32 @@ function inventoryRoutes(ctx: TenantRouteContext): Response | undefined {
     prefixesOf(tenant, site).push(...created)
     return json({ data: created }, 201)
   }
+  if ((p = match(ctx, 'POST', '/sites/{id}/unattributed-addresses'))) {
+    if (!ctx.can('customers.read')) return forbidden()
+    const site = findSite(tenant, p.id!)
+    if (!site) return notFound('SITE_NOT_FOUND')
+    const down = analyticsDown(ctx)
+    if (down) return down
+    const prefix = String(ctx.body.prefix ?? '')
+    if (!/\//.test(prefix)) {
+      return problem(422, 'VALIDATION_FAILED', 'prefix must be a CIDR')
+    }
+    const proposal = prefixProposals(tenant, site).find((x) => x.prefix === prefix)
+    if (!proposal) return json({ data: [], meta: analyticsMeta(ctx, '7d', null) })
+    const n = Math.min(Number(ctx.body.n ?? 50), 200)
+    const base = prefix.includes(':')
+      ? prefix.replace(/::\/\d+$/, '::')
+      : prefix.replace(/\.0\/\d+$/, '.')
+    const total = Number(proposal.bytes)
+    const count = Math.min(n, proposal.distinct_ips)
+    const data = Array.from({ length: count }, (_, i) => ({
+      address: prefix.includes(':') ? `${base}${(i + 1).toString(16)}` : `${base}${i + 1}`,
+      bytes: String(Math.round(total / (2 * (i + 1)))),
+      packets: String(Math.round(total / (2 * (i + 1)) / 900)),
+      last_seen_at: new Date(ctx.now.getTime() - i * 600_000).toISOString(),
+    }))
+    return json({ data, meta: analyticsMeta(ctx, '7d', null) })
+  }
   if ((p = match(ctx, 'GET', '/sites/{id}/prefix-proposals'))) {
     const site = findSite(tenant, p.id!)
     if (!site) return notFound('SITE_NOT_FOUND')
@@ -1036,12 +1064,34 @@ function playlistRoutes(ctx: TenantRouteContext): Response | undefined {
   }
 }
 
+// --- Clasificación (módulo flows): con qué datasets se clasifica el tráfico -------------------
+function classificationRoute(ctx: TenantRouteContext): Response | undefined {
+  if (ctx.path !== '/classification/status') return undefined
+  const missing = ctx.scenario === 'no-asn'
+  return json({
+    source: 'ingester',
+    data: {
+      asn_dataset: missing
+        ? { loaded: false }
+        : {
+            loaded: true,
+            version: '2026-10-12',
+            created_at: new Date(ctx.now.getTime() - 86_400_000).toISOString(),
+            entries: 1234567,
+          },
+      catalog: { loaded: true, version: 'v3' },
+      reputation: { loaded: true, version: '2026-10-13' },
+    },
+  })
+}
+
 export function tenantRoute(ctx: TenantRouteContext): Response | undefined {
   return (
     customerRoutes(ctx) ??
     findingRoutes(ctx) ??
     deviceRoutes(ctx) ??
     inventoryRoutes(ctx) ??
+    classificationRoute(ctx) ??
     analyticsRoutes(ctx) ??
     playlistRoutes(ctx) ??
     detectionSettingsRoute(ctx) ??

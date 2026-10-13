@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"net/netip"
 	"sort"
 	"strconv"
@@ -119,4 +120,62 @@ func (s *Service) PrefixProposals(ctx context.Context, tenant, site uuid.UUID, r
 		return out[i].Prefix < out[j].Prefix
 	})
 	return out, nil
+}
+
+// UnattributedAddress es una IP de un rango sin atribuir con su tráfico.
+type UnattributedAddress struct {
+	Address    string `json:"address"`
+	Bytes      string `json:"bytes"`
+	Packets    string `json:"packets"`
+	LastSeenAt string `json:"last_seen_at"`
+}
+
+// MaxUnattributedAddresses acota el detalle por IP de una propuesta.
+const MaxUnattributedAddresses = 200
+
+// UnattributedAddresses devuelve las IP con más tráfico dentro de un rango
+// propuesto (detalle de PrefixProposals), de más a menos bytes. Dato personal:
+// la ruta exige customers.read.
+func (s *Service) UnattributedAddresses(ctx context.Context, tenant, site uuid.UUID, pfx netip.Prefix, r Range, n int) ([]UnattributedAddress, error) {
+	if n < 1 || n > MaxUnattributedAddresses {
+		n = 50
+	}
+	pfx = pfx.Masked()
+	if (pfx.Addr().Is4() && pfx.Bits() > ProposalV4Bits) || (pfx.Addr().Is6() && pfx.Bits() > ProposalV6Bits) {
+		return nil, fmt.Errorf("%w: prefix too narrow", ErrBadRequest)
+	}
+	rows, cancel, err := s.Q.Query(ctx, tenant, `
+		SELECT client_ip, sum(bytes) AS b, sum(packets) AS p, max(bucket) AS last
+		FROM flows.unattributed_1h
+		WHERE tenant_id = ? AND site_id = ? AND bucket >= toStartOfHour(?) AND bucket < ?
+		  AND client_ip != toIPv6('::') AND isIPAddressInRange(toString(client_ip), ?)
+		GROUP BY client_ip
+		ORDER BY b DESC, client_ip
+		LIMIT ?`, tenant, site, r.From, r.To, rangeExpr(pfx), n)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+	defer func() { _ = rows.Close() }()
+	out := make([]UnattributedAddress, 0, n)
+	for rows.Next() {
+		var ip netip.Addr
+		var b, p uint64
+		var last time.Time
+		if err := rows.Scan(&ip, &b, &p, &last); err != nil {
+			return nil, err
+		}
+		out = append(out, UnattributedAddress{Address: ip.Unmap().String(), Bytes: strconv.FormatUint(b, 10),
+			Packets: strconv.FormatUint(p, 10), LastSeenAt: last.UTC().Format("2006-01-02T15:04:05.000Z")})
+	}
+	return out, rows.Err()
+}
+
+// rangeExpr expresa un prefijo IPv4 como su forma IPv4-mapeada (client_ip es
+// IPv6) para isIPAddressInRange.
+func rangeExpr(pfx netip.Prefix) string {
+	if pfx.Addr().Is4() {
+		return "::ffff:" + pfx.Addr().String() + "/" + strconv.Itoa(96+pfx.Bits())
+	}
+	return pfx.String()
 }

@@ -112,6 +112,8 @@ paths:
     $ref: ./auth.yaml#/paths/~1auth~1refresh
   /auth/token:
     $ref: ./auth.yaml#/paths/~1auth~1token
+  /classification/status:
+    $ref: ./flows.yaml#/paths/~1classification~1status
   /client-prefixes/{client_prefix_id}:
     $ref: ./devices.yaml#/paths/~1client-prefixes~1{client_prefix_id}
   /client-prefixes/{client_prefix_id}/confirm:
@@ -298,6 +300,8 @@ paths:
     $ref: ./devices.yaml#/paths/~1sites~1{site_id}~1client-prefixes~1batch
   /sites/{site_id}/prefix-proposals:
     $ref: ./analytics.yaml#/paths/~1sites~1{site_id}~1prefix-proposals
+  /sites/{site_id}/unattributed-addresses:
+    $ref: ./analytics.yaml#/paths/~1sites~1{site_id}~1unattributed-addresses
   /system/status:
     $ref: ./gateway.yaml#/paths/~1system~1status
   /widget-data/preview:

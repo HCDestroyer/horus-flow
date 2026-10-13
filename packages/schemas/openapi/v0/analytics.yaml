@@ -50,7 +50,7 @@ paths:
           schema: { type: string, enum: [both, download, upload], default: both }
         - name: n
           in: query
-          schema: { type: integer, minimum: 1, maximum: 10, default: 10 }
+          schema: { type: integer, minimum: 1, maximum: 100, default: 10 }
         - $ref: './common.yaml#/components/parameters/Range'
         - $ref: './common.yaml#/components/parameters/From'
         - $ref: './common.yaml#/components/parameters/To'
@@ -209,6 +209,63 @@ paths:
                   meta: { $ref: './common.yaml#/components/schemas/AnalyticsMeta' }
         '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
         '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
+  /sites/{site_id}/unattributed-addresses:
+    parameters:
+      - name: site_id
+        in: path
+        required: true
+        schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    post:
+      tags: [traffic]
+      operationId: queryUnattributedAddresses
+      summary: IPs con más tráfico dentro de un rango sin atribuir de un nodo
+      description: |
+        Detalle de una propuesta de prefijo (`GET /sites/{site_id}/prefix-proposals`): las IP del rango que más
+        tráfico generan en el periodo, de más a menos. Son IP de clientes aún sin declarar (dato personal), por eso
+        exige `customers.read`. El rango va en el cuerpo (nunca IP en la URL). Fuente: flows.unattributed_1h (30 días).
+      x-module: analytics
+      x-scope: tenant
+      x-permission: customers.read
+      x-increment: I1
+      security: [{ tenantBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [prefix]
+              properties:
+                prefix:
+                  allOf: [{ $ref: './common.yaml#/components/schemas/Cidr' }]
+                  description: Rango propuesto (IPv4 /24 o más amplio; IPv6 /48 o más amplio).
+                range: { $ref: './common.yaml#/components/schemas/RelativeRange' }
+                n: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        '200':
+          description: IPs del rango ordenadas por bytes.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [address, bytes, packets, last_seen_at]
+                      properties:
+                        address: { type: string, format: ip, examples: ['100.64.12.17'] }
+                        bytes: { $ref: './common.yaml#/components/schemas/Uint64String' }
+                        packets: { $ref: './common.yaml#/components/schemas/Uint64String' }
+                        last_seen_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+                  meta: { $ref: './common.yaml#/components/schemas/AnalyticsMeta' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
         '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
   /widget-types:
     get:

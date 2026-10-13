@@ -471,6 +471,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/classification/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Con qué datasets se clasifica el tráfico ahora (ASN, catálogo, reputación)
+         * @description Sin dataset de ASN cargado, los flujos se clasifican solo por puerto (QUIC, HTTPS…) y el tráfico no se
+         *     atribuye a organizaciones ni ASN. El rol traffic lo descarga al arrancar y lo renueva cada semana
+         *     (HORUS_ASN_SYNC); el ingester lo lee de HORUS_ASN_SNAPSHOT_DIR. `source: unknown` significa que este
+         *     proceso no enriquece flujos (despliegue en dos hosts) y no puede saberlo.
+         */
+        get: operations["getClassificationStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/client-prefixes/{client_prefix_id}": {
         parameters: {
             query?: never;
@@ -2316,6 +2339,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sites/{site_id}/unattributed-addresses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                site_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * IPs con más tráfico dentro de un rango sin atribuir de un nodo
+         * @description Detalle de una propuesta de prefijo (`GET /sites/{site_id}/prefix-proposals`): las IP del rango que más
+         *     tráfico generan en el periodo, de más a menos. Son IP de clientes aún sin declarar (dato personal), por eso
+         *     exige `customers.read`. El rango va en el cuerpo (nunca IP en la URL). Fuente: flows.unattributed_1h (30 días).
+         */
+        post: operations["queryUnattributedAddresses"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/system/status": {
         parameters: {
             query?: never;
@@ -2922,6 +2969,14 @@ export interface components {
             version: number;
             visibility: components["schemas"]["Visibility"];
             widget_count: number;
+        };
+        DatasetStatus: {
+            created_at?: components["schemas"]["Timestamp"];
+            /** @description Prefijos del dataset. */
+            entries?: number;
+            loaded: boolean;
+            /** @example 2026-10-13T00:00:00Z */
+            version?: string;
         };
         /** EmailChannelConfig */
         EmailChannelConfig: {
@@ -3993,6 +4048,7 @@ export interface components {
             capabilities: {
                 analytics: components["schemas"]["CapabilityState"];
                 auth: components["schemas"]["CapabilityState"];
+                classification?: components["schemas"]["CapabilityState"];
                 detection: components["schemas"]["CapabilityState"];
                 ingest: components["schemas"]["CapabilityState"];
                 inventory: components["schemas"]["CapabilityState"];
@@ -5306,6 +5362,36 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    getClassificationStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Estado de los datasets. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            asn_dataset: components["schemas"]["DatasetStatus"];
+                            catalog: components["schemas"]["DatasetStatus"];
+                            reputation: components["schemas"]["DatasetStatus"];
+                        };
+                        /** @enum {string} */
+                        source: "ingester" | "unknown";
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     deleteClientPrefix: {
@@ -9047,6 +9133,55 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    queryUnattributedAddresses: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                site_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @default 50 */
+                    n?: number;
+                    /** @description Rango propuesto (IPv4 /24 o más amplio; IPv6 /48 o más amplio). */
+                    prefix: components["schemas"]["Cidr"];
+                    range?: components["schemas"]["RelativeRange"];
+                };
+            };
+        };
+        responses: {
+            /** @description IPs del rango ordenadas por bytes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /**
+                             * Format: ip
+                             * @example 100.64.12.17
+                             */
+                            address: string;
+                            bytes: components["schemas"]["Uint64String"];
+                            last_seen_at: components["schemas"]["Timestamp"];
+                            packets: components["schemas"]["Uint64String"];
+                        }[];
+                        meta: components["schemas"]["AnalyticsMeta"];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["UnprocessableEntity"];
             503: components["responses"]["ServiceUnavailable"];
         };
     };

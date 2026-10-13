@@ -120,8 +120,8 @@ func (h *Handler) top(w http.ResponseWriter, r *http.Request) {
 	if n == 0 {
 		n = 10
 	}
-	if n < 1 || n > 10 {
-		problem.Std(w, r, http.StatusBadRequest, problem.CodeValidationFailed, problem.WithDetail("n must be 1..10"))
+	if n < 1 || n > app.MaxTopN {
+		problem.Std(w, r, http.StatusBadRequest, problem.CodeValidationFailed, problem.WithDetail("n must be 1..100"))
 		return
 	}
 	res, err := h.svc.Top(r.Context(), app.TopQuery{Scope: sc, Dimension: dim, Direction: q.Get("direction"), N: n, Range: rg})

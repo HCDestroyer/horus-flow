@@ -75,7 +75,14 @@ func Register(_ context.Context, deps module.Deps) (module.Module, error) {
 		}
 		if deps.Routes != nil {
 			if v := verifier(cfg, deps); v != nil {
-				httpapi.New(authz.NewGuard(v), m.inv, m.states, m.unreg, nil).Mount(deps.Routes)
+				h := httpapi.New(authz.NewGuard(v), m.inv, m.states, m.unreg, nil)
+				h.Classification = func() (app.ClassificationStatus, bool) {
+					if e := m.enrich.Load(); e != nil {
+						return e.Status(), true
+					}
+					return app.ClassificationStatus{}, false
+				}
+				h.Mount(deps.Routes)
 			} else {
 				log.Warn("ingester: no token verifier (auth not local, HORUS_JWT_PUBLIC_KEYS unset): /flow-exporters not served")
 			}
@@ -139,8 +146,10 @@ type ingester struct {
 	writer   *chadapter.Writer
 	cons     jetstream.Consumer
 	consumer *app.Consumer
-	loops    []func(ctx context.Context)
-	pause    *flowpause.Set
+	// enrich se fija en wire(); GET /classification/status lo consulta.
+	enrich atomic.Pointer[app.Enrichment]
+	loops  []func(ctx context.Context)
+	pause  *flowpause.Set
 	// snapshots guarda el estado reconstruible tras un reinicio (flows_state).
 	snapshots flowstate.Store
 }
@@ -250,6 +259,7 @@ func (m *ingester) wire(ctx context.Context, proc *app.Processor) error {
 	enr.Reload(m.cfg.ASNSnapshotDir, m.cfg.CatalogSnapshotDir, m.cfg.ReputationSnapshotDir)
 	enr.SetInventory(m.inv)
 	proc.Enricher = enr
+	m.enrich.Store(enr)
 	m.loops = append(m.loops, func(ctx context.Context) {
 		enr.Watch(ctx, 30*time.Second, m.cfg.ASNSnapshotDir, m.cfg.CatalogSnapshotDir, m.cfg.ReputationSnapshotDir)
 	})

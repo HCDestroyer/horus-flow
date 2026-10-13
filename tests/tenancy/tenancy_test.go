@@ -118,7 +118,8 @@ func cases() map[string]tenanttest.Case {
 	c["deletePlaylist"] = tenanttest.Case{Kind: tenanttest.ByID}
 	c["getKioskConfig"] = tenanttest.Case{Kind: tenanttest.KioskOnly}
 	pending("FLOW I1 (analytics: tráfico y propuestas; su suite usa ClickHouse)",
-		"getCustomerTraffic", "getTrafficAttribution", "getTrafficTimeseries", "getTrafficTop", "listPrefixProposals")
+		"getCustomerTraffic", "getTrafficAttribution", "getTrafficTimeseries", "getTrafficTop", "listPrefixProposals",
+		"queryUnattributedAddresses")
 	// detection (I1-12, SEC)
 	c["listFindings"] = tenanttest.Case{Kind: tenanttest.List}
 	c["listCustomerFindings"] = tenanttest.Case{Kind: tenanttest.List}
@@ -145,7 +146,7 @@ func cases() map[string]tenanttest.Case {
 	pending("ASSIST (asistente IA: suite propia de aislamiento en services/assist)",
 		"getAssistStatus", "getAssistSettings", "putAssistSettings", "testAssistSettings", "createAssistAnalysis",
 		"listAssistAudit", "listAssistMcpTokens", "createAssistMcpToken", "revokeAssistMcpToken")
-	pending("FLOW I1 (flows: exportadores)", "listFlowExporters", "getFlowExporter")
+	pending("FLOW I1 (flows: exportadores)", "listFlowExporters", "getFlowExporter", "getClassificationStatus")
 	return c
 }
 

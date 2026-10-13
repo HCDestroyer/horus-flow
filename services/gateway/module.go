@@ -160,14 +160,15 @@ func systemStatus(local edge.Matcher) http.HandlerFunc {
 	}
 	return func(w http.ResponseWriter, _ *http.Request) {
 		caps := map[string]string{
-			"auth":          probe(http.MethodGet, "/api/v1/me"),
-			"inventory":     probe(http.MethodGet, "/api/v1/sites"),
-			"wireguard":     probe(http.MethodGet, "/api/v1/wireguard/peers"),
-			"ingest":        probe(http.MethodGet, "/api/v1/flow-exporters"),
-			"realtime":      probe(http.MethodPost, "/api/v1/ws/tickets"),
-			"analytics":     probe(http.MethodGet, "/api/v1/analytics/traffic/top"),
-			"detection":     probe(http.MethodGet, "/api/v1/security/summary"),
-			"notifications": probe(http.MethodGet, "/api/v1/notification-channels"),
+			"auth":           probe(http.MethodGet, "/api/v1/me"),
+			"inventory":      probe(http.MethodGet, "/api/v1/sites"),
+			"wireguard":      probe(http.MethodGet, "/api/v1/wireguard/peers"),
+			"ingest":         probe(http.MethodGet, "/api/v1/flow-exporters"),
+			"classification": probe(http.MethodGet, "/api/v1/classification/status"),
+			"realtime":       probe(http.MethodPost, "/api/v1/ws/tickets"),
+			"analytics":      probe(http.MethodGet, "/api/v1/analytics/traffic/top"),
+			"detection":      probe(http.MethodGet, "/api/v1/security/summary"),
+			"notifications":  probe(http.MethodGet, "/api/v1/notification-channels"),
 		}
 		status := "ok"
 		if caps["auth"] != "ok" || caps["inventory"] != "ok" {

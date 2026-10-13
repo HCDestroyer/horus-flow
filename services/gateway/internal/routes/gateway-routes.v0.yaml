@@ -141,6 +141,10 @@ modules:
       scope: tenant
       methods:
         GET: sites.read
+    - prefix: /api/v1/sites/{site_id}/unattributed-addresses
+      scope: tenant
+      methods:
+        POST: customers.read
     - prefix: /api/v1/widget-data/preview
       scope: tenant
       methods:
@@ -560,6 +564,13 @@ modules:
       idempotency_key_required:
         - POST
   flows:
+    - prefix: /api/v1/classification/status
+      scope: tenant
+      methods:
+        GET: flows.read
+      principals:
+        - user
+        - api_token
     - prefix: /api/v1/flow-exporters
       scope: tenant
       methods:

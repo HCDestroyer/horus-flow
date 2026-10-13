@@ -100,6 +100,7 @@ components:
             inventory: { $ref: '#/components/schemas/CapabilityState' }
             wireguard: { $ref: '#/components/schemas/CapabilityState' }
             ingest: { $ref: '#/components/schemas/CapabilityState' }
+            classification: { $ref: '#/components/schemas/CapabilityState' }
             monitoring: { $ref: '#/components/schemas/CapabilityState' }
             realtime: { $ref: '#/components/schemas/CapabilityState' }
             analytics: { $ref: '#/components/schemas/CapabilityState' }

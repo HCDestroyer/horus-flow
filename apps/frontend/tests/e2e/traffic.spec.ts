@@ -82,10 +82,43 @@ test.describe('tráfico @traffic', () => {
     await rest.getByTestId('traffic-unattributed-toggle').click()
     const row = rest.locator('[data-unattributed="100.64.12.0/22"]')
     await expect(row).toContainText('IP vistas')
+    // Detalle por IP del rango (dato personal: la administradora puede verlo).
+    await row.getByTestId('traffic-unattributed-ips').click()
+    const ips = row.getByTestId('unattributed-addresses')
+    await expect(ips.locator('[data-address="100.64.12.1"]')).toBeVisible()
+    await expect(ips).toContainText('Cuota del rango')
+    await row.getByTestId('traffic-unattributed-ips').click()
+    await expect(ips).toHaveCount(0)
     // Abierta, la lista tampoco se corta ni se solapa en un móvil.
     expect(await layoutReport(page, { extra: ['#main-content'] })).toEqual([])
     await row.getByRole('link', { name: 'Revisar en el nodo' }).click()
     await expect(page).toHaveURL(/\/t\/fibra-norte\/nodes\/[0-9a-f-]+/)
+  })
+
+  test('explorador: servicios, categorías y clientes, y «Mostrar más» hasta 100', async ({
+    page,
+  }) => {
+    await loginAsAdmin(page)
+    await page.goto(`${PAGE}?by=services`)
+    const breakdown = page.getByTestId('traffic-breakdown')
+    const table = page.getByTestId('traffic-breakdown-table')
+    await expect(table.getByRole('columnheader', { name: 'Servicio' })).toBeVisible()
+    await expect(breakdown).toContainText('Top 10 por')
+    await page.getByTestId('traffic-breakdown-more').click()
+    await expect(breakdown).toContainText('Top 25 por')
+    await breakdown.getByRole('tab', { name: 'Clientes' }).click()
+    await expect(page).toHaveURL(/by=customers/)
+    await expect(table.getByRole('columnheader', { name: 'Cliente' })).toBeVisible()
+    await expect(table.locator('tbody tr').first()).toContainText('↓')
+  })
+
+  test('sin dataset de ASN: avisa de que el tráfico se clasifica solo por puerto', async ({
+    page,
+  }) => {
+    await page.addInitScript(() => window.localStorage.setItem('horus.mock.scenario', 'no-asn'))
+    await loginAsAdmin(page)
+    await page.goto(PAGE)
+    await expect(page.getByTestId('traffic-classification')).toContainText('solo por puerto')
   })
 
   test('meta.partial muestra "Datos incompletos en este rango"', async ({ page }) => {

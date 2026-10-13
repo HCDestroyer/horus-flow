@@ -76,6 +76,33 @@ const { data: unattributed } = useTenantQuery(
   { watch: [range, site, () => sites.value?.length] },
 )
 const showRest = ref(false)
+// Detalle por IP de un rango (dato personal: con customers.read).
+const canSeeAddresses = computed(() => can('customers.read'))
+const openPrefixes = ref(new Set<string>())
+function togglePrefix(prefix: string) {
+  const next = new Set(openPrefixes.value)
+  if (next.has(prefix)) next.delete(prefix)
+  else next.add(prefix)
+  openPrefixes.value = next
+}
+
+// ¿Con qué se clasifica el tráfico? Sin dataset de ASN, todo sale por puerto (QUIC, HTTPS…).
+const { data: classification } = useTenantQuery(
+  'traffic:classification',
+  () => unwrap($api.GET('/classification/status')),
+  { server: false },
+)
+const asnDays = computed(() => {
+  const at = classification.value?.data.asn_dataset.created_at
+  return at ? Math.floor((Date.now() - new Date(at).getTime()) / 86_400_000) : null
+})
+const classificationNotice = computed(() => {
+  const c = classification.value
+  if (!c || c.source !== 'ingester') return null
+  if (!c.data.asn_dataset.loaded) return 'missing'
+  if (asnDays.value !== null && asnDays.value > 30) return 'stale'
+  return null
+})
 const siteName = (id: string) => sites.value?.find((s) => s.id === id)?.name ?? id
 
 const degraded = computed(
@@ -159,11 +186,16 @@ const view = computed<Dashboard>(() => ({
 const viewKey = computed(() => `${range.value}:${site.value}`)
 const { membership } = useTenant()
 
-// --- Desglose por organización / ASN ---------------------------------------------------------
-const DIMENSIONS = ['organizations', 'asns'] as const
+// --- Desglose por organización / ASN / servicio / categoría / cliente ------------------------
+// Explorador completo del tráfico: hasta 100 filas ("Mostrar más"), el resto en «Otros».
+const DIMENSIONS = ['organizations', 'asns', 'services', 'categories', 'customers'] as const
 const DIRECTIONS = ['both', 'download', 'upload'] as const
+const TOP_SIZES = [10, 25, 50, 100] as const
 const by = useQueryParam('by', 'organizations', DIMENSIONS)
 const direction = useQueryParam('direction', 'both', DIRECTIONS)
+const topN = ref<number>(10)
+watch([by, range, site], () => (topN.value = 10))
+const nextTopN = computed(() => TOP_SIZES.find((n) => n > topN.value) ?? null)
 const byTabs = computed(() => [
   {
     label: t('traffic.breakdown.tabs.organizations'),
@@ -171,6 +203,11 @@ const byTabs = computed(() => [
     icon: 'i-lucide-building-2',
   },
   { label: t('traffic.breakdown.tabs.asns'), value: 'asns', icon: 'i-lucide-network' },
+  { label: t('traffic.breakdown.tabs.services'), value: 'services', icon: 'i-lucide-app-window' },
+  { label: t('traffic.breakdown.tabs.categories'), value: 'categories', icon: 'i-lucide-tags' },
+  ...(can('customers.read')
+    ? [{ label: t('traffic.breakdown.tabs.customers'), value: 'customers', icon: 'i-lucide-users' }]
+    : []),
 ])
 const directionOptions = computed(() =>
   DIRECTIONS.map((d) => ({ label: t(`traffic.breakdown.directions.${d}`), value: d })),
@@ -182,7 +219,7 @@ const {
   status: topStatus,
   refresh: refreshTop,
 } = useTenantQuery(
-  () => `traffic:top:${by.value}:${direction.value}:${range.value}:${site.value}`,
+  () => `traffic:top:${by.value}:${direction.value}:${range.value}:${site.value}:${topN.value}`,
   () =>
     unwrap(
       $api.GET('/analytics/traffic/top', {
@@ -190,14 +227,14 @@ const {
           query: {
             dimension: by.value,
             direction: direction.value,
-            n: 10,
+            n: topN.value,
             range: range.value as RelativeRange,
             site_id: site.value === 'all' ? undefined : site.value,
           },
         },
       }),
     ).then((r) => r.data),
-  { watch: [by, direction, range, site] },
+  { watch: [by, direction, range, site, topN] },
 )
 
 interface BreakdownRow {
@@ -211,6 +248,8 @@ interface BreakdownRow {
   down: number
   up: number
   share: number | null
+  /** Nodo del cliente (vista por clientes). */
+  site: string | null
 }
 
 /** Nombre del ASN sin el prefijo "AS<n> · " que pone la API (vacío si no se conoce). */
@@ -237,6 +276,7 @@ function breakdownRows(result: TopResult, dimension: (typeof DIMENSIONS)[number]
     down: Number(r.down_bytes),
     up: Number(r.up_bytes),
     share: r.share,
+    site: null,
   }))
   const others = { down: Number(result.others.down_bytes), up: Number(result.others.up_bytes) }
   if (others.down + others.up > 0) {
@@ -247,6 +287,7 @@ function breakdownRows(result: TopResult, dimension: (typeof DIMENSIONS)[number]
       name: t('widgets.common.others'),
       ...others,
       share: null,
+      site: null,
     })
   }
   return rows
@@ -256,6 +297,23 @@ const breakdown = computed(() =>
   top.value && top.value.dimension === by.value ? breakdownRows(top.value, by.value) : [],
 )
 const breakdownLoading = computed(() => topStatus.value === 'pending' && !breakdown.value.length)
+/** Hay más filas que las pedidas si «Otros» tiene tráfico o el top vino lleno. */
+const canShowMore = computed(() => {
+  const rows = breakdown.value
+  if (!rows.length || nextTopN.value === null) return false
+  const ranked = rows.filter((r) => r.rank !== null).length
+  return ranked >= topN.value || rows.some((r) => r.rank === null)
+})
+const nameHeader = computed(() =>
+  t(`traffic.breakdown.col.${NAME_COL[by.value] ?? 'organization'}`),
+)
+const NAME_COL: Record<string, string> = {
+  organizations: 'organization',
+  asns: 'asn',
+  services: 'service',
+  categories: 'category',
+  customers: 'customer',
+}
 
 // Búsqueda por ASN o nombre sobre las filas del top (sin "Otros" mientras se busca).
 const breakdownSearch = ref('')
@@ -282,10 +340,7 @@ const breakdownColumns = computed<TableColumn<BreakdownRow>[]>(() => [
   },
   {
     id: 'name',
-    header: () =>
-      by.value === 'asns'
-        ? t('traffic.breakdown.col.asn')
-        : t('traffic.breakdown.col.organization'),
+    header: () => nameHeader.value,
     meta: { class: { td: 'whitespace-normal' } },
   },
   {
@@ -338,6 +393,24 @@ const breakdownColumns = computed<TableColumn<BreakdownRow>[]>(() => [
     </template>
 
     <DegradedNotice v-if="attributionError" :error="attributionError" @retry="refresh()" />
+    <!-- Sin dataset de ASN el tráfico se clasifica solo por puerto: se explica antes que los tops. -->
+    <UAlert
+      v-if="classificationNotice"
+      color="warning"
+      variant="subtle"
+      icon="i-lucide-tag"
+      :title="
+        classificationNotice === 'missing'
+          ? t('traffic.classification.missingTitle')
+          : t('traffic.classification.staleTitle', { days: asnDays })
+      "
+      :description="
+        classificationNotice === 'missing'
+          ? t('traffic.classification.missingBody')
+          : t('traffic.classification.staleBody')
+      "
+      data-testid="traffic-classification"
+    />
     <template v-if="!degraded">
       <UAlert
         v-if="attribution?.meta.partial"
@@ -440,13 +513,37 @@ const breakdownColumns = computed<TableColumn<BreakdownRow>[]>(() => [
                     }}
                   </span>
                 </span>
-                <UButton
-                  :to="`/t/${slug}/nodes/${r.siteId}`"
-                  size="xs"
-                  color="neutral"
-                  variant="outline"
-                  icon="i-lucide-list-tree"
-                  :label="t('traffic.rest.review')"
+                <span class="flex flex-wrap gap-2">
+                  <UButton
+                    v-if="canSeeAddresses"
+                    size="xs"
+                    color="neutral"
+                    variant="outline"
+                    :icon="openPrefixes.has(r.prefix) ? 'i-lucide-chevron-up' : 'i-lucide-search'"
+                    :label="
+                      openPrefixes.has(r.prefix)
+                        ? t('traffic.rest.hideIps')
+                        : t('traffic.rest.viewIps')
+                    "
+                    :aria-expanded="openPrefixes.has(r.prefix)"
+                    data-testid="traffic-unattributed-ips"
+                    @click="togglePrefix(r.prefix)"
+                  />
+                  <UButton
+                    :to="`/t/${slug}/nodes/${r.siteId}`"
+                    size="xs"
+                    color="neutral"
+                    variant="outline"
+                    icon="i-lucide-list-tree"
+                    :label="t('traffic.rest.review')"
+                  />
+                </span>
+                <UnattributedAddresses
+                  v-if="openPrefixes.has(r.prefix)"
+                  class="basis-full"
+                  :site-id="r.siteId"
+                  :prefix="r.prefix"
+                  :range="range as RelativeRange"
                 />
               </li>
             </ul>
@@ -473,7 +570,7 @@ const breakdownColumns = computed<TableColumn<BreakdownRow>[]>(() => [
             <h2 id="traffic-breakdown-title" class="text-highlighted text-base font-semibold">
               {{ t('traffic.breakdown.title') }}
             </h2>
-            <p class="text-muted text-sm">{{ t('traffic.breakdown.hint') }}</p>
+            <p class="text-muted text-sm">{{ t('traffic.breakdown.hint', { n: topN }) }}</p>
           </div>
           <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <UTabs
@@ -585,6 +682,18 @@ const breakdownColumns = computed<TableColumn<BreakdownRow>[]>(() => [
           </UTooltip>
         </template>
       </UTable>
+      <div v-if="canShowMore && !breakdownSearch" class="border-default border-t p-3 text-center">
+        <UButton
+          color="neutral"
+          variant="ghost"
+          size="sm"
+          icon="i-lucide-chevron-down"
+          :label="t('traffic.breakdown.more', { n: nextTopN })"
+          :loading="topStatus === 'pending'"
+          data-testid="traffic-breakdown-more"
+          @click="topN = nextTopN ?? topN"
+        />
+      </div>
     </UCard>
   </AppPage>
 </template>

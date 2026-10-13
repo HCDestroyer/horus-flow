@@ -35,7 +35,8 @@ import { widgetData } from './widget-data'
  *   `sessionStorage` SOLO en este archivo. El código de la app nunca persiste tokens.
  */
 
-export type MockScenario = 'normal' | 'degraded' | 'system-error' | 'widget-error' | 'empty'
+export type MockScenario =
+  'normal' | 'degraded' | 'system-error' | 'widget-error' | 'empty' | 'no-asn'
 
 export interface MockOptions {
   /** Latencia simulada en ms (para ver los estados de carga). */
@@ -50,7 +51,14 @@ export interface MockOptions {
 
 const SESSION_KEY = 'horus.mock.session'
 const SCENARIO_KEY = 'horus.mock.scenario'
-const SCENARIOS: MockScenario[] = ['normal', 'degraded', 'system-error', 'widget-error', 'empty']
+const SCENARIOS: MockScenario[] = [
+  'normal',
+  'degraded',
+  'system-error',
+  'widget-error',
+  'empty',
+  'no-asn',
+]
 /** Ventana de re-autenticación reciente (`auth_time`, security.md §4: 5 min). */
 const REAUTH_WINDOW_MS = 5 * 60_000
 const MAX_FAILURES = 5
@@ -410,6 +418,7 @@ export function createMockFetch(options: MockOptions = {}) {
         inventory: 'ok',
         wireguard: 'ok',
         ingest: 'ok',
+        classification: 'ok',
         monitoring: degraded ? 'stale' : 'ok',
         realtime: 'ok',
         analytics: degraded ? 'unavailable' : 'ok',
@@ -642,6 +651,7 @@ export function createMockFetch(options: MockOptions = {}) {
         url,
         userId: user.me.id,
         degraded: mode === 'degraded',
+        scenario: mode,
         empty: mode === 'empty',
         stepMs: readNumber('horus.mock.onboardingStepMs') ?? 6000,
         reauthRequired: reauthRequired(user),

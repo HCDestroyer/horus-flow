@@ -135,6 +135,7 @@
       "analytics": "Analítica de tráfico",
       "reports": "Reportes",
       "ingest": "Recepción de flujos",
+      "classification": "Clasificación del tráfico",
       "detection": "Detección de botnets",
       "notifications": "Notificaciones"
     },
@@ -825,10 +826,14 @@
     "reviewPrefixes": "Revisar prefijos de clientes",
     "breakdown": {
       "title": "Destinos del tráfico",
-      "hint": "Top 10 por organización o por sistema autónomo remoto; el resto, en «Otros».",
+      "hint": "Top {n} por organización, ASN, servicio, categoría o cliente; el resto, en «Otros».",
+      "more": "Mostrar más ({n})",
       "tabs": {
         "organizations": "Organizaciones",
-        "asns": "ASN"
+        "asns": "ASN",
+        "services": "Servicios",
+        "categories": "Categorías",
+        "customers": "Clientes"
       },
       "direction": "Sentido del tráfico",
       "directions": {
@@ -840,12 +845,15 @@
         "rank": "#",
         "organization": "Organización",
         "asn": "ASN",
+        "service": "Servicio",
+        "category": "Categoría",
+        "customer": "Cliente",
         "down": "Bajada",
         "up": "Subida",
         "share": "Cuota"
       },
       "empty": "Sin tráfico en este rango",
-      "search": "Buscar ASN u organización",
+      "search": "Buscar por nombre o ASN",
       "noMatch": "Ninguna fila coincide con la búsqueda",
       "nameAsnFor": "Nombrar AS{asn}"
     },
@@ -853,7 +861,23 @@
       "title": "¿Dónde está el resto del tráfico?",
       "body": "Rangos con tráfico de clientes que no están en ningún prefijo declarado, del que más al que menos. Decláralos como Clientes, Infraestructura o Excluido desde su nodo.",
       "empty": "No hay rangos sin declarar con tráfico en este periodo (o el resto es tráfico que no pasa por el lado de clientes).",
-      "review": "Revisar en el nodo"
+      "review": "Revisar en el nodo",
+      "viewIps": "Ver IPs",
+      "hideIps": "Ocultar IPs",
+      "addresses": {
+        "hint": "Las {n} IP del rango con más tráfico en el periodo (dato personal: solo quien puede ver clientes).",
+        "empty": "Sin tráfico de IPs de este rango en el periodo.",
+        "ip": "IP",
+        "bytes": "Tráfico",
+        "share": "Cuota del rango",
+        "lastSeen": "Última vez"
+      }
+    },
+    "classification": {
+      "missingTitle": "El tráfico se está clasificando solo por puerto",
+      "missingBody": "Horus todavía no tiene el dataset de ASN, así que verás QUIC o HTTPS en lugar de Google, Meta o TikTok y el desglose por organización saldrá vacío. El rol traffic lo descarga al arrancar (necesita salida HTTPS a los RIR e iptoasn) y lo renueva cada semana; revisa sus logs si lleva más de una hora.",
+      "staleTitle": "Dataset de ASN de hace {days} días",
+      "staleBody": "El rol traffic no ha podido renovarlo (HORUS_ASN_SYNC); las organizaciones nuevas pueden salir como su ASN."
     }
   },
   "nodes": {

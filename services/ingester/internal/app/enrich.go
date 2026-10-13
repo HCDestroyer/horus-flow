@@ -77,6 +77,41 @@ func (e *Enrichment) SetASN(s *asn.Snapshot) {
 	e.asn.Store(&loaded[asn.Snapshot]{v: s, version: versionOf(s.Meta.Version), tag: s.Meta.Version})
 }
 
+// DatasetStatus describe un snapshot cargado en el enriquecimiento.
+type DatasetStatus struct {
+	Loaded    bool   `json:"loaded"`
+	Version   string `json:"version,omitempty"`
+	CreatedAt string `json:"created_at,omitempty"`
+	Entries   int    `json:"entries,omitempty"`
+}
+
+// ClassificationStatus es GET /classification/status: con qué datasets se
+// clasifica el tráfico ahora mismo. Sin dataset de ASN, los flujos se
+// clasifican solo por puerto (QUIC, HTTPS…) y las organizaciones no se ven.
+type ClassificationStatus struct {
+	ASN        DatasetStatus `json:"asn_dataset"`
+	Catalog    DatasetStatus `json:"catalog"`
+	Reputation DatasetStatus `json:"reputation"`
+}
+
+// Status devuelve el estado de los datasets cargados.
+func (e *Enrichment) Status() ClassificationStatus {
+	var st ClassificationStatus
+	if l := e.asn.Load(); l != nil && l.v != nil {
+		st.ASN = DatasetStatus{Loaded: true, Version: l.v.Meta.Version, Entries: l.v.Meta.Entries}
+		if !l.v.Meta.CreatedAt.IsZero() {
+			st.ASN.CreatedAt = l.v.Meta.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z")
+		}
+	}
+	if l := e.catalog.Load(); l != nil && l.v != nil {
+		st.Catalog = DatasetStatus{Loaded: true, Version: l.tag}
+	}
+	if l := e.rep.Load(); l != nil && l.v != nil {
+		st.Reputation = DatasetStatus{Loaded: true, Version: l.tag}
+	}
+	return st
+}
+
 // SetCatalog sustituye el catálogo.
 func (e *Enrichment) SetCatalog(c *catalog.Catalog) {
 	e.catalog.Store(&loaded[catalog.Catalog]{v: c, version: c.Version(), tag: "v" + strconv.FormatUint(uint64(c.Version()), 10)})

@@ -5,8 +5,10 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
+	"net/netip"
 	"slices"
 	"time"
 
@@ -48,8 +50,52 @@ func New(guard *authz.Guard, svc *app.Service) *Handler { return &Handler{guard:
 // Mount registra las rutas.
 func (h *Handler) Mount(r *httpx.ServiceMux) {
 	r.Handle("GET /api/v1/sites/{site_id}/prefix-proposals", h.guard.Tenant("sites.read", h.prefixProposals))
+	r.Handle("POST /api/v1/sites/{site_id}/unattributed-addresses", h.guard.Tenant("customers.read", h.unattributedAddresses))
 	h.mountTraffic(r)
 	h.mountASN(r)
+}
+
+// unattributedAddresses sirve GET /sites/{site_id}/unattributed-addresses: las IP
+// de un rango propuesto con más tráfico (dato personal: customers.read).
+func (h *Handler) unattributedAddresses(w http.ResponseWriter, r *http.Request) {
+	site, err := uuid.Parse(r.PathValue("site_id"))
+	if err != nil || !siteAllowed(r, "customers.read", site) {
+		problem.Std(w, r, http.StatusNotFound, problem.CodeNotFound)
+		return
+	}
+	tenant := tenantOf(r)
+	if inv := h.svc.Inv.Load(); !inv.SiteOf(tenant, site) {
+		problem.Std(w, r, http.StatusNotFound, problem.CodeNotFound)
+		return
+	}
+	// El rango va en el cuerpo: nunca una IP en la URL (api.md).
+	var body struct {
+		Prefix string `json:"prefix"`
+		Range  string `json:"range"`
+		N      int    `json:"n"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil {
+		problem.Std(w, r, http.StatusBadRequest, problem.CodeValidationFailed, problem.WithDetail("invalid JSON body"))
+		return
+	}
+	pfx, err := netip.ParsePrefix(body.Prefix)
+	if err != nil {
+		problem.Std(w, r, http.StatusUnprocessableEntity, problem.CodeValidationFailed, problem.WithDetail("prefix must be a CIDR"))
+		return
+	}
+	rg, err := app.ParseRange(body.Range, "", "", "24h", time.Now())
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	out, err := h.svc.UnattributedAddresses(r.Context(), tenant, site, pfx, rg, body.N)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	step := 3600
+	jsonapi.Write(w, http.StatusOK, map[string]any{"data": out,
+		"meta": Meta{From: rg.From, To: rg.To, Step: &step, Source: "flows", Coverage: 1}})
 }
 
 func tenantOf(r *http.Request) uuid.UUID {

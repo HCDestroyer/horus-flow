@@ -602,6 +602,15 @@ Rango global en la toolbar (1 h · 6 h · 24 h · 7 d · 30 d), variable de nodo
 atribuidos a clientes; 8 % fuera de los prefijos declarados" con enlace a los prefijos del router).
 Mismos widgets que el catálogo (§6.2).
 
+**Explorador del desglose** (13/10/2026): pestañas por organización, ASN, servicio, categoría y
+clientes (con `customers.read`), hasta 100 filas con «Mostrar más» (10 → 25 → 50 → 100; la API
+admite `n` ≤ 100) y búsqueda. **Detalle por IP de un rango sin atribuir**: «Ver IPs» en cada rango
+de «¿Dónde está el resto del tráfico?» (`POST /sites/{site_id}/unattributed-addresses`, el rango en
+el cuerpo, `customers.read`) lista las IP con más tráfico del rango, su cuota y su última vez.
+**Aviso de clasificación**: `GET /classification/status` dice si el ingester tiene cargado el dataset
+de ASN; si no, la página avisa de que el tráfico se clasifica solo por puerto (QUIC/HTTPS en vez de
+Google o Meta) y qué revisar; la capacidad `classification` aparece en el estado del sistema.
+
 ### 8.4 Nodos, routers, prefijos de clientes y onboarding MikroTik (I0–I1; SNMP en I2)
 
 - **Nodos:** lista con su router principal, estado del exportador y del túnel, clientes activos y

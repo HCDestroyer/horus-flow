@@ -94,8 +94,11 @@ type agg struct {
 }
 
 // Top calcula el top N + Otros (I1-08 criterio 1).
+// MaxTopN es el máximo de filas de un top (el resto va a "Otros").
+const MaxTopN = 100
+
 func (s *Service) Top(ctx context.Context, q TopQuery) (*TopResult, error) {
-	if q.N < 1 || q.N > 10 {
+	if q.N < 1 || q.N > MaxTopN {
 		q.N = 10
 	}
 	if q.Direction == "" {

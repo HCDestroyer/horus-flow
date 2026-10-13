@@ -16,6 +16,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/pagination"
 	"github.com/hcdestroyer/horus-flow/packages/go/problem"
 	collectorapi "github.com/hcdestroyer/horus-flow/services/collector/api"
+	"github.com/hcdestroyer/horus-flow/services/ingester/internal/app"
 )
 
 // PermFlowsRead es el permiso de las rutas (x-permission: flows.read).
@@ -38,12 +39,14 @@ type FlowExporter = collectorapi.View
 
 // Handler sirve /flow-exporters y /platform/exporters/unregistered.
 type Handler struct {
-	guard  *authz.Guard
-	inv    *flowinv.Store
-	states States
-	unreg  Unregistered
-	cursor *pagination.Codec
-	now    func() time.Time
+	// Classification devuelve los datasets cargados; ok=false si este proceso no enriquece.
+	Classification func() (app.ClassificationStatus, bool)
+	guard          *authz.Guard
+	inv            *flowinv.Store
+	states         States
+	unreg          Unregistered
+	cursor         *pagination.Codec
+	now            func() time.Time
 }
 
 // New crea el handler. unreg nil = listado de no registrados vacío; cursor
@@ -55,6 +58,19 @@ func New(guard *authz.Guard, inv *flowinv.Store, states States, unreg Unregister
 	return &Handler{guard: guard, inv: inv, states: states, unreg: unreg, cursor: cursor, now: time.Now}
 }
 
+// classification sirve GET /classification/status: datasets con los que se
+// clasifica el tráfico (sin dataset de ASN, solo por puerto). Si este proceso
+// no enriquece (otro host), lo dice con loaded=false y "unknown".
+func (h *Handler) classification(w http.ResponseWriter, _ *http.Request) {
+	if h.Classification != nil {
+		if st, ok := h.Classification(); ok {
+			jsonapi.Write(w, http.StatusOK, map[string]any{"data": st, "source": "ingester"})
+			return
+		}
+	}
+	jsonapi.Write(w, http.StatusOK, map[string]any{"data": app.ClassificationStatus{}, "source": "unknown"})
+}
+
 // Mount registra las rutas.
 func (h *Handler) Mount(r *httpx.ServiceMux) {
 	// Como /customers/stats y /security/summary: el listado admite el JWT de
@@ -63,6 +79,7 @@ func (h *Handler) Mount(r *httpx.ServiceMux) {
 	// visible() pide flows.read solo a los tokens de usuario.
 	read := authz.Requirement{Scope: authz.ScopeTenant, AllowKiosk: true}
 	r.Handle("GET /api/v1/flow-exporters", h.guard.Wrap(read, http.HandlerFunc(h.list)))
+	r.Handle("GET /api/v1/classification/status", h.guard.Tenant(PermFlowsRead, h.classification))
 	r.Handle("GET /api/v1/flow-exporters/{router_id}", h.guard.Tenant(PermFlowsRead, h.get))
 	r.Handle("GET /api/v1/platform/exporters/unregistered", h.guard.Platform(PermPlatformTenantsRead, h.listUnregistered))
 }
