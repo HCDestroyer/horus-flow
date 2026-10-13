@@ -28,7 +28,7 @@ const states = computed(() =>
   <div v-if="v" class="flex min-h-0 flex-1 flex-col gap-[calc(var(--w-gap)*0.5)]">
     <div class="flex min-w-0 items-end gap-[calc(var(--w-gap)*1.5)]">
       <p class="w-kpi text-highlighted" data-testid="findings-open">
-        {{ formatNumber(v.open_total) }}
+        <RollingNumber :value="formatNumber(v.open_total)" />
       </p>
       <div class="flex min-w-0 flex-col gap-[0.15em] pb-[0.05em]">
         <ul

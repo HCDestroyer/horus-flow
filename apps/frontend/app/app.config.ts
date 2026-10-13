@@ -16,6 +16,37 @@ export default defineAppConfig({
       slots: {
         base: 'cursor-pointer',
       },
+      // Luz de la acción primaria (una por vista, §13.1); transparente en claro y con "más contraste".
+      compoundVariants: [
+        {
+          color: 'primary',
+          variant: 'solid',
+          class:
+            'shadow-[0_0_18px_var(--hf-glow-brand)] hover:shadow-[0_0_26px_var(--hf-glow-brand)] transition-shadow',
+        },
+      ],
+    },
+    // Vidrio y luz (frontend.md §13.1): vidrio fuerte en la capa funcional flotante (menús,
+    // modales, paneles laterales); las tarjetas del contenido, material casi sólido.
+    card: {
+      slots: { root: 'rounded-(--hf-radius-card)' },
+      variants: {
+        variant: {
+          outline: { root: 'bg-(--hf-card) ring ring-default divide-y divide-default' },
+        },
+      },
+    },
+    modal: {
+      slots: { content: 'bg-(--hf-glass-strong) backdrop-blur-2xl backdrop-saturate-150' },
+    },
+    slideover: {
+      slots: { content: 'bg-(--hf-glass-strong) backdrop-blur-2xl backdrop-saturate-150' },
+    },
+    popover: {
+      slots: { content: 'bg-(--hf-glass-strong) backdrop-blur-2xl backdrop-saturate-150' },
+    },
+    dropdownMenu: {
+      slots: { content: 'bg-(--hf-glass-strong) backdrop-blur-2xl backdrop-saturate-150' },
     },
   },
 })

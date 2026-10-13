@@ -7,7 +7,10 @@
 </script>
 
 <template>
-  <main id="main-content" class="bg-muted h-dvh overflow-hidden" tabindex="-1">
-    <slot />
+  <main id="main-content" class="bg-default relative h-dvh overflow-hidden" tabindex="-1">
+    <div class="app-aura app-aura-wall" aria-hidden="true" />
+    <div class="relative h-full">
+      <slot />
+    </div>
   </main>
 </template>

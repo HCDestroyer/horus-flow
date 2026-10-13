@@ -73,6 +73,9 @@ const tenantName = computed(() => membership.value?.tenant_name ?? t('app.name')
       {{ t('app.skipToContent') }}
     </a>
 
+    <!-- Aura de fondo: lo que el vidrio de la barra lateral y la superior refleja (§13.1). -->
+    <div class="app-aura" aria-hidden="true" />
+
     <UDashboardGroup unit="rem" storage="local" storage-key="horus-shell">
       <UDashboardSidebar
         id="app-sidebar"
@@ -83,7 +86,7 @@ const tenantName = computed(() => membership.value?.tenant_name ?? t('app.name')
         :min-size="13"
         :max-size="22"
         :collapsed-size="4"
-        class="bg-muted"
+        class="glass-material"
         :ui="{ footer: 'border-t border-default', header: 'h-(--ui-header-height)' }"
       >
         <template #header="{ collapsed }">

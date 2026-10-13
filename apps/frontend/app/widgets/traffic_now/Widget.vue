@@ -49,7 +49,7 @@ const spark = computed(() => {
         <span class="sr-only">{{ t('widgets.traffic_now.down') }}:</span>
         <span class="w-label text-muted me-1 align-top" aria-hidden="true">↓</span>
         <span class="w-kpi"
-          >{{ downF.value }}<span class="w-unit">{{ downF.unit }}</span></span
+          ><RollingNumber :value="downF.value" /><span class="w-unit">{{ downF.unit }}</span></span
         >
       </p>
       <div class="flex min-w-0 flex-col pb-[0.05em]" data-fit-optional="3">
@@ -57,7 +57,7 @@ const spark = computed(() => {
           <span class="sr-only">{{ t('widgets.traffic_now.up') }}:</span>
           <span class="w-label text-muted me-1" aria-hidden="true">↑</span>
           <span class="w-kpi-2"
-            >{{ upF.value }}<span class="w-unit">{{ upF.unit }}</span></span
+            ><RollingNumber :value="upF.value" /><span class="w-unit">{{ upF.unit }}</span></span
           >
         </p>
         <p v-if="downChange || upChange" class="w-meta text-muted tabular" data-fit-optional="1">

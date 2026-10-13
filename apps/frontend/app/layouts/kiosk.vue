@@ -6,14 +6,17 @@
 </script>
 
 <template>
-  <main id="main-content" class="kiosk-root h-dvh overflow-hidden" tabindex="-1">
-    <slot />
+  <main id="main-content" class="kiosk-root relative h-dvh overflow-hidden" tabindex="-1">
+    <div class="app-aura app-aura-wall" aria-hidden="true" />
+    <div class="relative h-full">
+      <slot />
+    </div>
   </main>
 </template>
 
 <style>
 .kiosk-root {
-  background: #0d0d10;
+  background: #0b1014;
   color-scheme: dark;
 }
 </style>

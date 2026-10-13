@@ -34,7 +34,7 @@ export const CHART_INK = {
     axis: '#a1a1aa',
     surface: '#ffffff',
   },
-  dark: { text: '#e4e4e7', muted: '#a1a1aa', grid: '#2a2a2f', axis: '#52525b', surface: '#121214' },
+  dark: { text: '#e4e4e7', muted: '#a1a1aa', grid: '#232a33', axis: '#4b5563', surface: '#131820' },
 } as const
 
 export type ChartMode = keyof typeof CHART_INK

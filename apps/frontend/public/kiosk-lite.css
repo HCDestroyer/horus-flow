@@ -1,13 +1,15 @@
 /*
  * Pantalla NOC ligera: CSS clásico para navegadores de TV antiguos (sin @layer, colores
- * modernos, :has, CSS Grid ni gap; flexbox con prefijo -webkit-). Misma estética que la
- * pantalla mural de la consola. Las posiciones de las tarjetas las calcula kiosk-lite.js.
+ * modernos, :has, CSS Grid ni gap; flexbox con prefijo -webkit-). Misma estética "vidrio y
+ * luz" que la pantalla mural de la consola, sin desenfoques (caros o ausentes en TVs): aura
+ * con degradados radiales, material casi sólido y halos con sombras simples. Las posiciones
+ * de las tarjetas las calcula kiosk-lite.js.
  */
 html,
 body {
   margin: 0;
   height: 100%;
-  background: #121418;
+  background: #0b1014;
   color: #e8edf3;
   font-family: 'Segoe UI', Roboto, Ubuntu, Helvetica, Arial, sans-serif;
   overflow: hidden;
@@ -19,6 +21,34 @@ body.scroll {
 }
 .hidden {
   display: none !important;
+}
+/* Aura: dos manchas de color muy suaves que derivan despacio (baja luminancia, 24/7). */
+body:before {
+  content: '';
+  position: fixed;
+  top: -20%;
+  left: -20%;
+  width: 140%;
+  height: 140%;
+  pointer-events: none;
+  background:
+    -webkit-radial-gradient(18% 12%, circle, rgba(20, 184, 166, 0.13), rgba(20, 184, 166, 0) 32%),
+    -webkit-radial-gradient(85% 88%, circle, rgba(99, 102, 241, 0.1), rgba(99, 102, 241, 0) 30%);
+  background:
+    radial-gradient(circle at 18% 12%, rgba(20, 184, 166, 0.13), rgba(20, 184, 166, 0) 32%),
+    radial-gradient(circle at 85% 88%, rgba(99, 102, 241, 0.1), rgba(99, 102, 241, 0) 30%);
+  -webkit-animation: drift 90s ease-in-out infinite alternate;
+  animation: drift 90s ease-in-out infinite alternate;
+}
+@-webkit-keyframes drift {
+  to {
+    -webkit-transform: translate(-3%, 2%);
+  }
+}
+@keyframes drift {
+  to {
+    transform: translate(-3%, 2%);
+  }
 }
 .center {
   position: absolute;
@@ -127,6 +157,9 @@ body.stack #player {
   white-space: nowrap;
   overflow: hidden;
   color: #9aa5b4;
+  background: rgba(16, 21, 27, 0.82);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  z-index: 2;
 }
 body.stack .bar {
   position: relative;
@@ -151,10 +184,69 @@ body.stack #dash-name {
   margin-left: 1.4em;
 }
 #live {
-  color: #3fb97f;
+  color: #2dd4bf;
 }
 #live.off {
   color: #e9b949;
+}
+#live .dot {
+  position: relative;
+  box-shadow: 0 0 8px rgba(45, 212, 191, 0.7);
+}
+#live .dot:after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 50%;
+  border: 2px solid #2dd4bf;
+  opacity: 0;
+}
+#live .ring-a:after {
+  -webkit-animation: ring-a 1.2s ease-out;
+  animation: ring-a 1.2s ease-out;
+}
+#live .ring-b:after {
+  -webkit-animation: ring-b 1.2s ease-out;
+  animation: ring-b 1.2s ease-out;
+}
+@-webkit-keyframes ring-a {
+  from {
+    opacity: 0.8;
+  }
+  to {
+    opacity: 0;
+    -webkit-transform: scale(3);
+  }
+}
+@keyframes ring-a {
+  from {
+    opacity: 0.8;
+  }
+  to {
+    opacity: 0;
+    transform: scale(3);
+  }
+}
+@-webkit-keyframes ring-b {
+  from {
+    opacity: 0.8;
+  }
+  to {
+    opacity: 0;
+    -webkit-transform: scale(3);
+  }
+}
+@keyframes ring-b {
+  from {
+    opacity: 0.8;
+  }
+  to {
+    opacity: 0;
+    transform: scale(3);
+  }
 }
 .dot {
   display: inline-block;
@@ -175,8 +267,10 @@ body.stack #dash-name {
   left: 0;
   height: 3px;
   width: 0;
-  background: #4f8ff7;
-  opacity: 0.7;
+  background: #2dd4bf;
+  box-shadow: 0 0 10px rgba(45, 212, 191, 0.6);
+  opacity: 0.8;
+  z-index: 2;
 }
 .grid {
   position: absolute;
@@ -202,11 +296,110 @@ body.stack .card {
 .card > div {
   height: 100%;
   box-sizing: border-box;
-  background: #17191e;
-  border: 1px solid #2a2e36;
-  border-radius: 0.6em;
+  background: rgba(20, 25, 32, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 0.8em;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
   padding: 0.7em 0.9em;
   overflow: hidden;
+}
+/* Halo fijo de "hay críticos" (siempre con icono y texto en la tarjeta). */
+.card > div.halo {
+  border-color: rgba(255, 107, 120, 0.5);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 0 18px rgba(255, 107, 120, 0.22);
+}
+/* Números vivos: dígito real transparente + tira 0–9 en :before que se desplaza. */
+.rd {
+  position: relative;
+  display: inline-block;
+  height: 1em;
+  line-height: 1em;
+  overflow: hidden;
+  vertical-align: top;
+  color: transparent;
+}
+.rd:before {
+  content: '0\A 1\A 2\A 3\A 4\A 5\A 6\A 7\A 8\A 9';
+  white-space: pre;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  text-align: center;
+  line-height: 1em;
+  color: #e8edf3;
+  -webkit-transition: -webkit-transform 0.7s cubic-bezier(0.2, 0.7, 0.2, 1);
+  transition: transform 0.7s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.mid .rd:before {
+  color: #b8c2cf;
+}
+.d1:before {
+  -webkit-transform: translateY(-1em);
+  transform: translateY(-1em);
+}
+.d2:before {
+  -webkit-transform: translateY(-2em);
+  transform: translateY(-2em);
+}
+.d3:before {
+  -webkit-transform: translateY(-3em);
+  transform: translateY(-3em);
+}
+.d4:before {
+  -webkit-transform: translateY(-4em);
+  transform: translateY(-4em);
+}
+.d5:before {
+  -webkit-transform: translateY(-5em);
+  transform: translateY(-5em);
+}
+.d6:before {
+  -webkit-transform: translateY(-6em);
+  transform: translateY(-6em);
+}
+.d7:before {
+  -webkit-transform: translateY(-7em);
+  transform: translateY(-7em);
+}
+.d8:before {
+  -webkit-transform: translateY(-8em);
+  transform: translateY(-8em);
+}
+.d9:before {
+  -webkit-transform: translateY(-9em);
+  transform: translateY(-9em);
+}
+/* Destello breve del número que acaba de cambiar (dos nombres para poder reiniciarlo). */
+.ping-a {
+  -webkit-animation: ping-a 1.4s ease-out;
+  animation: ping-a 1.4s ease-out;
+}
+.ping-b {
+  -webkit-animation: ping-b 1.4s ease-out;
+  animation: ping-b 1.4s ease-out;
+}
+@-webkit-keyframes ping-a {
+  25% {
+    text-shadow: 0 0 18px rgba(45, 212, 191, 0.55);
+  }
+}
+@keyframes ping-a {
+  25% {
+    text-shadow: 0 0 18px rgba(45, 212, 191, 0.55);
+  }
+}
+@-webkit-keyframes ping-b {
+  25% {
+    text-shadow: 0 0 18px rgba(45, 212, 191, 0.55);
+  }
+}
+@keyframes ping-b {
+  25% {
+    text-shadow: 0 0 18px rgba(45, 212, 191, 0.55);
+  }
 }
 body.stack .card > div {
   height: auto;
@@ -304,7 +497,7 @@ body.stack .card > div {
 }
 .track {
   height: 0.32em;
-  background: #23272f;
+  background: rgba(255, 255, 255, 0.06);
   border-radius: 1em;
   margin-top: 0.25em;
 }
@@ -369,12 +562,14 @@ td.when {
 }
 .dot.ok {
   background: #3fb97f;
+  box-shadow: 0 0 8px rgba(63, 185, 127, 0.6);
 }
 .dot.warn {
   background: #e9b949;
 }
 .dot.bad {
   background: #f25c69;
+  box-shadow: 0 0 8px rgba(242, 92, 105, 0.6);
 }
 .sep {
   display: inline-block;
@@ -438,8 +633,17 @@ td.when {
   padding: 0.35em;
 }
 @media (prefers-reduced-motion: reduce) {
-  .grid {
+  .grid,
+  .rd:before {
     -webkit-transition: none;
     transition: none;
+  }
+  body:before,
+  .ping-a,
+  .ping-b,
+  #live .ring-a:after,
+  #live .ring-b:after {
+    -webkit-animation: none;
+    animation: none;
   }
 }

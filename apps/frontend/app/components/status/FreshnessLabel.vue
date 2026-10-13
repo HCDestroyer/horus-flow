@@ -39,6 +39,16 @@ const icon = computed(() =>
     : 'i-lucide-clock-alert',
 )
 const absolute = computed(() => d(new Date(props.at), 'long'))
+
+/** Latido de datos: el punto "En vivo" lanza un anillo con cada dato nuevo (§13.1). */
+const ring = ref<'' | 'ring-a' | 'ring-b'>('')
+watch(
+  () => props.at,
+  (now, before) => {
+    if (before !== undefined && now !== before)
+      ring.value = ring.value === 'ring-a' ? 'ring-b' : 'ring-a'
+  },
+)
 </script>
 
 <template>
@@ -49,7 +59,13 @@ const absolute = computed(() => d(new Date(props.at), 'long'))
     :data-freshness="level"
     data-testid="freshness"
   >
-    <UIcon :name="icon" class="size-[1.1em] shrink-0" aria-hidden="true" />
+    <span
+      v-if="live && level === 'fresh'"
+      class="live-dot mx-[0.25em] shrink-0"
+      :class="ring"
+      aria-hidden="true"
+    />
+    <UIcon v-else :name="icon" class="size-[1.1em] shrink-0" aria-hidden="true" />
     <time :datetime="new Date(at).toISOString()" :title="absolute">{{ text }}</time>
   </span>
 </template>

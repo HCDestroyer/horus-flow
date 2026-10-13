@@ -31,6 +31,7 @@
   var slideStart = 0
   var slideMs = 0
   var lastUpdate = 0
+  var liveFlip = false
   var reduceMotion = false
   try {
     reduceMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)
@@ -277,6 +278,7 @@
             var firstUpdate = !lastUpdate
             lastUpdate = new Date().getTime()
             draw(c)
+            heartbeat()
             if (firstUpdate) tick()
           } else if (status !== 0 && c.body.firstChild && c.body.firstChild.className === 'nodata')
             text(c.body.firstChild, 'Sin datos')
@@ -397,10 +399,20 @@
   }
 
   // --- Dibujo ----------------------------------------------------------------------------------
+  // Latido de datos: el punto "En vivo" lanza un anillo con cada dato nuevo.
+  function heartbeat() {
+    var dot = $('live').firstChild
+    liveFlip = !liveFlip
+    if (dot) dot.className = 'dot ' + (liveFlip ? 'ring-a' : 'ring-b')
+  }
+
   function draw(c) {
     var body = c.body
     var data = c.data
     body.innerHTML = ''
+    drawing = c
+    c.slot = 0
+    c.inner.className = ''
     var v = data.values || {}
     var rows = data.rows || []
     try {
@@ -444,13 +456,49 @@
     add(body, el('p', 'nodata', 'Sin datos'))
   }
 
-  // Número grande con su unidad aparte ("2.4 Gbps").
+  // Número grande con su unidad aparte ("2.4 Gbps"). Los dígitos ruedan desde el valor
+  // anterior del mismo widget y el número da un destello si cambió.
+  var drawing = null
   function bigValue(parent, cls, value, unit, arrow) {
+    var c = drawing
+    var key = c ? c.slot++ : 0
+    var prev = c && c.prev ? c.prev[key] : null
     var b = add(parent, el('div', cls))
     if (arrow) add(b, el('span', 'arrow', arrow))
-    b.appendChild(document.createTextNode(value + (unit ? ' ' : '')))
-    if (unit) add(b, el('span', 'unit', unit))
+    roll(b, String(value), prev)
+    if (unit) {
+      b.appendChild(document.createTextNode(' '))
+      add(b, el('span', 'unit', unit))
+    }
+    if (c) {
+      if (!c.prev) c.prev = {}
+      if (prev !== null && prev !== undefined && prev !== String(value)) {
+        c.flip = !c.flip
+        b.className = cls + (c.flip ? ' ping-a' : ' ping-b')
+      }
+      c.prev[key] = String(value)
+    }
     return b
+  }
+  // Cada dígito es un span con su texto real (transparente) y una tira 0–9 en :before que
+  // se desplaza (CSS). Se crea en el dígito anterior y se mueve al nuevo en el siguiente ciclo.
+  function roll(parent, value, prev) {
+    var moves = []
+    for (var i = 0; i < value.length; i++) {
+      var ch = value.charAt(i)
+      if (!/\d/.test(ch)) {
+        parent.appendChild(document.createTextNode(ch))
+        continue
+      }
+      var j = prev ? prev.length - (value.length - i) : -1
+      var from = j >= 0 && /\d/.test(prev.charAt(j)) ? prev.charAt(j) : ch
+      var d = add(parent, el('span', 'rd d' + from, ch))
+      if (from !== ch) moves.push([d, ch])
+    }
+    if (moves.length)
+      setTimeout(function () {
+        for (var k = 0; k < moves.length; k++) moves[k][0].className = 'rd d' + moves[k][1]
+      }, 40)
   }
   function split(s) {
     var i = s.indexOf(' ')
@@ -480,6 +528,8 @@
   }
 
   function drawFindingsSummary(body, v) {
+    // Halo fijo cuando hay hallazgos críticos abiertos (la luz marca señales).
+    if ((v.open_by_severity || {}).critical > 0 && drawing) drawing.inner.className = 'halo'
     var k = add(body, el('div', 'kpi'))
     bigValue(k, 'big', format('', v.open_total), '')
     var chips = add(k, el('div', 'chips'))
@@ -657,7 +707,10 @@
           seg.push(x.toFixed(1) + ',' + (top + ph - (nice ? (y / nice) * ph : 0)).toFixed(1))
         } else if (seg.length) {
           if (seg.length === 1) seg.push(seg[0])
-          s.appendChild(svg('polyline', { points: seg.join(' '), fill: 'none', stroke: color(ss[i], i), 'stroke-width': Math.max(2, Math.round(fs / 8)), 'stroke-linejoin': 'round' }))
+          // Halo: la misma línea más ancha y tenue debajo (sin filtros SVG, ligeros en TVs).
+          var sw = Math.max(2, Math.round(fs / 8))
+          s.appendChild(svg('polyline', { points: seg.join(' '), fill: 'none', stroke: color(ss[i], i), 'stroke-width': sw * 4, 'stroke-linejoin': 'round', 'stroke-linecap': 'round', opacity: '0.14', 'class': 'glow' }))
+          s.appendChild(svg('polyline', { points: seg.join(' '), fill: 'none', stroke: color(ss[i], i), 'stroke-width': sw, 'stroke-linejoin': 'round' }))
           seg = []
         }
       }

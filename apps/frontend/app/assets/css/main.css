@@ -16,8 +16,9 @@
 
 /*
  * Contraste AA (WCAG 1.4.3 / 1.4.11) en ambos temas: los tonos 500 por defecto no llegan a
- * 4,5:1 sobre blanco, así que en claro se usan 600–700 y en oscuro 300–500 (primary 500:
- * menos saturado que 400, evita el acento "neón" que frontend.md §1 descarta).
+ * 4,5:1 sobre blanco, así que en claro se usan 600–700 y en oscuro 300–400. Primary 400 en
+ * oscuro es la "luz" de la marca (frontend.md §13.1, vidrio y luz): solo en señales, en vivo
+ * y la acción primaria.
  */
 :root,
 .light {
@@ -35,7 +36,7 @@
 }
 
 .dark {
-  --ui-primary: var(--ui-color-primary-500);
+  --ui-primary: var(--ui-color-primary-400);
   --ui-secondary: var(--ui-color-secondary-300);
   --ui-success: var(--ui-color-success-400);
   --ui-info: var(--ui-color-info-400);
@@ -43,11 +44,41 @@
   --ui-error: var(--ui-color-error-400);
   --ui-text-muted: var(--ui-color-neutral-400);
   --ui-text-dimmed: var(--ui-color-neutral-400);
-  /* Sin negro puro (§7.8): superficie base muy oscura, elevaciones algo más claras. */
-  --ui-bg: #121214;
-  --ui-bg-muted: #18181b;
-  --ui-bg-elevated: #232327;
-  --ui-border: #2a2a2f;
+  /* Sin negro puro (§7.8): base azul noche muy oscura, elevaciones algo más claras. */
+  --ui-bg: #0b1014;
+  --ui-bg-muted: #10151b;
+  --ui-bg-elevated: #1a2029;
+  --ui-border: #232a33;
+}
+
+/*
+ * Vidrio y luz (frontend.md §13.1). Tres materiales: vidrio en la capa funcional (barra
+ * lateral, barra superior, menús, modales), tarjeta casi sólida en el contenido (nunca vidrio
+ * sobre vidrio) y sólido cuando se pide menos transparencia. La luz (halos) solo marca
+ * señales: en vivo, datos que cambian, series, crítico y la acción primaria; solo en oscuro.
+ */
+:root,
+.light {
+  --hf-glass: rgb(255 255 255 / 0.66);
+  --hf-glass-strong: rgb(255 255 255 / 0.86);
+  --hf-glass-edge: rgb(255 255 255 / 0.7);
+  --hf-card: rgb(255 255 255 / 0.9);
+  --hf-aura-1: rgb(20 184 166 / 0.12);
+  --hf-aura-2: rgb(99 102 241 / 0.09);
+  --hf-glow-brand: transparent;
+  --hf-glow-crit: rgb(220 38 38 / 0.12);
+  --hf-radius-card: 0.875rem;
+}
+
+.dark {
+  --hf-glass: rgb(16 21 27 / 0.62);
+  --hf-glass-strong: rgb(16 21 27 / 0.86);
+  --hf-glass-edge: rgb(255 255 255 / 0.06);
+  --hf-card: rgb(20 25 32 / 0.86);
+  --hf-aura-1: rgb(20 184 166 / 0.2);
+  --hf-aura-2: rgb(99 102 241 / 0.16);
+  --hf-glow-brand: rgb(45 212 191 / 0.45);
+  --hf-glow-crit: rgb(255 107 120 / 0.26);
 }
 
 @layer base {
@@ -157,9 +188,17 @@
   gap: calc(var(--w-gap) * 0.75);
 }
 
-/* Cabecera NOC: banda sin tarjeta y de baja luminancia (protección contra quemado, §7.8). */
+/*
+ * Cabecera NOC: banda de vidrio (capa funcional de la pantalla mural) y de baja luminancia
+ * (protección contra quemado, §7.8).
+ */
 .widget-band {
-  padding: 0 calc(var(--w-pad) * 0.25);
+  padding: 0 calc(var(--w-pad) * 0.75);
+  border-radius: var(--hf-radius-card);
+  background-color: var(--hf-glass);
+  -webkit-backdrop-filter: blur(28px) saturate(150%);
+  backdrop-filter: blur(28px) saturate(150%);
+  box-shadow: inset 0 1px 0 var(--hf-glass-edge);
 }
 
 /* Ranura 1 de la paleta categórica (utils/chart-palette.ts): barras de magnitud. */
@@ -171,7 +210,7 @@
 
 .dark {
   --viz-1: #3987e5;
-  --viz-track: #232327;
+  --viz-track: #1e252e;
 }
 
 .widget-state {
@@ -184,16 +223,223 @@
   text-align: center;
 }
 
-/* Material translúcido solo en la capa funcional (§13.1); sólido si se pide menos transparencia. */
-.chrome-material {
-  background-color: color-mix(in oklab, var(--ui-bg) 82%, transparent);
-  backdrop-filter: blur(16px) saturate(160%);
+/* Vidrio: solo la capa funcional (§13.1); sólido si se pide menos transparencia. */
+.chrome-material,
+.glass-material {
+  background-color: var(--hf-glass);
+  -webkit-backdrop-filter: blur(28px) saturate(150%);
+  backdrop-filter: blur(28px) saturate(150%);
+  box-shadow: inset 0 1px 0 var(--hf-glass-edge);
+}
+
+/* Tarjeta del contenido: casi sólida, deja intuir el aura sin perder legibilidad. */
+.surface-card {
+  background-color: var(--hf-card);
+  border-radius: var(--hf-radius-card);
+  box-shadow:
+    0 0 0 1px var(--ui-border),
+    inset 0 1px 0 var(--hf-glass-edge);
+}
+
+.dark .surface-card {
+  box-shadow:
+    0 0 0 1px var(--ui-border),
+    inset 0 1px 0 var(--hf-glass-edge),
+    0 12px 32px rgb(0 0 0 / 0.22);
+}
+
+/*
+ * Aura: fondo de color muy difuminado bajo toda la app para que el vidrio tenga qué reflejar.
+ * Deriva de 60 s (en TV, 90 s y a media intensidad); quieta con movimiento reducido.
+ */
+.app-aura {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.app-aura::before,
+.app-aura::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+  animation: hf-drift 60s ease-in-out infinite alternate;
+}
+
+.app-aura::before {
+  width: 44rem;
+  height: 44rem;
+  left: -12rem;
+  top: -14rem;
+  background: var(--hf-aura-1);
+}
+
+.app-aura::after {
+  width: 40rem;
+  height: 40rem;
+  right: -10rem;
+  bottom: -14rem;
+  background: var(--hf-aura-2);
+  animation-delay: -30s;
+}
+
+.app-aura-wall::before,
+.app-aura-wall::after {
+  opacity: 0.6;
+  animation-duration: 90s;
+}
+
+@keyframes hf-drift {
+  to {
+    transform: translate(3.5rem, 2.5rem) scale(1.08);
+  }
+}
+
+/* Luz de la acción primaria y del estado crítico. */
+.glow-brand {
+  box-shadow: 0 0 18px var(--hf-glow-brand);
+}
+
+.halo-critical {
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--ui-error) 55%, transparent),
+    0 0 18px var(--hf-glow-crit);
+}
+
+/*
+ * Números vivos: cada dígito rueda hasta su valor nuevo (0,7 s, sin rebote). El dígito real
+ * queda como texto (lectores de pantalla, copiar, pruebas) con relleno transparente; la tira
+ * 0–9 es un pseudoelemento que se desplaza. Ver `RollingNumber.vue`.
+ */
+.roll-digit {
+  position: relative;
+  display: inline-block;
+  height: 1em;
+  line-height: 1em;
+  overflow: hidden;
+  vertical-align: top;
+  -webkit-text-fill-color: transparent;
+}
+
+.roll-digit::before {
+  content: '0\A 1\A 2\A 3\A 4\A 5\A 6\A 7\A 8\A 9';
+  position: absolute;
+  inset: 0 0 auto;
+  white-space: pre;
+  text-align: center;
+  line-height: 1em;
+  -webkit-text-fill-color: currentColor;
+  transition: transform 0.7s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.roll-digit[data-d='1']::before {
+  transform: translateY(-1em);
+}
+.roll-digit[data-d='2']::before {
+  transform: translateY(-2em);
+}
+.roll-digit[data-d='3']::before {
+  transform: translateY(-3em);
+}
+.roll-digit[data-d='4']::before {
+  transform: translateY(-4em);
+}
+.roll-digit[data-d='5']::before {
+  transform: translateY(-5em);
+}
+.roll-digit[data-d='6']::before {
+  transform: translateY(-6em);
+}
+.roll-digit[data-d='7']::before {
+  transform: translateY(-7em);
+}
+.roll-digit[data-d='8']::before {
+  transform: translateY(-8em);
+}
+.roll-digit[data-d='9']::before {
+  transform: translateY(-9em);
+}
+
+/* Destello breve del valor que acaba de cambiar (dos nombres para poder reiniciarlo). */
+.dark .ping-a {
+  animation: hf-ping-a 1.4s ease-out;
+}
+.dark .ping-b {
+  animation: hf-ping-b 1.4s ease-out;
+}
+@keyframes hf-ping-a {
+  25% {
+    text-shadow: 0 0 18px var(--hf-glow-brand);
+  }
+}
+@keyframes hf-ping-b {
+  25% {
+    text-shadow: 0 0 18px var(--hf-glow-brand);
+  }
+}
+
+/* Latido de datos: punto "En vivo" que lanza un anillo con cada actualización. */
+.live-dot {
+  position: relative;
+  display: inline-block;
+  width: 0.55em;
+  height: 0.55em;
+  border-radius: 50%;
+  background: var(--ui-primary);
+  box-shadow: 0 0 8px var(--hf-glow-brand);
+}
+.live-dot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid var(--ui-primary);
+  opacity: 0;
+}
+.live-dot.ring-a::after {
+  animation: hf-ring-a 1.2s ease-out;
+}
+.live-dot.ring-b::after {
+  animation: hf-ring-b 1.2s ease-out;
+}
+@keyframes hf-ring-a {
+  from {
+    opacity: 0.8;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(3);
+  }
+}
+@keyframes hf-ring-b {
+  from {
+    opacity: 0.8;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(3);
+  }
 }
 
 @media (prefers-reduced-transparency: reduce) {
-  .chrome-material {
+  .chrome-material,
+  .glass-material {
     background-color: var(--ui-bg);
+    -webkit-backdrop-filter: none;
     backdrop-filter: none;
+  }
+
+  .surface-card {
+    background-color: var(--ui-bg-muted);
+  }
+
+  .app-aura {
+    display: none;
   }
 }
 
@@ -207,6 +453,12 @@
   .dark {
     --ui-text-muted: var(--ui-color-neutral-200);
     --ui-border: var(--ui-color-neutral-400);
+    --hf-glow-brand: transparent;
+    --hf-glow-crit: transparent;
+  }
+
+  .halo-critical {
+    box-shadow: 0 0 0 2px var(--ui-error);
   }
 }
 

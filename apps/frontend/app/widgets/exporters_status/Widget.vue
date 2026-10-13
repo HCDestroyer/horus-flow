@@ -21,6 +21,7 @@ const rows = computed(() => {
   return [...list].sort((a, b) => (ORDER[a.state] ?? 9) - (ORDER[b.state] ?? 9))
 })
 const healthy = computed(() => rows.value.filter((r) => r.state === 'exporting').length)
+const compact = computed(() => props.scale === 'wall' && rows.value.length > 4)
 
 function ago(iso: string | null) {
   if (!iso) return t('widgets.exporters_status.noFlows')
@@ -44,7 +45,8 @@ function ago(iso: string | null) {
       <li
         v-for="row in rows"
         :key="row.router"
-        class="bg-muted flex min-w-0 flex-col justify-center gap-[0.15em] rounded-md px-[calc(var(--w-pad)*0.75)] py-[calc(var(--w-pad)*0.4)]"
+        class="bg-muted flex min-w-0 flex-col justify-center gap-[0.15em] rounded-md px-[calc(var(--w-pad)*0.75)]"
+        :class="compact ? 'py-[calc(var(--w-pad)*0.2)]' : 'py-[calc(var(--w-pad)*0.4)]'"
         :data-exporter-state="row.state"
         data-layout-box
         data-fit-item
@@ -53,9 +55,15 @@ function ago(iso: string | null) {
           <span class="w-label text-highlighted truncate font-mono font-semibold">{{
             row.router
           }}</span>
-          <ExporterStateBadge :state="row.state" class="w-label" />
+          <ExporterStateBadge :state="row.state" class="w-label shrink-0 whitespace-nowrap" />
         </div>
-        <p class="w-meta text-muted flex min-w-0 flex-wrap gap-x-[0.6em] tabular">
+        <!-- En mural con muchos exportadores, solo router y estado: con el detalle ninguna
+             tarjeta cabría entera y la lista quedaría vacía (el resumen da el total). -->
+        <p
+          v-if="!compact"
+          class="w-meta text-muted flex min-w-0 gap-x-[0.6em] tabular"
+          :class="scale === 'wall' ? 'flex-nowrap overflow-hidden whitespace-nowrap' : 'flex-wrap'"
+        >
           <span v-if="scale === 'normal'" class="truncate" data-fit-optional="1">{{
             row.site
           }}</span>

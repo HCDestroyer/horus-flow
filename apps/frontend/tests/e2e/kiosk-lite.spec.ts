@@ -209,7 +209,7 @@ test.describe('pantalla NOC ligera @kiosk-lite', () => {
     await expect(grid).toContainText('5.2 GB')
     await expect(grid).toContainText('hace 5 min')
     // Dos series; la bajada tiene un hueco (null) → dos tramos.
-    await expect(page.locator('#grid svg polyline')).toHaveCount(3)
+    await expect(page.locator('#grid svg polyline:not(.glow)')).toHaveCount(3)
     await expect(page.locator('#updated')).toContainText('Actualizado')
     expect(page.url()).not.toContain('code=')
     // Rejilla de 12 columnas: la cabecera no ocupa tarjeta, nada se solapa ni se sale.
@@ -247,7 +247,7 @@ test.describe('pantalla NOC ligera @kiosk-lite', () => {
       expect(new Set(lefts).size).toBe(vp.cols)
       const sw = await page.evaluate(() => document.documentElement.scrollWidth)
       expect(sw).toBeLessThanOrEqual(vp.width)
-      await expect(page.locator('#grid svg polyline')).toHaveCount(3)
+      await expect(page.locator('#grid svg polyline:not(.glow)')).toHaveCount(3)
     })
   }
 

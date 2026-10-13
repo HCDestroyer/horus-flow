@@ -30,6 +30,9 @@ const props = withDefaults(
 )
 
 const theme = useChartTheme()
+const { reducedMotion, moreContrast } = useMotionPrefs()
+/** Halo de las series: la luz marca los datos, solo en oscuro y sin "más contraste" (§13.1). */
+const glow = computed(() => theme.value.mode === 'dark' && !moreContrast.value)
 /** Factor de escala mural, igual que `--u` en CSS (diseño de 1920×1080 escalado). */
 const unit = ref(1)
 function onResize() {
@@ -72,7 +75,12 @@ const option = computed<ChartOption>(() => {
   const { ink, series: colors } = theme.value
   const fontSize = wall.value ? px(22) : 12
   return {
-    animation: false,
+    // Las líneas se dibujan al aparecer y avanzan (morph) con cada dato nuevo.
+    animation: !reducedMotion.value,
+    animationDuration: 900,
+    animationDurationUpdate: 700,
+    animationEasing: 'cubicOut',
+    animationEasingUpdate: 'cubicOut',
     color: [...colors],
     aria: { enabled: true, decal: { show: false } },
     grid: {
@@ -145,7 +153,12 @@ const option = computed<ChartOption>(() => {
         data,
         showSymbol: false,
         connectNulls: false,
-        lineStyle: { width: wall.value ? 3 : 2 },
+        lineStyle: {
+          width: wall.value ? 3 : 2,
+          ...(glow.value
+            ? { shadowBlur: px(8), shadowColor: `${colors[i % colors.length]}99` }
+            : {}),
+        },
         areaStyle: props.area && i === 0 ? { opacity: 0.08 } : undefined,
         emphasis: { disabled: wall.value },
       }

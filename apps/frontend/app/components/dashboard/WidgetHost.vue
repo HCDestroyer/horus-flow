@@ -77,6 +77,12 @@ const freshnessLevelNow = computed(() => {
   if (!dataAt.value) return 'fresh'
   return freshnessLevel((now.value - dataAt.value) / 1000, liveAt.value ? 10 : refresh)
 })
+/** Halo fijo cuando hay hallazgos críticos abiertos (la luz marca señales, §13.1). */
+const critical = computed(() => {
+  if (props.widget.type !== 'findings_summary' || data.value?.data.kind !== 'state') return false
+  const v = data.value.data.values as { open_by_severity?: { critical?: number } }
+  return (v.open_by_severity?.critical ?? 0) > 0
+})
 const emptyText = computed(() => {
   const key = `widgets.${props.widget.type}.empty`
   return te(key) ? t(key) : t('widgetHost.empty')
@@ -87,7 +93,7 @@ const emptyText = computed(() => {
   <section
     v-fit-optional
     class="widget-card relative flex min-h-0 min-w-0 flex-col overflow-hidden"
-    :class="isHeader ? 'widget-band' : 'bg-default ring-default rounded-lg ring-1'"
+    :class="isHeader ? 'widget-band' : ['surface-card', { 'halo-critical': critical }]"
     :aria-labelledby="isHeader ? undefined : headingId"
     :aria-label="isHeader ? title : undefined"
     :data-widget-type="widget.type"

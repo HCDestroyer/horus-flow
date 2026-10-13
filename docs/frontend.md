@@ -34,9 +34,13 @@ Las citas a las skills de diseño usan el formato `archivo › sección`:
 
 El elemento distintivo es la **semántica de estado, frescura y certeza**: cada dato muestra su
 estado (icono + texto + color), cuán reciente es y, si es una inferencia (hallazgo, tipo
-comercial), con qué confianza y por qué. Todo lo demás es sobrio. Evitamos el cliché de "NOC"
-(fondo negro con verde ácido), que `apple-hig/SKILL.md › Lens 3 (craft)` identifica como plantilla:
-el tema oscuro existe para pantallas murales y turnos de noche, no como identidad.
+comercial), con qué confianza y por qué. La estética es **vidrio y luz** (§13.1, decisión del PO
+del 13/10/2026): la capa funcional es de vidrio sobre un aura de color muy difuminada, el
+contenido va sobre material casi sólido y la luz (halos) marca únicamente señales: lo que está en
+vivo, el dato que acaba de cambiar, las series, lo crítico y la acción primaria. Los números
+vivos ruedan al cambiar para que se note que el sistema trabaja. Seguimos evitando el cliché de
+"NOC" (fondo negro con verde ácido, `apple-hig/SKILL.md › Lens 3 (craft)`): la luz es escasa y
+con significado, nunca decoración, y nada parpadea.
 
 | Principio (apple-design §16; HIG `design-principles.md`) | Cómo se aplica |
 | --- | --- |
@@ -47,7 +51,7 @@ el tema oscuro existe para pantallas murales y turnos de noche, no como identida
 | Flexibilidad | Escritorio de NOC, portátil, móvil para consultar y **pantalla mural sin interacción** |
 | Simplicidad | Camino común primero; plantillas de dashboard listas antes que editor libre |
 | Oficio | Cifras tabulares, unidades consistentes, tiempos relativos con absolutos en tooltip |
-| Deleite | Calma: nada parpadea; los cambios en vivo se notan sin alarmar |
+| Deleite | Calma con vida: nada parpadea; los números ruedan y el punto "En vivo" late con cada dato, sin alarmar |
 
 ## 2. Usuarios y contextos
 
@@ -754,13 +758,33 @@ Implementación: `usePermission()` y `useCan(permiso, isp?)` sobre `GET /me` (pe
 
 ## 13. Principios visuales
 
-### 13.1 Materiales, profundidad y movimiento
-Barra lateral y navbar como capa funcional; la navbar puede usar material translúcido con
-desvanecido en el borde (apple-design §12); **nunca** translúcido sobre translúcido ni en el
-contenido (tarjetas, tablas y gráficos sólidos, `apple-hig/SKILL.md › Lens 2`); con
-`prefers-reduced-transparency`, sólido. Movimiento breve, interrumpible, resortes sin rebote
-(~0,3 s) para paneles; paneles que salen y vuelven por el mismo lado (apple-design §3, §4, §7);
-fundidos cortos con `prefers-reduced-motion` (apple-design §14). En kiosco, casi sin movimiento.
+### 13.1 Materiales, profundidad, luz y movimiento ("vidrio y luz")
+
+Tokens en `assets/css/main.css` (`--hf-*`); reglas (HIG `liquid-glass.md`, `materials.md`,
+`motion.md`; apple-design §12, §14):
+
+| Material | Dónde | Valor (oscuro) |
+| --- | --- | --- |
+| Vidrio (`.glass-material`, `.chrome-material`) | Capa funcional: barra lateral, navbar, banda `noc_header`; menús, popovers, modales y slideovers (vidrio fuerte, `app.config.ts`) | blur 28 px · saturate 150 % · relleno 62 % (fuerte 86 %) |
+| Tarjeta (`.surface-card`, `UCard`) | Contenido: widgets, tarjetas, tablas, gráficos. **Nunca vidrio sobre vidrio** | relleno 86 %, borde, radio 14 px |
+| Sólido | `prefers-reduced-transparency` y kiosk-lite (TVs sin `backdrop-filter`) | `--ui-bg` / `--ui-bg-muted` |
+| Aura (`.app-aura`) | Fondo de toda la app, para que el vidrio tenga qué reflejar | teal 20 % + índigo 16 %, blur 90 px, deriva de 60 s (mural: 90 s, a 60 %) |
+
+**Luz, solo en señales y solo en oscuro** (en claro y con `prefers-contrast: more` los halos son
+transparentes): punto "En vivo" con un anillo por cada dato nuevo (`FreshnessLabel`), destello
+de 1,4 s del valor que cambió, halo de 6–8 px en las series (ECharts `shadowBlur`), halo fijo en
+la tarjeta de hallazgos con críticos abiertos (siempre con icono y texto) y la acción primaria
+(una por vista). Primary 400 en oscuro es la luz de la marca.
+
+**Números vivos** (`RollingNumber.vue`; kiosk-lite `roll()`): cada dígito rueda hasta su valor
+nuevo en 0,7 s sin rebote, solo cuando el dato cambia; el dígito real queda como texto (lector de
+pantalla, copiar, pruebas) y la tira 0–9 es CSS. Cifras tabulares para que nada cambie de ancho.
+Las series se dibujan al aparecer y avanzan con cada dato (morph de 0,7 s).
+
+Movimiento breve, interrumpible, resortes sin rebote (~0,3 s) para paneles; paneles que salen y
+vuelven por el mismo lado (apple-design §3, §4, §7). Con `prefers-reduced-motion`: sin aura,
+latidos ni destellos, los números cambian sin rodar y los gráficos sin animación (regla global de
+`main.css` + `useMotionPrefs`). En mural, halos y aura de baja luminancia (quemado, §7.8).
 
 ### 13.2 Color
 

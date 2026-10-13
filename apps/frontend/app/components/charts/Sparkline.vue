@@ -11,20 +11,28 @@ const props = defineProps<{
 }>()
 
 const theme = useChartTheme()
+const { reducedMotion, moreContrast } = useMotionPrefs()
+const glow = computed(() => theme.value.mode === 'dark' && !moreContrast.value)
 const option = computed<ChartOption>(() => ({
-  animation: false,
+  animation: !reducedMotion.value,
+  animationDurationUpdate: 700,
   color: [...theme.value.series],
   grid: { left: 0, right: 0, top: 2, bottom: 2 },
   xAxis: { type: 'category', show: false, boundaryGap: false },
   yAxis: { type: 'value', show: false, min: 'dataMin' },
   tooltip: { show: false },
-  series: props.series.map((s) => ({
+  series: props.series.map((s, i) => ({
     type: 'line' as const,
     name: s.name,
     data: s.values,
     showSymbol: false,
     connectNulls: false,
-    lineStyle: { width: 2 },
+    lineStyle: {
+      width: 2,
+      ...(glow.value
+        ? { shadowBlur: 6, shadowColor: `${theme.value.series[i % theme.value.series.length]}99` }
+        : {}),
+    },
     emphasis: { disabled: true },
   })),
 }))
