@@ -118,6 +118,8 @@ paths:
     $ref: ./analytics.yaml#/paths/~1dashboards~1{dashboard_id}~1widgets~1{widget_id}
   /dashboards/{dashboard_id}/widgets/{widget_id}/data:
     $ref: ./analytics.yaml#/paths/~1dashboards~1{dashboard_id}~1widgets~1{widget_id}~1data
+  /detection/config:
+    $ref: ./detection.yaml#/paths/~1detection~1config
   /enroll/wireguard:
     $ref: ./wireguard.yaml#/paths/~1enroll~1wireguard
   /findings:

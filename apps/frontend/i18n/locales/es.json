@@ -2211,5 +2211,125 @@
     "shortcuts": "Atajos",
     "search": "Ir a cualquier sección o cambiar de ISP",
     "errors": "Si algo falla, el mensaje muestra un código y una traza: compártelos con soporte para localizar el problema."
+  },
+  "detection": {
+    "intro": "Cómo detecta Horus las señales compatibles con botnet en este ISP. Ninguna señal sola concluye que un equipo esté infectado.",
+    "units": {
+      "days": "1 día | {n} días"
+    },
+    "rules": {
+      "title": "Reglas y umbrales",
+      "body": "Valores vigentes de cada detector: los de fábrica más los ajustes propios del ISP. En esta versión se consultan aquí y no se editan desde la consola.",
+      "custom": "Ajustado para el ISP",
+      "on": "Activo",
+      "off": "Desactivado",
+      "autoExpire": "Un hallazgo sin nuevas ocurrencias se cierra solo a los {time}."
+    },
+    "detectors": {
+      "c2_contact": {
+        "name": "Contacto con C2 conocido",
+        "body": "Conexiones a servidores de mando y control publicados en los feeds de reputación."
+      },
+      "scanning": {
+        "name": "Escaneo saliente",
+        "body": "Muchos destinos con SYN sin respuesta (horizontal) o muchos puertos de un mismo destino (vertical)."
+      },
+      "watched_ports": {
+        "name": "Puertos típicos de botnet",
+        "body": "Conexiones salientes a puertos que usan las botnets para propagarse (Telnet, TR-069, ADB, SMB…)."
+      },
+      "fanout": {
+        "name": "Fan-out disperso",
+        "body": "Conexiones a muchas redes /24 distintas en poco tiempo, descartando CDN."
+      },
+      "smtp": {
+        "name": "SMTP directo",
+        "body": "Envío de correo directo a muchos servidores SMTP (spam desde un equipo comprometido)."
+      },
+      "ddos": {
+        "name": "Participación en DDoS",
+        "body": "Ráfagas de paquetes hacia pocos destinos o amplificación UDP."
+      },
+      "beaconing": {
+        "name": "Beaconing",
+        "body": "Conexiones periódicas y regulares a un mismo destino, típicas de un equipo que consulta a su C2."
+      },
+      "sustained_upload": {
+        "name": "Subida sostenida",
+        "body": "Tráfico de subida alto y continuo que no corresponde a copias de seguridad conocidas."
+      }
+    },
+    "fields": {
+      "window": "Ventana de evaluación",
+      "lookback": "Revisión de marcas recientes",
+      "retro_window": "Barrido retroactivo",
+      "retro_interval": "Cada cuánto se repite el barrido",
+      "min_indicator_confidence": "Confianza mínima del indicador",
+      "mining": "Detectar pools de minería",
+      "syn_only_ratio": "SYN sin respuesta (mínimo)",
+      "min_destinations": "Destinos distintos (mínimo)",
+      "vertical_min_ports": "Puertos de un mismo destino (escaneo vertical)",
+      "vertical_small_share": "Flujos pequeños en escaneo vertical",
+      "min_nets24": "Redes /24 distintas (mínimo)",
+      "commercial_factor": "Multiplicador para clientes comerciales",
+      "exclude_ports": "Puertos excluidos",
+      "residential_servers": "Servidores SMTP distintos (residencial)",
+      "commercial_servers": "Servidores SMTP distintos (comercial)",
+      "min_pps": "Paquetes por segundo (mínimo)",
+      "min_minutes": "Minutos sostenidos (mínimo)",
+      "max_targets": "Destinos (máximo)",
+      "amp_ports": "Puertos de amplificación",
+      "amp_min_pps": "Paquetes por segundo en amplificación",
+      "amp_min_targets": "Destinos en amplificación (mínimo)",
+      "interval": "Intervalo de evaluación",
+      "min_span": "Duración mínima del patrón",
+      "min_connections": "Conexiones (mínimo)",
+      "max_cv": "Variación máxima del periodo",
+      "max_mean_bytes": "Bytes medios por conexión (máximo)",
+      "min_period": "Periodo mínimo",
+      "max_period": "Periodo máximo",
+      "allow_asns": "ASN permitidos",
+      "min_mbps": "Subida (Mbps, mínimo)",
+      "upload_share": "Proporción de subida (mínimo)",
+      "cloud_asns": "ASN de nubes de respaldo",
+      "cloud_share": "Subida hacia nubes para considerarla copia",
+      "backup_from_hour": "Franja de copias: desde (hora)",
+      "backup_to_hour": "Franja de copias: hasta (hora)",
+      "watched_ports": {
+        "min_destinations": "Destinos distintos por puerto vigilado (mínimo)"
+      }
+    },
+    "allow": {
+      "title": "Lista de permitidos",
+      "body": "Prefijos o ASN cuyo tráfico nunca genera hallazgos (por ejemplo, tus propios servidores de monitoreo).",
+      "add": "Añadir a la lista",
+      "empty": "La lista está vacía.",
+      "remove": "Quitar",
+      "added": "Añadido a la lista de permitidos",
+      "removed": "Quitado de la lista de permitidos",
+      "formTitle": "Añadir a la lista de permitidos",
+      "formBody": "El tráfico de este prefijo o ASN dejará de generar hallazgos. Queda registrado quién lo añadió y por qué.",
+      "prefix": "Prefijo",
+      "asn": "ASN",
+      "reason": "Motivo",
+      "removeTitle": "¿Quitar {target} de la lista?",
+      "removeBody": "Su tráfico volverá a evaluarse y podrá generar hallazgos."
+    },
+    "sources": {
+      "title": "Feeds de reputación",
+      "body": "Listas públicas de servidores maliciosos que usa la detección de C2. Las gestiona el administrador de la plataforma.",
+      "empty": "No hay feeds configurados.",
+      "entries": "{n} entradas",
+      "updated": "Actualizado hace {time}",
+      "category": {
+        "botnet_cc": "Mando y control de botnets",
+        "scanner": "Escáneres",
+        "malware_dist": "Distribución de malware",
+        "mining_pool": "Pools de minería",
+        "proxy_vpn": "Proxies y VPN",
+        "tor_exit": "Salidas de Tor",
+        "blocklist": "Lista de bloqueo"
+      }
+    }
   }
 }

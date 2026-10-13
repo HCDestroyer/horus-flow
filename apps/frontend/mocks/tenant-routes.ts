@@ -9,6 +9,7 @@ import type {
 } from '~~/types/api'
 import { CATEGORIES, maskIp } from './base'
 import type { MockTenant } from './data'
+import { detectionSettingsRoute } from './detection-settings'
 import { deviceRoutes } from './devices'
 import { evidenceFlows, findFinding, findingsOf, securitySummary, sortFindings } from './findings'
 import {
@@ -952,6 +953,7 @@ export function tenantRoute(ctx: TenantRouteContext): Response | undefined {
     deviceRoutes(ctx) ??
     inventoryRoutes(ctx) ??
     analyticsRoutes(ctx) ??
-    playlistRoutes(ctx)
+    playlistRoutes(ctx) ??
+    detectionSettingsRoute(ctx)
   )
 }

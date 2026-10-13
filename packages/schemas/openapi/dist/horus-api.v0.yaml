@@ -1545,6 +1545,43 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
         '504':
           $ref: '#/components/responses/GatewayTimeout'
+  /detection/config:
+    get:
+      tags:
+        - reputation
+      operationId: getDetectionConfig
+      summary: Umbrales vigentes de los detectores del ISP (valores por defecto + ajustes del ISP), solo lectura
+      description: Los nombres de detector y los campos son los de detection.detector_config (domain.Params); las duraciones en formato Go ("5m0s").
+      x-module: detection
+      x-scope: tenant
+      x-permission: settings.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Parámetros vigentes.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - detectors
+                  - customized
+                properties:
+                  detectors:
+                    type: object
+                    description: Un objeto por detector (c2_contact, scanning, watched_ports, fanout, smtp, ddos, beaconing, sustained_upload) con enabled, window y sus umbrales; más auto_expire.
+                    additionalProperties: true
+                  customized:
+                    type: array
+                    description: Detectores con ajustes propios del ISP.
+                    items:
+                      type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /enroll/wireguard:
     post:
       tags:

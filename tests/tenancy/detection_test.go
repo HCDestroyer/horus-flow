@@ -69,6 +69,26 @@ func TestDetectionPermissions(t *testing.T) {
 	if len(feeds) == 0 || feeds[0].(map[string]any)["origin"] != "catalog" || feeds[0].(map[string]any)["key"] == "" {
 		t.Fatalf("reputation/sources: %s", src.Raw)
 	}
+	// Umbrales vigentes (settings.read, solo lectura): valores por defecto + ajustes del ISP,
+	// que no se filtran a otro ISP.
+	cfg := a.must(a.do(req{Method: "GET", Path: "/api/v1/detection/config", Token: viewer}), 200)
+	scan, _ := cfg.Body["detectors"].(map[string]any)["scanning"].(map[string]any)
+	if scan["min_destinations"] != float64(100) || scan["window"] != "5m0s" || len(cfg.Body["customized"].([]any)) != 0 {
+		t.Fatalf("detection/config por defecto: %s", cfg.Raw)
+	}
+	if _, err := a.admin.Exec(context.Background(), `INSERT INTO detection.detector_config (tenant_id, detector, enabled, params)
+		VALUES ($1, 'scanning', true, '{"min_destinations": 250}')`, A.id); err != nil {
+		t.Fatal(err)
+	}
+	cfg = a.must(a.do(req{Method: "GET", Path: "/api/v1/detection/config", Token: viewer}), 200)
+	scan, _ = cfg.Body["detectors"].(map[string]any)["scanning"].(map[string]any)
+	if scan["min_destinations"] != float64(250) || cfg.Body["customized"].([]any)[0] != "scanning" {
+		t.Fatalf("detection/config con ajuste: %s", cfg.Raw)
+	}
+	other := a.must(a.do(req{Method: "GET", Path: "/api/v1/detection/config", Token: B.token}), 200)
+	if s, _ := other.Body["detectors"].(map[string]any)["scanning"].(map[string]any); s["min_destinations"] != float64(100) {
+		t.Fatalf("el ajuste de A se ve en B: %s", other.Raw)
+	}
 	// Otro ISP → 404, también por la evidencia y las transiciones.
 	for _, p := range []string{"/api/v1/findings/" + fid, "/api/v1/findings/" + fid + "/evidence", "/api/v1/customers/" + ids["customer_id"] + "/findings"} {
 		if r := a.do(req{Method: "GET", Path: p, Token: B.token}); r.Status != 404 {

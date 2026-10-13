@@ -579,6 +579,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/detection/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Umbrales vigentes de los detectores del ISP (valores por defecto + ajustes del ISP), solo lectura
+         * @description Los nombres de detector y los campos son los de detection.detector_config (domain.Params); las duraciones en formato Go ("5m0s").
+         */
+        get: operations["getDetectionConfig"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/enroll/wireguard": {
         parameters: {
             query?: never;
@@ -5146,6 +5166,35 @@ export interface operations {
             404: components["responses"]["NotFound"];
             503: components["responses"]["ServiceUnavailable"];
             504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    getDetectionConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Parámetros vigentes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @description Detectores con ajustes propios del ISP. */
+                        customized: string[];
+                        /** @description Un objeto por detector (c2_contact, scanning, watched_ports, fanout, smtp, ddos, beaconing, sustained_upload) con enabled, window y sus umbrales; más auto_expire. */
+                        detectors: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     enrollWireguard: {

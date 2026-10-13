@@ -41,6 +41,7 @@ const (
 	PermManage    = "security.findings.manage"
 	PermEvidence  = "security.evidence.read"
 	PermCustomers = "customers.read"
+	PermSettings  = "settings.read"
 )
 
 // Códigos de error del contrato.
@@ -817,4 +818,28 @@ func (s *Service) ListSources(ctx context.Context) ([]map[string]any, error) {
 			"commercial_use_allowed": src.CommercialUse == datasets.CommercialYes || origin == "custom"})
 	}
 	return out, nil
+}
+
+// DetectionConfig devuelve los parámetros vigentes de los detectores del ISP
+// (valores por defecto + overrides de detection.detector_config) y qué
+// detectores tienen overrides. Solo lectura en I1 (frontend.md §4: Detección).
+func (s *Service) DetectionConfig(ctx context.Context) (domain.Params, []string, error) {
+	_, tid, _, err := s.scope(ctx, PermSettings)
+	if err != nil {
+		return domain.Params{}, nil, err
+	}
+	p, err := s.Params(ctx, tid.UUID())
+	if err != nil {
+		return p, nil, err
+	}
+	var custom []string
+	err = s.db.TenantTx(ctx, tid, func(tx pgx.Tx) error {
+		cfg, err := postgres.DetectorConfig(ctx, tx)
+		for name := range cfg {
+			custom = append(custom, name)
+		}
+		return err
+	})
+	slices.Sort(custom)
+	return p, custom, err
 }
