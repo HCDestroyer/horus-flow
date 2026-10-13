@@ -3,7 +3,7 @@
 # deterministas (prefix > asn_port > asn > port). Sin editor hasta I4: se cambia aquí y se publica
 # como snapshot versionado (horus-catalog publish). Los prefijos son rangos publicados por cada
 # proveedor; se clasifica al nivel que la evidencia soporta (genéricos de CDN/nube, nunca más).
-version: 1
+version: 2
 categories:
   - {slug: video_streaming, name: Streaming de video}
   - {slug: social, name: Redes sociales}
@@ -35,6 +35,11 @@ organizations:
   - {slug: discord, name: Discord, country: US, asns: [49544]}
   - {slug: telegram, name: Telegram, country: GB, asns: [62041, 62014, 59930]}
   - {slug: mercadolibre, name: Mercado Libre, country: AR, asns: [264696]}
+  # Videojuegos en línea (ASN verificados en PeeringDB/RIR, oct. 2026).
+  - {slug: blizzard, name: Blizzard Entertainment, country: US, asns: [57976]}
+  - {slug: activision, name: Activision (Call of Duty), country: US, asns: [40551, 14588, 60229]}
+  - {slug: take_two, name: Take-Two (Rockstar Games), country: US, asns: [46555]}
+  - {slug: riot, name: Riot Games, country: US, asns: [6507]}
 
 # Servicios. rules: asn (+ ports/protocols = asn_port), port (sin ASN = port). confidence 0–100.
 services:
@@ -83,6 +88,21 @@ services:
      rules: [{asn: [46489], confidence: 85}]}
   - {slug: steam, name: Steam, category: gaming, org: valve,
      rules: [{asn: [32590], confidence: 85}]}
+  # Counter-Strike: servidores de Valve (asn_port) y comunitarios en cualquier red (puertos Source).
+  - {slug: counter_strike, name: Counter-Strike, category: gaming, org: valve,
+     rules: [{asn: [32590], ports: [27015, 27016, 27017, 27018, 27019, 27020, 27021, 27022, 27023, 27024, 27025, 27026, 27027, 27028, 27029, 27030, 27031, 27032, 27033, 27034, 27035, 27036, 27037, 27038, 27039, 27040, 27041, 27042, 27043, 27044, 27045, 27046, 27047, 27048, 27049, 27050], protocols: [17], confidence: 85},
+             {ports: [27015, 27016, 27017, 27018, 27019, 27020, 27021, 27022, 27023, 27024, 27025, 27026, 27027, 27028, 27029, 27030, 27031, 27032, 27033, 27034, 27035, 27036, 27037, 27038, 27039, 27040, 27041, 27042, 27043, 27044, 27045, 27046, 27047, 27048, 27049, 27050], protocols: [17], confidence: 45}]}
+  - {slug: battle_net, name: Blizzard Battle.net, category: gaming, org: blizzard,
+     rules: [{asn: [57976], confidence: 85}]}
+  # Call of Duty: servidores de Activision y Demonware (matchmaking, estadísticas).
+  - {slug: call_of_duty, name: Call of Duty, category: gaming, org: activision,
+     rules: [{asn: [40551, 14588, 60229], confidence: 80}]}
+  # GTA Online: servicios de Rockstar y sesiones entre jugadores (P2P, UDP 6672 y 61455–61458).
+  - {slug: gta_online, name: GTA Online, category: gaming, org: take_two,
+     rules: [{asn: [46555], confidence: 80},
+             {ports: [6672, 61455, 61456, 61457, 61458], protocols: [17], confidence: 55}]}
+  - {slug: riot_games, name: Riot Games (LoL, VALORANT), category: gaming, org: riot,
+     rules: [{asn: [6507], confidence: 85}]}
   - {slug: xbox_live, name: Xbox Live, category: gaming, org: microsoft,
      rules: [{asn: [8075], ports: [3074], confidence: 75}]}
   - {slug: discord, name: Discord, category: messaging, org: discord,
@@ -91,6 +111,11 @@ services:
      rules: [{asn: [62041, 62014, 59930], confidence: 85}]}
   - {slug: mercadolibre, name: Mercado Libre, category: ecommerce, org: mercadolibre,
      rules: [{asn: [264696], confidence: 80}]}
+  # Speedtest (Ookla): los servidores están en las redes de cada ISP (no hay un ASN propio);
+  # el protocolo usa TCP 8080. Solo regla de puerto: se aplica cuando el destino no es de un
+  # servicio conocido por prefijo o ASN, y por eso con confianza baja.
+  - {slug: speedtest_ookla, name: Speedtest (Ookla), category: network_services,
+     rules: [{ports: [8080], protocols: [6], confidence: 35}]}
   - {slug: web_https, name: Web (HTTPS), category: web,
      rules: [{ports: [443], protocols: [6], confidence: 20}]}
   - {slug: web_http, name: Web (HTTP), category: web,

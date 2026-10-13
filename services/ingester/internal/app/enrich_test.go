@@ -50,9 +50,13 @@ func TestEnrichmentASNServiceReputation(t *testing.T) {
 		t.Fatal(err)
 	}
 	nf := rows[0]
+	seed, err := catalog.Seed()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if nf.RemoteASN != 2906 || nf.RemoteCountry != "US" || nf.RemoteOrgID != catalog.ID("org", "netflix") ||
 		nf.ServiceID != catalog.ID("service", "netflix") || nf.CategoryID != catalog.ID("category", "video_streaming") ||
-		nf.ClassificationMethod != "prefix" || nf.CatalogVersion != 1 || nf.RemotePrefixLen != 17 {
+		nf.ClassificationMethod != "prefix" || nf.CatalogVersion != seed.Version() || nf.RemotePrefixLen != 17 {
 		t.Fatalf("netflix row %+v", nf)
 	}
 	c2 := rows[1]

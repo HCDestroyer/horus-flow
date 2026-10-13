@@ -15,8 +15,8 @@ func TestSeedSize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := len(c.Def.Services); n < 28 || n > 40 {
-		t.Fatalf("services = %d, want ≈30", n)
+	if n := len(c.Def.Services); n < 28 || n > 50 {
+		t.Fatalf("services = %d, want ≈37", n)
 	}
 	if n := len(c.Def.Categories); n < 9 || n > 13 {
 		t.Fatalf("categories = %d, want ≈10", n)
@@ -45,6 +45,14 @@ func TestClassify(t *testing.T) {
 		{"203.0.113.5", 30103, 17, 8801, "zoom", MethodASN, "video_calls"},
 		{"203.0.113.5", 0, 6, 443, "web_https", MethodPort, "web"},
 		{"203.0.113.5", 0, 6, 22, "", MethodNone, ""},
+		{"203.0.113.5", 32590, 17, 27015, "counter_strike", MethodASNPort, "gaming"},
+		{"203.0.113.5", 32590, 6, 443, "steam", MethodASN, "gaming"},
+		{"198.51.100.7", 0, 17, 27016, "counter_strike", MethodPort, "gaming"},
+		{"203.0.113.5", 57976, 6, 1119, "battle_net", MethodASN, "gaming"},
+		{"203.0.113.5", 60229, 17, 3074, "call_of_duty", MethodASN, "gaming"},
+		{"198.51.100.7", 0, 17, 6672, "gta_online", MethodPort, "gaming"},
+		{"203.0.113.5", 6507, 17, 5000, "riot_games", MethodASN, "gaming"},
+		{"198.51.100.7", 0, 6, 8080, "speedtest_ookla", MethodPort, "network_services"},
 	}
 	for _, k := range cases {
 		r := c.Classify(netip.MustParseAddr(k.ip), k.asn, k.proto, k.port)
