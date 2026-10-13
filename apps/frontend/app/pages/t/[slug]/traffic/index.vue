@@ -87,10 +87,8 @@ function togglePrefix(prefix: string) {
 }
 
 // ¿Con qué se clasifica el tráfico? Sin dataset de ASN, todo sale por puerto (QUIC, HTTPS…).
-const { data: classification } = useTenantQuery(
-  'traffic:classification',
-  () => unwrap($api.GET('/classification/status')),
-  { server: false },
+const { data: classification } = useTenantQuery('traffic:classification', () =>
+  unwrap($api.GET('/classification/status')),
 )
 const asnDays = computed(() => {
   const at = classification.value?.data.asn_dataset.created_at
