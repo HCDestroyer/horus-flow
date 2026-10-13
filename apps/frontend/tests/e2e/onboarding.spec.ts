@@ -103,7 +103,7 @@ test.describe('router y onboarding @onboarding', () => {
     await expect(preview).toBeVisible()
     await expect(
       preview.locator('[data-prefix="10.20.0.0/20"]').getByTestId('import-diff'),
-    ).toHaveText('Ya existe')
+    ).toHaveText('Ya registrado como Clientes')
     await expect(
       preview.locator('[data-prefix="10.20.0.0/16"]').getByTestId('import-diff'),
     ).toContainText('Solapa')
@@ -139,6 +139,18 @@ test.describe('router y onboarding @onboarding', () => {
     await proposals.first().getByRole('button', { name: 'Aceptar como Clientes' }).click()
     await expect(page.getByTestId('discovery-banner')).toHaveCount(0)
     await expect(page.getByTestId('prefixes-list')).toContainText('100.64.12.0/22')
+
+    // Excluir una propuesta: aparece en «Excluido», deja de proponerse y se puede revertir.
+    const next = proposals.first()
+    const excluded = (await next.locator('.font-mono').textContent())!.trim()
+    await next.getByRole('button', { name: 'Excluir' }).click()
+    const row = page.getByTestId('prefixes-excluded').locator(`[data-prefix="${excluded}"]`)
+    await expect(row).toBeVisible()
+    await expect(page.getByTestId('proposal').filter({ hasText: excluded })).toHaveCount(0)
+    await row.getByTestId('prefix-unexclude').click()
+    await expect(
+      page.getByTestId('prefixes-customers').locator(`[data-prefix="${excluded}"]`),
+    ).toBeVisible()
   })
 
   test('router silencioso: desde cuándo y qué revisar', async ({ page }) => {

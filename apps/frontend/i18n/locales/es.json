@@ -837,6 +837,12 @@
         "share": "Cuota"
       },
       "empty": "Sin tráfico en este rango"
+    },
+    "rest": {
+      "title": "¿Dónde está el resto del tráfico?",
+      "body": "Rangos con tráfico de clientes que no están en ningún prefijo declarado, del que más al que menos. Decláralos como Clientes, Infraestructura o Excluido desde su nodo.",
+      "empty": "No hay rangos sin declarar con tráfico en este periodo (o el resto es tráfico que no pasa por el lado de clientes).",
+      "review": "Revisar en el nodo"
     }
   },
   "nodes": {
@@ -1030,7 +1036,8 @@
         "new": "Nuevo",
         "exists": "Ya existe",
         "overlaps": "Solapa con uno existente"
-      }
+      },
+      "existsAs": "Ya registrado como {role}"
     },
     "confirm": {
       "pending": "Sin confirmar",
@@ -1038,7 +1045,16 @@
       "aria": "Confirmar {prefix}",
       "done": "Prefijo {prefix} confirmado",
       "conflict": "El prefijo cambió mientras lo revisabas: recargamos la lista, revísalo y vuelve a confirmarlo."
-    }
+    },
+    "groupCount": "1 rango | {n} rangos",
+    "roleHint": {
+      "customers": "Cada IP con tráfico en estos rangos es un cliente.",
+      "infrastructure": "Equipos propios del ISP (routers, OLT, servidores): su tráfico cuenta para el nodo pero no crea clientes.",
+      "excluded": "Horus descarta el tráfico de estos rangos: no se guarda ni crea clientes. Útil para enlaces de gestión o tráfico que no quieres analizar."
+    },
+    "unexclude": "Dejar de excluir",
+    "changeRole": "Cambiar el rol de {prefix}",
+    "roleChanged": "{prefix} ahora es {role}"
   },
   "platform": {
     "tenantStatus": {

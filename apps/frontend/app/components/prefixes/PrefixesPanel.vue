@@ -167,6 +167,50 @@ async function accept(p: PrefixProposal, role: ClientPrefixRole) {
   }
 }
 
+// --- Agrupar por rol y cambiar rol -----------------------------------------------------------
+const ROLE_ORDER = ['customers', 'infrastructure', 'excluded'] as const
+const groups = computed(() =>
+  ROLE_ORDER.map((role) => ({
+    role,
+    items: (prefixes.value ?? []).filter((p) => p.role === role),
+  })).filter((g) => g.items.length > 0),
+)
+// Un rango ya registrado (con cualquier rol, también excluido) no se vuelve a proponer.
+const visibleProposals = computed(() =>
+  (proposals.value ?? []).filter(
+    (p) => !(prefixes.value ?? []).some((r) => cidrOverlaps(r.prefix, p.prefix)),
+  ),
+)
+const changingRole = ref<string | null>(null)
+async function changeRole(p: ClientPrefix, role: ClientPrefixRole) {
+  if (role === p.role) return
+  changingRole.value = p.id
+  try {
+    await unwrap(
+      $api.PATCH('/client-prefixes/{client_prefix_id}', {
+        params: { path: { client_prefix_id: p.id }, header: { 'If-Match': ifMatch(p.version) } },
+        body: { role },
+      }),
+    )
+    toast.add({
+      title: t('prefixes.roleChanged', { prefix: p.prefix, role: t(`prefixes.role.${role}`) }),
+      icon: 'i-lucide-check',
+      color: 'success',
+    })
+  } catch (e) {
+    toast.add({
+      title:
+        e instanceof ApiError && e.status === 412
+          ? t('prefixes.confirm.conflict')
+          : t(describeError(e).messageKey),
+      color: 'error',
+    })
+  } finally {
+    changingRole.value = null
+    refresh()
+  }
+}
+
 // --- Quitar --------------------------------------------------------------------------------
 const removing = ref<ClientPrefix | null>(null)
 const removeOpen = computed({
@@ -343,68 +387,111 @@ const lenItems = [48, 56, 60, 64].map((n) => ({ label: `/${n}`, value: n }))
         :description="t('prefixes.emptyHint')"
       />
     </UCard>
-    <ul v-else class="flex flex-col gap-2" data-testid="prefixes-list">
-      <li
-        v-for="p in prefixes"
-        :key="p.id"
-        class="bg-default ring-default flex flex-col gap-2 rounded-md p-3 ring-1 md:flex-row md:items-center md:justify-between"
-        :data-prefix="p.prefix"
+    <div v-else class="flex flex-col gap-5" data-testid="prefixes-list">
+      <section
+        v-for="g in groups"
+        :key="g.role"
+        class="flex flex-col gap-2"
+        :data-testid="`prefixes-${g.role}`"
       >
-        <div class="flex min-w-0 flex-col gap-1">
-          <span class="text-highlighted font-mono break-all">{{ p.prefix }}</span>
-          <span class="text-muted flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
-            <span>{{ t(`prefixes.assignment.${p.assignment_mode ?? 'unknown'}`) }}</span>
-            <span>{{ t(`prefixes.source.${p.source ?? 'manual'}`) }}</span>
-            <span v-if="p.ipv6_client_len">{{
-              t('prefixes.clientLen', { len: p.ipv6_client_len })
-            }}</span>
-            <span v-if="p.note">{{ p.note }}</span>
-          </span>
-        </div>
-        <div class="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1">
-          <UBadge
-            v-if="!p.confirmed"
-            color="warning"
-            variant="subtle"
-            icon="i-lucide-circle-help"
-            :label="t('prefixes.confirm.pending')"
-            data-testid="prefix-unconfirmed"
-          />
-          <PrefixRoleBadge :role="p.role" />
-          <span v-if="p.role === 'customers'" class="text-muted text-sm tabular">
-            {{ t('prefixes.customers', { n: formatNumber(p.customers_count ?? 0) }) }}
-          </span>
-          <UButton
-            v-if="canEdit && !p.confirmed"
-            size="sm"
-            icon="i-lucide-check"
-            :loading="confirming === p.id"
-            :label="t('prefixes.confirm.action')"
-            :aria-label="t('prefixes.confirm.aria', { prefix: p.prefix })"
-            data-testid="prefix-confirm"
-            @click="confirmPrefix(p)"
-          />
-          <UButton
-            v-if="canEdit"
-            color="neutral"
-            variant="ghost"
-            size="sm"
-            icon="i-lucide-trash-2"
-            :aria-label="t('prefixes.remove.action', { prefix: p.prefix })"
-            @click="removing = p"
-          />
-        </div>
-      </li>
-    </ul>
+        <h3 class="text-highlighted flex items-center gap-2 text-sm font-semibold">
+          <PrefixRoleBadge :role="g.role" />
+          <span class="text-muted font-normal">{{
+            t('prefixes.groupCount', { n: g.items.length }, g.items.length)
+          }}</span>
+        </h3>
+        <p class="text-muted text-xs">{{ t(`prefixes.roleHint.${g.role}`) }}</p>
+        <ul class="flex flex-col gap-2">
+          <li
+            v-for="p in g.items"
+            :key="p.id"
+            class="bg-default ring-default flex flex-col gap-2 rounded-md p-3 ring-1 md:flex-row md:items-center md:justify-between"
+            :data-prefix="p.prefix"
+            :data-role="p.role"
+          >
+            <div class="flex min-w-0 flex-col gap-1">
+              <span class="text-highlighted font-mono break-all">{{ p.prefix }}</span>
+              <span class="text-muted flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
+                <span>{{ t(`prefixes.assignment.${p.assignment_mode ?? 'unknown'}`) }}</span>
+                <span>{{ t(`prefixes.source.${p.source ?? 'manual'}`) }}</span>
+                <span v-if="p.ipv6_client_len">{{
+                  t('prefixes.clientLen', { len: p.ipv6_client_len })
+                }}</span>
+                <span v-if="p.note">{{ p.note }}</span>
+              </span>
+            </div>
+            <div class="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1">
+              <UBadge
+                v-if="!p.confirmed"
+                color="warning"
+                variant="subtle"
+                icon="i-lucide-circle-help"
+                :label="t('prefixes.confirm.pending')"
+                data-testid="prefix-unconfirmed"
+              />
+              <span v-if="p.role === 'customers'" class="text-muted text-sm tabular">
+                {{ t('prefixes.customers', { n: formatNumber(p.customers_count ?? 0) }) }}
+              </span>
+              <UButton
+                v-if="canEdit && !p.confirmed"
+                size="sm"
+                icon="i-lucide-check"
+                :loading="confirming === p.id"
+                :label="t('prefixes.confirm.action')"
+                :aria-label="t('prefixes.confirm.aria', { prefix: p.prefix })"
+                data-testid="prefix-confirm"
+                @click="confirmPrefix(p)"
+              />
+              <UButton
+                v-if="canEdit && p.role === 'excluded'"
+                size="sm"
+                color="neutral"
+                variant="outline"
+                icon="i-lucide-users"
+                :loading="changingRole === p.id"
+                :label="t('prefixes.unexclude')"
+                data-testid="prefix-unexclude"
+                @click="changeRole(p, 'customers')"
+              />
+              <USelect
+                v-if="canEdit"
+                :model-value="p.role"
+                :items="roleItems"
+                size="sm"
+                class="w-40"
+                :loading="changingRole === p.id"
+                :aria-label="t('prefixes.changeRole', { prefix: p.prefix })"
+                data-testid="prefix-role-select"
+                @update:model-value="(r) => changeRole(p, r as ClientPrefixRole)"
+              />
+              <UButton
+                v-if="canEdit"
+                color="neutral"
+                variant="ghost"
+                size="sm"
+                icon="i-lucide-trash-2"
+                :aria-label="t('prefixes.remove.action', { prefix: p.prefix })"
+                data-testid="prefix-remove"
+                @click="removing = p"
+              />
+            </div>
+          </li>
+        </ul>
+      </section>
+    </div>
 
-    <section v-if="proposals?.length" class="flex flex-col gap-2" data-testid="discovery-proposals">
+    <section
+      v-if="visibleProposals.length"
+      class="flex flex-col gap-2"
+      data-testid="discovery-proposals"
+    >
       <h3 class="text-highlighted text-sm font-semibold">
         {{ t('prefixes.discovery.proposals') }}
       </h3>
       <p class="text-muted text-sm">{{ t('prefixes.discovery.proposalsHint') }}</p>
       <ul class="flex flex-col gap-2">
         <li
-          v-for="p in proposals"
+          v-for="p in visibleProposals"
           :key="p.prefix"
           class="bg-default ring-default flex flex-col gap-2 rounded-md p-3 ring-1 lg:flex-row lg:items-center lg:justify-between"
           data-testid="proposal"
@@ -456,6 +543,7 @@ const lenItems = [48, 56, 60, 64].map((n) => ({ label: `/${n}`, value: n }))
       v-model:open="importOpen"
       :router-id="routerId"
       :site-id="siteId"
+      :existing="prefixes ?? []"
       @applied="imported"
     />
 

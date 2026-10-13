@@ -48,6 +48,34 @@ const {
   { watch: [range, site] },
 )
 
+// ¿Dónde está el resto? Rangos con tráfico fuera de los prefijos declarados (las propuestas del
+// modo descubrimiento de cada nodo: flows.unattributed_1h agregado en /24), los que más pesan.
+const { sites } = useSites()
+const { data: unattributed } = useTenantQuery(
+  () => `traffic:unattributed:${range.value}:${site.value}`,
+  async () => {
+    const ids =
+      site.value === 'all' ? (sites.value ?? []).slice(0, 20).map((s) => s.id) : [site.value]
+    const lists = await Promise.all(
+      ids.map((id) =>
+        unwrap(
+          $api.GET('/sites/{site_id}/prefix-proposals', {
+            params: { path: { site_id: id }, query: { range: range.value as RelativeRange } },
+          }),
+        )
+          .then((r) => r.data.map((p) => ({ ...p, siteId: id })))
+          .catch(() => []),
+      ),
+    )
+    return lists
+      .flat()
+      .sort((a, b) => Number(b.bytes) - Number(a.bytes))
+      .slice(0, 8)
+  },
+  { watch: [range, site, () => sites.value?.length] },
+)
+const siteName = (id: string) => sites.value?.find((s) => s.id === id)?.name ?? id
+
 const degraded = computed(
   () => attributionError.value instanceof ApiError && attributionError.value.status === 503,
 )
@@ -323,6 +351,54 @@ const breakdownColumns = computed<TableColumn<BreakdownRow>[]>(() => [
             :style="{ width: `${attribution.data.unattributed_ratio * 100}%` }"
           />
         </div>
+        <details
+          v-if="attribution.data.unattributed_ratio > 0"
+          class="mt-3"
+          data-testid="traffic-unattributed"
+        >
+          <summary class="text-default cursor-pointer text-sm font-medium">
+            {{ t('traffic.rest.title') }}
+          </summary>
+          <p class="text-muted mt-2 text-sm">{{ t('traffic.rest.body') }}</p>
+          <p v-if="!unattributed?.length" class="text-muted mt-2 text-sm">
+            {{ t('traffic.rest.empty') }}
+          </p>
+          <ul v-else class="divide-default mt-2 divide-y text-sm">
+            <li
+              v-for="r in unattributed"
+              :key="`${r.siteId}-${r.prefix}`"
+              class="flex flex-wrap items-center justify-between gap-2 py-2"
+              :data-unattributed="r.prefix"
+            >
+              <span class="min-w-0">
+                <span class="text-highlighted font-mono">{{ r.prefix }}</span>
+                <span class="text-muted">
+                  · {{ siteName(r.siteId) }} ·
+                  {{
+                    t('prefixes.discovery.stats', {
+                      ips: formatNumber(r.distinct_ips),
+                      bytes: joinUnit(formatBytes(Number(r.bytes))),
+                    })
+                  }}
+                  ·
+                  {{
+                    t('prefixes.discovery.suggested', {
+                      role: t(`prefixes.role.${r.suggested_role}`),
+                    })
+                  }}
+                </span>
+              </span>
+              <UButton
+                :to="`/t/${slug}/nodes/${r.siteId}`"
+                size="xs"
+                color="neutral"
+                variant="outline"
+                icon="i-lucide-list-tree"
+                :label="t('traffic.rest.review')"
+              />
+            </li>
+          </ul>
+        </details>
       </UCard>
     </template>
 

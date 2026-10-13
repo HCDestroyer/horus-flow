@@ -709,7 +709,9 @@ export function prefixImportPreview(
 
 /** Propuestas del modo descubrimiento (I1-29): agregados de flujos fuera de prefijos. */
 export function prefixProposals(tenant: MockTenant, site: MockSite): PrefixProposal[] {
-  if (site.role === 'active' || prefixesOf(tenant, site).length) return []
+  // Como el servidor: rangos del tráfico sin atribuir aunque el nodo ya tenga prefijos (los ya
+  // declarados se filtran abajo).
+  if (site.role === 'active') return []
   if (site.role === 'pending' || site.role === 'created') return []
   const declared = (p: string) => !!overlapping(tenant, site, p)
   return (

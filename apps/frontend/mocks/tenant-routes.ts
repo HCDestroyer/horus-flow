@@ -594,7 +594,7 @@ function inventoryRoutes(ctx: TenantRouteContext): Response | undefined {
     return json({ data: prefixProposals(tenant, site), meta: analyticsMeta(ctx, '7d', null) })
   }
   if (
-    match(ctx, 'PATCH', '/client-prefixes/{id}') ||
+    (p = match(ctx, 'PATCH', '/client-prefixes/{id}')) ||
     (p = match(ctx, 'DELETE', '/client-prefixes/{id}'))
   ) {
     if (!ctx.can('sites.update')) return forbidden()

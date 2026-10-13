@@ -71,6 +71,19 @@ test.describe('tráfico @traffic', () => {
     await expect(page.getByTestId('traffic-direction')).toContainText('Subida')
   })
 
+  test('el tráfico fuera de los prefijos dice en qué rangos está y lleva a su nodo', async ({
+    page,
+  }) => {
+    await loginAsAdmin(page)
+    await page.goto(PAGE)
+    const rest = page.getByTestId('traffic-unattributed')
+    await rest.locator('summary').click()
+    const row = rest.locator('[data-unattributed="100.64.12.0/22"]')
+    await expect(row).toContainText('IP vistas')
+    await row.getByRole('link', { name: 'Revisar en el nodo' }).click()
+    await expect(page).toHaveURL(/\/t\/fibra-norte\/nodes\/[0-9a-f-]+/)
+  })
+
   test('meta.partial muestra "Datos incompletos en este rango"', async ({ page }) => {
     await loginAsAdmin(page)
     await page.goto(`${PAGE}?range=30d`)

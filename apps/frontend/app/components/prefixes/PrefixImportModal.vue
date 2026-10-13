@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type {
+  ClientPrefix,
   ClientPrefixInput,
   ClientPrefixRole,
   PrefixImportItem,
@@ -13,7 +14,12 @@ import type {
  * ve el tamaño que el router delega a cada cliente y el uso del pool; el tamaño del cliente
  * (`ipv6_client_len`) se propone y se puede cambiar. Nada se aplica sin "Confirmar".
  */
-const props = defineProps<{ routerId: string; siteId: string }>()
+const props = defineProps<{
+  routerId: string
+  siteId: string
+  /** Prefijos ya registrados del nodo: muestra con qué rol está cada uno que «ya existe». */
+  existing?: ClientPrefix[]
+}>()
 const emit = defineEmits<{ applied: [count: number] }>()
 const open = defineModel<boolean>('open', { default: false })
 
@@ -63,6 +69,15 @@ async function load() {
 watch(open, (o) => o && load())
 
 const isV6 = (r: Row) => r.item.prefix.includes(':')
+function diffLabel(r: Row) {
+  const cur =
+    r.item.diff === 'exists' && r.item.existing_client_prefix_id
+      ? props.existing?.find((p) => p.id === r.item.existing_client_prefix_id)
+      : undefined
+  return cur
+    ? t('prefixes.import.existsAs', { role: t(`prefixes.role.${cur.role}`) })
+    : t(`prefixes.import.diff.${r.item.diff}`)
+}
 const needsLen = (r: Row) => r.selected && isV6(r) && r.role === 'customers' && !r.clientLen
 const selected = computed(() => rows.value.filter((r) => r.selected))
 const invalid = computed(() => selected.value.some(needsLen))
@@ -180,7 +195,7 @@ const DIFF_COLOR = { new: 'success', exists: 'neutral', overlaps: 'warning' } as
               <UBadge
                 :color="DIFF_COLOR[r.item.diff]"
                 variant="subtle"
-                :label="t(`prefixes.import.diff.${r.item.diff}`)"
+                :label="diffLabel(r)"
                 data-testid="import-diff"
               />
             </div>
