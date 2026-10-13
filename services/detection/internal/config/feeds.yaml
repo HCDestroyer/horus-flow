@@ -10,8 +10,9 @@
 #
 # Decisión del PO (D20, docs/po-decisions.md, 2026-10-08): las fuentes propuestas —abuse.ch
 # Feodo Tracker y ThreatFox, Spamhaus DROP y la lista de salida de Tor— quedan aprobadas para
-# uso comercial ("yes"). FireHOL sigue fuera ("no": agrega listas con licencias heterogéneas,
-# algunas solo no comerciales). Revisión previa (I0-17): abuse.ch publica bajo CC0 pero ha
+# uso comercial ("yes"). FireHOL quedó fuera ("no": agrega listas con licencias heterogéneas,
+# algunas solo no comerciales) hasta que el PO lo aprobó el 2026-10-13 (level1 y level2), con
+# esa advertencia: quien opera la instalación asume revisar las licencias de las listas que agrega. Revisión previa (I0-17): abuse.ch publica bajo CC0 pero ha
 # revisado sus condiciones (claves de acceso, "fair use"); Spamhaus DROP es gratuito con
 # redistribución restringida (los snapshots no redistribuyen el archivo original).
 #
@@ -117,12 +118,35 @@ sources:
     kind: reputation
     url: https://iplists.firehol.org/files/firehol_level1.netset
     format: netset
-    license: Agregado de listas con licencias heterogéneas (algunas solo no comerciales)
+    license: Agregado de listas con licencias heterogéneas (aprobado por el PO el 2026-10-13)
     license_url: https://iplists.firehol.org/
-    commercial_use: "no"
+    commercial_use: "yes"
+    attribution: FireHOL IP Lists (iplists.firehol.org)
     frequency: 24h
     category: blocklist
     confidence: 60
+    ttl: 72h
+    min_entries: 1000
+    max_bytes: 16777216
     notes: >-
-      Declarado para dejar constancia de la revisión: no se descarga. Si se necesita alguna de sus
-      listas, se declara la lista original con su propia licencia.
+      Ataques conocidos, Spamhaus DROP/EDROP, dshield y bogons. Las entradas reservadas o privadas
+      (bogons, RFC 1918, CGNAT) se descartan con la política del catálogo: nunca marcan a clientes.
+
+  - id: firehol-level2
+    name: FireHOL level2 (ataques de las últimas 48 h)
+    kind: reputation
+    url: https://raw.githubusercontent.com/ktsaou/blocklist-ipsets/master/firehol_level2.netset
+    format: netset
+    license: Agregado de listas con licencias heterogéneas (aprobado por el PO el 2026-10-13)
+    license_url: https://iplists.firehol.org/
+    commercial_use: "yes"
+    attribution: FireHOL IP Lists (iplists.firehol.org)
+    frequency: 24h
+    category: scanner
+    confidence: 50
+    ttl: 72h
+    min_entries: 1000
+    max_bytes: 16777216
+    notes: >-
+      Atacantes y escáneres activos (blocklist.de, dshield, greensnow…). Contexto para hallazgos,
+      con menos confianza que las listas de C2.

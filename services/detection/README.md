@@ -102,7 +102,7 @@ go test -tags=integration ./tests/tenancy/...                                  #
 - `internal/config/feeds.yaml` (embebido; `-config` / `HORUS_FEEDS_CONFIG` lo sustituye): cada
   fuente declara URL, licencia, `commercial_use` (`yes` se descarga, `no` nunca, `unverified` solo
   con `--allow-unverified` hasta decisión del PO, P-14; las fuentes del catálogo están aprobadas
-  para uso comercial por D20 salvo FireHOL), frecuencia, formato, categoría, confianza y TTL.
+  para uso comercial por D20; FireHOL level1 y level2 aprobados por el PO el 2026-10-13), frecuencia, formato, categoría, confianza y TTL.
 - `internal/adapters/feeds`: parsers de abuse.ch Feodo Tracker y ThreatFox, Spamhaus DROP (texto y
   NDJSON) y listas netset (Tor, FireHOL). Rechazan archivos vacíos, truncados o páginas de error.
 - `internal/app/feedsync`: descarga → validación → versionado (`packages/go/datasets`) conservando
