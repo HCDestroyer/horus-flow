@@ -5,65 +5,124 @@
   detectado y qué usar) y reintenta. JavaScript clásico (ES5) a propósito; el servidor estático
   permite este script por su hash (scripts/serve-static.mjs).
 -->
-<div id="horus-boot" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#0b0f14;color:#e6edf3;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;text-align:center;padding:24px;z-index:9999">
-  <div style="max-width:720px">
-    <div id="horus-boot-spinner" style="width:48px;height:48px;margin:0 auto 24px;border:4px solid #30363d;border-top-color:#58a6ff;border-radius:50%;animation:horus-spin 1s linear infinite"></div>
-    <p id="horus-boot-title" style="font-size:28px;margin:0 0 12px">Cargando Horus Flow…</p>
-    <p id="horus-boot-detail" style="font-size:18px;color:#8b949e;margin:0;line-height:1.5"></p>
+<div
+  id="horus-boot"
+  style="
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #0b0f14;
+    color: #e6edf3;
+    font-family:
+      system-ui,
+      -apple-system,
+      'Segoe UI',
+      Roboto,
+      sans-serif;
+    text-align: center;
+    padding: 24px;
+    z-index: 9999;
+  "
+>
+  <div style="max-width: 720px">
+    <div
+      id="horus-boot-spinner"
+      style="
+        width: 48px;
+        height: 48px;
+        margin: 0 auto 24px;
+        border: 4px solid #30363d;
+        border-top-color: #58a6ff;
+        border-radius: 50%;
+        animation: horus-spin 1s linear infinite;
+      "
+    ></div>
+    <p id="horus-boot-title" style="font-size: 28px; margin: 0 0 12px">Cargando Horus Flow…</p>
+    <p
+      id="horus-boot-detail"
+      style="font-size: 18px; color: #8b949e; margin: 0; line-height: 1.5"
+    ></p>
   </div>
-  <style>@keyframes horus-spin{to{transform:rotate(360deg)}}</style>
+  <style>
+    @keyframes horus-spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+  </style>
 </div>
 <script>
-(function () {
-  var started = Date.now();
-  var failed = false;
-  function mounted() {
-    var app = document.getElementById('__nuxt');
-    return !!(app && (app.hasAttribute('data-v-app') || app.children.length > 1));
-  }
-  function hide() {
-    var b = document.getElementById('horus-boot');
-    if (b && b.parentNode) b.parentNode.removeChild(b);
-  }
-  function chromeVersion() {
-    var m = navigator.userAgent.match(/Chrom(?:e|ium)\/(\d+)/);
-    return m ? parseInt(m[1], 10) : 0;
-  }
-  function explain(reason) {
-    if (failed) return;
-    failed = true;
-    var modules = 'noModule' in document.createElement('script');
-    var v = chromeVersion();
-    var spinner = document.getElementById('horus-boot-spinner');
-    if (spinner) spinner.style.display = 'none';
-    document.getElementById('horus-boot-title').textContent = 'Este navegador no pudo abrir Horus Flow';
-    var lines = [];
-    if (!modules || (v && v < 99)) {
-      lines.push('El navegador de esta pantalla es demasiado antiguo' + (v ? ' (motor Chromium ' + v + ').' : '.'));
-      lines.push('Horus Flow necesita Chrome, Edge o Chromium 111 o superior.');
-      lines.push('Recomendado: un Chromecast con Google TV, Fire TV o mini PC con Fully Kiosk Browser o Chromium apuntando a esta misma dirección.');
-    } else {
-      lines.push('No se pudo iniciar la aplicación' + (reason ? ' (' + reason + ')' : '') + '.');
-      lines.push('Revisa la conexión de red de esta pantalla. Se reintentará en 30 segundos.');
-      setTimeout(function () { location.reload(); }, 30000);
+  ;(function () {
+    var started = Date.now()
+    var failed = false
+    function mounted() {
+      var app = document.getElementById('__nuxt')
+      return !!(app && (app.hasAttribute('data-v-app') || app.children.length > 1))
     }
-    lines.push('Navegador: ' + navigator.userAgent);
-    var d = document.getElementById('horus-boot-detail');
-    d.textContent = '';
-    for (var i = 0; i < lines.length; i++) {
-      var p = document.createElement('p');
-      p.style.margin = '0 0 8px';
-      if (i === lines.length - 1) { p.style.fontSize = '13px'; p.style.wordBreak = 'break-all'; }
-      p.textContent = lines[i];
-      d.appendChild(p);
+    function hide() {
+      var b = document.getElementById('horus-boot')
+      if (b && b.parentNode) b.parentNode.removeChild(b)
     }
-  }
-  window.addEventListener('error', function (e) {
-    if (!mounted() && Date.now() - started > 1000) explain(e && e.message ? String(e.message).slice(0, 120) : '');
-  });
-  var timer = setInterval(function () {
-    if (mounted()) { clearInterval(timer); if (!failed) hide(); return; }
-    if (Date.now() - started > 20000) { clearInterval(timer); explain(''); }
-  }, 250);
-})();
+    function chromeVersion() {
+      var m = navigator.userAgent.match(/Chrom(?:e|ium)\/(\d+)/)
+      return m ? parseInt(m[1], 10) : 0
+    }
+    function explain(reason) {
+      if (failed) return
+      failed = true
+      var modules = 'noModule' in document.createElement('script')
+      var v = chromeVersion()
+      var spinner = document.getElementById('horus-boot-spinner')
+      if (spinner) spinner.style.display = 'none'
+      document.getElementById('horus-boot-title').textContent =
+        'Este navegador no pudo abrir Horus Flow'
+      var lines = []
+      if (!modules || (v && v < 99)) {
+        lines.push(
+          'El navegador de esta pantalla es demasiado antiguo' +
+            (v ? ' (motor Chromium ' + v + ').' : '.'),
+        )
+        lines.push('Horus Flow necesita Chrome, Edge o Chromium 111 o superior.')
+        lines.push(
+          'Recomendado: un Chromecast con Google TV, Fire TV o mini PC con Fully Kiosk Browser o Chromium apuntando a esta misma dirección.',
+        )
+      } else {
+        lines.push('No se pudo iniciar la aplicación' + (reason ? ' (' + reason + ')' : '') + '.')
+        lines.push('Revisa la conexión de red de esta pantalla. Se reintentará en 30 segundos.')
+        setTimeout(function () {
+          location.reload()
+        }, 30000)
+      }
+      lines.push('Navegador: ' + navigator.userAgent)
+      var d = document.getElementById('horus-boot-detail')
+      d.textContent = ''
+      for (var i = 0; i < lines.length; i++) {
+        var p = document.createElement('p')
+        p.style.margin = '0 0 8px'
+        if (i === lines.length - 1) {
+          p.style.fontSize = '13px'
+          p.style.wordBreak = 'break-all'
+        }
+        p.textContent = lines[i]
+        d.appendChild(p)
+      }
+    }
+    window.addEventListener('error', function (e) {
+      if (!mounted() && Date.now() - started > 1000)
+        explain(e && e.message ? String(e.message).slice(0, 120) : '')
+    })
+    var timer = setInterval(function () {
+      if (mounted()) {
+        clearInterval(timer)
+        if (!failed) hide()
+        return
+      }
+      if (Date.now() - started > 20000) {
+        clearInterval(timer)
+        explain('')
+      }
+    }, 250)
+  })()
 </script>
