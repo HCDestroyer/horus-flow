@@ -50,6 +50,10 @@ const (
 	CodeRefused             = "ASSIST_REFUSED"
 	CodeIncomplete          = "ASSIST_INCOMPLETE"
 	CodeContextNotFound     = "ASSIST_CONTEXT_NOT_FOUND"
+	// CodeContextUnavailable: la API de Horus no pudo servir el contexto (otro módulo caído o degradado).
+	CodeContextUnavailable = "ASSIST_CONTEXT_UNAVAILABLE"
+	// CodeStoreUnavailable: el almacén del asistente (PostgreSQL) no responde.
+	CodeStoreUnavailable    = "ASSIST_STORE_UNAVAILABLE"
 	CodeKeyStoreUnavailable = "ASSIST_KEY_STORE_UNAVAILABLE"
 	CodeTokenNotFound       = "MCP_TOKEN_NOT_FOUND"
 )
@@ -209,9 +213,19 @@ func (s *Service) effective(ctx context.Context, tenant uuid.UUID) (*domain.Sett
 			Effort: d.Effort, DailyRequestLimit: d.Limit}, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, s.storeErr(ctx, "settings", err)
 	}
 	return st, nil
+}
+
+// storeErr traduce un fallo del almacén a 503 con su código (nunca un 500
+// sin pista) y lo registra con la operación.
+func (s *Service) storeErr(ctx context.Context, op string, err error) error {
+	if _, ok := apperr.As(err); ok {
+		return err
+	}
+	s.o.Logger.ErrorContext(ctx, "assist: store unavailable", slog.String("op", op), slog.Any("error", err))
+	return apperr.New(apperr.KindUnavailable, CodeStoreUnavailable, "El almacén del asistente no responde; inténtalo de nuevo en unos segundos.")
 }
 
 // platformKeyFor indica si la clave de plataforma sirve para provider.
@@ -429,7 +443,14 @@ func (s *Service) buildProvider(st *domain.Settings) (provider.Provider, error) 
 	if st.Provider == domain.ProviderAnthropic && key == "" {
 		return nil, apperr.Conflict(CodeNotConfigured, "Falta la clave de API de Claude (del ISP o de plataforma).")
 	}
-	return s.o.Providers(ProviderConfig{Provider: st.Provider, Model: st.Model, BaseURL: st.BaseURL, APIKey: key, Effort: st.Effort})
+	prov, err := s.o.Providers(ProviderConfig{Provider: st.Provider, Model: st.Model, BaseURL: st.BaseURL, APIKey: key, Effort: st.Effort})
+	if err != nil {
+		if _, ok := apperr.As(err); ok {
+			return nil, err
+		}
+		return nil, apperr.Conflict(CodeNotConfigured, "La configuración del proveedor de IA no es válida: "+err.Error()+". Revísala en Administración › Inteligencia artificial.")
+	}
+	return prov, nil
 }
 
 // TestResult es la respuesta de POST /assist/settings/test.
@@ -565,7 +586,7 @@ func (s *Service) Analyze(ctx context.Context, req AnalysisRequest) (*Analysis, 
 	}
 	used, err := s.o.Store.CountRequests(ctx, p.TenantID, domain.StartOfDay(s.now()))
 	if err != nil {
-		return nil, err
+		return nil, s.storeErr(ctx, "count_requests", err)
 	}
 	if used >= st.DailyRequestLimit {
 		entry.Outcome, entry.ErrorCode = domain.OutcomeLimited, CodeLimitReached
@@ -586,10 +607,21 @@ func (s *Service) Analyze(ctx context.Context, req AnalysisRequest) (*Analysis, 
 	// El contexto debe existir y ser visible para quien pide el análisis.
 	if _, err := reader.Get(ctx, featureProbe[req.Feature]+req.ContextID, nil); err != nil {
 		var he *tools.HTTPError
-		if errors.As(err, &he) && (he.Status == 404 || he.Status == 403) {
+		switch {
+		case errors.As(err, &he) && (he.Status == 404 || he.Status == 403):
 			return nil, apperr.NotFound(CodeContextNotFound)
+		case errors.As(err, &he):
+			// 401, 429, 5xx…: el módulo dueño del contexto no lo sirvió; se devuelve su
+			// estado y código (nunca un 500 sin explicación) y queda en el log.
+			s.o.Logger.WarnContext(ctx, "assist: context probe failed", slog.String("feature", req.Feature),
+				slog.Int("status", he.Status), slog.String("code", he.Code))
+			return nil, apperr.New(apperr.KindBadGateway, CodeContextUnavailable,
+				fmt.Sprintf("La API de Horus respondió %d %s al leer el contexto del análisis (%s).", he.Status, he.Code, featureProbe[req.Feature]))
+		default:
+			s.o.Logger.WarnContext(ctx, "assist: context probe failed", slog.String("feature", req.Feature), slog.Any("error", err))
+			return nil, apperr.New(apperr.KindUnavailable, CodeContextUnavailable,
+				"No se pudo leer el contexto del análisis en este proceso; revisa el registro de horus-app (assist: context probe failed).")
 		}
-		return nil, err
 	}
 	env := tools.Env{Reader: reader, Masker: mask.New()}
 	// Datos primarios ya consultados: el modelo los recibe en el primer mensaje

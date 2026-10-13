@@ -445,6 +445,19 @@ func TestAnalyzeGuards(t *testing.T) {
 	if h.prov.Calls() != 0 {
 		t.Fatal("no se llama al proveedor si el contexto no es visible")
 	}
+	// La API no sirve el contexto (módulo degradado, 401, cuerpo ilegible): código
+	// propio con el estado, nunca un 500 sin pista.
+	h.reader.errs = map[string]error{"/api/v1/findings/" + findingID: &tools.HTTPError{Status: 503, Code: "SERVICE_UNAVAILABLE"}}
+	_, err := h.svc.Analyze(ctx, AnalysisRequest{Feature: "finding", ContextID: findingID})
+	if e, ok := apperr.As(err); !ok || e.Code != CodeContextUnavailable || e.Status() != 502 || !strings.Contains(e.Detail, "503 SERVICE_UNAVAILABLE") {
+		t.Fatalf("probe 503: %v", err)
+	}
+	h.reader.errs = map[string]error{"/api/v1/findings/" + findingID: errors.New("loopback: decode")}
+	_, err = h.svc.Analyze(ctx, AnalysisRequest{Feature: "finding", ContextID: findingID})
+	if e, ok := apperr.As(err); !ok || e.Code != CodeContextUnavailable || e.Status() != 503 {
+		t.Fatalf("probe decode: %v", err)
+	}
+	h.reader.errs = nil
 }
 
 func TestDailyLimit(t *testing.T) {

@@ -129,7 +129,9 @@ paths:
         `devices.read`) y el asistente activo en el ISP. El recurso se lee como el usuario: si no lo ve,
         `404 ASSIST_CONTEXT_NOT_FOUND`. Errores: `409 ASSIST_DISABLED` / `ASSIST_NOT_CONFIGURED`,
         `429 ASSIST_LIMIT_REACHED` (con `Retry-After` hasta el próximo día UTC), `422 ASSIST_REFUSED` (el modelo
-        declinó), `502 ASSIST_PROVIDER_UNAVAILABLE` / `ASSIST_INCOMPLETE`.
+        declinó), `502 ASSIST_PROVIDER_UNAVAILABLE` / `ASSIST_INCOMPLETE`, `502|503 ASSIST_CONTEXT_UNAVAILABLE` (la
+        API de Horus no pudo servir el recurso: el `detail` trae el estado y el código que respondió el módulo),
+        `503 ASSIST_STORE_UNAVAILABLE` (el almacén del asistente no responde).
       x-module: assist
       x-scope: tenant
       x-permission: authenticated
