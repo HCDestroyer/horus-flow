@@ -6,11 +6,16 @@ info:
     **D13** adelanta al I1 un canal mínimo de alertas: canales por ISP de tipo `email` (SMTP de la
     instalación) y `telegram` (bot), suscritos a tipos de evento con severidad mínima y filtro por nodo.
     Sin motor de reglas, silencios ni escalado (llegan con alerts completo).
-    **D17** `librenms` es una integración por ISP **por la API de LibreNMS** (sin syslog ni SNMP trap): URL base,
+    **D17** `librenms` es una integración por ISP **por la API de LibreNMS** (sin SNMP trap): URL base,
     usuario y, como secretos write-only cifrados (`PUT …/credentials`), contraseña y token de API opcional. Nada
     se comparte entre ISPs aunque dos usen la misma instancia de LibreNMS: cada canal guarda sus propias
     credenciales y Horus nunca reutiliza una sesión de otro tenant. Prueba de conexión
-    (`POST …/connection-test`) y registro de entregas como los demás canales.
+    (`POST …/connection-test`) y registro de entregas como los demás canales. **Horus aprovisiona LibreNMS y le
+    delega el alertado** (`…/librenms/sync`): dispositivo «Horus Flow», grupos, plantillas y reglas «Horus · »;
+    cada notificación es una línea `HORUS <SEVERIDAD> <tipo> <asunto> | <texto> | <enlace> | id=<entrega>` por
+    `POST /api/v0/syslogsink` (host = dispositivo «Horus Flow») que la regla «Evento de seguridad Horus» convierte
+    en alerta por los transportes por defecto de LibreNMS. Sin aprovisionar, la entrega falla con
+    `librenms_not_provisioned`.
     Los mensajes no incluyen la IP del cliente salvo `include_personal_data=true` (auditado): salen de la
     instalación hacia terceros (proveedor SMTP, Telegram). Los enlaces del mensaje son URLs absolutas sobre
     HORUS_PUBLIC_BASE_URL (D14). Cada envío emite `horus.alerts.notification.sent|failed`.
@@ -25,6 +30,8 @@ servers:
 tags:
   - name: notifications
     description: Canales de notificación del ISP y entregas.
+  - name: librenms
+    description: Integración con LibreNMS (aprovisionamiento, alertado delegado e IP de gestión de los routers).
 paths:
   /notification-channels:
     get:
@@ -234,6 +241,228 @@ paths:
         '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
         '404': { $ref: './common.yaml#/components/responses/NotFound' }
         '428': { $ref: './common.yaml#/components/responses/PreconditionRequired' }
+  /notification-channels/{channel_id}/librenms:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    get:
+      tags: [librenms]
+      operationId: getLibreNmsIntegration
+      summary: Estado de la integración con LibreNMS del canal (objetos aprovisionados y última prueba)
+      description: |
+        Lo que Horus creó (o adoptó) en LibreNMS con sus ids, el resultado de la última sincronización y de la última
+        prueba de extremo a extremo. Solo canales `librenms` (otro → `422 LIBRENMS_CHANNEL_REQUIRED`). Sin secretos.
+      x-module: alerts
+      x-scope: tenant
+      x-permission: alerts.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Estado (status `not_provisioned` si aún no se sincronizó).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LibreNmsIntegration' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /notification-channels/{channel_id}/librenms/sync:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    post:
+      tags: [librenms]
+      operationId: syncLibreNmsIntegration
+      summary: Conecta o sincroniza Horus con LibreNMS (idempotente)
+      description: |
+        Crea o actualiza en LibreNMS, con el prefijo «Horus · » y guardando sus ids en Horus: el dispositivo «Horus Flow»
+        (solo ICMP; host público de Horus) al que van las líneas de syslog de Horus, los grupos estáticos «Routers» e
+        «Infraestructura», las plantillas en español y las reglas (router caído, CPU, memoria, interfaz caída, reinicio,
+        servicio de infraestructura caído y evento de seguridad Horus por syslog), y los routers con IP de gestión
+        configurada (`/librenms/routers`). Recrea lo que se borró a mano en LibreNMS; nunca modifica ni borra objetos
+        que Horus no creó; un router que deja de estar configurado sale del grupo pero no se borra de LibreNMS.
+        Los transportes no se pueden crear por la API: las reglas usan los transportes marcados por defecto en
+        LibreNMS. Mide el desfase horario de LibreNMS (registro de eventos) para fechar el syslog. Síncrona; el
+        fallo de un objeto concreto no detiene el resto (ver `steps`).
+      x-module: alerts
+      x-scope: tenant
+      x-permission: alerts.manage
+      x-rate-limit: connection_test
+      x-audited: true
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LibreNmsSyncInput' }
+      responses:
+        '200':
+          description: Resultado (también cuando falla LibreNMS; ver `ok`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LibreNmsSyncResult' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /notification-channels/{channel_id}/librenms/test:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    post:
+      tags: [librenms]
+      operationId: testLibreNmsIntegration
+      summary: Prueba de extremo a extremo (syslog de prueba y comprobación de que LibreNMS lo guardó)
+      description: |
+        Comprueba en orden: autenticación (`auth`), que el dispositivo «Horus Flow» existe (`device`), que la regla de
+        eventos de Horus existe (`rule`), el envío de una línea `HORUS INFO test …` por `POST /api/v0/syslogsink`
+        (`syslog_send`) y su llegada al syslog del dispositivo en unos segundos (`syslog_stored`). `failed_step` y
+        `error_code` indican el paso exacto que falla (p. ej. `syslog_not_stored` si el syslog de LibreNMS está
+        desactivado). La línea coincide con la regla de eventos: LibreNMS emitirá la alerta por sus transportes por
+        defecto y la resolverá a los 5 minutos. Sin aprovisionar → `409 LIBRENMS_NOT_PROVISIONED`.
+      x-module: alerts
+      x-scope: tenant
+      x-permission: alerts.manage
+      x-rate-limit: connection_test
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Resultado de la prueba (también cuando falla; ver `ok`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LibreNmsTestResult' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /notification-channels/{channel_id}/librenms/devices/{router_id}:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+      - $ref: '#/components/parameters/RouterId'
+    delete:
+      tags: [librenms]
+      operationId: deleteLibreNmsRouterDevice
+      summary: Borra de LibreNMS el dispositivo que Horus creó para un router (acción explícita)
+      description: |
+        Solo dispositivos creados por Horus (un dispositivo que ya existía y Horus adoptó → `409
+        LIBRENMS_DEVICE_NOT_OWNED`). Borra también su historial en LibreNMS. Auditado.
+      x-module: alerts
+      x-scope: tenant
+      x-permission: alerts.manage
+      x-audited: true
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '204': { $ref: './common.yaml#/components/responses/NoContent' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+  /librenms/routers:
+    get:
+      tags: [librenms]
+      operationId: listLibreNmsRouters
+      summary: Routers del ISP con su IP de gestión y modo de monitoreo para LibreNMS
+      description: |
+        La IP del túnel WireGuard hacia Horus no es alcanzable desde LibreNMS: cada router necesita una IP de gestión
+        para LibreNMS y un modo (`ping` por defecto, SNMP v2c/v3 propio para LibreNMS, o las credenciales SNMPv3 de
+        Horus con consentimiento explícito). Se guarda en `alerts` sin tocar el inventario de `devices`.
+      x-module: alerts
+      x-scope: tenant
+      x-permission: alerts.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Routers (sin secretos).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/LibreNmsRouter' } }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
+  /librenms/routers/{router_id}:
+    parameters:
+      - $ref: '#/components/parameters/RouterId'
+    put:
+      tags: [librenms]
+      operationId: setLibreNmsRouter
+      summary: Fija la IP de gestión y el modo de monitoreo del router en LibreNMS
+      description: |
+        Se aplica en la siguiente sincronización. `horus_snmp_v3` exige `reuse_horus_snmp_consent=true` (auditado):
+        LibreNMS recibe entonces las credenciales SNMPv3 de solo lectura de Horus para ese router. Cambiar de modo
+        borra las credenciales SNMP propias guardadas.
+      x-module: alerts
+      x-scope: tenant
+      x-permission: alerts.manage
+      x-audited: true
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LibreNmsRouterInput' }
+      responses:
+        '200':
+          description: Configuración guardada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LibreNmsRouter' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+        '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
+    delete:
+      tags: [librenms]
+      operationId: clearLibreNmsRouter
+      summary: Quita la configuración de LibreNMS del router (sale del grupo en la siguiente sincronización)
+      x-module: alerts
+      x-scope: tenant
+      x-permission: alerts.manage
+      x-audited: true
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '204': { $ref: './common.yaml#/components/responses/NoContent' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+  /librenms/routers/{router_id}/snmp-credentials:
+    parameters:
+      - $ref: '#/components/parameters/RouterId'
+    put:
+      tags: [librenms]
+      operationId: putLibreNmsRouterSnmpCredentials
+      summary: Credenciales SNMP propias para LibreNMS (write-only)
+      description: |
+        Solo en los modos `snmp_v2c` (`community`) y `snmp_v3` (`v3_*`). Write-only: nunca se devuelven (solo
+        `has_snmp_credentials`), se cifran con la KEK de `alerts` y se borran con la configuración. Auditado.
+      x-module: alerts
+      x-scope: tenant
+      x-permission: alerts.manage
+      x-reauth: true
+      x-audited: true
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LibreNmsSnmpCredentials' }
+      responses:
+        '204': { $ref: './common.yaml#/components/responses/NoContent' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
   /notification-deliveries:
     get:
       tags: [notifications]
@@ -275,6 +504,11 @@ components:
   parameters:
     ChannelId:
       name: channel_id
+      in: path
+      required: true
+      schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    RouterId:
+      name: router_id
       in: path
       required: true
       schema: { $ref: './common.yaml#/components/schemas/Uuid' }
@@ -451,3 +685,175 @@ components:
           oneOf:
             - $ref: './common.yaml#/components/schemas/Timestamp'
             - type: 'null'
+    LibreNmsObject:
+      type: object
+      description: Objeto de LibreNMS que Horus conoce (creado por Horus o adoptado porque ya existía).
+      required: [kind, key, name, remote_id, hostname, created_by_horus, active]
+      additionalProperties: false
+      properties:
+        kind: { type: string, enum: [device, router_device, infra_device, group, template, rule] }
+        key:
+          type: string
+          description: Clave estable (`horus`, `routers`, `infra`, `cpu_high`…, el id del router o el nombre del servicio).
+        name: { type: string }
+        remote_id: { type: integer, description: Id en LibreNMS. }
+        hostname: { type: [string, 'null'], description: 'Dispositivos: host con el que está en LibreNMS.' }
+        created_by_horus: { type: boolean, description: 'false: ya existía y Horus solo lo usa (nunca lo borra ni edita).' }
+        active: { type: boolean, description: 'false: el router ya no está configurado (fuera del grupo, conservado).' }
+    LibreNmsSyncStep:
+      type: object
+      required: [kind, key, name, action, remote_id]
+      additionalProperties: false
+      properties:
+        kind: { type: string, enum: [device, router_device, infra_device, group, template, rule] }
+        key: { type: string }
+        name: { type: string }
+        action: { type: string, enum: [created, adopted, updated, unchanged, recreated, removed, deleted, failed, skipped] }
+        remote_id: { type: [integer, 'null'] }
+        error_code: { $ref: '#/components/schemas/LibreNmsErrorCode' }
+        error: { type: string, description: '`message` de LibreNMS saneado (sin secretos).' }
+    LibreNmsErrorCode:
+      type: string
+      description: Enum abierto.
+      enum: [dns_failed, connect_failed, tls_invalid, timeout, auth_failed, forbidden, not_found, rejected, remote_error,
+        unexpected_response, missing_credentials, no_default_transport, librenms_not_provisioned, device_missing,
+        rule_missing, syslog_not_stored, devices_unavailable]
+    LibreNmsTestStep:
+      type: object
+      required: [step, ok]
+      additionalProperties: false
+      properties:
+        step: { type: string, enum: [auth, device, rule, syslog_send, syslog_stored, eventlog] }
+        ok: { type: boolean }
+        error_code: { $ref: '#/components/schemas/LibreNmsErrorCode' }
+        detail: { type: string }
+    LibreNmsTestResult:
+      type: object
+      required: [ok, channel_id, checked_at, failed_step, error_code, error, steps]
+      additionalProperties: false
+      properties:
+        ok: { type: boolean }
+        channel_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        checked_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        latency_ms: { type: [integer, 'null'] }
+        remote_version: { type: [string, 'null'] }
+        failed_step:
+          anyOf:
+            - type: string
+              enum: [auth, device, rule, syslog_send, syslog_stored, eventlog]
+            - type: 'null'
+        error_code:
+          anyOf:
+            - $ref: '#/components/schemas/LibreNmsErrorCode'
+            - type: 'null'
+        error: { type: [string, 'null'] }
+        line: { type: [string, 'null'], description: Línea de syslog enviada. }
+        steps: { type: array, items: { $ref: '#/components/schemas/LibreNmsTestStep' } }
+    LibreNmsIntegration:
+      type: object
+      required: [channel_id, status, horus_hostname, horus_hostname_default, cpu_threshold, memory_threshold,
+        tz_offset_minutes, remote_version, last_sync_at, last_error_code, last_error, warnings, objects, last_sync_steps, last_test]
+      additionalProperties: false
+      properties:
+        channel_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        status:
+          type: string
+          enum: [not_provisioned, ok, partial, failed]
+          description: '`partial`: la última sincronización terminó con pasos fallidos.'
+        horus_hostname: { type: [string, 'null'], description: Host del dispositivo «Horus Flow» en LibreNMS. }
+        horus_hostname_default: { type: [string, 'null'], description: Host de HORUS_PUBLIC_BASE_URL. }
+        cpu_threshold: { type: integer, minimum: 50, maximum: 99 }
+        memory_threshold: { type: integer, minimum: 50, maximum: 99 }
+        tz_offset_minutes: { type: [integer, 'null'], description: Desfase horario de LibreNMS respecto de UTC. }
+        remote_version: { type: [string, 'null'] }
+        last_sync_at:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
+        last_error_code:
+          anyOf:
+            - $ref: '#/components/schemas/LibreNmsErrorCode'
+            - type: 'null'
+        last_error: { type: [string, 'null'] }
+        warnings: { type: array, items: { type: string } }
+        objects: { type: array, items: { $ref: '#/components/schemas/LibreNmsObject' } }
+        last_sync_steps: { type: array, items: { $ref: '#/components/schemas/LibreNmsSyncStep' } }
+        last_test:
+          oneOf:
+            - $ref: '#/components/schemas/LibreNmsTestResult'
+            - type: 'null'
+    LibreNmsSyncInput:
+      type: object
+      additionalProperties: false
+      properties:
+        horus_hostname:
+          type: string
+          minLength: 1
+          maxLength: 253
+          description: Host público de Horus tal como LibreNMS lo verá (por defecto el de HORUS_PUBLIC_BASE_URL).
+        cpu_threshold: { type: integer, minimum: 50, maximum: 99, default: 85 }
+        memory_threshold: { type: integer, minimum: 50, maximum: 99, default: 90 }
+    LibreNmsSyncResult:
+      type: object
+      required: [ok, error_code, error, steps, warnings, integration]
+      additionalProperties: false
+      properties:
+        ok: { type: boolean, description: true si terminó sin pasos fallidos. }
+        error_code:
+          anyOf:
+            - $ref: '#/components/schemas/LibreNmsErrorCode'
+            - type: 'null'
+        error: { type: [string, 'null'] }
+        steps: { type: array, items: { $ref: '#/components/schemas/LibreNmsSyncStep' } }
+        warnings: { type: array, items: { type: string } }
+        integration: { $ref: '#/components/schemas/LibreNmsIntegration' }
+    LibreNmsMonitoringMode:
+      type: string
+      description: |
+        `ping` (por defecto): solo ICMP. `snmp_v2c` / `snmp_v3`: credenciales propias para LibreNMS (write-only).
+        `horus_snmp_v3`: las credenciales SNMPv3 de solo lectura de Horus, con consentimiento explícito por router.
+      enum: [ping, snmp_v2c, snmp_v3, horus_snmp_v3]
+    LibreNmsRouter:
+      type: object
+      required: [router_id, router_name, site_id, onboarding_state, mgmt_ip, mode, has_snmp_credentials,
+        horus_snmp_reuse_consent, updated_at]
+      additionalProperties: false
+      properties:
+        router_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        router_name: { type: string }
+        site_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        onboarding_state: { type: string }
+        mgmt_ip:
+          type: [string, 'null']
+          description: IP de gestión para LibreNMS (no la del túnel). null = el router no se monitorea en LibreNMS.
+        mode: { $ref: '#/components/schemas/LibreNmsMonitoringMode' }
+        has_snmp_credentials: { type: boolean }
+        horus_snmp_reuse_consent: { type: boolean }
+        updated_at:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
+    LibreNmsRouterInput:
+      type: object
+      required: [mgmt_ip, mode]
+      additionalProperties: false
+      properties:
+        mgmt_ip: { type: string, description: IPv4 o IPv6 de gestión alcanzable desde LibreNMS. }
+        mode: { $ref: '#/components/schemas/LibreNmsMonitoringMode' }
+        reuse_horus_snmp_consent:
+          type: boolean
+          default: false
+          description: Obligatorio (true) con `horus_snmp_v3`. Auditado.
+    LibreNmsSnmpCredentials:
+      type: object
+      description: Write-only. `community` en `snmp_v2c`; `v3_*` en `snmp_v3`.
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        community: { type: string, writeOnly: true, minLength: 1, maxLength: 64 }
+        v3_auth_level: { type: string, enum: [noAuthNoPriv, authNoPriv, authPriv] }
+        v3_username: { type: string, minLength: 1, maxLength: 64 }
+        v3_auth_protocol: { type: string, enum: [MD5, SHA, SHA-224, SHA-256, SHA-384, SHA-512] }
+        v3_auth_password: { type: string, writeOnly: true, minLength: 8, maxLength: 128 }
+        v3_priv_protocol: { type: string, enum: [AES, DES] }
+        v3_priv_password: { type: string, writeOnly: true, minLength: 8, maxLength: 128 }

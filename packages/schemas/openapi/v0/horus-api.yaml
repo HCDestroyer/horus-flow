@@ -61,6 +61,8 @@ tags:
     description: Feeds de reputación (plataforma) y allowlist (ISP).
   - name: notifications
     description: Canales de notificación del ISP y entregas.
+  - name: librenms
+    description: Integración con LibreNMS (aprovisionamiento, alertado delegado e IP de gestión de los routers).
   - name: assist
     description: Asistente de IA, configuración del proveedor y auditoría.
   - name: mcp
@@ -198,6 +200,12 @@ paths:
     $ref: ./auth.yaml#/paths/~1kiosks~1{kiosk_id}~1enrollment-codes
   /kiosks/{kiosk_id}/revoke:
     $ref: ./auth.yaml#/paths/~1kiosks~1{kiosk_id}~1revoke
+  /librenms/routers:
+    $ref: ./alerts.yaml#/paths/~1librenms~1routers
+  /librenms/routers/{router_id}:
+    $ref: ./alerts.yaml#/paths/~1librenms~1routers~1{router_id}
+  /librenms/routers/{router_id}/snmp-credentials:
+    $ref: ./alerts.yaml#/paths/~1librenms~1routers~1{router_id}~1snmp-credentials
   /me:
     $ref: ./auth.yaml#/paths/~1me
   /me/password:
@@ -224,6 +232,14 @@ paths:
     $ref: ./alerts.yaml#/paths/~1notification-channels~1{channel_id}~1connection-test
   /notification-channels/{channel_id}/credentials:
     $ref: ./alerts.yaml#/paths/~1notification-channels~1{channel_id}~1credentials
+  /notification-channels/{channel_id}/librenms:
+    $ref: ./alerts.yaml#/paths/~1notification-channels~1{channel_id}~1librenms
+  /notification-channels/{channel_id}/librenms/devices/{router_id}:
+    $ref: ./alerts.yaml#/paths/~1notification-channels~1{channel_id}~1librenms~1devices~1{router_id}
+  /notification-channels/{channel_id}/librenms/sync:
+    $ref: ./alerts.yaml#/paths/~1notification-channels~1{channel_id}~1librenms~1sync
+  /notification-channels/{channel_id}/librenms/test:
+    $ref: ./alerts.yaml#/paths/~1notification-channels~1{channel_id}~1librenms~1test
   /notification-channels/{channel_id}/test:
     $ref: ./alerts.yaml#/paths/~1notification-channels~1{channel_id}~1test
   /notification-deliveries:

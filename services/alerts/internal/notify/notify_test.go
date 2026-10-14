@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+
+	devapi "github.com/hcdestroyer/horus-flow/services/devices/api"
 )
 
 func TestRenderWithoutCustomerIP(t *testing.T) {
@@ -92,9 +94,6 @@ func TestLibreNMSAndTelegramSenders(t *testing.T) {
 	if r := s.testLibreNMS(context.Background(), cfg, Credentials{}); *r.ErrorCode != "missing_credentials" {
 		t.Fatalf("librenms sin credenciales = %+v", r)
 	}
-	if err := s.sendLibreNMS(context.Background(), cfg, Credentials{APIToken: "token-de-api-largo-1234"}, Message{Subject: "x"}, "finding_opened", "high"); err != nil {
-		t.Fatal(err)
-	}
 	if r := s.testTelegram(context.Background(), Credentials{TelegramBotToken: "123:abc"}); !r.OK {
 		t.Fatalf("telegram = %+v", r)
 	}
@@ -111,5 +110,26 @@ func TestLibreNMSAndTelegramSenders(t *testing.T) {
 	s.SMTP = SMTPConfig{Host: "127.0.0.1", Port: 1}
 	if r := s.testEmail(context.Background()); r.OK {
 		t.Fatal("SMTP inexistente aceptado")
+	}
+}
+
+func TestLibreNMSHelpers(t *testing.T) {
+	for h, want := range map[string]bool{"horus.isp.example": true, "203.0.113.7": true, "2001:db8::1": true,
+		"https://horus.isp.example": false, "horus.isp.example:443": false, "": false, "-x.example": false} {
+		if validHost(h) != want {
+			t.Errorf("validHost(%q) = %v", h, !want)
+		}
+	}
+	v := horusV3(devapi.SNMPCredential{Username: "horus-ro", AuthProtocol: "sha256", AuthPassword: "a", PrivProtocol: "aes128", PrivPassword: "p"})
+	if v.AuthLevel != "authPriv" || v.AuthAlgo != "SHA-256" || v.CryptoAlgo != "AES" || v.AuthName != "horus-ro" {
+		t.Fatalf("v3 de Horus = %+v", v)
+	}
+	sec := RouterSecret{V3AuthLevel: "authNoPriv", V3Username: "nms", V3AuthProtocol: "SHA", V3AuthPassword: "12345678", V3PrivPassword: "ignorada"}
+	if got := sec.v3(); got.CryptoPass != "" || got.AuthPass != "12345678" {
+		t.Fatalf("v3 propia = %+v", got)
+	}
+	s := &Service{baseURL: "https://horus.isp.example:8443/app"}
+	if s.defaultHorusHost() != "horus.isp.example" {
+		t.Fatalf("host por defecto = %q", s.defaultHorusHost())
 	}
 }

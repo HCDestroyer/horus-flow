@@ -11,6 +11,7 @@ import type {
   PlatformUserStatus,
   Role,
 } from '~~/types/api'
+import type { LibreNmsTenantState } from './librenms'
 import type { StoredDestination } from './remote-destinations'
 import type { WireguardHubState } from './wireguard'
 
@@ -147,6 +148,8 @@ export const mockState = {
   onboarding: new Map<string, OnboardingRun>(),
   channels: new Map<string, NotificationChannel[]>(),
   deliveries: new Map<string, NotificationDelivery[]>(),
+  /** Integración con LibreNMS por ISP (`mocks/librenms.ts`). */
+  librenms: new Map<string, LibreNmsTenantState>(),
   reputation: null as ReputationSource[] | null,
   /** Hallazgos nuevos emitidos por el tiempo real simulado, por ISP. */
   liveFindings: new Map<string, number[]>(),
@@ -183,6 +186,7 @@ export function resetMockState() {
   mockState.onboarding.clear()
   mockState.channels.clear()
   mockState.deliveries.clear()
+  mockState.librenms.clear()
   mockState.reputation = null
   mockState.liveFindings.clear()
   mockState.members.clear()

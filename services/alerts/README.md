@@ -14,11 +14,65 @@ reclama las entregas vencidas por lease (`FOR UPDATE SKIP LOCKED`), envía y reg
 backoff. Tras un reinicio retoma lo pendiente y lo que quedó a medio enviar (al vencer el lease de 2 min). Un
 fallo definitivo emite `horus.alerts.notification.failed` y el evento de plataforma `alert_delivery_failed`.
 Deduplicación: única por (canal, evento origen); si el proceso muere entre la aceptación remota y el registro, la
-entrega se reenvía una vez y LibreNMS recibe `X-Horus-Delivery-Id` para descartarla
-([`docs/architecture.md`](../../docs/architecture.md) §10.18).
+entrega se reenvía una vez; en LibreNMS la línea de syslog termina en `| id=<entrega>` para reconocer el duplicado
+(LibreNMS no deduplica) ([`docs/architecture.md`](../../docs/architecture.md) §10.18).
 
 | Variable | Defecto | Uso |
 | --- | --- | --- |
 | `HORUS_ALERTS_DISPATCH_INTERVAL` | `5s` | Periodo del despachador (además se despierta al encolar) |
 | `HORUS_ALERTS_MAX_ATTEMPTS` | `8` | Intentos antes de dar la entrega por fallida |
 | `HORUS_ALERTS_RETRY_BACKOFF` | `30s,1m,2m,5m,10m,30m,1h` | Espera tras cada intento fallido (el último valor se repite) |
+
+## Integración con LibreNMS (D17): Horus aprovisiona, LibreNMS alerta
+
+Horus no envía alertas propias a LibreNMS por un recurso inventado (el antiguo `POST /api/v0/eventlog` no existe:
+404). En su lugar **prepara LibreNMS** por su API v0 y le **delega el alertado**: cada notificación del canal
+`librenms` es una línea de syslog del dispositivo «Horus Flow» y una regla de LibreNMS la convierte en alerta, que sale
+por los transportes de la instancia. Código: `internal/librenms` (cliente, aprovisionamiento y prueba) y
+`internal/notify/librenms*.go` (casos de uso, tablas y rutas). UI: *Administración › Integración LibreNMS*.
+
+### Puesta en marcha (la persona, una vez)
+
+1. En LibreNMS, crea un usuario administrador para Horus y un **token de API** (Horus crea dispositivos, grupos,
+   plantillas y reglas).
+2. Activa el syslog en el servidor de LibreNMS: `lnms config:set enable_syslog true`.
+3. En *Alertas › Transportes de alerta*, marca al menos un transporte como **«Default Alert»**. Los transportes **no se
+   pueden crear por la API**: las reglas que crea Horus no tienen transportes asignados y LibreNMS usa los marcados por
+   defecto (versiones con mapa de transportes) o, en las versiones con «operaciones» de alerta (rama master), crea al
+   guardar la regla una operación con los transportes por defecto de ese momento. Sin ninguno marcado, la regla se
+   guarda sin avisos y Horus lo advierte (`no_default_transport`): márcalo y vuelve a sincronizar.
+4. En Horus, crea el canal LibreNMS (URL base + token) y pulsa **Conectar con LibreNMS**; después **Enviar prueba**.
+5. Para cada router, indica una **IP de gestión alcanzable desde LibreNMS** (la IP del túnel WireGuard hacia Horus no
+   lo es) y el modo: solo ping (por defecto), SNMP v2c/v3 propio para LibreNMS (credenciales write-only cifradas con la
+   KEK de alerts) o las credenciales SNMPv3 de solo lectura de Horus con consentimiento explícito por router (auditado;
+   el router debe aceptar SNMP desde la IP de LibreNMS). Sincroniza para aplicarlo.
+
+### Qué crea la sincronización (idempotente)
+
+Todo lleva el prefijo «Horus · » y sus ids de LibreNMS se guardan en `alerts.librenms_object` (RLS por tenant):
+
+| Objeto | Llamada | Detalle |
+| --- | --- | --- |
+| Dispositivo «Horus Flow» | `POST /api/v0/devices` | `hostname` = host de `HORUS_PUBLIC_BASE_URL` o el indicado; `snmp_disable`, `os=ping`, `force_add`. Destino del syslog de Horus |
+| Grupos «Horus · Routers» e «Horus · Infraestructura» | `POST /api/v0/devicegroups` (`type=static`), `POST/DELETE /api/v0/devicegroups/{id}/devices` | Pertenencia sincronizada; quien sale se quita del grupo, nunca se borra |
+| Routers | `POST /api/v0/devices` | Ping: `snmp_disable` + `force_add`; SNMP: `snmpver` v2c/v3 sin `force_add` (LibreNMS valida las credenciales). Si ya existe un dispositivo con ese host o IP, se usa sin modificarlo |
+| Reglas | `POST /api/v0/rules`, `PUT /api/v0/rules` (`rule_id`) | Router caído (`macros.device_down`), CPU alta (`processors.processor_usage` > umbral y `macros.device_up`), memoria alta (`mempools.mempool_perc` ≥ umbral, clase `system`), interfaz caída (`macros.port_down`), reinicio (`devices.uptime` < 300), servicio de infraestructura caído y evento de seguridad Horus (`syslog.timestamp >= macros.past_5m` y `syslog.msg REGEXP '^HORUS '` sobre «Horus Flow»). Umbrales por defecto 85 % / 90 % (editables; pendiente leerlos de los umbrales SNMP por ISP) |
+| Plantillas | `POST/PUT /api/v0/alert_templates` | Blade en español con título de alerta y de recuperación, bucle de `faults` y texto de recuperación; asociadas a su regla |
+
+`add_rule` no devuelve el id: Horus relee `GET /api/v0/rules` y busca por nombre. Si alguien borra en LibreNMS un
+objeto de Horus, la siguiente sincronización lo **recrea** (`recreated`); nunca se modifica ni se borra lo que Horus no
+creó. Un dispositivo creado por Horus solo se borra a petición explícita (`DELETE …/librenms/devices/{router_id}`).
+Al sincronizar, Horus mide el desfase horario de LibreNMS (entrada en el registro de eventos de «Horus Flow»): el
+syslog de LibreNMS guarda la marca de tiempo tal cual y la regla compara con `NOW()` local.
+
+### Entregas y prueba
+
+- Entrega: `POST /api/v0/syslogsink` con `host` = «Horus Flow» y `msg` =
+  `HORUS <SEVERIDAD> <tipo> <asunto> | <texto> | <enlace> | id=<entrega>` (una línea, ≤ 900 caracteres, sin la IP del
+  cliente), más `POST /api/v0/devices/{id}/eventlog` como historial (best-effort). Sin aprovisionar: error
+  `librenms_not_provisioned` (se reintenta con el backoff de la cola).
+- Prueba de extremo a extremo (`POST …/librenms/test`): autenticación → dispositivo → regla → envío → la línea aparece
+  en `GET /api/v0/logs/syslog/{id}` en unos segundos. `syslog_not_stored` suele ser el syslog desactivado o un host que
+  no coincide. La línea de prueba coincide con la regla: LibreNMS emite la alerta y la resuelve a los 5 minutos.
+- Gancho para el inventario de servicios: `api.LibreNMSInfrastructure` (`alerts.LibreNMSInfrastructure` en
+  `module.Services`) sincroniza «Horus · Infraestructura» con una lista `{nombre, IP}`.

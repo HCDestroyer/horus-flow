@@ -54,8 +54,12 @@ describe('buildNavigation', () => {
   it('elimina los grupos que se quedan vacíos', () => {
     const nav = buildNavigation(noc, 'fibra-norte', 'I1')
     expect(nav.map((g) => g.id)).not.toContain('platform')
-    // De administración, el NOC solo ve los canales de notificación (alerts.read, D13).
-    expect(nav.find((g) => g.id === 'admin')?.sections.map((s) => s.id)).toEqual(['notifications'])
+    // De administración, el NOC solo ve los canales de notificación y la integración con
+    // LibreNMS (alerts.read, D13/D17).
+    expect(nav.find((g) => g.id === 'admin')?.sections.map((s) => s.id)).toEqual([
+      'notifications',
+      'librenms',
+    ])
   })
 
   it('muestra la consola de plataforma solo con permisos platform.*', () => {

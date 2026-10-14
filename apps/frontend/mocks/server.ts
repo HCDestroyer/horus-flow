@@ -11,6 +11,7 @@ import routersTemplate from '~~/types/api/contract/templates/routers-health.json
 import { WIDGET_CATALOG } from '~~/types/api/widget-catalog'
 import { restoreAsnRules } from './asn-rules'
 import { channelRoute } from './channels'
+import { librenmsRoute } from './librenms'
 import { findTenant, MOCK_TOTP_CODE, USERS, type MockUser } from './data'
 import { json, problem, randomHex } from './http'
 import { currentKiosk, enroll, kioskAdminRoute, kioskConfig, touchKiosk } from './kiosk'
@@ -732,6 +733,7 @@ export function createMockFetch(options: MockOptions = {}) {
         stepMs: readNumber('horus.mock.onboardingStepMs') ?? 6000,
         reauthRequired: reauthRequired(user),
       }) ??
+      librenmsRoute({ ...shared, reauthRequired: reauthRequired(user) }) ??
       channelRoute(shared) ??
       kioskAdminRoute({ ...shared, reauthRequired: reauthRequired(user) }) ??
       memberRoute({

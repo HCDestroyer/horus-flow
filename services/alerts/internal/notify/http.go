@@ -42,6 +42,7 @@ func (h *Handler) Mount(r *httpx.ServiceMux) {
 	r.Handle("POST /api/v1/notification-channels/{channel_id}/connection-test", h.guard.Tenant(PermManage, h.connectionTest))
 	r.Handle("POST /api/v1/notification-channels/{channel_id}/test", h.guard.Tenant(PermManage, h.test))
 	r.Handle("GET /api/v1/notification-deliveries", h.guard.Tenant(PermRead, h.deliveries))
+	h.mountLibreNMS(r)
 }
 
 func (h *Handler) fail(w http.ResponseWriter, r *http.Request, err error) {

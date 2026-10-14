@@ -34,15 +34,9 @@ func (f *fakeRemote) server(t *testing.T) *httptest.Server {
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/getMe"):
 			_, _ = w.Write([]byte(`{"ok":true,"result":{"username":"horus_bot"}}`))
-		case strings.HasSuffix(r.URL.Path, "/sendMessage"), r.URL.Path == "/api/v0/eventlog":
+		case strings.HasSuffix(r.URL.Path, "/sendMessage"):
 			f.messages = append(f.messages, r.URL.Path+" "+string(body))
 			_, _ = w.Write([]byte(`{"ok":true}`))
-		case r.URL.Path == "/api/v0/system":
-			if r.Header.Get("X-Auth-Token") != "token-librenms-1234567" {
-				w.WriteHeader(http.StatusUnauthorized)
-				return
-			}
-			_, _ = w.Write([]byte(`{"status":"ok","system":[{"local_ver":"24.9.0"}]}`))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -115,9 +109,10 @@ func TestAlertsMinimalChannel(t *testing.T) {
 		t.Fatalf("estado tras la prueba = %s", s)
 	}
 
-	// LibreNMS por API (D17): token write-only y prueba de conexión.
+	// LibreNMS por API (D17): token write-only, prueba de conexión y aprovisionamiento.
+	lib, libSrv := newFakeLibre(t, "token-librenms-1234567")
 	ln := a.must(a.post(A.token, "/api/v1/notification-channels", map[string]any{"name": "LibreNMS", "kind": "librenms",
-		"config": map[string]any{"base_url": srv.URL, "username": "horus"}, "subscription": map[string]any{"event_types": []string{"finding_opened"}}}), 201)
+		"config": map[string]any{"base_url": libSrv.URL, "username": "horus"}, "subscription": map[string]any{"event_types": []string{"finding_opened"}}}), 201)
 	lnID := ln.str("id")
 	if r := a.post(A.token, "/api/v1/notification-channels/"+lnID+"/connection-test", nil); r.Body["error_code"] != "missing_credentials" {
 		t.Fatalf("sin credenciales: %s", r.Raw)
@@ -125,8 +120,11 @@ func TestAlertsMinimalChannel(t *testing.T) {
 	a.must(a.do(req{Method: "PUT", Path: "/api/v1/notification-channels/" + lnID + "/credentials", Token: A.token,
 		Body: map[string]any{"api_token": "token-librenms-1234567"}}), 204)
 	lt := a.must(a.post(A.token, "/api/v1/notification-channels/"+lnID+"/connection-test", nil), 200)
-	if lt.Body["ok"] != true || lt.Body["remote_version"] != "24.9.0" {
+	if lt.Body["ok"] != true || lt.Body["remote_version"] != "25.10.0" {
 		t.Fatalf("librenms connection-test = %s", lt.Raw)
+	}
+	if r := a.must(a.post(A.token, "/api/v1/notification-channels/"+lnID+"/librenms/sync", map[string]any{"horus_hostname": "horus.test"}), 200); r.Body["ok"] != true {
+		t.Fatalf("librenms sync = %s", r.Raw)
 	}
 	// Un ISP B con la misma instancia no comparte nada.
 	if r := a.do(req{Method: "GET", Path: "/api/v1/notification-channels/" + lnID, Token: B.token}); r.Status != 404 {
@@ -148,18 +146,23 @@ func TestAlertsMinimalChannel(t *testing.T) {
 	publishFindingFull(t, js, A.id, "high", ev) // reentrega (mismo id)
 	publishFindingFull(t, js, A.id, "medium", uuid.Must(uuid.NewV7()))
 	publishFindingFull(t, js, B.id, "critical", uuid.Must(uuid.NewV7()))
-	a.waitFor("notificaciones", func() bool { return remote.count("/bot") == 2 && remote.count("/api/v0/eventlog") == 2 })
+	a.waitFor("notificaciones", func() bool { return remote.count("/bot") == 2 && len(lib.syslogLines()) == 2 })
 	time.Sleep(500 * time.Millisecond)
-	if remote.count("/bot") != 2 || remote.count("/api/v0/eventlog") != 2 {
-		t.Fatalf("envíos telegram=%d librenms=%d", remote.count("/bot"), remote.count("/api/v0/eventlog"))
+	if remote.count("/bot") != 2 || len(lib.syslogLines()) != 2 {
+		t.Fatalf("envíos telegram=%d librenms=%d", remote.count("/bot"), len(lib.syslogLines()))
 	}
 	remote.mu.Lock()
-	for _, m := range remote.messages {
+	for _, m := range append(remote.messages, lib.syslogLines()...) {
 		if strings.Contains(m, "10.") {
 			t.Errorf("mensaje con IP: %s", m)
 		}
 	}
 	remote.mu.Unlock()
+	for _, l := range lib.syslogLines() {
+		if !strings.Contains(l, " HORUS ") || !strings.Contains(l, " finding_opened ") || !strings.Contains(l, "| id=") {
+			t.Errorf("línea de syslog = %q", l)
+		}
+	}
 	dl := a.must(a.do(req{Method: "GET", Path: "/api/v1/notification-deliveries?status=sent", Token: A.token}), 200)
 	if n := len(dl.Body["data"].([]any)); n != 4 {
 		t.Fatalf("entregas = %d: %s", n, dl.Raw)
