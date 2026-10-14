@@ -463,6 +463,42 @@ function findingRoutes(ctx: TenantRouteContext): Response | undefined {
     return json(paginate(ctx.empty ? [] : list, ctx.url))
   }
 
+  if (match(ctx, 'POST', '/findings/bulk-resolve')) {
+    if (!ctx.can('security.findings.manage')) return forbidden()
+    const kind = String(ctx.body.kind ?? '')
+    const comment = String(ctx.body.comment ?? '').trim()
+    const states = (ctx.body.states as string[] | undefined) ?? ['open', 'acknowledged']
+    if (!/^[a-z][a-z0-9_]*$/.test(kind)) return validation('kind', 'Indica el tipo de hallazgo')
+    if (comment.length < 3) {
+      return validation('comment', 'El comentario es obligatorio (mínimo 3 caracteres).')
+    }
+    if (!states.length || states.some((s) => s !== 'open' && s !== 'acknowledged')) {
+      return validation(
+        'states',
+        'Solo se pueden resolver hallazgos open o acknowledged.',
+        'INVALID',
+      )
+    }
+    const targets = findingsOf(tenant, now, personal)
+      .filter((f) => f.kind === kind && states.includes(f.state))
+      .slice(0, 1000)
+    for (const f of targets) {
+      mockState.findings.set(f.id, {
+        version: f.version + 1,
+        state: 'resolved',
+        updated_at: now.toISOString(),
+        resolution: {
+          verdict: 'resolved',
+          resolved_at: now.toISOString(),
+          resolved_by: ctx.userId,
+          comment,
+          actions_taken: [],
+        },
+      })
+    }
+    return json({ resolved: targets.length })
+  }
+
   const id = ctx.path.split('/')[2] ?? ''
   const finding = findFinding(tenant, id, now, personal)
   if (!finding) return notFound('FINDING_NOT_FOUND')

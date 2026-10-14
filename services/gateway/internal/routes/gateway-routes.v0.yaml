@@ -439,6 +439,10 @@ modules:
       scope: tenant
       methods:
         GET: security.findings.read
+    - prefix: /api/v1/findings/bulk-resolve
+      scope: tenant
+      methods:
+        POST: security.findings.manage
     - prefix: /api/v1/findings/{finding_id}
       scope: tenant
       methods:

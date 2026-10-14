@@ -86,6 +86,43 @@ test.describe('hallazgos @security', () => {
     await expect(page.getByTestId('finding-actions')).toHaveCount(0)
   })
 
+  test('resolver todos los de un tipo: comentario obligatorio, recuento y aviso con el total', async ({
+    page,
+  }) => {
+    await loginAsAdmin(page)
+    await page.goto(LIST)
+    await expect(page.getByTestId('findings-table')).toBeVisible()
+    // Sin un tipo concreto no se ofrece.
+    await expect(page.getByTestId('bulk-resolve')).toHaveCount(0)
+    await page.goto(`${LIST}?kind=outbound_scanning`)
+    const rows = page.getByTestId('findings-table').locator('tbody tr')
+    await expect(rows.first()).toBeVisible()
+    await page.getByTestId('bulk-resolve').click()
+    const count = page.getByTestId('bulk-resolve-count')
+    await expect(count).toContainText(/que se resolverán: \d+/)
+    const n = Number((await count.textContent())!.match(/: (\d+)/)![1])
+    expect(n).toBeGreaterThan(0)
+    const comment = page.getByTestId('bulk-resolve-comment')
+    await expect(comment).toHaveValue('Detector mejorado: cierre de los hallazgos anteriores')
+    await comment.fill('')
+    await page.getByTestId('bulk-resolve-submit').click()
+    await expect(
+      page.getByText('El comentario es obligatorio (mínimo 3 caracteres).'),
+    ).toBeVisible()
+    await comment.fill('Detector de escaneo mejorado')
+    await page.getByTestId('bulk-resolve-submit').click()
+    await expect(page.getByText(`Hallazgos resueltos: ${n}`, { exact: true })).toBeVisible()
+    await expect(page.getByText('Ningún hallazgo coincide con estos filtros')).toBeVisible()
+    await expect(page.getByTestId('bulk-resolve')).toHaveCount(0)
+  })
+
+  test('el NOC (sin security.findings.manage) no ve "Resolver todos"', async ({ page }) => {
+    await loginAsNoc(page)
+    await page.goto(`${LIST}?kind=outbound_scanning`)
+    await expect(page.getByTestId('findings-table')).toBeVisible()
+    await expect(page.getByTestId('bulk-resolve')).toHaveCount(0)
+  })
+
   test('sin security.evidence.read no aparece "Ver flujos de evidencia"', async ({ page }) => {
     await loginAsNoc(page)
     await page.goto(LIST)

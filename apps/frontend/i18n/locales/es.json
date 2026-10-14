@@ -842,6 +842,21 @@
       "days": "{n} días",
       "submit": "Marcar como falso positivo",
       "done": "Marcado como falso positivo"
+    },
+    "bulkResolve": {
+      "open": "Resolver todos los de este tipo",
+      "title": "Resolver todos: {kind}",
+      "description": "Cierra de una vez los hallazgos abiertos y reconocidos de este tipo, por ejemplo tras mejorar el detector que los generó.",
+      "counting": "Contando los hallazgos que se resolverán…",
+      "count": "Hallazgos de «{kind}» que se resolverán: {n}",
+      "countMax": "Se resolverán {n} (el máximo por operación); repite la acción para el resto.",
+      "comment": "Comentario",
+      "commentHint": "Queda en cada hallazgo resuelto",
+      "commentRequired": "El comentario es obligatorio (mínimo 3 caracteres).",
+      "suggestion": "Detector mejorado: cierre de los hallazgos anteriores",
+      "submit": "Resolver todos",
+      "done": "Hallazgos resueltos: {n}",
+      "more": "Puede que queden más: repite la acción para resolver el resto."
     }
   },
   "traffic": {
@@ -2539,6 +2554,7 @@
       "min_minutes": "Minutos sostenidos (mínimo)",
       "max_targets": "Destinos (máximo)",
       "max_avg_packet_bytes": "Tamaño medio de paquete (máximo, bytes)",
+      "max_response_ratio": "Respuesta del destino que indica una sesión (veces lo enviado)",
       "amp_ports": "Puertos de amplificación",
       "amp_min_pps": "Paquetes por segundo en amplificación",
       "amp_min_targets": "Destinos en amplificación (mínimo)",

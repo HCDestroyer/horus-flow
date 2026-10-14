@@ -688,6 +688,7 @@ existe como **purga** (retención, privacidad o baja del tenant), no en la API.
 | `GET /findings/{id}` | Detalle con `reasons[]` (código, detalle, peso), evidencias agregadas (destinos por ASN/puerto, periodicidad, feeds coincidentes), versión de regla y ventana. Nunca payloads. | `security.findings.read` |
 | `GET /findings/{id}/evidence` | Flujos de evidencia del cliente en la ventana (IPs de destino, puertos, tiempos). Acceso auditado. | `security.evidence.read` |
 | `POST /findings/{id}/acknowledge` · `/resolve` · `/mark-false-positive` | Gestión; `comment` obligatorio en `mark-false-positive`. | `security.findings.manage` |
+| `POST /findings/bulk-resolve` | Resuelve en bloque los `open`/`acknowledged` de un `kind` (p. ej. tras mejorar un detector): `{kind, comment (3–2000, obligatorio), states?}` → `{resolved}`; respeta el alcance de nodos, máx. 1000 por llamada, misma transición que `/resolve`. | `security.findings.manage` |
 | `GET /security/summary` | Conteos por `security_state` y `kind` por nodo (widgets NOC). | `security.findings.read` |
 | `GET /reputation/sources` | Estado de los feeds de reputación de plataforma (última actualización, entradas). | `security.findings.read` |
 | `GET /reputation/allowlist` · `POST` · `DELETE /reputation/allowlist/{id}` | Allowlist **del tenant** (prefijos/ASN que no deben generar hallazgos, p. ej. servidores propios); la aplica `detection`. | `security.findings.read` / `security.findings.manage` |

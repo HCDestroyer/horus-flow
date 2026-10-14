@@ -1122,6 +1122,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/findings/bulk-resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolver en bloque los hallazgos activos de un tipo (p. ej. tras mejorar un detector)
+         * @description Resuelve, con el mismo comentario, los hallazgos `open`/`acknowledged` del `kind` indicado dentro del
+         *     alcance de nodos de quien llama. Cada hallazgo pasa por la misma transición que `resolveFinding`
+         *     (veredicto, evento `horus.detection.finding.resolved` y estado de seguridad del cliente). Como máximo
+         *     1000 por llamada: si `resolved` es 1000, puede quedar alguno; se vuelve a llamar.
+         */
+        post: operations["bulkResolveFindings"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/flow-exporters": {
         parameters: {
             query?: never;
@@ -7117,6 +7140,40 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             412: components["responses"]["PreconditionFailed"];
+        };
+    };
+    bulkResolveFindings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    comment: string;
+                    kind: components["schemas"]["FindingKind"];
+                    /** @description Estados a cerrar (por defecto ambos: open y acknowledged). */
+                    states?: ("open" | "acknowledged")[];
+                };
+            };
+        };
+        responses: {
+            /** @description Hallazgos resueltos. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        resolved: number;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["UnprocessableEntity"];
         };
     };
     listFlowExporters: {

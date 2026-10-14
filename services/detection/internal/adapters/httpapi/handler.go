@@ -39,6 +39,7 @@ func New(svc *app.Service, guard *authz.Guard, baseURL string, logger *slog.Logg
 // Mount registra las rutas (permiso grueso en el guard; alcance fino en app).
 func (h *Handler) Mount(r *httpx.ServiceMux) {
 	r.Handle("GET /api/v1/findings", h.guard.Tenant(app.PermRead, h.list))
+	r.Handle("POST /api/v1/findings/bulk-resolve", h.guard.Tenant(app.PermManage, h.bulkResolve))
 	r.Handle("GET /api/v1/findings/{finding_id}", h.guard.Tenant(app.PermRead, h.get))
 	r.Handle("GET /api/v1/findings/{finding_id}/evidence", h.guard.Tenant(app.PermEvidence, h.evidence))
 	r.Handle("POST /api/v1/findings/{finding_id}/acknowledge", h.guard.Tenant(app.PermManage, h.transition("acknowledge")))
@@ -134,6 +135,28 @@ func (h *Handler) transition(op string) http.HandlerFunc {
 		w.Header().Set("ETag", jsonapi.ETag(v))
 		jsonapi.Write(w, http.StatusOK, doc)
 	}
+}
+
+func (h *Handler) bulkResolve(w http.ResponseWriter, r *http.Request) {
+	// Cuerpo vacío = sin kind ni comentario: 422 por campo, no 400.
+	var in app.BulkResolve
+	raw, err := io.ReadAll(io.LimitReader(r.Body, jsonapi.MaxBody))
+	if err != nil {
+		problem.Write(w, r, http.StatusBadRequest, problem.CodeValidationFailed, "Cuerpo ilegible")
+		return
+	}
+	if len(bytes.TrimSpace(raw)) > 0 {
+		r.Body = io.NopCloser(bytes.NewReader(raw))
+		if !jsonapi.Decode(w, r, &in, true) {
+			return
+		}
+	}
+	n, err := h.svc.BulkResolve(r.Context(), in)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	jsonapi.Write(w, http.StatusOK, map[string]any{"resolved": n})
 }
 
 // clientIP es la IP real del cliente tras los proxies de confianza

@@ -213,6 +213,23 @@ func List(ctx context.Context, tx pgx.Tx, f ListFilter) ([]domain.Finding, error
 	return collect(rows)
 }
 
+// LockActiveOfKind lee con FOR UPDATE hasta limit hallazgos de un kind en
+// los estados dados (los más antiguos primero), limitados a allowed si no es
+// nil (alcance de nodos del permiso). Para la resolución en bloque.
+func LockActiveOfKind(ctx context.Context, tx pgx.Tx, kind string, states []string, allowed []uuid.UUID, limit int) ([]domain.Finding, error) {
+	q := `SELECT ` + findingCols + ` FROM detection.finding WHERE kind = $1 AND state = ANY($2) AND state IN ('open', 'acknowledged')`
+	args := []any{kind, states, limit}
+	if allowed != nil {
+		q += ` AND site_id = ANY($4)`
+		args = append(args, allowed)
+	}
+	rows, err := tx.Query(ctx, q+` ORDER BY opened_at, id LIMIT $3 FOR UPDATE`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("lock findings of kind: %w", err)
+	}
+	return collect(rows)
+}
+
 // ActiveOfCustomer devuelve los hallazgos activos de un cliente.
 func ActiveOfCustomer(ctx context.Context, tx pgx.Tx, customer uuid.UUID) ([]domain.Finding, error) {
 	rows, err := tx.Query(ctx, `SELECT `+findingCols+` FROM detection.finding WHERE customer_id = $1 AND state IN ('open', 'acknowledged')`, customer)

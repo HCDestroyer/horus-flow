@@ -70,6 +70,52 @@ paths:
         '400': { $ref: './common.yaml#/components/responses/BadRequest' }
         '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
         '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+  /findings/bulk-resolve:
+    post:
+      tags: [findings]
+      operationId: bulkResolveFindings
+      summary: "Resolver en bloque los hallazgos activos de un tipo (p. ej. tras mejorar un detector)"
+      description: |
+        Resuelve, con el mismo comentario, los hallazgos `open`/`acknowledged` del `kind` indicado dentro del
+        alcance de nodos de quien llama. Cada hallazgo pasa por la misma transición que `resolveFinding`
+        (veredicto, evento `horus.detection.finding.resolved` y estado de seguridad del cliente). Como máximo
+        1000 por llamada: si `resolved` es 1000, puede quedar alguno; se vuelve a llamar.
+      x-module: detection
+      x-scope: tenant
+      x-permission: security.findings.manage
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, comment]
+              additionalProperties: false
+              properties:
+                kind: { $ref: '../../finding/v0/finding.schema.json#/$defs/FindingKind' }
+                comment: { type: string, minLength: 3, maxLength: 2000 }
+                states:
+                  type: array
+                  description: "Estados a cerrar (por defecto ambos: open y acknowledged)."
+                  minItems: 1
+                  uniqueItems: true
+                  items: { type: string, enum: [open, acknowledged] }
+      responses:
+        '200':
+          description: Hallazgos resueltos.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [resolved]
+                properties:
+                  resolved: { type: integer, minimum: 0, maximum: 1000 }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
   /findings/{finding_id}:
     parameters:
       - $ref: '#/components/parameters/FindingId'

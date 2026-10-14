@@ -168,6 +168,8 @@ paths:
     $ref: ./wireguard.yaml#/paths/~1enroll~1wireguard
   /findings:
     $ref: ./detection.yaml#/paths/~1findings
+  /findings/bulk-resolve:
+    $ref: ./detection.yaml#/paths/~1findings~1bulk-resolve
   /findings/{finding_id}:
     $ref: ./detection.yaml#/paths/~1findings~1{finding_id}
   /findings/{finding_id}/acknowledge:

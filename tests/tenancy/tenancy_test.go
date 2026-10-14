@@ -131,6 +131,7 @@ func cases() map[string]tenanttest.Case {
 	c["acknowledgeFinding"] = tenanttest.Case{Kind: tenanttest.ByID}
 	c["resolveFinding"] = tenanttest.Case{Kind: tenanttest.ByID}
 	c["markFindingFalsePositive"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"comment": "intento de otro ISP"}}
+	c["bulkResolveFindings"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"kind": "outbound_scanning", "comment": "intento de otro ISP"}}
 	c["getSecuritySummary"] = tenanttest.Case{Kind: tenanttest.List}
 	c["listAllowlist"] = tenanttest.Case{Kind: tenanttest.List}
 	c["createAllowlistEntry"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"prefix": "198.51.100.0/24", "reason": "pirata"}}

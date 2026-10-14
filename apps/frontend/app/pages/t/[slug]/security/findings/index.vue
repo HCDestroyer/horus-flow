@@ -10,6 +10,7 @@ import type { Finding } from '~~/types/api'
 const { t, te } = useI18n()
 const route = useRoute()
 const { $api } = useNuxtApp()
+const can = useCan()
 const slug = computed(() => String(route.params.slug))
 
 useSectionGuard()(findSection('tenant', 'security/findings'), slug.value)
@@ -198,6 +199,34 @@ const kindOptions = computed(() =>
 )
 
 const severities = ['critical', 'high', 'medium', 'low'] as const
+
+// --- Resolver en bloque los activos de un tipo (p. ej. tras mejorar un detector) ------------
+// Solo con un tipo concreto y sin filtros que la API no aplica (severidad, nodo): lo que se
+// resuelve es exactamente lo que encaja con el filtro de la lista.
+const bulkOpen = ref(false)
+const bulkStates = computed<('open' | 'acknowledged')[]>(() =>
+  state.value === 'open'
+    ? ['open']
+    : state.value === 'acknowledged'
+      ? ['acknowledged']
+      : ['open', 'acknowledged'],
+)
+const canBulkResolve = computed(
+  () =>
+    can('security.findings.manage') &&
+    kind.value !== 'all' &&
+    severity.value === 'all' &&
+    site.value === 'all' &&
+    (state.value === 'active' || state.value === 'open' || state.value === 'acknowledged') &&
+    findings.value.some((f) => f.state === 'open' || f.state === 'acknowledged'),
+)
+const kindLabel = computed(() =>
+  te(`findingKind.${kind.value}`) ? t(`findingKind.${kind.value}`) : kind.value,
+)
+function onBulkResolved() {
+  load()
+  refreshSummary()
+}
 </script>
 
 <template>
@@ -253,6 +282,24 @@ const severities = ['critical', 'high', 'medium', 'low'] as const
       <UFormField :label="t('findings.col.site')">
         <USelect v-model="site" :items="siteOptions" class="w-full lg:w-44" />
       </UFormField>
+    </div>
+
+    <div v-if="canBulkResolve" class="flex justify-end">
+      <UButton
+        color="neutral"
+        variant="outline"
+        icon="i-lucide-list-checks"
+        :label="t('findings.bulkResolve.open')"
+        data-testid="bulk-resolve"
+        @click="bulkOpen = true"
+      />
+      <FindingBulkResolveModal
+        v-model:open="bulkOpen"
+        :kind="kind"
+        :kind-label="kindLabel"
+        :states="bulkStates"
+        @done="onBulkResolved"
+      />
     </div>
 
     <p class="sr-only" aria-live="polite" data-testid="findings-live">{{ announcement }}</p>

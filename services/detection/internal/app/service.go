@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net/netip"
 	"net/url"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -393,7 +394,6 @@ func (s *Service) Transition(ctx context.Context, id uuid.UUID, ifMatch int, op 
 		return nil, 0, apperr.Validation(apperr.Field("comment", "TOO_LONG", "Máximo 2000 caracteres."))
 	}
 	now := s.now().UTC()
-	actor := actorID(p)
 	var f *domain.Finding
 	err = s.db.TenantTx(ctx, t, func(tx pgx.Tx) error {
 		f, err = postgres.Get(ctx, tx, id, true)
@@ -406,36 +406,7 @@ func (s *Service) Transition(ctx context.Context, id uuid.UUID, ifMatch int, op 
 		if ifMatch != f.Version {
 			return apperr.PreconditionFailed(Document(f, View{}))
 		}
-		expect := f.Version
-		evType := EventResolved
-		switch op {
-		case "acknowledge":
-			err = f.Acknowledge(actor, now)
-			evType = EventUpdated
-		case "resolve":
-			err = f.Resolve(actor, body.Comment, body.ActionsTaken, now)
-		default:
-			days := 30
-			if body.SilenceDays != nil {
-				days = *body.SilenceDays
-			}
-			err = f.MarkFalsePositive(actor, strings.TrimSpace(*body.Comment), time.Duration(days)*24*time.Hour, now)
-		}
-		if errors.Is(err, domain.ErrStateInvalid) {
-			return apperr.Conflict(CodeFindingStateInvalid, fmt.Sprintf("No se puede pasar de %s a ese estado.", f.State))
-		}
-		if err != nil {
-			return err
-		}
-		if err := postgres.Update(ctx, tx, f, expect); err != nil {
-			return err
-		}
-		if op != "acknowledge" {
-			if err := postgres.InsertVerdict(ctx, tx, t, f, actor); err != nil {
-				return err
-			}
-		}
-		if err := outbox.Insert(ctx, tx, schema, findingEvent(evType, f, outbox.ActorFrom(p), now)); err != nil {
+		if err := s.apply(ctx, tx, t, p, f, op, body, now); err != nil {
 			return err
 		}
 		return s.refreshSecurity(ctx, tx, t, f.CustomerID, f.SiteID, now)
@@ -447,6 +418,130 @@ func (s *Service) Transition(ctx context.Context, id uuid.UUID, ifMatch int, op 
 		return nil, 0, err
 	}
 	return Document(f, s.views(ctx, p, t, []domain.Finding{*f})[0]), f.Version, nil
+}
+
+// apply aplica op (acknowledge | resolve | false_positive) a f, ya leído con
+// FOR UPDATE en tx: transición de dominio, versión, veredicto y evento. El
+// estado de seguridad del cliente (refreshSecurity) lo refresca quien llama.
+func (s *Service) apply(ctx context.Context, tx pgx.Tx, t pgdb.TenantID, p *authz.Principal, f *domain.Finding, op string, body Transition, now time.Time) error {
+	actor := actorID(p)
+	expect := f.Version
+	evType := EventResolved
+	var err error
+	switch op {
+	case "acknowledge":
+		err = f.Acknowledge(actor, now)
+		evType = EventUpdated
+	case "resolve":
+		err = f.Resolve(actor, body.Comment, body.ActionsTaken, now)
+	default:
+		days := 30
+		if body.SilenceDays != nil {
+			days = *body.SilenceDays
+		}
+		err = f.MarkFalsePositive(actor, strings.TrimSpace(*body.Comment), time.Duration(days)*24*time.Hour, now)
+	}
+	if errors.Is(err, domain.ErrStateInvalid) {
+		return apperr.Conflict(CodeFindingStateInvalid, fmt.Sprintf("No se puede pasar de %s a ese estado.", f.State))
+	}
+	if err != nil {
+		return err
+	}
+	if err := postgres.Update(ctx, tx, f, expect); err != nil {
+		return err
+	}
+	if op != "acknowledge" {
+		if err := postgres.InsertVerdict(ctx, tx, t, f, actor); err != nil {
+			return err
+		}
+	}
+	return outbox.Insert(ctx, tx, schema, findingEvent(evType, f, outbox.ActorFrom(p), now))
+}
+
+// MaxBulkResolve es el tope de hallazgos por llamada a BulkResolve.
+const MaxBulkResolve = 1000
+
+var kindPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+
+// BulkResolve es el cuerpo de POST /findings/bulk-resolve.
+type BulkResolve struct {
+	Kind    string   `json:"kind"`
+	Comment *string  `json:"comment"`
+	States  []string `json:"states"`
+}
+
+// BulkResolve resuelve con el mismo comentario los hallazgos activos de un
+// tipo (p. ej. falsos "ddos" tras mejorar el detector), dentro del alcance de
+// nodos de quien llama y hasta MaxBulkResolve por llamada. Cada hallazgo pasa
+// por la misma transición que el resolve individual; todo en una transacción.
+func (s *Service) BulkResolve(ctx context.Context, in BulkResolve) (int, error) {
+	p, t, allowed, err := s.scope(ctx, PermManage)
+	if err != nil {
+		return 0, err
+	}
+	var fe []problem.FieldError
+	if in.Kind == "" {
+		fe = append(fe, apperr.Field("kind", "REQUIRED", "Indique el tipo de hallazgo."))
+	} else if len(in.Kind) > 64 || !kindPattern.MatchString(in.Kind) {
+		fe = append(fe, apperr.Field("kind", "INVALID_VALUE", "Tipo de hallazgo no válido."))
+	}
+	comment := ""
+	if in.Comment != nil {
+		comment = strings.TrimSpace(*in.Comment)
+	}
+	switch n := len([]rune(comment)); {
+	case n < 3:
+		fe = append(fe, apperr.Field("comment", "REQUIRED", "El comentario es obligatorio (mínimo 3 caracteres)."))
+	case n > 2000:
+		fe = append(fe, apperr.Field("comment", "TOO_LONG", "Máximo 2000 caracteres."))
+	}
+	states := in.States
+	if states == nil {
+		states = []string{domain.StateOpen, domain.StateAcknowledged}
+	} else if len(states) == 0 {
+		fe = append(fe, apperr.Field("states", "REQUIRED", "Indique al menos un estado (open o acknowledged)."))
+	}
+	for _, st := range states {
+		if st != domain.StateOpen && st != domain.StateAcknowledged {
+			fe = append(fe, apperr.Field("states", "INVALID_VALUE", "Solo se pueden resolver hallazgos open o acknowledged."))
+			break
+		}
+	}
+	if len(fe) > 0 {
+		return 0, apperr.Validation(fe...)
+	}
+	now := s.now().UTC()
+	body := Transition{Comment: &comment}
+	n := 0
+	err = s.db.TenantTx(ctx, t, func(tx pgx.Tx) error {
+		rows, err := postgres.LockActiveOfKind(ctx, tx, in.Kind, states, allowed, MaxBulkResolve)
+		if err != nil {
+			return err
+		}
+		customers := map[uuid.UUID]uuid.UUID{} // cliente → nodo
+		var order []uuid.UUID
+		for i := range rows {
+			f := &rows[i]
+			if err := s.apply(ctx, tx, t, p, f, "resolve", body, now); err != nil {
+				return err
+			}
+			if _, ok := customers[f.CustomerID]; !ok {
+				order = append(order, f.CustomerID)
+			}
+			customers[f.CustomerID] = f.SiteID
+		}
+		for _, c := range order {
+			if err := s.refreshSecurity(ctx, tx, t, c, customers[c], now); err != nil {
+				return err
+			}
+		}
+		n = len(rows)
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
 }
 
 // AuditMeta son los datos de la petición para la auditoría.

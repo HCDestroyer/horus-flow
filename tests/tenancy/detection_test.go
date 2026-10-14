@@ -221,3 +221,147 @@ func TestSecurityWidgetsAndKiosk(t *testing.T) {
 		t.Fatalf("kiosco en /findings: %d", r.Status)
 	}
 }
+
+// insertFinding crea un hallazgo (como lo dejaría el motor) con kind, estado y
+// objetivo dados; devuelve su ID.
+func (a *app) insertFinding(tenant, site, router, kind, state, target string) string {
+	a.t.Helper()
+	id := uuid.Must(uuid.NewV7())
+	now := time.Now().UTC()
+	var res any
+	if state == "resolved" || state == "false_positive" {
+		res = `{"verdict": "` + state + `", "comment": "previo", "actions_taken": [], "by": null, "at": "` + now.Format(time.RFC3339) + `"}`
+	}
+	_, err := a.admin.Exec(context.Background(), `INSERT INTO detection.finding (id, tenant_id, state, kind, severity, confidence, customer_id,
+			realm_id, site_id, router_id, address, target_type, target_value, signals, summary, reasons, evidence, window_from, window_to,
+			first_seen_at, last_seen_at, opened_at, updated_at, rule_version, resolution)
+		VALUES ($1, $2, $3, $4, 'high', 0.9, $5, $6, $7, $8, '10.10.0.42', 'remote_ip', $9, '{volume}',
+			'{"code": "ddos_participation", "text": "Volumen saliente anómalo"}', '[]', '{}', $10, $11, $10, $11, $11, $11, 'ddos@1', $12)`,
+		id, tenant, state, kind, uuid.New(), uuid.New(), site, router, target, now.Add(-5*time.Minute), now, res)
+	if err != nil {
+		a.t.Fatal(err)
+	}
+	return id.String()
+}
+
+func (a *app) findingState(id string) string {
+	a.t.Helper()
+	var st string
+	if err := a.admin.QueryRow(context.Background(), `SELECT state FROM detection.finding WHERE id = $1`, id).Scan(&st); err != nil {
+		a.t.Fatal(err)
+	}
+	return st
+}
+
+// POST /findings/bulk-resolve: solo el kind pedido y solo open/acknowledged,
+// dentro del alcance de nodos de quien llama y sin tocar otro ISP; comentario
+// obligatorio; cada hallazgo deja veredicto y evento como el resolve individual.
+func TestFindingsBulkResolve(t *testing.T) {
+	t.Parallel()
+	a := startApp(t)
+	pt := a.superadmin().platformToken()
+	A, B := a.newISP(pt, "isp-a"), a.newISP(pt, "isp-b")
+	idsA := a.fixtureISP(A, "10.10.0.0/24") // un outbound_scanning abierto en el nodo 1
+	idsB := a.fixtureISP(B, "10.20.0.0/24")
+	site1, router1 := idsA["site_id"], idsA["router_id"]
+	site2 := a.must(a.post(A.token, "/api/v1/sites", map[string]any{"name": "Nodo 2"}), 201).str("id")
+	router2 := uuid.NewString()
+
+	open1 := a.insertFinding(A.id, site1, router1, "ddos_participation", "open", "198.51.100.1")
+	ack1 := a.insertFinding(A.id, site1, router1, "ddos_participation", "acknowledged", "198.51.100.2")
+	done1 := a.insertFinding(A.id, site1, router1, "ddos_participation", "resolved", "198.51.100.3")
+	fp1 := a.insertFinding(A.id, site1, router1, "ddos_participation", "false_positive", "198.51.100.4")
+	open2 := a.insertFinding(A.id, site2, router2, "ddos_participation", "open", "198.51.100.5")
+	ack2 := a.insertFinding(A.id, site2, router2, "ddos_participation", "acknowledged", "198.51.100.6")
+	otherB := a.insertFinding(B.id, idsB["site_id"], idsB["router_id"], "ddos_participation", "open", "198.51.100.7")
+
+	bulk := func(token string, body any) resp {
+		return a.do(req{Method: "POST", Path: "/api/v1/findings/bulk-resolve", Token: token, Body: body})
+	}
+	// Validación: comentario obligatorio, kind obligatorio, estados acotados.
+	for _, body := range []map[string]any{
+		{"kind": "ddos_participation"},
+		{"kind": "ddos_participation", "comment": "  x "},
+		{"comment": "detector mejorado"},
+		{"kind": "DDoS!", "comment": "detector mejorado"},
+		{"kind": "ddos_participation", "comment": "detector mejorado", "states": []string{"resolved"}},
+		{"kind": "ddos_participation", "comment": "detector mejorado", "states": []string{}},
+	} {
+		if r := bulk(A.token, body); r.Status != 422 || r.code() != "VALIDATION_FAILED" {
+			t.Errorf("cuerpo %v: %d %s, quiero 422", body, r.Status, r.Raw)
+		}
+	}
+	if r := a.do(req{Method: "POST", Path: "/api/v1/findings/bulk-resolve", Token: A.token}); r.Status != 422 {
+		t.Errorf("sin cuerpo: %d %s, quiero 422", r.Status, r.Raw)
+	}
+	// Un viewer no tiene security.findings.manage.
+	viewer := a.userToken(A, "visor@isp-a.test", "viewer")
+	if r := bulk(viewer, map[string]any{"kind": "ddos_participation", "comment": "detector mejorado"}); r.Status != 403 {
+		t.Errorf("viewer: %d %s, quiero 403", r.Status, r.Raw)
+	}
+
+	// Operador con alcance solo en el nodo 2 (rol propio asignado al nodo).
+	role := a.must(a.post(A.token, "/api/v1/roles", map[string]any{"key": "seg_nodo", "name": "Seguridad de nodo",
+		"permissions": []string{"security.findings.read", "security.findings.manage"}}), 201).str("id")
+	opID := a.createUser("seg@isp-a.test")
+	var mID uuid.UUID
+	ctx := context.Background()
+	if err := a.admin.QueryRow(ctx, `INSERT INTO auth.tenant_membership (id, tenant_id, user_id, status) VALUES ($1, $2, $3, 'active') RETURNING id`,
+		uuid.Must(uuid.NewV7()), A.id, opID).Scan(&mID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.admin.Exec(ctx, `INSERT INTO auth.role_assignment (id, tenant_id, membership_id, role_id, scope_type, scope_id)
+		VALUES ($1, $2, $3, $4, 'site', $5)`, uuid.Must(uuid.NewV7()), A.id, mID, role, site2); err != nil {
+		t.Fatal(err)
+	}
+	op := a.login("seg@isp-a.test", userPassword).tenantToken(A.id)
+	r := a.must(bulk(op, map[string]any{"kind": "ddos_participation", "comment": "Detector mejorado", "states": []string{"open"}}), 200)
+	if r.Body["resolved"] != float64(1) || a.findingState(open2) != "resolved" || a.findingState(ack2) != "acknowledged" ||
+		a.findingState(open1) != "open" {
+		t.Fatalf("operador de nodo 2 (solo open): %s", r.Raw)
+	}
+
+	// El administrador de A: el resto de ddos activos de A; nada de B ni de otros kinds.
+	r = a.must(bulk(A.token, map[string]any{"kind": "ddos_participation", "comment": "Detector mejorado: cierre de los hallazgos anteriores"}), 200)
+	if r.Body["resolved"] != float64(3) { // open1, ack1 y ack2
+		t.Fatalf("admin A: %s, quiero resolved=3", r.Raw)
+	}
+	want := map[string]string{open1: "resolved", ack1: "resolved", ack2: "resolved", done1: "resolved", fp1: "false_positive",
+		idsA["finding_id"]: "open", otherB: "open"}
+	for id, st := range want {
+		if got := a.findingState(id); got != st {
+			t.Errorf("hallazgo %s: estado %s, quiero %s", id, got, st)
+		}
+	}
+	// Mismo rastro que el resolve individual: veredicto con comentario y evento resolved.
+	var verdicts, events int
+	if err := a.admin.QueryRow(ctx, `SELECT count(*) FROM detection.verdict_feedback WHERE tenant_id = $1 AND verdict = 'resolved'`, A.id).Scan(&verdicts); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.admin.QueryRow(ctx, `SELECT count(*) FROM detection.outbox WHERE payload->>'type' = 'horus.detection.finding.resolved'`).Scan(&events); err != nil {
+		t.Fatal(err)
+	}
+	if verdicts != 4 || events != 4 {
+		t.Errorf("veredictos=%d eventos=%d, quiero 4 y 4", verdicts, events)
+	}
+	// refreshSecurity por cliente afectado: los cuatro quedan "mitigated".
+	var mitigated int
+	if err := a.admin.QueryRow(ctx, `SELECT count(*) FROM detection.customer_security WHERE tenant_id = $1 AND state = 'mitigated'`, A.id).Scan(&mitigated); err != nil {
+		t.Fatal(err)
+	}
+	if mitigated != 4 {
+		t.Errorf("clientes mitigated=%d, quiero 4", mitigated)
+	}
+	got := a.must(a.do(req{Method: "GET", Path: "/api/v1/findings/" + open1, Token: A.token}), 200)
+	if res, _ := got.Body["resolution"].(map[string]any); res == nil || res["verdict"] != "resolved" ||
+		res["comment"] != "Detector mejorado: cierre de los hallazgos anteriores" || got.Header.Get("ETag") != `"2"` {
+		t.Fatalf("hallazgo resuelto en bloque: %s", got.Raw)
+	}
+	// Nada más que resolver: 0, y B no se ha tocado.
+	if r := a.must(bulk(A.token, map[string]any{"kind": "ddos_participation", "comment": "otra vez"}), 200); r.Body["resolved"] != float64(0) {
+		t.Errorf("segunda llamada: %s", r.Raw)
+	}
+	if r := a.must(bulk(B.token, map[string]any{"kind": "ddos_participation", "comment": "cierre B"}), 200); r.Body["resolved"] != float64(1) {
+		t.Errorf("B: %s, quiero resolved=1 (solo el suyo)", r.Raw)
+	}
+}
