@@ -21,6 +21,12 @@ const legalPages = computed(() => footerPages.value.filter((p) => p.kind === 'le
 const infoPages = computed(() => footerPages.value.filter((p) => p.kind === 'info'))
 const home = computed(() => localePath('/'))
 const href = (id: string) => `${home.value === '/' ? '/' : home.value}#${id}`
+const productLinks = computed(() => [
+  { to: localePath('/producto'), key: 'nav.product' },
+  { to: localePath('/inteligencia-artificial'), key: 'nav.aiLong' },
+  { to: localePath('/monitoreo'), key: 'nav.monitoring' },
+  { to: localePath('/pantallas-noc'), key: 'nav.noc' },
+])
 </script>
 
 <template>
@@ -44,13 +50,13 @@ const href = (id: string) => `${home.value === '/' ? '/' : home.value}#${id}`
       <nav :aria-label="t('footer.product')">
         <h2 class="mb-2 text-sm font-semibold text-highlighted">{{ t('footer.product') }}</h2>
         <ul class="space-y-0.5">
-          <li>
-            <a
-              :href="href('features')"
+          <li v-for="l in productLinks" :key="l.key">
+            <NuxtLink
+              :to="l.to"
               class="inline-flex min-h-11 items-center text-muted hover:text-highlighted"
             >
-              {{ t('nav.features') }}
-            </a>
+              {{ t(l.key) }}
+            </NuxtLink>
           </li>
           <li>
             <a
