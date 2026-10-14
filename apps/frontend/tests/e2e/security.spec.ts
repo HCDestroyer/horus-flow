@@ -92,16 +92,18 @@ test.describe('hallazgos @security', () => {
     await loginAsAdmin(page)
     await page.goto(LIST)
     await expect(page.getByTestId('findings-table')).toBeVisible()
-    // Sin un tipo concreto no se ofrece.
-    await expect(page.getByTestId('bulk-resolve')).toHaveCount(0)
-    await page.goto(`${LIST}?kind=outbound_scanning`)
-    const rows = page.getByTestId('findings-table').locator('tbody tr')
-    await expect(rows.first()).toBeVisible()
+    // Siempre visible; la ventana parte del tipo de la lista y se puede cambiar dentro.
     await page.getByTestId('bulk-resolve').click()
     const count = page.getByTestId('bulk-resolve-count')
     await expect(count).toContainText(/que se resolverán: \d+/)
+    const all = Number((await count.textContent())!.match(/: (\d+)/)![1])
+    await page.getByTestId('bulk-resolve-kind').click()
+    await page.getByRole('option', { name: 'Escaneo saliente' }).click()
+    await expect(count).not.toContainText(`: ${all}`)
+    await expect(count).toContainText(/que se resolverán: \d+/)
     const n = Number((await count.textContent())!.match(/: (\d+)/)![1])
     expect(n).toBeGreaterThan(0)
+    expect(n).toBeLessThan(all)
     const comment = page.getByTestId('bulk-resolve-comment')
     await expect(comment).toHaveValue('Detector mejorado: cierre de los hallazgos anteriores')
     await comment.fill('')
@@ -112,11 +114,15 @@ test.describe('hallazgos @security', () => {
     await comment.fill('Detector de escaneo mejorado')
     await page.getByTestId('bulk-resolve-submit').click()
     await expect(page.getByText(`Hallazgos resueltos: ${n}`, { exact: true })).toBeVisible()
+    // En la misma página (el mock vive en memoria): filtrar por ese tipo ya no muestra nada.
+    await page.getByRole('combobox', { name: 'Tipo' }).click()
+    await page.getByRole('option', { name: 'Escaneo saliente' }).click()
     await expect(page.getByText('Ningún hallazgo coincide con estos filtros')).toBeVisible()
-    await expect(page.getByTestId('bulk-resolve')).toHaveCount(0)
+    // El botón sigue a mano, también desde un filtro sin resultados.
+    await expect(page.getByTestId('bulk-resolve')).toBeVisible()
   })
 
-  test('el NOC (sin security.findings.manage) no ve "Resolver todos"', async ({ page }) => {
+  test('el NOC (sin security.findings.manage) no ve "Resolver en bloque"', async ({ page }) => {
     await loginAsNoc(page)
     await page.goto(`${LIST}?kind=outbound_scanning`)
     await expect(page.getByTestId('findings-table')).toBeVisible()

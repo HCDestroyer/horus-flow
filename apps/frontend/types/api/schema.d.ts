@@ -1132,9 +1132,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Resolver en bloque los hallazgos activos de un tipo (p. ej. tras mejorar un detector)
-         * @description Resuelve, con el mismo comentario, los hallazgos `open`/`acknowledged` del `kind` indicado dentro del
-         *     alcance de nodos de quien llama. Cada hallazgo pasa por la misma transición que `resolveFinding`
+         * Resolver en bloque los hallazgos activos que encajan con un filtro (p. ej. tras mejorar un detector)
+         * @description Resuelve, con el mismo comentario, los hallazgos `open`/`acknowledged` que encajan con `kind`, `severity`
+         *     y `site_id` (los que se omiten no filtran: sin `kind`, todos los tipos) dentro del alcance de nodos de
+         *     quien llama. Cada hallazgo pasa por la misma transición que `resolveFinding`
          *     (veredicto, evento `horus.detection.finding.resolved` y estado de seguridad del cliente). Como máximo
          *     1000 por llamada: si `resolved` es 1000, puede quedar alguno; se vuelve a llamar.
          */
@@ -7153,7 +7154,10 @@ export interface operations {
             content: {
                 "application/json": {
                     comment: string;
-                    kind: components["schemas"]["FindingKind"];
+                    kind?: components["schemas"]["FindingKind"];
+                    /** @enum {string} */
+                    severity?: "low" | "medium" | "high" | "critical";
+                    site_id?: components["schemas"]["Uuid"];
                     /** @description Estados a cerrar (por defecto ambos: open y acknowledged). */
                     states?: ("open" | "acknowledged")[];
                 };

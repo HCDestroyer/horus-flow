@@ -465,25 +465,29 @@ var kindPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
 // BulkResolve es el cuerpo de POST /findings/bulk-resolve.
 type BulkResolve struct {
-	Kind    string   `json:"kind"`
-	Comment *string  `json:"comment"`
-	States  []string `json:"states"`
+	Kind     string     `json:"kind"`
+	Severity string     `json:"severity"`
+	SiteID   *uuid.UUID `json:"site_id"`
+	Comment  *string    `json:"comment"`
+	States   []string   `json:"states"`
 }
 
-// BulkResolve resuelve con el mismo comentario los hallazgos activos de un
-// tipo (p. ej. falsos "ddos" tras mejorar el detector), dentro del alcance de
-// nodos de quien llama y hasta MaxBulkResolve por llamada. Cada hallazgo pasa
-// por la misma transición que el resolve individual; todo en una transacción.
+// BulkResolve resuelve con el mismo comentario los hallazgos activos que
+// encajan con el filtro (tipo, severidad y nodo; sin tipo = todos los tipos),
+// p. ej. falsos "ddos" tras mejorar el detector, dentro del alcance de nodos
+// de quien llama y hasta MaxBulkResolve por llamada. Cada hallazgo pasa por la
+// misma transición que el resolve individual; todo en una transacción.
 func (s *Service) BulkResolve(ctx context.Context, in BulkResolve) (int, error) {
 	p, t, allowed, err := s.scope(ctx, PermManage)
 	if err != nil {
 		return 0, err
 	}
 	var fe []problem.FieldError
-	if in.Kind == "" {
-		fe = append(fe, apperr.Field("kind", "REQUIRED", "Indique el tipo de hallazgo."))
-	} else if len(in.Kind) > 64 || !kindPattern.MatchString(in.Kind) {
+	if in.Kind != "" && (len(in.Kind) > 64 || !kindPattern.MatchString(in.Kind)) {
 		fe = append(fe, apperr.Field("kind", "INVALID_VALUE", "Tipo de hallazgo no válido."))
+	}
+	if in.Severity != "" && !slices.Contains(validSeverities, in.Severity) {
+		fe = append(fe, apperr.Field("severity", "INVALID_VALUE", "Severidad no válida (low, medium, high o critical)."))
 	}
 	comment := ""
 	if in.Comment != nil {
@@ -514,7 +518,9 @@ func (s *Service) BulkResolve(ctx context.Context, in BulkResolve) (int, error) 
 	body := Transition{Comment: &comment}
 	n := 0
 	err = s.db.TenantTx(ctx, t, func(tx pgx.Tx) error {
-		rows, err := postgres.LockActiveOfKind(ctx, tx, in.Kind, states, allowed, MaxBulkResolve)
+		rows, err := postgres.LockActive(ctx, tx, postgres.BulkFilter{
+			Kind: in.Kind, Severity: in.Severity, Site: in.SiteID, States: states, AllowedSites: allowed,
+		}, MaxBulkResolve)
 		if err != nil {
 			return err
 		}

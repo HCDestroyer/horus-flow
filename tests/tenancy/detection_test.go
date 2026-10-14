@@ -253,7 +253,8 @@ func (a *app) findingState(id string) string {
 	return st
 }
 
-// POST /findings/bulk-resolve: solo el kind pedido y solo open/acknowledged,
+// POST /findings/bulk-resolve: solo lo que encaja con kind/severity/site_id
+// (sin kind, todos los tipos) y solo open/acknowledged,
 // dentro del alcance de nodos de quien llama y sin tocar otro ISP; comentario
 // obligatorio; cada hallazgo deja veredicto y evento como el resolve individual.
 func TestFindingsBulkResolve(t *testing.T) {
@@ -278,12 +279,12 @@ func TestFindingsBulkResolve(t *testing.T) {
 	bulk := func(token string, body any) resp {
 		return a.do(req{Method: "POST", Path: "/api/v1/findings/bulk-resolve", Token: token, Body: body})
 	}
-	// Validación: comentario obligatorio, kind obligatorio, estados acotados.
+	// Validación: comentario obligatorio, kind y severidad válidos, estados acotados.
 	for _, body := range []map[string]any{
 		{"kind": "ddos_participation"},
 		{"kind": "ddos_participation", "comment": "  x "},
-		{"comment": "detector mejorado"},
 		{"kind": "DDoS!", "comment": "detector mejorado"},
+		{"comment": "detector mejorado", "severity": "urgent"},
 		{"kind": "ddos_participation", "comment": "detector mejorado", "states": []string{"resolved"}},
 		{"kind": "ddos_participation", "comment": "detector mejorado", "states": []string{}},
 	} {
@@ -363,5 +364,24 @@ func TestFindingsBulkResolve(t *testing.T) {
 	}
 	if r := a.must(bulk(B.token, map[string]any{"kind": "ddos_participation", "comment": "cierre B"}), 200); r.Body["resolved"] != float64(1) {
 		t.Errorf("B: %s, quiero resolved=1 (solo el suyo)", r.Raw)
+	}
+
+	// Sin kind: cualquier tipo, acotado por severidad y nodo.
+	beacon2 := a.insertFinding(A.id, site2, router2, "beaconing", "open", "198.51.100.8")
+	low2 := a.insertFinding(A.id, site2, router2, "reputation_hit", "open", "198.51.100.9")
+	if _, err := a.admin.Exec(ctx, `UPDATE detection.finding SET severity = 'low' WHERE id = $1`, low2); err != nil {
+		t.Fatal(err)
+	}
+	r = a.must(bulk(A.token, map[string]any{"comment": "solo los low del nodo 2", "severity": "low", "site_id": site2}), 200)
+	if r.Body["resolved"] != float64(1) || a.findingState(low2) != "resolved" || a.findingState(beacon2) != "open" {
+		t.Fatalf("severity low + nodo 2: %s", r.Raw)
+	}
+	r = a.must(bulk(A.token, map[string]any{"comment": "todo el nodo 2", "site_id": site2}), 200)
+	if r.Body["resolved"] != float64(1) || a.findingState(beacon2) != "resolved" || a.findingState(idsA["finding_id"]) != "open" {
+		t.Fatalf("todos los tipos del nodo 2: %s", r.Raw)
+	}
+	r = a.must(bulk(A.token, map[string]any{"comment": "todo lo activo"}), 200)
+	if r.Body["resolved"] != float64(1) || a.findingState(idsA["finding_id"]) != "resolved" {
+		t.Fatalf("todos los tipos y nodos: %s", r.Raw)
 	}
 }

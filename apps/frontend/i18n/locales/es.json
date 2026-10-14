@@ -844,11 +844,11 @@
       "done": "Marcado como falso positivo"
     },
     "bulkResolve": {
-      "open": "Resolver todos los de este tipo",
-      "title": "Resolver todos: {kind}",
-      "description": "Cierra de una vez los hallazgos abiertos y reconocidos de este tipo, por ejemplo tras mejorar el detector que los generó.",
+      "open": "Resolver en bloque",
+      "title": "Resolver en bloque",
+      "description": "Cierra de una vez los hallazgos abiertos y reconocidos que elijas, por ejemplo tras mejorar el detector que los generó. «Todos» no filtra.",
       "counting": "Contando los hallazgos que se resolverán…",
-      "count": "Hallazgos de «{kind}» que se resolverán: {n}",
+      "count": "Hallazgos que se resolverán: {n}",
       "countMax": "Se resolverán {n} (el máximo por operación); repite la acción para el resto.",
       "comment": "Comentario",
       "commentHint": "Queda en cada hallazgo resuelto",
@@ -856,7 +856,8 @@
       "suggestion": "Detector mejorado: cierre de los hallazgos anteriores",
       "submit": "Resolver todos",
       "done": "Hallazgos resueltos: {n}",
-      "more": "Puede que queden más: repite la acción para resolver el resto."
+      "more": "Puede que queden más: repite la acción para resolver el resto.",
+      "site": "Solo en el nodo {site} (filtro de la lista)."
     }
   },
   "traffic": {

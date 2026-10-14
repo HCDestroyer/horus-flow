@@ -213,19 +213,36 @@ func List(ctx context.Context, tx pgx.Tx, f ListFilter) ([]domain.Finding, error
 	return collect(rows)
 }
 
-// LockActiveOfKind lee con FOR UPDATE hasta limit hallazgos de un kind en
-// los estados dados (los más antiguos primero), limitados a allowed si no es
-// nil (alcance de nodos del permiso). Para la resolución en bloque.
-func LockActiveOfKind(ctx context.Context, tx pgx.Tx, kind string, states []string, allowed []uuid.UUID, limit int) ([]domain.Finding, error) {
-	q := `SELECT ` + findingCols + ` FROM detection.finding WHERE kind = $1 AND state = ANY($2) AND state IN ('open', 'acknowledged')`
-	args := []any{kind, states, limit}
-	if allowed != nil {
-		q += ` AND site_id = ANY($4)`
-		args = append(args, allowed)
+// BulkFilter selecciona los hallazgos de un cierre en bloque; los campos
+// vacíos no filtran.
+type BulkFilter struct {
+	Kind, Severity string
+	Site           *uuid.UUID
+	States         []string
+	AllowedSites   []uuid.UUID // alcance del permiso (nil = todo el tenant)
+}
+
+// LockActive lee con FOR UPDATE hasta limit hallazgos activos que encajan con
+// el filtro, los más antiguos primero.
+func LockActive(ctx context.Context, tx pgx.Tx, f BulkFilter, limit int) ([]domain.Finding, error) {
+	var args []any
+	arg := func(v any) string { args = append(args, v); return fmt.Sprintf("$%d", len(args)) }
+	q := `SELECT ` + findingCols + ` FROM detection.finding WHERE state = ANY(` + arg(f.States) + `) AND state IN ('open', 'acknowledged')`
+	if f.Kind != "" {
+		q += ` AND kind = ` + arg(f.Kind)
 	}
-	rows, err := tx.Query(ctx, q+` ORDER BY opened_at, id LIMIT $3 FOR UPDATE`, args...)
+	if f.Severity != "" {
+		q += ` AND severity = ` + arg(f.Severity)
+	}
+	if f.Site != nil {
+		q += ` AND site_id = ` + arg(*f.Site)
+	}
+	if f.AllowedSites != nil {
+		q += ` AND site_id = ANY(` + arg(f.AllowedSites) + `)`
+	}
+	rows, err := tx.Query(ctx, q+` ORDER BY opened_at, id LIMIT `+arg(limit)+` FOR UPDATE`, args...)
 	if err != nil {
-		return nil, fmt.Errorf("lock findings of kind: %w", err)
+		return nil, fmt.Errorf("lock active findings: %w", err)
 	}
 	return collect(rows)
 }

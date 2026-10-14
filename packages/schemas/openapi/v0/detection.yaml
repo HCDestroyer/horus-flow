@@ -74,10 +74,11 @@ paths:
     post:
       tags: [findings]
       operationId: bulkResolveFindings
-      summary: "Resolver en bloque los hallazgos activos de un tipo (p. ej. tras mejorar un detector)"
+      summary: "Resolver en bloque los hallazgos activos que encajan con un filtro (p. ej. tras mejorar un detector)"
       description: |
-        Resuelve, con el mismo comentario, los hallazgos `open`/`acknowledged` del `kind` indicado dentro del
-        alcance de nodos de quien llama. Cada hallazgo pasa por la misma transición que `resolveFinding`
+        Resuelve, con el mismo comentario, los hallazgos `open`/`acknowledged` que encajan con `kind`, `severity`
+        y `site_id` (los que se omiten no filtran: sin `kind`, todos los tipos) dentro del alcance de nodos de
+        quien llama. Cada hallazgo pasa por la misma transición que `resolveFinding`
         (veredicto, evento `horus.detection.finding.resolved` y estado de seguridad del cliente). Como máximo
         1000 por llamada: si `resolved` es 1000, puede quedar alguno; se vuelve a llamar.
       x-module: detection
@@ -92,10 +93,12 @@ paths:
           application/json:
             schema:
               type: object
-              required: [kind, comment]
+              required: [comment]
               additionalProperties: false
               properties:
                 kind: { $ref: '../../finding/v0/finding.schema.json#/$defs/FindingKind' }
+                severity: { type: string, enum: [low, medium, high, critical] }
+                site_id: { $ref: './common.yaml#/components/schemas/Uuid' }
                 comment: { type: string, minLength: 3, maxLength: 2000 }
                 states:
                   type: array

@@ -200,9 +200,9 @@ const kindOptions = computed(() =>
 
 const severities = ['critical', 'high', 'medium', 'low'] as const
 
-// --- Resolver en bloque los activos de un tipo (p. ej. tras mejorar un detector) ------------
-// Solo con un tipo concreto y sin filtros que la API no aplica (severidad, nodo): lo que se
-// resuelve es exactamente lo que encaja con el filtro de la lista.
+// --- Resolver en bloque los activos (p. ej. tras mejorar un detector) ---------------------
+// Siempre a mano para quien puede gestionar hallazgos. La ventana parte del tipo y la
+// severidad de la lista (se cambian allí; "todos" no filtra) y respeta el nodo filtrado.
 const bulkOpen = ref(false)
 const bulkStates = computed<('open' | 'acknowledged')[]>(() =>
   state.value === 'open'
@@ -211,18 +211,7 @@ const bulkStates = computed<('open' | 'acknowledged')[]>(() =>
       ? ['acknowledged']
       : ['open', 'acknowledged'],
 )
-const canBulkResolve = computed(
-  () =>
-    can('security.findings.manage') &&
-    kind.value !== 'all' &&
-    severity.value === 'all' &&
-    site.value === 'all' &&
-    (state.value === 'active' || state.value === 'open' || state.value === 'acknowledged') &&
-    findings.value.some((f) => f.state === 'open' || f.state === 'acknowledged'),
-)
-const kindLabel = computed(() =>
-  te(`findingKind.${kind.value}`) ? t(`findingKind.${kind.value}`) : kind.value,
-)
+const canBulkResolve = computed(() => can('security.findings.manage'))
 function onBulkResolved() {
   load()
   refreshSummary()
@@ -296,7 +285,11 @@ function onBulkResolved() {
       <FindingBulkResolveModal
         v-model:open="bulkOpen"
         :kind="kind"
-        :kind-label="kindLabel"
+        :severity="severity"
+        :site="site"
+        :site-label="site === 'all' ? undefined : siteName(site)"
+        :kind-options="kindOptions"
+        :severity-options="severityOptions"
         :states="bulkStates"
         @done="onBulkResolved"
       />

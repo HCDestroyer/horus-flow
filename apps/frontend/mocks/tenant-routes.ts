@@ -466,9 +466,15 @@ function findingRoutes(ctx: TenantRouteContext): Response | undefined {
   if (match(ctx, 'POST', '/findings/bulk-resolve')) {
     if (!ctx.can('security.findings.manage')) return forbidden()
     const kind = String(ctx.body.kind ?? '')
+    const severity = String(ctx.body.severity ?? '')
+    const siteId = String(ctx.body.site_id ?? '')
     const comment = String(ctx.body.comment ?? '').trim()
     const states = (ctx.body.states as string[] | undefined) ?? ['open', 'acknowledged']
-    if (!/^[a-z][a-z0-9_]*$/.test(kind)) return validation('kind', 'Indica el tipo de hallazgo')
+    if (kind && !/^[a-z][a-z0-9_]*$/.test(kind))
+      return validation('kind', 'Tipo de hallazgo no válido.')
+    if (severity && !['low', 'medium', 'high', 'critical'].includes(severity)) {
+      return validation('severity', 'Severidad no válida (low, medium, high o critical).')
+    }
     if (comment.length < 3) {
       return validation('comment', 'El comentario es obligatorio (mínimo 3 caracteres).')
     }
@@ -480,7 +486,13 @@ function findingRoutes(ctx: TenantRouteContext): Response | undefined {
       )
     }
     const targets = findingsOf(tenant, now, personal)
-      .filter((f) => f.kind === kind && states.includes(f.state))
+      .filter(
+        (f) =>
+          (!kind || f.kind === kind) &&
+          (!severity || f.severity === severity) &&
+          (!siteId || f.site_id === siteId) &&
+          states.includes(f.state),
+      )
       .slice(0, 1000)
     for (const f of targets) {
       mockState.findings.set(f.id, {
