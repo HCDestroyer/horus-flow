@@ -1,0 +1,193 @@
+/*
+ * ─── Movimiento ───────────────────────────────────────────────────────────────────────────
+ * Mejora progresiva (docs/design-review.md › Movimiento):
+ *
+ * - El HTML del servidor es legible sin JavaScript: nada se oculta salvo bajo `html.rv`, una
+ *   clase que pone un script en línea del <head> solo si hay IntersectionObserver y NO hay
+ *   prefers-reduced-motion (app/utils/reveal-script.ts). Si el observador no arranca en 3 s,
+ *   la clase se quita y todo queda visible.
+ * - Solo se animan opacity y las propiedades individuales translate/scale (compositor), sin
+ *   cambiar el tamaño de nada: CLS 0.
+ * - Animaciones (no transiciones) con `backwards`: al terminar no queda ningún estilo pegado,
+ *   así el hover de una tarjeta que además se revela responde al instante.
+ * - Con prefers-reduced-motion todo aparece en su sitio y las animaciones ambientales no
+ *   arrancan (regla global de main.css + las condiciones de este archivo).
+ */
+@media (prefers-reduced-motion: no-preference) {
+  .rv [data-reveal]:not(.rv-in) {
+    opacity: 0;
+  }
+  .rv [data-reveal].rv-in {
+    animation: rv-up 0.7s var(--ease-out) backwards;
+    animation-delay: calc(var(--rv-i, 0) * 70ms);
+  }
+  .rv [data-reveal='fade'].rv-in {
+    animation-name: rv-fade;
+  }
+  .rv [data-reveal='scale'].rv-in {
+    animation-name: rv-scale;
+    animation-duration: 0.8s;
+  }
+}
+
+@keyframes rv-up {
+  from {
+    opacity: 0;
+    translate: 0 18px;
+  }
+}
+@keyframes rv-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes rv-scale {
+  from {
+    opacity: 0;
+    scale: 0.97;
+  }
+}
+
+@media print {
+  .rv [data-reveal] {
+    opacity: 1 !important;
+    animation: none !important;
+  }
+}
+
+/* Fundido entre páginas (View Transitions): la barra flotante no participa, se queda quieta. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.22s;
+  animation-timing-function: var(--ease-out);
+}
+
+@layer components {
+  /*
+   * Tarjetas que son enlaces: respuesta al pulsar (no al soltar) y elevación al pasar el
+   * puntero. La sombra vive en un pseudo-elemento y solo cambia su opacidad.
+   */
+  .lift {
+    position: relative;
+    transition: translate 0.35s var(--ease-out);
+  }
+  .lift::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: var(--lift-shadow);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.35s var(--ease-out);
+  }
+  @media (hover: hover) {
+    .lift:hover {
+      translate: 0 -3px;
+    }
+    .lift:hover::after {
+      opacity: 1;
+    }
+  }
+  .lift:active {
+    translate: 0 0;
+    scale: 0.985;
+    transition:
+      translate 0.1s ease-out,
+      scale 0.1s ease-out;
+  }
+  .lift:focus-visible::after {
+    opacity: 1;
+  }
+  /* Enlace del título extendido a toda la tarjeta: nombre accesible corto (el título) y toda la
+     superficie pulsable; el foco se dibuja alrededor de la tarjeta. */
+  .card-link::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    border-radius: inherit;
+  }
+  .card-link:focus-visible {
+    outline: none;
+  }
+  .lift:has(.card-link:focus-visible) {
+    outline: 2px solid var(--ui-primary);
+    outline-offset: 3px;
+  }
+  .lift:has(.card-link:focus-visible)::after {
+    opacity: 1;
+  }
+
+  /* Flecha de los enlaces "Saber más": se adelanta un poco al pasar o enfocar. */
+  .arrow-link .arrow {
+    transition: translate 0.25s var(--ease-out);
+  }
+  .arrow-link:hover .arrow,
+  .arrow-link:focus-visible .arrow,
+  .lift:hover .arrow {
+    translate: 3px 0;
+  }
+
+  /* Número animado: ancho fijo (el del valor final) para que nada se mueva al contar. */
+  [data-count] {
+    display: inline-block;
+    text-align: end;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Punto de estado de router (siempre acompañado de su nombre). */
+  .st-dot {
+    display: inline-block;
+    width: 0.625rem;
+    height: 0.625rem;
+    flex: none;
+    border-radius: 9999px;
+    background: var(--st, var(--st-stale));
+  }
+  [data-state='online'] {
+    --st: var(--st-online);
+  }
+  [data-state='warning'] {
+    --st: var(--st-warning);
+  }
+  [data-state='critical'] {
+    --st: var(--st-critical);
+  }
+  [data-state='degraded'] {
+    --st: var(--st-degraded);
+  }
+  [data-state='offline'] {
+    --st: var(--st-offline);
+  }
+  [data-state='stale'] {
+    --st: var(--st-stale);
+  }
+  [data-state='maintenance'] {
+    --st: var(--st-maintenance);
+  }
+  [data-state='unknown'] {
+    --st: var(--st-stale);
+  }
+  [data-state='unknown'] .st-dot,
+  .st-dot[data-state='unknown'] {
+    background: transparent;
+    box-shadow: inset 0 0 0 2px var(--st-stale);
+  }
+
+  /* Botón de pausa de las animaciones en bucle (WCAG 2.2.2): oculto hasta que el script lo
+     activa, porque sin JavaScript o con reduced motion no hay nada que pausar. */
+  .cycle-toggle[hidden] {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lift:hover,
+  .lift:active,
+  .arrow-link:hover .arrow,
+  .lift:hover .arrow {
+    translate: none;
+    scale: none;
+  }
+}

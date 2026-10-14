@@ -10,6 +10,14 @@ const pages = [
   '/legal/privacidad',
   '/en/legal/privacy',
   '/legal/inteligencia-artificial',
+  '/producto',
+  '/en/product',
+  '/inteligencia-artificial',
+  '/en/ai',
+  '/monitoreo',
+  '/en/monitoring',
+  '/pantallas-noc',
+  '/en/noc-screens',
 ]
 
 for (const scheme of ['light', 'dark'] as const) {
@@ -43,7 +51,14 @@ test('teclado: el enlace para saltar al contenido es el primer foco', async ({ p
 
 test('objetivos táctiles de al menos 44 px en móvil', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
-  for (const path of ['/', '/comprar']) {
+  for (const path of [
+    '/',
+    '/comprar',
+    '/producto',
+    '/inteligencia-artificial',
+    '/monitoreo',
+    '/pantallas-noc',
+  ]) {
     await page.goto(path)
     await hydrated(page)
     const small = await page.evaluate(() => {
@@ -84,7 +99,18 @@ test('objetivos táctiles de al menos 44 px en móvil', async ({ page }) => {
 
 test('sin desbordamiento horizontal a 320 px', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 700 })
-  for (const path of ['/', '/comprar']) {
+  for (const path of [
+    '/',
+    '/comprar',
+    '/producto',
+    '/en/product',
+    '/inteligencia-artificial',
+    '/en/ai',
+    '/monitoreo',
+    '/en/monitoring',
+    '/pantallas-noc',
+    '/en/noc-screens',
+  ]) {
     await page.goto(path)
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -96,8 +122,11 @@ test('sin desbordamiento horizontal a 320 px', async ({ page }) => {
 // El HTML del servidor también debe pasar axe: las secciones se hidratan en diferido y
 // Lighthouse audita antes de que eso ocurra.
 test.describe('sin los scripts de la app (HTML del servidor)', () => {
-  for (const path of ['/', '/comprar']) {
+  for (const path of ['/', '/comprar', '/inteligencia-artificial', '/monitoreo']) {
     test(`axe sin violaciones: ${path}`, async ({ page }) => {
+      // Con reduced motion: los scripts en línea de las apariciones no ocultan nada y axe no
+      // mide contrastes a mitad de una animación de opacidad.
+      await page.emulateMedia({ reducedMotion: 'reduce' })
       // Sin los scripts de la app (axe sí necesita JavaScript en la página).
       await page.route(/\/_nuxt\/.*\.js$/, (r) => r.abort())
       await page.goto(path)

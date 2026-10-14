@@ -118,7 +118,13 @@ const X = [20, 300, 580, 860]
     </div>
 
     <ol class="mt-8 grid gap-4 md:grid-cols-4" :aria-label="t('how.diagramTitle')">
-      <li v-for="(s, i) in steps" :key="s.key" class="relative flex gap-4 md:block">
+      <li
+        v-for="(s, i) in steps"
+        :key="s.key"
+        data-reveal
+        :style="{ '--rv-i': i }"
+        class="relative flex gap-4 md:block"
+      >
         <div class="flex flex-col items-center md:hidden">
           <span
             class="flex size-11 items-center justify-center rounded-full border border-default bg-(--surface)"

@@ -1,6 +1,14 @@
 <script setup lang="ts">
 // Sin <UApp>: la landing no usa toasts, tooltips ni overlays y así no carga su código.
 const { t, locale } = useI18n()
+
+// Apariciones al desplazarse sin hidratar (app/utils/reveal-script.ts).
+useHead({
+  script: [
+    { key: 'hf-rv-head', innerHTML: revealHeadScript, tagPosition: 'head' },
+    { key: 'hf-rv-body', innerHTML: revealBodyScript, tagPosition: 'bodyClose' },
+  ],
+})
 </script>
 
 <template>

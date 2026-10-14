@@ -1,15 +1,25 @@
 <script setup lang="ts">
 // CTA flotante solo en móvil (< sm, donde la barra no muestra "Solicitar demo"): aparece al
-// pasar el hero y se oculta cuando el formulario de demo está a la vista. Capa funcional:
-// vidrio, y su botón con el color de la acción principal.
+// pasar el titular (h1) y, en la portada, se oculta cuando el formulario de demo está a la
+// vista. En las páginas interiores lleva al formulario de la portada. Capa funcional: vidrio,
+// y su botón con el color de la acción principal.
 const { t } = useI18n()
+const localePath = useLocalePath()
 const visible = ref(false)
+const hasDemo = ref(true)
 let observer: IntersectionObserver | null = null
 
+const to = computed(() => {
+  if (hasDemo.value) return '#demo'
+  const home = localePath('/')
+  return `${home === '/' ? '/' : home}#demo`
+})
+
 onMounted(() => {
-  const hero = document.getElementById('hero-title')
+  const hero = document.querySelector('main h1')
   const demo = document.getElementById('demo')
-  if (!hero || !demo || !('IntersectionObserver' in window)) return
+  hasDemo.value = Boolean(demo)
+  if (!hero || !('IntersectionObserver' in window)) return
   let pastHero = false
   let demoInView = false
   observer = new IntersectionObserver((entries) => {
@@ -20,7 +30,7 @@ onMounted(() => {
     visible.value = pastHero && !demoInView
   })
   observer.observe(hero)
-  observer.observe(demo)
+  if (demo) observer.observe(demo)
 })
 onBeforeUnmount(() => observer?.disconnect())
 </script>
@@ -37,7 +47,7 @@ onBeforeUnmount(() => observer?.disconnect())
       class="glass fixed inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-40 rounded-2xl p-2 sm:hidden"
     >
       <UButton
-        to="#demo"
+        :to="to"
         color="primary"
         size="xl"
         block

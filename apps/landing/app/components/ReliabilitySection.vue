@@ -34,7 +34,7 @@ const rows = ['restart', 'clickhouse', 'platform', 'capacity'] as const
         <span>{{ t('motion.resilienceCaption') }}</span>
       </figcaption>
     </figure>
-    <div class="surface mt-8 overflow-hidden rounded-2xl">
+    <div data-reveal class="surface mt-8 overflow-hidden rounded-2xl">
       <table class="w-full border-collapse text-left">
         <caption class="sr-only">
           {{

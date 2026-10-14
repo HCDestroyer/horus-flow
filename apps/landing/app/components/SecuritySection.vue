@@ -18,7 +18,13 @@ const items = [
       :title="t('security.title')"
     />
     <ul class="mt-10 grid gap-x-10 gap-y-8 sm:grid-cols-2 lg:grid-cols-3">
-      <li v-for="i in items" :key="i.key" class="flex gap-4">
+      <li
+        v-for="(i, n) in items"
+        :key="i.key"
+        data-reveal
+        :style="{ '--rv-i': n % 3 }"
+        class="flex gap-4"
+      >
         <UIcon :name="i.icon" class="mt-0.5 size-6 shrink-0 text-primary" aria-hidden="true" />
         <div>
           <h3 class="font-semibold text-highlighted">{{ t(`security.items.${i.key}.title`) }}</h3>

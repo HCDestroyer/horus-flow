@@ -1,13 +1,21 @@
 {
   "meta": {
     "homeTitle": "Horus Flow · Botnet detection and traffic visibility for ISPs",
-    "homeDescription": "Find out which of your ISP's subscribers are in a botnet before your network ends up on a blocklist. MikroTik IPFIX over WireGuard, explainable findings and RouterOS commands.",
+    "homeDescription": "Find out which of your ISP's subscribers are in a botnet and keep an eye on your MikroTik routers. IPFIX over WireGuard, explainable findings, RouterOS commands and optional AI on masked data.",
     "buyTitle": "Buy a license · Horus Flow",
     "buyDescription": "Request a Horus Flow license: pick a plan and billing period and get your reference number and quote.",
     "noticeTitle": "Legal notice · Horus Flow",
     "privacyTitle": "Privacy policy · Horus Flow",
     "termsTitle": "Terms and conditions · Horus Flow",
-    "ogAlt": "Horus Flow NOC wall showing traffic, active subscribers and open findings (simulated data)"
+    "ogAlt": "Horus Flow NOC wall showing traffic, active subscribers and open findings (simulated data)",
+    "productTitle": "Product: every feature · Horus Flow",
+    "productDescription": "A full tour of Horus Flow with screenshots and simulated data: botnet detection, subscriber pages, traffic, router health, NOC screens, the AI assistant and operations.",
+    "aiTitle": "AI assistant on masked data · Horus Flow",
+    "aiDescription": "Analyze with AI in Horus Flow: masked data, read-only tools, verified answers, Claude with your own key or a local model, full audit trail and an MCP server.",
+    "monitoringTitle": "MikroTik router monitoring over SNMPv3 · Horus Flow",
+    "monitoringDescription": "Health of your MikroTik routers: CPU, memory, temperature, interfaces and latency over SNMPv3 and ICMP, eight states with reasons and hysteresis, NOC views and a ready-made dashboard.",
+    "nocTitle": "NOC screens and TV kiosk mode · Horus Flow",
+    "nocDescription": "Turn any TV into a NOC screen: pair it with an 8-character code, rotate dashboards with playlists, ride out network drops, update automatically, and run a lightweight build on older smart TVs."
   },
   "nav": {
     "skip": "Skip to content",
@@ -22,12 +30,19 @@
     "closeMenu": "Close menu",
     "language": "Language",
     "switchTo": "Español",
-    "primary": "Main"
+    "primary": "Main",
+    "product": "Product",
+    "ai": "AI",
+    "aiLong": "AI assistant",
+    "monitoring": "Monitoring",
+    "noc": "NOC screens",
+    "breadcrumb": "Breadcrumb",
+    "homeShort": "Home"
   },
   "hero": {
     "eyebrow": "For ISPs running MikroTik routers",
     "title": "Find out which subscribers are in a botnet before your network ends up on a blocklist.",
-    "lead": "Horus Flow reads IPFIX flows from your MikroTik routers, recognizes each subscriber by IP and tells you which one is talking to command-and-control servers, scanning, joining a DDoS or sending spam. With its reasons and the RouterOS commands to act on it.",
+    "lead": "Horus Flow reads IPFIX flows from your MikroTik routers, recognizes every subscriber by IP and tells you which one is talking to command-and-control servers, scanning, joining a DDoS or sending spam, with the reasons and the RouterOS commands to act. It also watches the health of your routers and, if you turn it on, explains each finding with AI.",
     "ctaPrimary": "Request a demo",
     "ctaSecondary": "See pricing",
     "note": "Horus only reads and alerts: it never writes to your router.",
@@ -36,7 +51,8 @@
     "gridCaption": "10.20.1.0/24 · 256 subscribers",
     "flagged": "Infected",
     "confidence": "94% confidence",
-    "reason": "Talks to a command-and-control server listed on Feodo Tracker"
+    "reason": "Talks to a command-and-control server listed on Feodo Tracker",
+    "news": "New: AI assistant and router health"
   },
   "problem": {
     "eyebrow": "The problem",
@@ -75,22 +91,22 @@
   "features": {
     "eyebrow": "Features",
     "title": "What your NOC sees",
-    "lead": "Real Horus Flow screenshots. The data is simulated: it belongs to no real ISP or subscriber.",
+    "lead": "Real Horus Flow screenshots with the new glass-and-light interface. The data is simulated and doesn't belong to any real ISP or subscriber.",
     "simulated": "Simulated data",
     "items": {
       "mural": {
-        "title": "NOC wall",
-        "body": "Modular dashboards with configurable widgets and a scalable wall view for the screens in the room.",
+        "title": "Dashboards for the NOC",
+        "body": "ISP NOC, Security and Router health, ready to use, with configurable widgets and a wall view that stays readable from 1280×720 to 4K.",
         "alt": "NOC wall: current traffic, active subscribers, open findings by severity, 24-hour traffic, top subscribers and recent findings"
       },
       "infected": {
-        "title": "Infected subscriber, with reasons",
-        "body": "The Infected status never comes alone: it shows the confidence and why, from the reputation list to the spam pattern.",
+        "title": "The subscriber page, live",
+        "body": "Status with its confidence and reasons, the last 24 h of traffic, what they use most and their findings, all updating live.",
         "alt": "Subscriber 10.20.1.47 flagged as Infected with 94% confidence and the list of reasons"
       },
       "finding": {
-        "title": "Findings with commands to act",
-        "body": "What happened, the evidence and what to do: RouterOS commands ready to copy, each with its undo command. Horus runs nothing on your routers.",
+        "title": "Findings with commands to act on",
+        "body": "What happened, the evidence and what to do: copy-ready RouterOS commands, each with its undo command, plus an Analyze with AI button. Horus never runs anything on your routers.",
         "alt": "Detail of a port 23 scanning finding with evidence and recommended actions"
       },
       "router": {
@@ -107,15 +123,28 @@
         "title": "On your phone too",
         "body": "The same console on small screens, to check a finding wherever you are.",
         "alt": "Scanning finding on a phone, in light mode"
+      },
+      "security": {
+        "title": "Botnet signals at a glance",
+        "body": "Findings by severity, subscribers showing botnet signals, watched ports and the 7-day trend on one security wall.",
+        "alt": "Security wall at 1280×720: 31 open findings, botnet signals by type, watched ports, security by node, 7-day trend and recent findings"
+      },
+      "traffic": {
+        "title": "Traffic by service, category and ASN",
+        "body": "Who uses what, with a coverage notice that tells you how much of the traffic is attributed to subscribers and where the rest went.",
+        "alt": "Traffic view: 92% of bytes attributed to subscribers, 24-hour chart, top subscribers and services by volume"
       }
     },
     "moreTitle": "Also",
     "more": {
-      "alerts": "Email, Telegram and LibreNMS alerts, configured per ISP. Email and Telegram carry no subscriber IPs by default.",
+      "alerts": "Email, Telegram and LibreNMS alerts, configured per ISP. Email and Telegram leave out subscriber IPs by default.",
       "ipv6": "IPv4 and IPv6 as separate subscribers; IPv6 grouped by delegated prefix (/64 by default).",
       "multi": "Multi-ISP by design: each provider isolated in data, API, events and permissions.",
-      "reputation": "Reputation lists: abuse.ch Feodo and ThreatFox, Spamhaus DROP, Tor and any your superadmin adds."
-    }
+      "reputation": "abuse.ch Feodo and ThreatFox, Spamhaus DROP and Tor reputation feeds, plus your own ASNs and custom feeds per ISP.",
+      "signals": "Compromise signals: C2 contact, scanning, watched ports, fan-out, SMTP spam, DDoS, beaconing and sustained uploads.",
+      "bulk": "Resolve every finding of a type in one go and mark false positives with a silence period."
+    },
+    "tour": "Take the full tour"
   },
   "how": {
     "eyebrow": "How it works",
@@ -132,22 +161,22 @@
       "tunnel": {
         "title": "WireGuard",
         "sub": "Router-initiated",
-        "body": "Flows and the read-only API travel encrypted to Horus."
+        "body": "Flows reach Horus encrypted, and Horus measures the router's latency over the same tunnel."
       },
       "horus": {
         "title": "Horus Flow",
         "sub": "Your Debian server",
-        "body": "Discovers subscribers, stores flows and aggregates, and runs detection."
+        "body": "Discovers subscribers, stores flows, detects botnets and polls every router over SNMPv3."
       },
       "noc": {
         "title": "Your NOC",
-        "sub": "Web, kiosk, alerts",
-        "body": "Dashboards, wall screens and alerts by email, Telegram and LibreNMS."
+        "sub": "Web, TV, alerts, AI",
+        "body": "Dashboards, wall screens, email, Telegram and LibreNMS alerts and, if you turn it on, AI analysis."
       }
     },
     "install": {
       "title": "One-command install",
-      "body": "On a clean Debian 12 or 13, one script installs everything and starts Horus with the system. Updates are signed, with a mandatory backup first and automatic rollback if anything fails."
+      "body": "On a clean Debian 12 or 13, one script installs everything and starts Horus on boot. horus-ctl upgrades with signed releases, takes a backup first and rolls back on its own if anything fails; PostgreSQL and ClickHouse are backed up every night. Works behind Nginx Proxy Manager."
     }
   },
   "motion": {
@@ -206,7 +235,7 @@
       },
       "pii": {
         "title": "Less personal data",
-        "body": "Logs and the diagnostic bundle mask subscriber IPs."
+        "body": "Logs, the diagnostics bundle and the AI assistant only see masked subscriber IPs."
       },
       "local": {
         "title": "On your server",
@@ -368,6 +397,22 @@
       "screenshots": {
         "q": "Are the screenshots from real subscribers?",
         "a": "No. Every screenshot on this page uses simulated data."
+      },
+      "ai": {
+        "q": "What data does the AI assistant see?",
+        "a": "Only masked data: subscriber IPs are replaced with pseudonyms like “Subscriber 3 · 10.20.x.x”, and names, aliases and contact details are never sent. It ships turned off; each ISP decides whether to enable it."
+      },
+      "localModel": {
+        "q": "Can I use AI without data leaving my network?",
+        "a": "Yes. Besides Claude with your ISP's own key, you can point it at a local OpenAI-compatible server such as Ollama, vLLM or LM Studio. With a local model, no data leaves the ISP's network."
+      },
+      "monitoring": {
+        "q": "How does it monitor my routers?",
+        "a": "It polls each MikroTik over SNMPv3 (CPU, memory, temperature, uptime and interfaces) and measures ICMP latency through the WireGuard tunnel. Every router gets one of eight states with its reason, using thresholds you can configure."
+      },
+      "tv": {
+        "q": "Does it work on older TVs?",
+        "a": "Yes. Alongside the regular kiosk mode there's a lightweight ES5 build for smart TVs whose browser can't handle the full console."
       }
     }
   },
@@ -443,5 +488,536 @@
   "banner": {
     "label": "Notice",
     "more": "Learn more"
+  },
+  "common": {
+    "simulated": "Simulated data",
+    "illustration": "Illustration with simulated data",
+    "learnMore": "Learn more",
+    "replay": "Play again",
+    "onThisPage": "On this page",
+    "ctaTitle": "Want to see it on your network?",
+    "ctaBody": "We'll walk you through Horus Flow with simulated data and work out together how to connect it to your MikroTik routers.",
+    "ctaDemo": "Request a demo",
+    "ctaPricing": "See pricing",
+    "faqTitle": "Frequently asked questions"
+  },
+  "stats": {
+    "title": "Horus Flow in numbers",
+    "flows": {
+      "unit": "flows/s",
+      "label": "sustained with every check passing on 4 shared vCPUs"
+    },
+    "lost": {
+      "unit": "flows lost",
+      "label": "across hard restarts of the collector, NATS and ClickHouse"
+    },
+    "states": {
+      "unit": "states",
+      "label": "of router health, each with its reason"
+    },
+    "history": {
+      "unit": "days",
+      "label": "of AI analysis history you can reread without spending queries"
+    },
+    "note": "Measured on our test server; conditions under Reliability."
+  },
+  "teasers": {
+    "eyebrow": "What's new",
+    "title": "Beyond detection: routers, screens and AI",
+    "lead": "Horus now watches the health of your MikroTik routers, turns any TV into a NOC screen and, if you turn it on, explains what it sees.",
+    "ai": {
+      "title": "Analyze with AI",
+      "body": "Get a finding or a router explained in seconds, with masked data, verified answers and suggested commands. Optional, with Claude or a local model.",
+      "cta": "How the assistant works"
+    },
+    "monitoring": {
+      "title": "Router health",
+      "body": "CPU, memory, temperature, interfaces and latency over SNMPv3, with eight states and their reasons, and no flapping alerts.",
+      "cta": "Explore monitoring"
+    },
+    "noc": {
+      "title": "NOC screens on any TV",
+      "body": "Pair a TV with a code, pick which dashboards rotate and forget about it: it updates itself and rides out outages. Older smart TVs too.",
+      "cta": "Explore NOC screens"
+    }
+  },
+  "product": {
+    "eyebrow": "Product",
+    "title": "Everything Horus Flow does, screen by screen",
+    "lead": "A tour of the console with real screenshots and simulated data: botnet detection, subscribers and traffic, router health, NOC screens, the AI assistant and running the server.",
+    "heroAlt": "NOC wall at 1920×1080 with current traffic, active subscribers, open findings, exporters, top categories and subscribers, and recent findings",
+    "sections": {
+      "detection": {
+        "nav": "Detection",
+        "eyebrow": "Botnet detection",
+        "title": "Signs of compromise, explained one by one",
+        "body": "Horus cross-checks reputation feeds against how each subscriber behaves. Every finding says what it saw, how confident it is and what you can do, with RouterOS commands you choose to apply.",
+        "points": {
+          "c2": "Contact with command-and-control (C2) servers from reputation feeds",
+          "scan": "Outbound scanning and watched ports such as Telnet, TR-069 or SMB",
+          "fanout": "Fan-out, beaconing and sustained uploads",
+          "spam": "Direct outbound SMTP (spam) and DDoS participation",
+          "ddos": "The DDoS rule no longer mistakes the TCP ACKs of a fast download for an attack",
+          "asn": "Your own ASNs and custom reputation feeds per ISP",
+          "bulk": "Resolve all findings of a type at once and mark false positives with a silence period"
+        },
+        "alt": "A critical finding: connections to a botnet control server listed on Feodo Tracker, with the evidence, the Analyze with AI panel and the suggested action of notifying the subscriber"
+      },
+      "customers": {
+        "nav": "Subscribers",
+        "eyebrow": "Subscribers",
+        "title": "The IP is the subscriber, and their page tells the whole story",
+        "body": "Every IP seen in the flows is a subscriber, discovered automatically, even behind the router's NAT. Their page shows the status with its reasons, 24 h of traffic, what they use most and their findings, live.",
+        "points": {
+          "state": "Infected or Suspicious, always with confidence and reasons",
+          "live": "24 h traffic, top usage and open findings, live",
+          "ipv6": "IPv4 and IPv6 as separate subscribers; IPv6 grouped by delegated prefix",
+          "audit": "Every look at a subscriber page is logged"
+        },
+        "alt": "Light-mode page for subscriber 10.20.1.47: Infected with 94% confidence, the reasons, 13.5 GB downloaded in 24 h and 4 open findings"
+      },
+      "traffic": {
+        "nav": "Traffic",
+        "eyebrow": "Traffic",
+        "title": "By service, category and ASN, with coverage in plain sight",
+        "body": "Who uses what, across the ISP or per node. A coverage notice says how much of the traffic is attributed to subscribers and where the rest is, so you never read a partial total as the whole picture.",
+        "points": {
+          "top": "Top subscribers by download and upload",
+          "services": "Services, categories and destination ASNs",
+          "coverage": "Coverage notice for traffic outside your declared prefixes"
+        }
+      },
+      "monitoring": {
+        "nav": "Routers",
+        "eyebrow": "Router health",
+        "title": "Your MikroTik routers, watched over SNMPv3",
+        "body": "CPU, memory, temperature, uptime, interfaces and latency for every router, with eight health states and their reasons. Configurable thresholds and hysteresis, so a brief spike doesn't page anyone.",
+        "cta": "Explore monitoring"
+      },
+      "onboarding": {
+        "nav": "Onboarding",
+        "eyebrow": "Adding a router",
+        "title": "A router connected in under 2 minutes",
+        "body": "Horus generates the RouterOS script: a WireGuard tunnel started by the router, a one-time token and a read-only user. Paste it into the router and it shows up as Exporting.",
+        "points": {
+          "ros": "MikroTik with RouterOS 7.12 or later",
+          "nat": "Works with NAT on the router thanks to IPFIX post-NAT fields",
+          "undo": "The guide explains how to undo everything"
+        }
+      },
+      "noc": {
+        "nav": "NOC",
+        "eyebrow": "NOC screens",
+        "title": "Dashboards you can read from across the room",
+        "body": "ISP NOC, Security and Router health, ready to use. The TVs in your NOC pair with a code and rotate dashboards on their own, from 1280×720 to 4K.",
+        "cta": "Explore NOC screens"
+      },
+      "ai": {
+        "nav": "AI",
+        "eyebrow": "AI assistant",
+        "title": "Analyze with AI without handing over subscriber data",
+        "body": "Optional and off by default. The AI only sees masked data, queries Horus read-only, and its answers are checked against your data. Use Claude with your ISP's key or a local model.",
+        "cta": "Explore the assistant",
+        "alt": "AI assistant settings: what the AI sees, provider and model, API key, effort, daily query limit and query audit"
+      },
+      "console": {
+        "nav": "Console",
+        "eyebrow": "Console and accounts",
+        "title": "Glass and light, in light and dark mode, on your phone too",
+        "body": "The console was redesigned to read better: light surfaces, glass only on navigation, and the same experience on a phone.",
+        "points": {
+          "reset": "Password reset by email",
+          "reauth": "Change your password or email after confirming your current password",
+          "users": "Admins can edit and delete users",
+          "overlap": "Clear errors when two prefixes overlap",
+          "alerts": "Email, Telegram and LibreNMS alerts, without subscriber IPs by default"
+        }
+      },
+      "operations": {
+        "nav": "Operations",
+        "eyebrow": "Operations",
+        "title": "One command to install, no fear when you upgrade",
+        "items": {
+          "install": {
+            "title": "One-command install",
+            "body": "On a clean Debian 12 or 13, one script installs everything and starts Horus on boot."
+          },
+          "upgrade": {
+            "title": "Signed releases",
+            "body": "horus-ctl verifies each release's signature, backs up before upgrading and rolls back on its own if anything fails."
+          },
+          "backups": {
+            "title": "Nightly backups",
+            "body": "PostgreSQL and ClickHouse are backed up every day. Off-site SFTP copies are optional."
+          },
+          "proxy": {
+            "title": "Behind your proxy",
+            "body": "Just the IP, a domain with an automatic certificate, or behind Nginx Proxy Manager."
+          },
+          "offline": {
+            "title": "No Internet needed",
+            "body": "An offline install bundle for air-gapped networks."
+          },
+          "multi": {
+            "title": "Multi-ISP",
+            "body": "Each provider isolated in data, API, events and permissions."
+          }
+        }
+      }
+    }
+  },
+  "ai": {
+    "eyebrow": "AI assistant",
+    "title": "Understand every finding in seconds, without handing over subscriber data",
+    "lead": "Click “Analyze with AI” on a finding or a router. The assistant reviews the evidence on masked data, queries Horus read-only and suggests what to do next. It's optional and ships turned off.",
+    "mock": {
+      "label": "Animated illustration with simulated data: an AI analysis of a finding about contact with a botnet control server.",
+      "title": "AI analysis",
+      "subject": "Connections to a botnet control server (Feodo Tracker)",
+      "client": "Subscriber 3 · 10.20.x.x",
+      "model": "Claude · 4 of 100 today",
+      "pending": "Analyzing masked data",
+      "done": "Analysis ready",
+      "p1Title": "Summary.",
+      "p1": "Subscriber 3 keeps completing connections to a command-and-control server listed on Feodo Tracker: 40 in the last 6 h, one every 60 s. That's the strongest sign of a compromised device.",
+      "p2Title": "Context.",
+      "p2": "Over the same window it sent direct SMTP to 86 different mail servers. The rest of its traffic looks normal for a residential subscriber.",
+      "p3Title": "Next step.",
+      "p3": "Ask the subscriber to check their devices and, if they don't respond, block their outbound SMTP:",
+      "cmd": "/ip firewall filter add chain=forward src-address=$subscriber3Ip protocol=tcp dst-port=25 action=drop comment=\"Horus: SMTP\"",
+      "cmdNote": "Horus never runs anything on your routers: copy the command if you decide to apply it.",
+      "verified": "Verified",
+      "verifiedBody": "Figures checked against Horus data · command from the verified catalog",
+      "tools": "Read-only tools: finding, subscriber flows, reputation"
+    },
+    "steps": {
+      "title": "How it works",
+      "lead": "Four steps, always in the same order. The assistant never acts on its own.",
+      "items": {
+        "ask": {
+          "title": "You ask for an analysis",
+          "body": "“Analyze with AI” on a finding or on a router's page."
+        },
+        "mask": {
+          "title": "Horus masks the data",
+          "body": "Subscriber IPs become pseudonyms like “Subscriber 3 · 10.20.x.x”. Names, aliases and contact details never leave."
+        },
+        "tools": {
+          "title": "The AI queries read-only",
+          "body": "It uses read-only tools with the permissions of whoever asked: it sees what you can see, nothing more."
+        },
+        "verify": {
+          "title": "Horus checks the answer",
+          "body": "It compares the answer against its own data and labels it Verified or Partially verified; anything unsupported is flagged."
+        }
+      }
+    },
+    "privacy": {
+      "title": "What the AI sees, and what it doesn't",
+      "lead": "Before anything is sent, Horus swaps each subscriber for a pseudonym. The answer comes back with the pseudonym, so you know who it is; the model doesn't.",
+      "before": "Before",
+      "after": "What the AI receives",
+      "beforeIp": "10.20.1.47",
+      "beforeAlias": "alias “Sunrise Bakery”",
+      "afterValue": "Subscriber 3 · 10.20.x.x",
+      "maskLabel": "Example with simulated data: IP 10.20.1.47 and its alias become the pseudonym Subscriber 3 · 10.20.x.x before reaching the model.",
+      "seesTitle": "Sees",
+      "sees": {
+        "behavior": "Behavior: ports, destinations, volumes and patterns",
+        "asn": "Destination ASNs and reputation",
+        "routers": "Router and exporter status",
+        "pseudo": "Pseudonyms like “Subscriber 3 · 10.20.x.x”"
+      },
+      "neverTitle": "Never sees",
+      "never": {
+        "ip": "Your subscribers' full IP addresses",
+        "names": "Names or aliases",
+        "contacts": "Your subscribers' contact details"
+      }
+    },
+    "providers": {
+      "title": "You pick the model",
+      "lead": "Per ISP, with no lock-in to a single provider.",
+      "claude": {
+        "tag": "Cloud",
+        "title": "Anthropic Claude",
+        "body": "With your ISP's own API key. It's stored encrypted and write-only: nobody can view it again."
+      },
+      "local": {
+        "tag": "On your network",
+        "title": "Local model",
+        "body": "Any OpenAI-compatible server on your network, such as Ollama, vLLM or LM Studio. No data leaves the ISP's network."
+      }
+    },
+    "verify": {
+      "title": "Answers that are checked, not made up",
+      "lead": "Language models can get things wrong. That's why Horus reviews every answer before showing it to you.",
+      "badges": {
+        "verified": "Verified",
+        "partial": "Partially verified",
+        "flagged": "Unsupported"
+      },
+      "items": {
+        "numbers": "Every data point is checked against what Horus knows about your network",
+        "catalog": "Suggested RouterOS commands come from a verified catalog",
+        "flagged": "Data or commands that can't be checked are flagged",
+        "never": "Horus never runs anything on your routers: you decide"
+      }
+    },
+    "control": {
+      "title": "The ISP stays in control",
+      "items": {
+        "off": {
+          "title": "Off by default",
+          "body": "Each ISP decides whether to enable it and which provider to use."
+        },
+        "audit": {
+          "title": "Everything is audited",
+          "body": "Who asked, which provider and model, how many tokens and which tools were used."
+        },
+        "limit": {
+          "title": "Daily limit",
+          "body": "A per-ISP query cap. A query that fails without spending tokens doesn't count."
+        },
+        "history": {
+          "title": "Analysis history",
+          "body": "Analyses are stored masked and can be reread without spending queries: 90 days by default."
+        }
+      }
+    },
+    "mcp": {
+      "title": "Horus inside Claude Desktop",
+      "body": "With the Horus MCP server and a personal token, you connect Claude Desktop to your installation and ask about your network from your desktop."
+    },
+    "shot": {
+      "title": "Set up on a single screen",
+      "body": "Enable it, choose provider, model, key, effort and daily limit, with the query audit right below."
+    },
+    "faq": {
+      "routers": {
+        "q": "Can the AI change anything on my routers?",
+        "a": "No. It suggests RouterOS commands from a verified catalog, but Horus never runs anything on your routers: you apply them if you want to."
+      },
+      "data": {
+        "q": "Does data leave my network?",
+        "a": "With a local model (Ollama, vLLM, LM Studio), no. With Claude, only masked data leaves: pseudonyms instead of subscriber IPs, and never names, aliases or contact details."
+      },
+      "cost": {
+        "q": "Who pays for queries?",
+        "a": "With Claude, usage is billed to your ISP's own API key; with a local model there's no per-query cost. The daily limit helps keep spending in check."
+      },
+      "default": {
+        "q": "Is it on by default?",
+        "a": "No. It's off for every ISP until someone enables it and picks a provider."
+      },
+      "history": {
+        "q": "Are answers stored?",
+        "a": "Masked analyses are kept so you can reread them without spending queries, 90 days by default. The audit log records who asked, the provider, the model, tokens and tools."
+      }
+    }
+  },
+  "monitoring": {
+    "eyebrow": "Router monitoring",
+    "title": "The health of every MikroTik, right next to your network's security",
+    "lead": "Horus polls your routers over SNMPv3 and measures their latency through the WireGuard tunnel. Eight states, each with a reason, tell you which one needs attention, without alerts that come and go.",
+    "grid": {
+      "title": "Router health",
+      "caption": "Illustration with simulated data: 18 routers changing state.",
+      "reasons": {
+        "cpu": "CPU {v}%",
+        "temp": "Temperature {v} °C",
+        "loss": "Packet loss {v}%",
+        "latency": "Latency {v} ms",
+        "noResponse": "No SNMP or ICMP response",
+        "lastSeen": "Last data {v} min ago",
+        "back": "Back {v} min ago",
+        "ok": "Poll OK",
+        "window": "Window until {v}",
+        "new": "Just added"
+      }
+    },
+    "metrics": {
+      "title": "What it measures on each router",
+      "lead": "Authenticated, encrypted SNMPv3 polling, plus ICMP through the WireGuard tunnel.",
+      "items": {
+        "cpu": {
+          "title": "CPU",
+          "body": "Processor load, with warning and critical thresholds."
+        },
+        "memory": {
+          "title": "Memory",
+          "body": "How much of the router's memory is in use."
+        },
+        "temperature": {
+          "title": "Temperature",
+          "body": "Spot a device running hot before it reboots."
+        },
+        "uptime": {
+          "title": "Uptime",
+          "body": "Catches unexpected reboots."
+        },
+        "interfaces": {
+          "title": "Interfaces",
+          "body": "Status and traffic for every interface."
+        },
+        "latency": {
+          "title": "Latency",
+          "body": "ICMP through the WireGuard tunnel, from the router to Horus."
+        }
+      }
+    },
+    "states": {
+      "title": "Eight states, each with its reason",
+      "lead": "A state never shows up alone: it always says why. Colors always come with their name.",
+      "items": {
+        "online": {
+          "label": "Online",
+          "body": "Responding, with every metric within thresholds."
+        },
+        "warning": {
+          "label": "Warning",
+          "body": "A metric crossed the warning threshold, such as high CPU or temperature."
+        },
+        "critical": {
+          "label": "Critical",
+          "body": "A metric crossed the critical threshold: time to act."
+        },
+        "degraded": {
+          "label": "Degraded",
+          "body": "Responding, but with high latency or packet loss."
+        },
+        "offline": {
+          "label": "Offline",
+          "body": "Not responding."
+        },
+        "stale": {
+          "label": "Stale",
+          "body": "The latest data is too old to rely on."
+        },
+        "unknown": {
+          "label": "Unknown",
+          "body": "Not enough data yet, for example right after it was added."
+        },
+        "maintenance": {
+          "label": "Maintenance",
+          "body": "Marked for maintenance: no alerts while it lasts."
+        }
+      }
+    },
+    "hysteresis": {
+      "title": "Hysteresis: no flapping alerts",
+      "body": "A spike lasting a few seconds doesn't change the state. Horus waits for a condition to hold before switching and for it to clear before switching back, so your NOC doesn't chase alerts that fix themselves.",
+      "chartLabel": "Illustrative chart: CPU crosses the threshold for a moment and the state doesn't change; once it stays above, the router goes to Warning, then back to Online when it recovers.",
+      "metric": "CPU",
+      "threshold": "Warning threshold",
+      "marks": {
+        "spike": "Brief spike: state unchanged",
+        "sustained": "Sustained: goes to Warning",
+        "recover": "Recovers: back to Online"
+      }
+    },
+    "detail": {
+      "title": "A page for every router",
+      "body": "CPU, memory, temperature and latency charts, its interfaces, and a “Poll now” button so you don't have to wait for the next cycle.",
+      "label": "Illustration with simulated data of a router's page.",
+      "router": "rt-north",
+      "node": "North node",
+      "pollNow": "Poll now",
+      "uptime": "Uptime 38 d",
+      "interfaces": "Interfaces",
+      "up": "up",
+      "down": "down"
+    },
+    "views": {
+      "title": "Views built for the NOC",
+      "items": {
+        "health": {
+          "title": "Router health",
+          "body": "Summary by state with node and state filters: which router is failing, at a glance."
+        },
+        "wall": {
+          "title": "Per-router wall view",
+          "body": "One router full screen, to follow it through an incident."
+        },
+        "widget": {
+          "title": "Router status widget",
+          "body": "Add it to any dashboard next to traffic and findings."
+        },
+        "template": {
+          "title": "Router health template",
+          "body": "A ready-made dashboard to rotate on your NOC screens."
+        }
+      }
+    },
+    "thresholds": {
+      "title": "Thresholds that fit your network",
+      "body": "Thresholds are configurable, so each state means the same in Horus as it does in your NOC. Wondering why a router is in Warning? Click “Analyze with AI” on its page."
+    }
+  },
+  "noc": {
+    "eyebrow": "NOC screens",
+    "title": "Your NOC on any TV, no keyboard or mouse required",
+    "lead": "Pair a screen with an 8-character code, pick a playlist and let it rotate dashboards on its own. If the network drops, it keeps showing the latest data and tells you since when.",
+    "tv": {
+      "label": "Illustration: a kiosk screen rotating between the ISP NOC and Security dashboards (simulated data).",
+      "playlist": "Playlist",
+      "slides": {
+        "noc": "ISP NOC",
+        "security": "Security"
+      },
+      "altNoc": "Kiosk at 1920×1080 showing the ISP NOC dashboard: traffic, active subscribers, findings, exporters and top subscribers with masked IPs",
+      "altSecurity": "Kiosk at 1920×1080 showing the Security dashboard: open findings, botnet signals, watched ports, 7-day trend and recent findings"
+    },
+    "steps": {
+      "title": "From TV to video wall in three steps",
+      "items": {
+        "enroll": {
+          "title": "Pair the screen",
+          "body": "With a one-time 8-character code. Each screen is a read-only device, not a user."
+        },
+        "playlist": {
+          "title": "Choose what rotates",
+          "body": "Playlists with dashboards and how long each one shows. Changes reach the TVs without pairing them again."
+        },
+        "forget": {
+          "title": "Forget about it",
+          "body": "It updates itself and recovers after an outage. While offline, it keeps the latest data with an “Offline since” notice."
+        }
+      },
+      "code": "Pairing code",
+      "codeLabel": "Example 8-character pairing code",
+      "offline": "Offline since 22:41"
+    },
+    "dashboards": {
+      "title": "Three dashboards, ready to go",
+      "lead": "Use them as they are or build your own from the widget gallery.",
+      "items": {
+        "noc": {
+          "title": "ISP NOC",
+          "body": "Current and 24 h traffic, active subscribers, exporters, top categories and subscribers, and recent findings.",
+          "alt": "ISP NOC wall at 1280×720 with traffic, active subscribers, findings, exporters, categories, subscribers and recent findings"
+        },
+        "security": {
+          "title": "Security",
+          "body": "Findings by severity, botnet signals, watched ports, security by node and the 7-day trend."
+        },
+        "routers": {
+          "title": "Router health",
+          "body": "Summary by state and the routers that need attention, to rotate alongside the others."
+        }
+      }
+    },
+    "resolution": {
+      "title": "Readable from 1280×720 to 4K",
+      "body": "Compact layouts that scale with the screen: the same on an HD TV as on a 4K video wall. The screenshots on this page are at 1280×720, the smallest size."
+    },
+    "lite": {
+      "title": "A lightweight build for older TVs",
+      "body": "An ES5 kiosk with no modern dependencies, for smart TVs whose browser can't handle the full console. Same dashboards, lighter requirements."
+    },
+    "privacy": {
+      "title": "Made for a room with visitors",
+      "body": "The kiosk is read-only and can show subscriber IPs masked."
+    }
   }
 }

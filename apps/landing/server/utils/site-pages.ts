@@ -10,6 +10,10 @@ export const SITE_PAGES: { es: string; en: string; priority: number }[] = [
   { es: '/legal/aviso-legal', en: '/en/legal/notice', priority: 0.2 },
   { es: '/legal/privacidad', en: '/en/legal/privacy', priority: 0.2 },
   { es: '/legal/terminos', en: '/en/legal/terms', priority: 0.2 },
+  { es: '/producto', en: '/en/product', priority: 0.9 },
+  { es: '/inteligencia-artificial', en: '/en/ai', priority: 0.8 },
+  { es: '/monitoreo', en: '/en/monitoring', priority: 0.8 },
+  { es: '/pantallas-noc', en: '/en/noc-screens', priority: 0.7 },
 ]
 
 /** URL pública sin barra final (NUXT_PUBLIC_SITE_URL). */

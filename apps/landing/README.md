@@ -6,8 +6,11 @@ Página pública de venta de Horus Flow, de **Connection And Solutions Company, 
 
 - **Stack:** Nuxt 4 (SSR con servidor Nitro) + Nuxt UI v4 + Tailwind 4, pnpm.
 - **Idiomas:** español (`/`, principal, es-GT) e inglés (`/en`), con @nuxtjs/i18n.
-- **Páginas:** portada (`/`, `/en`), compra (`/comprar`, `/en/buy`), legales e informativas
-  editables desde el panel (`/legal/<slug>`, `/en/legal/<slug>`, `/info/<slug>`; ver
+- **Páginas:** portada (`/`, `/en`), producto (`/producto`, `/en/product`: recorrido completo
+  con capturas), asistente de IA (`/inteligencia-artificial`, `/en/ai`), monitoreo de routers
+  (`/monitoreo`, `/en/monitoring`), pantallas NOC (`/pantallas-noc`, `/en/noc-screens`),
+  compra (`/comprar`, `/en/buy`), legales e informativas editables desde el panel
+  (`/legal/<slug>`, `/en/legal/<slug>`, `/info/<slug>`; ver
   [Páginas legales e informativas](#páginas-legales-e-informativas)) y el **panel de
   administración** en `/admin` (solo español, sin enlace público, `noindex`, fuera del sitemap).
 - **Datos:** SQLite (`node:sqlite`, integrado en Node ≥ 22.13; sin compilar nada) en `DATA_DIR`, con migraciones versionadas
@@ -21,6 +24,12 @@ Página pública de venta de Horus Flow, de **Connection And Solutions Company, 
   `/sitemap.xml` y `/robots.txt`.
 - **Diseño:** Apple HIG / Liquid Glass (`.claude/skills/apple-hig`); revisión en
   [`docs/design-review.md`](docs/design-review.md) y capturas en [`docs/screenshots/`](docs/screenshots/).
+- **Movimiento:** mejora progresiva sin librerías. Apariciones al desplazarse con dos scripts en
+  línea ([`app/utils/reveal-script.ts`](app/utils/reveal-script.ts)) que funcionan también en
+  las secciones sin hidratar; contadores, bucles con pausa y "Ver de nuevo" en
+  [`app/utils/motion-enhance.ts`](app/utils/motion-enhance.ts); CSS en
+  [`app/assets/css/motion.css`](app/assets/css/motion.css). Sin JavaScript o con
+  `prefers-reduced-motion` todo se ve al instante. Fundido entre páginas con View Transitions.
 
 ## Desarrollo
 
@@ -42,7 +51,7 @@ abre `http://localhost:3000/admin`: Chromium y Firefox aceptan la cookie `__Host
 | `pnpm test`                | Vitest: formularios, antispam, rate limit, IP real, correo simulado, webhook; migraciones, edición de precios y caché; páginas (semilla, Markdown seguro, validación de slugs, historial, caché); TOTP, bloqueo, CSRF, sesión y permisos de `/api/admin`; cálculo del importe; PayPal simulado (crear, capturar, webhook verificado y no verificado); cifrado de credenciales                   |
 | `pnpm build && pnpm start` | build de producción y servidor Node (`.output/server/index.mjs`)                                                                                                                                                                                                                                                                                                                                |
 | `pnpm e2e`                 | Playwright: navegación, idioma, demo y compra con SMTP simulado, SEO, axe (claro/oscuro, HTML del servidor y todas las páginas del panel), objetivos táctiles, 320 px; login con TOTP, configurar pagos, cambiar un precio y verlo en la web, crear/editar/despublicar una página y verlo en la web, compra con PayPal simulado, link Neo y transferencia. `E2E_NO_BUILD=1` reutiliza `.output` |
-| `pnpm screenshots`         | capturas de la landing (1440/768/390, claro y oscuro), del panel y de la compra con los tres métodos → `docs/screenshots/`                                                                                                                                                                                                                                                                      |
+| `pnpm screenshots`         | capturas de la landing (portada, producto, IA, monitoreo y pantallas NOC a 1440/768/390, claro y oscuro), del panel y de la compra con los tres métodos → `docs/screenshots/`                                                                                                                                                                                                                   |
 | `pnpm images`              | regenera las capturas optimizadas (AVIF/WebP, varios anchos) y la imagen Open Graph desde `apps/frontend/docs/screenshots/tour`                                                                                                                                                                                                                                                                 |
 
 Playwright usa el Chromium de `PLAYWRIGHT_BROWSERS_PATH` (en el contenedor de desarrollo,

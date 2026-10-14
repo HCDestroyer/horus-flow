@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 @import '@nuxt/ui';
+@import './motion.css';
 
 /*
  * Tokens de la landing de Horus Flow.
@@ -73,6 +74,17 @@
   --glass-border: rgb(255 255 255 / 0.6);
   --glass-edge: rgb(15 23 41 / 0.08);
   --glass-shadow: 0 8px 24px rgb(15 23 41 / 0.1);
+
+  --st-online: #15803d;
+  --st-warning: #b45309;
+  --st-critical: #b42318;
+  --st-degraded: #c2410c;
+  --st-offline: #4a5568;
+  --st-stale: #64748b;
+  --st-maintenance: #1d3fa8;
+  --lift-shadow: 0 14px 32px rgb(15 23 41 / 0.12);
+  /* Curvas: salida suave sin rebote (amortiguamiento crítico, apple-design §4). */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .dark {
@@ -99,7 +111,30 @@
   --glass-border: rgb(255 255 255 / 0.1);
   --glass-edge: rgb(0 0 0 / 0.4);
   --glass-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
+
+  --st-online: #4ade80;
+  --st-warning: #fbbf24;
+  --st-critical: #ff8b7e;
+  --st-degraded: #fb923c;
+  --st-offline: #a4aec4;
+  --st-stale: #7d8aa6;
+  --st-maintenance: #93b1ff;
+  --lift-shadow: 0 14px 32px rgb(0 0 0 / 0.4);
 }
+
+/*
+ * Estados de salud de router (página /monitoreo). Son objetos gráficos (punto, anillo) que
+ * siempre van con su nombre en texto; contraste sobre superficie / fondo (≥ 3:1, WCAG 1.4.11):
+ *
+ *   CLARO                         OSCURO
+ *   en línea   #15803d 5,02/4,68  #4ade80 9,74/10,72
+ *   aviso      #b45309 5,02/4,68  #fbbf24 10,17/11,19
+ *   crítico    #b42318 6,57/6,13  #ff8b7e 7,47/8,22   (el rojo de "Infectado": exige actuar)
+ *   degradado  #c2410c 5,18/4,83  #fb923c 7,50/8,25
+ *   fuera      #4a5568 7,53/7,02  #a4aec4 7,62/8,39
+ *   sin datos  #64748b 4,76/4,44  #7d8aa6 4,90/5,39   (desconocido: mismo gris, anillo hueco)
+ *   manten.    #1d3fa8 9,02/8,41  #93b1ff 8,06/8,87
+ */
 
 @layer base {
   html {

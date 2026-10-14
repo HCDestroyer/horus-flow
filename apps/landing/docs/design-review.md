@@ -145,3 +145,55 @@ Content`), cifras tabulares alineadas a la derecha. En móvil la tabla de solici
   pagos, ajustes y auditoría, en claro y oscuro (`tests/e2e/admin.spec.ts`).
 - **Pendiente (Low):** los diálogos de confirmación usan `window.confirm` (accesible y nativo,
   pero sin el estilo del sistema); se pueden pasar a una hoja modal propia.
+
+## Páginas interiores y movimiento (2026-10)
+
+Capturas: `producto-*`, `ia-*`, `monitoreo-*`, `pantallas-noc-*` (1440/768/390, claro y oscuro) y
+`en-ai-1440-*`. Páginas nuevas: `/producto`, `/inteligencia-artificial`, `/monitoreo` y
+`/pantallas-noc` (y `/en/product`, `/en/ai`, `/en/monitoring`, `/en/noc-screens`).
+
+- **Navegación** (`design-principles.md › Wayfinding`, apple-design §16 "Direct, specific
+  labels"): la barra nombra cada página (Producto, IA, Monitoreo, Pantallas NOC) y Precios sigue
+  siendo un ancla de la portada. La página actual lleva `aria-current="page"` y se marca con peso
+  y fondo, no solo con color. Cada página interior abre con una ruta visible (Inicio › Página).
+  El menú móvil sigue siendo un panel sólido; nace de la barra y vuelve por el mismo camino
+  (apple-design §7), y Escape lo cierra devolviendo el foco al botón.
+- **Estados de router**: siete colores nuevos con contraste ≥ 3:1 como objeto gráfico (tabla en
+  `app/assets/css/main.css`), siempre con su nombre y su razón en texto. "Crítico" reutiliza el
+  rojo de "Infectado": en los dos casos significa "exige actuar".
+- **IA** (`generative-ai.md`): la maqueta dice que es una ilustración con datos simulados, muestra
+  el seudónimo en lugar de la IP, la insignia "Verificada" y que Horus no ejecuta nada.
+
+### Movimiento
+
+Principio: el movimiento explica (los flujos llegan a Horus, el análisis se escribe, un router
+cambia de estado) y nunca es requisito para leer la página.
+
+| Dónde                     | Qué                                                                                              | Cómo                                                                                   |
+| ------------------------- | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| Toda la web               | Aparición al desplazarse (opacidad + 18 px), escalonada 70 ms                                    | Dos scripts en línea (`app/utils/reveal-script.ts`), sin hidratar; CSS en `motion.css` |
+| Hero de portada y páginas | Líneas de flujo que convergen hacia la cuadrícula; los paquetes viajan dos veces y se apagan     | SVG + CSS (`HeroAmbient.vue`), < 5 s en total                                          |
+| Portada                   | Cifras que cuentan hasta su valor                                                                | `motion-enhance.ts`; ancho fijo, no cuenta si ya estaba a la vista                     |
+| IA (portada y página)     | Análisis que se escribe palabra a palabra, luego comando e insignia "Verificada"; "Ver de nuevo" | Solo opacidad: el texto ya ocupa su sitio (CLS 0); ~4 s                                |
+| IA                        | Enmascarado: el dato real se atenúa y aparece el seudónimo                                       | CSS, una vez                                                                           |
+| Monitoreo y producto      | Salud de routers con un guion de cambios de estado en bucle y resumen que se recalcula           | `motion-enhance.ts`; pulso del punto (transform); botón de pausa                       |
+| Monitoreo                 | Histéresis: la gráfica se descubre de izquierda a derecha                                        | Cortina que se desplaza (transform)                                                    |
+| Pantallas NOC             | TV que rota dashboards con barra de progreso en la lista de reproducción                         | Fundido de opacidad cada 6 s; botón de pausa                                           |
+| Tarjetas enlace           | Elevación al pasar y respuesta al pulsar (escala 0,985 en 100 ms)                                | `.lift`; la sombra es un pseudo-elemento que solo cambia de opacidad                   |
+| Entre páginas             | Fundido de 220 ms; la barra no participa                                                         | View Transitions (Nuxt), omitido con reduced motion                                    |
+
+Reglas cumplidas:
+
+- **Mejora progresiva:** sin JavaScript no se oculta nada (`html.rv` la pone un script del
+  `<head>` y, si el observador no arranca en 3 s, se quita). Tests: `pages.spec.ts › sin
+JavaScript`.
+- **`prefers-reduced-motion: reduce`:** no hay clase `rv`, no corre ningún bucle, los botones de
+  pausa no aparecen y todo está en su estado final (tests `pages.spec.ts › con
+prefers-reduced-motion`). Si se activa con la página abierta, todo se muestra al instante.
+- **Solo compositor:** `opacity`, `translate`, `scale` y `transform`. Animaciones con
+  `backwards` (no queda estilo pegado: el hover responde al instante tras aparecer).
+- **WCAG 2.2.2:** lo que dura más de 5 s (salud de routers, rotación del kiosco) tiene botón de
+  pausa de 44 px y se detiene fuera de pantalla o con la pestaña oculta; lo demás es finito.
+- **Sin dependencias nuevas:** unos pocos KB de JavaScript propio, sin librerías de animación.
+- **Rendimiento:** las secciones de la portada siguen con `hydrate-never`; el titular (LCP) nunca
+  se anima.

@@ -121,6 +121,10 @@ export default defineNuxtConfig({
       // idioma sale de la página (/legal/aviso-legal ↔ /en/legal/notice).
       'legal-slug': { es: '/legal/[slug]', en: '/legal/[slug]' },
       'info-slug': { es: '/info/[slug]', en: '/info/[slug]' },
+      producto: { es: '/producto', en: '/product' },
+      'inteligencia-artificial': { es: '/inteligencia-artificial', en: '/ai' },
+      monitoreo: { es: '/monitoreo', en: '/monitoring' },
+      'pantallas-noc': { es: '/pantallas-noc', en: '/noc-screens' },
       // El panel no tiene versión por idioma (solo /admin, en español).
       admin: false,
       'admin-login': false,
@@ -134,6 +138,10 @@ export default defineNuxtConfig({
       'admin-paginas-id': false,
     },
   },
+
+  // Fundido entre páginas con la View Transitions API (Chromium/Safari; el resto navega sin
+  // él). Nuxt lo omite solo con prefers-reduced-motion: reduce.
+  experimental: { viewTransition: true },
 
   typescript: {
     strict: true,

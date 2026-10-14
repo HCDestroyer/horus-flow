@@ -13,7 +13,10 @@ const { t } = useI18n()
     <div class="mt-10">
       <FlowDiagram />
     </div>
-    <div class="surface mt-8 flex flex-col gap-4 rounded-2xl p-6 sm:flex-row sm:items-start">
+    <div
+      data-reveal
+      class="surface mt-8 flex flex-col gap-4 rounded-2xl p-6 sm:flex-row sm:items-start"
+    >
       <UIcon
         name="i-lucide-terminal-square"
         class="size-7 shrink-0 text-primary"

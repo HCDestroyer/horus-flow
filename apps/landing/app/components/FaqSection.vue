@@ -5,10 +5,14 @@ const loc = computed<'es' | 'en'>(() => (locale.value === 'en' ? 'en' : 'es'))
 const keys = [
   'routers',
   'changes',
+  'ai',
+  'localModel',
+  'monitoring',
   'server',
   'domain',
   'nat',
   'ipv6',
+  'tv',
   'offline',
   'screenshots',
 ] as const

@@ -10,9 +10,13 @@ useStructuredData()
       Hidratación diferida (rendimiento en móvil): las secciones sin interacción se sirven ya
       renderizadas y no se hidratan; precios, formulario y preguntas se hidratan al acercarse a la
       pantalla (los campos del formulario llevan id fijo para que etiqueta e id casen).
+      El movimiento de las secciones sin hidratar lo ponen los scripts en línea de
+      app/utils/reveal-script.ts y el plugin motion.client.ts, sobre el HTML del servidor.
     -->
+    <LazyStatsBand hydrate-never />
     <LazyProblemSection hydrate-never />
     <LazyFeaturesSection hydrate-never />
+    <LazyHomeTeasers hydrate-never />
     <LazyHowSection hydrate-never />
     <LazyReliabilitySection hydrate-never />
     <LazySecuritySection hydrate-never />

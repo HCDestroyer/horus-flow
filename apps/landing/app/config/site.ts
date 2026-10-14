@@ -26,6 +26,10 @@ export const site = {
 export const localizedPaths = {
   home: { es: '/', en: '/en' },
   buy: { es: '/comprar', en: '/en/buy' },
+  product: { es: '/producto', en: '/en/product' },
+  ai: { es: '/inteligencia-artificial', en: '/en/ai' },
+  monitoring: { es: '/monitoreo', en: '/en/monitoring' },
+  noc: { es: '/pantallas-noc', en: '/en/noc-screens' },
   notice: { es: '/legal/aviso-legal', en: '/en/legal/notice' },
   privacy: { es: '/legal/privacidad', en: '/en/legal/privacy' },
   terms: { es: '/legal/terminos', en: '/en/legal/terms' },

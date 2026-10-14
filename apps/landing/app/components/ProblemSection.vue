@@ -20,7 +20,13 @@ const solution = [
       :title="t('problem.title')"
     />
     <ul class="mt-10 grid gap-4 md:grid-cols-3">
-      <li v-for="p in problems" :key="p.key" class="surface rounded-2xl p-6">
+      <li
+        v-for="(p, i) in problems"
+        :key="p.key"
+        data-reveal
+        :style="{ '--rv-i': i }"
+        class="surface rounded-2xl p-6"
+      >
         <UIcon :name="p.icon" class="size-6 text-muted" aria-hidden="true" />
         <h3 class="mt-4 text-lg font-semibold text-highlighted">
           {{ t(`problem.items.${p.key}.title`) }}
@@ -36,7 +42,13 @@ const solution = [
         :title="t('problem.solutionTitle')"
       />
       <ol class="mt-10 grid gap-8 md:grid-cols-3">
-        <li v-for="s in solution" :key="s.key" class="border-l-2 border-primary pl-5">
+        <li
+          v-for="(s, i) in solution"
+          :key="s.key"
+          data-reveal
+          :style="{ '--rv-i': i }"
+          class="border-l-2 border-primary pl-5"
+        >
           <h3 class="flex items-center gap-2 text-lg font-semibold text-highlighted">
             <UIcon :name="s.icon" class="size-5 text-primary" aria-hidden="true" />
             {{ t(`problem.solution.${s.key}.title`) }}

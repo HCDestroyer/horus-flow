@@ -20,6 +20,15 @@ const SHOTS = [
   { name: 'router', src: '70-router-onboarding-script.png', widths: [640, 960, 1440] },
   { name: 'kiosk', src: '73-kiosco-codigo.png', widths: [640, 960, 1440] },
   { name: 'mobile', src: '82-movil-hallazgo-claro.png', widths: [390] },
+  // Páginas de producto, IA, monitoreo y pantallas NOC.
+  { name: 'security', src: '31-mural-seguridad-1280x720.png', widths: [640, 960, 1280] },
+  { name: 'noc720', src: '30-mural-noc-1280x720.png', widths: [640, 960, 1280] },
+  { name: 'kioskNoc', src: '75-kiosco-noc.png', widths: [640, 960, 1440] },
+  { name: 'kioskSec', src: '76-kiosco-seguridad.png', widths: [640, 960, 1440] },
+  { name: 'c2', src: '65-hallazgo-c2.png', widths: [640, 960, 1440] },
+  { name: 'customer', src: '87-cliente-claro.png', widths: [640, 960, 1440] },
+  { name: 'traffic', src: '08-traffic.png', widths: [640, 960, 1440] },
+  { name: 'ai', src: '16-ai.png', widths: [640, 960, 1440] },
 ]
 
 await rm(out, { recursive: true, force: true })

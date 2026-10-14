@@ -5,13 +5,18 @@ import { hydrated, scrollThrough } from './helpers'
 
 const widths = [1440, 768, 390]
 const schemes = ['light', 'dark'] as const
-const pages = [
+const pages: { name: string; path: string; widths?: number[] }[] = [
   { name: 'inicio', path: '/' },
   { name: 'comprar', path: '/comprar?plan=medium' },
+  { name: 'producto', path: '/producto' },
+  { name: 'ia', path: '/inteligencia-artificial' },
+  { name: 'monitoreo', path: '/monitoreo' },
+  { name: 'pantallas-noc', path: '/pantallas-noc' },
+  { name: 'en-ai', path: '/en/ai', widths: [1440] },
 ]
 
 for (const p of pages) {
-  for (const width of widths) {
+  for (const width of p.widths ?? widths) {
     for (const scheme of schemes) {
       test(`@screenshots ${p.name} ${width} ${scheme}`, async ({ page }) => {
         await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
