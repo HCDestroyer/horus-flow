@@ -45,6 +45,14 @@ type Config struct {
 	// WriterQueue: ciclos pendientes de escritura en ClickHouse antes de descartar.
 	WriterQueue int `env:"HORUS_SNMP_CH_QUEUE" envDefault:"64"`
 
+	// PostgreSQL (esquema snmp): umbrales por ISP editables desde la consola.
+	// Vacío: rigen los umbrales de la instalación para todos.
+	PostgresDSN      string `env:"HORUS_POSTGRES_DSN"`
+	PostgresPassword string `env:"HORUS_POSTGRES_PASSWORD"`
+	PGMigrate        bool   `env:"HORUS_SNMP_MIGRATE" envDefault:"true"`
+	AppRole          string `env:"HORUS_SNMP_DB_APP_ROLE" envDefault:"snmp_app"`
+	PlatformRole     string `env:"HORUS_SNMP_DB_PLATFORM_ROLE" envDefault:"snmp_platform"`
+
 	// InventoryFile: snapshot de inventario (nombres de router y nodo) cuando no hay NATS.
 	InventoryFile string `env:"HORUS_FLOWS_INVENTORY_FILE"`
 	// PublicKeys/Issuer: validador JWT si auth no es local.

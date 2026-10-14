@@ -31,6 +31,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/health"
 	"github.com/hcdestroyer/horus-flow/packages/go/module"
 	"github.com/hcdestroyer/horus-flow/packages/go/natsx"
+	"github.com/hcdestroyer/horus-flow/packages/go/pgdb"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
 	collectorapi "github.com/hcdestroyer/horus-flow/services/collector/api"
 	devapi "github.com/hcdestroyer/horus-flow/services/devices/api"
@@ -39,8 +40,10 @@ import (
 	"github.com/hcdestroyer/horus-flow/services/snmp/internal/adapters/httpapi"
 	"github.com/hcdestroyer/horus-flow/services/snmp/internal/adapters/icmp"
 	"github.com/hcdestroyer/horus-flow/services/snmp/internal/adapters/natsbus"
+	"github.com/hcdestroyer/horus-flow/services/snmp/internal/adapters/pgstore"
 	"github.com/hcdestroyer/horus-flow/services/snmp/internal/app"
 	modcfg "github.com/hcdestroyer/horus-flow/services/snmp/internal/config"
+	"github.com/hcdestroyer/horus-flow/services/snmp/migrations"
 )
 
 // Role es el nombre del rol en HORUS_ROLES: pollers SNMP/ICMP y estado observado.
@@ -56,6 +59,7 @@ type mod struct {
 	opts   app.Options
 	writer *chadapter.Writer
 	pinger *icmp.Socket
+	db     *pgdb.DB
 }
 
 // Register construye el módulo del rol snmp (firma module.Factory).
@@ -101,6 +105,19 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 			log.InfoContext(ctx, "snmp: ICMP socket ready", "mode", sock.Mode())
 		}
 	}
+	var thStore app.ThresholdStore
+	if cfg.PostgresDSN != "" {
+		db, err := pgdb.Open(ctx, pgdb.Config{DSN: cfg.PostgresDSN, Password: cfg.PostgresPassword, AppRole: cfg.AppRole,
+			PlatformRole: cfg.PlatformRole, MaxConns: 4})
+		if err != nil {
+			return nil, fmt.Errorf("%s: postgres: %w", Role, err)
+		}
+		m.db = db
+		st := pgstore.New(db)
+		thStore, m.opts.Thresholds = st, st
+	} else {
+		log.WarnContext(ctx, "snmp: HORUS_POSTGRES_DSN not set: installation thresholds for every ISP (not editable from the console)")
+	}
 	m.engine = app.New(m.opts)
 	if deps.Services != nil {
 		if err := deps.Services.Provide(api.ServiceRouterStatus, m.engine); err != nil {
@@ -109,9 +126,11 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 	}
 	if deps.Routes != nil {
 		if v := verifier(cfg, deps); v != nil {
-			httpapi.New(m.engine, authz.NewGuard(v), func() (authapi.AuditRecorder, bool) {
+			h := httpapi.New(m.engine, authz.NewGuard(v), func() (authapi.AuditRecorder, bool) {
 				return module.Lookup[authapi.AuditRecorder](deps.Services, authapi.ServiceAudit)
-			}, log).Mount(deps.Routes)
+			}, log)
+			h.Mount(deps.Routes)
+			h.MountThresholds(deps.Routes, app.NewThresholds(thStore, m.engine))
 		} else {
 			log.WarnContext(ctx, "snmp: no token verifier (auth not local, HORUS_JWT_PUBLIC_KEYS unset): routers API not served")
 		}
@@ -155,8 +174,23 @@ func verifier(cfg modcfg.Config, deps module.Deps) *authz.Verifier {
 	return authz.NewVerifier(keys, cfg.Issuer, nil)
 }
 
-// Start abre ClickHouse (migración + escritor), el KV y el estado inicial.
+// Start migra PostgreSQL, abre ClickHouse (migración + escritor), el KV y el estado inicial.
 func (m *mod) Start(ctx context.Context) error {
+	if m.db != nil {
+		if err := m.db.Ping(ctx); err != nil {
+			return fmt.Errorf("%s: postgres: %w", Role, err)
+		}
+		if m.cfg.PGMigrate {
+			n, err := pgdb.Migrate(ctx, m.db, migrations.Schema, migrations.Postgres(), m.log)
+			if err != nil {
+				return fmt.Errorf("%s: migrate postgres: %w", Role, err)
+			}
+			m.log.InfoContext(ctx, "snmp migrations applied", "count", n)
+		}
+		if m.deps.Health != nil {
+			m.deps.Health.AddCheck(health.Check{Name: "postgres", Critical: false, Probe: m.db.Ping})
+		}
+	}
 	if m.cfg.ClickHouseDSN == "" {
 		m.log.WarnContext(ctx, "snmp: HORUS_CLICKHOUSE_DSN not set: no metric history (live state only)")
 	} else {
@@ -218,6 +252,9 @@ func (m *mod) Stop(ctx context.Context) error {
 	}
 	if m.pinger != nil {
 		errs = append(errs, m.pinger.Close())
+	}
+	if m.db != nil {
+		m.db.Close()
 	}
 	return errors.Join(errs...)
 }

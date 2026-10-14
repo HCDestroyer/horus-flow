@@ -161,6 +161,91 @@ paths:
         '404': { $ref: './common.yaml#/components/responses/NotFound' }
         '428': { $ref: './common.yaml#/components/responses/PreconditionRequired' }
         '429': { $ref: './common.yaml#/components/responses/TooManyRequests' }
+  /routers/thresholds:
+    get:
+      tags: [routers-monitoring]
+      operationId: getRouterThresholds
+      summary: Umbrales de CPU, memoria y temperatura de los routers del ISP
+      description: |
+        Umbrales vigentes (aviso y crítico) con los que el sondeador calcula `warning`/`critical` y las razones
+        `cpu_high`, `memory_high` y `temperature_high`. Sin ajustes del ISP (`customized=false`, `version=0`) rigen los
+        de la instalación (HORUS_SNMP_*_WARNING/_CRITICAL), que también se devuelven en `defaults`. CPU y memoria deben
+        mantenerse `sustained_cycles` ciclos seguidos; la temperatura, uno.
+      x-module: snmp
+      x-scope: tenant
+      x-permission: snmp.read
+      x-increment: I2
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Umbrales vigentes.
+          headers:
+            ETag: { $ref: './common.yaml#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RouterThresholds' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+    put:
+      tags: [routers-monitoring]
+      operationId: putRouterThresholds
+      summary: Fija los umbrales propios del ISP (se aplican en el siguiente ciclo de sondeo)
+      description: |
+        CPU y memoria entre 1 y 100 %, temperatura entre 20 y 150 °C; el aviso no puede superar al crítico (`422`).
+        `If-Match` opcional (ETag de la lectura; no coincide → `412`). Sin PostgreSQL en el rol snmp → `503`. Auditado
+        (`snmp.thresholds.updated`, antes y después). Horus no escribe nada en los routers: solo cambia cómo evalúa sus
+        métricas.
+      x-module: snmp
+      x-scope: tenant
+      x-permission: snmp.manage
+      x-audited: true
+      x-increment: I2
+      security:
+        - tenantBearer: []
+      parameters:
+        - name: If-Match
+          in: header
+          required: false
+          schema: { type: string, examples: ['"3"'] }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RouterThresholdValues' }
+      responses:
+        '200':
+          description: Umbrales guardados.
+          headers:
+            ETag: { $ref: './common.yaml#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RouterThresholds' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+        '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
+    delete:
+      tags: [routers-monitoring]
+      operationId: resetRouterThresholds
+      summary: Vuelve a los umbrales de la instalación
+      x-module: snmp
+      x-scope: tenant
+      x-permission: snmp.manage
+      x-audited: true
+      x-increment: I2
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Umbrales de la instalación (customized=false).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RouterThresholds' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
 components:
   securitySchemes:
     tenantBearer: { $ref: './common.yaml#/components/securitySchemes/tenantBearer' }
@@ -359,3 +444,28 @@ components:
         status: { $ref: '#/components/schemas/RouterStatus' }
         interval_seconds: { type: integer }
         interfaces: { type: array, items: { $ref: '#/components/schemas/InterfaceSample' } }
+    RouterThresholdValues:
+      type: object
+      required: [cpu_warning, cpu_critical, memory_warning, memory_critical, temperature_warning, temperature_critical]
+      additionalProperties: false
+      properties:
+        cpu_warning: { type: number, minimum: 1, maximum: 100, description: '% sostenido.' }
+        cpu_critical: { type: number, minimum: 1, maximum: 100 }
+        memory_warning: { type: number, minimum: 1, maximum: 100, description: '% sostenido.' }
+        memory_critical: { type: number, minimum: 1, maximum: 100 }
+        temperature_warning: { type: number, minimum: 20, maximum: 150, description: °C. }
+        temperature_critical: { type: number, minimum: 20, maximum: 150 }
+    RouterThresholds:
+      allOf:
+        - $ref: '#/components/schemas/RouterThresholdValues'
+        - type: object
+          required: [defaults, customized, version, updated_at, sustained_cycles]
+          properties:
+            defaults: { $ref: '#/components/schemas/RouterThresholdValues' }
+            customized: { type: boolean, description: false = rigen los de la instalación. }
+            version: { type: integer, minimum: 0 }
+            updated_at:
+              oneOf:
+                - $ref: './common.yaml#/components/schemas/Timestamp'
+                - type: 'null'
+            sustained_cycles: { type: integer, description: Ciclos seguidos sobre el umbral para CPU y memoria. }

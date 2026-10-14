@@ -193,7 +193,7 @@ func (e *Engine) pollOne(ctx context.Context, r *router, at time.Time, cycle uin
 	// Umbrales (solo con SNMP): sostenidos por rachas.
 	var hits []api.ThresholdHit
 	if snmpSignal == api.SignalOK {
-		hits = st.Streaks.Evaluate(e.thresholds, st.Device)
+		hits = st.Streaks.Evaluate(e.thresholdsFor(r.TenantID), st.Device)
 	} else {
 		st.Streaks = domain.Streaks{}
 	}
@@ -216,7 +216,8 @@ func (e *Engine) pollOne(ctx context.Context, r *router, at time.Time, cycle uin
 		}
 		events = append(events, Event{Type: TypeStateChanged, Entity: r.RouterID.String(), TenantID: &r.TenantID, AggregateType: "router",
 			Version: st.Machine.Version, At: at, Data: map[string]any{"router_id": r.RouterID, "site_id": r.SiteID, "version": st.Machine.Version,
-				"previous_state": previous, "state": tr.State, "reason": tr.Reason, "signals": sig, "changed_at": at.UTC().Format(time.RFC3339)}})
+				"previous_state": previous, "state": tr.State, "reason": tr.Reason, "signals": sig, "changed_at": at.UTC().Format(time.RFC3339),
+				"router_name": r.Name, "site_name": r.SiteName, "thresholds": hits}})
 		e.log.InfoContext(ctx, "snmp: router state changed", "router_id", r.RouterID, "previous", prev, "state", tr.State, "reason", tr.Reason)
 	}
 	// Telemetría y filas ClickHouse (siempre: un ciclo sin SNMP también es una muestra).
@@ -298,7 +299,7 @@ func (e *Engine) applySNMP(r *router, at time.Time, dur time.Duration, sys snmpc
 			prevSecs := int64(*st.PrevUptime / 100) //nolint:gosec // uptime
 			events = append(events, Event{Type: TypeRebooted, Entity: r.RouterID.String(), TenantID: &r.TenantID, AggregateType: "router",
 				Version: st.Machine.Version, At: at, Data: map[string]any{"router_id": r.RouterID, "previous_uptime_seconds": prevSecs,
-					"uptime_seconds": secs, "detected_at": at.UTC().Format(time.RFC3339)}})
+					"uptime_seconds": secs, "detected_at": at.UTC().Format(time.RFC3339), "site_id": r.SiteID, "router_name": r.Name}})
 		}
 		st.PrevUptime = sys.UptimeTicks
 		d.UptimeSeconds = &secs
@@ -352,7 +353,8 @@ func (e *Engine) applySNMP(r *router, at time.Time, dur time.Duration, sys snmpc
 			if x.OperStatus != nil && *x.OperStatus != name {
 				events = append(events, Event{Type: TypeOperStatusChanged, Entity: x.InterfaceID.String(), TenantID: &r.TenantID,
 					AggregateType: "interface", At: at, Data: map[string]any{"interface_id": x.InterfaceID, "router_id": r.RouterID,
-						"if_index": x.IfIndex, "name": x.Name, "previous": *x.OperStatus, "current": name, "observed_at": at.UTC().Format(time.RFC3339)}})
+						"if_index": x.IfIndex, "name": x.Name, "previous": *x.OperStatus, "current": name, "observed_at": at.UTC().Format(time.RFC3339),
+						"site_id": r.SiteID, "router_name": r.Name, "uplink": st.UplinkIfIndex != 0 && x.IfIndex == st.UplinkIfIndex}})
 			}
 			x.OperStatus = &name
 		}

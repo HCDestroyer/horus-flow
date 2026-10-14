@@ -198,6 +198,27 @@ func (s *Store) queueDelivery(ctx context.Context, t pgdb.TenantID, d *Delivery,
 	return inserted, err
 }
 
+// alarmPending indica si la última entrega del canal para el recurso entre
+// las alarmas que cierra la recuperación (y la propia recuperación) es una
+// alarma recibida (enviada o en cola): la recuperación debe llegar. Las
+// agrupadas (throttled) no cuentan: la persona no las recibió.
+func (s *Store) alarmPending(ctx context.Context, t pgdb.TenantID, channelID uuid.UUID, resource, recovery string, alarms []string) (bool, error) {
+	var last string
+	err := s.db.TenantTx(ctx, t, func(tx pgx.Tx) error {
+		err := tx.QueryRow(ctx, `SELECT event_type FROM alerts.notification_delivery WHERE tenant_id = $1 AND channel_id = $2
+			AND resource_id = $3 AND event_type = ANY($4) AND status IN ('sent', 'queued') AND NOT is_test
+			ORDER BY created_at DESC, id DESC LIMIT 1`, t.UUID(), channelID, resource, append([]string{recovery}, alarms...)).Scan(&last)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("alerts: alarm lookup: %w", err)
+		}
+		return nil
+	})
+	return last != "" && last != recovery, err
+}
+
 // claimDue reclama hasta limit entregas vencidas de la cola (todas las
 // tenants: rol de plataforma) por lease: attempts + 1 y claimed_until =
 // now + lease. Una entrega reclamada por un proceso que muere vuelve a
@@ -237,11 +258,13 @@ func (s *Store) claimDue(ctx context.Context, limit int, lease time.Duration) ([
 	return out, err
 }
 
-// retryDelivery devuelve la entrega a la cola para otro intento en next.
-func (s *Store) retryDelivery(ctx context.Context, t pgdb.TenantID, d *Delivery, next time.Time) error {
+// retryDelivery devuelve la entrega a la cola para otro intento en next;
+// refund devuelve el intento gastado (límite de ritmo del destino).
+func (s *Store) retryDelivery(ctx context.Context, t pgdb.TenantID, d *Delivery, next time.Time, refund bool) error {
 	return s.db.TenantTx(ctx, t, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `UPDATE alerts.notification_delivery SET status = 'queued', error = $3, next_attempt_at = $4,
-			claimed_until = NULL WHERE tenant_id = $1 AND id = $2`, t.UUID(), d.ID, d.Error, next); err != nil {
+			claimed_until = NULL, attempts = CASE WHEN $5 THEN greatest(attempts - 1, 0) ELSE attempts END
+			WHERE tenant_id = $1 AND id = $2`, t.UUID(), d.ID, d.Error, next, refund); err != nil {
 			return fmt.Errorf("alerts: retry delivery: %w", err)
 		}
 		return nil
@@ -312,7 +335,7 @@ func (s *Store) listDeliveries(ctx context.Context, t pgdb.TenantID, q DeliveryQ
 			cond += fmt.Sprintf(" AND (created_at, id) < ($%d, $%d)", len(args)-1, len(args))
 		}
 		rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT id, tenant_id, channel_id, channel_kind, status, event_type, source_event_type, source_event_id,
-			resource_id, is_test, error, created_at, sent_at FROM alerts.notification_delivery WHERE tenant_id = $1%s
+			resource_id, is_test, error, created_at, sent_at, severity, message->>'subject' FROM alerts.notification_delivery WHERE tenant_id = $1%s
 			ORDER BY created_at DESC, id DESC LIMIT %d`, cond, q.Limit), args...)
 		if err != nil {
 			return fmt.Errorf("alerts: list deliveries: %w", err)
@@ -320,9 +343,13 @@ func (s *Store) listDeliveries(ctx context.Context, t pgdb.TenantID, q DeliveryQ
 		defer rows.Close()
 		for rows.Next() {
 			var d Delivery
+			var subject *string
 			if err := rows.Scan(&d.ID, &d.TenantID, &d.ChannelID, &d.ChannelKind, &d.Status, &d.EventType, &d.SourceEventType, &d.SourceEventID,
-				&d.ResourceID, &d.IsTest, &d.Error, &d.CreatedAt, &d.SentAt); err != nil {
+				&d.ResourceID, &d.IsTest, &d.Error, &d.CreatedAt, &d.SentAt, &d.Severity, &subject); err != nil {
 				return fmt.Errorf("alerts: scan delivery: %w", err)
+			}
+			if subject != nil {
+				d.Message = &Message{Subject: *subject}
 			}
 			out = append(out, d)
 		}

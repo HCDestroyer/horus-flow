@@ -5,8 +5,10 @@
 // instalación, HORUS_SMTP_*), Telegram (bot de la instalación o propio) y
 // LibreNMS por su API — con secretos write-only cifrados con la KEK de
 // alerts (HORUS_ALERTS_KEK_FILE), prueba de conexión, registro de entregas y
-// el durable alerts-notify que avisa de hallazgos abiertos, exportadores
-// silenciosos y túneles caídos sin la IP del cliente. Reglas, silencios y
+// los durables alerts-notify-* que avisan de hallazgos abiertos, routers
+// (caídas, umbrales, hardware, interfaces, reinicios), servicios de
+// infraestructura, exportadores silenciosos y túneles caídos sin la IP del
+// cliente. Reglas, silencios y
 // escalado llegan con el incremento de alertas completo.
 package alerts
 
@@ -16,6 +18,8 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/hcdestroyer/horus-flow/packages/go/authz"
 	"github.com/hcdestroyer/horus-flow/packages/go/config"
@@ -29,6 +33,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/services/alerts/internal/notify"
 	"github.com/hcdestroyer/horus-flow/services/alerts/migrations"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
+	devapi "github.com/hcdestroyer/horus-flow/services/devices/api"
 )
 
 // Role es el nombre del rol en HORUS_ROLES: reglas, alertas y notificaciones.
@@ -132,6 +137,7 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		},
 		cfg.PublicBaseURL, logger)
 	svc.SetRetry(cfg.MaxAttempts, cfg.RetryBackoff, 0)
+	svc.SetDirectory(directory(deps))
 	if deps.Health != nil {
 		deps.Health.AddCheck(health.Check{Name: "postgres", Critical: true, Probe: db.Ping})
 	}
@@ -149,6 +155,43 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		return nil, err
 	}
 	return &mod{db: db, svc: svc, bus: bus, migrate: cfg.Migrate, logger: logger, relay: relay, dispatchEvery: cfg.DispatchEvery}, nil
+}
+
+// directory resuelve nombres de router (devices) y el slug del ISP (auth)
+// cuando esos roles están en el mismo proceso; si no, los mensajes usan lo que
+// traiga el evento.
+func directory(deps module.Deps) notify.Directory {
+	slugs := notify.NewSlugCache()
+	return notify.Directory{
+		Router: func(ctx context.Context, tenant, routerID uuid.UUID) (notify.RouterInfo, bool) {
+			dev, ok := module.Lookup[devapi.Onboarding](deps.Services, devapi.ServiceOnboarding)
+			if !ok {
+				return notify.RouterInfo{}, false
+			}
+			r, err := dev.GetRouter(ctx, tenant, routerID)
+			if err != nil {
+				return notify.RouterInfo{}, false
+			}
+			return notify.RouterInfo{Name: r.Name, SiteID: r.SiteID}, true
+		},
+		TenantSlug: func(ctx context.Context, tenant uuid.UUID) (string, bool) {
+			return slugs.Get(time.Now(), tenant, func() (map[uuid.UUID]string, bool) {
+				dir, ok := module.Lookup[authapi.TenantDirectory](deps.Services, authapi.ServiceTenants)
+				if !ok {
+					return nil, false
+				}
+				list, err := dir.TenantSummaries(ctx)
+				if err != nil {
+					return nil, false
+				}
+				out := make(map[uuid.UUID]string, len(list))
+				for _, t := range list {
+					out[t.ID] = t.Slug
+				}
+				return out, true
+			})
+		},
+	}
 }
 
 func (m *mod) Start(ctx context.Context) error {
@@ -170,21 +213,13 @@ func (m *mod) Start(ctx context.Context) error {
 // lo que ocurre a partir del alta del durable, events.md §4.2).
 func (m *mod) Run(ctx context.Context) error {
 	if m.bus != nil {
-		go func() {
-			_ = natsx.Consume(ctx, m.bus.JS, natsx.ConsumerConfig{Service: Role, Stream: "DETECTION_EVENTS",
-				Durable: m.bus.Durable(notify.DurableNotify + "-detection"), FilterSubjects: notify.NotifySubjects[:2], DeliverNew: true,
-				Logger: m.logger}, m.svc.HandleEvent)
-		}()
-		go func() {
-			_ = natsx.Consume(ctx, m.bus.JS, natsx.ConsumerConfig{Service: Role, Stream: "FLOWS_EVENTS",
-				Durable: m.bus.Durable(notify.DurableNotify + "-flows"), FilterSubjects: notify.NotifySubjects[2:4], DeliverNew: true,
-				Logger: m.logger}, m.svc.HandleEvent)
-		}()
-		go func() {
-			_ = natsx.Consume(ctx, m.bus.JS, natsx.ConsumerConfig{Service: Role, Stream: "WIREGUARD_EVENTS",
-				Durable: m.bus.Durable(notify.DurableNotify + "-wireguard"), FilterSubjects: notify.NotifySubjects[4:], DeliverNew: true,
-				Logger: m.logger}, m.svc.HandleEvent)
-		}()
+		for _, c := range notify.NotifyConsumers {
+			go func() {
+				_ = natsx.Consume(ctx, m.bus.JS, natsx.ConsumerConfig{Service: Role, Stream: c.Stream,
+					Durable: m.bus.Durable(notify.DurableNotify + "-" + c.Suffix), FilterSubjects: c.Subjects, DeliverNew: true,
+					Logger: m.logger}, m.svc.HandleEvent)
+			}()
+		}
 	} else {
 		m.logger.WarnContext(ctx, "alerts-notify inactive: HORUS_NATS_URL not set")
 	}

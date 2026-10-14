@@ -3846,6 +3846,151 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+  /notification-channels/telegram/bot-validation:
+    post:
+      tags:
+        - notifications
+      operationId: validateTelegramBot
+      summary: Valida un token de bot de Telegram (getMe) sin guardarlo
+      description: |
+        Paso del asistente «Crear bot»: tras `/newbot` en @BotFather la persona pega el token y la consola muestra el
+        nombre y el usuario del bot. El token no se guarda ni se devuelve (se guarda después con
+        `PUT …/credentials`). Un token rechazado → `422 NOTIFICATION_CHANNEL_AUTH_FAILED` con la descripción de
+        Telegram (saneada, sin el token).
+      x-module: alerts
+      x-scope: tenant
+      x-permission: alerts.manage
+      x-rate-limit: connection_test
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - bot_token
+              additionalProperties: false
+              properties:
+                bot_token:
+                  type: string
+                  writeOnly: true
+                  pattern: ^[0-9]+:[A-Za-z0-9_-]{30,}$
+      responses:
+        '200':
+          description: Bot válido.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TelegramBotInfo'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /notification-channels/telegram/chat-detection:
+    post:
+      tags:
+        - notifications
+      operationId: detectTelegramChats
+      summary: Detecta los chats donde escribieron al bot o lo añadieron (getUpdates)
+      description: |
+        Lee las actualizaciones pendientes del bot con `getUpdates` (`message`, `channel_post`, `my_chat_member`; sin
+        espera larga) y las confirma con `offset` para que no se acumulen. Con un bot propio (`bot_token` pegado en el
+        asistente o el guardado en `channel_id`) devuelve todos los chats; con el bot de la instalación exige `code`
+        (`POST …/telegram/link-codes`) y solo devuelve el chat que lo envió. Horus no usa webhooks: si el bot tiene
+        uno, Telegram rechaza `getUpdates` → `422 NOTIFICATION_TELEGRAM_WEBHOOK_ACTIVE`.
+      x-module: alerts
+      x-scope: tenant
+      x-permission: alerts.manage
+      x-rate-limit: connection_test
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                bot_token:
+                  type: string
+                  writeOnly: true
+                  pattern: ^[0-9]+:[A-Za-z0-9_-]{30,}$
+                  description: Bot propio aún no guardado (no se guarda).
+                channel_id:
+                  $ref: '#/components/schemas/Uuid'
+                code:
+                  type: string
+                  pattern: ^hf[a-z0-9]{10}$
+                  description: Código de vinculación (bot de la instalación).
+      responses:
+        '200':
+          description: Chats candidatos (vacío si nadie escribió todavía).
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - shared_bot
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TelegramChatCandidate'
+                  bot_username:
+                    type:
+                      - string
+                      - 'null'
+                    examples:
+                      - '@noc_isp_bot'
+                  shared_bot:
+                    type: boolean
+                    description: true = bot de la instalación (filtrado por código).
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /notification-channels/telegram/link-codes:
+    post:
+      tags:
+        - notifications
+      operationId: createTelegramLinkCode
+      summary: Código de un solo uso para detectar el chat con el bot de la instalación
+      description: |
+        Las actualizaciones del bot compartido (HORUS_TELEGRAM_BOT_TOKEN_FILE) mezclan a todos los ISP: para detectar
+        el chat la persona envía `/start <código>` al bot (o publica el código en el canal) y
+        `POST …/telegram/chat-detection` solo devuelve el chat que lo envió. Caduca a los 15 minutos. Sin bot de la
+        instalación → `422 NOTIFICATION_TELEGRAM_BOT_NOT_CONFIGURED`.
+      x-module: alerts
+      x-scope: tenant
+      x-permission: alerts.manage
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '201':
+          description: Código generado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TelegramLinkCode'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
   /notification-channels/{channel_id}:
     parameters:
       - $ref: '#/components/parameters/ChannelId'
@@ -5996,6 +6141,113 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+  /routers/thresholds:
+    get:
+      tags:
+        - routers-monitoring
+      operationId: getRouterThresholds
+      summary: Umbrales de CPU, memoria y temperatura de los routers del ISP
+      description: |
+        Umbrales vigentes (aviso y crítico) con los que el sondeador calcula `warning`/`critical` y las razones
+        `cpu_high`, `memory_high` y `temperature_high`. Sin ajustes del ISP (`customized=false`, `version=0`) rigen los
+        de la instalación (HORUS_SNMP_*_WARNING/_CRITICAL), que también se devuelven en `defaults`. CPU y memoria deben
+        mantenerse `sustained_cycles` ciclos seguidos; la temperatura, uno.
+      x-module: snmp
+      x-scope: tenant
+      x-permission: snmp.read
+      x-increment: I2
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Umbrales vigentes.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RouterThresholds'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    put:
+      tags:
+        - routers-monitoring
+      operationId: putRouterThresholds
+      summary: Fija los umbrales propios del ISP (se aplican en el siguiente ciclo de sondeo)
+      description: |
+        CPU y memoria entre 1 y 100 %, temperatura entre 20 y 150 °C; el aviso no puede superar al crítico (`422`).
+        `If-Match` opcional (ETag de la lectura; no coincide → `412`). Sin PostgreSQL en el rol snmp → `503`. Auditado
+        (`snmp.thresholds.updated`, antes y después). Horus no escribe nada en los routers: solo cambia cómo evalúa sus
+        métricas.
+      x-module: snmp
+      x-scope: tenant
+      x-permission: snmp.manage
+      x-audited: true
+      x-increment: I2
+      security:
+        - tenantBearer: []
+      parameters:
+        - name: If-Match
+          in: header
+          required: false
+          schema:
+            type: string
+            examples:
+              - '"3"'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RouterThresholdValues'
+      responses:
+        '200':
+          description: Umbrales guardados.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RouterThresholds'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    delete:
+      tags:
+        - routers-monitoring
+      operationId: resetRouterThresholds
+      summary: Vuelve a los umbrales de la instalación
+      x-module: snmp
+      x-scope: tenant
+      x-permission: snmp.manage
+      x-audited: true
+      x-increment: I2
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Umbrales de la instalación (customized=false).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RouterThresholds'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /routers/{router_id}:
     parameters:
       - $ref: '#/components/parameters/RouterId'
@@ -7439,6 +7691,9 @@ components:
             - NOTIFICATION_CHANNEL_UNREACHABLE
             - NOTIFICATION_CHANNEL_AUTH_FAILED
             - NOTIFICATION_CHANNEL_CREDENTIALS_MISSING
+            - NOTIFICATION_TELEGRAM_WEBHOOK_ACTIVE
+            - NOTIFICATION_TELEGRAM_LINK_CODE_INVALID
+            - NOTIFICATION_TELEGRAM_BOT_NOT_CONFIGURED
             - STORAGE_TARGET_UNREACHABLE
             - REPUTATION_SOURCE_NOT_FOUND
             - REPUTATION_SOURCE_READ_ONLY
@@ -10862,6 +11117,11 @@ components:
         chat_id:
           type: string
           pattern: ^-?[0-9]{1,20}$|^@[A-Za-z0-9_]{5,32}$
+          description: Id numérico (usuarios positivos, grupos negativos, supergrupos y canales `-100…`) o `@usuario_del_canal`.
+        message_thread_id:
+          type: integer
+          minimum: 1
+          description: Tema de un supergrupo con temas (foro); sin valor, el chat general.
         uses_own_bot:
           type: boolean
           default: false
@@ -10908,7 +11168,17 @@ components:
           default: 10
     NotificationEventType:
       type: string
-      description: Tipos de evento a los que se suscribe un canal en el I1 (enum abierto).
+      description: |
+        Tipos de evento a los que se suscribe un canal (enum abierto), por categoría:
+        - `security`: `finding_opened`, `finding_reopened`.
+        - `routers` (rol snmp): `router_offline`, `router_recovered` (vuelve tras una caída o un umbral avisado),
+          `router_cpu_high`, `router_memory_high`, `router_temperature_high` (aviso → `medium`, crítico → `high`),
+          `router_hardware_failed` (fuente o ventilador), `router_interface_down` / `router_interface_up` (enlace de
+          subida → `high`), `router_rebooted`.
+        - `infrastructure` (servicios vigilados, `horus.snmp.service.state_changed`): `service_down`,
+          `service_degraded`, `service_recovered`.
+        - `exporter_tunnel`: `exporter_silent`, `exporter_recovered`, `tunnel_down`, `tunnel_recovered`.
+        Las recuperaciones (`*_recovered`, `router_interface_up`) tienen severidad `info`.
       enum:
         - finding_opened
         - finding_reopened
@@ -10916,6 +11186,26 @@ components:
         - exporter_recovered
         - tunnel_down
         - tunnel_recovered
+        - router_offline
+        - router_recovered
+        - router_cpu_high
+        - router_memory_high
+        - router_temperature_high
+        - router_hardware_failed
+        - router_interface_down
+        - router_interface_up
+        - router_rebooted
+        - service_down
+        - service_degraded
+        - service_recovered
+    NotificationCategory:
+      type: string
+      description: Grupo de tipos de evento (ver NotificationEventType). Enum abierto.
+      enum:
+        - security
+        - routers
+        - infrastructure
+        - exporter_tunnel
     Severity:
       type: string
       description: Severidad (enum abierto; el cliente trata valores desconocidos como "otro").
@@ -10927,17 +11217,29 @@ components:
         - critical
     ChannelSubscription:
       type: object
+      description: |
+        Un evento llega al canal si su tipo está en `event_types` **o** su categoría en `categories` (al menos una de las
+        dos con valores), su severidad alcanza `min_severity` y su nodo está en `site_ids`. Compatible con las
+        suscripciones anteriores (solo `event_types`).
       required:
         - event_types
       additionalProperties: false
       properties:
         event_types:
           type: array
-          minItems: 1
           items:
             $ref: '#/components/schemas/NotificationEventType'
+        categories:
+          type: array
+          description: Categorías completas (incluye los tipos que se añadan a ellas).
+          items:
+            $ref: '#/components/schemas/NotificationCategory'
         min_severity:
           $ref: '#/components/schemas/Severity'
+        notify_recovery:
+          type: boolean
+          default: true
+          description: La recuperación de un recurso llega al canal que recibió su alarma sin filtro de severidad ni agrupación.
         site_ids:
           type: array
           description: Vacío = todos los nodos.
@@ -11006,6 +11308,75 @@ components:
                 - string
                 - 'null'
               description: Sin datos sensibles.
+    TelegramBotInfo:
+      type: object
+      required:
+        - id
+        - username
+        - first_name
+      properties:
+        id:
+          type: integer
+          format: int64
+        username:
+          type: string
+          examples:
+            - noc_isp_bot
+        first_name:
+          type: string
+          examples:
+            - NOC Fibra Norte
+        can_join_groups:
+          type: boolean
+        can_read_all_group_messages:
+          type: boolean
+    TelegramChatCandidate:
+      type: object
+      required:
+        - id
+        - type
+        - title
+      properties:
+        id:
+          type: string
+          description: chat_id para la configuración del canal.
+          examples:
+            - '-1001234567890'
+        type:
+          type: string
+          enum:
+            - private
+            - group
+            - supergroup
+            - channel
+        title:
+          type: string
+        username:
+          type: string
+    TelegramLinkCode:
+      type: object
+      required:
+        - code
+        - expires_at
+        - bot_username
+        - start_url
+      properties:
+        code:
+          type: string
+          pattern: ^hf[a-z0-9]{10}$
+        expires_at:
+          $ref: '#/components/schemas/Timestamp'
+        bot_username:
+          type:
+            - string
+            - 'null'
+          examples:
+            - '@horus_alertas_bot'
+        start_url:
+          type:
+            - string
+            - 'null'
+          description: Enlace de t.me al chat privado con el bot y el código como parámetro start.
     NotificationChannelPatch:
       type: object
       additionalProperties: false
@@ -11063,12 +11434,28 @@ components:
                 - timeout
                 - unexpected_response
                 - missing_credentials
+                - chat_not_found
+                - bot_not_member
+                - bot_cannot_post
             - type: 'null'
         error:
           type:
             - string
             - 'null'
-          description: Sin secretos ni cuerpo de la respuesta remota.
+          description: |
+            Sin secretos ni cuerpo de la respuesta remota; en Telegram incluye la `description` de la Bot API saneada (sin el
+            token). `telegram`: `getMe` + `getChat` + `getChatMember` (en un canal el bot debe ser administrador con
+            `can_post_messages`).
+        bot_username:
+          type:
+            - string
+            - 'null'
+          description: 'telegram: @usuario del bot.'
+        chat_title:
+          type:
+            - string
+            - 'null'
+          description: 'telegram: título del chat comprobado.'
     NotificationChannelCredentials:
       type: object
       description: Secretos write-only por `kind` (nunca devueltos). Ver `PUT /notification-channels/{id}/credentials`.
@@ -11136,6 +11523,20 @@ components:
           type:
             - string
             - 'null'
+        severity:
+          oneOf:
+            - $ref: '#/components/schemas/Severity'
+            - type: 'null'
+        summary:
+          type:
+            - string
+            - 'null'
+          description: Asunto del mensaje enviado (sin datos personales).
+        resource_id:
+          type:
+            - string
+            - 'null'
+          description: Recurso que agrupa avisos y empareja recuperaciones (router, interfaz, servicio…).
         created_at:
           $ref: '#/components/schemas/Timestamp'
         sent_at:
@@ -12914,6 +13315,70 @@ components:
           type: boolean
           default: true
           description: false si HORUS_SNMP_ENABLED=false en la instalación.
+    RouterThresholdValues:
+      type: object
+      required:
+        - cpu_warning
+        - cpu_critical
+        - memory_warning
+        - memory_critical
+        - temperature_warning
+        - temperature_critical
+      additionalProperties: false
+      properties:
+        cpu_warning:
+          type: number
+          minimum: 1
+          maximum: 100
+          description: '% sostenido.'
+        cpu_critical:
+          type: number
+          minimum: 1
+          maximum: 100
+        memory_warning:
+          type: number
+          minimum: 1
+          maximum: 100
+          description: '% sostenido.'
+        memory_critical:
+          type: number
+          minimum: 1
+          maximum: 100
+        temperature_warning:
+          type: number
+          minimum: 20
+          maximum: 150
+          description: °C.
+        temperature_critical:
+          type: number
+          minimum: 20
+          maximum: 150
+    RouterThresholds:
+      allOf:
+        - $ref: '#/components/schemas/RouterThresholdValues'
+        - type: object
+          required:
+            - defaults
+            - customized
+            - version
+            - updated_at
+            - sustained_cycles
+          properties:
+            defaults:
+              $ref: '#/components/schemas/RouterThresholdValues'
+            customized:
+              type: boolean
+              description: false = rigen los de la instalación.
+            version:
+              type: integer
+              minimum: 0
+            updated_at:
+              oneOf:
+                - $ref: '#/components/schemas/Timestamp'
+                - type: 'null'
+            sustained_cycles:
+              type: integer
+              description: Ciclos seguidos sobre el umbral para CPU y memoria.
     RouterPatch:
       type: object
       additionalProperties: false

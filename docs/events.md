@@ -309,6 +309,7 @@ mensaje DLQ a su subject original (seguro por idempotencia).
 | `devices-customer-detection` | `DETECTION_EVENTS` | `horus.detection.customer.security_state_changed.>` (I1); `horus.detection.customer.kind_suggested.>` (pendiente) | devices | Proyecta `security_state` y `open_findings` en la ficha del cliente (el evento se publica al cambiar el estado **o** el conteo). Pendiente: aplicar el tipo sugerido si `kind_locked = false` y la confianza ≥ umbral del tenant → `customer.kind_changed` (`source=scoring`) | 10 |
 | `ingester-known-clients` | `DEVICES_EVENTS` | `horus.devices.customer.>`, `horus.devices.client_prefix.>`, `horus.devices.realm.>` | flows (ingester) | Conjunto de IPs conocidas por realm y prefijos de clientes | 6 |
 | `detection-customers` | `DEVICES_EVENTS` | `horus.devices.customer.>` | detection | Universo de clientes a puntuar; respeta `kind_locked` para no proponer cambios ya decididos a mano | 8–10 |
+| `alerts-notify-<stream>` (detection, flows, wireguard, snmp; deliver new) | `DETECTION_`, `FLOWS_`, `WIREGUARD_`, `SNMP_EVENTS` | `finding.opened/updated`, `exporter.silent/recovered`, `peer.handshake_stale/recovered`, `snmp.router.state_changed/rebooted`, `snmp.interface.oper_status_changed`, `snmp.service.state_changed` | alerts | Canal mínimo (D13): encola notificaciones por categoría (security, routers, infrastructure, exporter_tunnel) | I1–I2 |
 | `alerts-jobs` | `JOBS_EVENTS` | `horus.jobs.coverage.low.>`, `horus.jobs.remote_sync.lagging.>`, `horus.jobs.remote_sync.failed.>` | alerts | Alertas de cobertura de flujos y de copia remota | backups |
 | `flows-snapshots` | `TRAFFIC_EVENTS`, `DETECTION_EVENTS` | `horus.traffic.catalog.published.>`, `horus.detection.reputation.snapshot_published.>` | flows (ingester) | Recargar snapshots desde NATS Object Store (doble buffer) | 7–8 |
 | `detection-signals` | `SNMP_EVENTS`, `FLOWS_EVENTS` | `router.state_changed`, `exporter.*` | detection | Contexto de correlación | 8 |
@@ -783,6 +784,7 @@ Dominio → `SNMP_EVENTS` (publicación §6.3):
 | `horus.snmp.router.rebooted` | devices, alerts, api-gateway | 5 |
 | `horus.snmp.router.interfaces_discovered` | devices (interfaces sugeridas), api-gateway | 5 |
 | `horus.snmp.interface.oper_status_changed` | alerts, api-gateway | 5 |
+| `horus.snmp.service.state_changed` | alerts (`service_down` / `_degraded` / `_recovered`) | I2 |
 | `horus.snmp.poller.heartbeat` (tenant `platform`; entity_id = UUIDv5 de la instancia) | alerts, api-gateway (topic `system`) | 5 |
 | `horus.snmp.audit.recorded` | auth | 5 |
 
@@ -798,7 +800,10 @@ Dominio → `SNMP_EVENTS` (publicación §6.3):
 { "router_id": "0192...", "site_id": "0192...", "version": 42,
   "previous_state": "online", "state": "offline", "reason": "tunnel_down",
   "signals": { "icmp": "fail", "snmp": "fail", "wireguard": "stale", "exporter": "silent" },
-  "changed_at": "2026-10-07T14:03:11Z" }
+  "changed_at": "2026-10-07T14:03:11Z", "router_name": "rt-core-01", "site_name": "Centro",
+  "thresholds": [ { "metric": "cpu_percent", "level": "critical", "value": 97.2, "threshold": 95, "interface_name": null } ] }
+// router_name, site_name y thresholds (umbrales superados en el ciclo; vacío si no hay) son campos añadidos de
+// forma compatible para que alerts nombre el router y el valor en sus mensajes.
 // previous_state: null en la primera observación. state: online | warning | critical | degraded | offline
 // reason: ok | cpu_high | memory_high | temperature_high | interface_down | exporter_silent | snmp_unreachable |
 //         snmp_auth_failed | no_snmp_credentials | tunnel_down | host_unreachable_via_tunnel
@@ -806,7 +811,8 @@ Dominio → `SNMP_EVENTS` (publicación §6.3):
 // exporter: FlowExporterState o null.
 
 // horus.snmp.router.rebooted
-{ "router_id": "0192...", "previous_uptime_seconds": 1209600, "uptime_seconds": 95, "detected_at": "2026-10-07T14:20:00Z" }
+{ "router_id": "0192...", "previous_uptime_seconds": 1209600, "uptime_seconds": 95, "detected_at": "2026-10-07T14:20:00Z",
+  "site_id": "0192...", "router_name": "rt-core-01" }
 
 // horus.snmp.router.interfaces_discovered   (al arrancar y cada hora; interface_id = UUIDv5(router_id, ifName))
 { "router_id": "0192...", "interfaces": [ { "interface_id": "0192...", "if_index": 7, "name": "sfp-sfpplus1",
@@ -815,7 +821,16 @@ Dominio → `SNMP_EVENTS` (publicación §6.3):
 
 // horus.snmp.interface.oper_status_changed   (entity_id = interface_id)
 { "interface_id": "0192...", "router_id": "0192...", "if_index": 7, "name": "sfp-sfpplus1", "previous": "up",
-  "current": "down", "observed_at": "2026-10-07T14:03:00Z" }
+  "current": "down", "observed_at": "2026-10-07T14:03:00Z", "site_id": "0192...", "router_name": "rt-core-01",
+  "uplink": true }
+
+// horus.snmp.service.state_changed   (servicios de infraestructura vigilados; entity_id = service_id)
+{ "tenant_id": "0192...", "service_id": "0192...", "site_id": "0192..." | null, "name": "DNS primario",
+  "check_type": "tcp", "target": "dns1.isp.example:53", "previous_state": "up", "state": "down",
+  "reason": "connect_timeout", "observed_at": "2026-10-07T14:03:00Z" }
+// check_type: icmp | tcp | http | no_traffic | ddos_inbound; state: up | down | degraded | unknown.
+// alerts lo traduce a service_down | service_degraded | service_recovered (categoría infrastructure); el destino
+// solo se muestra en el mensaje para icmp, tcp y http (no_traffic y ddos_inbound pueden apuntar a clientes).
 
 // horus.snmp.poller.heartbeat   (cada 15 s, tenant platform, entity_id = UUIDv5 de instance_id)
 { "instance_id": "horus-app", "shards_owned": 1, "targets": 312, "last_cycle_at": "2026-10-07T14:03:00Z",

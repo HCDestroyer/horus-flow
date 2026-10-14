@@ -50,11 +50,60 @@ const (
 	eventExporterRecovered      = "exporter_recovered"
 	eventTunnelDown             = "tunnel_down"
 	eventTunnelRecovered        = "tunnel_recovered"
+	eventRouterOffline          = "router_offline"
+	eventRouterRecovered        = "router_recovered"
+	eventRouterCPUHigh          = "router_cpu_high"
+	eventRouterMemoryHigh       = "router_memory_high"
+	eventRouterTemperatureHigh  = "router_temperature_high"
+	eventRouterHardwareFailed   = "router_hardware_failed"
+	eventRouterInterfaceDown    = "router_interface_down"
+	eventRouterInterfaceUp      = "router_interface_up"
+	eventRouterRebooted         = "router_rebooted"
+	eventServiceDown            = "service_down"
+	eventServiceDegraded        = "service_degraded"
+	eventServiceRecovered       = "service_recovered"
 	notificationChannelEventSrc = "horus/alerts"
 )
 
-// EventTypes son los tipos de evento suscribibles en I1.
-var EventTypes = []string{eventFindingOpened, eventFindingReopened, eventExporterSilent, eventExporterRecovered, eventTunnelDown, eventTunnelRecovered}
+// Categorías de eventos: agrupan los tipos para suscribirse por bloque. Una
+// suscripción a una categoría incluye también los tipos que se añadan a ella
+// más adelante.
+const (
+	CategorySecurity       = "security"
+	CategoryRouters        = "routers"
+	CategoryInfrastructure = "infrastructure"
+	CategoryExporterTunnel = "exporter_tunnel"
+)
+
+// Categories en el orden en que las muestra la consola.
+var Categories = []string{CategorySecurity, CategoryRouters, CategoryInfrastructure, CategoryExporterTunnel}
+
+// EventCategory asigna cada tipo de evento a su categoría.
+var EventCategory = map[string]string{
+	eventFindingOpened: CategorySecurity, eventFindingReopened: CategorySecurity,
+	eventRouterOffline: CategoryRouters, eventRouterRecovered: CategoryRouters, eventRouterCPUHigh: CategoryRouters,
+	eventRouterMemoryHigh: CategoryRouters, eventRouterTemperatureHigh: CategoryRouters, eventRouterHardwareFailed: CategoryRouters,
+	eventRouterInterfaceDown: CategoryRouters, eventRouterInterfaceUp: CategoryRouters, eventRouterRebooted: CategoryRouters,
+	eventServiceDown: CategoryInfrastructure, eventServiceDegraded: CategoryInfrastructure, eventServiceRecovered: CategoryInfrastructure,
+	eventExporterSilent: CategoryExporterTunnel, eventExporterRecovered: CategoryExporterTunnel,
+	eventTunnelDown: CategoryExporterTunnel, eventTunnelRecovered: CategoryExporterTunnel,
+}
+
+// EventTypes son los tipos de evento suscribibles.
+var EventTypes = []string{eventFindingOpened, eventFindingReopened, eventExporterSilent, eventExporterRecovered, eventTunnelDown, eventTunnelRecovered,
+	eventRouterOffline, eventRouterRecovered, eventRouterCPUHigh, eventRouterMemoryHigh, eventRouterTemperatureHigh, eventRouterHardwareFailed,
+	eventRouterInterfaceDown, eventRouterInterfaceUp, eventRouterRebooted, eventServiceDown, eventServiceDegraded, eventServiceRecovered}
+
+// RecoveryOf relaciona cada tipo de recuperación con las alarmas que cierra
+// (mismo recurso): una recuperación llega siempre al canal que recibió la
+// alarma, aunque su severidad (info) quede por debajo de min_severity.
+var RecoveryOf = map[string][]string{
+	eventRouterRecovered: {eventRouterOffline, eventRouterCPUHigh, eventRouterMemoryHigh, eventRouterTemperatureHigh, eventRouterHardwareFailed},
+	eventRouterInterfaceUp: {eventRouterInterfaceDown},
+	eventServiceRecovered:  {eventServiceDown, eventServiceDegraded},
+	eventExporterRecovered: {eventExporterSilent},
+	eventTunnelRecovered:   {eventTunnelDown},
+}
 
 // Severities en orden creciente.
 var Severities = []string{"info", "low", "medium", "high", "critical"}
@@ -62,13 +111,30 @@ var Severities = []string{"info", "low", "medium", "high", "critical"}
 // SeverityRank devuelve el orden de una severidad (-1 si es desconocida).
 func SeverityRank(s string) int { return slices.Index(Severities, s) }
 
-// Subscription es ChannelSubscription.
+// Subscription es ChannelSubscription. Las suscripciones guardadas antes de
+// las categorías solo traen event_types y siguen valiendo tal cual.
 type Subscription struct {
 	EventTypes      []string    `json:"event_types"`
+	Categories      []string    `json:"categories,omitempty"`
 	MinSeverity     *string     `json:"min_severity,omitempty"`
 	SiteIDs         []uuid.UUID `json:"site_ids"`
 	ThrottleMinutes *int        `json:"throttle_minutes,omitempty"`
+	// NotifyRecovery (true por defecto): las recuperaciones llegan al canal
+	// que recibió la alarma, sin filtro de severidad.
+	NotifyRecovery *bool `json:"notify_recovery,omitempty"`
 }
+
+// Subscribes indica si el canal está suscrito al tipo (directo o por categoría).
+func (s Subscription) Subscribes(eventType string) bool {
+	if slices.Contains(s.EventTypes, eventType) {
+		return true
+	}
+	cat, ok := EventCategory[eventType]
+	return ok && slices.Contains(s.Categories, cat)
+}
+
+// Recovery devuelve notify_recovery con su valor por defecto (true).
+func (s Subscription) Recovery() bool { return s.NotifyRecovery == nil || *s.NotifyRecovery }
 
 // Throttle devuelve la ventana de agrupación.
 func (s Subscription) Throttle() time.Duration {
@@ -91,6 +157,8 @@ type TelegramConfig struct {
 	ChatID     string `json:"chat_id"`
 	UsesOwnBot bool   `json:"uses_own_bot"`
 	Language   string `json:"language,omitempty"`
+	// MessageThreadID: tema de un supergrupo con temas (foro).
+	MessageThreadID *int64 `json:"message_thread_id,omitempty"`
 }
 
 // LibreNMSConfig es LibreNmsChannelConfig (D17).
@@ -211,11 +279,15 @@ func normalizeConfig(kind string, raw json.RawMessage, f *fieldErrs) json.RawMes
 	case KindTelegram:
 		var c TelegramConfig
 		if decodeStrict(raw, &c) != nil {
-			f.add("config", "INVALID_VALUE", "TelegramChannelConfig: chat_id, language.")
+			f.add("config", "INVALID_VALUE", "TelegramChannelConfig: chat_id, language, message_thread_id.")
 			return nil
 		}
+		c.ChatID = strings.TrimSpace(c.ChatID)
 		if !chatIDRe.MatchString(c.ChatID) {
-			f.add("config.chat_id", "INVALID_FORMAT", "ID numérico de chat o @canal.")
+			f.add("config.chat_id", "INVALID_FORMAT", "ID numérico de chat (los grupos y canales empiezan por -100) o @canal.")
+		}
+		if c.MessageThreadID != nil && *c.MessageThreadID <= 0 {
+			f.add("config.message_thread_id", "OUT_OF_RANGE", "ID de tema positivo.")
 		}
 		if c.Language == "" {
 			c.Language = defaultLanguage
@@ -256,14 +328,24 @@ func normalizeConfig(kind string, raw json.RawMessage, f *fieldErrs) json.RawMes
 }
 
 func validateSubscription(s *Subscription, f *fieldErrs) {
-	if len(s.EventTypes) == 0 {
-		f.add("subscription.event_types", "REQUIRED", "Al menos un tipo de evento.")
+	if s.EventTypes == nil {
+		s.EventTypes = []string{}
+	}
+	if len(s.EventTypes) == 0 && len(s.Categories) == 0 {
+		f.add("subscription.event_types", "REQUIRED", "Al menos una categoría o un tipo de evento.")
 	}
 	for _, e := range s.EventTypes {
 		if !slices.Contains(EventTypes, e) {
 			f.add("subscription.event_types", "INVALID_VALUE", fmt.Sprintf("Tipo de evento no permitido: %s.", e))
 		}
 	}
+	for _, c := range s.Categories {
+		if !slices.Contains(Categories, c) {
+			f.add("subscription.categories", "INVALID_VALUE", fmt.Sprintf("Categoría no permitida: %s.", c))
+		}
+	}
+	s.EventTypes = slices.Compact(slices.Sorted(slices.Values(s.EventTypes)))
+	s.Categories = slices.Compact(slices.Sorted(slices.Values(s.Categories)))
 	if s.MinSeverity != nil && SeverityRank(*s.MinSeverity) < 0 {
 		f.add("subscription.min_severity", "INVALID_VALUE", "info, low, medium, high o critical.")
 	}
