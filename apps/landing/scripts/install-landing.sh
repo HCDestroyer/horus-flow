@@ -195,7 +195,9 @@ git_auth() { # cabecera de autenticación solo para esta orden (el token no se g
 }
 
 resolve_source() {
-  if [ -z "$source_dir" ] && [ -f "$script_dir/../Dockerfile" ] && [ -f "$script_dir/../nuxt.config.ts" ]; then
+  # El script de la copia que él mismo clona (DIR/src) no fija el código: así update la actualiza.
+  if [ -z "$source_dir" ] && [ -f "$script_dir/../Dockerfile" ] && [ -f "$script_dir/../nuxt.config.ts" ] &&
+    [ "$(readlink -f "$script_dir/../../..")" != "$(readlink -f "$install_dir/src" 2>/dev/null || true)" ]; then
     source_dir="$(readlink -f "$script_dir/..")"
   fi
   if [ -n "$source_dir" ]; then
@@ -568,6 +570,7 @@ do_install() {
 do_update() {
   [ -f "$state_file" ] || die "no hay instalación en $install_dir (ejecuta install)"
   load_state
+  local cli_source="$source_dir"
   domain="$st_domain" admin_email="$st_admin_email" mode="$st_mode" proxy_network="$st_proxy_network"
   port="$st_port" trusted="$st_trusted" source_dir="${source_dir:-$st_source_dir}" repo="$st_repo" branch="$st_branch"
   image="${image:-$st_image}"
@@ -578,7 +581,11 @@ do_update() {
     warn "la landing no está en marcha: se actualiza sin copia previa"
   fi
   if [ -z "$image" ]; then
-    if [ -d "$install_dir/src/.git" ] && [ -z "$st_source_dir" ]; then source_dir=""; fi
+    # La copia que clonó el script (DIR/src) se vuelve a descargar; un --source propio se usa tal cual.
+    if [ -z "$cli_source" ] && [ -d "$install_dir/src/.git" ] &&
+      { [ -z "$st_source_dir" ] || [ "$(readlink -f "$st_source_dir")" = "$(readlink -f "$install_dir/src/apps/landing")" ]; }; then
+      source_dir=""
+    fi
     resolve_source
   fi
   write_env
