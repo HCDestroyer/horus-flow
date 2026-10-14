@@ -207,7 +207,14 @@ port_busy() { # port_busy tcp|udp <puerto>
   ss "$flag" "sport = :$2" 2>/dev/null | grep -q .
 }
 
-project_running() { docker compose -p "$project" ps -q 2>/dev/null | grep -q .; }
+# ¿Hay ya contenedores de esta instalación (en marcha, parados o recién creados)? Entonces los
+# puertos 80/443/51820/18081 son suyos y no se comprueban. Se pregunta a Docker por la etiqueta del
+# proyecto (no depende de que docker compose resuelva el proyecto sin su archivo) y, de respaldo, a
+# compose con -a: un upgrade sobre una instalación a medio arrancar fallaba con "puerto ocupado".
+project_running() {
+  docker ps -aq --filter "label=com.docker.compose.project=$project" 2>/dev/null | grep -q . ||
+    docker compose -p "$project" ps -aq 2>/dev/null | grep -q .
+}
 
 check_requirements() {
   say "Requisitos del servidor"
@@ -263,7 +270,7 @@ check_requirements() {
     else fail "sin WireGuard: instala el kernel con el módulo o wireguard-go (apt install wireguard-tools wireguard-go)"; fi
   fi
   if project_running; then
-    ok "Horus ya está en marcha (proyecto $project): no se comprueban sus puertos"
+    ok "Horus ya está instalado (proyecto $project): no se comprueban sus puertos"
   else
     local p
     # 18081/tcp: admin de horus-wg-agent (red del host, solo 127.0.0.1).
