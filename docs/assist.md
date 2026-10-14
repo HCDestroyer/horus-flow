@@ -48,7 +48,7 @@ las **mismas herramientas de solo lectura** y el **mismo enmascarado**:
 | Herramientas | `internal/tools` | Registro compartido por el agente y el servidor MCP; validación de argumentos (JSON Schema reducido, sin propiedades extra) |
 | Enmascarado | `internal/mask` | Seudónimos de clientes por análisis; quita alias, nombres y contactos |
 | Lector | `internal/adapters/loopback` | `tools.Reader` que llama en proceso a la API REST como el usuario |
-| Persistencia | `internal/adapters/postgres` | `assist.settings`, `assist.audit`, `assist.mcp_token` con RLS |
+| Persistencia | `internal/adapters/postgres` | `assist.settings`, `assist.audit`, `assist.analysis` (historial), `assist.mcp_token` con RLS |
 | MCP | `internal/adapters/mcpserver` | SDK oficial de Go de MCP, Streamable HTTP sin estado |
 
 ### 2.1 Cómo llegan las herramientas a los datos
@@ -110,6 +110,7 @@ configuración propia rige el **valor por defecto de plataforma** del entorno:
 | `HORUS_ASSIST_KEK(_FILE)` | — (efímera en dev) | KEK de 32 B que cifra las claves por ISP |
 | `HORUS_ASSIST_MAX_ITERATIONS` | `8` | Pasos máximos del bucle |
 | `HORUS_ASSIST_REQUEST_TIMEOUT` | `120s` | Tiempo máximo de un análisis |
+| `HORUS_ASSIST_HISTORY_RETENTION` | `2160h` | Cuánto se guardan los análisis para volver a verlos (`0` = no se guardan) |
 | `HORUS_ASSIST_MAX_OUTPUT_TOKENS` | `16000` | Tokens de salida por turno |
 | `HORUS_ASSIST_ALLOW_LOOPBACK` | `false` | Permite `base_url` en 127.0.0.1/::1 (sin contenedores) |
 | `HORUS_ASSIST_MCP` / `HORUS_ASSIST_MCP_TOKEN_TTL` | `true` / `2160h` | Servidor MCP y vigencia de sus tokens |
@@ -174,17 +175,28 @@ usuario en `internal/prompt`.
 `assist.audit` guarda por consulta: usuario, ISP, feature, id de contexto (o nombre de la herramienta MCP),
 proveedor, modelo (el que respondió), tokens de entrada/salida, herramientas usadas (nombre, veces,
 errores), duración, resultado (`success|refused|error|limited|denied`) y código de error. **Nunca** la
-respuesta, la evidencia ni IP. Los cambios de configuración y de tokens MCP van además a la auditoría del
+respuesta, la evidencia ni IP (la respuesta enmascarada va aparte, en el historial: §6.1). Los cambios de configuración y de tokens MCP van además a la auditoría del
 ISP (auth).
 
-Límite diario por ISP (UTC): cuentan los análisis que llegaron al proveedor (`success`, `refused`,
-`error`). Superado → `429 ASSIST_LIMIT_REACHED` con `Retry-After` hasta medianoche UTC. La prueba de
+Límite diario por ISP (UTC): cuentan los análisis que el proveedor respondió (`success`, `refused`) y
+los errores que llegaron a gastar tokens. Un fallo sin tokens (proveedor caído, tiempo agotado antes de la
+primera respuesta) no consume cupo. Superado → `429 ASSIST_LIMIT_REACHED` con `Retry-After` hasta medianoche UTC. La prueba de
 conexión y las llamadas MCP no cuentan (no hay llamada al proveedor de Horus), pero se auditan.
+
+### 6.1 Historial
+
+Cada análisis correcto se guarda en `assist.analysis` tal como se mostró: el Markdown **ya enmascarado**
+(seudónimos, sin IP ni alias de clientes), el anclaje, el modelo, los tokens y las herramientas. Lo ve
+cualquier miembro del ISP con permiso de lectura del recurso (el recurso se comprueba como el usuario,
+igual que al analizar), y volver a verlo no consume consultas. Retención:
+`HORUS_ASSIST_HISTORY_RETENTION` (90 días; los anteriores se borran al guardar uno nuevo del ISP; `0`
+desactiva el historial). El panel "Análisis con IA" muestra el más reciente y deja elegir uno anterior.
 
 ## 7. API
 
 `GET /assist/status` (cualquier miembro), `GET|PUT /assist/settings` (`settings.read` / `settings.manage`;
 `api_key` write-only → `api_key_set`), `POST /assist/settings/test`, `POST /assist/analyses`,
+`GET /assist/analyses?feature=&context_id=` (historial; permiso de lectura del recurso),
 `GET /assist/audit`, `GET|POST /assist/mcp-tokens`, `DELETE /assist/mcp-tokens/{id}`
 (`api_tokens.manage`), `POST /assist/mcp` (token MCP). Detalle en
 [`assist.yaml`](../packages/schemas/openapi/v0/assist.yaml).

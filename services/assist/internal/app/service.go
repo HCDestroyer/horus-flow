@@ -68,12 +68,27 @@ type Store interface {
 	RecordAudit(ctx context.Context, e *domain.AuditEntry) error
 	CountRequests(ctx context.Context, tenant uuid.UUID, since time.Time) (int, error)
 	ListAudit(ctx context.Context, tenant uuid.UUID, limit int, before *AuditCursor) ([]domain.AuditEntry, error)
+	// SaveAnalysis guarda un análisis y purga los del tenant anteriores a purgeBefore.
+	SaveAnalysis(ctx context.Context, a *StoredAnalysis, purgeBefore time.Time) error
+	// ListAnalyses devuelve los análisis de un recurso desde since (más reciente primero).
+	ListAnalyses(ctx context.Context, tenant uuid.UUID, feature, contextID string, since time.Time, limit int) ([]json.RawMessage, error)
 	CreateMCPToken(ctx context.Context, t *domain.MCPToken) error
 	ListMCPTokens(ctx context.Context, tenant uuid.UUID) ([]domain.MCPToken, error)
 	RevokeMCPToken(ctx context.Context, tenant, id uuid.UUID, at time.Time) error
 	// MCPTokenByHash busca un token por su hash sin tenant (rol de plataforma).
 	MCPTokenByHash(ctx context.Context, hash []byte) (*domain.MCPToken, error)
 	TouchMCPToken(ctx context.Context, id uuid.UUID, at time.Time) error
+}
+
+// StoredAnalysis es una fila del historial (body = Analysis tal como se devolvió).
+type StoredAnalysis struct {
+	ID        uuid.UUID
+	TenantID  uuid.UUID
+	UserID    *uuid.UUID
+	Feature   string
+	ContextID string
+	Body      []byte
+	CreatedAt time.Time
 }
 
 // AuditCursor pagina la auditoría (created_at, id descendentes).
@@ -130,8 +145,10 @@ type Options struct {
 	RequestTimeout  time.Duration
 	MaxOutputTokens int64
 	MCPTokenTTL     time.Duration
-	Now             func() time.Time
-	Logger          *slog.Logger
+	// HistoryRetention: cuánto se guardan los análisis (0 = no se guardan).
+	HistoryRetention time.Duration
+	Now              func() time.Time
+	Logger           *slog.Logger
 }
 
 // Service implementa los casos de uso.
@@ -604,24 +621,8 @@ func (s *Service) Analyze(ctx context.Context, req AnalysisRequest) (*Analysis, 
 		return nil, err
 	}
 	reader := s.o.Readers(p)
-	// El contexto debe existir y ser visible para quien pide el análisis.
-	if _, err := reader.Get(ctx, featureProbe[req.Feature]+req.ContextID, nil); err != nil {
-		var he *tools.HTTPError
-		switch {
-		case errors.As(err, &he) && (he.Status == 404 || he.Status == 403):
-			return nil, apperr.NotFound(CodeContextNotFound)
-		case errors.As(err, &he):
-			// 401, 429, 5xx…: el módulo dueño del contexto no lo sirvió; se devuelve su
-			// estado y código (nunca un 500 sin explicación) y queda en el log.
-			s.o.Logger.WarnContext(ctx, "assist: context probe failed", slog.String("feature", req.Feature),
-				slog.Int("status", he.Status), slog.String("code", he.Code))
-			return nil, apperr.New(apperr.KindBadGateway, CodeContextUnavailable,
-				fmt.Sprintf("La API de Horus respondió %d %s al leer el contexto del análisis (%s).", he.Status, he.Code, featureProbe[req.Feature]))
-		default:
-			s.o.Logger.WarnContext(ctx, "assist: context probe failed", slog.String("feature", req.Feature), slog.Any("error", err))
-			return nil, apperr.New(apperr.KindUnavailable, CodeContextUnavailable,
-				"No se pudo leer el contexto del análisis en este proceso; revisa el registro de horus-app (assist: context probe failed).")
-		}
+	if err := s.probe(ctx, reader, req.Feature, req.ContextID); err != nil {
+		return nil, err
 	}
 	env := tools.Env{Reader: reader, Masker: mask.New()}
 	// Datos primarios ya consultados: el modelo los recibe en el primer mensaje
@@ -629,6 +630,81 @@ func (s *Service) Analyze(ctx context.Context, req AnalysisRequest) (*Analysis, 
 	seeds, seedUses, evidence := s.seed(ctx, env, req.Feature, req.ContextID)
 	user := prompt.User(req.Feature, req.ContextID, seeds, tools.CatalogMarkdown(prompt.Topics(req.Feature)...))
 	return s.run(ctx, prov, env, entry, user, seedUses, evidence)
+}
+
+// probe comprueba, como el usuario, que el recurso existe y es visible.
+func (s *Service) probe(ctx context.Context, reader tools.Reader, feature, contextID string) error {
+	_, err := reader.Get(ctx, featureProbe[feature]+contextID, nil)
+	if err == nil {
+		return nil
+	}
+	var he *tools.HTTPError
+	switch {
+	case errors.As(err, &he) && (he.Status == 404 || he.Status == 403):
+		return apperr.NotFound(CodeContextNotFound)
+	case errors.As(err, &he):
+		// 401, 429, 5xx…: el módulo dueño del contexto no lo sirvió; se devuelve su
+		// estado y código (nunca un 500 sin explicación) y queda en el log.
+		s.o.Logger.WarnContext(ctx, "assist: context probe failed", slog.String("feature", feature),
+			slog.Int("status", he.Status), slog.String("code", he.Code))
+		return apperr.New(apperr.KindBadGateway, CodeContextUnavailable,
+			fmt.Sprintf("La API de Horus respondió %d %s al leer el contexto del análisis (%s).", he.Status, he.Code, featureProbe[feature]))
+	default:
+		s.o.Logger.WarnContext(ctx, "assist: context probe failed", slog.String("feature", feature), slog.Any("error", err))
+		return apperr.New(apperr.KindUnavailable, CodeContextUnavailable,
+			"No se pudo leer el contexto del análisis en este proceso; revisa el registro de horus-app (assist: context probe failed).")
+	}
+}
+
+// History es GET /assist/analyses: los análisis guardados de un recurso (más
+// reciente primero), visibles para quien puede leer el recurso.
+func (s *Service) History(ctx context.Context, feature, contextID string, limit int) ([]json.RawMessage, error) {
+	if !slices.Contains(domain.AnalysisFeatures, feature) {
+		return nil, apperr.Validation(apperr.Field("feature", "INVALID_VALUE", "Feature no admitida (finding o router)."))
+	}
+	if _, err := uuid.Parse(contextID); err != nil {
+		return nil, apperr.Validation(apperr.Field("context_id", "INVALID_VALUE", "Debe ser un UUID."))
+	}
+	p, err := principal(ctx, featurePerm[feature])
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 || limit > 50 {
+		limit = 10
+	}
+	if s.o.HistoryRetention <= 0 {
+		return []json.RawMessage{}, nil
+	}
+	if s.o.Readers == nil {
+		return nil, apperr.New(apperr.KindUnavailable, problem.CodeServiceUnavailable, "El asistente no tiene acceso a la API en este proceso.")
+	}
+	if err := s.probe(ctx, s.o.Readers(p), feature, contextID); err != nil {
+		return nil, err
+	}
+	rows, err := s.o.Store.ListAnalyses(ctx, p.TenantID, feature, contextID, s.now().Add(-s.o.HistoryRetention), limit)
+	if err != nil {
+		return nil, s.storeErr(ctx, "list_analyses", err)
+	}
+	if rows == nil {
+		rows = []json.RawMessage{}
+	}
+	return rows, nil
+}
+
+// remember guarda el análisis en el historial; un fallo solo se registra.
+func (s *Service) remember(ctx context.Context, entry *domain.AuditEntry, a *Analysis) {
+	if s.o.HistoryRetention <= 0 {
+		return
+	}
+	b, err := json.Marshal(a)
+	if err == nil {
+		err = s.o.Store.SaveAnalysis(context.WithoutCancel(ctx), &StoredAnalysis{ID: a.ID, TenantID: entry.TenantID,
+			UserID: entry.UserID, Feature: a.Feature, ContextID: a.ContextID, Body: b, CreatedAt: s.now()},
+			s.now().Add(-s.o.HistoryRetention))
+	}
+	if err != nil {
+		s.o.Logger.ErrorContext(ctx, "assist: analysis history insert failed", slog.String("feature", a.Feature), slog.Any("error", err))
+	}
 }
 
 // seedTools son las herramientas primarias de cada feature.
@@ -745,12 +821,14 @@ func (s *Service) run(ctx context.Context, prov provider.Provider, env tools.Env
 	if w := grounding.Warning(report); w != "" {
 		markdown += "\n\n> ⚠ " + w
 	}
-	return &Analysis{
+	out := &Analysis{
 		ID: entry.ID, Feature: entry.Feature, ContextID: entry.ContextID, Markdown: markdown,
 		Provider: prov.Name(), Model: entry.Model, GeneratedAt: s.now().Format("2006-01-02T15:04:05.000Z"),
 		ToolCalls: entry.ToolCalls, Usage: UsageView{InputTokens: res.Usage.InputTokens, OutputTokens: res.Usage.OutputTokens},
 		DurationMS: entry.DurationMS, Truncated: res.Truncated, Disclaimer: Disclaimer, Grounding: report,
-	}, nil
+	}
+	s.remember(ctx, entry, out)
+	return out, nil
 }
 
 // mergeUses suma los usos de herramienta por nombre (orden por nombre).

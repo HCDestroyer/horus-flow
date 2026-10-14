@@ -40,6 +40,8 @@ type Config struct {
 	MaxIterations   int           `env:"HORUS_ASSIST_MAX_ITERATIONS" envDefault:"8"`
 	RequestTimeout  time.Duration `env:"HORUS_ASSIST_REQUEST_TIMEOUT" envDefault:"120s"`
 	MaxOutputTokens int64         `env:"HORUS_ASSIST_MAX_OUTPUT_TOKENS" envDefault:"16000"`
+	// HistoryRetention es cuánto se guardan los análisis para volver a verlos (0 = no se guardan).
+	HistoryRetention time.Duration `env:"HORUS_ASSIST_HISTORY_RETENTION" envDefault:"2160h"`
 	// AllowLoopback permite base_url en 127.0.0.0/8 o ::1 (servidor local en la misma máquina, sin
 	// contenedores). Por defecto se rechaza: dentro de un contenedor apunta al propio Horus.
 	AllowLoopback bool `env:"HORUS_ASSIST_ALLOW_LOOPBACK" envDefault:"false"`
@@ -54,6 +56,9 @@ func (c *Config) Validate() error {
 	var errs []error
 	if c.MaxIterations < 1 || c.MaxIterations > 20 {
 		errs = append(errs, errors.New("HORUS_ASSIST_MAX_ITERATIONS must be in [1, 20]"))
+	}
+	if c.HistoryRetention != 0 && (c.HistoryRetention < 24*time.Hour || c.HistoryRetention > 3*8760*time.Hour) {
+		errs = append(errs, errors.New("HORUS_ASSIST_HISTORY_RETENTION must be 0 or in [24h, 26280h]"))
 	}
 	if c.RequestTimeout < 10*time.Second || c.RequestTimeout > 10*time.Minute {
 		errs = append(errs, errors.New("HORUS_ASSIST_REQUEST_TIMEOUT must be in [10s, 10m]"))

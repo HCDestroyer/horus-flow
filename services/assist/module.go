@@ -100,7 +100,7 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		Defaults: app.Defaults{Enabled: cfg.DefaultEnabled, Provider: cfg.DefaultProvider, Model: cfg.DefaultModel,
 			BaseURL: cfg.DefaultBaseURL, APIKey: cfg.DefaultAPIKey.Reveal(), Effort: cfg.DefaultEffort, Limit: cfg.DefaultLimit},
 		MaxIterations: cfg.MaxIterations, RequestTimeout: cfg.RequestTimeout, MaxOutputTokens: cfg.MaxOutputTokens,
-		MCPTokenTTL: cfg.MCPTokenTTL,
+		MCPTokenTTL: cfg.MCPTokenTTL, HistoryRetention: cfg.HistoryRetention,
 	}
 	if sealer != nil {
 		opts.Sealer = sealer

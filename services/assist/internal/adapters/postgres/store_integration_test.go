@@ -39,7 +39,7 @@ func TestAssistSchemaHasForcedRLS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tables) != 3 {
+	if len(tables) != 4 {
 		t.Fatalf("tablas con tenant_id = %d", len(tables))
 	}
 	for _, tb := range tables {
@@ -182,5 +182,46 @@ func TestSettingsAuditTokensAndTenancy(t *testing.T) {
 	list, err := st.ListMCPTokens(ctx, a)
 	if err != nil || len(list) != 1 || list[0].RevokedAt == nil || list[0].LastUsedAt == nil {
 		t.Fatalf("lista = %+v %v", list, err)
+	}
+}
+
+func TestAnalysisHistoryAndQuota(t *testing.T) {
+	st, _ := newStore(t)
+	ctx := context.Background()
+	a, b := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	user := uuid.Must(uuid.NewV7())
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	ctxID := uuid.Must(uuid.NewV7()).String()
+	save := func(tenant uuid.UUID, at time.Time, body string) {
+		t.Helper()
+		if err := st.SaveAnalysis(ctx, &app.StoredAnalysis{ID: uuid.Must(uuid.NewV7()), TenantID: tenant, UserID: &user, Feature: "finding",
+			ContextID: ctxID, Body: []byte(body), CreatedAt: at}, now.Add(-90*24*time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	save(a, now.Add(-100*24*time.Hour), `{"n":0}`) // se purga con el siguiente guardado
+	save(a, now.Add(-time.Hour), `{"n":1}`)
+	save(a, now, `{"n":2}`)
+	save(b, now, `{"n":9}`)
+	list, err := st.ListAnalyses(ctx, a, "finding", ctxID, now.Add(-90*24*time.Hour), 10)
+	if err != nil || len(list) != 2 || string(list[0]) != `{"n": 2}` {
+		t.Fatalf("historial de A = %s %v", list, err)
+	}
+	if all, _ := st.ListAnalyses(ctx, a, "finding", ctxID, time.Time{}, 10); len(all) != 2 {
+		t.Fatalf("la retención no purgó: %d filas", len(all))
+	}
+	if l, _ := st.ListAnalyses(ctx, a, "router", ctxID, time.Time{}, 10); len(l) != 0 {
+		t.Fatalf("otra feature = %d", len(l))
+	}
+	// Un error sin tokens no consume cupo; uno con tokens sí.
+	for i, tok := range []int64{0, 50} {
+		e := domain.AuditEntry{ID: uuid.Must(uuid.NewV7()), TenantID: b, Feature: "router", Outcome: "error", InputTokens: tok,
+			CreatedAt: now.Add(time.Duration(i) * time.Second)}
+		if err := st.RecordAudit(ctx, &e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, err := st.CountRequests(ctx, b, domain.StartOfDay(now)); err != nil || n != 1 {
+		t.Fatalf("cuenta de B = %d %v", n, err)
 	}
 }

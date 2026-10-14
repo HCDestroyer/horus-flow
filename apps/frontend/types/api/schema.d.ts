@@ -210,7 +210,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Historial de análisis de IA de un hallazgo o un router, del más reciente al más antiguo
+         * @description Devuelve los análisis correctos guardados del recurso tal como se mostraron (Markdown enmascarado),
+         *     dentro de la retención `HORUS_ASSIST_HISTORY_RETENTION` (90 días por defecto; 0 = no se guardan y la
+         *     lista viene vacía). Volver a verlos no consume consultas. Permiso: el de lectura del recurso
+         *     (`finding` → `security.findings.read`, `router` → `devices.read`); el recurso se lee como el usuario
+         *     y, si no lo ve, `404 ASSIST_CONTEXT_NOT_FOUND`.
+         */
+        get: operations["listAssistAnalyses"];
         put?: never;
         /**
          * Analiza un hallazgo o un router con IA (síncrono; puede tardar hasta HORUS_ASSIST_REQUEST_TIMEOUT)
@@ -5411,6 +5419,39 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    listAssistAnalyses: {
+        parameters: {
+            query: {
+                /** @description Id del hallazgo o del router. */
+                context_id: string;
+                feature: components["schemas"]["AssistFeature"];
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Análisis guardados del recurso. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AssistAnalysis"][];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            502: components["responses"]["BadGateway"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     createAssistAnalysis: {

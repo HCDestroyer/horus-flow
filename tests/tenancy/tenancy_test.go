@@ -147,7 +147,7 @@ func cases() map[string]tenanttest.Case {
 	// assist: el arnés no monta el asistente (necesita el proceso completo para sus herramientas);
 	// su aislamiento lo cubren services/assist/internal/adapters/postgres (RLS forzada, cruce de ISP).
 	pending("ASSIST (asistente IA: suite propia de aislamiento en services/assist)",
-		"getAssistStatus", "getAssistSettings", "putAssistSettings", "testAssistSettings", "createAssistAnalysis",
+		"getAssistStatus", "getAssistSettings", "putAssistSettings", "testAssistSettings", "createAssistAnalysis", "listAssistAnalyses",
 		"listAssistAudit", "listAssistMcpTokens", "createAssistMcpToken", "revokeAssistMcpToken")
 	pending("FLOW I1 (flows: exportadores)", "listFlowExporters", "getFlowExporter", "getClassificationStatus")
 	// snmp (EP-08): el arnés no monta snmp y de analytics solo los dashboards.

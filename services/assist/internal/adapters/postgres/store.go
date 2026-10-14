@@ -117,19 +117,62 @@ func (s *Store) RecordAudit(ctx context.Context, e *domain.AuditEntry) error {
 	})
 }
 
-// CountRequests implementa app.Store: consultas a la IA del día que llegaron
-// al proveedor (análisis con cualquier resultado salvo limitado o denegado).
+// CountRequests implementa app.Store: consultas a la IA del día que cuentan
+// para el límite: las que el proveedor respondió (correctas o declinadas) y
+// los errores que llegaron a gastar tokens. Un fallo sin tokens (proveedor
+// caído, tiempo agotado antes de la primera respuesta) no consume cupo.
 func (s *Store) CountRequests(ctx context.Context, tenant uuid.UUID, since time.Time) (int, error) {
 	var n int
 	err := tenantTx(ctx, s.db, tenant, func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx, `SELECT count(*) FROM assist.audit WHERE tenant_id = $1 AND created_at >= $2
-			AND feature IN ('finding', 'router') AND outcome IN ('success', 'refused', 'error')`, tenant, since.UTC()).Scan(&n)
+			AND feature IN ('finding', 'router')
+			AND (outcome IN ('success', 'refused') OR (outcome = 'error' AND input_tokens + output_tokens > 0))`, tenant, since.UTC()).Scan(&n)
 		if err != nil {
 			return fmt.Errorf("assist: count requests: %w", err)
 		}
 		return nil
 	})
 	return n, err
+}
+
+// SaveAnalysis implementa app.Store: guarda el análisis y purga los del
+// tenant anteriores a purgeBefore (retención) en la misma transacción.
+func (s *Store) SaveAnalysis(ctx context.Context, a *app.StoredAnalysis, purgeBefore time.Time) error {
+	return tenantTx(ctx, s.db, a.TenantID, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `DELETE FROM assist.analysis WHERE tenant_id = $1 AND created_at < $2`, a.TenantID,
+			purgeBefore.UTC()); err != nil {
+			return fmt.Errorf("assist: purge analyses: %w", err)
+		}
+		_, err := tx.Exec(ctx, `INSERT INTO assist.analysis (id, tenant_id, user_id, feature, context_id, body, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)`, a.ID, a.TenantID, a.UserID, a.Feature, a.ContextID, a.Body, a.CreatedAt.UTC())
+		if err != nil {
+			return fmt.Errorf("assist: insert analysis: %w", err)
+		}
+		return nil
+	})
+}
+
+// ListAnalyses implementa app.Store (del más reciente al más antiguo).
+func (s *Store) ListAnalyses(ctx context.Context, tenant uuid.UUID, feature, contextID string, since time.Time,
+	limit int) ([]json.RawMessage, error) {
+	var out []json.RawMessage
+	err := tenantTx(ctx, s.db, tenant, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `SELECT body FROM assist.analysis WHERE tenant_id = $1 AND feature = $2 AND context_id = $3
+			AND created_at >= $4 ORDER BY created_at DESC, id DESC LIMIT $5`, tenant, feature, contextID, since.UTC(), limit)
+		if err != nil {
+			return fmt.Errorf("assist: list analyses: %w", err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var b []byte
+			if err := rows.Scan(&b); err != nil {
+				return fmt.Errorf("assist: scan analysis: %w", err)
+			}
+			out = append(out, json.RawMessage(b))
+		}
+		return rows.Err()
+	})
+	return out, err
 }
 
 // ListAudit implementa app.Store.

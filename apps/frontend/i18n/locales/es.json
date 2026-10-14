@@ -2692,6 +2692,7 @@
         "learnMore": "Cómo se verifica"
       },
       "remaining": "No quedan consultas hoy en este ISP | Queda 1 consulta hoy en este ISP | Quedan {n} consultas hoy en este ISP",
+      "history": "Sin análisis anteriores | 1 análisis guardado | {n} análisis guardados (verlos no gasta consultas)",
       "codeRouteros": "Comando RouterOS sugerido (revísalo antes de copiarlo; Horus no lo ejecuta)",
       "code": "Código ({lang})",
       "copy": "Copiar",

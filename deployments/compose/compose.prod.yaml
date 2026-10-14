@@ -309,6 +309,7 @@ services:
       HORUS_ASSIST_MODEL: ${HORUS_ASSIST_MODEL:-}
       HORUS_ASSIST_BASE_URL: ${HORUS_ASSIST_BASE_URL:-}
       HORUS_ASSIST_DAILY_LIMIT: ${HORUS_ASSIST_DAILY_LIMIT:-100}
+      HORUS_ASSIST_HISTORY_RETENTION: ${HORUS_ASSIST_HISTORY_RETENTION:-2160h}
       HORUS_BACKUP_AGE_RECIPIENT_FILE: /run/secrets/backup_age_recipient
       HORUS_ALERTS_CURSOR_KEY_FILE: /run/secrets/cursor_key
       # Reputación (SEC): detection sincroniza las fuentes y publica el snapshot en el almacén;

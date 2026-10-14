@@ -92,6 +92,17 @@ func TestAssistAnalyzeEndToEnd(t *testing.T) {
 	if r := a.do(req{Method: "POST", Path: "/api/v1/assist/analyses", Token: B.token, Body: body}); r.Status != 404 || r.code() != "ASSIST_CONTEXT_NOT_FOUND" || calls.Load() != 1 {
 		t.Fatalf("otro ISP = %d %s (llamadas %d)", r.Status, r.Raw, calls.Load())
 	}
+	// Historial: A vuelve a ver el análisis sin gastar consulta; B no ve el hallazgo.
+	hist := a.must(a.do(req{Method: "GET", Path: "/api/v1/assist/analyses?feature=finding&context_id=" + fid, Token: A.token}), 200)
+	if items, _ := hist.Body["data"].([]any); len(items) != 1 || items[0].(map[string]any)["markdown"] != md {
+		t.Fatalf("historial = %s", hist.Raw)
+	}
+	if r := a.do(req{Method: "GET", Path: "/api/v1/assist/analyses?feature=finding&context_id=" + fid, Token: B.token}); r.Status != 404 {
+		t.Fatalf("historial de otro ISP = %d %s", r.Status, r.Raw)
+	}
+	if st := a.must(a.do(req{Method: "GET", Path: "/api/v1/assist/status", Token: A.token}), 200); st.Body["remaining_today"] != float64(2) {
+		t.Fatalf("ver el historial consumió cupo: %s", st.Raw)
+	}
 	// Hallazgo inexistente: 404 también.
 	if r := a.do(req{Method: "POST", Path: "/api/v1/assist/analyses", Token: A.token, Body: map[string]any{"feature": "finding", "context_id": uuid.NewString()}}); r.Status != 404 {
 		t.Fatalf("inexistente = %d %s", r.Status, r.Raw)

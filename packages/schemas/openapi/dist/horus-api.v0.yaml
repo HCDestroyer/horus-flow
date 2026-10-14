@@ -585,6 +585,70 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
   /assist/analyses:
+    get:
+      tags:
+        - assist
+      operationId: listAssistAnalyses
+      summary: Historial de análisis de IA de un hallazgo o un router, del más reciente al más antiguo
+      description: |
+        Devuelve los análisis correctos guardados del recurso tal como se mostraron (Markdown enmascarado),
+        dentro de la retención `HORUS_ASSIST_HISTORY_RETENTION` (90 días por defecto; 0 = no se guardan y la
+        lista viene vacía). Volver a verlos no consume consultas. Permiso: el de lectura del recurso
+        (`finding` → `security.findings.read`, `router` → `devices.read`); el recurso se lee como el usuario
+        y, si no lo ve, `404 ASSIST_CONTEXT_NOT_FOUND`.
+      x-module: assist
+      x-scope: tenant
+      x-permission: authenticated
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      parameters:
+        - name: feature
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/AssistFeature'
+        - name: context_id
+          in: query
+          required: true
+          description: Id del hallazgo o del router.
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 10
+      responses:
+        '200':
+          description: Análisis guardados del recurso.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AssistAnalysis'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
     post:
       tags:
         - assist
@@ -7649,17 +7713,6 @@ components:
       enum:
         - finding
         - router
-    AssistAnalysisRequest:
-      type: object
-      additionalProperties: false
-      required:
-        - feature
-        - context_id
-      properties:
-        feature:
-          $ref: '#/components/schemas/AssistFeature'
-        context_id:
-          $ref: '#/components/schemas/Uuid'
     AssistProvider:
       type: string
       enum:
@@ -7779,6 +7832,17 @@ components:
             - Generado por IA; revisa antes de aplicar. Horus no ejecuta nada en tus routers.
         grounding:
           $ref: '#/components/schemas/AssistGrounding'
+    AssistAnalysisRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - feature
+        - context_id
+      properties:
+        feature:
+          $ref: '#/components/schemas/AssistFeature'
+        context_id:
+          $ref: '#/components/schemas/Uuid'
     AssistAuditEntry:
       type: object
       required:
@@ -13742,6 +13806,12 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/Problem'
+    BadGateway:
+      description: El proveedor de IA falló o no llegó a una respuesta (`ASSIST_PROVIDER_UNAVAILABLE`, `ASSIST_INCOMPLETE`).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
     Conflict:
       description: Conflicto de estado o unicidad; `Idempotency-Key` en vuelo.
       content:
@@ -13757,12 +13827,6 @@ components:
           $ref: '#/components/headers/RateLimit'
         RateLimit-Policy:
           $ref: '#/components/headers/RateLimitPolicy'
-      content:
-        application/problem+json:
-          schema:
-            $ref: '#/components/schemas/Problem'
-    BadGateway:
-      description: El proveedor de IA falló o no llegó a una respuesta (`ASSIST_PROVIDER_UNAVAILABLE`, `ASSIST_INCOMPLETE`).
       content:
         application/problem+json:
           schema:

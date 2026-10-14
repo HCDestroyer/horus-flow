@@ -6,7 +6,8 @@ import type { AssistAnalysis, AssistFeature } from '~~/types/api'
  * La IA solo ve datos enmascarados y usa herramientas de solo lectura como el usuario. La
  * respuesta se muestra como Markdown seguro con el aviso de que es generada por IA y de que
  * Horus no ejecuta nada en los routers. Se oculta sin permiso de lectura del recurso; si el
- * asistente no está activo, explica cómo activarlo (enlace a la página de administración).
+ * asistente no está activo, explica cómo activarlo (enlace a la página de administración). Los
+ * análisis anteriores del recurso (historial guardado) se ven sin gastar consultas.
  */
 const props = defineProps<{ feature: AssistFeature; contextId: string }>()
 const { t, d } = useI18n()
@@ -24,7 +25,28 @@ const { data: status, refresh: refreshStatus } = useTenantQuery(
   { immediate: allowed.value },
 )
 
-const result = ref<AssistAnalysis | null>(null)
+// Historial (docs/assist.md §Historial): los análisis guardados del recurso se ven sin gastar
+// consultas. Se muestra el más reciente y se puede elegir uno anterior.
+const { data: history, refresh: refreshHistory } = useTenantQuery(
+  () => `assist-history:${props.feature}:${props.contextId}`,
+  () =>
+    unwrap(
+      $api.GET('/assist/analyses', {
+        params: { query: { feature: props.feature, context_id: props.contextId, limit: 10 } },
+      }),
+    ).then((r) => r.data),
+  { immediate: allowed.value },
+)
+const selectedId = ref<string | null>(null)
+const fresh = ref<AssistAnalysis | null>(null)
+const result = computed<AssistAnalysis | null>(() => {
+  const list = history.value ?? []
+  if (selectedId.value) {
+    const pick = list.find((a) => a.id === selectedId.value)
+    if (pick) return pick
+  }
+  return fresh.value ?? list[0] ?? null
+})
 const running = ref(false)
 const failure = ref<{ title: string; detail?: string } | null>(null)
 
@@ -83,11 +105,13 @@ async function analyze() {
   clearInterval(timer)
   timer = setInterval(() => step.value++, 4000)
   try {
-    result.value = await unwrap(
+    fresh.value = await unwrap(
       $api.POST('/assist/analyses', {
         body: { feature: props.feature, context_id: props.contextId },
       }),
     )
+    selectedId.value = null
+    refreshHistory()
   } catch (e) {
     const key = e instanceof ApiError ? ERRORS[e.code] : undefined
     if (key) {
@@ -113,6 +137,7 @@ const toolList = computed(() =>
     .join(', '),
 )
 const providerLabel = (p: string) => t(`assist.providers.${p}`, p)
+const previous = computed(() => history.value ?? [])
 </script>
 
 <template>
@@ -223,6 +248,28 @@ const providerLabel = (p: string) => t(`assist.providers.${p}`, p)
           })
         }}
       </p>
+    </div>
+    <div
+      v-if="previous.length > 1 && !running"
+      class="flex flex-col gap-2"
+      data-testid="assist-history"
+    >
+      <p class="text-muted text-xs font-medium">
+        {{ t('assist.analysis.history', { n: previous.length }, previous.length) }}
+      </p>
+      <div class="flex flex-wrap gap-2">
+        <UButton
+          v-for="a in previous"
+          :key="a.id"
+          size="xs"
+          :color="result?.id === a.id ? 'primary' : 'neutral'"
+          :variant="result?.id === a.id ? 'soft' : 'outline'"
+          :label="`${d(new Date(a.generated_at), 'short')} ${d(new Date(a.generated_at), 'time')}`"
+          :aria-pressed="result?.id === a.id"
+          data-testid="assist-history-item"
+          @click="selectedId = a.id"
+        />
+      </div>
     </div>
     <p v-if="status?.enabled && !running" class="text-dimmed text-xs">
       {{ t('assist.analysis.remaining', { n: status.remaining_today }, status.remaining_today) }}

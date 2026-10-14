@@ -29,6 +29,7 @@ type memStore struct {
 	settings map[uuid.UUID]domain.Settings
 	audit    []domain.AuditEntry
 	tokens   []domain.MCPToken
+	analyses []StoredAnalysis
 }
 
 func newMem() *memStore { return &memStore{settings: map[uuid.UUID]domain.Settings{}} }
@@ -66,7 +67,8 @@ func (m *memStore) CountRequests(_ context.Context, t uuid.UUID, since time.Time
 	n := 0
 	for _, e := range m.audit {
 		if e.TenantID == t && !e.CreatedAt.Before(since) && (e.Feature == domain.FeatureFinding || e.Feature == domain.FeatureRouter) &&
-			e.Outcome != domain.OutcomeLimited && e.Outcome != domain.OutcomeDenied {
+			(e.Outcome == domain.OutcomeSuccess || e.Outcome == domain.OutcomeRefused ||
+				(e.Outcome == domain.OutcomeError && e.InputTokens+e.OutputTokens > 0)) {
 			n++
 		}
 	}
@@ -80,6 +82,32 @@ func (m *memStore) ListAudit(_ context.Context, t uuid.UUID, limit int, _ *Audit
 	for i := len(m.audit) - 1; i >= 0 && len(out) < limit; i-- {
 		if m.audit[i].TenantID == t {
 			out = append(out, m.audit[i])
+		}
+	}
+	return out, nil
+}
+
+func (m *memStore) SaveAnalysis(_ context.Context, a *StoredAnalysis, purgeBefore time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	kept := m.analyses[:0]
+	for _, x := range m.analyses {
+		if x.TenantID != a.TenantID || !x.CreatedAt.Before(purgeBefore) {
+			kept = append(kept, x)
+		}
+	}
+	m.analyses = append(kept, *a)
+	return nil
+}
+
+func (m *memStore) ListAnalyses(_ context.Context, t uuid.UUID, feature, contextID string, since time.Time, limit int) ([]json.RawMessage, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []json.RawMessage
+	for i := len(m.analyses) - 1; i >= 0 && len(out) < limit; i-- {
+		a := m.analyses[i]
+		if a.TenantID == t && a.Feature == feature && a.ContextID == contextID && !a.CreatedAt.Before(since) {
+			out = append(out, a.Body)
 		}
 	}
 	return out, nil
@@ -647,5 +675,72 @@ func TestAnalyzeWarnsWhenRepairFails(t *testing.T) {
 	if res.Grounding.Status != "partial" || !res.Grounding.Repaired || len(res.Grounding.Unsupported) != 2 ||
 		!strings.Contains(res.Markdown, "⚠ Verificación: datos que no aparecen en Horus: 203.0.113.9, 9,8 GB") {
 		t.Fatalf("res = %+v md = %q", res.Grounding, res.Markdown)
+	}
+}
+
+func TestAnalysisHistory(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, Defaults{})
+	h.svc.o.HistoryRetention = 90 * 24 * time.Hour
+	enable(t, h, domain.Update{Enabled: true, Provider: "anthropic", DailyRequestLimit: 5, APIKey: str("sk-ant-0123456789")})
+	ctx := ctxWith(tenantA, PermFindingsRead)
+	res, err := h.svc.Analyze(ctx, AnalysisRequest{Feature: "finding", ContextID: findingID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, err := h.svc.History(ctx, "finding", findingID, 0)
+	if err != nil || len(list) != 1 {
+		t.Fatalf("historial = %d %v", len(list), err)
+	}
+	var got Analysis
+	if err := json.Unmarshal(list[0], &got); err != nil || got.ID != res.ID || got.Markdown != res.Markdown {
+		t.Fatalf("guardado = %+v %v", got, err)
+	}
+	// Lo guardado es lo que se mostró: enmascarado.
+	if strings.Contains(string(list[0]), "100.70.1.25") || strings.Contains(string(list[0]), "Juan") {
+		t.Fatalf("datos personales en el historial: %s", list[0])
+	}
+	// Sin permiso de lectura del recurso, otro tenant o un recurso invisible: nada.
+	if _, err := h.svc.History(ctxWith(tenantA), "finding", findingID, 0); code(err) != "PERMISSION_DENIED" {
+		t.Fatalf("sin permiso: %v", err)
+	}
+	if l, err := h.svc.History(ctxWith(tenantB, PermFindingsRead), "finding", findingID, 0); err != nil || len(l) != 0 {
+		t.Fatalf("otro tenant = %d %v", len(l), err)
+	}
+	if _, err := h.svc.History(ctx, "finding", uuid.Must(uuid.NewV7()).String(), 0); code(err) != CodeContextNotFound {
+		t.Fatalf("recurso invisible: %v", err)
+	}
+	if _, err := h.svc.History(ctx, "shell", findingID, 0); code(err) != "VALIDATION_FAILED" {
+		t.Fatalf("feature: %v", err)
+	}
+	// Fuera de la retención ya no aparece; un error del proveedor no se guarda.
+	h.now = h.now.Add(91 * 24 * time.Hour)
+	h.prov.Turns = []provider.Turn{{Text: "x"}}
+	h.prov.Err, h.prov.ErrAt = provider.ErrRateLimited, h.prov.Calls()
+	if _, err := h.svc.Analyze(ctx, AnalysisRequest{Feature: "finding", ContextID: findingID}); code(err) != CodeProviderUnavailable {
+		t.Fatalf("proveedor: %v", err)
+	}
+	if l, _ := h.svc.History(ctx, "finding", findingID, 0); len(l) != 0 {
+		t.Fatalf("fuera de retención = %d", len(l))
+	}
+	// Sin retención no se guarda nada.
+	h.svc.o.HistoryRetention = 0
+	if l, err := h.svc.History(ctx, "finding", findingID, 0); err != nil || len(l) != 0 {
+		t.Fatalf("sin retención = %d %v", len(l), err)
+	}
+}
+
+func TestFailedRequestsWithoutTokensDoNotCount(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, Defaults{})
+	enable(t, h, domain.Update{Enabled: true, Provider: "anthropic", DailyRequestLimit: 5, APIKey: str("sk-ant-0123456789")})
+	ctx := ctxWith(tenantA, PermFindingsRead)
+	h.prov.Turns = []provider.Turn{{Text: "x"}}
+	h.prov.Err, h.prov.ErrAt = provider.ErrRateLimited, h.prov.Calls()
+	if _, err := h.svc.Analyze(ctx, AnalysisRequest{Feature: "finding", ContextID: findingID}); code(err) != CodeProviderUnavailable {
+		t.Fatalf("proveedor: %v", err)
+	}
+	if st, _ := h.svc.Status(ctx); st.Remaining != 5 {
+		t.Fatalf("un fallo sin tokens consumió cupo: restantes = %d", st.Remaining)
 	}
 }

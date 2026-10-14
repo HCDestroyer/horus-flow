@@ -5,6 +5,7 @@
  * se guarda en `localStorage` para sobrevivir a la navegación con recarga de las pruebas e2e.
  */
 import type {
+  AssistAnalysis,
   AssistAuditEntry,
   AssistSettings,
   AssistSettingsUpdate,
@@ -16,6 +17,7 @@ import { forbidden, json, noContent, notFound, problem } from './http'
 interface Ctx {
   method: string
   path: string
+  url?: URL
   body: Record<string, unknown>
   tenant: { tenant_id: string }
   userId: string
@@ -27,6 +29,8 @@ interface TenantState {
   settings: Omit<AssistSettings, 'usage_today' | 'platform_default' | 'key_store_available'>
   audit: AssistAuditEntry[]
   tokens: McpToken[]
+  /** Historial de análisis correctos (más reciente primero). */
+  analyses?: AssistAnalysis[]
 }
 
 const STORAGE_KEY = 'horus.mock.assist'
@@ -86,7 +90,10 @@ function usageToday(s: TenantState, now: Date) {
   return s.audit.filter(
     (a) =>
       (a.feature === 'finding' || a.feature === 'router') &&
-      ['success', 'refused', 'error'].includes(a.outcome) &&
+      // Igual que el servidor: un error solo cuenta si llegó a gastar tokens.
+      (a.outcome === 'success' ||
+        a.outcome === 'refused' ||
+        (a.outcome === 'error' && a.input_tokens + a.output_tokens > 0)) &&
       Date.parse(a.created_at) >= from,
   ).length
 }
@@ -322,9 +329,9 @@ function analyze(ctx: Ctx, s: TenantState) {
     duration_ms: 9400,
     ...usage,
   })
-  return json({
+  const result: AssistAnalysis = {
     id,
-    feature,
+    feature: feature as AssistAnalysis['feature'],
     context_id: contextId,
     markdown: cannedMarkdown(feature),
     provider: s.settings.provider,
@@ -342,12 +349,32 @@ function analyze(ctx: Ctx, s: TenantState) {
       missing_sections: [],
       repaired: feature === 'router',
     },
+  }
+  s.analyses = [result, ...(s.analyses ?? [])].slice(0, 50)
+  persist()
+  return json(result)
+}
+
+function history(ctx: Ctx, s: TenantState): Response {
+  const q = ctx.url?.searchParams ?? new URLSearchParams(ctx.path.split('?')[1] ?? '')
+  const feature = q.get('feature') ?? ''
+  const contextId = q.get('context_id') ?? ''
+  if (!READ[feature]) {
+    return invalid([{ field: 'feature', code: 'INVALID_VALUE', message: 'Feature no admitida.' }])
+  }
+  if (!ctx.can(READ[feature]!)) return forbidden()
+  const limit = Math.min(50, Number(q.get('limit') ?? 10) || 10)
+  return json({
+    data: (s.analyses ?? [])
+      .filter((a) => a.feature === feature && a.context_id === contextId)
+      .slice(0, limit),
   })
 }
 
 export function assistRoute(ctx: Ctx): Response | undefined {
   if (!ctx.path.startsWith('/assist/')) return undefined
   const s = state(ctx)
+  if (ctx.method === 'GET' && ctx.path === '/assist/analyses') return history(ctx, s)
   const route = `${ctx.method} ${ctx.path}`
   switch (route) {
     case 'GET /assist/status':

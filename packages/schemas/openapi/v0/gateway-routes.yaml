@@ -177,6 +177,7 @@ modules:
     - prefix: /api/v1/assist/analyses
       scope: tenant
       methods:
+        GET: authenticated
         POST: authenticated
     - prefix: /api/v1/assist/audit
       scope: tenant

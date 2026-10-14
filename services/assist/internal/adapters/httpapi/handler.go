@@ -46,6 +46,7 @@ func (h *Handler) Mount(r *httpx.ServiceMux) {
 	r.Handle("PUT /api/v1/assist/settings", h.guard.Tenant(app.PermSettingsManage, h.putSettings))
 	r.Handle("POST /api/v1/assist/settings/test", h.guard.Tenant(app.PermSettingsManage, h.test))
 	r.Handle("POST /api/v1/assist/analyses", tenant(h.analyze))
+	r.Handle("GET /api/v1/assist/analyses", tenant(h.history))
 	r.Handle("GET /api/v1/assist/audit", h.guard.Tenant(app.PermSettingsRead, h.audit))
 	r.Handle("GET /api/v1/assist/mcp-tokens", h.guard.Tenant(app.PermMCPTokens, h.listTokens))
 	r.Handle("POST /api/v1/assist/mcp-tokens", h.guard.Tenant(app.PermMCPTokens, h.createToken))
@@ -107,6 +108,25 @@ func (h *Handler) analyze(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonapi.Write(w, http.StatusOK, res)
+}
+
+func (h *Handler) history(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	limit := 10
+	if v := q.Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 50 {
+			problem.Write(w, r, http.StatusBadRequest, problem.CodeValidationFailed, "limit fuera de rango (1–50)")
+			return
+		}
+		limit = n
+	}
+	list, err := h.svc.History(r.Context(), q.Get("feature"), q.Get("context_id"), limit)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	jsonapi.Write(w, http.StatusOK, map[string]any{"data": list})
 }
 
 type cursor struct {

@@ -78,6 +78,20 @@ test.describe('asistente de IA @assist', () => {
     // La consulta queda en la auditoría.
     await page.goto(ADMIN)
     await expect(page.getByTestId('assist-audit-row').first()).toContainText('Análisis de hallazgo')
+
+    // Historial: al volver al hallazgo se ve el análisis guardado sin gastar otra consulta.
+    await openFirstFinding(page)
+    await expect(page.getByTestId('assist-result')).toContainText('Qué está pasando')
+    await expect(page.getByTestId('assist-run')).toHaveText('Volver a analizar')
+    await expect(page.getByTestId('assist-history')).toHaveCount(0)
+    await page.getByTestId('assist-run').click()
+    await expect(page.getByTestId('assist-result')).toBeVisible()
+    const items = page.getByTestId('assist-history-item')
+    await expect(items).toHaveCount(2)
+    await expect(page.getByTestId('assist-history')).toContainText('2 análisis guardados')
+    await items.nth(1).click()
+    await expect(items.nth(1)).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByTestId('assist-result')).toContainText('Qué está pasando')
   })
 
   test('diagnóstico de router y error del proveedor', async ({ page }) => {
