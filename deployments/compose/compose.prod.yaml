@@ -139,6 +139,7 @@ services:
       - ${HORUS_DATA_ROOT}/clickhouse:/var/lib/clickhouse
       - ${HORUS_DATA_ROOT}/clickhouse-logs:/var/log/clickhouse-server
       - ${HORUS_CONFIG_DIR:-../..}/backup/clickhouse-backups.xml:/etc/clickhouse-server/config.d/horus-backups.xml:ro
+      - ${HORUS_CONFIG_DIR:-../..}/clickhouse/horus-logs.xml:/etc/clickhouse-server/config.d/horus-logs.xml:ro
       - ${HORUS_STORE_DIR}/backups/clickhouse:/var/lib/horus/store/backups/clickhouse
     ulimits:
       nofile:

@@ -863,6 +863,7 @@ release_paths=(VERSION images.lock deployments/compose/compose.prod.yaml deploym
   infrastructure/traefik/prod/horus.acme.yml.tmpl infrastructure/traefik/prod/horus.ip.yml.tmpl
   infrastructure/traefik/prod/horus.external.yml.tmpl
   infrastructure/nats/nats.prod.conf infrastructure/nats/kv.yaml infrastructure/backup/clickhouse-backups.xml
+  infrastructure/clickhouse/horus-logs.xml
   infrastructure/backup/httpd.conf packages/events/streams/streams.yaml scripts/install.sh scripts/horus-ctl.sh
   scripts/bootstrap-debian.sh scripts/backup/horus-backup.sh docs/install-debian.md
   LICENSE THIRD_PARTY_NOTICES.md)
@@ -897,7 +898,7 @@ forwarded_trusted_ips() {
 render_files() {
   say "Archivos de la instalación ($install_dir)"
   install -m 0644 "$repo_root/deployments/compose/compose.prod.yaml" "$install_dir/compose.yaml"
-  install -d -m 0755 "$config_dir/traefik/dynamic" "$config_dir/nats" "$config_dir/backup" "$config_dir/images/postgres"
+  install -d -m 0755 "$config_dir/traefik/dynamic" "$config_dir/nats" "$config_dir/backup" "$config_dir/clickhouse" "$config_dir/images/postgres"
   local tmpl="$repo_root/infrastructure/traefik/prod/horus.acme.yml.tmpl"
   [ "$tls_mode" = self_signed ] && tmpl="$repo_root/infrastructure/traefik/prod/horus.ip.yml.tmpl"
   [ "$tls_mode" = external ] && tmpl="$repo_root/infrastructure/traefik/prod/horus.external.yml.tmpl"
@@ -906,6 +907,7 @@ render_files() {
   install -m 0644 "$repo_root/infrastructure/nats/kv.yaml" "$config_dir/nats/kv.yaml"
   install -m 0644 "$repo_root/packages/events/streams/streams.yaml" "$config_dir/nats/streams.yaml"
   install -m 0644 "$repo_root/infrastructure/backup/clickhouse-backups.xml" "$repo_root/infrastructure/backup/httpd.conf" "$config_dir/backup/"
+  install -m 0644 "$repo_root/infrastructure/clickhouse/horus-logs.xml" "$config_dir/clickhouse/horus-logs.xml"
   install -m 0644 "$repo_root/deployments/images/postgres/Dockerfile" "$config_dir/images/postgres/Dockerfile"
   install -m 0755 "$repo_root/scripts/backup/horus-backup.sh" "$install_dir/bin/horus-backup"
   copy_release

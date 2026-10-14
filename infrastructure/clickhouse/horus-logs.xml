@@ -1,0 +1,29 @@
+<!--
+  Registros propios de ClickHouse acotados (docs/storage.md). Sin esto, el log de texto del
+  servidor rota hasta ~10 GB y las tablas system.*_log crecen sin límite dentro de
+  /var/lib/clickhouse: en un disco thin acaban llenando el pool aunque Horus no guarde más datos.
+  Solo se tocan logs que ClickHouse ya trae activos (añadir una sección activa ese log).
+  Al cambiar el TTL, ClickHouse renombra la tabla anterior a <tabla>_N; esa copia ya no crece.
+-->
+<clickhouse>
+    <logger>
+        <level>warning</level>
+        <size>100M</size>
+        <count>3</count>
+    </logger>
+    <query_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></query_log>
+    <query_thread_log><ttl>event_date + INTERVAL 3 DAY DELETE</ttl></query_thread_log>
+    <part_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></part_log>
+    <trace_log><ttl>event_date + INTERVAL 3 DAY DELETE</ttl></trace_log>
+    <text_log>
+        <level>warning</level>
+        <ttl>event_date + INTERVAL 7 DAY DELETE</ttl>
+    </text_log>
+    <metric_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></metric_log>
+    <asynchronous_metric_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></asynchronous_metric_log>
+    <query_metric_log><ttl>event_date + INTERVAL 3 DAY DELETE</ttl></query_metric_log>
+    <query_views_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></query_views_log>
+    <error_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></error_log>
+    <background_schedule_pool_log><ttl>event_date + INTERVAL 3 DAY DELETE</ttl></background_schedule_pool_log>
+    <processors_profile_log><ttl>event_date + INTERVAL 3 DAY DELETE</ttl></processors_profile_log>
+</clickhouse>
