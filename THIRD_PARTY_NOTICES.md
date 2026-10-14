@@ -25,7 +25,7 @@ BusyBox (GPL-2.0) se usa como imagen auxiliar independiente, sin enlazarse con H
 se distribuye en el paquete offline, se ofrece su código fuente correspondiente a petición o en
 el enlace indicado, como exige la GPL.
 
-## Módulos Go enlazados en el binario `horus` (71)
+## Módulos Go enlazados en el binario `horus` (72)
 
 | Módulo | Versión | Licencia |
 | --- | --- | --- |
@@ -47,6 +47,7 @@ el enlace indicado, como exige la GPL.
 | `github.com/golang-jwt/jwt/v5` | v5.3.1 | MIT |
 | `github.com/google/jsonschema-go` | v0.4.3 | MIT |
 | `github.com/google/uuid` | v1.6.0 | BSD-3-Clause |
+| `github.com/gosnmp/gosnmp` | v1.42.1 | BSD-3-Clause |
 | `github.com/invopop/jsonschema` | v0.14.0 | MIT |
 | `github.com/jackc/pgpassfile` | v1.0.0 | MIT |
 | `github.com/jackc/pgservicefile` | v0.0.0-20240606120523-5a60cdf6a761 | MIT |
@@ -949,3 +950,18 @@ compilar y no se distribuyen en el producto.
 | `zip-stream` | 6.0.1 | MIT |
 | `zod` | 4.6.5 | MIT |
 | `zrender` | 6.1.0 | BSD-3-Clause |
+
+## Herramientas de producción de la landing
+
+Se usan solo para producir material de la landing comercial (`apps/landing-motion`: las
+animaciones se renderizan a vídeo y se publican los archivos de vídeo). No se distribuyen
+con Horus Flow ni se cargan en la landing.
+
+| Herramienta | Versión | Licencia | Texto de la licencia |
+| --- | --- | --- | --- |
+| Remotion | 4.0.525 | Remotion License (no es de código abierto; ver nota) | https://github.com/remotion-dev/remotion/blob/main/LICENSE.md |
+
+Remotion se rige por la "Remotion License": gratuita para particulares, organizaciones con
+ánimo de lucro de hasta 3 empleados y organizaciones sin ánimo de lucro; el resto necesita
+una "Company License". Resumen y cita del texto en
+[`apps/landing-motion/README.md`](apps/landing-motion/README.md#licencia-de-remotion).

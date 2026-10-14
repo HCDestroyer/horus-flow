@@ -1,0 +1,5 @@
+node_modules/
+# Intermedios del render (vídeo sin pérdida y bundle de Remotion); los finales van a
+# apps/landing/public/motion/.
+out/
+.bundle/

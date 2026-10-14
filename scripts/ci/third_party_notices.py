@@ -5,6 +5,7 @@ Inventaria los componentes de terceros que se distribuyen con Horus Flow:
   - módulos Go enlazados en el binario `horus` (go list -deps),
   - dependencias de producción del frontend (pnpm licenses list --prod),
   - imágenes de contenedor de terceros fijadas en el compose de producción,
+  - y, aparte, las herramientas que solo producen material de la landing (Remotion),
 y clasifica su licencia. Falla si aparece una licencia incompatible con distribuir Horus Flow
 como software propietario (GPL, AGPL, LGPL, SSPL, licencia desconocida no revisada).
 
@@ -50,6 +51,23 @@ BASE_IMAGES = [
      "https://github.com/GoogleContainerTools/distroless"),
     ("Node.js (runtime de horus-web)", "MIT y otras", "https://github.com/nodejs/node/blob/main/LICENSE"),
 ]
+
+
+# Herramientas que solo se usan para PRODUCIR material de la landing (no se distribuyen con
+# Horus Flow ni con la landing: lo que llega al visitante son los vídeos renderizados).
+MOTION_PKG = os.path.join(ROOT, "apps", "landing-motion", "package.json")
+PRODUCTION_TOOLS = [
+    # (nombre, paquete npm cuya versión se lee de apps/landing-motion/package.json, licencia, enlace)
+    ("Remotion", "remotion", "Remotion License (no es de código abierto; ver nota)",
+     "https://github.com/remotion-dev/remotion/blob/main/LICENSE.md"),
+]
+
+
+def production_tools():
+    if not os.path.exists(MOTION_PKG):
+        return []
+    deps = json.load(open(MOTION_PKG)).get("dependencies", {})
+    return [(n, deps[p], lic, url) for n, p, lic, url in PRODUCTION_TOOLS if p in deps]
 
 
 def go_modules():
@@ -136,7 +154,7 @@ def vetted(lic, name=""):
     return False
 
 
-def render(gomods, npm, imgs):
+def render(gomods, npm, imgs, tools=()):
     lines = [
         "# Avisos de componentes de terceros",
         "",
@@ -182,6 +200,27 @@ def render(gomods, npm, imgs):
     for name, version, lic in npm:
         mark = " †" if name in BUILD_ONLY else ""
         lines.append(f"| `{name}`{mark} | {version} | {lic} |")
+    if tools:
+        lines += [
+            "",
+            "## Herramientas de producción de la landing",
+            "",
+            "Se usan solo para producir material de la landing comercial (`apps/landing-motion`: las",
+            "animaciones se renderizan a vídeo y se publican los archivos de vídeo). No se distribuyen",
+            "con Horus Flow ni se cargan en la landing.",
+            "",
+            "| Herramienta | Versión | Licencia | Texto de la licencia |",
+            "| --- | --- | --- | --- |",
+        ]
+        for name, version, lic, url in tools:
+            lines.append(f"| {name} | {version} | {lic} | {url} |")
+        lines += [
+            "",
+            "Remotion se rige por la \"Remotion License\": gratuita para particulares, organizaciones con",
+            "ánimo de lucro de hasta 3 empleados y organizaciones sin ánimo de lucro; el resto necesita",
+            "una \"Company License\". Resumen y cita del texto en",
+            "[`apps/landing-motion/README.md`](apps/landing-motion/README.md#licencia-de-remotion).",
+        ]
     lines.append("")
     return "\n".join(lines)
 
@@ -198,7 +237,7 @@ def main():
             print("  " + b, file=sys.stderr)
         print("Revísalas (REVIEWED/BUILD_ONLY en este script) o sustituye la dependencia.", file=sys.stderr)
         sys.exit(1)
-    text = render(gomods, npm, imgs)
+    text = render(gomods, npm, imgs, production_tools())
     if check:
         cur = open(OUT).read() if os.path.exists(OUT) else ""
         if cur != text:

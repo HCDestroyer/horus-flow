@@ -1,0 +1,11 @@
+.nuxt
+.output
+.data
+dist
+node_modules
+pnpm-lock.yaml
+playwright-report
+test-results
+.outbox
+docs/screenshots
+public/img

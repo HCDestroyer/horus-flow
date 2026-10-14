@@ -1,0 +1,187 @@
+// Horus Flow — landing comercial (Nuxt 4 + Nuxt UI v4, SSR con servidor Nitro).
+// Separada del frontend del producto (apps/frontend): aquí no hay datos de ningún ISP.
+// Variables de entorno: ver README.md.
+// Content-Security-Policy. Nuxt incrusta scripts en línea (payload, modo de color), de ahí
+// 'unsafe-inline' en script-src; no se carga nada de terceros salvo PayPal en la compra.
+const CSP_COMMON = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+  "object-src 'none'",
+  "img-src 'self' data:",
+  "style-src 'self' 'unsafe-inline'",
+  "font-src 'self'",
+  // Vídeos propios (animaciones de /motion).
+  "media-src 'self'",
+]
+const CSP_BASE = [...CSP_COMMON, "script-src 'self' 'unsafe-inline'", "connect-src 'self'"].join(
+  '; ',
+)
+// PayPal JS SDK: https://developer.paypal.com/sdk/js/ (dominios del SDK, sus iframes y su API).
+const PAYPAL = 'https://www.paypal.com https://*.paypal.com https://*.paypalobjects.com'
+const CSP_BUY = [
+  ...CSP_COMMON.filter((d) => !d.startsWith('img-src')),
+  `script-src 'self' 'unsafe-inline' ${PAYPAL}`,
+  `connect-src 'self' ${PAYPAL}`,
+  `frame-src ${PAYPAL}`,
+  `img-src 'self' data: ${PAYPAL}`,
+].join('; ')
+const BUY_HEADERS = {
+  'Content-Security-Policy': CSP_BUY,
+  'Permissions-Policy':
+    'camera=(), microphone=(), geolocation=(), payment=(self "https://www.paypal.com")',
+}
+const ADMIN_HEADERS = {
+  'Content-Security-Policy': CSP_BASE,
+  'X-Robots-Tag': 'noindex, nofollow',
+  'Cache-Control': 'no-store',
+}
+
+export default defineNuxtConfig({
+  compatibilityDate: '2026-09-01',
+
+  modules: ['@nuxt/eslint', '@nuxt/ui', '@nuxtjs/i18n'],
+
+  devtools: { enabled: false },
+
+  css: ['~/assets/css/main.css'],
+
+  components: [{ path: '~/components', pathPrefix: false }],
+
+  app: {
+    head: {
+      htmlAttrs: { lang: 'es' },
+      meta: [
+        { name: 'viewport', content: 'width=device-width, initial-scale=1, viewport-fit=cover' },
+        { name: 'color-scheme', content: 'light dark' },
+        { name: 'theme-color', content: '#f6f7f9', media: '(prefers-color-scheme: light)' },
+        { name: 'theme-color', content: '#0d1220', media: '(prefers-color-scheme: dark)' },
+        { name: 'format-detection', content: 'telephone=no' },
+      ],
+      link: [{ rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],
+    },
+  },
+
+  runtimeConfig: {
+    // Solo servidor. Todas se pueden fijar en tiempo de ejecución con NUXT_<NOMBRE>; el
+    // servidor lee además los nombres cortos documentados (SMTP_HOST, LEADS_WEBHOOK_URL…)
+    // en server/utils/config.ts.
+    public: {
+      // URL pública canónica (sin barra final). NUXT_PUBLIC_SITE_URL en tiempo de ejecución.
+      siteUrl: 'https://horusflow.kns.gt',
+      // Correo de ventas que se muestra en la página.
+      salesEmail: 'info@kns.gt',
+      // Tiempo mínimo de llenado de un formulario (antispam), en segundos.
+      formMinFillSeconds: 3,
+    },
+  },
+
+  ui: {
+    // Fuente del sistema: sin descargas a terceros ni CLS por fuentes web.
+    fonts: false,
+    // Rendimiento: solo los colores que usa la página y solo los temas de los componentes
+    // usados (el CSS pasa de ~200 KB a una fracción; Lighthouse móvil ≥ 90).
+    theme: { colors: ['primary', 'neutral', 'error'] },
+    experimental: { componentDetection: true },
+  },
+
+  colorMode: {
+    // Solo la apariencia del sistema (HIG dark-mode › "Avoid offering an app-specific
+    // appearance setting"): no hay selector de tema en la página.
+    preference: 'system',
+    fallback: 'light',
+    storageKey: 'horus-landing-color-mode',
+  },
+
+  icon: {
+    provider: 'none',
+    clientBundle: {
+      scan: {
+        globInclude: ['app/**/*.{vue,ts}'],
+        globExclude: ['node_modules', '.nuxt', '.output', 'tests'],
+      },
+      sizeLimitKb: 128,
+    },
+  },
+
+  i18n: {
+    defaultLocale: 'es',
+    strategy: 'prefix_except_default',
+    locales: [
+      { code: 'es', language: 'es-GT', name: 'Español', file: 'es.json' },
+      { code: 'en', language: 'en-US', name: 'English', file: 'en.json' },
+    ],
+    // La URL decide el idioma (cacheable e indexable); el selector cambia de URL.
+    detectBrowserLanguage: false,
+    customRoutes: 'config',
+    pages: {
+      comprar: { es: '/comprar', en: '/buy' },
+      'legal-aviso-legal': { es: '/legal/aviso-legal', en: '/legal/notice' },
+      'legal-privacidad': { es: '/legal/privacidad', en: '/legal/privacy' },
+      'legal-terminos': { es: '/legal/terminos', en: '/legal/terms' },
+      // El panel no tiene versión por idioma (solo /admin, en español).
+      admin: false,
+      'admin-login': false,
+      'admin-solicitudes': false,
+      'admin-solicitudes-id': false,
+      'admin-precios': false,
+      'admin-pagos': false,
+      'admin-ajustes': false,
+      'admin-auditoria': false,
+    },
+  },
+
+  typescript: {
+    strict: true,
+  },
+
+  eslint: {
+    config: {
+      stylistic: false,
+    },
+  },
+
+  routeRules: {
+    '/**': {
+      headers: {
+        'X-Content-Type-Options': 'nosniff',
+        'Referrer-Policy': 'strict-origin-when-cross-origin',
+        'X-Frame-Options': 'DENY',
+        'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=()',
+        'Content-Security-Policy': CSP_BASE,
+      },
+    },
+    // Compra: el botón de PayPal (JS SDK) se carga solo aquí, y solo al elegir PayPal.
+    '/comprar': { headers: BUY_HEADERS },
+    '/en/buy': { headers: BUY_HEADERS },
+    // Panel: sin SSR (todo pasa por /api/admin con sesión), fuera de buscadores y con una CSP
+    // estricta sin terceros. El QR del TOTP es una imagen data:.
+    '/admin': { ssr: false, headers: ADMIN_HEADERS },
+    '/admin/**': { ssr: false, headers: ADMIN_HEADERS },
+    '/img/**': { headers: { 'Cache-Control': 'public, max-age=2592000' } },
+    '/motion/**': { headers: { 'Cache-Control': 'public, max-age=2592000' } },
+    '/api/**': { headers: { 'Cache-Control': 'no-store' } },
+  },
+
+  nitro: {
+    compressPublicAssets: true,
+    // Windows: Nuxt 4.6.0 dejaba el renderer fuera del bundle por un fallo de Nitro con las rutas
+    // `\` y toda página SSR daba 500 "Either manifest or precomputed data must be provided"
+    // (nuxt/nuxt#36467). 4.6.1 trae el arreglo; esta regla, independiente del separador, lo
+    // garantiza en cualquier sistema.
+    externals: {
+      inline: [/[\\/]node_modules[\\/]nuxt[\\/]dist[\\/]/],
+    },
+  },
+
+  // `nuxt dev`: el escaneo automático de dependencias de Vite falla con los componentes de
+  // Nuxt UI que importan `#components` ("Missing #components specifier in @nuxtjs/i18n"). En
+  // Windows ese fallo deja al servidor de desarrollo sin manifiesto del cliente y cualquier página
+  // de error (p. ej. /sw.js de otra app en localhost) da 500 "Either manifest or precomputed data
+  // must be provided". Sin descubrimiento automático no hay escaneo; Vite pre-empaqueta bajo
+  // demanda. No afecta al build de producción.
+  $development: {
+    vite: { optimizeDeps: { noDiscovery: true } },
+  },
+})
