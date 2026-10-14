@@ -188,14 +188,17 @@ traefik_base() {
 }
 health_report() {
   local svc st bad=0 code host
-  while read -r svc st; do
+  local rc
+  while read -r svc st rc; do
     [ -n "$svc" ] || continue
     case "$st" in
       healthy) printf '  %-18s %s\n' "$svc" "sano" ;;
-      exited*) if [ "$svc" = nats-init ]; then printf '  %-18s %s\n' "$svc" "completado"; else printf '  %-18s %s\n' "$svc" "PARADO ($st)"; bad=1; fi ;;
+      # nats-init es un trabajo de una vez: "completado" solo si salió con 0.
+      exited*) if [ "$svc" = nats-init ] && [ "${rc:-0}" = 0 ]; then printf '  %-18s %s\n' "$svc" "completado"
+        else printf '  %-18s %s\n' "$svc" "PARADO ($st, código ${rc:-?}; horus-ctl logs $svc)"; bad=1; fi ;;
       *) printf '  %-18s %s\n' "$svc" "$st"; bad=1 ;;
     esac
-  done < <("${compose[@]}" ps -a --format '{{.Service}} {{if .Health}}{{.Health}}{{else}}{{.State}}{{end}}' 2>/dev/null)
+  done < <("${compose[@]}" ps -a --format '{{.Service}} {{if .Health}}{{.Health}}{{else}}{{.State}}{{end}} {{.ExitCode}}' 2>/dev/null)
   host="${HORUS_PUBLIC_BASE_URL#https://}"
   code="$(curl -sk -o /dev/null -m 10 -w '%{http_code}' "$(traefik_base)/api/v1/system/status" -H "Host: $host" || true)"
   [ "$code" = 401 ] || { printf '  %-18s HTTP %s (se esperaba 401)\n' "API" "${code:-sin respuesta}"; bad=1; }

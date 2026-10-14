@@ -172,6 +172,16 @@ func incrementNumber(s string) int {
 
 func applyNATSSpec(ctx context.Context, js jetstream.JetStream, spec natsSpec, increment string, out io.Writer) error {
 	cur := incrementNumber(increment)
+	// JetStream reserva el max_bytes de cada stream contra max_file_store y lo comprueba en
+	// cada alta o cambio. Si una actualización reduce un stream (p. ej. TLM_FLOWS al bajar
+	// tlm-max-bytes, que también baja max_file_store), hay que aplicar primero las reducciones:
+	// en el orden del archivo, el primer stream que se reaplica chocaría con la reserva antigua
+	// ("insufficient storage resources available") y el arranque quedaría bloqueado.
+	type planned struct {
+		cfg    jetstream.StreamConfig
+		action string
+	}
+	var shrink, rest []planned
 	for _, s := range spec.Streams {
 		if s.Since != "" && incrementNumber(s.Since) > cur {
 			_, _ = fmt.Fprintf(out, "stream %s: omitido (since %s > %s)\n", s.Name, s.Since, increment)
@@ -181,16 +191,25 @@ func applyNATSSpec(ctx context.Context, js jetstream.JetStream, spec natsSpec, i
 		if err != nil {
 			return fmt.Errorf("stream %s: %w", s.Name, err)
 		}
-		action := "creado"
-		if _, err := js.Stream(ctx, cfg.Name); err == nil {
-			action = "actualizado"
-		} else if !errors.Is(err, jetstream.ErrStreamNotFound) {
+		p := planned{cfg: cfg, action: "creado"}
+		st, err := js.Stream(ctx, cfg.Name)
+		switch {
+		case err == nil:
+			p.action = "actualizado"
+			if old := st.CachedInfo().Config.MaxBytes; cfg.MaxBytes > 0 && (old <= 0 || cfg.MaxBytes < old) {
+				shrink = append(shrink, p)
+				continue
+			}
+		case !errors.Is(err, jetstream.ErrStreamNotFound):
 			return fmt.Errorf("stream %s: %w", s.Name, err)
 		}
-		if _, err := js.CreateOrUpdateStream(ctx, cfg); err != nil {
-			return fmt.Errorf("stream %s: %w", s.Name, err)
+		rest = append(rest, p)
+	}
+	for _, p := range append(shrink, rest...) {
+		if _, err := js.CreateOrUpdateStream(ctx, p.cfg); err != nil {
+			return fmt.Errorf("stream %s: %w", p.cfg.Name, err)
 		}
-		_, _ = fmt.Fprintf(out, "stream %s: %s\n", s.Name, action)
+		_, _ = fmt.Fprintf(out, "stream %s: %s\n", p.cfg.Name, p.action)
 	}
 	for _, c := range spec.Consumers {
 		ackWait, err := parseDuration(c.AckWait)

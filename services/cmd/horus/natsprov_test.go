@@ -131,3 +131,58 @@ func TestNATSProvisionContract(t *testing.T) {
 		t.Errorf("collector config over the provisioned bucket: %v", err)
 	}
 }
+
+// Bajar tlm-max-bytes baja también max_file_store: TLM_FLOWS debe reducirse antes de
+// reaplicar el resto, o el primer stream choca con su reserva antigua (incidente real:
+// "stream AUTH_EVENTS: insufficient storage resources available").
+func TestNATSProvisionShrinksFirst(t *testing.T) {
+	s, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: t.TempDir(),
+		JetStreamMaxStore: 90 << 20, NoLog: true, NoSigs: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go s.Start()
+	if !s.ReadyForConnections(10 * time.Second) {
+		t.Fatal("nats not ready")
+	}
+	t.Cleanup(s.Shutdown)
+	raw, err := os.ReadFile(repoFile(t, "packages/events/streams/streams.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	streams := filepath.Join(t.TempDir(), "streams.yaml")
+	if err := os.WriteFile(streams, []byte(strings.ReplaceAll(string(raw), "GiB", "MiB")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Estado anterior: TLM_FLOWS grande (80 MiB de 90) y un stream de eventos ya creado.
+	nc, err := nats.Connect(s.ClientURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	js, _ := jetstream.New(nc)
+	ctx := context.Background()
+	for _, c := range []jetstream.StreamConfig{
+		{Name: "TLM_FLOWS", Subjects: []string{"horus.telemetry.flows.>"}, Storage: jetstream.FileStorage, MaxBytes: 80 << 20},
+		{Name: "AUTH_EVENTS", Subjects: []string{"horus.auth.>"}, Storage: jetstream.FileStorage, MaxBytes: 1 << 20},
+	} {
+		if _, err := js.CreateStream(ctx, c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	nc.Close()
+	args := []string{"--url", s.ClientURL(), "--streams", streams, "--increment", "I1"}
+	var out, errb bytes.Buffer
+	if code := natsProvision(ctx, args, []string{"HORUS_TLM_FLOWS_MAX_BYTES=16777216"}, &out, &errb); code != exitOK {
+		t.Fatalf("code %d: %s", code, errb.String())
+	}
+	first := ""
+	for _, l := range strings.Split(out.String(), "\n") {
+		if strings.HasPrefix(l, "stream ") && !strings.Contains(l, "omitido") {
+			first = l
+			break
+		}
+	}
+	if first != "stream TLM_FLOWS: actualizado" {
+		t.Fatalf("TLM_FLOWS debe reducirse primero; salida:\n%s", out.String())
+	}
+}
