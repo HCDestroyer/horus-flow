@@ -203,13 +203,19 @@ Layout guiado por espacio disponible (`HIG layout.md › Adaptability`).
 
 | Ancho | Barra lateral | Tablas | Dashboards (grilla de 12 columnas) |
 | --- | --- | --- | --- |
-| ≥ 1440 px | Expandida | Todas las columnas | Layout tal como se diseñó |
-| 1024–1439 px | Expandida o iconos | Columnas secundarias ocultables | Widgets anchos se mantienen; los de 3 columnas pasan a 4 |
+| ≥ 1200 px | Expandida | Todas las columnas | Layout tal como se diseñó (contenedor ≥ 880 px; p. ej. 1280×720 con la barra abierta) |
+| 1024–1199 px | Expandida o iconos | Columnas secundarias ocultables | Widgets a 6 o 12 columnas, en orden de lectura |
 | 768–1023 px | Oculta, botón de menú | Columnas prioritarias + detalle en slideover | Widgets a 6 o 12 columnas |
 | < 768 px | Panel deslizable | Filas tipo lista | Una columna, en el orden de lectura del layout (izquierda→derecha, arriba→abajo) |
 
 Mínimo 320 px sin scroll horizontal de página (WCAG 1.4.10). El modo kiosco tiene su propio
 layout (§7).
+
+Las plantillas de Horus no dejan celdas vacías ni usan widgets de menos de 4 columnas, así que
+el layout diseñado se mantiene ordenado desde 880 px de contenedor sin reflotar los bloques: "NOC
+del ISP" ocupa 10 filas y "Seguridad" 11, lo que en mural a 1280×720 deja unos 65 px por fila. La
+pantalla ligera (`kiosk-lite`) usa las mismas posiciones, tiene dibujo propio para cada widget de
+las plantillas y quita las filas de lista que no caben enteras.
 
 ### 5.3 Tema claro / oscuro
 

@@ -11,16 +11,16 @@ export type WidgetScale = 'normal' | 'wall'
 /**
  * Modo de la grilla según el ancho disponible del CONTENEDOR (no del viewport: la barra
  * lateral puede ocupar 64–350 px). Equivalencias con §5.2 con la barra expandida:
- * - `designed` (≥ 1100 px ≈ viewport ≥ 1440): posiciones tal como se diseñaron.
- * - `medium` (≥ 860 px ≈ 1024–1439): los widgets de 3 columnas pasan a 4; flujo denso.
- * - `narrow` (≥ 560 px ≈ 768–1023): widgets a 6 o 12 columnas.
+ * - `designed` (≥ 880 px ≈ viewport ≥ 1200, p. ej. 1280×720 con la barra abierta): posiciones
+ *   tal como se diseñaron. Las plantillas no tienen huecos y cada widget cabe desde 4
+ *   columnas, así que el orden se mantiene en vez de reflotar los bloques.
+ * - `narrow` (≥ 560 px ≈ 768–1199): widgets a 6 o 12 columnas, en orden de lectura.
  * - `single` (< 560 px): una columna en orden de lectura (izquierda→derecha, arriba→abajo).
  */
-export type GridMode = 'designed' | 'medium' | 'narrow' | 'single'
+export type GridMode = 'designed' | 'narrow' | 'single'
 
 export function gridModeFor(width: number): GridMode {
-  if (width >= 1100) return 'designed'
-  if (width >= 860) return 'medium'
+  if (width >= 880) return 'designed'
   if (width >= 560) return 'narrow'
   return 'single'
 }
@@ -36,8 +36,8 @@ export interface PlacedWidget {
 }
 
 /**
- * Cierra los huecos del layout diseñado: las plantillas del contrato dejan celdas vacías
- * (NOC: columna 12 de la fila 2 y fila 9 bajo "Tráfico 24 h"; Seguridad: varias). Cada
+ * Cierra los huecos del layout diseñado (las plantillas de Horus ya no tienen; queda para
+ * dashboards del ISP con celdas vacías). Cada
  * widget, en orden de lectura, se estira hacia la derecha, luego hacia abajo y luego hacia
  * la izquierda mientras toda la franja que ganaría esté vacía. Nunca se mueve ni se encoge
  * un widget, ni crece más allá de las filas del layout.
@@ -91,9 +91,6 @@ export function placeWidgets(widgets: readonly DashboardWidget[], mode: GridMode
     switch (mode) {
       case 'designed':
         style = { gridColumn: `${x + 1} / span ${w}`, gridRow: `${y + 1} / span ${h}` }
-        break
-      case 'medium':
-        style = { gridColumn: `span ${w === 3 ? 4 : w}`, gridRow: `span ${h}` }
         break
       case 'narrow':
         style = { gridColumn: `span ${w <= 6 ? 6 : 12}`, gridRow: `span ${h}` }

@@ -158,6 +158,9 @@
 }
 
 .w-kpi {
+  /* Un número nunca se parte en dos líneas ("3" / "1"): lo que se encoge es lo de al lado. */
+  white-space: nowrap;
+  flex-shrink: 0;
   font-size: var(--w-kpi);
   line-height: 1;
   letter-spacing: -0.02em;
@@ -166,6 +169,7 @@
 }
 
 .w-kpi-2 {
+  white-space: nowrap;
   font-size: var(--w-kpi-2);
   line-height: 1.05;
   letter-spacing: -0.01em;

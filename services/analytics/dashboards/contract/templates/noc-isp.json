@@ -1,12 +1,12 @@
 {
   "id": "0192f000-0000-7000-8000-00000000d001",
   "tenant_id": null,
-  "version": 1,
+  "version": 2,
   "name": "NOC del ISP",
   "visibility": "system",
   "owner_id": null,
   "template_key": "noc_isp",
-  "template_version": 1,
+  "template_version": 2,
   "layout": {
     "grid": "12-col",
     "columns": 12,
@@ -62,7 +62,7 @@
       "position": {
         "x": 4,
         "y": 1,
-        "w": 3,
+        "w": 4,
         "h": 2
       },
       "config": {
@@ -74,7 +74,7 @@
       "type": "findings_summary",
       "title": "Hallazgos abiertos",
       "position": {
-        "x": 7,
+        "x": 8,
         "y": 1,
         "w": 4,
         "h": 2
@@ -86,28 +86,12 @@
       "refresh_seconds": 15
     },
     {
-      "id": "w-exporters",
-      "type": "exporters_status",
-      "title": "Exportadores",
-      "position": {
-        "x": 0,
-        "y": 3,
-        "w": 12,
-        "h": 2
-      },
-      "config": {
-        "site_ids": [],
-        "show": []
-      },
-      "refresh_seconds": 15
-    },
-    {
       "id": "w-traffic-24h",
       "type": "traffic_timeseries",
       "title": "Tráfico 24 h",
       "position": {
         "x": 0,
-        "y": 5,
+        "y": 3,
         "w": 8,
         "h": 3
       },
@@ -121,12 +105,28 @@
       }
     },
     {
+      "id": "w-exporters",
+      "type": "exporters_status",
+      "title": "Exportadores",
+      "position": {
+        "x": 8,
+        "y": 3,
+        "w": 4,
+        "h": 3
+      },
+      "config": {
+        "site_ids": [],
+        "show": []
+      },
+      "refresh_seconds": 15
+    },
+    {
       "id": "w-top-categories",
       "type": "top_categories",
       "title": "Top categorías",
       "position": {
-        "x": 8,
-        "y": 5,
+        "x": 0,
+        "y": 6,
         "w": 4,
         "h": 4
       },
@@ -142,9 +142,9 @@
       "type": "top_customers",
       "title": "Top clientes",
       "position": {
-        "x": 0,
-        "y": 9,
-        "w": 6,
+        "x": 4,
+        "y": 6,
+        "w": 4,
         "h": 4
       },
       "config": {
@@ -159,9 +159,9 @@
       "type": "findings_feed",
       "title": "Hallazgos recientes",
       "position": {
-        "x": 6,
-        "y": 9,
-        "w": 6,
+        "x": 8,
+        "y": 6,
+        "w": 4,
         "h": 4
       },
       "config": {

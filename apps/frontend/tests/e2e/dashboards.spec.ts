@@ -26,13 +26,13 @@ test.describe('dashboards @widgets', () => {
     await expect(widgets).toHaveCount(9)
     await expect(page.locator('[data-testid="widget"][data-state="ready"]')).toHaveCount(9)
     await expect(page.getByTestId('dashboard-grid')).toHaveAttribute('data-grid-mode', 'designed')
-    // top_categories: x=8, y=5, w=4, h=4 (C9 `position`).
+    // top_categories: x=0, y=6, w=4, h=4 (C9 `position`).
     const style = await widget(page, 'w-top-categories').evaluate((el) => ({
       col: getComputedStyle(el).gridColumnStart,
       span: getComputedStyle(el).gridColumnEnd,
       row: getComputedStyle(el).gridRowStart,
     }))
-    expect(style).toEqual({ col: '9', span: 'span 4', row: '6' })
+    expect(style).toEqual({ col: '1', span: 'span 4', row: '7' })
     await expect(page.getByTestId('noc-header-tenant')).toHaveText('Fibra Norte')
     expect(await seriousViolations(page)).toEqual([])
   })

@@ -21,7 +21,13 @@ const rows = computed(() => {
   return [...list].sort((a, b) => (ORDER[a.state] ?? 9) - (ORDER[b.state] ?? 9))
 })
 const healthy = computed(() => rows.value.filter((r) => r.state === 'exporting').length)
-const compact = computed(() => props.scale === 'wall' && rows.value.length > 4)
+// Lista compacta (router y estado, una línea cada uno) en mural con muchos exportadores y en
+// una columna estrecha (≤ 4 de 12): con el detalle solo cabrían dos tarjetas.
+const narrow = computed(() => props.widget.position.w <= 4)
+const compact = computed(
+  () =>
+    (props.scale === 'wall' && rows.value.length > 4) || (narrow.value && rows.value.length > 2),
+)
 
 function ago(iso: string | null) {
   if (!iso) return t('widgets.exporters_status.noFlows')
@@ -39,7 +45,17 @@ function ago(iso: string | null) {
          van primero) y el resumen "N de M exportando" sigue diciendo cuántas hay. -->
     <ul
       v-fit-rows
-      class="grid min-h-0 flex-1 overflow-hidden [grid-auto-rows:minmax(min-content,1fr)] gap-[calc(var(--w-gap)*0.75)] [grid-template-columns:repeat(auto-fit,minmax(min(100%,13rem),1fr))]"
+      class="grid min-h-0 flex-1 overflow-hidden gap-[calc(var(--w-gap)*0.75)]"
+      :class="[
+        compact
+          ? 'content-start gap-y-[calc(var(--w-gap)*0.4)]'
+          : '[grid-auto-rows:minmax(min-content,1fr)]',
+        // En columna estrecha, una línea por router a todo el ancho: en mural el texto escala
+        // con la pantalla y varias subcolumnas de 13rem lo sacarían de su tarjeta.
+        narrow
+          ? '[grid-template-columns:minmax(0,1fr)]'
+          : '[grid-template-columns:repeat(auto-fit,minmax(min(100%,13rem),1fr))]',
+      ]"
       :aria-label="t('widgets.exporters_status.listLabel')"
     >
       <li

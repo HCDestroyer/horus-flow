@@ -407,6 +407,22 @@
   }
 
   function draw(c) {
+    drawContent(c)
+    fitCard(c)
+  }
+  // Las filas que no caben enteras en la tarjeta se quitan (de la última hacia arriba) en vez
+  // de verse cortadas por el borde, como v-fit-rows en la consola. Las cabeceras se quedan.
+  function fitCard(c) {
+    if (mode === 'stack') return
+    var inner = c.inner
+    for (var guard = 0; guard < 40 && inner.scrollHeight > inner.clientHeight + 1; guard++) {
+      var items = c.body.querySelectorAll('.bars .row, table tr, .exp > span')
+      var last = items.length ? items[items.length - 1] : null
+      if (!last || items.length <= 1 || last.getElementsByTagName('th').length) return
+      last.parentNode.removeChild(last)
+    }
+  }
+  function drawContent(c) {
     var body = c.body
     var data = c.data
     body.innerHTML = ''
@@ -445,6 +461,18 @@
           break
         case 'findings_feed':
           if (data.kind === 'table') return drawFeed(body, rows)
+          break
+        case 'botnet_signals':
+          if (data.kind === 'state') return drawBotnet(body, v)
+          break
+        case 'security_by_node':
+          if (data.kind === 'table') return drawNodes(body, rows)
+          break
+        case 'watched_ports':
+          if (data.kind === 'table') return drawPorts(body, rows)
+          break
+        case 'findings_trend':
+          if (data.kind === 'series') return drawTrend(c, data.series || [])
           break
       }
     } catch (e) {
@@ -653,18 +681,166 @@
   function drawTop(body, rows) {
     rows = rows.slice(0, 8)
     if (!rows.length) return nodata(body)
+    var items = []
+    for (var i = 0; i < rows.length; i++) {
+      var b = bytesOf(rows[i])
+      items.push({ label: rows[i].label || '—', value: b, text: format('bytes', b) })
+    }
+    barList(body, items)
+  }
+  // Lista de barras horizontales: etiqueta a la izquierda, valor a la derecha y la barra
+  // proporcional al mayor (top de categorías, señales de botnet, seguridad por nodo).
+  function barList(body, items) {
     var max = 0
-    for (var i = 0; i < rows.length; i++) max = Math.max(max, bytesOf(rows[i]))
+    for (var i = 0; i < items.length; i++) max = Math.max(max, items[i].value)
     var box = add(body, el('div', 'bars'))
-    for (var j = 0; j < rows.length; j++) {
-      var b = bytesOf(rows[j])
+    for (var j = 0; j < items.length; j++) {
       var row = add(box, el('div', 'row'))
       var lbl = add(row, el('div', 'lbl'))
-      add(lbl, el('span', 'v', format('bytes', b)))
-      lbl.appendChild(document.createTextNode(rows[j].label || '—'))
+      add(lbl, el('span', 'v', items[j].text))
+      lbl.appendChild(document.createTextNode(items[j].label))
       var fill = add(add(row, el('div', 'track')), el('div', 'fill'))
-      fill.style.width = (max ? Math.max(2, (b / max) * 100) : 0) + '%'
+      fill.style.width = (max ? Math.max(2, (items[j].value / max) * 100) : 0) + '%'
     }
+  }
+
+  // Seguridad: los mismos nombres que la consola (es.json › signals y findingKind).
+  var SIGNAL = {
+    c2_contact: 'Contacto con C2',
+    beaconing: 'Beaconing',
+    fan_out: 'Fan-out',
+    scanning: 'Escaneo',
+    watched_ports: 'Puertos vigilados',
+    sustained_upload: 'Salida sostenida',
+    smtp: 'SMTP saliente',
+    ddos: 'DDoS'
+  }
+  var KIND = {
+    outbound_scanning: 'Escaneo saliente',
+    botnet_c2_communication: 'Contacto con C2',
+    spam_smtp_outbound: 'SMTP saliente',
+    beaconing: 'Beaconing',
+    ddos_participation: 'DDoS',
+    reputation_hit: 'Reputación',
+    open_proxy_abuse: 'Proxy abierto',
+    cryptomining: 'Criptominería'
+  }
+  function clients(n) {
+    return format('', n) + (n === 1 ? ' cliente' : ' clientes')
+  }
+  function drawBotnet(body, v) {
+    var head = add(body, el('p', 'sub'))
+    add(head, el('b', null, format('', v.affected_customers || 0)))
+    head.appendChild(document.createTextNode(' clientes afectados'))
+    var by = v.by_signal || {}
+    var items = []
+    for (var k in by)
+      if (by.hasOwnProperty(k) && by[k] > 0) items.push({ label: SIGNAL[k] || label(k), value: by[k], text: clients(by[k]) })
+    items.sort(function (a, b) {
+      return b.value - a.value
+    })
+    if (!items.length) return add(body, el('p', 'nodata', 'Sin señales de botnet'))
+    barList(body, items.slice(0, 8))
+  }
+  function drawNodes(body, rows) {
+    if (!rows.length) return nodata(body)
+    var items = []
+    for (var i = 0; i < rows.length && i < 8; i++) {
+      var r = rows[i]
+      var n = r.customers_with_signals || 0
+      var text = clients(n)
+      if (typeof r.open_findings === 'number') text += ' · ' + format('', r.open_findings) + ' hallazgos'
+      items.push({ label: r.site || '—', value: n, text: text })
+    }
+    barList(body, items)
+  }
+  function drawPorts(body, rows) {
+    rows = rows.slice(0, 8)
+    if (!rows.length) return nodata(body)
+    var t = add(body, el('table'))
+    var hr = add(t, el('tr'))
+    add(hr, el('th', null, 'Puerto'))
+    add(hr, el('th', null, 'Servicio'))
+    add(hr, el('th', 'num', 'Clientes'))
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i]
+      var tr = add(t, el('tr'))
+      // El puerto es un identificador: sin separador de miles ("7547/tcp", no "7.547").
+      add(tr, el('td', 'ip', String(r.port) + (r.protocol ? '/' + r.protocol : '')))
+      add(tr, el('td', null, r.service || '—'))
+      add(tr, el('td', 'num', format('', r.customers)))
+    }
+  }
+  // Tendencia de hallazgos: barras apiladas por día y tipo, leyenda con los tipos.
+  var TREND = ['#4f8ff7', '#f0743b', '#3fb97f', '#e3b341', '#e56bb0', '#8b7cf6', '#4fc1c9', '#9aa5b4']
+  function drawTrend(c, series) {
+    var body = c.body
+    var ss = []
+    for (var i = 0; i < series.length && ss.length < TREND.length; i++)
+      if (series[i] && series[i].points && series[i].points.length) ss.push(series[i])
+    if (!ss.length) return nodata(body)
+    var legend = add(body, el('div', 'legend'))
+    for (i = 0; i < ss.length; i++) {
+      var item = add(legend, el('span'))
+      add(item, el('span', 'swatch')).style.background = TREND[i]
+      item.appendChild(document.createTextNode(KIND[ss[i].group] || label(ss[i].group || ss[i].metric)))
+    }
+    var days = ss[0].points
+    var n = days.length
+    var max = 0
+    for (var d = 0; d < n; d++) {
+      var sum = 0
+      for (i = 0; i < ss.length; i++) {
+        var pv = ss[i].points[d] && ss[i].points[d][1]
+        if (typeof pv === 'number') sum += pv
+      }
+      if (sum > max) max = sum
+    }
+    var fs = parseFloat(document.body.style.fontSize) || 16
+    var W = Math.max(200, body.clientWidth || c.inner.clientWidth - fs * 1.8)
+    var H
+    if (mode === 'stack') H = Math.round(W * 0.45)
+    else {
+      var bottom = c.inner.offsetTop + c.inner.offsetHeight - fs * 0.7 - 1
+      H = Math.round(bottom - (legend.offsetTop + legend.offsetHeight) - fs * 0.3)
+    }
+    H = Math.max(80, H)
+    var s = svg('svg', { 'class': 'chart', width: W, height: H, viewBox: '0 0 ' + W + ' ' + H })
+    var axisW = Math.round(fs * 2.2)
+    var labH = Math.round(fs * 1.3)
+    var tf = Math.round(fs * 0.75)
+    var top = Math.round(tf * 0.7)
+    var ph = H - labH - top
+    var pw = W - axisW
+    var nice = Math.max(1, Math.ceil(niceMax(max)))
+    var steps = Math.min(4, nice)
+    for (var g = 0; g <= steps; g++) {
+      var gy = Math.round(top + ph - (g / steps) * ph) + 0.5
+      s.appendChild(svg('line', { x1: axisW, x2: W, y1: gy, y2: gy, stroke: '#2a2e36', 'stroke-width': 1 }))
+      var t = svg('text', { x: axisW - 6, y: gy + tf * 0.35, fill: '#9aa5b4', 'font-size': tf, 'text-anchor': 'end' })
+      t.textContent = String(Math.round((nice * g) / steps))
+      s.appendChild(t)
+    }
+    var slot = pw / n
+    var bw = Math.max(4, Math.round(slot * 0.55))
+    for (d = 0; d < n; d++) {
+      var x = axisW + slot * d + (slot - bw) / 2
+      var y = top + ph
+      for (i = 0; i < ss.length; i++) {
+        var val = ss[i].points[d] && ss[i].points[d][1]
+        if (!(val > 0)) continue
+        var h = (val / nice) * ph
+        y -= h
+        s.appendChild(svg('rect', { x: x.toFixed(1), y: y.toFixed(1), width: bw, height: Math.max(1, h - 1).toFixed(1), fill: TREND[i] }))
+      }
+      var day = toDate(days[d][0])
+      if (day) {
+        var dl = svg('text', { x: (x + bw / 2).toFixed(1), y: H - 2, fill: '#9aa5b4', 'font-size': tf, 'text-anchor': 'middle' })
+        dl.textContent = day.getUTCDate() + '/' + (day.getUTCMonth() + 1)
+        s.appendChild(dl)
+      }
+    }
+    body.appendChild(s)
   }
 
   function drawTopCustomers(body, rows) {

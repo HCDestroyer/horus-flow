@@ -81,7 +81,8 @@ describe('grilla de 12 columnas (frontend.md §5.2)', () => {
 
   it('modo según el ancho disponible', () => {
     expect(gridModeFor(1400)).toBe('designed')
-    expect(gridModeFor(1000)).toBe('medium')
+    // 1280×720 con la barra lateral abierta (~980 px de contenedor): se respeta el diseño.
+    expect(gridModeFor(980)).toBe('designed')
     expect(gridModeFor(700)).toBe('narrow')
     expect(gridModeFor(400)).toBe('single')
   })
@@ -89,12 +90,10 @@ describe('grilla de 12 columnas (frontend.md §5.2)', () => {
   it('en el layout diseñado cada widget ocupa su posición', () => {
     const placed = placeWidgets(noc.widgets, 'designed')
     const top = placed.find((p) => p.widget.id === 'w-top-categories')!
-    expect(top.style).toEqual({ gridColumn: '9 / span 4', gridRow: '6 / span 4' })
+    expect(top.style).toEqual({ gridColumn: '1 / span 4', gridRow: '7 / span 4' })
   })
 
-  it('en anchos medios los widgets de 3 columnas pasan a 4; en estrechos, 6 o 12', () => {
-    const medium = placeWidgets(noc.widgets, 'medium')
-    expect(medium.find((p) => p.widget.id === 'w-customers')!.style.gridColumn).toBe('span 4')
+  it('en anchos estrechos los widgets pasan a 6 o 12 columnas', () => {
     const narrow = placeWidgets(noc.widgets, 'narrow')
     expect(narrow.find((p) => p.widget.id === 'w-customers')!.style.gridColumn).toBe('span 6')
     expect(narrow.find((p) => p.widget.id === 'w-traffic-24h')!.style.gridColumn).toBe('span 12')
@@ -113,34 +112,64 @@ describe('grilla de 12 columnas (frontend.md §5.2)', () => {
     )
   })
 
-  it('el layout diseñado cierra los huecos de las plantillas sin mover ni solapar widgets', () => {
+  it('las plantillas de Horus no tienen huecos ni solapes (el relleno no cambia nada)', () => {
     for (const template of TEMPLATES) {
-      const filled = fillGaps(template.widgets)
-      const cells = new Map<string, string>()
-      for (const w of filled) {
-        const original = template.widgets.find((o) => o.id === w.id)!.position
-        // Solo crece: contiene su posición original.
-        expect(w.position.x).toBeLessThanOrEqual(original.x)
-        expect(w.position.y).toBe(original.y)
-        expect(w.position.x + w.position.w).toBeGreaterThanOrEqual(original.x + original.w)
-        expect(w.position.h).toBeGreaterThanOrEqual(original.h)
-        for (let r = w.position.y; r < w.position.y + w.position.h; r++) {
+      const rows = template.widgets.reduce((m, w) => Math.max(m, w.position.y + w.position.h), 0)
+      const cells = new Set<string>()
+      for (const w of template.widgets) {
+        for (let r = w.position.y; r < w.position.y + w.position.h; r++)
           for (let c = w.position.x; c < w.position.x + w.position.w; c++) {
-            expect(cells.get(`${r}:${c}`), `${template.name} ${w.id} ${r}:${c}`).toBeUndefined()
-            cells.set(`${r}:${c}`, w.id)
+            expect(cells.has(`${r}:${c}`), `${template.name} ${w.id} ${r}:${c}`).toBe(false)
+            cells.add(`${r}:${c}`)
           }
+      }
+      expect(cells.size, template.name).toBe(rows * 12)
+      expect(fillGaps(template.widgets).map((w) => w.position)).toEqual(
+        readingOrder(template.widgets).map((w) => w.position),
+      )
+    }
+  })
+
+  it('el layout diseñado cierra los huecos de un dashboard sin mover ni solapar widgets', () => {
+    // Un dashboard con huecos (el NOC de antes: columna 12 libre en la fila 2 y una fila
+    // vacía bajo "Tráfico 24 h").
+    const p = (id: string, x: number, y: number, w: number, h: number) => ({
+      id,
+      position: { x, y, w, h },
+    })
+    const gappy = [
+      p('header', 0, 0, 12, 1),
+      p('kpi-a', 0, 1, 4, 2),
+      p('kpi-b', 4, 1, 3, 2),
+      p('kpi-c', 7, 1, 4, 2),
+      p('chart', 0, 3, 8, 3),
+      p('side', 8, 3, 4, 4),
+      p('bottom', 0, 7, 12, 2),
+    ]
+    const filled = fillGaps(gappy)
+    const cells = new Map<string, string>()
+    for (const w of filled) {
+      const original = gappy.find((o) => o.id === w.id)!.position
+      // Solo crece: contiene su posición original.
+      expect(w.position.x).toBeLessThanOrEqual(original.x)
+      expect(w.position.y).toBe(original.y)
+      expect(w.position.x + w.position.w).toBeGreaterThanOrEqual(original.x + original.w)
+      expect(w.position.h).toBeGreaterThanOrEqual(original.h)
+      for (let r = w.position.y; r < w.position.y + w.position.h; r++) {
+        for (let c = w.position.x; c < w.position.x + w.position.w; c++) {
+          expect(cells.get(`${r}:${c}`), `${w.id} ${r}:${c}`).toBeUndefined()
+          cells.set(`${r}:${c}`, w.id)
         }
       }
-      // Sin celdas vacías: el mural no deja huecos.
-      expect(cells.size, template.name).toBe(totalRows(template.widgets) * 12)
     }
-    const noc = fillGaps(TEMPLATES[0]!.widgets)
-    expect(noc.find((w) => w.id === 'w-findings-summary')!.position).toMatchObject({ x: 7, w: 5 })
-    expect(noc.find((w) => w.id === 'w-traffic-24h')!.position).toMatchObject({ y: 5, h: 4 })
+    // Sin celdas vacías: el mural no deja huecos.
+    expect(cells.size).toBe(totalRows(gappy) * 12)
+    expect(filled.find((w) => w.id === 'kpi-c')!.position).toMatchObject({ x: 7, w: 5 })
+    expect(filled.find((w) => w.id === 'chart')!.position).toMatchObject({ y: 3, h: 4 })
   })
 
   it('filas totales del layout (para repartir la altura en mural)', () => {
-    expect(totalRows(noc.widgets)).toBe(13)
+    expect(totalRows(noc.widgets)).toBe(10)
   })
 })
 

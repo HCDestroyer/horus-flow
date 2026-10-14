@@ -137,6 +137,10 @@ export const WIDGET_CATALOG = [
         {
           "w": 3,
           "h": 2
+        },
+        {
+          "w": 4,
+          "h": 2
         }
       ],
       "default": {
@@ -763,6 +767,10 @@ export const WIDGET_CATALOG = [
     "sizes": {
       "allowed": [
         {
+          "w": 4,
+          "h": 4
+        },
+        {
           "w": 6,
           "h": 4
         },
@@ -817,6 +825,14 @@ export const WIDGET_CATALOG = [
       "allowed": [
         {
           "w": 6,
+          "h": 3
+        },
+        {
+          "w": 8,
+          "h": 3
+        },
+        {
+          "w": 12,
           "h": 3
         }
       ],

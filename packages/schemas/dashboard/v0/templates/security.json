@@ -1,12 +1,12 @@
 {
   "id": "0192f000-0000-7000-8000-00000000d002",
   "tenant_id": null,
-  "version": 1,
+  "version": 2,
   "name": "Seguridad",
   "visibility": "system",
   "owner_id": null,
   "template_key": "security",
-  "template_version": 1,
+  "template_version": 2,
   "layout": {
     "grid": "12-col",
     "columns": 12,
@@ -72,26 +72,12 @@
       "refresh_seconds": 15
     },
     {
-      "id": "w-security-by-node",
-      "type": "security_by_node",
-      "title": "Seguridad por nodo",
-      "position": {
-        "x": 8,
-        "y": 1,
-        "w": 4,
-        "h": 4
-      },
-      "config": {
-        "n": 8
-      }
-    },
-    {
       "id": "w-watched-ports",
       "type": "watched_ports",
       "title": "Puertos vigilados",
       "position": {
-        "x": 0,
-        "y": 3,
+        "x": 8,
+        "y": 1,
         "w": 4,
         "h": 3
       },
@@ -101,13 +87,27 @@
       }
     },
     {
+      "id": "w-security-by-node",
+      "type": "security_by_node",
+      "title": "Seguridad por nodo",
+      "position": {
+        "x": 0,
+        "y": 3,
+        "w": 4,
+        "h": 4
+      },
+      "config": {
+        "n": 8
+      }
+    },
+    {
       "id": "w-findings-trend",
       "type": "findings_trend",
       "title": "Tendencia 7 días",
       "position": {
-        "x": 6,
-        "y": 5,
-        "w": 6,
+        "x": 4,
+        "y": 4,
+        "w": 8,
         "h": 3
       },
       "config": {
@@ -121,7 +121,7 @@
       "title": "Hallazgos recientes",
       "position": {
         "x": 0,
-        "y": 8,
+        "y": 7,
         "w": 12,
         "h": 4
       },
