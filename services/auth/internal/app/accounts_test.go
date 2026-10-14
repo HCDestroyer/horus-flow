@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -121,14 +122,25 @@ func tokenOf(m *memAccountStore, id uuid.UUID) string {
 	return ""
 }
 
+// resetSender registra los enlaces enviados. ForgotPassword envía en segundo
+// plano: got se protege con mu y la prueba lee con deliveries().
 type resetSender struct {
+	mu  sync.Mutex
 	got []PasswordResetDelivery
 	err error
 }
 
 func (c *resetSender) SendPasswordReset(_ context.Context, d PasswordResetDelivery) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.got = append(c.got, d)
 	return c.err
+}
+
+func (c *resetSender) deliveries() []PasswordResetDelivery {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]PasswordResetDelivery(nil), c.got...)
 }
 
 func newAccountEnv(t *testing.T, withMail bool) (*Service, *memAccountStore, *resetSender, *domain.Catalog) {
@@ -260,11 +272,11 @@ func TestForgotPassword(t *testing.T) {
 		}
 	}
 	deadline := time.Now().Add(2 * time.Second)
-	for len(snd.got) == 0 && time.Now().Before(deadline) {
+	for len(snd.deliveries()) == 0 && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if len(st.created) != 1 || st.created[0].CreatedBy != uuid.Nil || len(snd.got) != 1 || snd.got[0].RequestedByAdmin {
-		t.Fatalf("creados = %+v, correos = %+v", st.created, snd.got)
+	if got := snd.deliveries(); len(st.created) != 1 || st.created[0].CreatedBy != uuid.Nil || len(got) != 1 || got[0].RequestedByAdmin {
+		t.Fatalf("creados = %+v, correos = %+v", st.created, got)
 	}
 	// Cuenta bloqueada o pendiente: nada que emitir, misma respuesta.
 	st.user.Status = domain.UserDisabled
