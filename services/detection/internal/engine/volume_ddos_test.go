@@ -53,8 +53,36 @@ func TestDDoSSmallPacketsOnly(t *testing.T) {
 	if flood[0]["avg_packet_bytes"].(float64) != 80 || flood[0]["pps_peak"].(float64) != 3000 {
 		t.Fatalf("evidencia = %v", flood[0])
 	}
-	if backup := runDDoS(t, ddosFlows(k, start, 3000, 1400, 1), start); len(backup) != 0 {
-		t.Fatalf("subida con paquetes llenos generó %d hallazgos", len(backup))
+	// Una copia de seguridad recibe un acuse TCP de 60 B cada dos segmentos.
+	if backup := runDDoS(t, withReturn(ddosFlows(k, start, 3000, 1400, 1), 3000*60/2, 60), start); len(backup) != 0 {
+		t.Fatalf("subida con paquetes llenos y acuses generó %d hallazgos", len(backup))
+	}
+}
+
+// withReturn añade, por cada minuto de subida, los paquetes que el destino
+// devuelve (packetsPerMinute de packetBytes cada uno).
+func withReturn(flows []FlowRec, packetsPerMinute, packetBytes uint64) []FlowRec {
+	out := append([]FlowRec(nil), flows...)
+	for _, f := range flows {
+		out = append(out, FlowRec{Key: f.Key, Up: false, Remote: f.Remote, RemotePort: f.RemotePort, Protocol: f.Protocol,
+			Start: f.Start, End: f.End, Bytes: packetsPerMinute * packetBytes, Packets: packetsPerMinute, Sampling: f.Sampling})
+	}
+	return out
+}
+
+// Una inundación UDP con paquetes llenos (volumétrica: 20 000 pps de 1 000 B,
+// como el escenario dos_out) no recibe respuesta: es hallazgo aunque el
+// tamaño medio supere max_avg_packet_bytes. Con tráfico de vuelta como el de
+// una videollamada (la mitad de paquetes), no.
+func TestDDoSLargePacketOneWayFlood(t *testing.T) {
+	k := ClientKey{uuid.New(), netip.MustParseAddr("10.20.0.43")}
+	start := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
+	got := runDDoS(t, ddosFlows(k, start, 20000, 1000, 1), start)
+	if len(got) != 1 || got[0]["avg_packet_bytes"].(float64) != 1000 {
+		t.Fatalf("inundación de paquetes llenos sin respuesta: %v", got)
+	}
+	if call := runDDoS(t, withReturn(ddosFlows(k, start, 20000, 1000, 1), 20000*60/2, 200), start); len(call) != 0 {
+		t.Fatalf("tráfico con vuelta generó %d hallazgos", len(call))
 	}
 }
 

@@ -14,7 +14,7 @@ import (
 
 // Versiones de las reglas de volumen y periodicidad.
 const (
-	RuleDDoS      = "ddos-burst@2"
+	RuleDDoS      = "ddos-burst@3"
 	RuleAmp       = "ddos-amplification@1"
 	RuleSustained = "sustained-upload@1"
 	RuleBeacon    = "beaconing@1"
@@ -45,8 +45,9 @@ type minuteAgg struct {
 	upBytes, downBytes float64
 	dstPkts            map[netip.Addr]float64
 	dstBytes           map[netip.Addr]float64
-	// dstDownBytes: lo que cada remoto devolvió al cliente ese minuto (respuesta).
+	// dstDownBytes / dstDownPkts: lo que cada remoto devolvió al cliente ese minuto (respuesta).
 	dstDownBytes map[netip.Addr]float64
+	dstDownPkts  map[netip.Addr]float64
 	ampPkts      map[uint16]float64
 	ampDsts      map[uint16]map[netip.Addr]bool
 }
@@ -64,7 +65,7 @@ func byMinute(flows []FlowRec, amp []uint16) map[ClientKey]map[int64]*minuteAgg 
 			a := mm[m]
 			if a == nil {
 				a = &minuteAgg{dstPkts: map[netip.Addr]float64{}, dstBytes: map[netip.Addr]float64{},
-					dstDownBytes: map[netip.Addr]float64{}, ampPkts: map[uint16]float64{}, ampDsts: map[uint16]map[netip.Addr]bool{}}
+					dstDownBytes: map[netip.Addr]float64{}, dstDownPkts: map[netip.Addr]float64{}, ampPkts: map[uint16]float64{}, ampDsts: map[uint16]map[netip.Addr]bool{}}
 				mm[m] = a
 			}
 			// bytes y packets ya vienen corregidos por el muestreo (el ingester los
@@ -72,6 +73,7 @@ func byMinute(flows []FlowRec, amp []uint16) map[ClientKey]map[int64]*minuteAgg 
 			if !f.Up {
 				a.downBytes += frac * float64(f.Bytes)
 				a.dstDownBytes[f.Remote] += frac * float64(f.Bytes)
+				a.dstDownPkts[f.Remote] += frac * float64(f.Packets)
 				return
 			}
 			a.upBytes += frac * float64(f.Bytes)
@@ -187,19 +189,23 @@ func detectDDoS(ctx context.Context, e *env) ([]domain.Candidate, error) {
 		for _, m := range sortedMinutes(mm) {
 			a := mm[m]
 			top := topDests(floodTargets(a, p.MaxResponseRatio), p.MaxTargets)
-			var pk, by float64
+			var pk, by, back float64
 			for _, t := range top {
 				pk += a.dstPkts[t]
 				by += a.dstBytes[t]
+				back += a.dstDownPkts[t]
 			}
-			// Una inundación va en paquetes pequeños; una subida legítima (copia de
-			// seguridad, vídeo) hace los mismos pps con paquetes llenos (~1 400 B) y
-			// no cuenta como ráfaga (max_avg_packet_bytes).
+			// Una inundación va en paquetes pequeños (max_avg_packet_bytes) o, con
+			// paquetes llenos, en un solo sentido (max_return_packet_ratio). Una
+			// subida legítima con la misma tasa (copia de seguridad, vídeo) llena los
+			// paquetes pero recibe acuses o tráfico de vuelta: no cuenta como ráfaga.
 			avg := 0.0
 			if pk > 0 {
 				avg = by / pk
 			}
-			if pps := pk / 60; pps > p.MinPPS && (p.MaxAvgPacketBytes <= 0 || avg <= p.MaxAvgPacketBytes) {
+			small := p.MaxAvgPacketBytes <= 0 || avg <= p.MaxAvgPacketBytes
+			oneWay := p.MaxReturnPacketRatio > 0 && back < p.MaxReturnPacketRatio*pk
+			if pps := pk / 60; pps > p.MinPPS && (small || oneWay) {
 				if run > 0 && m == prev+1 {
 					run++
 				} else {
