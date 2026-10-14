@@ -13,7 +13,7 @@ import (
 
 	"github.com/hcdestroyer/horus-flow/packages/go/chmigrate"
 	"github.com/hcdestroyer/horus-flow/packages/go/flowinv"
-	snmpschema "github.com/hcdestroyer/horus-flow/services/snmp/migrations/clickhouse"
+	snmpapi "github.com/hcdestroyer/horus-flow/services/snmp/api"
 )
 
 // ensureSNMPSchema aplica las migraciones ClickHouse del rol snmp
@@ -28,8 +28,8 @@ func ensureSNMPSchema(e *env) {
 	defer func() { _ = db.Close() }()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	if _, err := chmigrate.Up(ctx, db, snmpschema.Migrations(), chmigrate.Options{
-		VersionTable: snmpschema.VersionTable, BootstrapDatabase: snmpschema.BootstrapDatabase}); err != nil {
+	if _, err := chmigrate.Up(ctx, db, snmpapi.ClickHouseMigrations(), chmigrate.Options{
+		VersionTable: snmpapi.ClickHouseVersionTable, BootstrapDatabase: snmpapi.ClickHouseBootstrapDatabase}); err != nil {
 		// Mientras la migración del rol snmp no aplique en esta versión de
 		// ClickHouse, el test crea el mismo esquema (columnas idénticas) para
 		// cubrir las consultas de analytics.
