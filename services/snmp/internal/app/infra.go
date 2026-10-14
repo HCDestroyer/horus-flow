@@ -58,7 +58,9 @@ type InfraStore interface {
 
 // Infra es el inventario de servicios de infraestructura (lo usa el handler).
 type Infra struct {
-	store   InfraStore
+	store InfraStore
+	// deny son redes que no pueden ser objetivo (red interna de Horus, red de servicios del túnel).
+	deny    []netip.Prefix
 	devices func() (devapi.Onboarding, bool)
 	sched   *InfraScheduler
 	now     func() time.Time
@@ -70,6 +72,20 @@ func NewInfra(store InfraStore, devices func() (devapi.Onboarding, bool), sched 
 		devices = func() (devapi.Onboarding, bool) { return nil, false }
 	}
 	return &Infra{store: store, devices: devices, sched: sched, now: time.Now}
+}
+
+// DenyTargets fija las redes que no pueden ser objetivo de un chequeo: la
+// red de contenedores y la de servicios de Horus (un ISP no puede sondear
+// los servicios internos de la instalación).
+func (i *Infra) DenyTargets(p []netip.Prefix) { i.deny = p }
+
+func (i *Infra) denied(s *domain.Service) error {
+	for _, p := range i.deny {
+		if p.Contains(s.Target.Unmap()) {
+			return validation([]domain.FieldError{{Field: "target", Code: "not_allowed", Msg: "IP reservada para los servicios internos de Horus."}})
+		}
+	}
+	return nil
 }
 
 // Available indica si hay almacén (PostgreSQL).
@@ -185,6 +201,9 @@ func (i *Infra) Create(ctx context.Context, s *domain.Service) (*domain.Service,
 	if errs := s.Validate(); len(errs) > 0 {
 		return nil, validation(errs)
 	}
+	if err := i.denied(s); err != nil {
+		return nil, err
+	}
 	if !visibleTo(s, sites) {
 		return nil, apperr.Forbidden(problem.CodePermissionDenied, "Fuera de su alcance por nodo.")
 	}
@@ -274,6 +293,9 @@ func (i *Infra) Update(ctx context.Context, id uuid.UUID, expect int, p Patch) (
 	}
 	if errs := s.Validate(); len(errs) > 0 {
 		return nil, validation(errs)
+	}
+	if err := i.denied(s); err != nil {
+		return nil, err
 	}
 	if !visibleTo(s, sites) {
 		return nil, apperr.Forbidden(problem.CodePermissionDenied, "Fuera de su alcance por nodo.")

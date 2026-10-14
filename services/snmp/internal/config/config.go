@@ -68,6 +68,11 @@ type Config struct {
 	// ServicesCIDR es la red de servicios de Horus en el túnel (la del rol
 	// wireguard): origen de los sondeos en el script de router.
 	ServicesCIDR string `env:"HORUS_WG_SERVICES_CIDR" envDefault:"10.255.0.0/24"`
+	// DockerSubnet es la red de contenedores de la instalación: nunca es
+	// objetivo de un chequeo (con la red de servicios del túnel).
+	DockerSubnet string `env:"HORUS_DOCKER_SUBNET" envDefault:"172.31.250.0/24"`
+	// InfraDenyCIDRs: redes adicionales que no pueden ser objetivo (coma).
+	InfraDenyCIDRs []string `env:"HORUS_SNMP_INFRA_DENY_CIDRS" envSeparator:","`
 	// PublicBaseURL para Location.
 	PublicBaseURL string `env:"HORUS_PUBLIC_BASE_URL"`
 }

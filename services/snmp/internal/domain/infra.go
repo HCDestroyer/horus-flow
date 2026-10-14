@@ -322,10 +322,11 @@ type Service struct {
 	Version            int
 }
 
-// StatusOf devuelve el estado guardado de un chequeo (o el inicial).
+// StatusOf devuelve el estado guardado de un chequeo (o el inicial si no
+// existe o cambió de tipo).
 func (s *Service) StatusOf(c Check) CheckStatus {
 	for _, st := range s.CheckStatus {
-		if st.CheckID == c.ID {
+		if st.CheckID == c.ID && (st.Type == "" || st.Type == c.Type) {
 			st.Type = c.Type
 			return st
 		}
@@ -365,8 +366,12 @@ func (s *Service) Validate() []FieldError {
 	if !kindOK(s.Kind) {
 		add("kind", "invalid_format", "Etiqueta de 1 a 32 caracteres: minúsculas, dígitos, guion o guion bajo.")
 	}
-	if !s.Target.IsValid() || s.Target.IsUnspecified() || s.Target.IsMulticast() {
+	switch {
+	case !s.Target.IsValid() || s.Target.IsUnspecified() || s.Target.IsMulticast():
 		add("target", "invalid_format", "IP del servidor no válida.")
+	case s.Target.Unmap().IsLoopback() || s.Target.Unmap().IsLinkLocalUnicast() || s.Target.Unmap().IsLinkLocalMulticast():
+		// Ni el propio servidor de Horus ni enlace local (metadatos de la nube): no es un servidor del ISP.
+		add("target", "not_allowed", "IP no permitida (bucle local o enlace local).")
 	}
 	s.Target = s.Target.Unmap()
 	if s.IntervalSeconds == 0 {

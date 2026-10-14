@@ -48,6 +48,12 @@ func TestInfraServicesAPI(t *testing.T) {
 	if bad.Status != 422 {
 		t.Fatalf("validación: %d %s", bad.Status, bad.Raw)
 	}
+	// La red de servicios de Horus en el túnel (y la de contenedores) no se puede sondear.
+	internal := a.post(A.token, "/api/v1/infra-services", map[string]any{"name": "colector", "target": "10.255.0.10", "kind": "other",
+		"checks": []map[string]any{{"type": "tcp", "port": 4739}}})
+	if internal.Status != 422 {
+		t.Fatalf("objetivo interno: %d %s", internal.Status, internal.Raw)
+	}
 
 	viewerID := a.createUser("visor@isp-a.test")
 	a.grant(viewerID, A.id, "viewer")

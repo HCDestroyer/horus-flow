@@ -1,6 +1,6 @@
 # `mod:snmp` — services/snmp
 
-- **Propósito:** Sondeo SNMPv3/ICMP por el túnel y estado observado de los routers (EP-08).
+- **Propósito:** Sondeo SNMPv3/ICMP por el túnel y estado observado de los routers (EP-08); vigilancia de los servicios de infraestructura del ISP (IPTV, HTTP, DNS…).
 - **Rol(es) de `horus`:** `snmp`
 - **Agente dueño:** FLOW (decisión D21 en docs/po-decisions.md) ([`docs/backlog/team.md`](../../docs/backlog/team.md) §2, [`.github/CODEOWNERS`](../../.github/CODEOWNERS))
 - **Ficha del módulo:** [`docs/services.md`](../../docs/services.md) §3 · Roles y fronteras: [ADR-0025](../../docs/adr/0025-binario-modular-con-roles.md)
@@ -49,6 +49,52 @@
    Kiosco permitido en las lecturas. En `module.Services`: `api.ServiceRouterStatus` (`RouterStatusReader`
    + `InterfaceLister`) para analytics y el gateway.
 
+## Servicios de infraestructura (I2)
+
+Inventario y vigilancia de los **servidores propios del ISP** (IPTV, HTTP, DNS, RADIUS…; nunca clientes). Vive en este
+rol porque es quien ya sondea por el túnel (socket ICMP compartido) y quien publica `SNMP_EVENTS`; es el primer uso de
+PostgreSQL del rol (el estado de los routers sigue en NATS KV).
+
+1. **Inventario** (PG, esquema `snmp`, `migrations/postgres`): `infra_service` (nombre único por ISP, `site_id`
+   opcional, `target` IPv4/IPv6, `kind` libre, `checks` jsonb, `interval_seconds` ≥ 30, `failures_before_down` (3),
+   `recoveries_before_up` (2), `enabled`, `probe_via_router_id`) e `infra_check_state` (estado por chequeo, latencia,
+   contadores, últimos 30 resultados). RLS forzada `p_tenant`; roles `snmp_app` (API) y `snmp_platform` (carga del
+   planificador y relay del outbox). Máximo 500 servicios por ISP.
+2. **API** (`snmp.yaml`, tag `infra-services`): `GET|POST /infra-services`, `GET|PATCH|DELETE /infra-services/{id}`
+   (`If-Match`; el detalle trae `recent`) y `GET /infra-services/{id}/router-snippet`. Lectura `snmp.read`, escritura
+   `snmp.manage`; alcance por nodo (los servicios sin nodo exigen alcance completo). Auditado `snmp.infra_service.*`.
+   Sin `HORUS_POSTGRES_DSN` la API responde 503.
+3. **Chequeos activos** (`adapters/probe`, desde el rol): `icmp` (3 ecos con el socket del sondeador; IPv6 y sin socket
+   → `unknown`), `tcp` (conexión al puerto) y `http` (GET con plazo; código en `expected_status_min..max`, 200–399 por
+   defecto; no se lee el cuerpo, no se siguen redirecciones, nunca por el proxy del entorno; `tls_verify` por chequeo).
+   Plazo `HORUS_SNMP_INFRA_TIMEOUT` acotado a la mitad del intervalo.
+4. **Chequeos pasivos** (ClickHouse, `adapters/clickhouse/flows.go`): una consulta por ISP y ciclo a `flows.flows_raw`
+   (tráfico por minuto de cada objetivo, como `client_ip` o `remote_ip`; la ventana termina 2 min antes de ahora por la
+   latencia de exportación). `no_traffic`: menos de `min_bytes` en `window_minutes` → `down`, **solo si el objetivo tuvo
+   tráfico antes** (`had_traffic`; si no, `unknown/no_traffic_baseline`). `ddos_inbound`: pps/bps entrantes medios de 5
+   min por encima del umbral → `degraded/ddos_inbound` (entrante = `download` con el objetivo en `client_ip`, `upload`
+   con el objetivo en `remote_ip`). Usuario `horus_snmp` con `horus_tenant_reader` (migración
+   `20261014120000_snmp_flows_reader.sql`) y `SQL_horus_tenant` en cada consulta. **Límite:** el ingester no guarda la
+   IP de un servidor de un prefijo `infrastructure` cuando habla con Internet (solo el extremo remoto), así que esos
+   flujos no cuentan; sí los de clientes ↔ servidor y los de servidores sin prefijo.
+5. **Planificador** (`app/infra_scheduler.go`): recarga el inventario cada minuto y tras cada alta/edición/baja; cada
+   servicio cada `interval_seconds` + jitter (≤ 10 %), primer turno repartido en el intervalo; `HORUS_SNMP_INFRA_CONCURRENCY`
+   servicios a la vez. **Histéresis** por chequeo: `failures_before_down` observaciones malas iguales seguidas →
+   `down`/`degraded`; `recoveries_before_up` buenas → `up` (desde `unknown` basta una); `unknown` solo tras
+   max(failures_before_down, 3) observaciones sin datos. Estado del servicio = el peor conocido (down > degraded > up;
+   `unknown` si ninguno sabe). Si no se puede guardar, no se adopta el estado (el evento se reintenta en el ciclo
+   siguiente). Un único rol `snmp` activo por instalación (como el sondeador de routers).
+6. **Evento** `horus.snmp.service.state_changed.<service_id>` (catálogo `packages/events/catalog/snmp.yaml`, mensaje
+   `horus.events.snmp.v1.ServiceStateChanged`) por el **outbox** `snmp.outbox` en la misma transacción que el estado:
+   `{tenant_id, service_id, site_id|null, name, check_type, target, previous_state, state, reason, observed_at}`, con el
+   chequeo que causó el cambio. Lo consume alerts (notificaciones).
+7. **Servidores privados** (RFC 1918, ULA, CGNAT): el hub WireGuard solo enruta la /32 de túnel de cada router (wg-agent
+   rechaza subredes y el hub es compartido entre ISP con redes privadas solapadas), así que Horus **no** amplía
+   AllowedIPs. En su lugar, el servicio fija `probe_via_router_id` y cada chequeo TCP/HTTP un `forward_port`: Horus sondea
+   `IP de túnel del router:forward_port` y el router lo reenvía. `router-snippet` genera las reglas que el **usuario**
+   pega (dst-nat + masquerade + accept en forward, limitadas a `HORUS_WG_SERVICES_CIDR`, `comment="horus-infra <id>"`).
+   El ping no se puede reenviar (`unknown/not_forwardable`). Horus nunca escribe en routers.
+
 ## Variables de entorno
 
 | Variable | Defecto | Qué hace |
@@ -69,6 +115,13 @@
 | `HORUS_SNMP_CH_QUEUE` | `64` | Ciclos pendientes de escritura antes de descartar. |
 | `HORUS_SNMP_INSTANCE_ID` | hostname | `instance_id` del heartbeat. |
 | `HORUS_FLOWS_INVENTORY_FILE`, `HORUS_JWT_PUBLIC_KEYS`, `HORUS_AUTH_ISSUER` | — | Como analytics. |
+| `HORUS_POSTGRES_DSN`, `HORUS_POSTGRES_PASSWORD` | — | Servicios de infraestructura (esquema `snmp`). Sin DSN: API 503. |
+| `HORUS_SNMP_DB_APP_ROLE` / `HORUS_SNMP_DB_PLATFORM_ROLE` | `snmp_app` / `snmp_platform` | Roles de PostgreSQL. |
+| `HORUS_SNMP_PG_MIGRATE` | `true` | Aplica el esquema `snmp` de PostgreSQL al arrancar. |
+| `HORUS_SNMP_INFRA_CONCURRENCY` | `32` | Servicios de infraestructura sondeados a la vez. |
+| `HORUS_SNMP_INFRA_TIMEOUT` | `5s` | Plazo de cada chequeo activo (≤ la mitad del intervalo). |
+| `HORUS_WG_SERVICES_CIDR` | `10.255.0.0/24` | Red de servicios de Horus (origen de los sondeos en el script de router). |
+| `HORUS_PUBLIC_BASE_URL` | — | Base de `Location` en el alta. |
 
 ## Métricas
 
@@ -76,11 +129,14 @@
 `horus_snmp_poll_lag_seconds`, `horus_snmp_targets`, `horus_snmp_targets_stale`,
 `horus_snmp_poller_heartbeat_timestamp_seconds`, `horus_snmp_routers{status}`,
 `horus_snmp_publish_errors_total{kind}`, `horus_snmp_clickhouse_dropped_total`,
-`horus_snmp_clickhouse_insert_rows_total{table}`, `horus_clickhouse_up{service="snmp"}`.
+`horus_snmp_clickhouse_insert_rows_total{table}`, `horus_clickhouse_up{service="snmp"}`,
+`horus_snmp_infra_checks_total{type,result}`, `horus_snmp_infra_services{state}`.
 Logs `snmp: …` sin usuarios, contraseñas ni comunidades.
 
 ## Pruebas
 
 `go test ./services/snmp/...` (máquina de estados, umbrales, deltas, interfaces, parseo con transporte
 falso, engine con dobles, HTTP). Integración: `go test -tags integration ./services/snmp/internal/adapters/clickhouse/`
-(migración real contra ClickHouse con `chtest`, escritura y lectura por tenant).
+(migración real contra ClickHouse con `chtest`, escritura y lectura por tenant);
+`go test -tags integration ./services/snmp/internal/adapters/postgres/` (almacén de servicios: RLS, outbox) y
+`go test -tags integration ./tests/tenancy/ -run TestInfraServicesAPI` (API y aislamiento entre ISP).

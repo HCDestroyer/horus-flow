@@ -9,6 +9,11 @@
 // /routers/{id}/poll. Publica api.RouterStatusReader en module.Services para
 // analytics y el gateway.
 //
+// Servicios de infraestructura del ISP (I2): inventario en PostgreSQL
+// (esquema snmp, RLS), chequeos activos (ICMP, TCP, HTTP) y pasivos desde
+// flows.flows_raw (no_traffic, ddos_inbound) con histéresis, y
+// horus.snmp.service.state_changed por el outbox snmp.outbox.
+//
 // Degradación: sin NATS funciona solo en memoria (sin eventos ni señal del
 // túnel); sin ClickHouse sin histórico; sin socket ICMP la señal ICMP queda
 // unknown y el estado se calcula con SNMP y WireGuard.
@@ -20,6 +25,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -188,10 +194,23 @@ func (m *mod) setupInfra(ctx context.Context) error {
 		m.sched.Disable()
 	}
 	m.infra = app.NewInfra(pgadapter.New(db), devices, m.sched)
+	m.infra.DenyTargets(deniedTargets(m.cfg))
 	if m.deps.Health != nil {
 		m.deps.Health.AddCheck(health.Check{Name: "postgres", Critical: false, Probe: db.Ping})
 	}
 	return nil
+}
+
+// deniedTargets son las redes internas de la instalación que un ISP no puede
+// sondear: contenedores, red de servicios del túnel y las que se configuren.
+func deniedTargets(cfg modcfg.Config) []netip.Prefix {
+	var out []netip.Prefix
+	for _, c := range append([]string{cfg.DockerSubnet, cfg.ServicesCIDR}, cfg.InfraDenyCIDRs...) {
+		if p, err := netip.ParsePrefix(strings.TrimSpace(c)); err == nil {
+			out = append(out, p.Masked())
+		}
+	}
+	return out
 }
 
 // servicesCIDR es la red de servicios de Horus (origen de los sondeos).

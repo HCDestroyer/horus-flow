@@ -1182,6 +1182,83 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/infra-services": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Servicios de infraestructura del ISP con su estado (IPTV, HTTP, DNS, RADIUS…)
+         * @description Inventario de los servidores propios del ISP que Horus vigila (no son clientes) con el estado del
+         *     servicio (el peor de sus chequeos), la latencia del último chequeo activo y el último cambio. Los
+         *     usuarios con alcance por nodo solo ven los servicios de sus nodos (los servicios sin nodo exigen
+         *     alcance completo). Máximo 500 servicios por ISP.
+         */
+        get: operations["listInfraServices"];
+        put?: never;
+        /**
+         * Da de alta un servicio de infraestructura y sus chequeos
+         * @description Chequeos activos (`icmp`, `tcp`, `http`) desde el rol `snmp` y pasivos desde los flujos (`no_traffic`,
+         *     `ddos_inbound`). `interval_seconds` ≥ 30. Horus solo sondea: nunca escribe en routers ni servidores.
+         */
+        post: operations["createInfraService"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/infra-services/{service_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                service_id: components["parameters"]["InfraServiceId"];
+            };
+            cookie?: never;
+        };
+        /** Detalle de un servicio con el historial reciente de cada chequeo */
+        get: operations["getInfraService"];
+        put?: never;
+        post?: never;
+        /** Borra el servicio y su estado (deja de vigilarse; no emite evento) */
+        delete: operations["deleteInfraService"];
+        options?: never;
+        head?: never;
+        /** Edita el servicio (los chequeos se reemplazan como lista; los que conservan `id` mantienen su estado) */
+        patch: operations["updateInfraService"];
+        trace?: never;
+    };
+    "/infra-services/{service_id}/router-snippet": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                service_id: components["parameters"]["InfraServiceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Script RouterOS para que el ISP haga alcanzable un servidor privado por el túnel (lo pega el usuario)
+         * @description Para servidores con IP privada (RFC 1918 / ULA / CGNAT) que Horus no alcanza directamente. Genera las
+         *     reglas MikroTik que el **usuario** revisa y pega en el router del nodo (Horus nunca escribe en routers):
+         *     reenvío de cada puerto TCP/HTTP desde la IP de túnel del router hacia el servidor (`dst-nat`),
+         *     `masquerade` de ese tráfico y aceptación en `forward`, todo limitado a la red de servicios de Horus y con
+         *     `comment="horus-infra"`. El servicio debe declarar `probe_via_router_id` (o pasar `router_id`) y cada
+         *     chequeo tcp/http `forward_port`. `horus_side` explica qué cambia en Horus: nada en el hub WireGuard, porque
+         *     el tráfico va a la /32 de túnel del router, que ya está en sus AllowedIPs. ICMP no se puede reenviar.
+         */
+        get: operations["getInfraServiceRouterSnippet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/kiosk/config": {
         parameters: {
             query?: never;
@@ -3471,6 +3548,151 @@ export interface components {
          * @enum {string}
          */
         FlowExporterState: "pending_configuration" | "exporting" | "silent" | "lossy" | "clock_skew";
+        /** @description Un chequeo. Solo se aceptan los campos de su `type`; `id` lo asigna el servidor y se conserva al editar. */
+        InfraCheck: {
+            /** @description ddos_inbound. */
+            bps_threshold?: number | null;
+            /** @description http; por defecto 399. */
+            expected_status_max?: number | null;
+            /** @description http; por defecto 200. */
+            expected_status_min?: number | null;
+            /** @description tcp y http con `probe_via_router_id`; puerto de la IP de túnel del router que reenvía a `port` del servidor. */
+            forward_port?: number | null;
+            /** @description http. */
+            https?: boolean | null;
+            id?: components["schemas"]["Uuid"];
+            /** @description no_traffic; por defecto 1. */
+            min_bytes?: number | null;
+            /** @description http; ruta absoluta, por defecto /. */
+            path?: string | null;
+            /** @description tcp y http (http: 80/443 por defecto). */
+            port?: number | null;
+            /** @description ddos_inbound (al menos uno de los dos umbrales). */
+            pps_threshold?: number | null;
+            /** @description http con https; por defecto true. */
+            tls_verify?: boolean | null;
+            type: components["schemas"]["InfraCheckType"];
+            /** @description no_traffic; por defecto 15. */
+            window_minutes?: number | null;
+        };
+        InfraCheckResult: {
+            at: components["schemas"]["Timestamp"];
+            latency_ms: number | null;
+            reason: string | null;
+            state: components["schemas"]["InfraServiceState"];
+        };
+        /** @description Estado actual de un chequeo con histéresis (`failures_before_down` fallos seguidos → down; `recoveries_before_up` éxitos → up). */
+        InfraCheckStatus: {
+            check_id: components["schemas"]["Uuid"];
+            consecutive_failures: number;
+            consecutive_successes: number;
+            /** @description Medida del último resultado sin datos sensibles (p. ej. "HTTP 503", "1250 pps entrantes"). */
+            detail: string | null;
+            last_checked_at: components["schemas"]["Timestamp"] | null;
+            latency_ms: number | null;
+            /** @description Enum abierto: ok, timeout, refused, unreachable, tls_error, http_status, no_traffic, ddos_inbound, no_flow_data, icmp_unavailable, router_unavailable… */
+            reason: string | null;
+            /** @description Solo en el detalle (GET /infra-services/{id}); últimos resultados, el más reciente primero. */
+            recent?: components["schemas"]["InfraCheckResult"][];
+            since: components["schemas"]["Timestamp"] | null;
+            state: components["schemas"]["InfraServiceState"];
+            type: components["schemas"]["InfraCheckType"];
+        };
+        /**
+         * @description `icmp` (ping), `tcp` (conexión al puerto), `http` (GET con estado esperado; no se guarda el cuerpo) — activos,
+         *     desde el rol `snmp`. `no_traffic` (bytes hacia/desde el objetivo en la ventana por debajo del mínimo, solo si
+         *     antes tuvo tráfico) y `ddos_inbound` (pps/bps entrantes por encima del umbral → `degraded`) — pasivos, desde
+         *     los flujos.
+         * @enum {string}
+         */
+        InfraCheckType: "icmp" | "tcp" | "http" | "no_traffic" | "ddos_inbound";
+        InfraRouterSnippet: {
+            /** @description false si el objetivo no es privado o no hay chequeos tcp/http con forward_port. */
+            applicable: boolean;
+            /** @description Qué cambia (o no) del lado de Horus. */
+            horus_side: string;
+            router_id: components["schemas"]["Uuid"];
+            router_name: string;
+            /** @description Script RouterOS (.rsc) para pegar; vacío si no aplica. */
+            script: string;
+            warnings: string[];
+        };
+        InfraSchedulerHealth: {
+            /** @description false: el rol snmp no vigila (HORUS_SNMP_ENABLED=false). */
+            enabled: boolean;
+            healthy: boolean;
+            last_cycle_at: components["schemas"]["Timestamp"] | null;
+            /** @description false: sin lector de flujos (ClickHouse); no_traffic y ddos_inbound quedan unknown. */
+            passive_checks: boolean;
+        };
+        InfraService: components["schemas"]["TenantScopedResource"] & {
+            check_status: components["schemas"]["InfraCheckStatus"][];
+            checks: components["schemas"]["InfraCheck"][];
+            enabled: boolean;
+            failures_before_down: number;
+            interval_seconds: number;
+            /**
+             * @description Etiqueta libre (iptv | http | dns | radius | other | …).
+             * @example iptv
+             * @example http
+             * @example dns
+             * @example radius
+             * @example other
+             */
+            kind: string;
+            name: string;
+            /** @description Si se fija, los chequeos tcp/http van a la IP de túnel de ese router en `forward_port` (servidor privado con reenvío). */
+            probe_via_router_id: components["schemas"]["Uuid"] | null;
+            recoveries_before_up: number;
+            site_id: components["schemas"]["Uuid"] | null;
+            status: components["schemas"]["InfraServiceStatus"];
+            /** @description IP del servidor del ISP (infraestructura propia, no de un cliente). */
+            target: components["schemas"]["IpAddress"];
+            /** @description RFC 1918 / ULA / CGNAT: puede necesitar el script de router. */
+            target_private: boolean;
+        };
+        InfraServiceInput: {
+            checks: components["schemas"]["InfraCheck"][];
+            /** @default true */
+            enabled?: boolean;
+            /** @default 3 */
+            failures_before_down?: number;
+            /** @default 60 */
+            interval_seconds?: number;
+            kind: string;
+            name: string;
+            probe_via_router_id?: components["schemas"]["Uuid"] | null;
+            /** @default 2 */
+            recoveries_before_up?: number;
+            site_id?: components["schemas"]["Uuid"] | null;
+            target: components["schemas"]["IpAddress"];
+        };
+        /** @description JSON Merge Patch; `checks` reemplaza la lista completa. */
+        InfraServicePatch: {
+            checks?: components["schemas"]["InfraCheck"][];
+            enabled?: boolean;
+            failures_before_down?: number;
+            interval_seconds?: number;
+            kind?: string;
+            name?: string;
+            probe_via_router_id?: components["schemas"]["Uuid"] | null;
+            recoveries_before_up?: number;
+            site_id?: components["schemas"]["Uuid"] | null;
+            target?: components["schemas"]["IpAddress"];
+        };
+        /**
+         * @description Estado de un servicio o chequeo. `degraded` = responde pero con un problema (p. ej. `ddos_inbound`).
+         * @enum {string}
+         */
+        InfraServiceState: "up" | "down" | "degraded" | "unknown";
+        /** @description Estado del servicio = el peor de sus chequeos conocidos (down > degraded > up); `unknown` solo si ningún chequeo tiene estado todavía. */
+        InfraServiceStatus: {
+            /** @description Chequeo que determina el estado (null si todos están up o no hay chequeos). */
+            check_type: components["schemas"]["InfraCheckType"] | null;
+            reason: string | null;
+            since: components["schemas"]["Timestamp"] | null;
+            state: components["schemas"]["InfraServiceState"];
+        };
         InstallationAccess: {
             access_mode: components["schemas"]["AccessMode"];
             allowed_origins: string[];
@@ -5027,6 +5249,7 @@ export interface components {
         IfMatch: string;
         /** @description Solo en colecciones administrativas pequeñas; ignorado en las grandes. */
         IncludeTotal: boolean;
+        InfraServiceId: components["schemas"]["Uuid"];
         KioskId: components["schemas"]["Uuid"];
         /** @description Tamaño de página (1–200, por defecto 50). Fuera de rango → 400. */
         Limit: number;
@@ -7230,6 +7453,188 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    listInfraServices: {
+        parameters: {
+            query?: {
+                /** @description Filtro por nodo (multivalor por comas). */
+                site_id?: components["parameters"]["SiteIdFilter"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Servicios. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["InfraService"][];
+                        meta: {
+                            generated_at: components["schemas"]["Timestamp"];
+                            scheduler: components["schemas"]["InfraSchedulerHealth"];
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    createInfraService: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Recomendado en `POST`. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKeyOptional"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InfraServiceInput"];
+            };
+        };
+        responses: {
+            /** @description Creado (estado `unknown` hasta el primer chequeo). */
+            201: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    Location: components["headers"]["Location"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InfraService"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    getInfraService: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                service_id: components["parameters"]["InfraServiceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Servicio (cada chequeo incluye `recent`, los últimos resultados). */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InfraService"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteInfraService: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description ETag (`"<version>"`) del recurso; falta → 428, no coincide → 412 con `current`. */
+                "If-Match": components["parameters"]["IfMatch"];
+            };
+            path: {
+                service_id: components["parameters"]["InfraServiceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: components["responses"]["NoContent"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            412: components["responses"]["PreconditionFailed"];
+            428: components["responses"]["PreconditionRequired"];
+        };
+    };
+    updateInfraService: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description ETag (`"<version>"`) del recurso; falta → 428, no coincide → 412 con `current`. */
+                "If-Match": components["parameters"]["IfMatch"];
+            };
+            path: {
+                service_id: components["parameters"]["InfraServiceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InfraServicePatch"];
+                "application/merge-patch+json": components["schemas"]["InfraServicePatch"];
+            };
+        };
+        responses: {
+            /** @description Actualizado. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InfraService"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["UnprocessableEntity"];
+            428: components["responses"]["PreconditionRequired"];
+        };
+    };
+    getInfraServiceRouterSnippet: {
+        parameters: {
+            query?: {
+                /** @description Router por el que se accede (por defecto `probe_via_router_id` del servicio). */
+                router_id?: components["schemas"]["Uuid"];
+            };
+            header?: never;
+            path: {
+                service_id: components["parameters"]["InfraServiceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Script y notas. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InfraRouterSnippet"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["UnprocessableEntity"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     getKioskConfig: {

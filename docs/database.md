@@ -145,8 +145,11 @@ IA + 1 persona. (b) Solo filtro en aplicación: barato pero sin red de seguridad
 | `alerts` | alerts | reglas, alertas, notificaciones, canales, silencios |
 | `analytics` | analytics (con *reporting-worker* y *archiver*) | dashboards y widgets (D8), reportes, ledger de archivado |
 
-Sin esquema PG: `api-gateway` (estado efímero en **Valkey**) y `snmp` (estado operativo en NATS KV
-`snmp_router_state`, proyectado a `devices.router_status`). El reparto final de servicios y su
+| `snmp` | snmp | servicios de infraestructura del ISP (`infra_service`), estado de sus chequeos (`infra_check_state`), outbox |
+
+Sin esquema PG: `api-gateway` (estado efímero en **Valkey**). El estado operativo de los routers de `snmp` sigue en
+NATS KV `snmp_router_state` (proyectado a `devices.router_status`); su esquema PG solo guarda los servicios de
+infraestructura. El reparto final de servicios y su
 granularidad lo fija el Agente A ([`services.md`](services.md)).
 
 ---
@@ -390,8 +393,14 @@ incluidas): crece con cada alta, edición o baja. `tenant_rule_set`/`tenant_rule
 
 ### 2.7 Esquemas secundarios
 
-- **`snmp` (sin PostgreSQL)**: estado por router en NATS KV `snmp_router_state` (claves
-  `<tenant_id>.<router_id>`). Perfiles por fabricante (MikroTik primero) como archivos versionados
+- **`snmp`**: estado por router en NATS KV `snmp_router_state` (claves
+  `<tenant_id>.<router_id>`). Esquema PostgreSQL `snmp` (I2, `services/snmp/migrations/postgres`) solo para los
+  **servicios de infraestructura** del ISP: `infra_service` (`tenant_id`, `name` único por tenant, `site_id` y
+  `probe_via_router_id` sueltos, `target inet` /32 o /128, `kind`, `checks jsonb`, `interval_seconds` ≥ 30,
+  `failures_before_down`, `recoveries_before_up`, `enabled`, estado agregado `state/state_reason/state_check_type/
+  state_since`, `version`), `infra_check_state` (PK `service_id, check_id`; estado con histéresis, latencia,
+  contadores, `had_traffic`, `recent jsonb` con los últimos 30 resultados; FK en cascada) y `outbox`. RLS forzada con
+  `p_tenant` en las dos tablas; roles `snmp_app` / `snmp_platform` (carga del planificador y relay). Perfiles por fabricante (MikroTik primero) como archivos versionados
   en el repositorio. Series a ClickHouse (§6.3) desde el primer incremento con SNMP (D4).
 - **`flows`**: `exporter` (`tenant_id`, `router_id`, `source_ip` tal como llega por el túnel
   WireGuard, `observation_domain_id`, `protocol`, `declared_sampling_rate`, `last_packet_at`),

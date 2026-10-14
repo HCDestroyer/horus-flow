@@ -160,3 +160,24 @@ func TestBuildSnippet(t *testing.T) {
 		t.Fatal("sin túnel no aplica")
 	}
 }
+
+func TestValidateRejectsLocalTargets(t *testing.T) {
+	for _, ip := range []string{"127.0.0.1", "::1", "169.254.169.254", "fe80::1"} {
+		s := Service{Name: "x", Kind: "http", Target: netip.MustParseAddr(ip), Checks: []Check{{Type: CheckICMP}}}
+		errs := s.Validate()
+		if len(errs) != 1 || errs[0].Field != "target" || errs[0].Code != "not_allowed" {
+			t.Errorf("%s: %v", ip, errs)
+		}
+	}
+}
+
+func TestStatusOfResetsOnTypeChange(t *testing.T) {
+	id := uuid.New()
+	s := Service{CheckStatus: []CheckStatus{{CheckID: id, Type: CheckTCP, State: StateDown}}}
+	if st := s.StatusOf(Check{ID: id, Type: CheckTCP}); st.State != StateDown {
+		t.Fatalf("mismo tipo conserva el estado: %+v", st)
+	}
+	if st := s.StatusOf(Check{ID: id, Type: CheckHTTP}); st.State != StateUnknown {
+		t.Fatalf("otro tipo empieza de cero: %+v", st)
+	}
+}
