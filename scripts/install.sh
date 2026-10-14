@@ -71,6 +71,7 @@
 #   --root DIR                   prefijo para todas las rutas por defecto (pruebas; no activa systemd/cron)
 #   --project NOMBRE (horus)     --http-port 80  --https-port 443  --wg-port 51820  --wg-interface wg0
 #   --backup-metrics-port 9109 (127.0.0.1)   --docker-subnet CIDR (172.31.250.0/24)    --tlm-max-bytes BYTES (telemetría NATS; según disco)
+#   --backup-keep-full N (3)                 copias completas de ClickHouse que se conservan (1–30)
 #   --bundle-recipient CLAVE_AGE  cifra el paquete offline para esa clave pública age (si no: frase
 #                                 aleatoria que se muestra UNA vez)
 #   --bundle-out DIR             dónde dejar el paquete offline (/root)
@@ -101,14 +102,14 @@ unset _v
 action=install
 opt_yes=0 opt_force=0 opt_purge=0 skip_fw=0 skip_tunnel=0 skip_systemd=0 skip_backup=0 confirm_bundle=0
 declare -A opt=()
-usage() { sed -n '2,83p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,84p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 need_arg() { [ "$#" -ge 2 ] && [ -n "$2" ] || { echo "install.sh: $1 necesita un valor" >&2; exit 2; }; }
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --mode | --domain | --acme-email | --public-ip | --tunnel-cidr | --admin-email | --admin-password-file | \
       --image | --store-dir | --data-dir | --install-dir | --etc-dir | --root | --project | --http-port | \
       --https-port | --wg-port | --wg-interface | --docker-subnet | --tlm-max-bytes | --bundle-recipient | --bundle-out | \
-      --smtp-host | --smtp-port | --smtp-from | --smtp-user | --smtp-tls | --smtp-password-file | --backup-metrics-port | \
+      --smtp-host | --smtp-port | --smtp-from | --smtp-user | --smtp-tls | --smtp-password-file | --backup-metrics-port | --backup-keep-full | \
       --image-source | --registry | --registry-user | --registry-token-file | --channel | --auto-update | --update-window | \
       --update-source | --web-image | --postgres-image | --size | --tls | --public-url | --trusted-proxies | --http-bind | --wg-endpoint)
       need_arg "$@"; opt[${1#--}]="$2"; shift 2 ;;
@@ -145,6 +146,13 @@ if [ -f "$conf_file" ]; then
 fi
 # get <clave> <defecto>: opción > respuesta guardada > defecto.
 get() { if [ -n "${opt[$1]:-}" ]; then printf '%s' "${opt[$1]}"; elif [ -n "${saved[$1]:-}" ]; then printf '%s' "${saved[$1]}"; else printf '%s' "$2"; fi; }
+# Copias completas de ClickHouse que se conservan (cada una ~ el tamaño de flows sin el crudo).
+# Se guarda en install.conf y sobrevive a las actualizaciones; en discos justos, 1 o 2.
+backup_keep_full() {
+  local n; n="$(get backup-keep-full 3)"
+  [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -ge 1 ] && [ "$n" -le 30 ] || die "--backup-keep-full debe ser un número entre 1 y 30"
+  printf '%s' "$n"
+}
 
 install_dir="$(get install-dir "$root/opt/horus")"
 data_dir="$(get data-dir "$root/var/lib/horus")"
@@ -558,7 +566,7 @@ save_conf() {
       https-port "$https_port" wg-port "$wg_port" wg-interface "$wg_if" docker-subnet "$docker_subnet" \
       tlm-max-bytes "$tlm_max_bytes" smtp-host "$(get smtp-host "")" smtp-port "$(get smtp-port 587)" \
       smtp-from "$(get smtp-from "")" smtp-user "$(get smtp-user "")" smtp-tls "$(get smtp-tls starttls)" \
-      backup-metrics-port "$(get backup-metrics-port 9109)" bundle-out "$(get bundle-out "${root:-}/root")" \
+      backup-metrics-port "$(get backup-metrics-port 9109)" backup-keep-full "$(backup_keep_full)" bundle-out "$(get bundle-out "${root:-}/root")" \
       image-source "$image_source" registry "$registry" registry-user "$registry_user" channel "$channel" \
       auto-update "$auto_update" update-window "$update_window" update-source "$update_source" \
       update-check "$update_check" web-image "${img[HORUS_WEB_IMAGE]}" postgres-image "${img[HORUS_POSTGRES_IMAGE]}" \
@@ -961,7 +969,7 @@ HORUS_SMTP_PORT=$(get smtp-port 587)
 HORUS_SMTP_FROM=$(get smtp-from "")
 HORUS_SMTP_USERNAME=$(get smtp-user "")
 HORUS_SMTP_TLS=$(get smtp-tls starttls)
-HORUS_BACKUP_CH_KEEP_FULL=3
+HORUS_BACKUP_CH_KEEP_FULL=$(backup_keep_full)
 EOF
   chmod 0644 "$env_file"
   # Primer metrics.prom (lo sirve backup-metrics desde el arranque).

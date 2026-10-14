@@ -434,6 +434,7 @@ nuevas; es normal sin Internet (`--no-update-check` lo silencia).
 | Let's Encrypt no emite el certificado | El dominio debe apuntar a este servidor y el **puerto 80** estar abierto desde Internet. |
 | Un servicio no está "sano" | `horus-ctl status` y `horus-ctl logs NOMBRE`. Suele ser falta de RAM o disco lleno. |
 | Disco lleno (≥ 85 %) | `horus-ctl check` lo marca. Amplía el disco o mueve las copias a otro (`--store-dir`). |
+| Proxmox/LXC: `cannot change permissions`, `emergency_ro` o "permisos insuficientes" al actualizar | El almacenamiento thin del host (`local-lvm`) está al 100 %: el disco del contenedor pasa a solo lectura aunque dentro `df` muestre espacio. En el host: `lvs pve/data`, `pct fstrim` en cada contenedor y `pct stop/fsck/start` del de Horus. Para que no vuelva: amplía el pool o reduce lo que guarda Horus en `/etc/horus/install.conf` (`backup-keep-full=1`, `tlm-max-bytes=` más bajo) y relanza `sudo /opt/horus/bin/install.sh --yes`. |
 | El router no conecta el túnel | El **UDP 51820** debe llegar directo al servidor (no por el proxy). `horus-ctl check` muestra si WireGuard escucha. |
 | `sin módulo wireguard` | Debian lo trae en el kernel. Si es un contenedor o VPS raro, se usa `wireguard-go` (más CPU). |
 | Detrás de proxy: login no funciona o la página se queda cargando | Activa **Websockets Support**, usa `Scheme: http` y comprueba `--trusted-proxies` (la IP con la que llega el proxy). |
