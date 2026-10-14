@@ -414,6 +414,7 @@
     "templates": {
       "noc_isp": "Para el operador NOC y la pantalla mural",
       "security": "Para el analista de seguridad y la pantalla mural",
+      "routers_health": "Estado de los routers y sus exportadores, para la pantalla mural",
       "custom": "Dashboard del ISP"
     }
   },

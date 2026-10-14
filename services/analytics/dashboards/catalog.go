@@ -1,7 +1,7 @@
 // Package dashboards es el submódulo de dashboards de analytics (dueño CORE,
 // I1-15; api.md §2.11, contrato C9 en packages/schemas/dashboard/v0):
 // catálogo de tipos de widget en servidor, dashboards como documento con
-// versión/If-Match, plantillas de sistema "NOC del ISP" y "Seguridad",
+// versión/If-Match, plantillas de sistema "NOC del ISP", "Seguridad" y "Salud de routers",
 // playlists de kiosco, GET /kiosk/config y la puerta de los datos de cada
 // widget (permiso del tipo, asignación del kiosco) que resuelve FLOW por
 // module.Services (analytics/api/trafficwidgets).

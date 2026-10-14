@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
- * Dashboards del ISP (frontend.md §6). En I0 solo las plantillas de Horus ("NOC del ISP",
- * "Seguridad"), de solo lectura; crear, duplicar y editar llegan en I2.
+ * Dashboards del ISP (frontend.md §6). Por ahora solo las plantillas de Horus ("NOC del ISP",
+ * "Seguridad", "Salud de routers"), de solo lectura; crear, duplicar y editar llegan en I2.
  */
 const { t } = useI18n()
 const route = useRoute()
@@ -13,6 +13,7 @@ const slug = computed(() => String(route.params.slug))
 const ICONS: Record<string, string> = {
   noc_isp: 'i-lucide-monitor-dot',
   security: 'i-lucide-shield-alert',
+  routers_health: 'i-lucide-router',
 }
 </script>
 

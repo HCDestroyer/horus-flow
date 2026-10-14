@@ -131,7 +131,7 @@ func New(ctx context.Context, deps module.Deps) (*Module, error) {
 // Templates devuelve las plantillas de sistema embebidas.
 func Templates() ([]Dashboard, error) {
 	var out []Dashboard
-	for _, name := range []string{"noc-isp.json", "security.json"} {
+	for _, name := range []string{"noc-isp.json", "security.json", "routers-health.json"} {
 		b, err := contractFS.ReadFile("contract/templates/" + name)
 		if err != nil {
 			return nil, fmt.Errorf("dashboards: template %s: %w", name, err)

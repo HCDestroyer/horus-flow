@@ -131,7 +131,7 @@ describe('API simulada (contrato C5/C9)', () => {
     const token = await useTenant(TENANTS.fibraNorte.tenant_id)
     expect(token).toMatchObject({ scope: 'tenant', tenant_id: TENANTS.fibraNorte.tenant_id })
     const list = await unwrap(api.GET('/dashboards'))
-    expect(list.data.map((d) => d.name)).toEqual(['NOC del ISP', 'Seguridad'])
+    expect(list.data.map((d) => d.name)).toEqual(['NOC del ISP', 'Seguridad', 'Salud de routers'])
   })
 
   it('las rutas autenticadas sin token responden 401', async () => {

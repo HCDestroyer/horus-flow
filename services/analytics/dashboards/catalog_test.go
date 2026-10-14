@@ -20,9 +20,10 @@ func TestContractInSync(t *testing.T) {
 		t.Fatal(err)
 	}
 	for embedded, src := range map[string]string{
-		"contract/widget-types.v0.json":    "packages/schemas/dashboard/v0/widget-types.json",
-		"contract/templates/noc-isp.json":  "packages/schemas/dashboard/v0/templates/noc-isp.json",
-		"contract/templates/security.json": "packages/schemas/dashboard/v0/templates/security.json",
+		"contract/widget-types.v0.json":          "packages/schemas/dashboard/v0/widget-types.json",
+		"contract/templates/noc-isp.json":        "packages/schemas/dashboard/v0/templates/noc-isp.json",
+		"contract/templates/security.json":       "packages/schemas/dashboard/v0/templates/security.json",
+		"contract/templates/routers-health.json": "packages/schemas/dashboard/v0/templates/routers-health.json",
 	} {
 		got, err := fs.ReadFile(ContractFS(), embedded)
 		if err != nil {
@@ -63,7 +64,7 @@ func TestTemplatesValidateAgainstCatalog(t *testing.T) {
 		}
 		keys[*tpls[i].TemplateKey] = true
 	}
-	if !keys["noc_isp"] || !keys["security"] {
+	if !keys["noc_isp"] || !keys["security"] || !keys["routers_health"] {
 		t.Fatalf("plantillas = %v", keys)
 	}
 }

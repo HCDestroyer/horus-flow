@@ -256,7 +256,7 @@ information"*). Los nombres de tipo siguen la convención de [`api.md`](api.md) 
 | `findings_trend` | ¿Aumentan los hallazgos? (por día y tipo, 7/30 días) | 6×3 | REST | ✔ | I1 |
 | `security_by_node` | ¿Qué nodos tienen más clientes con señales? | 4×4 | `GET /security/summary` | ✔ | I1 |
 | `watched_ports` | ¿A qué puertos vigilados (23, 2323, 445, 7547, 8291…) sale tráfico y desde cuántos clientes? | 4×3 | agregados de seguridad | ✔ | I1 |
-| `routers_status_grid` | ¿Están vivos mis routers? (los 8 estados con razón, CPU, temperatura, rx/tx del uplink; "N de M en línea") | 4×3, 6×3, 6×4, 12×2, 12×4 | `GET /routers/status` + WS `routers.status` | ✔ | I2 ✔ hecho |
+| `routers_status_grid` | ¿Están vivos mis routers? (los 8 estados con razón, CPU, temperatura, rx/tx del uplink; "N de M en línea") | 4×3, 6×3, 6×4, 12×2, 12×4 | `GET /routers/status` + WS `routers.status` | ✔ | I2 ✔ hecho (plantilla "Salud de routers") |
 | `commercial_candidates` | ¿Qué IPs residenciales parecen comerciales? (confianza, razón principal) | 6×4 | REST | — · DP | I2 |
 | `activity_heatmap` | ¿Cuándo hay más uso? (hora × día) | 6×3 | agregados | ✔ | I2 |
 | `platform_summary` | ¿Cómo están todos los ISP? (exportadores, tráfico, hallazgos críticos, sin datos de clientes) | 12×4 | plataforma | ✔ (kiosco de plataforma) | I2 |

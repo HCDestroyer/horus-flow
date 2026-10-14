@@ -37,6 +37,22 @@ test.describe('dashboards @widgets', () => {
     expect(await seriousViolations(page)).toEqual([])
   })
 
+  test('la plantilla "Salud de routers" muestra el estado de cada router y los exportadores', async ({
+    page,
+  }) => {
+    await loginAsAdmin(page)
+    await page.goto('/t/fibra-norte/dashboards')
+    await page
+      .getByTestId('dashboard-list')
+      .getByRole('link', { name: /Salud de routers/ })
+      .click()
+    await expect(page.getByRole('heading', { level: 1, name: 'Salud de routers' })).toBeVisible()
+    await expect(page.locator('[data-testid="widget"][data-state="ready"]')).toHaveCount(3)
+    await expect(widget(page, 'w-routers')).toContainText('Estado de routers')
+    await expect(widget(page, 'w-exporters')).toBeVisible()
+    expect(await seriousViolations(page)).toEqual([])
+  })
+
   test('la plantilla "Seguridad" muestra "Infectado" con su confianza (D18)', async ({ page }) => {
     await loginAsAdmin(page)
     await page.goto(SECURITY)

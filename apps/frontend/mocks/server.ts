@@ -7,6 +7,7 @@ import type {
 } from '~~/types/api'
 import nocTemplate from '~~/types/api/contract/templates/noc-isp.json'
 import securityTemplate from '~~/types/api/contract/templates/security.json'
+import routersTemplate from '~~/types/api/contract/templates/routers-health.json'
 import { WIDGET_CATALOG } from '~~/types/api/widget-catalog'
 import { restoreAsnRules } from './asn-rules'
 import { channelRoute } from './channels'
@@ -69,7 +70,7 @@ const LOCK_SECONDS = 60
 const BASE_PATH = '/api/v1'
 
 /** Plantillas de sistema del contrato (C9). */
-export const TEMPLATES = [nocTemplate, securityTemplate] as Dashboard[]
+export const TEMPLATES = [nocTemplate, securityTemplate, routersTemplate] as Dashboard[]
 
 /** Widgets que fallan una vez en el escenario `widget-error` (para probar "Reintentar"). */
 const FAILING_ONCE = new Set(['w-traffic-24h', 'w-findings-trend'])

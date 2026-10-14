@@ -1,0 +1,78 @@
+{
+  "id": "0192f000-0000-7000-8000-00000000d003",
+  "tenant_id": null,
+  "version": 1,
+  "name": "Salud de routers",
+  "visibility": "system",
+  "owner_id": null,
+  "template_key": "routers_health",
+  "template_version": 1,
+  "layout": {
+    "grid": "12-col",
+    "columns": 12,
+    "row_height_px": 80,
+    "breakpoints": {
+      "lg": 1600,
+      "md": 1200
+    }
+  },
+  "default_range": "24h",
+  "refresh_seconds": 30,
+  "variables": {
+    "site_id": null,
+    "range": "24h"
+  },
+  "widgets": [
+    {
+      "id": "w-header",
+      "type": "noc_header",
+      "title": null,
+      "position": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 1
+      },
+      "config": {
+        "show_clock": true,
+        "show_tenant": true,
+        "show_rotation": true
+      }
+    },
+    {
+      "id": "w-routers",
+      "type": "routers_status_grid",
+      "title": "Estado de routers",
+      "position": {
+        "x": 0,
+        "y": 1,
+        "w": 12,
+        "h": 4
+      },
+      "config": {
+        "site_ids": [],
+        "show": [],
+        "sort": "status"
+      },
+      "refresh_seconds": 15
+    },
+    {
+      "id": "w-exporters",
+      "type": "exporters_status",
+      "title": "Exportadores de flujos",
+      "position": {
+        "x": 0,
+        "y": 5,
+        "w": 12,
+        "h": 2
+      },
+      "config": {
+        "site_ids": [],
+        "show": []
+      },
+      "refresh_seconds": 15
+    }
+  ],
+  "created_at": "2026-10-01T00:00:00.000Z",
+  "updated_at": "2026-10-01T00:00:00.000Z"
+}

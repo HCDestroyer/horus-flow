@@ -121,10 +121,14 @@ test.describe('modo kiosco @kiosk', () => {
     await page.getByTestId('playlist-name').fill('Pared NOC')
     await page.getByTestId('playlist-add-item').click()
     await expect(page.getByTestId('playlist-item')).toHaveCount(2)
+    // La plantilla "Salud de routers" se puede rotar en las pantallas NOC.
+    await page.getByTestId('playlist-item').nth(1).getByRole('combobox').click()
+    await page.getByRole('option', { name: 'Salud de routers' }).click()
     await page.getByTestId('playlist-submit').click()
     const created = page.locator('[data-playlist="Pared NOC"]')
     await expect(created).toBeVisible()
     await expect(created.locator('ol > li')).toHaveCount(2)
+    await expect(created.locator('ol > li').nth(1)).toContainText('Salud de routers')
 
     const card = page.locator('[data-kiosk="Pantalla de recepción"]')
     await card.getByTestId('change-playlist').click()

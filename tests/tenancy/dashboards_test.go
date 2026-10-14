@@ -33,7 +33,7 @@ func TestDashboardsPlaylistsAndKiosk(t *testing.T) {
 
 	// Criterio 1: plantillas sembradas.
 	list := a.must(a.do(req{Method: "GET", Path: "/api/v1/dashboards?visibility=system", Token: A.token}), 200)
-	if len(list.Body["data"].([]any)) != 2 {
+	if len(list.Body["data"].([]any)) != 3 {
 		t.Fatalf("plantillas = %s", list.Raw)
 	}
 	tpl := a.must(a.do(req{Method: "GET", Path: "/api/v1/dashboards/" + nocTemplate, Token: A.token}), 200)

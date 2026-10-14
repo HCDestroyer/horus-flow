@@ -29,7 +29,7 @@ describe('manifiestos de presentación (C9)', () => {
     }
   })
 
-  it('cada tipo usado por las plantillas "NOC del ISP" y "Seguridad" tiene renderizador', () => {
+  it('cada tipo usado por las plantillas del sistema tiene renderizador', () => {
     const folders = Object.keys(manifests).map((p) => p.split('/').at(-2))
     const used = new Set(TEMPLATES.flatMap((d) => d.widgets.map((w) => w.type)))
     for (const type of used) expect(folders, type).toContain(type)
