@@ -165,12 +165,18 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 			}})
 		}
 		if cfg.Enabled {
+			started := time.Now()
 			deps.Health.AddCheck(health.Check{Name: "poller", Critical: false, Probe: func(context.Context) error {
-				h := m.engine.Health(uuid.Nil, time.Now())
-				if h.LastCycleAt == nil || !h.Healthy {
-					return errors.New("poller has not completed a cycle in 3 intervals")
+				now := time.Now()
+				h := m.engine.Health(uuid.Nil, now)
+				if h.Healthy {
+					return nil
 				}
-				return nil
+				// Recién arrancado (migraciones, inventario) aún no hay ciclo: margen de 3 intervalos.
+				if h.LastCycleAt == nil && now.Sub(started) < 3*m.engine.Interval() {
+					return nil
+				}
+				return errors.New("poller has not completed a cycle in 3 intervals")
 			}})
 		}
 	}
