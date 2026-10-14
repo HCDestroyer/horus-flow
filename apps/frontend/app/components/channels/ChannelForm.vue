@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type {
+  NotificationCategory,
   NotificationChannel,
   NotificationChannelInput,
   NotificationChannelKind,
@@ -10,7 +11,10 @@ import type {
  * Alta / edición de un canal de notificación (D13, D17): email, Telegram o LibreNMS por su
  * API, por ISP. Las credenciales (token del bot, contraseña y token de LibreNMS) son
  * write-only: se envían aparte (`PUT …/credentials`) y nunca se vuelven a mostrar; al editar
- * se dejan vacías y solo se reemplazan si se escriben.
+ * se dejan vacías y solo se reemplazan si se escriben. Los avisos se eligen por categoría
+ * (seguridad, routers, infraestructura, exportador y túnel), con la opción de afinar por tipo;
+ * las recuperaciones llegan al canal que recibió la alarma aunque la severidad mínima las
+ * filtraría (`notify_recovery`).
  */
 const props = defineProps<{ channel?: NotificationChannel | null }>()
 const emit = defineEmits<{ saved: [] }>()
@@ -20,15 +24,9 @@ const { t } = useI18n()
 const { $api } = useNuxtApp()
 const { withReauth } = useReauth()
 const toast = useToast()
+const { sites } = useSites()
 
-const EVENTS: NotificationEventType[] = [
-  'finding_opened',
-  'finding_reopened',
-  'exporter_silent',
-  'exporter_recovered',
-  'tunnel_down',
-  'tunnel_recovered',
-]
+type Severity = 'info' | 'low' | 'medium' | 'high' | 'critical'
 
 const form = reactive({
   kind: 'email' as NotificationChannelKind,
@@ -37,11 +35,17 @@ const form = reactive({
   includePersonal: false,
   recipients: '',
   chatId: '',
+  threadId: null as number | null,
+  ownBot: false,
   baseUrl: 'https://',
   username: 'horus',
   tlsVerify: true,
-  events: ['finding_opened', 'exporter_silent'] as NotificationEventType[],
-  minSeverity: 'high' as 'low' | 'medium' | 'high' | 'critical',
+  categories: ['security', 'routers'] as NotificationCategory[],
+  events: [] as NotificationEventType[],
+  minSeverity: 'high' as Severity,
+  siteIds: [] as string[],
+  throttle: 15,
+  notifyRecovery: true,
   // Credenciales write-only.
   botToken: '',
   password: '',
@@ -50,6 +54,7 @@ const form = reactive({
 const errors = ref<Record<string, string>>({})
 const saving = ref(false)
 const editing = computed(() => !!props.channel)
+const expanded = ref<Record<string, boolean>>({})
 
 watch(open, (o) => {
   if (!o) return
@@ -63,15 +68,27 @@ watch(open, (o) => {
     includePersonal: c?.include_personal_data ?? false,
     recipients: ((cfg.recipients as string[]) ?? []).join(', '),
     chatId: (cfg.chat_id as string) ?? '',
+    threadId: (cfg.message_thread_id as number | undefined) ?? null,
+    ownBot: (cfg.uses_own_bot as boolean) ?? false,
     baseUrl: (cfg.base_url as string) ?? 'https://',
     username: (cfg.username as string) ?? 'horus',
     tlsVerify: (cfg.tls_verify as boolean) ?? true,
-    events: c?.subscription.event_types ?? ['finding_opened', 'exporter_silent'],
-    minSeverity: (c?.subscription.min_severity as typeof form.minSeverity) ?? 'high',
+    categories: c ? (c.subscription.categories ?? []) : ['security', 'routers'],
+    events: c?.subscription.event_types ?? [],
+    minSeverity: (c?.subscription.min_severity as Severity) ?? 'high',
+    siteIds: c?.subscription.site_ids ?? [],
+    throttle: c?.subscription.throttle_minutes ?? 15,
+    notifyRecovery: c?.subscription.notify_recovery ?? true,
     botToken: '',
     password: '',
     apiToken: '',
   })
+  expanded.value = Object.fromEntries(
+    NOTIFICATION_CATEGORIES.map((cat) => [
+      cat.key,
+      !form.categories.includes(cat.key) && cat.events.some((e) => form.events.includes(e)),
+    ]),
+  )
 })
 
 function config(): NotificationChannelInput['config'] {
@@ -82,7 +99,13 @@ function config(): NotificationChannelInput['config'] {
       subject_prefix: '[Horus]',
     }
   }
-  if (form.kind === 'telegram') return { chat_id: form.chatId.trim(), language: 'es' }
+  if (form.kind === 'telegram') {
+    return {
+      chat_id: form.chatId.trim(),
+      language: 'es',
+      ...(form.threadId ? { message_thread_id: form.threadId } : {}),
+    }
+  }
   return {
     base_url: form.baseUrl.trim(),
     username: form.username.trim(),
@@ -91,7 +114,9 @@ function config(): NotificationChannelInput['config'] {
 }
 
 function credentials() {
-  if (form.kind === 'telegram' && form.botToken) return { telegram_bot_token: form.botToken }
+  if (form.kind === 'telegram' && form.ownBot && form.botToken) {
+    return { telegram_bot_token: form.botToken.trim() }
+  }
   if (form.kind === 'librenms' && (form.password || form.apiToken)) {
     return { password: form.password || undefined, api_token: form.apiToken || undefined }
   }
@@ -107,10 +132,13 @@ async function save() {
     include_personal_data: form.includePersonal,
     config: config(),
     subscription: {
-      event_types: form.events,
+      // Los tipos sueltos de una categoría completa sobran: la categoría ya los incluye.
+      event_types: form.events.filter((e) => !form.categories.includes(eventCategory(e)!)),
+      categories: form.categories,
       min_severity: form.minSeverity,
-      site_ids: [],
-      throttle_minutes: 15,
+      site_ids: form.siteIds,
+      throttle_minutes: form.throttle,
+      notify_recovery: form.notifyRecovery,
     },
   }
   try {
@@ -160,15 +188,26 @@ const kindItems = computed(() =>
     value: k,
   })),
 )
-const eventItems = computed(() =>
-  EVENTS.map((e) => ({ label: t(`channels.events.${e}`), value: e })),
-)
+function toggleCategory(key: NotificationCategory, on: boolean | 'indeterminate') {
+  form.categories =
+    on === true ? [...new Set([...form.categories, key])] : form.categories.filter((c) => c !== key)
+}
+function eventItems(events: NotificationEventType[]) {
+  return events.map((e) => ({ label: t(`channels.events.${e}`), value: e }))
+}
+function categoryEvents(key: NotificationCategory, events: NotificationEventType[]) {
+  return form.categories.includes(key) ? events : form.events.filter((e) => events.includes(e))
+}
+function setCategoryEvents(events: NotificationEventType[], picked: NotificationEventType[]) {
+  form.events = [...form.events.filter((e) => !events.includes(e)), ...picked]
+}
 const severityItems = computed(() =>
-  (['low', 'medium', 'high', 'critical'] as const).map((s) => ({
+  (['info', 'low', 'medium', 'high', 'critical'] as const).map((s) => ({
     label: t('channels.form.fromSeverity', { s: t(`severity.${s}`) }),
     value: s,
   })),
 )
+const siteItems = computed(() => (sites.value ?? []).map((s) => ({ label: s.name, value: s.id })))
 </script>
 
 <template>
@@ -206,33 +245,17 @@ const severityItems = computed(() =>
           />
         </UFormField>
 
-        <template v-if="form.kind === 'telegram'">
-          <UFormField
-            :label="t('channels.form.chatId')"
-            :help="t('channels.form.chatIdHelp')"
-            :error="errors['config.chat_id']"
-            required
-          >
-            <UInput
-              v-model="form.chatId"
-              class="w-full"
-              :ui="{ base: 'font-mono' }"
-              data-testid="channel-chat"
-            />
-          </UFormField>
-          <UFormField
-            :label="t('channels.form.botToken')"
-            :help="editing ? t('channels.form.keepSecret') : t('channels.form.writeOnly')"
-          >
-            <UInput
-              v-model="form.botToken"
-              type="password"
-              autocomplete="new-password"
-              class="w-full"
-              data-testid="channel-bot-token"
-            />
-          </UFormField>
-        </template>
+        <TelegramSetup
+          v-if="form.kind === 'telegram'"
+          v-model:chat-id="form.chatId"
+          v-model:thread-id="form.threadId"
+          v-model:bot-token="form.botToken"
+          v-model:own-bot="form.ownBot"
+          :editing="editing"
+          :channel-id="props.channel?.id"
+          :has-own-bot="!!props.channel?.has_credentials && props.channel?.kind === 'telegram'"
+          :errors="errors"
+        />
 
         <template v-if="form.kind === 'librenms'">
           <UFormField
@@ -286,12 +309,99 @@ const severityItems = computed(() =>
           <p class="text-muted text-xs">{{ t('channels.form.isolation') }}</p>
         </template>
 
-        <UFormField :label="t('channels.form.events')" :error="errors['subscription.event_types']">
-          <UCheckboxGroup v-model="form.events" :items="eventItems" />
+        <UFormField
+          :label="t('channels.form.events')"
+          :help="t('channels.form.eventsHelp')"
+          :error="errors['subscription.event_types'] ?? errors['subscription.categories']"
+        >
+          <ul class="flex flex-col gap-2" data-testid="channel-categories">
+            <li
+              v-for="cat in NOTIFICATION_CATEGORIES"
+              :key="cat.key"
+              class="border-default rounded-md border p-3"
+              :data-category="cat.key"
+            >
+              <div class="flex items-start gap-2">
+                <UCheckbox
+                  :model-value="form.categories.includes(cat.key)"
+                  :label="t(`channels.categories.${cat.key}.label`)"
+                  :description="t(`channels.categories.${cat.key}.help`)"
+                  class="min-w-0 flex-1"
+                  @update:model-value="toggleCategory(cat.key, $event)"
+                />
+                <UIcon
+                  :name="cat.icon"
+                  class="text-muted mt-0.5 size-4 shrink-0"
+                  aria-hidden="true"
+                />
+                <UButton
+                  size="xs"
+                  color="neutral"
+                  variant="ghost"
+                  :trailing-icon="
+                    expanded[cat.key] ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'
+                  "
+                  :label="t('channels.form.types')"
+                  :aria-expanded="!!expanded[cat.key]"
+                  @click="expanded[cat.key] = !expanded[cat.key]"
+                />
+              </div>
+              <UCheckboxGroup
+                v-if="expanded[cat.key]"
+                class="mt-2 ps-6"
+                :model-value="categoryEvents(cat.key, cat.events)"
+                :items="eventItems(cat.events)"
+                :disabled="form.categories.includes(cat.key)"
+                @update:model-value="
+                  setCategoryEvents(cat.events, $event as NotificationEventType[])
+                "
+              />
+            </li>
+          </ul>
         </UFormField>
-        <UFormField :label="t('channels.form.minSeverity')">
-          <USelect v-model="form.minSeverity" :items="severityItems" class="w-56" />
+        <div class="grid gap-3 sm:grid-cols-2">
+          <UFormField
+            :label="t('channels.form.minSeverity')"
+            :help="t('channels.form.minSeverityHelp')"
+          >
+            <USelect
+              v-model="form.minSeverity"
+              :items="severityItems"
+              class="w-full"
+              data-testid="channel-min-severity"
+            />
+          </UFormField>
+          <UFormField
+            :label="t('channels.form.throttle')"
+            :help="t('channels.form.throttleHelp')"
+            :error="errors['subscription.throttle_minutes']"
+          >
+            <UInputNumber
+              v-model="form.throttle"
+              :min="0"
+              :max="1440"
+              class="w-full"
+              data-testid="channel-throttle"
+            />
+          </UFormField>
+        </div>
+        <UFormField :label="t('channels.form.sites')" :help="t('channels.form.sitesHelp')">
+          <USelectMenu
+            v-model="form.siteIds"
+            :items="siteItems"
+            value-key="value"
+            multiple
+            :placeholder="t('common.allSites')"
+            class="w-full"
+            data-testid="channel-sites"
+          />
         </UFormField>
+        <USwitch
+          v-model="form.notifyRecovery"
+          :label="t('channels.form.notifyRecovery')"
+          :description="t('channels.form.notifyRecoveryHelp')"
+          data-testid="channel-notify-recovery"
+        />
         <USwitch
           v-model="form.includePersonal"
           :label="t('channels.form.personal')"

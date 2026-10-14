@@ -1,4 +1,6 @@
 import type {
+  RouterThresholdValues,
+  RouterThresholds,
   InterfaceSample,
   RouterDeviceSample,
   RouterEffectiveStatus,
@@ -788,6 +790,92 @@ export function routerMetricsMessage(live: RouterLiveMetrics, now: Date): Realti
 
 // --- Rutas -----------------------------------------------------------------------------------
 
+const DEFAULT_THRESHOLDS: RouterThresholdValues = {
+  cpu_warning: 80,
+  cpu_critical: 95,
+  memory_warning: 85,
+  memory_critical: 95,
+  temperature_warning: 70,
+  temperature_critical: 85,
+}
+const tenantThresholds = new Map<
+  string,
+  { values: RouterThresholdValues; version: number; at: string }
+>()
+
+/** Umbrales por ISP (GET/PUT/DELETE /routers/thresholds); sin ajustes, los de la instalación. */
+function thresholdsRoute(ctx: TenantRouteContext): Response | undefined {
+  const view = (): RouterThresholds => {
+    const own = tenantThresholds.get(ctx.tenant.tenant_id)
+    return {
+      ...(own?.values ?? DEFAULT_THRESHOLDS),
+      defaults: DEFAULT_THRESHOLDS,
+      customized: !!own,
+      version: own?.version ?? 0,
+      updated_at: own?.at ?? null,
+      sustained_cycles: 3,
+    }
+  }
+  if (ctx.method === 'GET') {
+    if (!ctx.can('snmp.read')) return forbidden()
+    return json(view(), 200, { ETag: `"${view().version}"` })
+  }
+  if (!ctx.can('snmp.manage')) return forbidden()
+  if (ctx.method === 'DELETE') {
+    tenantThresholds.delete(ctx.tenant.tenant_id)
+    return json(view())
+  }
+  if (ctx.method !== 'PUT') return
+  const v = ctx.body as unknown as RouterThresholdValues
+  const errors: { field: string; code: string; message: string }[] = []
+  for (const [key, lo, hi, unit] of [
+    ['cpu', 1, 100, ' %'],
+    ['memory', 1, 100, ' %'],
+    ['temperature', 20, 150, ' °C'],
+  ] as const) {
+    const w = v[`${key}_warning`]
+    const c = v[`${key}_critical`]
+    if (!(w >= lo && w <= hi))
+      errors.push({
+        field: `${key}_warning`,
+        code: 'OUT_OF_RANGE',
+        message: `Entre ${lo} y ${hi}${unit}.`,
+      })
+    if (!(c >= lo && c <= hi))
+      errors.push({
+        field: `${key}_critical`,
+        code: 'OUT_OF_RANGE',
+        message: `Entre ${lo} y ${hi}${unit}.`,
+      })
+    if (w > c)
+      errors.push({
+        field: `${key}_warning`,
+        code: 'OUT_OF_RANGE',
+        message: 'El aviso no puede superar al crítico.',
+      })
+  }
+  if (errors.length)
+    return problem(422, 'VALIDATION_FAILED', 'Revisa los campos marcados', {}, { errors })
+  const prev = tenantThresholds.get(ctx.tenant.tenant_id)
+  const match = ctx.req.headers.get('If-Match')
+  if (match && prev && match.replaceAll('"', '') !== String(prev.version)) {
+    return problem(412, 'PRECONDITION_FAILED', 'Los umbrales cambiaron')
+  }
+  tenantThresholds.set(ctx.tenant.tenant_id, {
+    values: {
+      cpu_warning: v.cpu_warning,
+      cpu_critical: v.cpu_critical,
+      memory_warning: v.memory_warning,
+      memory_critical: v.memory_critical,
+      temperature_warning: v.temperature_warning,
+      temperature_critical: v.temperature_critical,
+    },
+    version: (prev?.version ?? 0) + 1,
+    at: ctx.now.toISOString(),
+  })
+  return json(view(), 200, { ETag: `"${view().version}"` })
+}
+
 export function snmpRoutes(ctx: TenantRouteContext): Response | undefined {
   const { tenant, now } = ctx
   const options: SnmpOptions = {
@@ -809,6 +897,8 @@ export function snmpRoutes(ctx: TenantRouteContext): Response | undefined {
     )
     return json(list)
   }
+
+  if (ctx.path === '/routers/thresholds') return thresholdsRoute(ctx)
 
   const m = ctx.path.match(
     /^\/(analytics\/)?routers\/([^/]+)\/(metrics\/live|interfaces|poll|metrics|interfaces\/metrics)$/,

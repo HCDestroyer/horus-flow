@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import type { ConnectionTestResult, NotificationChannel } from '~~/types/api'
+import type { ConnectionTestResult, NotificationChannel, NotificationDelivery } from '~~/types/api'
 
 /**
  * Canales de notificación del ISP (D13, D17; I1 canal mínimo de alertas): email, Telegram y
  * LibreNMS por su API, cada uno con su estado, a qué eventos se suscribe y sus credenciales
  * write-only. "Probar conexión" comprueba el destino sin enviar nada; "Enviar prueba" manda
- * un mensaje de prueba. Todo aislado por ISP aunque compartan servidor LibreNMS.
+ * un mensaje de prueba. Todo aislado por ISP aunque compartan servidor LibreNMS. Debajo, el
+ * registro de envíos (GET /notification-deliveries): qué se avisó, por qué canal y si llegó.
  */
 const { t } = useI18n()
 const route = useRoute()
@@ -34,6 +35,55 @@ const ICON = {
   telegram: 'i-lucide-send',
   librenms: 'i-lucide-server-cog',
 } as const
+
+function subscriptionSummary(c: NotificationChannel) {
+  const cats = (c.subscription.categories ?? []).map((k) => t(`channels.categories.${k}.label`))
+  const loose = c.subscription.event_types
+    .filter((e) => !(c.subscription.categories ?? []).includes(eventCategory(e)!))
+    .map((e) => t(`channels.events.${e}`))
+  return [...cats, ...loose].join(' · ')
+}
+
+const deliveryStatus = ref<'all' | 'sent' | 'failed' | 'throttled'>('all')
+const {
+  data: deliveries,
+  error: deliveriesError,
+  status: deliveriesStatus,
+  refresh: refreshDeliveries,
+} = useTenantQuery(
+  () => `deliveries:${deliveryStatus.value}`,
+  () =>
+    unwrap(
+      $api.GET('/notification-deliveries', {
+        params: {
+          query: {
+            limit: 50,
+            ...(deliveryStatus.value === 'all' ? {} : { status: deliveryStatus.value }),
+          },
+        },
+      }),
+    ).then((r) => r.data),
+  { watch: [deliveryStatus] },
+)
+const channelName = computed(
+  () => new Map((channels.value ?? []).map((c) => [c.id, c.name] as const)),
+)
+const DELIVERY = {
+  sent: { color: 'success', icon: 'i-lucide-check' },
+  queued: { color: 'info', icon: 'i-lucide-clock' },
+  failed: { color: 'error', icon: 'i-lucide-circle-x' },
+  throttled: { color: 'neutral', icon: 'i-lucide-layers' },
+} as const
+const deliveryFilterItems = computed(() =>
+  (['all', 'sent', 'failed', 'throttled'] as const).map((s) => ({
+    label: t(`channels.deliveries.filter.${s}`),
+    value: s,
+  })),
+)
+function deliveryTitle(d: NotificationDelivery) {
+  if (d.is_test) return t('channels.deliveries.test')
+  return d.summary ?? (d.event_type ? t(`channels.events.${d.event_type}`) : '—')
+}
 
 function destination(c: NotificationChannel) {
   const cfg = c.config as Record<string, unknown>
@@ -67,6 +117,7 @@ async function sendTest(c: NotificationChannel) {
       }),
     )
     toast.add({ title: t('channels.testQueued'), color: 'success', icon: 'i-lucide-send' })
+    setTimeout(() => refreshDeliveries(), 1500)
   } catch (e) {
     toast.add({ title: t(describeError(e).messageKey), color: 'error' })
   }
@@ -150,13 +201,17 @@ async function remove() {
               </p>
               <p class="text-muted text-sm break-all">{{ destination(c) }}</p>
               <p class="text-muted flex flex-wrap gap-x-3 text-xs">
-                <span>{{
-                  c.subscription.event_types.map((e) => t(`channels.events.${e}`)).join(' · ')
-                }}</span>
+                <span data-testid="channel-subscription">{{ subscriptionSummary(c) }}</span>
                 <span v-if="c.subscription.min_severity">{{
                   t('channels.form.fromSeverity', {
                     s: t(`severity.${c.subscription.min_severity}`),
                   })
+                }}</span>
+                <span v-if="c.subscription.notify_recovery !== false">{{
+                  t('channels.recoveryOn')
+                }}</span>
+                <span v-if="c.subscription.site_ids?.length">{{
+                  t('channels.sitesCount', { n: c.subscription.site_ids.length })
                 }}</span>
               </p>
               <p
@@ -227,7 +282,12 @@ async function remove() {
               results[c.id]!.ok
                 ? results[c.id]!.remote_version
                   ? t('channels.remoteVersion', { v: results[c.id]!.remote_version })
-                  : undefined
+                  : results[c.id]!.bot_username
+                    ? t('channels.telegramOk', {
+                        bot: results[c.id]!.bot_username,
+                        chat: results[c.id]!.chat_title ?? '—',
+                      })
+                    : undefined
                 : (results[c.id]!.error ?? undefined)
             "
             data-testid="test-result"
@@ -240,6 +300,76 @@ async function remove() {
         </UCard>
       </li>
     </ul>
+
+    <section v-if="channels?.length" class="mt-6 flex flex-col gap-3" data-testid="deliveries">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <h2 class="text-highlighted text-base font-semibold">
+          {{ t('channels.deliveries.title') }}
+        </h2>
+        <div class="flex items-center gap-2">
+          <USelect
+            v-model="deliveryStatus"
+            :items="deliveryFilterItems"
+            class="w-40"
+            :aria-label="t('channels.deliveries.filterLabel')"
+            data-testid="deliveries-filter"
+          />
+          <UButton
+            color="neutral"
+            variant="ghost"
+            icon="i-lucide-refresh-cw"
+            :aria-label="t('channels.deliveries.refresh')"
+            @click="refreshDeliveries()"
+          />
+        </div>
+      </div>
+      <LoadingState v-if="deliveriesStatus === 'pending' && !deliveries" :rows="3" />
+      <ErrorState
+        v-else-if="deliveriesError"
+        :error="deliveriesError"
+        @retry="refreshDeliveries()"
+      />
+      <UCard v-else-if="!deliveries?.length" class="py-4">
+        <EmptyState icon="i-lucide-inbox" :title="t('channels.deliveries.empty')" />
+      </UCard>
+      <UCard v-else :ui="{ body: 'p-0 sm:p-0' }">
+        <ul class="divide-default divide-y">
+          <li
+            v-for="d in deliveries"
+            :key="d.id"
+            class="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-center sm:gap-3"
+            :data-delivery="d.status"
+          >
+            <UBadge
+              class="self-start sm:self-center"
+              :color="DELIVERY[d.status].color"
+              variant="subtle"
+              :icon="DELIVERY[d.status].icon"
+              :label="t(`channels.deliveries.status.${d.status}`)"
+            />
+            <div class="flex min-w-0 flex-1 flex-col">
+              <p class="text-highlighted truncate text-sm">
+                <UBadge
+                  v-if="d.severity"
+                  class="me-1.5"
+                  size="sm"
+                  color="neutral"
+                  variant="outline"
+                  :label="t(`severity.${d.severity}`)"
+                />{{ deliveryTitle(d) }}
+              </p>
+              <p class="text-muted truncate text-xs">
+                {{ channelName.get(d.channel_id) ?? t(`channels.kind.${d.channel_kind}`) }}
+                <template v-if="d.error">
+                  · <span class="text-error">{{ d.error }}</span></template
+                >
+              </p>
+            </div>
+            <RelativeTime class="text-dimmed shrink-0 text-xs" :at="d.sent_at ?? d.created_at" />
+          </li>
+        </ul>
+      </UCard>
+    </section>
 
     <ChannelForm v-model:open="formOpen" :channel="editing" @saved="refresh()" />
 

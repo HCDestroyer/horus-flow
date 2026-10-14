@@ -342,7 +342,10 @@ export function deviceRoutes(ctx: TenantRouteContext): Response | undefined {
     return json(created, 201, { ...etag(1), Location: `/api/v1/routers/${id}` })
   }
 
-  const routerMatch = ctx.path.match(/^\/routers\/([^/]+)(?:\/credentials\/([^/]+))?$/)
+  // /routers/thresholds es del rol snmp (mocks/snmp.ts).
+  const routerMatch = ctx.path.match(
+    /^\/routers\/(?!thresholds$)([^/]+)(?:\/credentials\/([^/]+))?$/,
+  )
   const credentialPut = ctx.method === 'PUT' && !!routerMatch?.[2]
   if (routerMatch && (ctx.method === 'PATCH' || ctx.method === 'DELETE' || credentialPut)) {
     const permission = credentialPut
