@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/hcdestroyer/horus-flow/packages/go/observability"
 )
 
 // Config del rol snmp (variables HORUS_SNMP_*).
@@ -52,6 +54,22 @@ type Config struct {
 	Issuer     string `env:"HORUS_AUTH_ISSUER" envDefault:"horus-auth"`
 	// InstanceID identifica el poller en el heartbeat (vacío = HORUS_PROCESS/hostname).
 	InstanceID string `env:"HORUS_SNMP_INSTANCE_ID"`
+
+	// Servicios de infraestructura (inventario en PostgreSQL, esquema snmp).
+	// Sin DSN la API de servicios responde 503 y no se vigilan.
+	PostgresDSN      string               `env:"HORUS_POSTGRES_DSN"`
+	PostgresPassword observability.Secret `env:"HORUS_POSTGRES_PASSWORD"`
+	AppRole          string               `env:"HORUS_SNMP_DB_APP_ROLE" envDefault:"snmp_app"`
+	PlatformRole     string               `env:"HORUS_SNMP_DB_PLATFORM_ROLE" envDefault:"snmp_platform"`
+	PGMigrate        bool                 `env:"HORUS_SNMP_PG_MIGRATE" envDefault:"true"`
+	// InfraConcurrency: servicios sondeados a la vez; InfraTimeout por chequeo activo.
+	InfraConcurrency int           `env:"HORUS_SNMP_INFRA_CONCURRENCY" envDefault:"32"`
+	InfraTimeout     time.Duration `env:"HORUS_SNMP_INFRA_TIMEOUT" envDefault:"5s"`
+	// ServicesCIDR es la red de servicios de Horus en el túnel (la del rol
+	// wireguard): origen de los sondeos en el script de router.
+	ServicesCIDR string `env:"HORUS_WG_SERVICES_CIDR" envDefault:"10.255.0.0/24"`
+	// PublicBaseURL para Location.
+	PublicBaseURL string `env:"HORUS_PUBLIC_BASE_URL"`
 }
 
 // Validate implementa config.Validator.
@@ -65,6 +83,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Retries < 0 {
 		errs = append(errs, errors.New("HORUS_SNMP_RETRIES must be >= 0"))
+	}
+	if c.InfraConcurrency <= 0 {
+		errs = append(errs, errors.New("HORUS_SNMP_INFRA_CONCURRENCY must be > 0"))
+	}
+	if c.InfraTimeout <= 0 {
+		errs = append(errs, errors.New("HORUS_SNMP_INFRA_TIMEOUT must be > 0"))
 	}
 	if c.Concurrency <= 0 {
 		errs = append(errs, errors.New("HORUS_SNMP_CONCURRENCY must be > 0"))

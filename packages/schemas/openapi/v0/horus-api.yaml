@@ -49,6 +49,8 @@ tags:
     description: Exportadores de flujos (router principal de cada nodo).
   - name: routers-monitoring
     description: Estado observado y métricas en vivo de los routers (SNMP + ICMP por el túnel).
+  - name: infra-services
+    description: Servicios de infraestructura del ISP (IPTV, HTTP, DNS, RADIUS…) y sus chequeos activos y pasivos.
   - name: traffic
     description: Tops y series de tráfico.
   - name: dashboards
@@ -184,6 +186,12 @@ paths:
     $ref: ./flows.yaml#/paths/~1flow-exporters
   /flow-exporters/{router_id}:
     $ref: ./flows.yaml#/paths/~1flow-exporters~1{router_id}
+  /infra-services:
+    $ref: ./snmp.yaml#/paths/~1infra-services
+  /infra-services/{service_id}:
+    $ref: ./snmp.yaml#/paths/~1infra-services~1{service_id}
+  /infra-services/{service_id}/router-snippet:
+    $ref: ./snmp.yaml#/paths/~1infra-services~1{service_id}~1router-snippet
   /kiosk/config:
     $ref: ./analytics.yaml#/paths/~1kiosk~1config
   /kiosk/enroll:

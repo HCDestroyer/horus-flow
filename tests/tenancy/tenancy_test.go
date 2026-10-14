@@ -155,6 +155,11 @@ func cases() map[string]tenanttest.Case {
 	pending("FLOW I2 (snmp: estado y series de routers; suite propia con ClickHouse)",
 		"listRouterStatus", "getRouterLiveMetrics", "listRouterInterfaces", "pollRouterNow", "getRouterMetrics",
 		"getRouterInterfaceMetrics")
+	// snmp: servicios de infraestructura. El arnés de la matriz no monta snmp; su aislamiento (listado, detalle,
+	// edición, baja y script de router de otro ISP → 404; RLS del esquema snmp) lo cubre TestInfraServicesAPI.
+	pending("FLOW I2 (snmp: servicios de infraestructura; TestInfraServicesAPI)",
+		"listInfraServices", "createInfraService", "getInfraService", "updateInfraService", "deleteInfraService",
+		"getInfraServiceRouterSnippet")
 	return c
 }
 

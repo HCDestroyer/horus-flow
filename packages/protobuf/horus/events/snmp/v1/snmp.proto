@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+// Payloads de horus.snmp.* catalogados (docs/events.md §8.4). Los eventos de routers del I2 se publican
+// directamente con PubAck y aún no están en el catálogo; los de servicios de infraestructura salen por el
+// outbox del esquema `snmp`.
+package horus.events.snmp.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// ServiceStateChanged: horus.snmp.service.state_changed (entity = service_id). Se emite cuando cambia el
+// estado del servicio (el peor de sus chequeos conocidos) e incluye el chequeo que lo causó. Infraestructura
+// propia del ISP: `target` es la IP de su servidor, nunca la de un cliente.
+message ServiceStateChanged {
+  string tenant_id = 1;
+  string service_id = 2;
+  optional string site_id = 3;
+  string name = 4;
+  // icmp | tcp | http | no_traffic | ddos_inbound
+  string check_type = 5;
+  string target = 6;
+  // up | down | degraded | unknown
+  string previous_state = 7;
+  // up | down | degraded | unknown
+  string state = 8;
+  // Enum abierto: ok | timeout | refused | unreachable | tls_error | http_status | no_traffic | ddos_inbound | …
+  string reason = 9;
+  google.protobuf.Timestamp observed_at = 10;
+}

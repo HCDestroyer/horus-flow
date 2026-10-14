@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,6 +32,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/health"
 	"github.com/hcdestroyer/horus-flow/packages/go/module"
 	"github.com/hcdestroyer/horus-flow/packages/go/natsx"
+	"github.com/hcdestroyer/horus-flow/packages/go/pgdb"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
 	collectorapi "github.com/hcdestroyer/horus-flow/services/collector/api"
 	devapi "github.com/hcdestroyer/horus-flow/services/devices/api"
@@ -39,8 +41,11 @@ import (
 	"github.com/hcdestroyer/horus-flow/services/snmp/internal/adapters/httpapi"
 	"github.com/hcdestroyer/horus-flow/services/snmp/internal/adapters/icmp"
 	"github.com/hcdestroyer/horus-flow/services/snmp/internal/adapters/natsbus"
+	pgadapter "github.com/hcdestroyer/horus-flow/services/snmp/internal/adapters/postgres"
+	"github.com/hcdestroyer/horus-flow/services/snmp/internal/adapters/probe"
 	"github.com/hcdestroyer/horus-flow/services/snmp/internal/app"
 	modcfg "github.com/hcdestroyer/horus-flow/services/snmp/internal/config"
+	"github.com/hcdestroyer/horus-flow/services/snmp/migrations"
 )
 
 // Role es el nombre del rol en HORUS_ROLES: pollers SNMP/ICMP y estado observado.
@@ -56,6 +61,11 @@ type mod struct {
 	opts   app.Options
 	writer *chadapter.Writer
 	pinger *icmp.Socket
+	// Servicios de infraestructura (PostgreSQL, esquema snmp).
+	db    *pgdb.DB
+	infra *app.Infra
+	sched *app.InfraScheduler
+	flows *chadapter.FlowReader
 }
 
 // Register construye el módulo del rol snmp (firma module.Factory).
@@ -102,6 +112,9 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		}
 	}
 	m.engine = app.New(m.opts)
+	if err := m.setupInfra(ctx); err != nil {
+		return nil, err
+	}
 	if deps.Services != nil {
 		if err := deps.Services.Provide(api.ServiceRouterStatus, m.engine); err != nil {
 			return nil, err
@@ -112,6 +125,9 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 			httpapi.New(m.engine, authz.NewGuard(v), func() (authapi.AuditRecorder, bool) {
 				return module.Lookup[authapi.AuditRecorder](deps.Services, authapi.ServiceAudit)
 			}, log).Mount(deps.Routes)
+			httpapi.NewInfra(m.infra, authz.NewGuard(v), func() (authapi.AuditRecorder, bool) {
+				return module.Lookup[authapi.AuditRecorder](deps.Services, authapi.ServiceAudit)
+			}, cfg.PublicBaseURL, servicesCIDR(cfg), log).Mount(deps.Routes)
 		} else {
 			log.WarnContext(ctx, "snmp: no token verifier (auth not local, HORUS_JWT_PUBLIC_KEYS unset): routers API not served")
 		}
@@ -137,8 +153,54 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 	}
 	log.InfoContext(ctx, "snmp: registered", "enabled", cfg.Enabled, "interval", cfg.Interval.String(),
 		"icmp_interval", cfg.ICMPInterval.String(), "health_interval", cfg.HealthInterval.String(), "concurrency", cfg.Concurrency,
-		"clickhouse", cfg.ClickHouseDSN != "", "nats", m.bus != nil)
+		"clickhouse", cfg.ClickHouseDSN != "", "nats", m.bus != nil, "infra_services", m.db != nil)
+	if m.db != nil && m.bus != nil {
+		// horus.snmp.service.state_changed sale por el outbox snmp.outbox.
+		return natsx.WithRelay(ctx, deps, m, m.db, migrations.Schema)
+	}
 	return m, nil
+}
+
+// setupInfra prepara el inventario y el planificador de servicios de
+// infraestructura. Sin HORUS_POSTGRES_DSN la API responde 503.
+func (m *mod) setupInfra(ctx context.Context) error {
+	devices := func() (devapi.Onboarding, bool) {
+		return module.Lookup[devapi.Onboarding](m.deps.Services, devapi.ServiceOnboarding)
+	}
+	if m.cfg.PostgresDSN == "" {
+		m.log.WarnContext(ctx, "snmp: HORUS_POSTGRES_DSN not set: infrastructure services disabled (API 503)")
+		m.infra = app.NewInfra(nil, devices, nil)
+		return nil
+	}
+	db, err := pgdb.Open(ctx, pgdb.Config{DSN: m.cfg.PostgresDSN, Password: m.cfg.PostgresPassword.Reveal(),
+		AppRole: m.cfg.AppRole, PlatformRole: m.cfg.PlatformRole, MaxConns: 8})
+	if err != nil {
+		return fmt.Errorf("%s: postgres: %w", Role, err)
+	}
+	m.db = db
+	var pinger icmp.Pinger
+	if m.pinger != nil {
+		pinger = m.pinger
+	}
+	m.sched = app.NewInfraScheduler(app.SchedulerOptions{Store: pgadapter.New(db), Prober: &probe.Prober{Pinger: pinger},
+		Devices: devices, Concurrency: m.cfg.InfraConcurrency, Timeout: m.cfg.InfraTimeout, Metrics: m.deps.Metrics, Logger: m.log})
+	if !m.cfg.Enabled {
+		m.sched.Disable()
+	}
+	m.infra = app.NewInfra(pgadapter.New(db), devices, m.sched)
+	if m.deps.Health != nil {
+		m.deps.Health.AddCheck(health.Check{Name: "postgres", Critical: false, Probe: db.Ping})
+	}
+	return nil
+}
+
+// servicesCIDR es la red de servicios de Horus (origen de los sondeos).
+func servicesCIDR(cfg modcfg.Config) netip.Prefix {
+	p, err := netip.ParsePrefix(cfg.ServicesCIDR)
+	if err != nil {
+		return netip.Prefix{}
+	}
+	return p.Masked()
 }
 
 func verifier(cfg modcfg.Config, deps module.Deps) *authz.Verifier {
@@ -157,6 +219,13 @@ func verifier(cfg modcfg.Config, deps module.Deps) *authz.Verifier {
 
 // Start abre ClickHouse (migración + escritor), el KV y el estado inicial.
 func (m *mod) Start(ctx context.Context) error {
+	if m.db != nil && m.cfg.PGMigrate {
+		n, err := pgdb.Migrate(ctx, m.db, migrations.Schema, migrations.Postgres(), m.log)
+		if err != nil {
+			return fmt.Errorf("%s: migrate postgres: %w", Role, err)
+		}
+		m.log.InfoContext(ctx, "snmp: postgres migrations applied", "count", n)
+	}
 	if m.cfg.ClickHouseDSN == "" {
 		m.log.WarnContext(ctx, "snmp: HORUS_CLICKHOUSE_DSN not set: no metric history (live state only)")
 	} else {
@@ -175,6 +244,14 @@ func (m *mod) Start(ctx context.Context) error {
 		}
 		m.writer = w
 		m.opts.Sink = w
+		if m.sched != nil {
+			if fr, err := chadapter.OpenFlowReader(m.cfg.ClickHouseDSN, user, pw, 0); err != nil {
+				m.log.WarnContext(ctx, "snmp: flows reader unavailable: passive infra checks stay unknown", "error", err)
+			} else {
+				m.flows = fr
+				m.sched.SetFlows(fr)
+			}
+		}
 		if m.deps.Health != nil {
 			m.deps.Health.AddCheck(health.Check{Name: "clickhouse", Critical: false, Probe: w.Ping})
 		}
@@ -207,6 +284,9 @@ func (m *mod) Run(ctx context.Context) error {
 		go func() { _ = natsbus.RunDevices(ctx, m.bus, m.engine, m.log) }()
 	}
 	go flowinv.Keep(ctx, m.inv, m.cfg.InventoryFile, js, "flows-inventory-"+Role, m.log)
+	if m.sched != nil {
+		go func() { _ = m.sched.Run(ctx) }()
+	}
 	return m.engine.Run(ctx)
 }
 
@@ -218,6 +298,12 @@ func (m *mod) Stop(ctx context.Context) error {
 	}
 	if m.pinger != nil {
 		errs = append(errs, m.pinger.Close())
+	}
+	if m.flows != nil {
+		errs = append(errs, m.flows.Close())
+	}
+	if m.db != nil {
+		m.db.Close()
 	}
 	return errors.Join(errs...)
 }

@@ -736,6 +736,21 @@ modules:
       methods:
         GET: platform.updates.read
   snmp:
+    - prefix: /api/v1/infra-services
+      scope: tenant
+      methods:
+        GET: snmp.read
+        POST: snmp.manage
+    - prefix: /api/v1/infra-services/{service_id}
+      scope: tenant
+      methods:
+        GET: snmp.read
+        PATCH: snmp.manage
+        DELETE: snmp.manage
+    - prefix: /api/v1/infra-services/{service_id}/router-snippet
+      scope: tenant
+      methods:
+        GET: snmp.manage
     - prefix: /api/v1/routers/status
       scope: tenant
       methods:
