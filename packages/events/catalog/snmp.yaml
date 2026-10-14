@@ -1,0 +1,26 @@
+# Catálogo de eventos v0 del dominio `snmp` (C4; docs/events.md §5.6, §8.4).
+# Un archivo por dominio para que dos agentes no editen el mismo. Cada tipo: mensaje Protobuf en
+# packages/protobuf/horus/events/<dominio>/v1/ y golden file en packages/events/examples/<type>.json.
+# Los eventos de routers del I2 (router.state_changed, …) se publican directamente y se catalogarán aparte.
+# Cambios de pii / tenant_scope requieren a la persona.
+domain: snmp
+version: v0
+events:
+- type: horus.snmp.service.state_changed
+  subject: horus.snmp.service.state_changed.{service_id}
+  tenant_scope: tenant
+  stream: SNMP_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.snmp.v1.ServiceStateChanged
+  schema_version: 1
+  producer: snmp
+  consumers:
+  - alerts
+  websocket_topics: []
+  pii: false
+  pii_fields: []
+  status: stable
+  since: I2
+  example: examples/horus.snmp.service.state_changed.json
+  notes: 'Servicios de infraestructura del ISP (IPTV, HTTP, DNS…): estado = peor de sus chequeos; check_type es el chequeo que causó el cambio. target es la IP de un servidor del ISP, no de un cliente. Sale por el outbox snmp.outbox.'

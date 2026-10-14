@@ -39,8 +39,8 @@ func TestSNMPSchema(t *testing.T) {
 	if err != nil {
 		t.Fatalf("up: %v", err)
 	}
-	if len(applied) != 1 {
-		t.Fatalf("aplicadas %d migraciones, esperaba 1", len(applied))
+	if len(applied) != 2 {
+		t.Fatalf("aplicadas %d migraciones, esperaba 2", len(applied))
 	}
 	if again, err := chmigrate.Up(ctx, admin, chschema.Migrations(), opts); err != nil || len(again) != 0 {
 		t.Fatalf("segunda ejecución: %d aplicadas, err %v", len(again), err)

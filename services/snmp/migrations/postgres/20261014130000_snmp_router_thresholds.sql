@@ -52,4 +52,3 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON snmp.router_thresholds TO snmp_app, snmp
 -- +goose Down
 SET LOCAL lock_timeout = '5s';
 DROP TABLE IF EXISTS snmp.router_thresholds;
-REVOKE ALL ON SCHEMA snmp FROM snmp_app, snmp_platform;

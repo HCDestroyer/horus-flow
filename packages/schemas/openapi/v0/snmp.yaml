@@ -22,6 +22,8 @@ servers:
 tags:
   - name: routers-monitoring
     description: Estado observado y métricas en vivo de los routers (SNMP + ICMP por el túnel).
+  - name: infra-services
+    description: Servicios de infraestructura del ISP (IPTV, HTTP, DNS, RADIUS…) y sus chequeos activos y pasivos.
 paths:
   /routers/status:
     get:
@@ -161,6 +163,192 @@ paths:
         '404': { $ref: './common.yaml#/components/responses/NotFound' }
         '428': { $ref: './common.yaml#/components/responses/PreconditionRequired' }
         '429': { $ref: './common.yaml#/components/responses/TooManyRequests' }
+  /infra-services:
+    get:
+      tags: [infra-services]
+      operationId: listInfraServices
+      summary: Servicios de infraestructura del ISP con su estado (IPTV, HTTP, DNS, RADIUS…)
+      description: |
+        Inventario de los servidores propios del ISP que Horus vigila (no son clientes) con el estado del
+        servicio (el peor de sus chequeos), la latencia del último chequeo activo y el último cambio. Los
+        usuarios con alcance por nodo solo ven los servicios de sus nodos (los servicios sin nodo exigen
+        alcance completo). Máximo 500 servicios por ISP.
+      x-module: snmp
+      x-scope: tenant
+      x-permission: snmp.read
+      x-increment: I2
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/SiteIdFilter'
+      responses:
+        '200':
+          description: Servicios.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/InfraService' } }
+                  meta:
+                    type: object
+                    required: [scheduler, generated_at]
+                    properties:
+                      scheduler: { $ref: '#/components/schemas/InfraSchedulerHealth' }
+                      generated_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
+    post:
+      tags: [infra-services]
+      operationId: createInfraService
+      summary: Da de alta un servicio de infraestructura y sus chequeos
+      description: |
+        Chequeos activos (`icmp`, `tcp`, `http`) desde el rol `snmp` y pasivos desde los flujos (`no_traffic`,
+        `ddos_inbound`). `interval_seconds` ≥ 30. Horus solo sondea: nunca escribe en routers ni servidores.
+      x-module: snmp
+      x-scope: tenant
+      x-permission: snmp.manage
+      x-increment: I2
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InfraServiceInput' }
+      responses:
+        '201':
+          description: Creado (estado `unknown` hasta el primer chequeo).
+          headers:
+            Location: { $ref: './common.yaml#/components/headers/Location' }
+            ETag: { $ref: './common.yaml#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InfraService' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+        '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
+  /infra-services/{service_id}:
+    parameters:
+      - $ref: '#/components/parameters/InfraServiceId'
+    get:
+      tags: [infra-services]
+      operationId: getInfraService
+      summary: Detalle de un servicio con el historial reciente de cada chequeo
+      x-module: snmp
+      x-scope: tenant
+      x-permission: snmp.read
+      x-increment: I2
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Servicio (cada chequeo incluye `recent`, los últimos resultados).
+          headers:
+            ETag: { $ref: './common.yaml#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InfraService' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+    patch:
+      tags: [infra-services]
+      operationId: updateInfraService
+      summary: Edita el servicio (los chequeos se reemplazan como lista; los que conservan `id` mantienen su estado)
+      x-module: snmp
+      x-scope: tenant
+      x-permission: snmp.manage
+      x-increment: I2
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/InfraServicePatch' }
+          application/json:
+            schema: { $ref: '#/components/schemas/InfraServicePatch' }
+      responses:
+        '200':
+          description: Actualizado.
+          headers:
+            ETag: { $ref: './common.yaml#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InfraService' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+        '428': { $ref: './common.yaml#/components/responses/PreconditionRequired' }
+    delete:
+      tags: [infra-services]
+      operationId: deleteInfraService
+      summary: Borra el servicio y su estado (deja de vigilarse; no emite evento)
+      x-module: snmp
+      x-scope: tenant
+      x-permission: snmp.manage
+      x-increment: I2
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      responses:
+        '204': { $ref: './common.yaml#/components/responses/NoContent' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+        '428': { $ref: './common.yaml#/components/responses/PreconditionRequired' }
+  /infra-services/{service_id}/router-snippet:
+    parameters:
+      - $ref: '#/components/parameters/InfraServiceId'
+    get:
+      tags: [infra-services]
+      operationId: getInfraServiceRouterSnippet
+      summary: Script RouterOS para que el ISP haga alcanzable un servidor privado por el túnel (lo pega el usuario)
+      description: |
+        Para servidores con IP privada (RFC 1918 / ULA / CGNAT) que Horus no alcanza directamente. Genera las
+        reglas MikroTik que el **usuario** revisa y pega en el router del nodo (Horus nunca escribe en routers):
+        reenvío de cada puerto TCP/HTTP desde la IP de túnel del router hacia el servidor (`dst-nat`),
+        `masquerade` de ese tráfico y aceptación en `forward`, todo limitado a la red de servicios de Horus y con
+        `comment="horus-infra"`. El servicio debe declarar `probe_via_router_id` (o pasar `router_id`) y cada
+        chequeo tcp/http `forward_port`. `horus_side` explica qué cambia en Horus: nada en el hub WireGuard, porque
+        el tráfico va a la /32 de túnel del router, que ya está en sus AllowedIPs. ICMP no se puede reenviar.
+      x-module: snmp
+      x-scope: tenant
+      x-permission: snmp.manage
+      x-increment: I2
+      security:
+        - tenantBearer: []
+      parameters:
+        - name: router_id
+          in: query
+          required: false
+          description: Router por el que se accede (por defecto `probe_via_router_id` del servicio).
+          schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+      responses:
+        '200':
+          description: Script y notas.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InfraRouterSnippet' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+        '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
   /routers/thresholds:
     get:
       tags: [routers-monitoring]
@@ -251,6 +439,11 @@ components:
     tenantBearer: { $ref: './common.yaml#/components/securitySchemes/tenantBearer' }
     kioskBearer: { $ref: './common.yaml#/components/securitySchemes/kioskBearer' }
   parameters:
+    InfraServiceId:
+      name: service_id
+      in: path
+      required: true
+      schema: { $ref: './common.yaml#/components/schemas/Uuid' }
     RouterId:
       name: router_id
       in: path
@@ -444,17 +637,187 @@ components:
         status: { $ref: '#/components/schemas/RouterStatus' }
         interval_seconds: { type: integer }
         interfaces: { type: array, items: { $ref: '#/components/schemas/InterfaceSample' } }
-    RouterThresholdValues:
+    InfraServiceState:
+      type: string
+      description: Estado de un servicio o chequeo. `degraded` = responde pero con un problema (p. ej. `ddos_inbound`).
+      enum: [up, down, degraded, unknown]
+    InfraCheckType:
+      type: string
+      description: |
+        `icmp` (ping), `tcp` (conexión al puerto), `http` (GET con estado esperado; no se guarda el cuerpo) — activos,
+        desde el rol `snmp`. `no_traffic` (bytes hacia/desde el objetivo en la ventana por debajo del mínimo, solo si
+        antes tuvo tráfico) y `ddos_inbound` (pps/bps entrantes por encima del umbral → `degraded`) — pasivos, desde
+        los flujos.
+      enum: [icmp, tcp, http, no_traffic, ddos_inbound]
+    InfraCheck:
       type: object
-      required: [cpu_warning, cpu_critical, memory_warning, memory_critical, temperature_warning, temperature_critical]
+      description: Un chequeo. Solo se aceptan los campos de su `type`; `id` lo asigna el servidor y se conserva al editar.
+      required: [type]
+      properties:
+        id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        type: { $ref: '#/components/schemas/InfraCheckType' }
+        port: { type: [integer, 'null'], minimum: 1, maximum: 65535, description: 'tcp y http (http: 80/443 por defecto).' }
+        path: { type: [string, 'null'], maxLength: 256, description: 'http; ruta absoluta, por defecto /.' }
+        https: { type: [boolean, 'null'], description: http. }
+        tls_verify: { type: [boolean, 'null'], description: 'http con https; por defecto true.' }
+        expected_status_min: { type: [integer, 'null'], minimum: 100, maximum: 599, description: 'http; por defecto 200.' }
+        expected_status_max: { type: [integer, 'null'], minimum: 100, maximum: 599, description: 'http; por defecto 399.' }
+        forward_port:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 65535
+          description: tcp y http con `probe_via_router_id`; puerto de la IP de túnel del router que reenvía a `port` del servidor.
+        window_minutes: { type: [integer, 'null'], minimum: 5, maximum: 1440, description: 'no_traffic; por defecto 15.' }
+        min_bytes: { type: [integer, 'null'], minimum: 1, description: 'no_traffic; por defecto 1.' }
+        pps_threshold: { type: [number, 'null'], exclusiveMinimum: 0, description: 'ddos_inbound (al menos uno de los dos umbrales).' }
+        bps_threshold: { type: [number, 'null'], exclusiveMinimum: 0, description: ddos_inbound. }
+    InfraCheckResult:
+      type: object
+      required: [at, state, latency_ms, reason]
+      properties:
+        at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        state: { $ref: '#/components/schemas/InfraServiceState' }
+        latency_ms: { type: [number, 'null'] }
+        reason: { type: [string, 'null'] }
+    InfraCheckStatus:
+      type: object
+      description: Estado actual de un chequeo con histéresis (`failures_before_down` fallos seguidos → down; `recoveries_before_up` éxitos → up).
+      required: [check_id, type, state, reason, since, last_checked_at, latency_ms, consecutive_failures, consecutive_successes, detail]
+      properties:
+        check_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        type: { $ref: '#/components/schemas/InfraCheckType' }
+        state: { $ref: '#/components/schemas/InfraServiceState' }
+        reason:
+          type: [string, 'null']
+          description: 'Enum abierto: ok, timeout, refused, unreachable, tls_error, http_status, no_traffic, ddos_inbound, no_flow_data, icmp_unavailable, router_unavailable…'
+        since:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
+        last_checked_at:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
+        latency_ms: { type: [number, 'null'] }
+        consecutive_failures: { type: integer, minimum: 0 }
+        consecutive_successes: { type: integer, minimum: 0 }
+        detail:
+          type: [string, 'null']
+          description: 'Medida del último resultado sin datos sensibles (p. ej. "HTTP 503", "1250 pps entrantes").'
+        recent:
+          type: array
+          description: Solo en el detalle (GET /infra-services/{id}); últimos resultados, el más reciente primero.
+          items: { $ref: '#/components/schemas/InfraCheckResult' }
+    InfraServiceStatus:
+      type: object
+      description: Estado del servicio = el peor de sus chequeos conocidos (down > degraded > up); `unknown` solo si ningún chequeo tiene estado todavía.
+      required: [state, reason, check_type, since]
+      properties:
+        state: { $ref: '#/components/schemas/InfraServiceState' }
+        reason: { type: [string, 'null'] }
+        check_type:
+          description: Chequeo que determina el estado (null si todos están up o no hay chequeos).
+          oneOf:
+            - $ref: '#/components/schemas/InfraCheckType'
+            - type: 'null'
+        since:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
+    InfraService:
+      allOf:
+        - $ref: './common.yaml#/components/schemas/TenantScopedResource'
+        - type: object
+          required: [name, site_id, target, target_private, kind, checks, interval_seconds, failures_before_down, recoveries_before_up, enabled, probe_via_router_id, status, check_status]
+          properties:
+            name: { type: string, minLength: 1, maxLength: 120 }
+            site_id:
+              oneOf:
+                - $ref: './common.yaml#/components/schemas/Uuid'
+                - type: 'null'
+            target:
+              $ref: './common.yaml#/components/schemas/IpAddress'
+              description: IP del servidor del ISP (infraestructura propia, no de un cliente).
+            target_private: { type: boolean, description: 'RFC 1918 / ULA / CGNAT: puede necesitar el script de router.' }
+            kind:
+              type: string
+              description: Etiqueta libre (iptv | http | dns | radius | other | …).
+              examples: [iptv, http, dns, radius, other]
+            checks: { type: array, items: { $ref: '#/components/schemas/InfraCheck' } }
+            interval_seconds: { type: integer, minimum: 30, maximum: 3600 }
+            failures_before_down: { type: integer, minimum: 1, maximum: 20 }
+            recoveries_before_up: { type: integer, minimum: 1, maximum: 20 }
+            enabled: { type: boolean }
+            probe_via_router_id:
+              description: Si se fija, los chequeos tcp/http van a la IP de túnel de ese router en `forward_port` (servidor privado con reenvío).
+              oneOf:
+                - $ref: './common.yaml#/components/schemas/Uuid'
+                - type: 'null'
+            status: { $ref: '#/components/schemas/InfraServiceStatus' }
+            check_status: { type: array, items: { $ref: '#/components/schemas/InfraCheckStatus' } }
+    InfraServiceInput:
+      type: object
+      required: [name, target, kind, checks]
       additionalProperties: false
       properties:
-        cpu_warning: { type: number, minimum: 1, maximum: 100, description: '% sostenido.' }
-        cpu_critical: { type: number, minimum: 1, maximum: 100 }
-        memory_warning: { type: number, minimum: 1, maximum: 100, description: '% sostenido.' }
-        memory_critical: { type: number, minimum: 1, maximum: 100 }
-        temperature_warning: { type: number, minimum: 20, maximum: 150, description: °C. }
-        temperature_critical: { type: number, minimum: 20, maximum: 150 }
+        name: { type: string, minLength: 1, maxLength: 120 }
+        site_id:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Uuid'
+            - type: 'null'
+        target: { $ref: './common.yaml#/components/schemas/IpAddress' }
+        kind: { type: string, minLength: 1, maxLength: 32, pattern: '^[a-z0-9][a-z0-9_-]*$' }
+        checks: { type: array, minItems: 1, maxItems: 10, items: { $ref: '#/components/schemas/InfraCheck' } }
+        interval_seconds: { type: integer, minimum: 30, maximum: 3600, default: 60 }
+        failures_before_down: { type: integer, minimum: 1, maximum: 20, default: 3 }
+        recoveries_before_up: { type: integer, minimum: 1, maximum: 20, default: 2 }
+        enabled: { type: boolean, default: true }
+        probe_via_router_id:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Uuid'
+            - type: 'null'
+    InfraServicePatch:
+      type: object
+      additionalProperties: false
+      description: JSON Merge Patch; `checks` reemplaza la lista completa.
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        site_id:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Uuid'
+            - type: 'null'
+        target: { $ref: './common.yaml#/components/schemas/IpAddress' }
+        kind: { type: string, minLength: 1, maxLength: 32, pattern: '^[a-z0-9][a-z0-9_-]*$' }
+        checks: { type: array, minItems: 1, maxItems: 10, items: { $ref: '#/components/schemas/InfraCheck' } }
+        interval_seconds: { type: integer, minimum: 30, maximum: 3600 }
+        failures_before_down: { type: integer, minimum: 1, maximum: 20 }
+        recoveries_before_up: { type: integer, minimum: 1, maximum: 20 }
+        enabled: { type: boolean }
+        probe_via_router_id:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Uuid'
+            - type: 'null'
+    InfraSchedulerHealth:
+      type: object
+      required: [enabled, healthy, last_cycle_at, passive_checks]
+      properties:
+        enabled: { type: boolean, description: 'false: el rol snmp no vigila (HORUS_SNMP_ENABLED=false).' }
+        healthy: { type: boolean }
+        last_cycle_at:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
+        passive_checks: { type: boolean, description: 'false: sin lector de flujos (ClickHouse); no_traffic y ddos_inbound quedan unknown.' }
+    InfraRouterSnippet:
+      type: object
+      required: [router_id, router_name, applicable, script, horus_side, warnings]
+      properties:
+        router_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        router_name: { type: string }
+        applicable: { type: boolean, description: 'false si el objetivo no es privado o no hay chequeos tcp/http con forward_port.' }
+        script: { type: string, description: 'Script RouterOS (.rsc) para pegar; vacío si no aplica.' }
+        horus_side: { type: string, description: Qué cambia (o no) del lado de Horus. }
+        warnings: { type: array, items: { type: string } }
     RouterThresholds:
       allOf:
         - $ref: '#/components/schemas/RouterThresholdValues'
@@ -469,3 +832,14 @@ components:
                 - $ref: './common.yaml#/components/schemas/Timestamp'
                 - type: 'null'
             sustained_cycles: { type: integer, description: Ciclos seguidos sobre el umbral para CPU y memoria. }
+    RouterThresholdValues:
+      type: object
+      required: [cpu_warning, cpu_critical, memory_warning, memory_critical, temperature_warning, temperature_critical]
+      additionalProperties: false
+      properties:
+        cpu_warning: { type: number, minimum: 1, maximum: 100, description: '% sostenido.' }
+        cpu_critical: { type: number, minimum: 1, maximum: 100 }
+        memory_warning: { type: number, minimum: 1, maximum: 100, description: '% sostenido.' }
+        memory_critical: { type: number, minimum: 1, maximum: 100 }
+        temperature_warning: { type: number, minimum: 20, maximum: 150, description: °C. }
+        temperature_critical: { type: number, minimum: 20, maximum: 150 }

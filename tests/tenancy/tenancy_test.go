@@ -155,6 +155,28 @@ func cases() map[string]tenanttest.Case {
 	pending("FLOW I2 (snmp: estado y series de routers; suite propia con ClickHouse)",
 		"listRouterStatus", "getRouterLiveMetrics", "listRouterInterfaces", "pollRouterNow", "getRouterMetrics",
 		"getRouterInterfaceMetrics")
+	// snmp: servicios de infraestructura. El arnés de la matriz no monta snmp; su aislamiento (listado, detalle,
+	// edición, baja y script de router de otro ISP → 404; RLS del esquema snmp) lo cubre TestInfraServicesAPI.
+	pending("FLOW I2 (snmp: servicios de infraestructura; TestInfraServicesAPI)",
+		"listInfraServices", "createInfraService", "getInfraService", "updateInfraService", "deleteInfraService",
+		"getInfraServiceRouterSnippet")
+	// alerts: integración LibreNMS (D17) y asistentes de Telegram (D13); el detalle (RLS de alerts.librenms_*,
+	// códigos de vinculación por ISP) está en TestLibreNMSIntegration y TestAlertsRouterCategoriesAndTelegramLink.
+	c["getLibreNmsIntegration"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["syncLibreNmsIntegration"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["testLibreNmsIntegration"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["deleteLibreNmsRouterDevice"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["listLibreNmsRouters"] = tenanttest.Case{Kind: tenanttest.List}
+	c["setLibreNmsRouter"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"mgmt_ip": "192.0.2.10", "mode": "ping"}}
+	c["clearLibreNmsRouter"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["putLibreNmsRouterSnmpCredentials"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"community": "pirata-comunidad"}}
+	c["validateTelegramBot"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"bot_token": "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef0123"}}
+	c["createTelegramLinkCode"] = tenanttest.Case{Kind: tenanttest.Create}
+	c["detectTelegramChats"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"code": "hfabcdefghij"}}
+	// Umbrales de routers por ISP (B no ve ni cambia los de A; RLS de snmp.router_thresholds) los cubre
+	// TestSNMPThresholdsPerTenant.
+	pending("EP-08 (snmp: umbrales por ISP; TestSNMPThresholdsPerTenant)",
+		"getRouterThresholds", "putRouterThresholds", "resetRouterThresholds")
 	return c
 }
 
@@ -240,7 +262,8 @@ func TestTenantIsolationMatrix(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Rutas que, sin su rol en el proceso, casan con el comodín de otra ruta.
-	shadowed := map[string]bool{"GET /api/v1/routers/status": true}
+	shadowed := map[string]bool{"GET /api/v1/routers/status": true, "GET /api/v1/routers/thresholds": true,
+		"PUT /api/v1/routers/thresholds": true, "DELETE /api/v1/routers/thresholds": true}
 	suite := &tenanttest.Suite{
 		Ops: ops, Cases: cases(), TokenA: A.token, SessionA: A.admin.token, TenantB: B.id,
 		ParamsA: paramsA, ParamsB: paramsB, ForeignIDs: foreign,

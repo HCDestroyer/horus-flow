@@ -76,7 +76,8 @@ type Options struct {
 }
 
 // DefaultRateLimits son los límites por IP de docs/api.md §1.10.
-var DefaultRateLimits = map[string]int{"login": 20, "kiosk_enroll": 5, "enroll": 10, "connection_test": 10}
+var DefaultRateLimits = map[string]int{"login": 20, "kiosk_enroll": 5, "enroll": 10, "connection_test": 10,
+	"librenms": 10, "telegram_setup": 20}
 
 // Edge es el middleware.
 type Edge struct {

@@ -35,6 +35,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/services/alerts/migrations"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
 	devapi "github.com/hcdestroyer/horus-flow/services/devices/api"
+	snmpapi "github.com/hcdestroyer/horus-flow/services/snmp/api"
 )
 
 // Role es el nombre del rol en HORUS_ROLES: reglas, alertas y notificaciones.
@@ -146,6 +147,9 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		},
 		SNMP: func() (devapi.SNMPCredentialReader, bool) {
 			return module.Lookup[devapi.SNMPCredentialReader](deps.Services, devapi.ServiceSNMPCredentials)
+		},
+		Infra: func() (snmpapi.InfraTargets, bool) {
+			return module.Lookup[snmpapi.InfraTargets](deps.Services, snmpapi.ServiceInfraTargets)
 		},
 	})
 	if deps.Services != nil {

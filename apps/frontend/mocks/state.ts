@@ -4,6 +4,7 @@ import type {
   Member,
   Finding,
   KindChange,
+  InfraService,
   NotificationChannel,
   NotificationDelivery,
   ReputationSource,
@@ -175,6 +176,8 @@ export const mockState = {
   remoteDestinations: null as StoredDestination[] | null,
   /** Sondeos SNMP pedidos desde la UI (`POST /routers/{id}/poll`): router → instante en que concluye (ms). */
   snmpPolls: new Map<string, number>(),
+  /** Servicios de infraestructura por ISP (`mocks/infra-services.ts`). */
+  infraServices: new Map<string, InfraService[]>(),
 }
 
 export function resetMockState() {
@@ -200,6 +203,7 @@ export function resetMockState() {
   mockState.wireguard.clear()
   mockState.remoteDestinations = null
   mockState.snmpPolls.clear()
+  mockState.infraServices.clear()
 }
 
 /** Hallazgo cerrado por una acción del usuario: sale de los agregados de "abiertos". */

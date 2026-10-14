@@ -1,0 +1,31 @@
+{
+  "id": "0192f0d2-0000-7000-8000-000000000801",
+  "type": "horus.snmp.service.state_changed",
+  "source": "horus/snmp",
+  "subject": "0192f8f8-0000-7000-8000-0000000008a1",
+  "time": "2026-10-07T14:03:11.123Z",
+  "schema_version": 1,
+  "tenant_id": "0192e000-0000-7000-8000-000000000001",
+  "aggregate_type": "infra_service",
+  "aggregate_version": 1,
+  "actor": {
+    "type": "service",
+    "id": "svc:snmp",
+    "via_platform": false
+  },
+  "trace_parent": null,
+  "correlation_id": null,
+  "causation_id": null,
+  "data": {
+    "tenant_id": "0192e000-0000-7000-8000-000000000001",
+    "service_id": "0192f8f8-0000-7000-8000-0000000008a1",
+    "site_id": "0192e111-0000-7000-8000-000000000011",
+    "name": "IPTV cabecera",
+    "check_type": "http",
+    "target": "192.0.2.20",
+    "previous_state": "up",
+    "state": "down",
+    "reason": "timeout",
+    "observed_at": "2026-10-07T14:03:11.123Z"
+  }
+}

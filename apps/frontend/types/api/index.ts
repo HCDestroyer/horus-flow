@@ -209,3 +209,17 @@ export type RouterStatusList =
   operations['listRouterStatus']['responses'][200]['content']['application/json']
 export type RouterInterfaceList =
   operations['listRouterInterfaces']['responses'][200]['content']['application/json']
+
+// Servicios de infraestructura del ISP (rol snmp): inventario, chequeos y script de router.
+export type InfraService = Schemas['InfraService']
+export type InfraServiceInput = Schemas['InfraServiceInput']
+export type InfraServicePatch = Schemas['InfraServicePatch']
+export type InfraServiceState = Schemas['InfraServiceState']
+export type InfraCheck = Schemas['InfraCheck']
+export type InfraCheckType = Schemas['InfraCheckType']
+export type InfraCheckStatus = Schemas['InfraCheckStatus']
+export type InfraCheckResult = Schemas['InfraCheckResult']
+export type InfraSchedulerHealth = Schemas['InfraSchedulerHealth']
+export type InfraRouterSnippet = Schemas['InfraRouterSnippet']
+export type InfraServiceList =
+  operations['listInfraServices']['responses'][200]['content']['application/json']

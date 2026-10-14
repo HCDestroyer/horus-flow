@@ -1,6 +1,8 @@
 // Package migrations embebe las migraciones goose del esquema PostgreSQL
-// `snmp` (docs/database.md §3): ajustes por ISP del rol snmp. El histórico de
-// métricas vive en ClickHouse (subpaquete clickhouse).
+// `snmp` (docs/database.md §3): ajustes por ISP del rol snmp (umbrales de
+// routers), inventario de servicios de infraestructura, estado de sus chequeos
+// y outbox. Las de ClickHouse (base `snmp`) viven en migrations/clickhouse.
+// Nombres con marca de tiempo UTC.
 package migrations
 
 import (

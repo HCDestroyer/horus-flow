@@ -53,6 +53,7 @@ import {
   analyticsMeta as seriesMeta,
   rangeMs,
 } from './analytics-meta'
+import { infraServiceRoutes } from './infra-services'
 import { snmpRoutes } from './snmp'
 
 /**
@@ -1146,6 +1147,7 @@ export function tenantRoute(ctx: TenantRouteContext): Response | undefined {
     findingRoutes(ctx) ??
     deviceRoutes(ctx) ??
     snmpRoutes(ctx) ??
+    infraServiceRoutes(ctx) ??
     inventoryRoutes(ctx) ??
     classificationRoute(ctx) ??
     analyticsRoutes(ctx) ??

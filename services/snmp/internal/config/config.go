@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/hcdestroyer/horus-flow/packages/go/observability"
 )
 
 // Config del rol snmp (variables HORUS_SNMP_*).
@@ -45,14 +47,6 @@ type Config struct {
 	// WriterQueue: ciclos pendientes de escritura en ClickHouse antes de descartar.
 	WriterQueue int `env:"HORUS_SNMP_CH_QUEUE" envDefault:"64"`
 
-	// PostgreSQL (esquema snmp): umbrales por ISP editables desde la consola.
-	// Vacío: rigen los umbrales de la instalación para todos.
-	PostgresDSN      string `env:"HORUS_POSTGRES_DSN"`
-	PostgresPassword string `env:"HORUS_POSTGRES_PASSWORD"`
-	PGMigrate        bool   `env:"HORUS_SNMP_MIGRATE" envDefault:"true"`
-	AppRole          string `env:"HORUS_SNMP_DB_APP_ROLE" envDefault:"snmp_app"`
-	PlatformRole     string `env:"HORUS_SNMP_DB_PLATFORM_ROLE" envDefault:"snmp_platform"`
-
 	// InventoryFile: snapshot de inventario (nombres de router y nodo) cuando no hay NATS.
 	InventoryFile string `env:"HORUS_FLOWS_INVENTORY_FILE"`
 	// PublicKeys/Issuer: validador JWT si auth no es local.
@@ -60,6 +54,28 @@ type Config struct {
 	Issuer     string `env:"HORUS_AUTH_ISSUER" envDefault:"horus-auth"`
 	// InstanceID identifica el poller en el heartbeat (vacío = HORUS_PROCESS/hostname).
 	InstanceID string `env:"HORUS_SNMP_INSTANCE_ID"`
+
+	// PostgreSQL (esquema snmp): umbrales de routers por ISP e inventario de
+	// servicios de infraestructura. Sin DSN rigen los umbrales de la
+	// instalación y la API de servicios responde 503 (no se vigilan).
+	PostgresDSN      string               `env:"HORUS_POSTGRES_DSN"`
+	PostgresPassword observability.Secret `env:"HORUS_POSTGRES_PASSWORD"`
+	AppRole          string               `env:"HORUS_SNMP_DB_APP_ROLE" envDefault:"snmp_app"`
+	PlatformRole     string               `env:"HORUS_SNMP_DB_PLATFORM_ROLE" envDefault:"snmp_platform"`
+	PGMigrate        bool                 `env:"HORUS_SNMP_PG_MIGRATE" envDefault:"true"`
+	// InfraConcurrency: servicios sondeados a la vez; InfraTimeout por chequeo activo.
+	InfraConcurrency int           `env:"HORUS_SNMP_INFRA_CONCURRENCY" envDefault:"32"`
+	InfraTimeout     time.Duration `env:"HORUS_SNMP_INFRA_TIMEOUT" envDefault:"5s"`
+	// ServicesCIDR es la red de servicios de Horus en el túnel (la del rol
+	// wireguard): origen de los sondeos en el script de router.
+	ServicesCIDR string `env:"HORUS_WG_SERVICES_CIDR" envDefault:"10.255.0.0/24"`
+	// DockerSubnet es la red de contenedores de la instalación: nunca es
+	// objetivo de un chequeo (con la red de servicios del túnel).
+	DockerSubnet string `env:"HORUS_DOCKER_SUBNET" envDefault:"172.31.250.0/24"`
+	// InfraDenyCIDRs: redes adicionales que no pueden ser objetivo (coma).
+	InfraDenyCIDRs []string `env:"HORUS_SNMP_INFRA_DENY_CIDRS" envSeparator:","`
+	// PublicBaseURL para Location.
+	PublicBaseURL string `env:"HORUS_PUBLIC_BASE_URL"`
 }
 
 // Validate implementa config.Validator.
@@ -73,6 +89,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Retries < 0 {
 		errs = append(errs, errors.New("HORUS_SNMP_RETRIES must be >= 0"))
+	}
+	if c.InfraConcurrency <= 0 {
+		errs = append(errs, errors.New("HORUS_SNMP_INFRA_CONCURRENCY must be > 0"))
+	}
+	if c.InfraTimeout <= 0 {
+		errs = append(errs, errors.New("HORUS_SNMP_INFRA_TIMEOUT must be > 0"))
 	}
 	if c.Concurrency <= 0 {
 		errs = append(errs, errors.New("HORUS_SNMP_CONCURRENCY must be > 0"))

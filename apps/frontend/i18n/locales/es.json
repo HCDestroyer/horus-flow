@@ -85,7 +85,8 @@
       "platformReputation": "Fuentes de reputación",
       "roles": "Roles y permisos",
       "ai": "Inteligencia artificial",
-      "routers": "Salud de routers"
+      "routers": "Salud de routers",
+      "infraServices": "Servicios de infraestructura"
     },
     "search": "Buscar",
     "searchPlaceholder": "Buscar secciones…",
@@ -230,6 +231,9 @@
     },
     "routers": {
       "question": "¿Están vivos mis routers y con qué carga?"
+    },
+    "infra-services": {
+      "question": "¿Responden mis servidores de IPTV, web, DNS y RADIUS?"
     }
   },
   "account": {
@@ -3176,5 +3180,162 @@
     "saved": "Umbrales guardados: se aplican en el próximo sondeo",
     "reset": "Volver a los de la instalación",
     "resetDone": "Umbrales de la instalación restaurados"
+  },
+  "infra": {
+    "title": "Servicios de infraestructura",
+    "intro": "Servidores propios del ISP (IPTV, web, DNS, RADIUS…) vigilados desde Horus: ping, puertos y páginas web, más alertas por falta de tráfico o ataque entrante vistas en los flujos.",
+    "add": "Añadir servicio",
+    "empty": "Todavía no vigila ningún servicio",
+    "emptyHint": "Añada la IP de un servidor del ISP y elija cómo comprobarlo: ping, puerto TCP, página web o tráfico.",
+    "emptyFilter": "Ningún servicio con estos filtros",
+    "filters": {
+      "allStates": "Todos los estados",
+      "problems": "Con problemas"
+    },
+    "state": {
+      "up": "Operativo",
+      "down": "Caído",
+      "degraded": "Degradado",
+      "unknown": "Sin datos",
+      "disabled": "Pausado"
+    },
+    "summaryLabel": "Resumen de servicios por estado",
+    "columns": {
+      "service": "Servicio",
+      "state": "Estado",
+      "checks": "Chequeos",
+      "latency": "Latencia",
+      "since": "Último cambio",
+      "site": "Nodo",
+      "actions": "Acciones"
+    },
+    "kind": {
+      "iptv": "IPTV",
+      "http": "Web",
+      "dns": "DNS",
+      "radius": "RADIUS",
+      "other": "Otro"
+    },
+    "checkType": {
+      "icmp": "Ping (ICMP)",
+      "tcp": "Puerto TCP",
+      "http": "Página web (HTTP)",
+      "no_traffic": "Sin tráfico",
+      "ddos_inbound": "Ataque entrante"
+    },
+    "checkShort": {
+      "icmp": "Ping",
+      "tcp": "TCP :{port}",
+      "http": "HTTP :{port} {path}",
+      "https": "HTTPS :{port} {path}",
+      "noTraffic": "Sin tráfico {minutes} min",
+      "ddos": "Ataque > {threshold}"
+    },
+    "reason": {
+      "ok": "Responde",
+      "pending": "Pendiente del primer chequeo",
+      "timeout": "No responde a tiempo",
+      "refused": "Conexión rechazada",
+      "unreachable": "Inalcanzable",
+      "tls_error": "Error de TLS (certificado)",
+      "http_status": "Código HTTP inesperado",
+      "error": "Error de red",
+      "no_traffic": "Sin tráfico en la ventana",
+      "no_traffic_baseline": "Aún sin tráfico de referencia",
+      "ddos_inbound": "Tráfico entrante por encima del umbral",
+      "no_flow_data": "Sin datos de flujos",
+      "flows_unavailable": "Flujos no disponibles",
+      "icmp_unavailable": "Ping no disponible en este servidor de Horus",
+      "icmp_ipv6_unsupported": "Ping IPv6 no disponible",
+      "router_unavailable": "Router de acceso sin túnel",
+      "not_forwardable": "El ping no se reenvía por el router",
+      "other": "Otro motivo"
+    },
+    "private": "IP privada",
+    "privateHint": "Horus llega a esta IP solo si el router del nodo reenvía el tráfico. Genere el script para pegarlo en el router.",
+    "viaRouter": "Por el router",
+    "disabled": "Pausado",
+    "causedBy": "por {check}",
+    "scheduler": {
+      "disabled": "La vigilancia de servicios está desactivada en este servidor de Horus (HORUS_SNMP_ENABLED=false): se muestran los últimos estados conocidos.",
+      "unhealthy": "El planificador de chequeos no ha completado un ciclo en el último minuto: los estados pueden estar desactualizados.",
+      "noPassive": "Sin lector de flujos (ClickHouse): los chequeos «Sin tráfico» y «Ataque entrante» quedan sin datos."
+    },
+    "actions": {
+      "details": "Ver detalle de {name}",
+      "edit": "Editar {name}",
+      "delete": "Eliminar {name}",
+      "snippet": "Script del router"
+    },
+    "deleteTitle": "¿Eliminar «{name}»?",
+    "deleteBody": "Horus deja de vigilar este servicio y se borra su historial. No se avisa a los canales de notificación.",
+    "deleteSubmit": "Eliminar servicio",
+    "deleted": "Servicio eliminado",
+    "form": {
+      "title": "Nuevo servicio de infraestructura",
+      "editTitle": "Editar servicio",
+      "description": "Horus solo sondea: nunca escribe en el servidor ni en el router.",
+      "name": "Nombre",
+      "target": "IP del servidor",
+      "targetHelp": "IPv4 o IPv6 del servidor del ISP (no de un cliente).",
+      "kind": "Tipo",
+      "site": "Nodo",
+      "noSite": "Sin nodo",
+      "interval": "Intervalo (s)",
+      "intervalHelp": "Mínimo 30 s.",
+      "failures": "Fallos para «caído»",
+      "recoveries": "Éxitos para recuperar",
+      "enabled": "Vigilar este servicio",
+      "viaRouter": "Sondear a través del router del nodo",
+      "viaRouterHelp": "Para servidores con IP privada: los chequeos TCP/HTTP van a la IP de túnel del router, que los reenvía al servidor (script de router).",
+      "router": "Router de acceso",
+      "checks": "Chequeos",
+      "addCheck": "Añadir chequeo",
+      "removeCheck": "Quitar chequeo {n}",
+      "checkN": "Chequeo {n}",
+      "port": "Puerto",
+      "forwardPort": "Puerto de reenvío en el router",
+      "path": "Ruta",
+      "https": "HTTPS",
+      "tlsVerify": "Verificar el certificado",
+      "tlsVerifyOff": "Sin verificar: se acepta cualquier certificado.",
+      "statusMin": "Código mínimo",
+      "statusMax": "Código máximo",
+      "window": "Ventana (min)",
+      "minBytes": "Mínimo de bytes",
+      "noTrafficHelp": "Avisa si no hay tráfico hacia o desde la IP en la ventana, solo si antes lo hubo.",
+      "pps": "Umbral pps entrantes",
+      "bps": "Umbral bps entrantes",
+      "ddosHelp": "Media de los últimos 5 minutos vista en los flujos. Pasa a «Degradado».",
+      "submit": "Guardar",
+      "created": "Servicio creado",
+      "updated": "Servicio actualizado",
+      "needCheck": "Añada al menos un chequeo",
+      "invalidIp": "Escriba una IP válida"
+    },
+    "drawer": {
+      "title": "Detalle del servicio",
+      "target": "IP",
+      "kind": "Tipo",
+      "interval": "Cada {s} s · {f} fallos para «caído» · {r} éxitos para recuperar",
+      "history": "Últimos resultados",
+      "noHistory": "Aún sin resultados",
+      "lastCheck": "Último chequeo",
+      "since": "Desde",
+      "failures": "{n} fallos seguidos",
+      "resultAt": "Resultado de las {time}"
+    },
+    "snippet": {
+      "title": "Script para el router",
+      "description": "Revise el script y péguelo usted en el router del nodo. Horus nunca escribe en los routers.",
+      "router": "Router del nodo",
+      "pickRouter": "Elija el router por el que se alcanza el servidor",
+      "generate": "Generar script",
+      "notApplicable": "No hay reglas que generar",
+      "notApplicableHint": "Active «Sondear a través del router del nodo» y fije un puerto de reenvío en cada chequeo TCP/HTTP.",
+      "scriptLabel": "Script RouterOS",
+      "horusSide": "Del lado de Horus",
+      "warnings": "Avisos"
+    }
   }
 }

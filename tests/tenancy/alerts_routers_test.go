@@ -93,7 +93,7 @@ func TestAlertsRouterCategoriesAndTelegramLink(t *testing.T) {
 	A, B := a.newISP(pt, "isp-ra"), a.newISP(pt, "isp-rb")
 
 	ch := a.must(a.post(A.token, "/api/v1/notification-channels", map[string]any{"name": "NOC routers", "kind": "telegram",
-		"config": map[string]any{"chat_id": "-100123", "message_thread_id": 7},
+		"config":       map[string]any{"chat_id": "-100123", "message_thread_id": 7},
 		"subscription": map[string]any{"event_types": []string{}, "categories": []string{"routers"}, "min_severity": "high"}}), 201)
 	sub := ch.Body["subscription"].(map[string]any)
 	if sub["notify_recovery"] != true || len(sub["categories"].([]any)) != 1 {
@@ -216,7 +216,7 @@ func TestSNMPThresholdsPerTenant(t *testing.T) {
 		t.Fatal("umbrales no auditados")
 	}
 	// RLS: sin contexto de tenant el rol de la aplicación no ve filas.
-	tenanttest.AssertRLS(t, a.admin, []string{"snmp"}, nil, nil)
+	tenanttest.AssertRLS(t, a.admin, []string{"snmp"}, []string{"snmp.outbox"}, []string{"snmp.outbox"})
 	var n int
 	if err := a.admin.QueryRow(context.Background(), `SELECT count(*) FROM snmp.router_thresholds`).Scan(&n); err != nil || n != 1 {
 		t.Fatalf("filas = %d %v", n, err)

@@ -773,8 +773,10 @@ tenant; se listan como "platform" porque sólo los emite un rol de plataforma.
 
 ### 8.4 `snmp` (productor `snmp`)
 
-> **Estado: I2 implementado** (`services/snmp`). Publicación directa con PubAck (sin outbox: el rol no
-> tiene PostgreSQL). Los payloads de abajo son los que emite el código.
+> **Estado: I2 implementado** (`services/snmp`). Los eventos de routers se publican directamente con PubAck (su
+> estado vive en NATS KV); `service.state_changed` (servicios de infraestructura) sale por el outbox del esquema
+> PostgreSQL `snmp` y está catalogado (`packages/events/catalog/snmp.yaml`). Los payloads de abajo son los que emite
+> el código.
 
 Dominio → `SNMP_EVENTS` (publicación §6.3):
 
@@ -787,6 +789,7 @@ Dominio → `SNMP_EVENTS` (publicación §6.3):
 | `horus.snmp.service.state_changed` | alerts (`service_down` / `_degraded` / `_recovered`) | I2 |
 | `horus.snmp.poller.heartbeat` (tenant `platform`; entity_id = UUIDv5 de la instancia) | alerts, api-gateway (topic `system`) | 5 |
 | `horus.snmp.audit.recorded` | auth | 5 |
+| `horus.snmp.service.state_changed` (entity = `service_id`) | alerts | I2 |
 
 > `interfaces_discovered` corrige el orden de `discovered_interfaces` de [`services.md`](./services.md) (verbo al final).
 > El **estado observado** es de `snmp` ([`services.md`](./services.md)); `devices` sólo lo proyecta y calcula el `status`
@@ -809,6 +812,18 @@ Dominio → `SNMP_EVENTS` (publicación §6.3):
 //         snmp_auth_failed | no_snmp_credentials | tunnel_down | host_unreachable_via_tunnel
 // signals.icmp: ok | fail | unknown; snmp: ok | fail | auth_failed | unknown; wireguard: ok | stale | never | unknown;
 // exporter: FlowExporterState o null.
+
+// horus.snmp.service.state_changed   (subject horus.snmp.service.state_changed.<service_id>; outbox snmp.outbox;
+//   aggregate_type infra_service). Servicio de infraestructura del ISP (IPTV, HTTP, DNS…): se emite cuando cambia
+//   el estado del servicio = el peor de sus chequeos conocidos (down > degraded > up; unknown si ninguno sabe) y
+//   check_type es el chequeo que lo causó. target es la IP de un servidor del ISP, nunca de un cliente.
+{ "tenant_id": "0192...", "service_id": "0192...", "site_id": "0192..." /* o null */, "name": "IPTV cabecera",
+  "check_type": "http", "target": "192.0.2.20", "previous_state": "up", "state": "down", "reason": "timeout",
+  "observed_at": "2026-10-07T14:03:11.123Z" }
+// check_type: icmp | tcp | http | no_traffic | ddos_inbound; previous_state/state: up | down | degraded | unknown
+//   (previous_state = unknown en la primera observación); reason (abierto): ok | timeout | refused | unreachable |
+//   tls_error | http_status | error | no_traffic | ddos_inbound | no_flow_data | not_forwardable | router_unavailable…
+//   La baja de un servicio no emite evento.
 
 // horus.snmp.router.rebooted
 { "router_id": "0192...", "previous_uptime_seconds": 1209600, "uptime_seconds": 95, "detected_at": "2026-10-07T14:20:00Z",

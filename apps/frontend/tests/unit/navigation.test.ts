@@ -51,6 +51,24 @@ describe('buildNavigation', () => {
     expect(operation.slice(0, 2)).toEqual(['nodes', 'routers'])
   })
 
+  it('"Servicios de infraestructura" va tras "Salud de routers" y exige snmp.read', () => {
+    const infra = findSection('tenant', 'infra-services')!
+    expect(infra.permission).toBe('snmp.read')
+    expect(ids(buildNavigation(noc, 'fibra-norte', 'I1'))).toContain('infra-services')
+    const operation = NAV_SECTIONS.filter((s) => s.group === 'operation').map((s) => s.id)
+    expect(operation.slice(0, 3)).toEqual(['nodes', 'routers', 'infra-services'])
+    const withoutSnmp = {
+      ...noc,
+      memberships: noc.memberships.map((m) => ({
+        ...m,
+        permissions_with_scope: Object.fromEntries(
+          Object.entries(m.permissions_with_scope).filter(([k]) => k !== 'snmp.read'),
+        ),
+      })),
+    }
+    expect(sectionAccess(infra, withoutSnmp, 'fibra-norte', 'I1')).toBe('forbidden')
+  })
+
   it('elimina los grupos que se quedan vacíos', () => {
     const nav = buildNavigation(noc, 'fibra-norte', 'I1')
     expect(nav.map((g) => g.id)).not.toContain('platform')

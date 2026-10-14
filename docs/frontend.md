@@ -679,6 +679,24 @@ Google o Meta) y qué revisar; la capacidad `classification` aparece en el estad
   Quitar o reducir un prefijo avisa de cuántos clientes pasarán a *Inactivo*.
 - "Script de desinstalación" en "Más".
 
+### 8.5 Servicios de infraestructura (I2, rol snmp)
+
+- Sección **Operación › Servicios de infraestructura** (`/t/:slug/infra-services`, `snmp.read`), tras "Salud de
+  routers": servidores propios del ISP (IPTV, web, DNS, RADIUS…), nunca clientes.
+- Resumen por estado (Caído, Degradado, Sin datos, Operativo, Pausado), filtros de nodo y estado en la URL (`site`,
+  `state`, `problems`) y tabla con problemas primero: nombre, IP, tipo, nodo, insignia "IP privada" / "Por el
+  router", estado con el chequeo que lo causa y su razón, chequeos, latencia del último chequeo activo y último
+  cambio. `GET /infra-services` cada 30 s; avisos si el planificador está desactivado o no late, o si faltan flujos
+  para los chequeos pasivos.
+- Detalle (panel lateral): estado de cada chequeo (razón, medida, latencia, fallos seguidos, último chequeo) y sus
+  últimos 20–30 resultados como tira de puntos con fecha en `title` y texto para lectores de pantalla.
+- Alta/edición (`snmp.manage`): constructor de chequeos (ping, puerto TCP, página web con HTTPS, ruta, rango de
+  códigos y verificación del certificado, sin tráfico con ventana y mínimo, ataque entrante con umbrales pps/bps),
+  intervalo ≥ 30 s, fallos para "caído" y éxitos para recuperar. Con IP privada se sugiere «Sondear a través del
+  router del nodo» (router + puerto de reenvío por chequeo TCP/HTTP).
+- "Script del router" (servidores privados): el usuario elige el router y recibe el script RouterOS para pegarlo
+  (Horus nunca escribe en routers), los avisos (ICMP no reenviable) y qué cambia del lado de Horus (nada en el hub).
+
 ### 8.x Asistente de IA
 
 "Analizar con IA" (`components/assist/AiAnalysis.vue`) en la sección "Qué hacer" del detalle de un hallazgo

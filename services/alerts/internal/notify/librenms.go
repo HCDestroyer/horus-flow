@@ -24,6 +24,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/services/alerts/internal/librenms"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
 	devapi "github.com/hcdestroyer/horus-flow/services/devices/api"
+	snmpapi "github.com/hcdestroyer/horus-flow/services/snmp/api"
 )
 
 // Códigos de error de la integración con LibreNMS.
@@ -46,6 +47,8 @@ var ErrNotProvisioned = errors.New(librenms.CodeNotProvisioned + ": sincronice l
 type DevicesLookup struct {
 	Onboarding func() (devapi.Onboarding, bool)
 	SNMP       func() (devapi.SNMPCredentialReader, bool)
+	// Infra: servicios de infraestructura del rol snmp (grupo «Horus · Infraestructura»).
+	Infra func() (snmpapi.InfraTargets, bool)
 }
 
 // SetDevices conecta el inventario (lista de routers y credenciales SNMPv3 de Horus).
@@ -308,11 +311,15 @@ func (s *Service) LibreNMSSync(ctx context.Context, channelID uuid.UUID, in Sync
 	if integ.HorusHostname != nil {
 		host = *integ.HorusHostname
 	}
+	infra, err := s.infraTargets(ctx, t)
+	if err != nil {
+		warnings = append(warnings, "Servicios de infraestructura no disponibles: el grupo «Horus · Infraestructura» no se ha tocado.")
+	}
 	sctx, cancel := context.WithTimeout(ctx, librenmsSyncTO)
 	defer cancel()
 	cl := s.librenmsClient(lc, cr)
 	res := librenms.NewProvisioner(cl).Sync(sctx, objs, librenms.Plan{HorusHost: host,
-		Thresholds: librenms.Thresholds{CPU: integ.CPU, Memory: integ.Memory}, Routers: routers})
+		Thresholds: librenms.Thresholds{CPU: integ.CPU, Memory: integ.Memory}, Routers: routers, Infra: infra})
 	if res.Err != nil {
 		msg := res.Err.Message
 		if msg == "" {
@@ -770,6 +777,27 @@ func (s *Service) sendLibreNMS(ctx context.Context, t pgdb.TenantID, c *Channel,
 		return fmt.Errorf("librenms: %w", err)
 	}
 	return nil
+}
+
+// infraTargets son los servicios de infraestructura del ISP para LibreNMS;
+// nil (sin rol snmp en el proceso o sin inventario) deja el grupo como está.
+func (s *Service) infraTargets(ctx context.Context, t pgdb.TenantID) ([]librenms.Target, error) {
+	if s.devices.Infra == nil {
+		return nil, nil
+	}
+	src, ok := s.devices.Infra()
+	if !ok {
+		return nil, nil
+	}
+	items, err := src.LibreNMSTargets(ctx, t.UUID())
+	if err != nil {
+		return nil, err
+	}
+	out := make([]librenms.Target, 0, len(items))
+	for _, it := range items {
+		out = append(out, librenms.Target{Key: it.Name, Name: it.Name, Host: it.IP})
+	}
+	return out, nil
 }
 
 // InfraTarget es un servicio de infraestructura a vigilar por ping en

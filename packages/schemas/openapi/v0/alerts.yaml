@@ -295,7 +295,7 @@ paths:
       x-module: alerts
       x-scope: tenant
       x-permission: alerts.manage
-      x-rate-limit: connection_test
+      x-rate-limit: librenms
       x-audited: true
       x-increment: I1
       security:
@@ -332,7 +332,7 @@ paths:
       x-module: alerts
       x-scope: tenant
       x-permission: alerts.manage
-      x-rate-limit: connection_test
+      x-rate-limit: librenms
       x-increment: I1
       security:
         - tenantBearer: []
@@ -520,7 +520,7 @@ paths:
       x-module: alerts
       x-scope: tenant
       x-permission: alerts.manage
-      x-rate-limit: connection_test
+      x-rate-limit: telegram_setup
       x-increment: I1
       security:
         - tenantBearer: []
@@ -582,7 +582,7 @@ paths:
       x-module: alerts
       x-scope: tenant
       x-permission: alerts.manage
-      x-rate-limit: connection_test
+      x-rate-limit: telegram_setup
       x-increment: I1
       security:
         - tenantBearer: []
