@@ -2,7 +2,15 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
 import { hydrated, scrollThrough } from './helpers'
 
-const pages = ['/', '/en', '/comprar', '/en/buy', '/legal/privacidad']
+const pages = [
+  '/',
+  '/en',
+  '/comprar',
+  '/en/buy',
+  '/legal/privacidad',
+  '/en/legal/privacy',
+  '/legal/inteligencia-artificial',
+]
 
 for (const scheme of ['light', 'dark'] as const) {
   for (const path of pages) {

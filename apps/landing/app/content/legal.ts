@@ -1,7 +1,12 @@
+// Textos legales originales (aviso legal, privacidad y términos). Desde la migración 2 las
+// páginas legales viven en la base de datos y se editan en /admin › Páginas: este archivo es solo
+// la SEMILLA de esa migración (server/lib/pages-seed.ts los convierte a Markdown). No lo edites
+// para cambiar la web: cambiarlo aquí no afecta a una base de datos ya creada, y una migración
+// publicada no debe cambiar su resultado.
+//
 // ⚠️ BORRADORES PENDIENTES DE REVISIÓN LEGAL. Redactados como punto de partida; un abogado
 // debe revisarlos (ley aplicable, plazos de conservación, datos registrales) antes de publicar
 // la landing en producción. Los textos marcados [POR CONFIRMAR] requieren un dato de C&S Company.
-// Solo en español mientras dure la revisión (la versión en inglés muestra este mismo texto).
 
 export interface LegalSection {
   title: string
@@ -14,7 +19,7 @@ export interface LegalDoc {
   sections: LegalSection[]
 }
 
-const titular =
+export const titular =
   'Connection And Solutions Company, Sociedad Anónima ("C&S Company"), con domicilio en 2da avenida, San Martín Jilotepeque, Chimaltenango, Guatemala; inscrita en el Registro Mercantil [POR CONFIRMAR: número de registro], NIT [POR CONFIRMAR]; correo info@kns.gt.'
 
 export const legalDocs: Record<'notice' | 'privacy' | 'terms', LegalDoc> = {

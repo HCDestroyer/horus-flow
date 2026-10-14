@@ -25,6 +25,7 @@
     "@iconify-json/lucide": "1.2.141",
     "@nuxt/ui": "4.11.3",
     "@nuxtjs/i18n": "10.6.0",
+    "markdown-it": "15.0.2",
     "nodemailer": "10.0.10",
     "nuxt": "4.6.1",
     "tailwindcss": "4.3.3",

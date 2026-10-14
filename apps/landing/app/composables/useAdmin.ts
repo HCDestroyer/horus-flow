@@ -89,6 +89,12 @@ const MESSAGES: Record<string, string> = {
   LAST_ADMIN: 'Debe quedar al menos un administrador activo.',
   NOT_A_PURCHASE: 'Solo una compra puede marcarse como pagada.',
   WRONG_STAGE: 'La sesión cambió. Vuelve a iniciar sesión.',
+  SLUG_TAKEN: 'Esa URL ya la usa otra página.',
+  LEGAL_NOT_DELETABLE: 'Las páginas legales no se eliminan: despublícala.',
+  KIND_LOCKED: 'El tipo de una página no se puede cambiar.',
+  CONFLICT: 'Otra persona guardó esta página mientras la editabas. Recarga para ver su versión.',
+  NOT_FOUND: 'No existe (puede que se haya eliminado).',
+  VERSION_NOT_FOUND: 'Esa versión no existe.',
 }
 
 export function adminErrorMessage(err: unknown): string {

@@ -1,10 +1,24 @@
 <script setup lang="ts">
 import { sellerAddressLine, site } from '~/config/site'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const localePath = useLocalePath()
 const year = new Date().getFullYear()
-const email = computed(() => useSite().value.settings.contact.email || site.seller.email)
+const siteData = useSite()
+const email = computed(() => siteData.value.settings.contact.email || site.seller.email)
+const loc = computed(() => (locale.value === 'en' ? 'en' : 'es'))
+// Páginas de la base de datos con "mostrar en el pie" (/admin › Páginas): las legales en su
+// columna; las informativas, al final de la de producto.
+const footerPages = computed(() =>
+  (siteData.value.pages ?? []).map((p) => ({
+    id: p.id,
+    kind: p.kind,
+    title: p.title[loc.value],
+    to: p.path[loc.value],
+  })),
+)
+const legalPages = computed(() => footerPages.value.filter((p) => p.kind === 'legal'))
+const infoPages = computed(() => footerPages.value.filter((p) => p.kind === 'info'))
 const home = computed(() => localePath('/'))
 const href = (id: string) => `${home.value === '/' ? '/' : home.value}#${id}`
 </script>
@@ -62,33 +76,25 @@ const href = (id: string) => `${home.value === '/' ? '/' : home.value}#${id}`
               {{ t('nav.demo') }}
             </a>
           </li>
+          <li v-for="p in infoPages" :key="p.id">
+            <NuxtLink
+              :to="p.to"
+              class="inline-flex min-h-11 items-center text-muted hover:text-highlighted"
+            >
+              {{ p.title }}
+            </NuxtLink>
+          </li>
         </ul>
       </nav>
-      <nav :aria-label="t('footer.legal')">
+      <nav v-if="legalPages.length" :aria-label="t('footer.legal')">
         <h2 class="mb-2 text-sm font-semibold text-highlighted">{{ t('footer.legal') }}</h2>
         <ul class="space-y-0.5">
-          <li>
+          <li v-for="p in legalPages" :key="p.id">
             <NuxtLink
-              :to="localePath('/legal/aviso-legal')"
+              :to="p.to"
               class="inline-flex min-h-11 items-center text-muted hover:text-highlighted"
             >
-              {{ t('footer.notice') }}
-            </NuxtLink>
-          </li>
-          <li>
-            <NuxtLink
-              :to="localePath('/legal/privacidad')"
-              class="inline-flex min-h-11 items-center text-muted hover:text-highlighted"
-            >
-              {{ t('footer.privacy') }}
-            </NuxtLink>
-          </li>
-          <li>
-            <NuxtLink
-              :to="localePath('/legal/terminos')"
-              class="inline-flex min-h-11 items-center text-muted hover:text-highlighted"
-            >
-              {{ t('footer.terms') }}
+              {{ p.title }}
             </NuxtLink>
           </li>
         </ul>

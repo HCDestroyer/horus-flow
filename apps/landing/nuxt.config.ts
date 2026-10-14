@@ -117,9 +117,10 @@ export default defineNuxtConfig({
     customRoutes: 'config',
     pages: {
       comprar: { es: '/comprar', en: '/buy' },
-      'legal-aviso-legal': { es: '/legal/aviso-legal', en: '/legal/notice' },
-      'legal-privacidad': { es: '/legal/privacidad', en: '/legal/privacy' },
-      'legal-terminos': { es: '/legal/terminos', en: '/legal/terms' },
+      // Páginas legales e informativas de la base de datos (/admin › Páginas): el slug de cada
+      // idioma sale de la página (/legal/aviso-legal ↔ /en/legal/notice).
+      'legal-slug': { es: '/legal/[slug]', en: '/legal/[slug]' },
+      'info-slug': { es: '/info/[slug]', en: '/info/[slug]' },
       // El panel no tiene versión por idioma (solo /admin, en español).
       admin: false,
       'admin-login': false,
@@ -129,6 +130,8 @@ export default defineNuxtConfig({
       'admin-pagos': false,
       'admin-ajustes': false,
       'admin-auditoria': false,
+      'admin-paginas': false,
+      'admin-paginas-id': false,
     },
   },
 

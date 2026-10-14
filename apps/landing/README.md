@@ -6,13 +6,16 @@ Página pública de venta de Horus Flow, de **Connection And Solutions Company, 
 
 - **Stack:** Nuxt 4 (SSR con servidor Nitro) + Nuxt UI v4 + Tailwind 4, pnpm.
 - **Idiomas:** español (`/`, principal, es-GT) e inglés (`/en`), con @nuxtjs/i18n.
-- **Páginas:** portada (`/`, `/en`), compra (`/comprar`, `/en/buy`), legales
-  (`/legal/aviso-legal|privacidad|terminos`, `/en/legal/notice|privacy|terms`) y el **panel de
+- **Páginas:** portada (`/`, `/en`), compra (`/comprar`, `/en/buy`), legales e informativas
+  editables desde el panel (`/legal/<slug>`, `/en/legal/<slug>`, `/info/<slug>`; ver
+  [Páginas legales e informativas](#páginas-legales-e-informativas)) y el **panel de
   administración** en `/admin` (solo español, sin enlace público, `noindex`, fuera del sitemap).
 - **Datos:** SQLite (`node:sqlite`, integrado en Node ≥ 22.13; sin compilar nada) en `DATA_DIR`, con migraciones versionadas
   ([`server/lib/migrations.ts`](server/lib/migrations.ts)): planes y precios, ajustes,
-  configuración de pagos, solicitudes, administradores, sesiones y auditoría.
-- **Servidor:** `GET /api/site` (catálogo, ajustes y métodos de pago públicos), `POST /api/lead`
+  configuración de pagos, solicitudes, páginas legales/informativas (con historial),
+  administradores, sesiones y auditoría.
+- **Servidor:** `GET /api/site` (catálogo, ajustes, métodos de pago públicos y enlaces del pie),
+  `GET /api/pages/:slug?locale=es|en` (página legal o informativa publicada), `POST /api/lead`
   (demo y contacto), `POST /api/purchase` (solicitud de compra), `/api/checkout/**` (PayPal, link
   Neo, transferencia), `POST /api/payments/paypal/webhook`, `/api/admin/**` (panel),
   `/sitemap.xml` y `/robots.txt`.
@@ -32,15 +35,15 @@ Para entrar al panel en local crea un administrador (ver [Panel](#panel-de-admin
 abre `http://localhost:3000/admin`: Chromium y Firefox aceptan la cookie `__Host-` (Secure) en
 `localhost`.
 
-| Orden                      | Qué hace                                                                                                                                                                                                                                                                                                                                 |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm lint`                | ESLint + Prettier                                                                                                                                                                                                                                                                                                                        |
-| `pnpm typecheck`           | `nuxt typecheck`                                                                                                                                                                                                                                                                                                                         |
-| `pnpm test`                | Vitest: formularios, antispam, rate limit, IP real, correo simulado, webhook; migraciones, edición de precios y caché; TOTP, bloqueo, CSRF, sesión y permisos de `/api/admin`; cálculo del importe; PayPal simulado (crear, capturar, webhook verificado y no verificado); cifrado de credenciales                                       |
-| `pnpm build && pnpm start` | build de producción y servidor Node (`.output/server/index.mjs`)                                                                                                                                                                                                                                                                         |
-| `pnpm e2e`                 | Playwright: navegación, idioma, demo y compra con SMTP simulado, SEO, axe (claro/oscuro, HTML del servidor y todas las páginas del panel), objetivos táctiles, 320 px; login con TOTP, configurar pagos, cambiar un precio y verlo en la web, compra con PayPal simulado, link Neo y transferencia. `E2E_NO_BUILD=1` reutiliza `.output` |
-| `pnpm screenshots`         | capturas de la landing (1440/768/390, claro y oscuro), del panel y de la compra con los tres métodos → `docs/screenshots/`                                                                                                                                                                                                               |
-| `pnpm images`              | regenera las capturas optimizadas (AVIF/WebP, varios anchos) y la imagen Open Graph desde `apps/frontend/docs/screenshots/tour`                                                                                                                                                                                                          |
+| Orden                      | Qué hace                                                                                                                                                                                                                                                                                                                                                                                        |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm lint`                | ESLint + Prettier                                                                                                                                                                                                                                                                                                                                                                               |
+| `pnpm typecheck`           | `nuxt typecheck`                                                                                                                                                                                                                                                                                                                                                                                |
+| `pnpm test`                | Vitest: formularios, antispam, rate limit, IP real, correo simulado, webhook; migraciones, edición de precios y caché; páginas (semilla, Markdown seguro, validación de slugs, historial, caché); TOTP, bloqueo, CSRF, sesión y permisos de `/api/admin`; cálculo del importe; PayPal simulado (crear, capturar, webhook verificado y no verificado); cifrado de credenciales                   |
+| `pnpm build && pnpm start` | build de producción y servidor Node (`.output/server/index.mjs`)                                                                                                                                                                                                                                                                                                                                |
+| `pnpm e2e`                 | Playwright: navegación, idioma, demo y compra con SMTP simulado, SEO, axe (claro/oscuro, HTML del servidor y todas las páginas del panel), objetivos táctiles, 320 px; login con TOTP, configurar pagos, cambiar un precio y verlo en la web, crear/editar/despublicar una página y verlo en la web, compra con PayPal simulado, link Neo y transferencia. `E2E_NO_BUILD=1` reutiliza `.output` |
+| `pnpm screenshots`         | capturas de la landing (1440/768/390, claro y oscuro), del panel y de la compra con los tres métodos → `docs/screenshots/`                                                                                                                                                                                                                                                                      |
+| `pnpm images`              | regenera las capturas optimizadas (AVIF/WebP, varios anchos) y la imagen Open Graph desde `apps/frontend/docs/screenshots/tour`                                                                                                                                                                                                                                                                 |
 
 Playwright usa el Chromium de `PLAYWRIGHT_BROWSERS_PATH` (en el contenedor de desarrollo,
 `/opt/pw-browsers`); no hace falta `playwright install` en local. En CI se instala.
@@ -168,7 +171,7 @@ gzip) y los recursos estáticos precomprimidos; si NPM comprime también, no hay
 
 `https://horusflow.kns.gt/admin` (no enlazado desde la web, `noindex`, `Disallow: /admin`, fuera
 del sitemap). Secciones: **Solicitudes** (lista con filtros, detalle, cambio de estado con nota,
-exportación CSV), **Precios y planes**, **Pagos**, **Ajustes** (contacto, soporte, banner,
+exportación CSV), **Precios y planes**, **Páginas**, **Pagos**, **Ajustes** (contacto, soporte, banner,
 administradores, mi cuenta) y **Auditoría**.
 
 ### Primer administrador
@@ -238,10 +241,9 @@ cotización" y no se puede pagar).
   [`en.json`](i18n/locales/en.json) (mismas claves; un test lo verifica). En vue-i18n `@`, `{`,
   `}` y `|` son especiales: el correo va como parámetro `{email}`.
 - Datos del vendedor y rutas por idioma: [`app/config/site.ts`](app/config/site.ts).
-- Textos legales (**borradores en español pendientes de revisión legal**, con marcas
-  `[POR CONFIRMAR]`: registro mercantil, NIT del titular, plazos de conservación, impuestos y
-  devoluciones): [`app/content/legal.ts`](app/content/legal.ts). Domicilio del titular: 2da
-  avenida, San Martín Jilotepeque, Chimaltenango, Guatemala.
+- Textos legales e informativos: en **/admin › Páginas** (ver la sección siguiente).
+  [`app/content/legal.ts`](app/content/legal.ts) ya solo es la semilla de la migración 2.
+  Domicilio del titular: 2da avenida, San Martín Jilotepeque, Chimaltenango, Guatemala.
 - Contacto, texto de soporte (24/7), tiempo de respuesta (vacío hasta que se acuerde) y banner:
   en **/admin › Ajustes**.
 - Correos (solicitud, instrucciones de pago, pago confirmado):
@@ -250,6 +252,57 @@ cotización" y no se puede pagar).
 
 Todas las cifras de fiabilidad salen de `tests/load/REPORT.md` y de `README.md` (raíz) y se
 presentan con la nota del servidor de pruebas. Si cambian allí, cámbialas aquí.
+
+## Páginas legales e informativas
+
+Las políticas y páginas informativas se editan en **/admin › Páginas**, sin tocar código ni
+redesplegar.
+
+- **Datos:** tablas `pages` y `page_versions` (migración 2 en
+  [`server/lib/migrations.ts`](server/lib/migrations.ts)). Cada página tiene una clave estable
+  (`id`), tipo (`legal` | `info`), slug, título, resumen (meta description) y cuerpo en Markdown
+  por idioma, y las marcas _publicada_, _en el pie_ y _aviso de borrador_ ("Borrador pendiente de
+  revisión legal"), más el orden y quién la cambió por última vez. Cada guardado guarda una
+  instantánea completa en `page_versions` (historial y **restaurar**, como los precios) y una
+  entrada de auditoría con el antes y el después (`page.create|update|delete|restore`).
+- **Semilla** ([`server/lib/pages-seed.ts`](server/lib/pages-seed.ts)): aviso legal, privacidad y
+  términos (los textos originales de `app/content/legal.ts`, en Markdown, con sus URL de siempre:
+  `/legal/aviso-legal|privacidad|terminos`, `/en/legal/notice|privacy|terms`) y borradores nuevos
+  pendientes de abogado, con `[POR CONFIRMAR]` donde falta un dato de C&S Company: cookies
+  (`/legal/cookies`), uso aceptable (`/legal/uso-aceptable`, en `/en/legal/acceptable-use`),
+  soporte y niveles de servicio (`/legal/soporte`, `/en/legal/support`), inteligencia artificial
+  y tratamiento de datos (`/legal/inteligencia-artificial`, `/en/legal/ai`) y seguridad y
+  divulgación responsable (`/legal/seguridad`, `/en/legal/security`). Todos publicados, en el pie
+  y con el aviso de borrador. La semilla no se edita: es parte de una migración publicada.
+- **URL:** las legales en `/legal/<slug-es>` y `/en/legal/<slug-en>`; las informativas en
+  `/info/<slug-es>` y `/en/info/<slug-en>`. Si se usa el slug del otro idioma o el prefijo del otro
+  tipo (p. ej. `/en/legal/privacidad`), redirige (301) a la URL canónica. Sin publicar o
+  inexistente → 404. El sitemap lista las publicadas; canonical y hreflang usan los dos slugs.
+- **Slugs:** minúsculas sin acentos, números y guiones (`politica-de-envios`), hasta 80
+  caracteres, únicos en los dos idiomas (un slug no puede ser el de otra página en ningún idioma)
+  y sin palabras reservadas (`admin`, `api`, `comprar`, `buy`, `en`, `legal`, `info`…). Cambiar un
+  slug rompe los enlaces a la URL anterior.
+- **Inglés:** si el cuerpo en inglés está vacío, `/en/…` muestra el texto en español con el aviso
+  "This page is only available in Spanish for now"; título y resumen vacíos usan los españoles.
+- **Borrar:** las páginas **legales no se borran**, se despublican (la URL da 404 y sale del pie y
+  del sitemap); así no desaparece por error un texto que la web o un contrato enlazan. Las
+  informativas sí se pueden eliminar (con confirmación; se borra su historial y la auditoría
+  conserva el contenido). El tipo se elige al crear y no cambia.
+- **Editor:** pestañas Español/Inglés, Markdown con vista previa a la derecha (la convierte el
+  servidor con el mismo conversor que la web), nota de versión, aviso si otra persona guardó la
+  página mientras la editabas (409) y aviso al salir con cambios sin guardar.
+- **Caché:** la web lee las páginas con la misma caché de 30 s que el catálogo
+  ([`server/lib/site-cache.ts`](server/lib/site-cache.ts)), que se invalida al guardar.
+
+**Markdown admitido** ([`server/lib/markdown.ts`](server/lib/markdown.ts), `markdown-it` con
+`html: false` y `linkify`): títulos (`#` y `##` salen como `<h2>`, `###` como `<h3>`), párrafos,
+negrita y cursiva, listas, citas, código, tablas, líneas horizontales y enlaces (también las URL
+sueltas). **Seguridad:** el HTML que se escriba se muestra como texto (nunca llega como etiquetas
+a la página); los enlaces solo pueden ser `http:`, `https:`, `mailto:` o relativos (`/ruta`,
+`#ancla`) y los demás (`javascript:`, `data:`, `//otro-sitio`…) quedan como texto; los externos
+llevan `rel="noopener noreferrer"`; no hay imágenes (la CSP solo admite imágenes propias). El HTML
+se genera siempre en el servidor, también en la vista previa del panel, y la CSP del sitio no
+cambia.
 
 ## Pagos
 

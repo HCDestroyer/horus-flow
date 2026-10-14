@@ -65,10 +65,10 @@ export function useCheckoutDeps(): CheckoutDeps {
 
 const MAX_BODY_BYTES = 32 * 1024
 
-/** Lee el cuerpo JSON con un tope de tamaño; null si no es JSON válido. */
-export async function readJsonBody(event: H3Event): Promise<unknown> {
+/** Lee el cuerpo JSON con un tope de tamaño (32 KB por defecto); null si no es JSON válido. */
+export async function readJsonBody(event: H3Event, maxBytes = MAX_BODY_BYTES): Promise<unknown> {
   const length = Number(getRequestHeader(event, 'content-length') ?? 0)
-  if (length > MAX_BODY_BYTES) {
+  if (length > maxBytes) {
     throw createError({ statusCode: 413, statusMessage: 'Payload Too Large' })
   }
   const type = getRequestHeader(event, 'content-type') ?? ''
@@ -76,7 +76,7 @@ export async function readJsonBody(event: H3Event): Promise<unknown> {
     throw createError({ statusCode: 415, statusMessage: 'Unsupported Media Type' })
   }
   const text = (await readRawBody(event, 'utf8')) ?? ''
-  if (text.length > MAX_BODY_BYTES) {
+  if (Buffer.byteLength(text) > maxBytes) {
     throw createError({ statusCode: 413, statusMessage: 'Payload Too Large' })
   }
   try {

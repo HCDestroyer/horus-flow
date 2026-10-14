@@ -2,6 +2,7 @@
 // ajustes públicos del sitio y métodos de pago visibles. El servidor los lee de la base de
 // datos (server/lib/catalog.ts) y la landing los recibe de GET /api/site.
 import { z } from 'zod'
+import type { SitePageLink } from './pages'
 
 export const CURRENCIES = ['USD', 'GTQ'] as const
 export const PERIODS = ['monthly', 'annual'] as const
@@ -65,6 +66,8 @@ export interface PublicSite {
   catalog: Catalog
   settings: SiteSettings
   payments: PublicPayments
+  /** Páginas publicadas con "mostrar en el pie" (shared/pages.ts). */
+  pages: SitePageLink[]
 }
 
 /** Importe publicable de un plan, o null (sin confirmar o a medida). */

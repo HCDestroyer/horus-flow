@@ -16,6 +16,7 @@ const isLogin = computed(() => route.path === '/admin/login')
 const nav = [
   { to: '/admin/solicitudes', label: 'Solicitudes', icon: 'i-lucide-inbox' },
   { to: '/admin/precios', label: 'Precios y planes', icon: 'i-lucide-tags' },
+  { to: '/admin/paginas', label: 'Páginas', icon: 'i-lucide-file-text' },
   { to: '/admin/pagos', label: 'Pagos', icon: 'i-lucide-credit-card' },
   { to: '/admin/ajustes', label: 'Ajustes', icon: 'i-lucide-settings' },
   { to: '/admin/auditoria', label: 'Auditoría', icon: 'i-lucide-scroll-text' },

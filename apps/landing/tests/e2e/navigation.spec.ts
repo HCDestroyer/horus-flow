@@ -64,6 +64,59 @@ test('las páginas legales son borradores marcados para revisión', async ({ pag
   await expect(page.getByRole('contentinfo')).toContainText('info@kns.gt')
 })
 
+test('páginas legales de la base de datos: inglés, nuevas políticas, redirecciones y 404', async ({
+  page,
+  request,
+}) => {
+  // URLs en inglés de siempre, con el texto en español y el aviso.
+  for (const [path, title] of [
+    ['/en/legal/notice', 'Legal notice'],
+    ['/en/legal/privacy', 'Privacy policy'],
+    ['/en/legal/terms', 'Terms and conditions'],
+  ]) {
+    expect((await page.goto(path))?.status(), path).toBe(200)
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(title)
+    await expect(page.getByRole('note')).toContainText('only available in Spanish')
+  }
+  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
+    'href',
+    'https://horusflow.kns.gt/en/legal/terms',
+  )
+  await expect(page.locator('link[hreflang="es"]')).toHaveAttribute(
+    'href',
+    'https://horusflow.kns.gt/legal/terminos',
+  )
+
+  // Políticas nuevas (borradores), enlazadas en el pie.
+  for (const [path, title] of [
+    ['/legal/cookies', 'Política de cookies'],
+    ['/legal/uso-aceptable', 'Política de uso aceptable'],
+    ['/legal/soporte', 'Soporte y niveles de servicio'],
+    ['/legal/inteligencia-artificial', 'Inteligencia artificial y tratamiento de datos'],
+    ['/legal/seguridad', 'Seguridad y divulgación responsable'],
+  ]) {
+    expect((await page.goto(path))?.status(), path).toBe(200)
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(title)
+    await expect(page.getByRole('note')).toContainText('Borrador pendiente de revisión legal')
+    await expect(page.getByRole('contentinfo').getByRole('link', { name: title })).toHaveAttribute(
+      'href',
+      path,
+    )
+  }
+  await expect(page.locator('article')).toContainText('[POR CONFIRMAR')
+
+  // El slug del otro idioma redirige a la URL canónica; uno desconocido da 404.
+  await page.goto('/en/legal/privacidad')
+  await expect(page).toHaveURL(/\/en\/legal\/privacy$/)
+  expect((await request.get('/legal/no-existe', { maxRedirects: 0 })).status()).toBe(404)
+  expect((await request.get('/en/legal/no-such-page', { maxRedirects: 0 })).status()).toBe(404)
+  expect((await request.get('/api/pages/no-existe')).status()).toBe(404)
+
+  const sitemap = await (await request.get('/sitemap.xml')).text()
+  expect(sitemap).toContain('<loc>https://horusflow.kns.gt/legal/cookies</loc>')
+  expect(sitemap).toContain('<loc>https://horusflow.kns.gt/en/legal/ai</loc>')
+})
+
 test('SEO: canonical, Open Graph, JSON-LD, sitemap y robots', async ({ page, request }) => {
   await page.goto('/')
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(

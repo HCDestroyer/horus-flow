@@ -37,6 +37,8 @@ test('sin sesión no se accede a ningún dato del panel', async ({ request, page
     '/api/admin/admins',
     '/api/admin/audit',
     '/api/admin/requests/export',
+    '/api/admin/pages',
+    '/api/admin/pages/privacy',
   ]) {
     expect((await request.get(path)).status(), path).toBe(401)
   }
@@ -68,6 +70,7 @@ test('login: contraseña incorrecta, alta del TOTP por QR y códigos de recupera
 })
 
 test('axe sin violaciones en las páginas del panel (claro y oscuro)', async () => {
+  test.setTimeout(90_000)
   for (const scheme of ['light', 'dark'] as const) {
     await admin.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' })
     for (const path of [
@@ -76,6 +79,9 @@ test('axe sin violaciones en las páginas del panel (claro y oscuro)', async () 
       '/admin/pagos',
       '/admin/ajustes',
       '/admin/auditoria',
+      '/admin/paginas',
+      '/admin/paginas/privacy',
+      '/admin/paginas/nuevo',
     ]) {
       await admin.goto(path)
       await expect(admin.getByRole('heading', { level: 1 })).toBeVisible()
@@ -145,6 +151,103 @@ test('cambiar un precio en el panel y verlo en la web sin redesplegar', async ({
   // La auditoría guarda quién y el antes/después.
   await admin.goto('/admin/auditoria')
   await expect(admin.getByText('Precios publicados').first()).toBeVisible()
+})
+
+test('páginas: crear, ver en la web y en el pie, despublicar (404), restaurar y eliminar', async ({
+  page,
+}) => {
+  test.setTimeout(90_000)
+  // Las confirmaciones (restaurar, eliminar) se aceptan.
+  const accept = (d: import('@playwright/test').Dialog) => d.accept()
+  admin.on('dialog', accept)
+  try {
+    await admin.goto('/admin/paginas')
+    await expect(admin.locator('[data-page-row="privacy"]')).toContainText('/en/legal/privacy')
+    await admin.getByRole('link', { name: 'Nueva página' }).click()
+    await expect(admin.getByRole('heading', { level: 1 })).toHaveText('Nueva página')
+    await admin.getByRole('radio', { name: /Informativa/ }).check()
+    await admin.getByLabel('Título (español)').fill('Página e2e')
+    await admin.getByLabel(/^Español:/).fill('e2e-pagina')
+    await admin.getByLabel(/^Inglés:/).fill('E2E Page')
+    // Validación en el editor: mayúsculas y espacios no valen.
+    await expect(admin.getByText('Solo minúsculas sin acentos').first()).toBeVisible()
+    await expect(admin.getByRole('button', { name: 'Crear página' })).toBeDisabled()
+    await admin.getByLabel(/^Inglés:/).fill('e2e-page')
+    await admin
+      .getByLabel('Markdown (español)')
+      .fill(
+        '## Sección e2e\n\nTexto con <script>alert(1)</script> y [enlace malo](javascript:alert(1)) y [correo](mailto:info@kns.gt).',
+      )
+    // Vista previa convertida en el servidor: el HTML del autor es texto, el enlace malo no se enlaza.
+    const preview = admin.getByRole('region', { name: 'Vista previa (español)' })
+    await expect(preview.getByRole('heading', { name: 'Sección e2e' })).toBeVisible()
+    await expect(preview).toContainText('<script>alert(1)</script>')
+    await expect(preview.getByRole('link', { name: 'correo' })).toHaveAttribute(
+      'href',
+      'mailto:info@kns.gt',
+    )
+    await expect(preview.locator('a[href^="javascript"]')).toHaveCount(0)
+    await admin.getByLabel('Publicada', { exact: true }).check()
+    await admin.getByRole('button', { name: 'Crear página' }).click()
+    await expect(admin).toHaveURL(/\/admin\/paginas\/p-[0-9a-f]+$/)
+    await expect(admin.getByText('Sin cambios.')).toBeVisible()
+
+    // La web la muestra al momento, con su enlace en el pie.
+    const res = await page.goto('/info/e2e-pagina')
+    expect(res?.status()).toBe(200)
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Página e2e')
+    await expect(page.locator('article')).toContainText('<script>alert(1)</script>')
+    await expect(page.locator('article script')).toHaveCount(0)
+    await expect(page.locator('article a[href^="javascript"]')).toHaveCount(0)
+    await expect(
+      page.getByRole('contentinfo').getByRole('link', { name: 'Página e2e' }),
+    ).toHaveAttribute('href', '/info/e2e-pagina')
+    // En inglés, sin cuerpo inglés: el texto en español con el aviso.
+    expect((await page.goto('/en/info/e2e-page'))?.status()).toBe(200)
+    await expect(page.getByRole('note')).toContainText('only available in Spanish')
+
+    // Despublicada: 404.
+    await admin.getByLabel('Publicada', { exact: true }).uncheck()
+    await admin.getByLabel('Nota de la versión').fill('Despublicada (e2e)')
+    await admin.getByRole('button', { name: 'Guardar' }).click()
+    await expect(admin.getByRole('cell', { name: 'Despublicada (e2e)' })).toBeVisible()
+    expect((await page.goto('/info/e2e-pagina'))?.status()).toBe(404)
+
+    // Restaurar la versión anterior (publicada) la vuelve a mostrar.
+    const rows = admin
+      .locator('section', { has: admin.getByRole('heading', { name: 'Historial de versiones' }) })
+      .locator('tbody tr')
+    await expect(rows).toHaveCount(2)
+    await rows
+      .nth(1)
+      .getByRole('button', { name: /Restaurar versión/ })
+      .click()
+    await expect(rows).toHaveCount(3)
+    await expect(admin.getByLabel('Publicada', { exact: true })).toBeChecked()
+    expect((await page.goto('/info/e2e-pagina'))?.status()).toBe(200)
+
+    // Eliminar (solo informativas).
+    await admin.getByRole('button', { name: 'Eliminar página' }).click()
+    await expect(admin).toHaveURL(/\/admin\/paginas$/)
+    expect((await page.goto('/info/e2e-pagina'))?.status()).toBe(404)
+
+    // Una página legal no se puede eliminar; editarla se ve en la web.
+    await admin.goto('/admin/paginas/support')
+    await expect(admin.getByText('Las páginas legales no se pueden eliminar')).toBeVisible()
+    await expect(admin.getByRole('button', { name: 'Eliminar página' })).toHaveCount(0)
+    const body = admin.getByLabel('Markdown (español)')
+    await body.fill((await body.inputValue()) + '\nLínea añadida en el e2e del panel.\n')
+    await admin.getByRole('button', { name: 'Guardar' }).click()
+    await expect(admin.getByText('Sin cambios.')).toBeVisible()
+    await page.goto('/legal/soporte')
+    await expect(page.locator('article')).toContainText('Línea añadida en el e2e del panel.')
+
+    await admin.goto('/admin/auditoria')
+    await expect(admin.getByText('Página guardada').first()).toBeVisible()
+    await expect(admin.getByText('Página eliminada').first()).toBeVisible()
+  } finally {
+    admin.off('dialog', accept)
+  }
 })
 
 test('compra con PayPal (simulado): pagada, correo al cliente y a info@kns.gt', async ({

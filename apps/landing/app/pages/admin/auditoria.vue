@@ -34,6 +34,10 @@ const ACTIONS: Record<string, string> = {
   'payments.neo': 'Links Neo configurados',
   'payments.transfer': 'Transferencia configurada',
   'settings.update': 'Ajustes guardados',
+  'page.create': 'Página creada',
+  'page.update': 'Página guardada',
+  'page.delete': 'Página eliminada',
+  'page.restore': 'Versión de página restaurada',
   'request.status': 'Estado de solicitud',
   'requests.export': 'Exportación CSV',
 }

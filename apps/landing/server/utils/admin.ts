@@ -56,21 +56,23 @@ export function adminAuthDeps() {
 export async function readAdminBody<S extends z.ZodType>(
   event: H3Event,
   schema: S,
+  opts: { maxBytes?: number } = {},
 ): Promise<z.output<S>> {
-  const raw = await readJsonBody(event)
+  const raw = await readJsonBody(event, opts.maxBytes)
   const parsed = schema.safeParse(raw)
-  if (!parsed.success) {
-    throw createError({
-      statusCode: 422,
-      data: {
-        code: 'VALIDATION',
-        issues: parsed.error.issues
-          .slice(0, 20)
-          .map((i) => ({ path: i.path.join('.'), message: i.message })),
-      },
-    })
-  }
+  if (!parsed.success) throw validationError(parsed.error)
   return parsed.data
+}
+
+/** 422 VALIDATION con la lista de campos (como el panel la espera). */
+export function validationError(err: z.ZodError) {
+  return createError({
+    statusCode: 422,
+    data: {
+      code: 'VALIDATION',
+      issues: err.issues.slice(0, 20).map((i) => ({ path: i.path.join('.'), message: i.message })),
+    },
+  })
 }
 
 /** Traduce los errores de la capa de autenticación a respuestas HTTP. */

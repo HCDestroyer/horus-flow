@@ -378,9 +378,6 @@
   },
   "footer": {
     "legal": "Legal",
-    "notice": "Legal notice",
-    "privacy": "Privacy",
-    "terms": "Terms",
     "rights": "All rights reserved.",
     "proprietary": "Horus Flow is proprietary software.",
     "simulated": "Screenshots use simulated data.",
@@ -389,7 +386,7 @@
   },
   "legal": {
     "draft": "Draft pending legal review. This text is not final.",
-    "onlySpanish": "Legal texts are available in Spanish only while they are under legal review.",
+    "onlySpanish": "This page is only available in Spanish for now.",
     "updated": "Last updated: {date}"
   },
   "errors": {

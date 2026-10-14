@@ -1,16 +1,27 @@
-// /sitemap.xml con las dos versiones de idioma de cada página (hreflang).
-import { SITE_PAGES, siteBase } from '../utils/site-pages'
+// /sitemap.xml con las dos versiones de idioma de cada página (hreflang): las fijas de
+// server/utils/site-pages.ts y las páginas legales e informativas publicadas (base de datos).
+import { useApp } from '../lib/context'
+import { publishedPagePaths } from '../lib/pages'
+import { SITE_PAGES, isDbPagePath, siteBase } from '../utils/site-pages'
+
+const escapeXml = (s: string) => s.replace(/[<>&'"]/g, (c) => `&#${c.charCodeAt(0)};`)
 
 export default defineEventHandler((event) => {
   const base = siteBase(useRuntimeConfig(event).public.siteUrl)
-  const urls = SITE_PAGES.flatMap((page) =>
+  const pages = [
+    ...SITE_PAGES.filter((p) => !isDbPagePath(p.es)),
+    ...publishedPagePaths(useApp().db).map((p) => ({ es: p.es, en: p.en, priority: 0.2 })),
+  ]
+  const urls = pages.flatMap((page) =>
     (['es', 'en'] as const).map((locale) => {
+      const es = escapeXml(base + page.es)
+      const en = escapeXml(base + page.en)
       const alternates = [
-        `<xhtml:link rel="alternate" hreflang="es" href="${base}${page.es}"/>`,
-        `<xhtml:link rel="alternate" hreflang="en" href="${base}${page.en}"/>`,
-        `<xhtml:link rel="alternate" hreflang="x-default" href="${base}${page.es}"/>`,
+        `<xhtml:link rel="alternate" hreflang="es" href="${es}"/>`,
+        `<xhtml:link rel="alternate" hreflang="en" href="${en}"/>`,
+        `<xhtml:link rel="alternate" hreflang="x-default" href="${es}"/>`,
       ].join('')
-      return `<url><loc>${base}${page[locale]}</loc>${alternates}<priority>${page.priority}</priority></url>`
+      return `<url><loc>${escapeXml(base + page[locale])}</loc>${alternates}<priority>${page.priority}</priority></url>`
     }),
   )
   setResponseHeader(event, 'Content-Type', 'application/xml; charset=utf-8')

@@ -6,6 +6,10 @@ import { brotliCompressSync, constants, gzipSync } from 'node:zlib'
 
 export default defineNitroPlugin((nitro) => {
   nitro.hooks.hook('render:response', (response, { event }) => {
+    // La página de error (404, 500) se renderiza en una petición interna a /__nuxt_error cuyo
+    // cuerpo el manejador de errores vuelve a enviar como texto: comprimirla aquí la estropea
+    // (el navegador recibía basura con Content-Encoding: br).
+    if (event.path.startsWith('/__nuxt_error')) return
     if (typeof response.body !== 'string' || response.body.length < 1024) return
     const type = String(response.headers?.['content-type'] ?? '')
     if (type && !type.includes('text/html')) return

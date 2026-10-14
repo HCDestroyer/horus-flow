@@ -1,6 +1,7 @@
 // Migraciones versionadas de la base de datos SQLite. Cada una se aplica una sola vez, en orden
 // y dentro de una transacción; la tabla schema_migrations guarda las aplicadas. Nunca se edita
 // una migración ya publicada: los cambios van en una nueva con el número siguiente.
+import { seedPagesSql } from './pages-seed'
 
 export interface Migration {
   version: number
@@ -167,6 +168,54 @@ export const migrations: Migration[] = [
         ip          TEXT NOT NULL DEFAULT ''
       );
       CREATE INDEX audit_log_at ON audit_log(at DESC);
+    `,
+  },
+  {
+    version: 2,
+    name: 'páginas editables (legales e informativas)',
+    sql: /* sql */ `
+      -- Páginas legales e informativas editables en /admin › Páginas (Markdown por idioma).
+      -- id: clave estable (no cambia al cambiar el slug). Los slugs son únicos en cada idioma;
+      -- server/lib/pages.ts impide además que el slug de un idioma coincida con el de otra
+      -- página en el otro idioma.
+      CREATE TABLE pages (
+        id             TEXT PRIMARY KEY,
+        kind           TEXT NOT NULL CHECK (kind IN ('legal', 'info')),
+        slug_es        TEXT NOT NULL UNIQUE,
+        slug_en        TEXT NOT NULL UNIQUE,
+        title_es       TEXT NOT NULL,
+        title_en       TEXT NOT NULL DEFAULT '',
+        summary_es     TEXT NOT NULL DEFAULT '',
+        summary_en     TEXT NOT NULL DEFAULT '',
+        body_es        TEXT NOT NULL DEFAULT '',
+        body_en        TEXT NOT NULL DEFAULT '',
+        published      INTEGER NOT NULL DEFAULT 0,
+        show_in_footer INTEGER NOT NULL DEFAULT 0,
+        draft_notice   INTEGER NOT NULL DEFAULT 0,
+        sort           INTEGER NOT NULL DEFAULT 0,
+        created_at     TEXT NOT NULL,
+        updated_at     TEXT NOT NULL,
+        updated_by     TEXT NOT NULL DEFAULT ''
+      );
+      CREATE INDEX pages_sort ON pages(published, sort, id);
+      -- Cada guardado guarda una instantánea completa (historial y restaurar), como
+      -- pricing_versions. Al borrar una página informativa se borra su historial (la auditoría
+      -- conserva el antes).
+      CREATE TABLE page_versions (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        page_id       TEXT NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
+        created_at    TEXT NOT NULL,
+        admin_id      INTEGER,
+        admin_email   TEXT,
+        note          TEXT NOT NULL DEFAULT '',
+        restored_from INTEGER,
+        snapshot      TEXT NOT NULL
+      );
+      CREATE INDEX page_versions_page ON page_versions(page_id, id DESC);
+
+      -- Semilla: aviso legal, privacidad y términos (textos de app/content/legal.ts en
+      -- Markdown) y los borradores nuevos (server/lib/pages-seed.ts).
+      ${seedPagesSql()}
     `,
   },
 ]
