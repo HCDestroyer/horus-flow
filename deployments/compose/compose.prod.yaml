@@ -279,10 +279,13 @@ services:
     image: *horus-image
     read_only: true
     # ICMP sin privilegios para el rol snmp (ping a los routers por el túnel): sockets
-    # ICMP "datagram" (udp4) permitidos a cualquier GID del contenedor. Sin esto el rol
-    # sigue, pero sin señal ICMP (docs/install-debian.md, docs/services.md ficha snmp).
+    # ICMP "datagram" (udp4) permitidos solo al GID de la imagen (65532). Un rango que
+    # incluya GID fuera del espacio de usuarios del host (LXC sin privilegios,
+    # userns-remap) hace que el kernel rechace el valor y el contenedor no arranque;
+    # install.sh lo prueba y retira este bloque si Docker no lo acepta. Sin él el rol
+    # sigue, sin señal ICMP (docs/install-debian.md, docs/services.md ficha snmp).
     sysctls:
-      - net.ipv4.ping_group_range=0 2147483647
+      - net.ipv4.ping_group_range=65532 65532
     environment:
       <<: *horus-env
       HORUS_ROLES: gateway,auth,devices,wireguard,snmp,traffic,detection,alerts,analytics,reporting,ingester,jobs,assist

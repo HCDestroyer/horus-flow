@@ -1098,6 +1098,23 @@ EOF
   done
 }
 
+# ping_group_range del contenedor horus-app (rol snmp): el kernel rechaza el valor si el GID no
+# existe en el espacio de usuarios de Docker (LXC sin privilegios, userns-remap) y entonces
+# horus-app ni siquiera arranca. Se prueba con la imagen real; si falla, se retira el bloque
+# sysctls: del compose instalado y el rol sigue sin señal ICMP (solo SNMP y túnel).
+probe_ping_sysctl() {
+  local f="$install_dir/compose.yaml" v
+  v="$(sed -n 's/^ *- net\.ipv4\.ping_group_range=\(.*\)$/\1/p' "$f" | head -1)"
+  [ -n "$v" ] || return 0
+  [ -z "$root" ] || return 0
+  if docker run --rm --network none --sysctl "net.ipv4.ping_group_range=$v" --entrypoint /horus "$image" --version >/dev/null 2>&1; then
+    ok "ICMP sin privilegios para horus-app (net.ipv4.ping_group_range=$v)"
+    return 0
+  fi
+  sed -i '/^    sysctls:$/{N;/ping_group_range/d}' "$f"
+  warn "Docker no acepta net.ipv4.ping_group_range=$v en este host (¿LXC o userns-remap?): horus-app arranca sin ping a los routers; la latencia queda vacía y el estado se calcula con SNMP y el túnel"
+}
+
 # --- Túnel WireGuard y cortafuegos ------------------------------------------------------------------
 tunnel_script() {
   cat <<EOF
@@ -1365,6 +1382,7 @@ do_install() {
   make_bundle
   ensure_images
   setup_sysctl
+  probe_ping_sysctl
   setup_tunnel
   compose_up
   first_backup

@@ -83,10 +83,11 @@ Qué hace, por orden (puedes repetir el comando cuando quieras: no rompe nada ni
 3. Ajusta el kernel para que no se pierdan flujos en ráfagas (búfer UDP de hasta 32 MiB para el
    colector) y permite el reenvío del túnel (`/etc/sysctl.d/90-horus.conf`). El ping a los routers
    (rol `snmp`) usa sockets ICMP sin privilegios: el compose fija dentro del contenedor `horus-app`
-   `net.ipv4.ping_group_range=0 2147483647` (`sysctls:` del servicio; es un ajuste por espacio de
-   red, no hace falta tocarlo en el host). Si tu Docker no lo permite, el monitoreo sigue sin la
-   señal ICMP (el estado se calcula con SNMP y el túnel) y lo verás en el log al arrancar
-   (`snmp: ICMP socket unavailable`).
+   `net.ipv4.ping_group_range=65532 65532` (`sysctls:` del servicio, solo el GID de la imagen; es
+   un ajuste por espacio de red, no hace falta tocarlo en el host). El instalador lo prueba antes
+   de arrancar: si Docker lo rechaza (LXC sin privilegios, `userns-remap`), retira el ajuste del
+   `compose.yaml` instalado, lo avisa y el monitoreo sigue sin la señal ICMP (el estado se calcula
+   con SNMP y el túnel; en el log, `snmp: ICMP socket unavailable`).
 4. Comprueba que el kernel tiene WireGuard.
 5. Descarga la versión de Horus, **comprueba su firma y sus sumas SHA-256** y la instala.
 6. Arranca todo y espera a que cada servicio esté sano. Al final verás un resumen con la URL, la
