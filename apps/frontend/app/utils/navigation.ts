@@ -56,6 +56,7 @@ export const NAV_SECTIONS: NavSection[] = [
   { id: 'roles', group: 'admin', labelKey: 'nav.items.roles', icon: 'i-lucide-key-round', path: 'admin/roles', scope: 'tenant', increment: 'I1', permission: 'roles.read' },
   { id: 'kiosks', group: 'admin', labelKey: 'nav.items.kiosks', icon: 'i-lucide-monitor', path: 'admin/kiosks', scope: 'tenant', increment: 'I1', permission: 'kiosks.manage' },
   { id: 'notifications', group: 'admin', labelKey: 'nav.items.notifications', icon: 'i-lucide-send', path: 'admin/notifications', scope: 'tenant', increment: 'I1', permission: 'alerts.read' },
+  { id: 'librenms', group: 'admin', labelKey: 'nav.items.librenms', icon: 'i-lucide-server-cog', path: 'admin/librenms', scope: 'tenant', increment: 'I1', permission: 'alerts.read' },
   { id: 'detection', group: 'admin', labelKey: 'nav.items.detection', icon: 'i-lucide-scan-search', path: 'admin/detection', scope: 'tenant', increment: 'I1', permission: 'settings.read' },
   { id: 'asn', group: 'admin', labelKey: 'nav.items.asn', icon: 'i-lucide-network', path: 'admin/asn', scope: 'tenant', increment: 'I1', permission: 'settings.read' },
   { id: 'ai', group: 'admin', labelKey: 'nav.items.ai', icon: 'i-lucide-sparkles', path: 'admin/ai', scope: 'tenant', increment: 'I1', permission: 'settings.read' },

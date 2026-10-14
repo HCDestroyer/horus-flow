@@ -1315,6 +1315,76 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/librenms/routers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Routers del ISP con su IP de gestión y modo de monitoreo para LibreNMS
+         * @description La IP del túnel WireGuard hacia Horus no es alcanzable desde LibreNMS: cada router necesita una IP de gestión
+         *     para LibreNMS y un modo (`ping` por defecto, SNMP v2c/v3 propio para LibreNMS, o las credenciales SNMPv3 de
+         *     Horus con consentimiento explícito). Se guarda en `alerts` sin tocar el inventario de `devices`.
+         */
+        get: operations["listLibreNmsRouters"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/librenms/routers/{router_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Fija la IP de gestión y el modo de monitoreo del router en LibreNMS
+         * @description Se aplica en la siguiente sincronización. `horus_snmp_v3` exige `reuse_horus_snmp_consent=true` (auditado):
+         *     LibreNMS recibe entonces las credenciales SNMPv3 de solo lectura de Horus para ese router. Cambiar de modo
+         *     borra las credenciales SNMP propias guardadas.
+         */
+        put: operations["setLibreNmsRouter"];
+        post?: never;
+        /** Quita la configuración de LibreNMS del router (sale del grupo en la siguiente sincronización) */
+        delete: operations["clearLibreNmsRouter"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/librenms/routers/{router_id}/snmp-credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Credenciales SNMP propias para LibreNMS (write-only)
+         * @description Solo en los modos `snmp_v2c` (`community`) y `snmp_v3` (`v3_*`). Write-only: nunca se devuelven (solo
+         *     `has_snmp_credentials`), se cifran con la KEK de `alerts` y se borran con la configuración. Auditado.
+         */
+        put: operations["putLibreNmsRouterSnmpCredentials"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me": {
         parameters: {
             query?: never;
@@ -1585,6 +1655,110 @@ export interface paths {
          */
         put: operations["putNotificationChannelCredentials"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notification-channels/{channel_id}/librenms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                channel_id: components["parameters"]["ChannelId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Estado de la integración con LibreNMS del canal (objetos aprovisionados y última prueba)
+         * @description Lo que Horus creó (o adoptó) en LibreNMS con sus ids, el resultado de la última sincronización y de la última
+         *     prueba de extremo a extremo. Solo canales `librenms` (otro → `422 LIBRENMS_CHANNEL_REQUIRED`). Sin secretos.
+         */
+        get: operations["getLibreNmsIntegration"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notification-channels/{channel_id}/librenms/devices/{router_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                channel_id: components["parameters"]["ChannelId"];
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Borra de LibreNMS el dispositivo que Horus creó para un router (acción explícita)
+         * @description Solo dispositivos creados por Horus (un dispositivo que ya existía y Horus adoptó → `409
+         *     LIBRENMS_DEVICE_NOT_OWNED`). Borra también su historial en LibreNMS. Auditado.
+         */
+        delete: operations["deleteLibreNmsRouterDevice"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notification-channels/{channel_id}/librenms/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                channel_id: components["parameters"]["ChannelId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Conecta o sincroniza Horus con LibreNMS (idempotente)
+         * @description Crea o actualiza en LibreNMS, con el prefijo «Horus · » y guardando sus ids en Horus: el dispositivo «Horus Flow»
+         *     (solo ICMP; host público de Horus) al que van las líneas de syslog de Horus, los grupos estáticos «Routers» e
+         *     «Infraestructura», las plantillas en español y las reglas (router caído, CPU, memoria, interfaz caída, reinicio,
+         *     servicio de infraestructura caído y evento de seguridad Horus por syslog), y los routers con IP de gestión
+         *     configurada (`/librenms/routers`). Recrea lo que se borró a mano en LibreNMS; nunca modifica ni borra objetos
+         *     que Horus no creó; un router que deja de estar configurado sale del grupo pero no se borra de LibreNMS.
+         *     Los transportes no se pueden crear por la API: las reglas usan los transportes marcados por defecto en
+         *     LibreNMS. Mide el desfase horario de LibreNMS (registro de eventos) para fechar el syslog. Síncrona; el
+         *     fallo de un objeto concreto no detiene el resto (ver `steps`).
+         */
+        post: operations["syncLibreNmsIntegration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notification-channels/{channel_id}/librenms/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                channel_id: components["parameters"]["ChannelId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Prueba de extremo a extremo (syslog de prueba y comprobación de que LibreNMS lo guardó)
+         * @description Comprueba en orden: autenticación (`auth`), que el dispositivo «Horus Flow» existe (`device`), que la regla de
+         *     eventos de Horus existe (`rule`), el envío de una línea `HORUS INFO test …` por `POST /api/v0/syslogsink`
+         *     (`syslog_send`) y su llegada al syslog del dispositivo en unos segundos (`syslog_stored`). `failed_step` y
+         *     `error_code` indican el paso exacto que falla (p. ej. `syslog_not_stored` si el syslog de LibreNMS está
+         *     desactivado). La línea coincide con la regla de eventos: LibreNMS emitirá la alerta por sus transportes por
+         *     defecto y la resolverá a los 5 minutos. Sin aprovisionar → `409 LIBRENMS_NOT_PROVISIONED`.
+         */
+        post: operations["testLibreNmsIntegration"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3306,7 +3480,7 @@ export interface components {
          * @description Código estable UPPER_SNAKE_CASE (= `ErrorInfo.reason` de gRPC). **Enum abierto**: se listan los
          *     conocidos en v0; el cliente trata un código desconocido según el `status` HTTP.
          */
-        ErrorCode: ("VALIDATION_FAILED" | "UNAUTHENTICATED" | "TOKEN_EXPIRED" | "SESSION_REVOKED" | "PERMISSION_DENIED" | "ORIGIN_NOT_ALLOWED" | "MFA_REQUIRED" | "MFA_ENROLLMENT_REQUIRED" | "REAUTH_REQUIRED" | "NOT_FOUND" | "ALREADY_EXISTS" | "CONFLICT" | "PRECONDITION_FAILED" | "PRECONDITION_REQUIRED" | "IDEMPOTENCY_KEY_REUSED" | "IDEMPOTENCY_IN_PROGRESS" | "RATE_LIMITED" | "TENANT_RATE_LIMITED" | "INTERNAL" | "SERVICE_UNAVAILABLE" | "ANALYTICS_UNAVAILABLE" | "TIMEOUT" | "INVALID_CREDENTIALS" | "INVALID_CURSOR" | "INVALID_FILTER" | "INVALID_SORT_FIELD" | "TIME_RANGE_TOO_LARGE" | "TENANT_NOT_FOUND" | "TENANT_MISMATCH" | "TENANT_SUSPENDED" | "TOKEN_SCOPE_INVALID" | "KIOSK_FORBIDDEN" | "ROUTER_NOT_FOUND" | "ROUTER_PRIMARY_EXISTS" | "ROUTEROS_VERSION_UNSUPPORTED" | "ROUTER_UNREACHABLE" | "ROUTER_TLS_FINGERPRINT_CHANGED" | "SITE_NOT_FOUND" | "SITE_NOT_EMPTY" | "PEER_ALREADY_REVOKED" | "WIREGUARD_IP_POOL_EXHAUSTED" | "WIREGUARD_PUBLIC_KEY_IN_USE" | "ENROLLMENT_TOKEN_INVALID" | "CUSTOMER_NOT_FOUND" | "CUSTOMER_KIND_LOCKED" | "CLIENT_PREFIX_OVERLAP" | "CLIENT_PREFIX_NOT_FOUND" | "ASN_RULE_NOT_FOUND" | "FINDING_NOT_FOUND" | "FINDING_STATE_INVALID" | "DASHBOARD_NOT_FOUND" | "DASHBOARD_READ_ONLY" | "WIDGET_TYPE_NOT_ALLOWED" | "WIDGET_TYPE_UNKNOWN" | "WIDGET_CONFIG_INVALID" | "KIOSK_ENROLLMENT_CODE_INVALID" | "NOTIFICATION_CHANNEL_NOT_FOUND" | "NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE" | "NOTIFICATION_CHANNEL_UNREACHABLE" | "NOTIFICATION_CHANNEL_AUTH_FAILED" | "NOTIFICATION_CHANNEL_CREDENTIALS_MISSING" | "STORAGE_TARGET_UNREACHABLE" | "REPUTATION_SOURCE_NOT_FOUND" | "REPUTATION_SOURCE_READ_ONLY" | "REPUTATION_SOURCE_URL_NOT_ALLOWED" | "ROLE_NOT_FOUND" | "ROLE_READ_ONLY" | "ROLE_IN_USE" | "LAST_PLATFORM_ADMIN" | "WIREGUARD_HUB_NOT_FOUND" | "WIREGUARD_POOL_NOT_FOUND" | "WIREGUARD_POOL_OVERLAP" | "WIREGUARD_POOL_INVALID" | "WIREGUARD_POOL_IN_USE" | "REMOTE_DESTINATION_NOT_FOUND" | "REMOTE_DESTINATION_NOT_READY" | "REMOTE_DESTINATION_SYNC_RUNNING") | string;
+        ErrorCode: ("VALIDATION_FAILED" | "UNAUTHENTICATED" | "TOKEN_EXPIRED" | "SESSION_REVOKED" | "PERMISSION_DENIED" | "ORIGIN_NOT_ALLOWED" | "MFA_REQUIRED" | "MFA_ENROLLMENT_REQUIRED" | "REAUTH_REQUIRED" | "NOT_FOUND" | "ALREADY_EXISTS" | "CONFLICT" | "PRECONDITION_FAILED" | "PRECONDITION_REQUIRED" | "IDEMPOTENCY_KEY_REUSED" | "IDEMPOTENCY_IN_PROGRESS" | "RATE_LIMITED" | "TENANT_RATE_LIMITED" | "INTERNAL" | "SERVICE_UNAVAILABLE" | "ANALYTICS_UNAVAILABLE" | "TIMEOUT" | "INVALID_CREDENTIALS" | "INVALID_CURSOR" | "INVALID_FILTER" | "INVALID_SORT_FIELD" | "TIME_RANGE_TOO_LARGE" | "TENANT_NOT_FOUND" | "TENANT_MISMATCH" | "TENANT_SUSPENDED" | "TOKEN_SCOPE_INVALID" | "KIOSK_FORBIDDEN" | "ROUTER_NOT_FOUND" | "ROUTER_PRIMARY_EXISTS" | "ROUTEROS_VERSION_UNSUPPORTED" | "ROUTER_UNREACHABLE" | "ROUTER_TLS_FINGERPRINT_CHANGED" | "SITE_NOT_FOUND" | "SITE_NOT_EMPTY" | "PEER_ALREADY_REVOKED" | "WIREGUARD_IP_POOL_EXHAUSTED" | "WIREGUARD_PUBLIC_KEY_IN_USE" | "ENROLLMENT_TOKEN_INVALID" | "CUSTOMER_NOT_FOUND" | "CUSTOMER_KIND_LOCKED" | "CLIENT_PREFIX_OVERLAP" | "CLIENT_PREFIX_NOT_FOUND" | "ASN_RULE_NOT_FOUND" | "FINDING_NOT_FOUND" | "FINDING_STATE_INVALID" | "DASHBOARD_NOT_FOUND" | "DASHBOARD_READ_ONLY" | "WIDGET_TYPE_NOT_ALLOWED" | "WIDGET_TYPE_UNKNOWN" | "WIDGET_CONFIG_INVALID" | "KIOSK_ENROLLMENT_CODE_INVALID" | "NOTIFICATION_CHANNEL_NOT_FOUND" | "NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE" | "NOTIFICATION_CHANNEL_UNREACHABLE" | "NOTIFICATION_CHANNEL_AUTH_FAILED" | "NOTIFICATION_CHANNEL_CREDENTIALS_MISSING" | "LIBRENMS_CHANNEL_REQUIRED" | "LIBRENMS_NOT_PROVISIONED" | "LIBRENMS_DEVICE_NOT_OWNED" | "STORAGE_TARGET_UNREACHABLE" | "REPUTATION_SOURCE_NOT_FOUND" | "REPUTATION_SOURCE_READ_ONLY" | "REPUTATION_SOURCE_URL_NOT_ALLOWED" | "ROLE_NOT_FOUND" | "ROLE_READ_ONLY" | "ROLE_IN_USE" | "LAST_PLATFORM_ADMIN" | "WIREGUARD_HUB_NOT_FOUND" | "WIREGUARD_POOL_NOT_FOUND" | "WIREGUARD_POOL_OVERLAP" | "WIREGUARD_POOL_INVALID" | "WIREGUARD_POOL_IN_USE" | "REMOTE_DESTINATION_NOT_FOUND" | "REMOTE_DESTINATION_NOT_READY" | "REMOTE_DESTINATION_SYNC_RUNNING") | string;
         /** @description Evidencia agregada según kind (nunca payloads; nunca la IP del cliente). Campos conocidos; otros permitidos. */
         Evidence: {
             bps_peak?: number;
@@ -3635,6 +3809,141 @@ export interface components {
             tls_verify?: boolean;
             /** @description Usuario de LibreNMS dedicado a Horus. */
             username: string;
+        };
+        /**
+         * @description Enum abierto.
+         * @enum {string}
+         */
+        LibreNmsErrorCode: "dns_failed" | "connect_failed" | "tls_invalid" | "timeout" | "auth_failed" | "forbidden" | "not_found" | "rejected" | "remote_error" | "unexpected_response" | "missing_credentials" | "no_default_transport" | "librenms_not_provisioned" | "device_missing" | "rule_missing" | "syslog_not_stored" | "devices_unavailable";
+        LibreNmsIntegration: {
+            channel_id: components["schemas"]["Uuid"];
+            cpu_threshold: number;
+            /** @description Host del dispositivo «Horus Flow» en LibreNMS. */
+            horus_hostname: string | null;
+            /** @description Host de HORUS_PUBLIC_BASE_URL. */
+            horus_hostname_default: string | null;
+            last_error: string | null;
+            last_error_code: components["schemas"]["LibreNmsErrorCode"] | null;
+            last_sync_at: components["schemas"]["Timestamp"] | null;
+            last_sync_steps: components["schemas"]["LibreNmsSyncStep"][];
+            last_test: components["schemas"]["LibreNmsTestResult"] | null;
+            memory_threshold: number;
+            objects: components["schemas"]["LibreNmsObject"][];
+            remote_version: string | null;
+            /**
+             * @description `partial`: la última sincronización terminó con pasos fallidos.
+             * @enum {string}
+             */
+            status: "not_provisioned" | "ok" | "partial" | "failed";
+            /** @description Desfase horario de LibreNMS respecto de UTC. */
+            tz_offset_minutes: number | null;
+            warnings: string[];
+        };
+        /**
+         * @description `ping` (por defecto): solo ICMP. `snmp_v2c` / `snmp_v3`: credenciales propias para LibreNMS (write-only).
+         *     `horus_snmp_v3`: las credenciales SNMPv3 de solo lectura de Horus, con consentimiento explícito por router.
+         * @enum {string}
+         */
+        LibreNmsMonitoringMode: "ping" | "snmp_v2c" | "snmp_v3" | "horus_snmp_v3";
+        /** @description Objeto de LibreNMS que Horus conoce (creado por Horus o adoptado porque ya existía). */
+        LibreNmsObject: {
+            /** @description false: el router ya no está configurado (fuera del grupo, conservado). */
+            active: boolean;
+            /** @description false: ya existía y Horus solo lo usa (nunca lo borra ni edita). */
+            created_by_horus: boolean;
+            /** @description Dispositivos: host con el que está en LibreNMS. */
+            hostname: string | null;
+            /** @description Clave estable (`horus`, `routers`, `infra`, `cpu_high`…, el id del router o el nombre del servicio). */
+            key: string;
+            /** @enum {string} */
+            kind: "device" | "router_device" | "infra_device" | "group" | "template" | "rule";
+            name: string;
+            /** @description Id en LibreNMS. */
+            remote_id: number;
+        };
+        LibreNmsRouter: {
+            has_snmp_credentials: boolean;
+            horus_snmp_reuse_consent: boolean;
+            /** @description IP de gestión para LibreNMS (no la del túnel). null = el router no se monitorea en LibreNMS. */
+            mgmt_ip: string | null;
+            mode: components["schemas"]["LibreNmsMonitoringMode"];
+            onboarding_state: string;
+            router_id: components["schemas"]["Uuid"];
+            router_name: string;
+            site_id: components["schemas"]["Uuid"];
+            updated_at: components["schemas"]["Timestamp"] | null;
+        };
+        LibreNmsRouterInput: {
+            /** @description IPv4 o IPv6 de gestión alcanzable desde LibreNMS. */
+            mgmt_ip: string;
+            mode: components["schemas"]["LibreNmsMonitoringMode"];
+            /**
+             * @description Obligatorio (true) con `horus_snmp_v3`. Auditado.
+             * @default false
+             */
+            reuse_horus_snmp_consent?: boolean;
+        };
+        /** @description Write-only. `community` en `snmp_v2c`; `v3_*` en `snmp_v3`. */
+        LibreNmsSnmpCredentials: {
+            community?: string;
+            /** @enum {string} */
+            v3_auth_level?: "noAuthNoPriv" | "authNoPriv" | "authPriv";
+            v3_auth_password?: string;
+            /** @enum {string} */
+            v3_auth_protocol?: "MD5" | "SHA" | "SHA-224" | "SHA-256" | "SHA-384" | "SHA-512";
+            v3_priv_password?: string;
+            /** @enum {string} */
+            v3_priv_protocol?: "AES" | "DES";
+            v3_username?: string;
+        };
+        LibreNmsSyncInput: {
+            /** @default 85 */
+            cpu_threshold?: number;
+            /** @description Host público de Horus tal como LibreNMS lo verá (por defecto el de HORUS_PUBLIC_BASE_URL). */
+            horus_hostname?: string;
+            /** @default 90 */
+            memory_threshold?: number;
+        };
+        LibreNmsSyncResult: {
+            error: string | null;
+            error_code: components["schemas"]["LibreNmsErrorCode"] | null;
+            integration: components["schemas"]["LibreNmsIntegration"];
+            /** @description true si terminó sin pasos fallidos. */
+            ok: boolean;
+            steps: components["schemas"]["LibreNmsSyncStep"][];
+            warnings: string[];
+        };
+        LibreNmsSyncStep: {
+            /** @enum {string} */
+            action: "created" | "adopted" | "updated" | "unchanged" | "recreated" | "removed" | "deleted" | "failed" | "skipped";
+            /** @description `message` de LibreNMS saneado (sin secretos). */
+            error?: string;
+            error_code?: components["schemas"]["LibreNmsErrorCode"];
+            key: string;
+            /** @enum {string} */
+            kind: "device" | "router_device" | "infra_device" | "group" | "template" | "rule";
+            name: string;
+            remote_id: number | null;
+        };
+        LibreNmsTestResult: {
+            channel_id: components["schemas"]["Uuid"];
+            checked_at: components["schemas"]["Timestamp"];
+            error: string | null;
+            error_code: components["schemas"]["LibreNmsErrorCode"] | null;
+            failed_step: ("auth" | "device" | "rule" | "syslog_send" | "syslog_stored" | "eventlog") | null;
+            latency_ms?: number | null;
+            /** @description Línea de syslog enviada. */
+            line?: string | null;
+            ok: boolean;
+            remote_version?: string | null;
+            steps: components["schemas"]["LibreNmsTestStep"][];
+        };
+        LibreNmsTestStep: {
+            detail?: string;
+            error_code?: components["schemas"]["LibreNmsErrorCode"];
+            ok: boolean;
+            /** @enum {string} */
+            step: "auth" | "device" | "rule" | "syslog_send" | "syslog_stored" | "eventlog";
         };
         McpToken: {
             active: boolean;
@@ -7497,6 +7806,97 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
         };
     };
+    listLibreNmsRouters: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Routers (sin secretos). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["LibreNmsRouter"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    setLibreNmsRouter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LibreNmsRouterInput"];
+            };
+        };
+        responses: {
+            /** @description Configuración guardada. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibreNmsRouter"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["UnprocessableEntity"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    clearLibreNmsRouter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: components["responses"]["NoContent"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    putLibreNmsRouterSnmpCredentials: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LibreNmsSnmpCredentials"];
+            };
+        };
+        responses: {
+            204: components["responses"]["NoContent"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["UnprocessableEntity"];
+        };
+    };
     getMe: {
         parameters: {
             query?: never;
@@ -7997,6 +8397,105 @@ export interface operations {
             204: components["responses"]["NoContent"];
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            422: components["responses"]["UnprocessableEntity"];
+        };
+    };
+    getLibreNmsIntegration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                channel_id: components["parameters"]["ChannelId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Estado (status `not_provisioned` si aún no se sincronizó). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibreNmsIntegration"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["UnprocessableEntity"];
+        };
+    };
+    deleteLibreNmsRouterDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                channel_id: components["parameters"]["ChannelId"];
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: components["responses"]["NoContent"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    syncLibreNmsIntegration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                channel_id: components["parameters"]["ChannelId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["LibreNmsSyncInput"];
+            };
+        };
+        responses: {
+            /** @description Resultado (también cuando falla LibreNMS; ver `ok`). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibreNmsSyncResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["UnprocessableEntity"];
+        };
+    };
+    testLibreNmsIntegration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                channel_id: components["parameters"]["ChannelId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Resultado de la prueba (también cuando falla; ver `ok`). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibreNmsTestResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             422: components["responses"]["UnprocessableEntity"];
         };
     };

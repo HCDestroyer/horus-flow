@@ -94,6 +94,7 @@ const I1_SCREENS = [
   '/t/fibra-norte/routers/0192e333-0000-7000-8000-000000000102/interfaces',
   '/t/fibra-norte/admin/kiosks',
   '/t/fibra-norte/admin/notifications',
+  '/t/fibra-norte/admin/librenms',
   '/t/fibra-norte/admin/roles',
   '/t/fibra-norte/admin/roles?view=matrix',
   '/platform/isps',

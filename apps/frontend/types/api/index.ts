@@ -132,6 +132,18 @@ export type EmailChannelConfig = Schemas['EmailChannelConfig']
 export type TelegramChannelConfig = Schemas['TelegramChannelConfig']
 export type LibreNmsChannelConfig = Schemas['LibreNmsChannelConfig']
 
+// Integración con LibreNMS (D17): aprovisionamiento, prueba de extremo a extremo y routers.
+export type LibreNmsIntegration = Schemas['LibreNmsIntegration']
+export type LibreNmsObject = Schemas['LibreNmsObject']
+export type LibreNmsSyncResult = Schemas['LibreNmsSyncResult']
+export type LibreNmsSyncStep = Schemas['LibreNmsSyncStep']
+export type LibreNmsTestResult = Schemas['LibreNmsTestResult']
+export type LibreNmsTestStep = Schemas['LibreNmsTestStep']
+export type LibreNmsRouter = Schemas['LibreNmsRouter']
+export type LibreNmsRouterInput = Schemas['LibreNmsRouterInput']
+export type LibreNmsMonitoringMode = Schemas['LibreNmsMonitoringMode']
+export type LibreNmsSnmpCredentials = Schemas['LibreNmsSnmpCredentials']
+
 // Plataforma (I1, D19/D20).
 export type InstallationAccess = Schemas['InstallationAccess']
 export type WireguardHub = Schemas['WireguardHub']
