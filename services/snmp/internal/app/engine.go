@@ -111,9 +111,17 @@ type Options struct {
 	Telemetry TelemetryPublisher
 	Store     StateStore
 	Sink      Sink
-	Metrics   prometheus.Registerer
+	// Thresholds carga los umbrales propios de cada ISP (opcional: sin
+	// PostgreSQL rigen los de la instalación).
+	Thresholds ThresholdLoader
+	Metrics    prometheus.Registerer
 	Logger    *slog.Logger
 	Now       func() time.Time
+}
+
+// ThresholdLoader devuelve los umbrales propios de todos los ISP.
+type ThresholdLoader interface {
+	LoadAll(ctx context.Context) (map[uuid.UUID]domain.ThresholdValues, error)
 }
 
 // Engine es el sondeador.
@@ -136,6 +144,10 @@ type Engine struct {
 	instanceID string
 	sem        chan struct{}
 	thresholds domain.Thresholds
+	// Umbrales propios por ISP (consola): mutex propio porque se leen con
+	// r.mu tomado y e.mu se toma antes que r.mu en otros caminos.
+	thMu     sync.RWMutex
+	tenantTh map[uuid.UUID]domain.ThresholdValues
 }
 
 // New crea el sondeador.
@@ -179,6 +191,9 @@ func (e *Engine) Attach(o Options) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.o.Store, e.o.Events, e.o.Telemetry, e.o.Sink, e.o.Exporters = o.Store, o.Events, o.Telemetry, o.Sink, o.Exporters
+	if o.Thresholds != nil {
+		e.o.Thresholds = o.Thresholds
+	}
 	if o.Pinger != nil {
 		e.o.Pinger = o.Pinger
 	}
@@ -206,7 +221,54 @@ func (e *Engine) Start(ctx context.Context) error {
 		}
 	}
 	e.refreshTargets(ctx)
+	e.reloadThresholds(ctx)
 	return nil
+}
+
+// DefaultThresholds son los umbrales de la instalación (HORUS_SNMP_*).
+func (e *Engine) DefaultThresholds() domain.ThresholdValues { return e.thresholds.Values() }
+
+// thresholdsFor devuelve los umbrales vigentes del ISP.
+func (e *Engine) thresholdsFor(tenant uuid.UUID) domain.Thresholds {
+	e.thMu.RLock()
+	defer e.thMu.RUnlock()
+	if v, ok := e.tenantTh[tenant]; ok {
+		return e.thresholds.With(v)
+	}
+	return e.thresholds
+}
+
+// SetTenantThresholds aplica en caliente los umbrales de un ISP (nil = los de
+// la instalación). Las demás réplicas los recogen al recargar (cada minuto).
+func (e *Engine) SetTenantThresholds(tenant uuid.UUID, v *domain.ThresholdValues) {
+	e.thMu.Lock()
+	defer e.thMu.Unlock()
+	if e.tenantTh == nil {
+		e.tenantTh = map[uuid.UUID]domain.ThresholdValues{}
+	}
+	if v == nil {
+		delete(e.tenantTh, tenant)
+		return
+	}
+	e.tenantTh[tenant] = *v
+}
+
+// reloadThresholds recarga los umbrales propios de todos los ISP.
+func (e *Engine) reloadThresholds(ctx context.Context) {
+	e.mu.RLock()
+	src := e.o.Thresholds
+	e.mu.RUnlock()
+	if src == nil {
+		return
+	}
+	m, err := src.LoadAll(ctx)
+	if err != nil {
+		e.log.WarnContext(ctx, "snmp: tenant thresholds not reloaded (previous kept)", "error", err)
+		return
+	}
+	e.thMu.Lock()
+	e.tenantTh = m
+	e.thMu.Unlock()
 }
 
 // Run ejecuta los bucles hasta que ctx se cancela.
@@ -268,6 +330,7 @@ func (e *Engine) targetsLoop(ctx context.Context) {
 		case <-e.refresh:
 		}
 		e.refreshTargets(ctx)
+		e.reloadThresholds(ctx)
 	}
 }
 

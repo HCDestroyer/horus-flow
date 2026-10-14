@@ -1784,6 +1784,76 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/notification-channels/telegram/bot-validation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Valida un token de bot de Telegram (getMe) sin guardarlo
+         * @description Paso del asistente «Crear bot»: tras `/newbot` en @BotFather la persona pega el token y la consola muestra el
+         *     nombre y el usuario del bot. El token no se guarda ni se devuelve (se guarda después con
+         *     `PUT …/credentials`). Un token rechazado → `422 NOTIFICATION_CHANNEL_AUTH_FAILED` con la descripción de
+         *     Telegram (saneada, sin el token).
+         */
+        post: operations["validateTelegramBot"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notification-channels/telegram/chat-detection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Detecta los chats donde escribieron al bot o lo añadieron (getUpdates)
+         * @description Lee las actualizaciones pendientes del bot con `getUpdates` (`message`, `channel_post`, `my_chat_member`; sin
+         *     espera larga) y las confirma con `offset` para que no se acumulen. Con un bot propio (`bot_token` pegado en el
+         *     asistente o el guardado en `channel_id`) devuelve todos los chats; con el bot de la instalación exige `code`
+         *     (`POST …/telegram/link-codes`) y solo devuelve el chat que lo envió. Horus no usa webhooks: si el bot tiene
+         *     uno, Telegram rechaza `getUpdates` → `422 NOTIFICATION_TELEGRAM_WEBHOOK_ACTIVE`.
+         */
+        post: operations["detectTelegramChats"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notification-channels/telegram/link-codes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Código de un solo uso para detectar el chat con el bot de la instalación
+         * @description Las actualizaciones del bot compartido (HORUS_TELEGRAM_BOT_TOKEN_FILE) mezclan a todos los ISP: para detectar
+         *     el chat la persona envía `/start <código>` al bot (o publica el código en el canal) y
+         *     `POST …/telegram/chat-detection` solo devuelve el chat que lo envió. Caduca a los 15 minutos. Sin bot de la
+         *     instalación → `422 NOTIFICATION_TELEGRAM_BOT_NOT_CONFIGURED`.
+         */
+        post: operations["createTelegramLinkCode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/notification-deliveries": {
         parameters: {
             query?: never;
@@ -2701,6 +2771,37 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/routers/thresholds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Umbrales de CPU, memoria y temperatura de los routers del ISP
+         * @description Umbrales vigentes (aviso y crítico) con los que el sondeador calcula `warning`/`critical` y las razones
+         *     `cpu_high`, `memory_high` y `temperature_high`. Sin ajustes del ISP (`customized=false`, `version=0`) rigen los
+         *     de la instalación (HORUS_SNMP_*_WARNING/_CRITICAL), que también se devuelven en `defaults`. CPU y memoria deben
+         *     mantenerse `sustained_cycles` ciclos seguidos; la temperatura, uno.
+         */
+        get: operations["getRouterThresholds"];
+        /**
+         * Fija los umbrales propios del ISP (se aplican en el siguiente ciclo de sondeo)
+         * @description CPU y memoria entre 1 y 100 %, temperatura entre 20 y 150 °C; el aviso no puede superar al crítico (`422`).
+         *     `If-Match` opcional (ETag de la lectura; no coincide → `412`). Sin PostgreSQL en el rol snmp → `503`. Auditado
+         *     (`snmp.thresholds.updated`, antes y después). Horus no escribe nada en los routers: solo cambia cómo evalúa sus
+         *     métricas.
+         */
+        put: operations["putRouterThresholds"];
+        post?: never;
+        /** Vuelve a los umbrales de la instalación */
+        delete: operations["resetRouterThresholds"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/security/summary": {
         parameters: {
             query?: never;
@@ -3243,9 +3344,21 @@ export interface components {
         };
         /** @enum {string} */
         CapabilityState: "ok" | "degraded" | "stale" | "unavailable";
+        /**
+         * @description Un evento llega al canal si su tipo está en `event_types` **o** su categoría en `categories` (al menos una de las
+         *     dos con valores), su severidad alcanza `min_severity` y su nodo está en `site_ids`. Compatible con las
+         *     suscripciones anteriores (solo `event_types`).
+         */
         ChannelSubscription: {
+            /** @description Categorías completas (incluye los tipos que se añadan a ellas). */
+            categories?: components["schemas"]["NotificationCategory"][];
             event_types: components["schemas"]["NotificationEventType"][];
             min_severity?: components["schemas"]["Severity"];
+            /**
+             * @description La recuperación de un recurso llega al canal que recibió su alarma sin filtro de severidad ni agrupación.
+             * @default true
+             */
+            notify_recovery?: boolean;
             /** @description Vacío = todos los nodos. */
             site_ids?: components["schemas"]["Uuid"][];
             /**
@@ -3299,13 +3412,21 @@ export interface components {
         /** @enum {string} */
         ClientPrefixRole: "customers" | "infrastructure" | "excluded";
         ConnectionTestResult: {
+            /** @description telegram: @usuario del bot. */
+            bot_username?: string | null;
             channel_id: components["schemas"]["Uuid"];
             channel_kind: components["schemas"]["NotificationChannelKind"];
+            /** @description telegram: título del chat comprobado. */
+            chat_title?: string | null;
             checked_at: components["schemas"]["Timestamp"];
-            /** @description Sin secretos ni cuerpo de la respuesta remota. */
+            /**
+             * @description Sin secretos ni cuerpo de la respuesta remota; en Telegram incluye la `description` de la Bot API saneada (sin el
+             *     token). `telegram`: `getMe` + `getChat` + `getChatMember` (en un canal el bot debe ser administrador con
+             *     `can_post_messages`).
+             */
             error?: string | null;
             /** @description Sin valor si `ok`. Enum abierto. */
-            error_code?: ("dns_failed" | "connect_failed" | "tls_invalid" | "auth_failed" | "forbidden" | "timeout" | "unexpected_response" | "missing_credentials") | null;
+            error_code?: ("dns_failed" | "connect_failed" | "tls_invalid" | "auth_failed" | "forbidden" | "timeout" | "unexpected_response" | "missing_credentials" | "chat_not_found" | "bot_not_member" | "bot_cannot_post") | null;
             latency_ms?: number | null;
             ok: boolean;
             /** @description librenms: versión que informa la API, si la expone. */
@@ -3480,7 +3601,7 @@ export interface components {
          * @description Código estable UPPER_SNAKE_CASE (= `ErrorInfo.reason` de gRPC). **Enum abierto**: se listan los
          *     conocidos en v0; el cliente trata un código desconocido según el `status` HTTP.
          */
-        ErrorCode: ("VALIDATION_FAILED" | "UNAUTHENTICATED" | "TOKEN_EXPIRED" | "SESSION_REVOKED" | "PERMISSION_DENIED" | "ORIGIN_NOT_ALLOWED" | "MFA_REQUIRED" | "MFA_ENROLLMENT_REQUIRED" | "REAUTH_REQUIRED" | "NOT_FOUND" | "ALREADY_EXISTS" | "CONFLICT" | "PRECONDITION_FAILED" | "PRECONDITION_REQUIRED" | "IDEMPOTENCY_KEY_REUSED" | "IDEMPOTENCY_IN_PROGRESS" | "RATE_LIMITED" | "TENANT_RATE_LIMITED" | "INTERNAL" | "SERVICE_UNAVAILABLE" | "ANALYTICS_UNAVAILABLE" | "TIMEOUT" | "INVALID_CREDENTIALS" | "INVALID_CURSOR" | "INVALID_FILTER" | "INVALID_SORT_FIELD" | "TIME_RANGE_TOO_LARGE" | "TENANT_NOT_FOUND" | "TENANT_MISMATCH" | "TENANT_SUSPENDED" | "TOKEN_SCOPE_INVALID" | "KIOSK_FORBIDDEN" | "ROUTER_NOT_FOUND" | "ROUTER_PRIMARY_EXISTS" | "ROUTEROS_VERSION_UNSUPPORTED" | "ROUTER_UNREACHABLE" | "ROUTER_TLS_FINGERPRINT_CHANGED" | "SITE_NOT_FOUND" | "SITE_NOT_EMPTY" | "PEER_ALREADY_REVOKED" | "WIREGUARD_IP_POOL_EXHAUSTED" | "WIREGUARD_PUBLIC_KEY_IN_USE" | "ENROLLMENT_TOKEN_INVALID" | "CUSTOMER_NOT_FOUND" | "CUSTOMER_KIND_LOCKED" | "CLIENT_PREFIX_OVERLAP" | "CLIENT_PREFIX_NOT_FOUND" | "ASN_RULE_NOT_FOUND" | "FINDING_NOT_FOUND" | "FINDING_STATE_INVALID" | "DASHBOARD_NOT_FOUND" | "DASHBOARD_READ_ONLY" | "WIDGET_TYPE_NOT_ALLOWED" | "WIDGET_TYPE_UNKNOWN" | "WIDGET_CONFIG_INVALID" | "KIOSK_ENROLLMENT_CODE_INVALID" | "NOTIFICATION_CHANNEL_NOT_FOUND" | "NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE" | "NOTIFICATION_CHANNEL_UNREACHABLE" | "NOTIFICATION_CHANNEL_AUTH_FAILED" | "NOTIFICATION_CHANNEL_CREDENTIALS_MISSING" | "LIBRENMS_CHANNEL_REQUIRED" | "LIBRENMS_NOT_PROVISIONED" | "LIBRENMS_DEVICE_NOT_OWNED" | "STORAGE_TARGET_UNREACHABLE" | "REPUTATION_SOURCE_NOT_FOUND" | "REPUTATION_SOURCE_READ_ONLY" | "REPUTATION_SOURCE_URL_NOT_ALLOWED" | "ROLE_NOT_FOUND" | "ROLE_READ_ONLY" | "ROLE_IN_USE" | "LAST_PLATFORM_ADMIN" | "WIREGUARD_HUB_NOT_FOUND" | "WIREGUARD_POOL_NOT_FOUND" | "WIREGUARD_POOL_OVERLAP" | "WIREGUARD_POOL_INVALID" | "WIREGUARD_POOL_IN_USE" | "REMOTE_DESTINATION_NOT_FOUND" | "REMOTE_DESTINATION_NOT_READY" | "REMOTE_DESTINATION_SYNC_RUNNING") | string;
+        ErrorCode: ("VALIDATION_FAILED" | "UNAUTHENTICATED" | "TOKEN_EXPIRED" | "SESSION_REVOKED" | "PERMISSION_DENIED" | "ORIGIN_NOT_ALLOWED" | "MFA_REQUIRED" | "MFA_ENROLLMENT_REQUIRED" | "REAUTH_REQUIRED" | "NOT_FOUND" | "ALREADY_EXISTS" | "CONFLICT" | "PRECONDITION_FAILED" | "PRECONDITION_REQUIRED" | "IDEMPOTENCY_KEY_REUSED" | "IDEMPOTENCY_IN_PROGRESS" | "RATE_LIMITED" | "TENANT_RATE_LIMITED" | "INTERNAL" | "SERVICE_UNAVAILABLE" | "ANALYTICS_UNAVAILABLE" | "TIMEOUT" | "INVALID_CREDENTIALS" | "INVALID_CURSOR" | "INVALID_FILTER" | "INVALID_SORT_FIELD" | "TIME_RANGE_TOO_LARGE" | "TENANT_NOT_FOUND" | "TENANT_MISMATCH" | "TENANT_SUSPENDED" | "TOKEN_SCOPE_INVALID" | "KIOSK_FORBIDDEN" | "ROUTER_NOT_FOUND" | "ROUTER_PRIMARY_EXISTS" | "ROUTEROS_VERSION_UNSUPPORTED" | "ROUTER_UNREACHABLE" | "ROUTER_TLS_FINGERPRINT_CHANGED" | "SITE_NOT_FOUND" | "SITE_NOT_EMPTY" | "PEER_ALREADY_REVOKED" | "WIREGUARD_IP_POOL_EXHAUSTED" | "WIREGUARD_PUBLIC_KEY_IN_USE" | "ENROLLMENT_TOKEN_INVALID" | "CUSTOMER_NOT_FOUND" | "CUSTOMER_KIND_LOCKED" | "CLIENT_PREFIX_OVERLAP" | "CLIENT_PREFIX_NOT_FOUND" | "ASN_RULE_NOT_FOUND" | "FINDING_NOT_FOUND" | "FINDING_STATE_INVALID" | "DASHBOARD_NOT_FOUND" | "DASHBOARD_READ_ONLY" | "WIDGET_TYPE_NOT_ALLOWED" | "WIDGET_TYPE_UNKNOWN" | "WIDGET_CONFIG_INVALID" | "KIOSK_ENROLLMENT_CODE_INVALID" | "NOTIFICATION_CHANNEL_NOT_FOUND" | "NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE" | "NOTIFICATION_CHANNEL_UNREACHABLE" | "NOTIFICATION_CHANNEL_AUTH_FAILED" | "NOTIFICATION_CHANNEL_CREDENTIALS_MISSING" | "LIBRENMS_CHANNEL_REQUIRED" | "LIBRENMS_NOT_PROVISIONED" | "LIBRENMS_DEVICE_NOT_OWNED" | "NOTIFICATION_TELEGRAM_WEBHOOK_ACTIVE" | "NOTIFICATION_TELEGRAM_LINK_CODE_INVALID" | "NOTIFICATION_TELEGRAM_BOT_NOT_CONFIGURED" | "STORAGE_TARGET_UNREACHABLE" | "REPUTATION_SOURCE_NOT_FOUND" | "REPUTATION_SOURCE_READ_ONLY" | "REPUTATION_SOURCE_URL_NOT_ALLOWED" | "ROLE_NOT_FOUND" | "ROLE_READ_ONLY" | "ROLE_IN_USE" | "LAST_PLATFORM_ADMIN" | "WIREGUARD_HUB_NOT_FOUND" | "WIREGUARD_POOL_NOT_FOUND" | "WIREGUARD_POOL_OVERLAP" | "WIREGUARD_POOL_INVALID" | "WIREGUARD_POOL_IN_USE" | "REMOTE_DESTINATION_NOT_FOUND" | "REMOTE_DESTINATION_NOT_READY" | "REMOTE_DESTINATION_SYNC_RUNNING") | string;
         /** @description Evidencia agregada según kind (nunca payloads; nunca la IP del cliente). Campos conocidos; otros permitidos. */
         Evidence: {
             bps_peak?: number;
@@ -4052,6 +4173,11 @@ export interface components {
             mfa_required: true;
             mfa_token: string;
         };
+        /**
+         * @description Grupo de tipos de evento (ver NotificationEventType). Enum abierto.
+         * @enum {string}
+         */
+        NotificationCategory: "security" | "routers" | "infrastructure" | "exporter_tunnel";
         NotificationChannel: components["schemas"]["TenantScopedResource"] & components["schemas"]["NotificationChannelInput"] & {
             has_credentials: boolean;
             last_delivery_at: components["schemas"]["Timestamp"] | null;
@@ -4102,19 +4228,33 @@ export interface components {
             event_type?: components["schemas"]["NotificationEventType"];
             id: components["schemas"]["Uuid"];
             is_test?: boolean;
+            /** @description Recurso que agrupa avisos y empareja recuperaciones (router, interfaz, servicio…). */
+            resource_id?: string | null;
             sent_at?: components["schemas"]["Timestamp"] | null;
+            severity?: components["schemas"]["Severity"] | null;
             source_event_id: components["schemas"]["Uuid"] | null;
             /** @example horus.detection.finding.opened */
             source_event_type: string | null;
             /** @enum {string} */
             status: "queued" | "sent" | "failed" | "throttled";
+            /** @description Asunto del mensaje enviado (sin datos personales). */
+            summary?: string | null;
             tenant_id: components["schemas"]["Uuid"];
         };
         /**
-         * @description Tipos de evento a los que se suscribe un canal en el I1 (enum abierto).
+         * @description Tipos de evento a los que se suscribe un canal (enum abierto), por categoría:
+         *     - `security`: `finding_opened`, `finding_reopened`.
+         *     - `routers` (rol snmp): `router_offline`, `router_recovered` (vuelve tras una caída o un umbral avisado),
+         *       `router_cpu_high`, `router_memory_high`, `router_temperature_high` (aviso → `medium`, crítico → `high`),
+         *       `router_hardware_failed` (fuente o ventilador), `router_interface_down` / `router_interface_up` (enlace de
+         *       subida → `high`), `router_rebooted`.
+         *     - `infrastructure` (servicios vigilados, `horus.snmp.service.state_changed`): `service_down`,
+         *       `service_degraded`, `service_recovered`.
+         *     - `exporter_tunnel`: `exporter_silent`, `exporter_recovered`, `tunnel_down`, `tunnel_recovered`.
+         *     Las recuperaciones (`*_recovered`, `router_interface_up`) tienen severidad `info`.
          * @enum {string}
          */
-        NotificationEventType: "finding_opened" | "finding_reopened" | "exporter_silent" | "exporter_recovered" | "tunnel_down" | "tunnel_recovered";
+        NotificationEventType: "finding_opened" | "finding_reopened" | "exporter_silent" | "exporter_recovered" | "tunnel_down" | "tunnel_recovered" | "router_offline" | "router_recovered" | "router_cpu_high" | "router_memory_high" | "router_temperature_high" | "router_hardware_failed" | "router_interface_down" | "router_interface_up" | "router_rebooted" | "service_down" | "service_degraded" | "service_recovered";
         PageInfo: {
             has_more: boolean;
             limit: number;
@@ -4741,6 +4881,26 @@ export interface components {
             threshold: number;
             value: number;
         };
+        RouterThresholds: components["schemas"]["RouterThresholdValues"] & {
+            /** @description false = rigen los de la instalación. */
+            customized: boolean;
+            defaults: components["schemas"]["RouterThresholdValues"];
+            /** @description Ciclos seguidos sobre el umbral para CPU y memoria. */
+            sustained_cycles: number;
+            updated_at: components["schemas"]["Timestamp"] | null;
+            version: number;
+        };
+        RouterThresholdValues: {
+            cpu_critical: number;
+            /** @description % sostenido. */
+            cpu_warning: number;
+            memory_critical: number;
+            /** @description % sostenido. */
+            memory_warning: number;
+            temperature_critical: number;
+            /** @description °C. */
+            temperature_warning: number;
+        };
         /** @description Interfaz que resume el tráfico del router (la de más subida hacia fuera; `flow_role` upstream si está marcado). */
         RouterUplink: {
             interface_id: components["schemas"]["Uuid"];
@@ -4911,16 +5071,48 @@ export interface components {
             others?: Record<string, unknown> | null;
             rows: Record<string, unknown>[];
         };
+        TelegramBotInfo: {
+            can_join_groups?: boolean;
+            can_read_all_group_messages?: boolean;
+            /** @example NOC Fibra Norte */
+            first_name: string;
+            /** Format: int64 */
+            id: number;
+            /** @example noc_isp_bot */
+            username: string;
+        };
         /** TelegramChannelConfig */
         TelegramChannelConfig: {
+            /** @description Id numérico (usuarios positivos, grupos negativos, supergrupos y canales `-100…`) o `@usuario_del_canal`. */
             chat_id: string;
             /**
              * @default es
              * @enum {string}
              */
             language?: "es" | "en";
+            /** @description Tema de un supergrupo con temas (foro); sin valor, el chat general. */
+            message_thread_id?: number;
             /** @default false */
             readonly uses_own_bot?: boolean;
+        };
+        TelegramChatCandidate: {
+            /**
+             * @description chat_id para la configuración del canal.
+             * @example -1001234567890
+             */
+            id: string;
+            title: string;
+            /** @enum {string} */
+            type: "private" | "group" | "supergroup" | "channel";
+            username?: string;
+        };
+        TelegramLinkCode: {
+            /** @example @horus_alertas_bot */
+            bot_username: string | null;
+            code: string;
+            expires_at: components["schemas"]["Timestamp"];
+            /** @description Enlace de t.me al chat privado con el bot y el código como parámetro start. */
+            start_url: string | null;
         };
         Tenant: {
             country: string;
@@ -8527,6 +8719,98 @@ export interface operations {
             428: components["responses"]["PreconditionRequired"];
         };
     };
+    validateTelegramBot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    bot_token: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Bot válido. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TelegramBotInfo"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["UnprocessableEntity"];
+        };
+    };
+    detectTelegramChats: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Bot propio aún no guardado (no se guarda). */
+                    bot_token?: string;
+                    channel_id?: components["schemas"]["Uuid"];
+                    /** @description Código de vinculación (bot de la instalación). */
+                    code?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Chats candidatos (vacío si nadie escribió todavía). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @example @noc_isp_bot */
+                        bot_username?: string | null;
+                        data: components["schemas"]["TelegramChatCandidate"][];
+                        /** @description true = bot de la instalación (filtrado por código). */
+                        shared_bot: boolean;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["UnprocessableEntity"];
+        };
+    };
+    createTelegramLinkCode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Código generado. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TelegramLinkCode"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["UnprocessableEntity"];
+        };
+    };
     listNotificationDeliveries: {
         parameters: {
             query?: {
@@ -10272,6 +10556,84 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    getRouterThresholds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Umbrales vigentes. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RouterThresholds"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    putRouterThresholds: {
+        parameters: {
+            query?: never;
+            header?: {
+                "If-Match"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RouterThresholdValues"];
+            };
+        };
+        responses: {
+            /** @description Umbrales guardados. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RouterThresholds"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["UnprocessableEntity"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    resetRouterThresholds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Umbrales de la instalación (customized=false). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RouterThresholds"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     getSecuritySummary: {

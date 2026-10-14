@@ -47,6 +47,7 @@ type Handler struct {
 	audit func() (authapi.AuditRecorder, bool)
 	log   *slog.Logger
 	now   func() time.Time
+	th    ThresholdService
 }
 
 // New crea el handler. audit nil = sin auditoría.

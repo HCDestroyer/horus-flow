@@ -84,6 +84,7 @@ const pollerNotice = computed<'disabled' | 'unhealthy' | null>(() => {
   return null
 })
 const canSeries = computed(() => can('snmp.read'))
+const thresholdsOpen = ref(false)
 const tenantName = computed(() => membership.value?.tenant_name ?? '')
 const generatedAt = computed(() =>
   data.value ? new Date(data.value.meta.generated_at).getTime() : null,
@@ -209,6 +210,17 @@ useHead({ title: () => t('routersHealth.title') })
   <AppPage v-else :title="t('routersHealth.title')" panel-id="routers-health">
     <template #navbar-right>
       <UButton
+        v-if="canSeries"
+        color="neutral"
+        variant="outline"
+        icon="i-lucide-gauge"
+        :aria-label="t('routerThresholds.open')"
+        data-testid="open-thresholds"
+        @click="thresholdsOpen = true"
+      >
+        <span class="hidden sm:inline">{{ t('routerThresholds.open') }}</span>
+      </UButton>
+      <UButton
         color="neutral"
         variant="outline"
         icon="i-lucide-maximize-2"
@@ -316,5 +328,6 @@ useHead({ title: () => t('routersHealth.title') })
         :live-at="liveAt[r.router_id] ?? null"
       />
     </div>
+    <RouterThresholdsModal v-model:open="thresholdsOpen" />
   </AppPage>
 </template>

@@ -49,6 +49,20 @@ modules:
       methods:
         GET: alerts.read
         POST: alerts.manage
+    - prefix: /api/v1/notification-channels/telegram/bot-validation
+      scope: tenant
+      methods:
+        POST: alerts.manage
+      rate_limit: connection_test
+    - prefix: /api/v1/notification-channels/telegram/chat-detection
+      scope: tenant
+      methods:
+        POST: alerts.manage
+      rate_limit: connection_test
+    - prefix: /api/v1/notification-channels/telegram/link-codes
+      scope: tenant
+      methods:
+        POST: alerts.manage
     - prefix: /api/v1/notification-channels/{channel_id}
       scope: tenant
       methods:
@@ -786,6 +800,15 @@ modules:
         - user
         - api_token
         - kiosk
+    - prefix: /api/v1/routers/thresholds
+      scope: tenant
+      methods:
+        GET: snmp.read
+        PUT: snmp.manage
+        DELETE: snmp.manage
+      audited:
+        - PUT
+        - DELETE
     - prefix: /api/v1/routers/{router_id}/interfaces
       scope: tenant
       methods:

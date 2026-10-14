@@ -18,7 +18,7 @@ func TestRenderWithoutCustomerIP(t *testing.T) {
 	s := &Service{baseURL: "https://horus.example.net"}
 	data := map[string]any{"id": "f-1", "kind": "outbound_scanning", "severity": "high", "confidence_level": "high",
 		"summary": map[string]any{"text": "Escaneo del puerto 23 a 1 240 destinos en 5 min"}, "address": "10.20.0.41"}
-	m, sev := s.render(mapEvent("horus.detection.finding.opened", data), data)
+	m, sev := s.render(mapEvent("horus.detection.finding.opened", data), data, renderCtx{})
 	if sev != "high" || !strings.Contains(m.Subject, "señales compatibles") || m.Link != "https://horus.example.net/security/findings/f-1" {
 		t.Fatalf("mensaje = %+v", m)
 	}
@@ -77,7 +77,7 @@ func TestLibreNMSAndTelegramSenders(t *testing.T) {
 		case r.URL.Path == "/api/v0/system":
 			w.WriteHeader(http.StatusUnauthorized)
 		case strings.HasSuffix(r.URL.Path, "/getMe"):
-			_, _ = w.Write([]byte(`{"ok":true}`))
+			_, _ = w.Write([]byte(`{"ok":true,"result":{"id":42,"is_bot":true,"username":"noc_bot"}}`))
 		default:
 			w.WriteHeader(http.StatusOK)
 		}
@@ -94,10 +94,10 @@ func TestLibreNMSAndTelegramSenders(t *testing.T) {
 	if r := s.testLibreNMS(context.Background(), cfg, Credentials{}); *r.ErrorCode != "missing_credentials" {
 		t.Fatalf("librenms sin credenciales = %+v", r)
 	}
-	if r := s.testTelegram(context.Background(), Credentials{TelegramBotToken: "123:abc"}); !r.OK {
+	if r := s.testTelegram(context.Background(), TelegramConfig{}, Credentials{TelegramBotToken: "123:abc"}); !r.OK || *r.BotUsername != "@noc_bot" {
 		t.Fatalf("telegram = %+v", r)
 	}
-	if r := s.testTelegram(context.Background(), Credentials{}); *r.ErrorCode != "missing_credentials" {
+	if r := s.testTelegram(context.Background(), TelegramConfig{}, Credentials{}); *r.ErrorCode != "missing_credentials" {
 		t.Fatalf("telegram sin token = %+v", r)
 	}
 	// Destino caído: connect_failed (sin cuerpo remoto ni secretos).

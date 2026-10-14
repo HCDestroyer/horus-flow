@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -35,10 +36,6 @@ const (
 // DurableNotify es el consumidor del canal mínimo (streams.yaml consumers_i1).
 const DurableNotify = "alerts-notify"
 
-// NotifySubjects son los filtros del durable alerts-notify.
-var NotifySubjects = []string{"horus.detection.finding.opened.>", "horus.detection.finding.updated.>", "horus.flows.exporter.silent.>",
-	"horus.flows.exporter.recovered.>", "horus.wireguard.peer.handshake_stale.>", "horus.wireguard.peer.handshake_recovered.>"}
-
 // Service implementa los casos de uso del canal mínimo de alertas.
 type Service struct {
 	st      *Store
@@ -47,6 +44,7 @@ type Service struct {
 	cursor  *pagination.Codec
 	audit   func() (authapi.AuditRecorder, bool)
 	baseURL string
+	dir     Directory
 	now     func() time.Time
 	logger  *slog.Logger
 	// kick despierta al despachador de la cola al encolar.
@@ -87,6 +85,9 @@ var (
 	// si el proceso muere enviando, al vencer otra pasada la retoma.
 	DefaultLease = 2 * time.Minute
 )
+
+// SetDirectory fija cómo se resuelven nombres de router y slug del ISP.
+func (s *Service) SetDirectory(d Directory) { s.dir = d }
 
 // SetRetry ajusta los reintentos (tests y pruebas de caos).
 func (s *Service) SetRetry(maxAttempts int, backoff []time.Duration, lease time.Duration) {
@@ -431,7 +432,9 @@ func (s *Service) ConnectionTest(ctx context.Context, id uuid.UUID) (*Channel, T
 	case KindEmail:
 		res = s.senders.testEmail(ctx)
 	case KindTelegram:
-		res = s.senders.testTelegram(ctx, cr)
+		var tc TelegramConfig
+		_ = json.Unmarshal(c.Config, &tc)
+		res = s.senders.testTelegram(ctx, tc, cr)
 	case KindLibreNMS:
 		var lc LibreNMSConfig
 		_ = json.Unmarshal(c.Config, &lc)
@@ -459,98 +462,6 @@ func (s *Service) ConnectionTest(ctx context.Context, id uuid.UUID) (*Channel, T
 
 // ---------------------------------------------------------------- entregas
 
-func eventResource(typ string, data map[string]any) string {
-	for _, k := range []string{"id", "router_id", "peer_id"} {
-		if v, ok := data[k].(string); ok && v != "" {
-			return v
-		}
-	}
-	return typ
-}
-
-// mapEvent devuelve el tipo de notificación de un evento de dominio.
-func mapEvent(typ string, data map[string]any) string {
-	switch typ {
-	case "horus.detection.finding.opened":
-		if prev, _ := data["previous_finding_id"].(string); prev != "" {
-			return eventFindingReopened
-		}
-		return eventFindingOpened
-	case "horus.detection.finding.updated":
-		if st, _ := data["state"].(string); st == "open" {
-			if prev, _ := data["previous_state"].(string); prev == "resolved" || prev == "false_positive" {
-				return eventFindingReopened
-			}
-		}
-	case "horus.flows.exporter.silent":
-		return eventExporterSilent
-	case "horus.flows.exporter.recovered":
-		return eventExporterRecovered
-	case "horus.wireguard.peer.handshake_stale":
-		return eventTunnelDown
-	case "horus.wireguard.peer.handshake_recovered":
-		return eventTunnelRecovered
-	}
-	return ""
-}
-
-var severityLabel = map[string]string{"info": "informativa", "low": "baja", "medium": "media", "high": "alta", "critical": "crítica"}
-
-// render construye el mensaje sin la IP del cliente (los eventos de
-// detection ya no la llevan, events.md §5.7).
-func (s *Service) render(eventType string, data map[string]any) (Message, string) {
-	sev, _ := data["severity"].(string)
-	str := func(k string) string { v, _ := data[k].(string); return v }
-	var m Message
-	switch eventType {
-	case eventFindingOpened, eventFindingReopened:
-		summary := str("kind")
-		if sm, ok := data["summary"].(map[string]any); ok {
-			if t, _ := sm["text"].(string); t != "" {
-				summary = t
-			}
-		}
-		verb := "Hallazgo abierto"
-		if eventType == eventFindingReopened {
-			verb = "Hallazgo reabierto"
-		}
-		m.Subject = verb + ": señales compatibles con " + strings.ReplaceAll(str("kind"), "_", " ")
-		m.Text = summary + "\nSeveridad: " + severityLabel[sev]
-		if c := str("confidence_level"); c != "" {
-			m.Text += " · confianza " + c
-		}
-		if id := str("id"); id != "" && s.baseURL != "" {
-			m.Link = s.baseURL + "/security/findings/" + id
-		}
-	case eventExporterSilent:
-		m.Subject, m.Text = "Exportador silencioso", "El router "+str("router_id")+" dejó de enviar flujos."
-		sev = "high"
-	case eventExporterRecovered:
-		m.Subject, m.Text = "Exportador recuperado", "El router "+str("router_id")+" vuelve a enviar flujos."
-		sev = "info"
-	case eventTunnelDown:
-		m.Subject, m.Text = "Túnel WireGuard caído", "Sin handshake del router "+str("router_id")+"."
-		sev = "high"
-	case eventTunnelRecovered:
-		m.Subject, m.Text = "Túnel WireGuard recuperado", "El router "+str("router_id")+" vuelve a tener túnel activo."
-		sev = "info"
-	}
-	return m, sev
-}
-
-func matches(c *Channel, eventType, severity string, site *uuid.UUID) bool {
-	if !c.Enabled || !slices.Contains(c.Subscription.EventTypes, eventType) {
-		return false
-	}
-	if c.Subscription.MinSeverity != nil && severity != "" && SeverityRank(severity) < SeverityRank(*c.Subscription.MinSeverity) {
-		return false
-	}
-	if len(c.Subscription.SiteIDs) > 0 && (site == nil || !slices.Contains(c.Subscription.SiteIDs, *site)) {
-		return false
-	}
-	return true
-}
-
 // HandleEvent es el handler del durable alerts-notify: una entrega por canal
 // suscrito, idempotente por (canal, evento) e inbox en la misma tabla.
 func (s *Service) HandleEvent(ctx context.Context, msg *natsx.Message) error {
@@ -571,19 +482,49 @@ func (s *Service) HandleEvent(ctx context.Context, msg *natsx.Message) error {
 	if err != nil {
 		return err
 	}
-	m, sev := s.render(eventType, data)
 	var site *uuid.UUID
 	if v, ok := data["site_id"].(string); ok {
 		if id, err := uuid.Parse(v); err == nil {
 			site = &id
 		}
 	}
+	rc := renderCtx{routerName: str(data, "router_name"), siteName: str(data, "site_name")}
+	if rid, err := uuid.Parse(str(data, "router_id")); err == nil && s.dir.Router != nil && (rc.routerName == "" || site == nil) {
+		if ri, ok := s.dir.Router(ctx, msg.Tenant, rid); ok {
+			if rc.routerName == "" {
+				rc.routerName = ri.Name
+			}
+			if site == nil && ri.SiteID != uuid.Nil {
+				id := ri.SiteID
+				site = &id
+			}
+		}
+	}
+	if s.dir.TenantSlug != nil {
+		rc.slug, _ = s.dir.TenantSlug(ctx, msg.Tenant)
+	}
+	m, sev := s.render(eventType, data, rc)
 	resource := eventResource(env.Type, data)
 	var errs []error
 	queued := 0
 	for i := range channels {
 		c := &channels[i]
-		if !matches(c, eventType, sev, site) {
+		throttle := c.Subscription.Throttle()
+		deliver := matches(c, eventType, sev, site)
+		if isRecovery(eventType) && c.Enabled && c.Subscription.Recovery() {
+			// La recuperación llega siempre al canal que recibió la alarma
+			// (sin filtro de severidad ni agrupación); si no la recibió, solo
+			// por su suscripción normal.
+			alarmed, err := s.st.alarmPending(ctx, t, c.ID, resource, eventType, RecoveryOf[eventType])
+			if err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			if alarmed {
+				deliver, throttle = true, 0
+			}
+		}
+		if !deliver {
 			continue
 		}
 		evID := env.ID
@@ -592,7 +533,7 @@ func (s *Service) HandleEvent(ctx context.Context, msg *natsx.Message) error {
 		d := &Delivery{ID: uuid.Must(uuid.NewV7()), TenantID: t.UUID(), ChannelID: c.ID, ChannelKind: c.Kind, Status: deliveryQueued,
 			EventType: &eventType, SourceEventType: &srcType, SourceEventID: &evID, ResourceID: &resource, CreatedAt: s.ts(),
 			Message: &msgCopy, Severity: &sevCopy, TraceParent: env.TraceParent}
-		inserted, err := s.st.queueDelivery(ctx, t, d, c.Subscription.Throttle())
+		inserted, err := s.st.queueDelivery(ctx, t, d, throttle)
 		if err != nil {
 			errs = append(errs, err)
 			continue
@@ -698,9 +639,7 @@ func (s *Service) deliver(ctx context.Context, t pgdb.TenantID, c *Channel, d *D
 			_ = json.Unmarshal(c.Config, &ec)
 			err = s.senders.sendEmail(sctx, ec, m)
 		case KindTelegram:
-			var tc TelegramConfig
-			_ = json.Unmarshal(c.Config, &tc)
-			err = s.senders.sendTelegram(sctx, tc, cr, m)
+			err = s.sendTelegram(sctx, t, c, cr, m, severity)
 		case KindLibreNMS:
 			et := ""
 			if d.EventType != nil {
@@ -721,12 +660,23 @@ func (s *Service) deliver(ctx context.Context, t pgdb.TenantID, c *Channel, d *D
 		if d.Error != nil {
 			errText = *d.Error
 		}
+		var te *TelegramError
+		if errors.As(err, &te) && te.RetryAfter > 0 && te.RetryAfter <= time.Hour {
+			// 429 de Telegram: se reprograma a la hora que indica retry_after
+			// sin gastar un intento (es límite de ritmo, no un fallo).
+			s.logger.WarnContext(ctx, "telegram rate limited; delivery rescheduled", slog.String("delivery_id", d.ID.String()),
+				slog.String("channel_id", c.ID.String()), slog.Duration("retry_after", te.RetryAfter))
+			if rerr := s.st.retryDelivery(bg, t, d, now.Add(te.RetryAfter), true); rerr != nil {
+				s.logger.ErrorContext(ctx, "delivery retry not recorded (lease expiry will retry)", slog.Any("error", rerr))
+			}
+			return
+		}
 		if d.Attempts < s.maxAttempts {
 			wait := s.backoff[min(max(d.Attempts-1, 0), len(s.backoff)-1)]
 			s.logger.WarnContext(ctx, "notification failed; retry scheduled", slog.String("delivery_id", d.ID.String()),
 				slog.String("channel_id", c.ID.String()), slog.String("kind", c.Kind), slog.Int("attempt", d.Attempts),
 				slog.Duration("retry_in", wait), slog.String("error", errText))
-			if rerr := s.st.retryDelivery(bg, t, d, now.Add(wait)); rerr != nil {
+			if rerr := s.st.retryDelivery(bg, t, d, now.Add(wait), false); rerr != nil {
 				s.logger.ErrorContext(ctx, "delivery retry not recorded (lease expiry will retry)", slog.Any("error", rerr))
 			}
 			_ = s.st.recordStatus(bg, t, c.ID, statusFailing, d.Error, false)
@@ -754,6 +704,42 @@ func (s *Service) deliver(ctx context.Context, t pgdb.TenantID, c *Channel, d *D
 		s.logger.ErrorContext(ctx, "delivery not recorded", slog.Any("error", err))
 	}
 	_ = s.st.recordStatus(bg, t, c.ID, status, d.Error, err == nil)
+}
+
+// sendTelegram envía por Telegram; si el grupo pasó a supergrupo
+// (migrate_to_chat_id), actualiza el chat_id del canal, lo audita y reintenta
+// una vez con el nuevo id.
+func (s *Service) sendTelegram(ctx context.Context, t pgdb.TenantID, c *Channel, cr Credentials, m Message, severity string) error {
+	var tc TelegramConfig
+	_ = json.Unmarshal(c.Config, &tc)
+	err := s.senders.sendTelegram(ctx, tc, cr, m, severity)
+	var te *TelegramError
+	if !errors.As(err, &te) || te.MigrateTo == 0 {
+		return err
+	}
+	from := tc.ChatID
+	tc.ChatID = strconv.FormatInt(te.MigrateTo, 10)
+	c.Config, _ = json.Marshal(tc)
+	if uerr := s.st.updateChannel(context.WithoutCancel(ctx), t, c, 0); uerr != nil {
+		return errors.Join(err, uerr)
+	}
+	s.recordService(ctx, t, "alerts.channel.telegram_chat_migrated", c, map[string]any{"chat_id": map[string]any{"from": from, "to": tc.ChatID}})
+	s.logger.InfoContext(ctx, "telegram chat migrated to supergroup; channel updated", slog.String("channel_id", c.ID.String()))
+	return s.senders.sendTelegram(ctx, tc, cr, m, severity)
+}
+
+// recordService audita una acción del propio servicio (sin persona).
+func (s *Service) recordService(ctx context.Context, t pgdb.TenantID, action string, c *Channel, changes map[string]any) {
+	rec, ok := s.audit()
+	if !ok {
+		s.logger.WarnContext(ctx, "alerts audit not recorded: auth not local", slog.String("action", action))
+		return
+	}
+	if err := rec.Record(context.WithoutCancel(ctx), authapi.AuditEntry{TenantID: t.UUID(), OccurredAt: s.ts(), ActorType: "service",
+		ActorID: "svc:alerts", Action: action, ResourceType: "notification_channel", ResourceID: c.ID.String(), Scope: "tenant",
+		Outcome: "success", Changes: changes}); err != nil {
+		s.logger.ErrorContext(ctx, "alerts audit failed", slog.Any("error", err))
+	}
 }
 
 // Test es POST /notification-channels/{id}/test (202; envío asíncrono).

@@ -43,6 +43,9 @@ func (h *Handler) Mount(r *httpx.ServiceMux) {
 	r.Handle("POST /api/v1/notification-channels/{channel_id}/test", h.guard.Tenant(PermManage, h.test))
 	r.Handle("GET /api/v1/notification-deliveries", h.guard.Tenant(PermRead, h.deliveries))
 	h.mountLibreNMS(r)
+	r.Handle("POST /api/v1/notification-channels/telegram/bot-validation", h.guard.Tenant(PermManage, h.telegramBot))
+	r.Handle("POST /api/v1/notification-channels/telegram/link-codes", h.guard.Tenant(PermManage, h.telegramLinkCode))
+	r.Handle("POST /api/v1/notification-channels/telegram/chat-detection", h.guard.Tenant(PermManage, h.telegramDetect))
 }
 
 func (h *Handler) fail(w http.ResponseWriter, r *http.Request, err error) {
@@ -68,6 +71,14 @@ func channelJSON(c *Channel) map[string]any {
 	if sub.SiteIDs == nil {
 		sub.SiteIDs = []uuid.UUID{}
 	}
+	if sub.EventTypes == nil {
+		sub.EventTypes = []string{}
+	}
+	if sub.Categories == nil {
+		sub.Categories = []string{}
+	}
+	rec := sub.Recovery()
+	sub.NotifyRecovery = &rec
 	return map[string]any{
 		"id": c.ID, "tenant_id": c.TenantID, "version": c.Version, "created_at": ts(c.CreatedAt), "updated_at": ts(c.UpdatedAt),
 		"name": c.Name, "kind": c.Kind, "enabled": c.Enabled, "config": c.Config, "subscription": sub,
@@ -77,10 +88,16 @@ func channelJSON(c *Channel) map[string]any {
 }
 
 func deliveryJSON(d *Delivery) map[string]any {
+	var summary *string
+	if d.Message != nil && d.Message.Subject != "" {
+		sm := d.Message.Subject
+		summary = &sm
+	}
 	return map[string]any{
 		"id": d.ID, "tenant_id": d.TenantID, "channel_id": d.ChannelID, "channel_kind": d.ChannelKind, "status": d.Status,
 		"event_type": d.EventType, "source_event_type": d.SourceEventType, "source_event_id": d.SourceEventID, "is_test": d.IsTest,
-		"error": d.Error, "created_at": ts(d.CreatedAt), "sent_at": tsPtr(d.SentAt),
+		"error": d.Error, "created_at": ts(d.CreatedAt), "sent_at": tsPtr(d.SentAt), "severity": d.Severity, "summary": summary,
+		"resource_id": d.ResourceID,
 	}
 }
 
@@ -225,7 +242,8 @@ func (h *Handler) connectionTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonapi.Write(w, http.StatusOK, map[string]any{"ok": res.OK, "channel_id": c.ID, "channel_kind": c.Kind, "checked_at": ts(at),
-		"latency_ms": res.LatencyMS, "remote_version": res.RemoteVersion, "error_code": res.ErrorCode, "error": res.Error})
+		"latency_ms": res.LatencyMS, "remote_version": res.RemoteVersion, "error_code": res.ErrorCode, "error": res.Error,
+		"bot_username": res.BotUsername, "chat_title": res.ChatTitle})
 }
 
 func (h *Handler) test(w http.ResponseWriter, r *http.Request) {
@@ -266,4 +284,42 @@ func (h *Handler) deliveries(w http.ResponseWriter, r *http.Request) {
 		data = append(data, deliveryJSON(&rows[i]))
 	}
 	jsonapi.Write(w, http.StatusOK, map[string]any{"data": data, "page": pg})
+}
+
+func (h *Handler) telegramBot(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		BotToken string `json:"bot_token"`
+	}
+	if !jsonapi.Decode(w, r, &in, true) {
+		return
+	}
+	bot, err := h.svc.ValidateTelegramBot(r.Context(), in.BotToken)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	jsonapi.Write(w, http.StatusOK, bot)
+}
+
+func (h *Handler) telegramLinkCode(w http.ResponseWriter, r *http.Request) {
+	lc, err := h.svc.CreateTelegramLinkCode(r.Context())
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	jsonapi.Write(w, http.StatusCreated, map[string]any{"code": lc.Code, "expires_at": ts(lc.ExpiresAt), "bot_username": lc.BotUsername,
+		"start_url": lc.StartURL})
+}
+
+func (h *Handler) telegramDetect(w http.ResponseWriter, r *http.Request) {
+	var in DetectInput
+	if !jsonapi.Decode(w, r, &in, true) {
+		return
+	}
+	res, err := h.svc.DetectTelegramChats(r.Context(), in)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	jsonapi.Write(w, http.StatusOK, map[string]any{"data": res.Chats, "bot_username": res.BotUsername, "shared_bot": res.SharedBot})
 }

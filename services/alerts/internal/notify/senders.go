@@ -1,13 +1,11 @@
 package notify
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -49,6 +47,9 @@ type TestResult struct {
 	RemoteVersion *string
 	ErrorCode     *string
 	Error         *string
+	// Telegram: @usuario del bot y título del chat comprobados.
+	BotUsername *string
+	ChatTitle   *string
 }
 
 func fail(code, msg string) TestResult {
@@ -140,49 +141,6 @@ func (s *Senders) telegramURL(token, method string) string {
 		base = "https://api.telegram.org"
 	}
 	return base + "/bot" + token + "/" + method
-}
-
-func (s *Senders) testTelegram(ctx context.Context, cr Credentials) TestResult {
-	tok := s.telegramToken(cr)
-	if tok == "" {
-		return fail("missing_credentials", "Sin token de bot (propio o de la instalación).")
-	}
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, s.telegramURL(tok, "getMe"), nil)
-	resp, err := s.client(true, 0).Do(req)
-	if err != nil {
-		return classify(scrub(err, tok))
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		if resp.StatusCode == http.StatusNotFound {
-			return fail("auth_failed", "Token de bot rechazado por Telegram.")
-		}
-		return httpStatus(resp.StatusCode)
-	}
-	return TestResult{OK: true}
-}
-
-func (s *Senders) sendTelegram(ctx context.Context, cfg TelegramConfig, cr Credentials, m Message) error {
-	tok := s.telegramToken(cr)
-	if tok == "" {
-		return errors.New("telegram: no bot token")
-	}
-	text := m.Subject + "\n" + m.Text
-	if m.Link != "" {
-		text += "\n" + m.Link
-	}
-	body, _ := json.Marshal(map[string]any{"chat_id": cfg.ChatID, "text": text, "disable_web_page_preview": true})
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, s.telegramURL(tok, "sendMessage"), bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := s.client(true, 0).Do(req)
-	if err != nil {
-		return fmt.Errorf("telegram: %w", scrub(err, tok))
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("telegram: HTTP %d", resp.StatusCode)
-	}
-	return nil
 }
 
 // scrub quita el token de un error de net/http (la URL lo contiene).

@@ -37,6 +37,8 @@
    interfaces) para conservar `since` entre reinicios. Sin NATS, solo memoria.
 6. **Eventos** (`SNMP_EVENTS`, JSON, PubAck): `router.state_changed`, `router.rebooted`,
    `router.interfaces_discovered`, `interface.oper_status_changed`, `poller.heartbeat` (15 s, plataforma).
+   `state_changed`, `rebooted` y `oper_status_changed` llevan `router_name` (y `site_id`/`site_name`, `uplink`,
+   `thresholds`) para que alerts nombre el router en sus mensajes.
    **Telemetría** (`TLM_SNMP`, JSON con el sobre en cabeceras): `horus.telemetry.snmp.device.<router_id>` y
    `…interface.<router_id>`.
 7. **ClickHouse** (`migrations/clickhouse`, tabla de control `snmp.goose_db_version`, usuario `horus_snmp`):
@@ -48,6 +50,12 @@
    `devices.update`; 1 cada 10 s por router → 429; auditado como `snmp.router.poll_requested`).
    Kiosco permitido en las lecturas. En `module.Services`: `api.ServiceRouterStatus` (`RouterStatusReader`
    + `InterfaceLister`) para analytics y el gateway.
+9. **Umbrales por ISP** (`GET|PUT|DELETE /routers/thresholds`; lectura `snmp.read`, escritura `snmp.manage`,
+   auditado `snmp.thresholds.updated|reset`): CPU, memoria y temperatura (aviso y crítico) guardados en PostgreSQL
+   (esquema `snmp`, tabla `router_thresholds` con RLS por tenant). Sin fila rigen los `HORUS_SNMP_*` de la
+   instalación. El sondeador los carga con el rol de plataforma al arrancar y cada minuto; un `PUT` se aplica en
+   caliente en el proceso que lo atiende. Sin `HORUS_POSTGRES_DSN` todos usan los de la instalación y el `PUT`
+   responde 503.
 
 ## Variables de entorno
 
@@ -63,6 +71,9 @@
 | `HORUS_SNMP_CPU_WARNING` / `_CRITICAL` | `80` / `95` | % sostenido 3 ciclos. |
 | `HORUS_SNMP_MEMORY_WARNING` / `_CRITICAL` | `85` / `95` | % sostenido 3 ciclos. |
 | `HORUS_SNMP_TEMPERATURE_WARNING` / `_CRITICAL` | `70` / `85` | °C, 1 ciclo. |
+| `HORUS_POSTGRES_DSN`, `HORUS_POSTGRES_PASSWORD` | — | Umbrales por ISP (esquema `snmp`). Vacío: solo los de la instalación. |
+| `HORUS_SNMP_MIGRATE` | `true` | Aplica las migraciones PostgreSQL de `snmp` al arrancar. |
+| `HORUS_SNMP_DB_APP_ROLE` / `_PLATFORM_ROLE` | `snmp_app` / `snmp_platform` | Roles de RLS. |
 | `HORUS_CLICKHOUSE_DSN`, `HORUS_CLICKHOUSE_PASSWORD` | — | Como el ingester. Sin DSN: sin histórico. |
 | `HORUS_CLICKHOUSE_SNMP_PASSWORD` | — | Usuario `horus_snmp` (escritor); vacío = usuario del DSN. |
 | `HORUS_SNMP_CH_MIGRATE` | `true` | Aplica `snmp.*` al arrancar. |

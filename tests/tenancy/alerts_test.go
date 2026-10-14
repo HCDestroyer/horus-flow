@@ -33,7 +33,11 @@ func (f *fakeRemote) server(t *testing.T) *httptest.Server {
 		f.auth = append(f.auth, r.Header.Get("X-Auth-Token"))
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/getMe"):
-			_, _ = w.Write([]byte(`{"ok":true,"result":{"username":"horus_bot"}}`))
+			_, _ = w.Write([]byte(`{"ok":true,"result":{"id":99,"is_bot":true,"username":"horus_bot"}}`))
+		case strings.HasSuffix(r.URL.Path, "/getChat"):
+			_, _ = w.Write([]byte(`{"ok":true,"result":{"id":-100123,"type":"supergroup","title":"NOC"}}`))
+		case strings.HasSuffix(r.URL.Path, "/getChatMember"):
+			_, _ = w.Write([]byte(`{"ok":true,"result":{"status":"administrator"}}`))
 		case strings.HasSuffix(r.URL.Path, "/sendMessage"):
 			f.messages = append(f.messages, r.URL.Path+" "+string(body))
 			_, _ = w.Write([]byte(`{"ok":true}`))
