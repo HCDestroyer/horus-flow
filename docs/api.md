@@ -716,7 +716,18 @@ Adelantado al I1: `GET/POST /notification-channels`, `GET/PATCH/DELETE /notifica
 `kind`: `email` (SMTP de la instalación, `HORUS_SMTP_*`), `telegram` (bot de la instalación o propio del ISP) y
 **`librenms` por su API (D17)**: configuración manual por ISP con `base_url`, `username`, `tls_verify` y, por
 `…/credentials`, `password` y `api_token` opcional (nunca se devuelven; solo `has_credentials`). Cada ISP tiene sus
-propios canales y credenciales aunque compartan instancia de LibreNMS. Sin syslog ni SNMP trap.
+propios canales y credenciales aunque compartan instancia de LibreNMS. Sin SNMP trap.
+**Horus aprovisiona LibreNMS y le delega el alertado** (D17): `GET /notification-channels/{id}/librenms` (estado y
+objetos con sus ids de LibreNMS), `POST …/librenms/sync` (idempotente, auditado: dispositivo «Horus Flow» solo ICMP,
+grupos estáticos «Horus · Routers» e «Horus · Infraestructura», plantillas y reglas «Horus · »; recrea lo borrado y
+nunca toca objetos ajenos), `POST …/librenms/test` (prueba de extremo a extremo con `failed_step`/`error_code`:
+`auth`, `device`, `rule`, `syslog_send`, `syslog_stored`) y `DELETE …/librenms/devices/{router_id}` (solo dispositivos
+creados por Horus, `409 LIBRENMS_DEVICE_NOT_OWNED`). Cada router necesita una IP de gestión alcanzable desde LibreNMS
+(la del túnel no lo es): `GET /librenms/routers`, `PUT/DELETE /librenms/routers/{router_id}` (modo `ping`,
+`snmp_v2c`, `snmp_v3` o `horus_snmp_v3` con `reuse_horus_snmp_consent`, auditado) y
+`PUT /librenms/routers/{router_id}/snmp-credentials` 🔒 (write-only). Las notificaciones salen como línea de syslog
+`HORUS <SEVERIDAD> <tipo> <asunto> | <texto> | <enlace> | id=<entrega>` por `POST /api/v0/syslogsink` (host = «Horus
+Flow»); sin aprovisionar fallan con `librenms_not_provisioned`. Guía: [`services/alerts/README.md`](../services/alerts/README.md).
 Suscripción por `event_types` (`finding_opened`, `finding_reopened`, `exporter_silent`, `exporter_recovered`,
 `tunnel_down`, `tunnel_recovered`), `min_severity`, `site_ids` y `throttle_minutes`. Los mensajes no llevan la IP del
 cliente salvo `include_personal_data=true` (auditado). Permisos `alerts.read` / `alerts.manage`. Reglas, silencios y
