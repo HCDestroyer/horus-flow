@@ -24,6 +24,26 @@ defaults:
     mcp_token: token MCP (Bearer hmcp_…) del asistente de IA; lo valida assist y actúa como su usuario
 modules:
   alerts:
+    - prefix: /api/v1/librenms/routers
+      scope: tenant
+      methods:
+        GET: alerts.read
+    - prefix: /api/v1/librenms/routers/{router_id}
+      scope: tenant
+      methods:
+        PUT: alerts.manage
+        DELETE: alerts.manage
+      audited:
+        - PUT
+        - DELETE
+    - prefix: /api/v1/librenms/routers/{router_id}/snmp-credentials
+      scope: tenant
+      methods:
+        PUT: alerts.manage
+      reauth:
+        - PUT
+      audited:
+        - PUT
     - prefix: /api/v1/notification-channels
       scope: tenant
       methods:
@@ -48,6 +68,28 @@ modules:
         - PUT
       audited:
         - PUT
+    - prefix: /api/v1/notification-channels/{channel_id}/librenms
+      scope: tenant
+      methods:
+        GET: alerts.read
+    - prefix: /api/v1/notification-channels/{channel_id}/librenms/devices/{router_id}
+      scope: tenant
+      methods:
+        DELETE: alerts.manage
+      audited:
+        - DELETE
+    - prefix: /api/v1/notification-channels/{channel_id}/librenms/sync
+      scope: tenant
+      methods:
+        POST: alerts.manage
+      rate_limit: connection_test
+      audited:
+        - POST
+    - prefix: /api/v1/notification-channels/{channel_id}/librenms/test
+      scope: tenant
+      methods:
+        POST: alerts.manage
+      rate_limit: connection_test
     - prefix: /api/v1/notification-channels/{channel_id}/test
       scope: tenant
       methods:

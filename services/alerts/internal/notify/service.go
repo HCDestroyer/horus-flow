@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -54,6 +55,10 @@ type Service struct {
 	maxAttempts int
 	backoff     []time.Duration
 	lease       time.Duration
+	// Integración con LibreNMS: inventario de devices (perezoso) y un
+	// candado por canal para no sincronizar dos veces a la vez.
+	devices   DevicesLookup
+	syncLocks sync.Map
 }
 
 // NewService crea el servicio.
@@ -697,13 +702,11 @@ func (s *Service) deliver(ctx context.Context, t pgdb.TenantID, c *Channel, d *D
 			_ = json.Unmarshal(c.Config, &tc)
 			err = s.senders.sendTelegram(sctx, tc, cr, m)
 		case KindLibreNMS:
-			var lc LibreNMSConfig
-			_ = json.Unmarshal(c.Config, &lc)
 			et := ""
 			if d.EventType != nil {
 				et = *d.EventType
 			}
-			err = s.senders.sendLibreNMS(sctx, lc, cr, m, et, severity)
+			err = s.sendLibreNMS(sctx, t, c, cr, m, et, severity)
 		}
 		cancel()
 	}

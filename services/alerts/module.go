@@ -26,9 +26,11 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/observability"
 	"github.com/hcdestroyer/horus-flow/packages/go/pagination"
 	"github.com/hcdestroyer/horus-flow/packages/go/pgdb"
+	alertsapi "github.com/hcdestroyer/horus-flow/services/alerts/api"
 	"github.com/hcdestroyer/horus-flow/services/alerts/internal/notify"
 	"github.com/hcdestroyer/horus-flow/services/alerts/migrations"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
+	devapi "github.com/hcdestroyer/horus-flow/services/devices/api"
 )
 
 // Role es el nombre del rol en HORUS_ROLES: reglas, alertas y notificaciones.
@@ -132,6 +134,22 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		},
 		cfg.PublicBaseURL, logger)
 	svc.SetRetry(cfg.MaxAttempts, cfg.RetryBackoff, 0)
+	// Integración con LibreNMS: routers del ISP (IP de gestión) y, con
+	// consentimiento por router, sus credenciales SNMPv3 de Horus.
+	svc.SetDevices(notify.DevicesLookup{
+		Onboarding: func() (devapi.Onboarding, bool) {
+			return module.Lookup[devapi.Onboarding](deps.Services, devapi.ServiceOnboarding)
+		},
+		SNMP: func() (devapi.SNMPCredentialReader, bool) {
+			return module.Lookup[devapi.SNMPCredentialReader](deps.Services, devapi.ServiceSNMPCredentials)
+		},
+	})
+	if deps.Services != nil {
+		if err := deps.Services.Provide(alertsapi.ServiceLibreNMSInfrastructure, alertsapi.LibreNMSInfrastructure(notify.InfraHook{Svc: svc})); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
 	if deps.Health != nil {
 		deps.Health.AddCheck(health.Check{Name: "postgres", Critical: true, Probe: db.Ping})
 	}

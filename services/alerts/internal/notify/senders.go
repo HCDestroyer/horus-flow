@@ -24,14 +24,11 @@ type Message struct {
 	Subject string `json:"subject"`
 	Text    string `json:"text"`
 	Link    string `json:"link,omitempty"`
-	// DeliveryID identifica la entrega (no se guarda con el mensaje): los
-	// canales HTTP la envían en X-Horus-Delivery-Id para que el receptor
-	// descarte el duplicado de un reintento tras un reinicio (D23).
+	// DeliveryID identifica la entrega (no se guarda con el mensaje): en
+	// LibreNMS va al final de la línea de syslog («| id=<entrega>») para
+	// reconocer el duplicado de un reintento tras un reinicio (D23).
 	DeliveryID string `json:"-"`
 }
-
-// HeaderDeliveryID es la cabecera con el id de la entrega (LibreNMS).
-const HeaderDeliveryID = "X-Horus-Delivery-Id"
 
 // SMTPConfig es el SMTP de la instalación (HORUS_SMTP_*; packages/go/mailer).
 type SMTPConfig = mailer.Config
@@ -44,11 +41,6 @@ type Senders struct {
 	HTTPClient     func(tlsVerify bool, timeout time.Duration) *http.Client
 	DefaultTimeout time.Duration
 }
-
-// LibreNMSAlertPath es el recurso de la API de LibreNMS donde Horus deja cada
-// notificación (registro de eventos). Supuesto a validar con la instancia
-// dedicada de la persona (D17).
-const LibreNMSAlertPath = "/api/v0/eventlog"
 
 // TestResult es ConnectionTestResult sin canal ni fecha.
 type TestResult struct {
@@ -244,30 +236,4 @@ func (s *Senders) testLibreNMS(ctx context.Context, cfg LibreNMSConfig, cr Crede
 		res.RemoteVersion = &v
 	}
 	return res
-}
-
-func (s *Senders) sendLibreNMS(ctx context.Context, cfg LibreNMSConfig, cr Credentials, m Message, eventType, severity string) error {
-	if cr.APIToken == "" && cr.Password == "" {
-		return errors.New("librenms: missing credentials")
-	}
-	body, _ := json.Marshal(map[string]any{"type": "horus", "title": m.Subject, "message": m.Text, "link": m.Link,
-		"event_type": eventType, "severity": severity})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cfg.BaseURL+LibreNMSAlertPath, bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("librenms: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if m.DeliveryID != "" {
-		req.Header.Set(HeaderDeliveryID, m.DeliveryID)
-	}
-	librenmsAuth(req, cfg, cr)
-	resp, err := s.client(cfg.TLSVerify == nil || *cfg.TLSVerify, time.Duration(cfg.TimeoutSeconds)*time.Second).Do(req)
-	if err != nil {
-		return fmt.Errorf("librenms: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return fmt.Errorf("librenms: HTTP %d", resp.StatusCode)
-	}
-	return nil
 }
