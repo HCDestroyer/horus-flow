@@ -14,7 +14,7 @@ import (
 
 // Versiones de las reglas de volumen y periodicidad.
 const (
-	RuleDDoS      = "ddos-burst@1"
+	RuleDDoS      = "ddos-burst@2"
 	RuleAmp       = "ddos-amplification@1"
 	RuleSustained = "sustained-upload@1"
 	RuleBeacon    = "beaconing@1"
@@ -45,8 +45,10 @@ type minuteAgg struct {
 	upBytes, downBytes float64
 	dstPkts            map[netip.Addr]float64
 	dstBytes           map[netip.Addr]float64
-	ampPkts            map[uint16]float64
-	ampDsts            map[uint16]map[netip.Addr]bool
+	// dstDownBytes: lo que cada remoto devolvió al cliente ese minuto (respuesta).
+	dstDownBytes map[netip.Addr]float64
+	ampPkts      map[uint16]float64
+	ampDsts      map[uint16]map[netip.Addr]bool
 }
 
 func byMinute(flows []FlowRec, amp []uint16) map[ClientKey]map[int64]*minuteAgg {
@@ -61,14 +63,15 @@ func byMinute(flows []FlowRec, amp []uint16) map[ClientKey]map[int64]*minuteAgg 
 		spread(f.Start, f.End, func(m int64, frac float64) {
 			a := mm[m]
 			if a == nil {
-				a = &minuteAgg{dstPkts: map[netip.Addr]float64{}, dstBytes: map[netip.Addr]float64{}, ampPkts: map[uint16]float64{},
-					ampDsts: map[uint16]map[netip.Addr]bool{}}
+				a = &minuteAgg{dstPkts: map[netip.Addr]float64{}, dstBytes: map[netip.Addr]float64{},
+					dstDownBytes: map[netip.Addr]float64{}, ampPkts: map[uint16]float64{}, ampDsts: map[uint16]map[netip.Addr]bool{}}
 				mm[m] = a
 			}
 			// bytes y packets ya vienen corregidos por el muestreo (el ingester los
 			// escala al guardarlos, traffic-model.md §3): no se vuelven a escalar.
 			if !f.Up {
 				a.downBytes += frac * float64(f.Bytes)
+				a.dstDownBytes[f.Remote] += frac * float64(f.Bytes)
 				return
 			}
 			a.upBytes += frac * float64(f.Bytes)
@@ -164,7 +167,8 @@ func detectDDoS(ctx context.Context, e *env) ([]domain.Candidate, error) {
 			up = append(up, f)
 		}
 	}
-	mins := byMinute(up, p.AmpPorts)
+	// Con la bajada: hace falta saber cuánto responde cada destino (max_response_ratio).
+	mins := byMinute(flows, p.AmpPorts)
 	meta := flowsMeta(up)
 	asns := asnOf(up)
 	site := map[ClientKey]SecurityRow{}
@@ -182,7 +186,7 @@ func detectDDoS(ctx context.Context, e *env) ([]domain.Candidate, error) {
 		targets := map[netip.Addr]float64{}
 		for _, m := range sortedMinutes(mm) {
 			a := mm[m]
-			top := topDests(a.dstPkts, p.MaxTargets)
+			top := topDests(floodTargets(a, p.MaxResponseRatio), p.MaxTargets)
 			var pk, by float64
 			for _, t := range top {
 				pk += a.dstPkts[t]
@@ -225,6 +229,25 @@ func detectDDoS(ctx context.Context, e *env) ([]domain.Candidate, error) {
 		}
 	}
 	return out, nil
+}
+
+// floodTargets devuelve los paquetes de subida por destino quitando los destinos
+// que responden como en una sesión: una descarga rápida genera miles de acuses
+// TCP de ~60 B por segundo hacia uno o dos servidores (el mismo patrón que una
+// inundación vista solo desde la subida), pero ese servidor devuelve decenas de
+// veces más bytes de los que recibe. Una víctima no.
+func floodTargets(a *minuteAgg, maxRatio float64) map[netip.Addr]float64 {
+	if maxRatio <= 0 {
+		return a.dstPkts
+	}
+	out := make(map[netip.Addr]float64, len(a.dstPkts))
+	for t, pk := range a.dstPkts {
+		if a.dstDownBytes[t] >= maxRatio*a.dstBytes[t] {
+			continue
+		}
+		out[t] = pk
+	}
+	return out
 }
 
 func ddosCandidate(e *env, k ClientKey, r SecurityRow, meta FlowRec, targets map[netip.Addr]float64, asns map[netip.Addr]uint32,

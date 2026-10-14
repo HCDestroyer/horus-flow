@@ -72,3 +72,36 @@ func TestDDoSSamplingNotDoubleCounted(t *testing.T) {
 		t.Fatalf("pico = %v", got)
 	}
 }
+
+// withDownload añade, por cada minuto de subida, la bajada que el mismo destino
+// devuelve al cliente (bytes por minuto).
+func withDownload(flows []FlowRec, downBytesPerMinute uint64) []FlowRec {
+	out := append([]FlowRec(nil), flows...)
+	for _, f := range flows {
+		out = append(out, FlowRec{Key: f.Key, Up: false, Remote: f.Remote, RemotePort: f.RemotePort, Protocol: f.Protocol,
+			Start: f.Start, End: f.End, Bytes: downBytesPerMinute, Packets: downBytesPerMinute / 1400, Sampling: f.Sampling})
+	}
+	return out
+}
+
+// Una descarga rápida (500 Mbit/s desde una CDN) hace que el cliente devuelva
+// ~20 000 acuses TCP de 60 B por segundo al mismo servidor: vista solo desde la
+// subida es idéntica a una inundación. El servidor devuelve ~50 veces más bytes
+// de los que recibe, así que no es hallazgo. Una víctima que no responde, sí.
+func TestDDoSIgnoresTCPAcksOfDownloads(t *testing.T) {
+	k := ClientKey{uuid.New(), netip.MustParseAddr("10.20.0.42")}
+	start := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
+	acks := ddosFlows(k, start, 20000, 60, 1)
+	download := uint64(500e6 / 8 * 60) // 500 Mbit/s durante un minuto
+	if got := runDDoS(t, withDownload(acks, download), start); len(got) != 0 {
+		t.Fatalf("los acuses de una descarga generaron %d hallazgos: %v", len(got), got)
+	}
+	// La misma subida sin respuesta (o con una respuesta mínima) sigue siendo ráfaga.
+	if got := runDDoS(t, acks, start); len(got) != 1 {
+		t.Fatalf("inundación sin respuesta: %d hallazgos", len(got))
+	}
+	upPerMinute := uint64(20000 * 60 * 60)
+	if got := runDDoS(t, withDownload(acks, upPerMinute/10), start); len(got) != 1 {
+		t.Fatalf("víctima que apenas responde (10 %%): %d hallazgos", len(got))
+	}
+}

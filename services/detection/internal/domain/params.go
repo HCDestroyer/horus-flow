@@ -110,6 +110,11 @@ type DDoSParams struct {
 	// cuenta como ráfaga (una copia de seguridad llena los paquetes; una
 	// inundación no). 0 = sin filtro.
 	MaxAvgPacketBytes float64 `json:"max_avg_packet_bytes"`
+	// MaxResponseRatio: un destino que en ese minuto devuelve al cliente al menos
+	// esta proporción de los bytes que recibe de él es una sesión (una descarga y
+	// sus acuses TCP, una llamada), no un objetivo de inundación: sus paquetes no
+	// cuentan para la ráfaga. Una víctima de DDoS apenas responde. 0 = sin filtro.
+	MaxResponseRatio float64 `json:"max_response_ratio"`
 	// Amplificación: UDP saliente a 53, 123, 1900, 11211, 19.
 	AmpPorts      []uint16 `json:"amp_ports"`
 	AmpMinPPS     float64  `json:"amp_min_pps"`
@@ -177,7 +182,7 @@ func DefaultParams() Params {
 		WatchPorts: WatchPortsParams{Enabled: true, Window: Duration(5 * time.Minute), MinDestinations: 20,
 			ExcludePorts: []uint16{25}},
 		SMTP: SMTPParams{Enabled: true, Window: Duration(time.Hour), ResidentialServers: 20, CommercialServers: 200},
-		DDoS: DDoSParams{Enabled: true, Window: Duration(5 * time.Minute), MinPPS: 2000, MinMinutes: 2, MaxTargets: 3, MaxAvgPacketBytes: 400,
+		DDoS: DDoSParams{Enabled: true, Window: Duration(5 * time.Minute), MinPPS: 2000, MinMinutes: 2, MaxTargets: 3, MaxAvgPacketBytes: 400, MaxResponseRatio: 2,
 			AmpPorts: []uint16{53, 123, 1900, 11211, 19}, AmpMinPPS: 1000, AmpMinTargets: 20},
 		Beacon: BeaconParams{Enabled: true, Window: Duration(24 * time.Hour), Interval: Duration(time.Hour),
 			MinSpan: Duration(6 * time.Hour), MinConns: 10, MaxCV: 0.2, MaxMeanBytes: 4096,
