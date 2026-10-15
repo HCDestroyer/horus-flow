@@ -152,9 +152,12 @@ func resetSchema(ctx context.Context, t *testing.T, db *sql.DB) {
 	if err := rows.Close(); err != nil {
 		t.Fatal(err)
 	}
+	// snmp (rol snmp) también usa horus_mv como definidor de sus vistas: con un
+	// ClickHouse compartido (accept-i0) hay que borrarla antes que los usuarios.
 	drops = append(drops,
 		"DROP DATABASE IF EXISTS flows SYNC",
 		"DROP DATABASE IF EXISTS dim SYNC",
+		"DROP DATABASE IF EXISTS snmp SYNC",
 	)
 	for _, q := range []string{"user", "role"} {
 		names := queryStrings(ctx, t, db, fmt.Sprintf("SELECT name FROM system.%ss WHERE name LIKE 'horus\\_%%'", q))

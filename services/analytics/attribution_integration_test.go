@@ -22,6 +22,7 @@ import (
 func TestAttributionFromAggregate(t *testing.T) {
 	e := setup(t, flowinv.Data{})
 	now := time.Now().UTC()
+	started := now.Add(-time.Second)
 	in := now.Add(-20 * time.Minute)
 	other := uuid.New() // otro nodo del mismo ISP
 	e.insert([]row{
@@ -74,13 +75,15 @@ func TestAttributionFromAggregate(t *testing.T) {
 	if _, err := db.ExecContext(ctx, "SYSTEM FLUSH LOGS"); err != nil {
 		t.Fatal(err)
 	}
+	// Solo las consultas de esta prueba (su ISP y desde su inicio): con un ClickHouse
+	// compartido (accept-i0) el query_log trae las de otras pruebas y las del propio Horus.
 	var raw, agg uint64
 	if err := db.QueryRowContext(ctx, `SELECT countIf(query LIKE '%flows.flows_raw%'), countIf(query LIKE '%flows.attribution_5m%')
 		FROM system.query_log WHERE type = 'QueryFinish' AND query_kind = 'Select' AND query LIKE '%attribution_status%'
-		AND query NOT LIKE '%query_log%'`).Scan(&raw, &agg); err != nil {
+		AND query NOT LIKE '%query_log%' AND event_time >= ? AND query LIKE ?`, started, "%"+e.tenant.String()+"%").Scan(&raw, &agg); err != nil {
 		t.Fatal(err)
 	}
-	if raw != 0 || agg < 4 {
+	if raw != 0 || agg < 3 { // 1 h del nodo, 1 h del ISP y 24 h (la del otro ISP lleva otro tenant)
 		t.Fatalf("consultas de atribución: %d sobre flows_raw, %d sobre attribution_5m", raw, agg)
 	}
 }
