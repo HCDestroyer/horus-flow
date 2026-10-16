@@ -40,6 +40,9 @@ func run(in, target, src string, speed float64) error {
 	if err != nil {
 		return err
 	}
+	// La captura es de una fecha fija: se desplaza a ahora para que el TTL de
+	// flows_raw (7 días) no descarte sus filas.
+	ds = pcapread.Rebase(ds, time.Now())
 	dst, err := net.ResolveUDPAddr("udp", target)
 	if err != nil {
 		return err

@@ -1,10 +1,12 @@
 package decode
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -222,4 +224,56 @@ func ipfix(seq uint32, sets []byte) []byte {
 	b = binary.BigEndian.AppendUint32(b, seq)
 	b = binary.BigEndian.AppendUint32(b, 0)
 	return append(b, sets...)
+}
+
+// TestRealCaptureRebase: pcapread.Rebase desplaza la captura real al presente
+// sin cambiar nada más: mismos registros y bytes, y cada tiempo (ts, inicio y
+// hora de exportación) se mueve exactamente lo mismo.
+func TestRealCaptureRebase(t *testing.T) {
+	ds, err := pcapread.ReadFile(repo("tests", "fixtures", "mikrotik-real", "ipfix-nat-20s.pcapng"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC)
+	first := append([]byte(nil), ds[0].Payload...)
+	shifted := pcapread.Rebase(ds, start)
+	delta := start.Sub(ds[0].Time.Truncate(time.Second))
+	if !shifted[0].Time.Truncate(time.Second).Equal(start) {
+		t.Fatalf("primer datagrama en %v, quiero %v", shifted[0].Time, start)
+	}
+	orig, moved := New(Options{}), New(Options{})
+	var n int
+	for i := range ds {
+		a, err := orig.Decode("x", ds[i].Payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := moved.Decode("x", shifted[i].Payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !b.Header.ExportTime.Equal(a.Header.ExportTime.Add(delta)) {
+			t.Fatalf("datagrama %d: export %v, quiero %v", i, b.Header.ExportTime, a.Header.ExportTime.Add(delta))
+		}
+		if len(a.Records) != len(b.Records) {
+			t.Fatalf("datagrama %d: %d registros, quiero %d", i, len(b.Records), len(a.Records))
+		}
+		for j := range a.Records {
+			ra, rb := a.Records[j], b.Records[j]
+			if !rb.TS.Equal(ra.TS.Add(delta)) || !rb.FlowStart.Equal(ra.FlowStart.Add(delta)) {
+				t.Fatalf("registro %d/%d: ts %v inicio %v; quiero %v / %v", i, j, rb.TS, rb.FlowStart, ra.TS.Add(delta), ra.FlowStart.Add(delta))
+			}
+			ra.TS, ra.FlowStart, rb.TS, rb.FlowStart = time.Time{}, time.Time{}, time.Time{}, time.Time{}
+			if !reflect.DeepEqual(ra, rb) {
+				t.Fatalf("registro %d/%d cambió además del tiempo:\n%+v\n%+v", i, j, ra, rb)
+			}
+			n++
+		}
+	}
+	if n < 2500 {
+		t.Fatalf("solo %d registros comparados", n)
+	}
+	if !bytes.Equal(ds[0].Payload, first) {
+		t.Fatal("Rebase debe copiar los datagramas, no modificarlos")
+	}
 }

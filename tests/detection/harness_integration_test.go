@@ -88,6 +88,9 @@ type world struct {
 	pg     *pgxpool.Pool // administrador de PostgreSQL
 	det    module.Module
 	env    []string
+	// rebased: desplazamiento aplicado a una captura real (pcapng) para que
+	// sus flujos caigan dentro del TTL de flows_raw.
+	rebased time.Duration
 }
 
 func migrateCH(ctx context.Context, dsn, pw string) error {
@@ -278,6 +281,13 @@ func (w *world) replay(path string, d time.Duration, want int) {
 	ds, err := pcapread.ReadFile(path)
 	if err != nil {
 		w.t.Fatal(err)
+	}
+	if strings.HasSuffix(path, ".pcapng") && len(ds) > 0 {
+		// La captura real es de una fecha fija: se desplaza a ahora para que
+		// el TTL de flows_raw (7 días) no descarte sus filas.
+		rb := pcapread.Rebase(ds, time.Now())
+		w.rebased = rb[0].Time.Sub(ds[0].Time)
+		ds = rb
 	}
 	var tr func(*nats.Msg) *nats.Msg
 	if d != 0 {

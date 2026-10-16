@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -33,11 +34,11 @@ func repo(parts ...string) string { return filepath.Join(append([]string{"..", "
 
 // pipeline es un ClickHouse + NATS + ingester listos para recibir lotes.
 type pipeline struct {
-	t       *testing.T
-	db      *sql.DB
-	js      jetstream.JetStream
-	env     []string
-	tenant  uuid.UUID
+	t      *testing.T
+	db     *sql.DB
+	js     jetstream.JetStream
+	env    []string
+	tenant uuid.UUID
 }
 
 // startPipeline arranca el ingester real con el inventario d.
@@ -96,6 +97,11 @@ func (p *pipeline) replay(capPath string, tr func(*nats.Msg) *nats.Msg) collecto
 	ds, err := pcapread.ReadFile(capPath)
 	if err != nil {
 		p.t.Fatal(err)
+	}
+	if strings.HasSuffix(capPath, ".pcapng") {
+		// La captura real es de una fecha fija: se desplaza a ahora para que
+		// el TTL de flows_raw (7 días) no descarte sus filas.
+		ds = pcapread.Rebase(ds, time.Now())
 	}
 	st, err := collector.Replay(context.Background(), p.env, ds, collector.ReplayOptions{Transform: tr})
 	if err != nil {

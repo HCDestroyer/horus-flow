@@ -283,7 +283,7 @@ func TestRealCaptureInternalScanIsIgnored(t *testing.T) {
 	if internal == 0 {
 		t.Fatal("la captura debería tener tráfico internal")
 	}
-	w.evaluate(exp.Start.Add(time.Duration(exp.Duration)*time.Second + 4*time.Minute))
+	w.evaluate(exp.Start.Add(w.rebased + time.Duration(exp.Duration)*time.Second + 4*time.Minute))
 	if got := w.findings(); len(got) != 0 {
 		for _, f := range got {
 			t.Logf("%s %s", f.key(), f.Summary)
