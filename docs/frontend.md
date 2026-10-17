@@ -132,7 +132,7 @@ SEGURIDAD
 └─ Investigar IP              /t/:slug/security/investigate (IP en el cuerpo)   I2
 GESTIÓN
 ├─ Alertas                    /t/:slug/alerts                                   I3
-└─ Reportes                   /t/:slug/reports                                  I3
+└─ Reportes                   /t/:slug/reports (seguridad semanal PDF/CSV)      I3 (visible desde I1)
 ADMINISTRACIÓN DEL ISP
 ├─ Usuarios y roles           /t/:slug/admin/users                              I0 · I2
 ├─ Pantallas NOC (kioscos)    /t/:slug/admin/kiosks                             I1
@@ -160,6 +160,7 @@ Fuera de la barra: /login · /forgot-password · /reset-password (#token) · /in
 | Tráfico | I1 | `traffic.read` | resumen ✔ |
 | Hallazgos | I1 | `security.findings.read` (gestionar: `security.findings.manage`; evidencia: `security.evidence.read`) | ✔ |
 | Pantallas NOC | I1 | `kiosks.manage` | estado de cada pantalla ✔ |
+| Reportes | I3 (visible desde I1) | `reports.read` con alcance de todo el ISP (generar: `reports.export`; programación: `settings.manage`) | reporte listo/fallido por el topic `me` ✔ |
 | Vista global / Plataforma | I0–I2 | rol `superadmin` | ✔ |
 
 **Navegación transversal:** búsqueda global ⌘K (`UDashboardSearch`): nodos, routers, hallazgos,
@@ -696,6 +697,25 @@ Google o Meta) y qué revisar; la capacidad `classification` aparece en el estad
   router del nodo» (router + puerto de reenvío por chequeo TCP/HTTP).
 - "Script del router" (servidores privados): el usuario elige el router y recibe el script RouterOS para pegarlo
   (Horus nunca escribe en routers), los avisos (ICMP no reenviable) y qué cambia del lado de Horus (nada en el hub).
+
+### 8.6 Reportes (I3, rol reporting)
+
+- Sección **Gestión › Reportes** (`/t/:slug/reports`, `reports.read` con alcance de todo el ISP; `pages/t/[slug]/reports/index.vue`).
+- Tabla de ejecuciones (programadas y a petición, más recientes primero, "Cargar más"): título ("Semana 41 de
+  2026" o "Rango a petición"), periodo en la **zona del ISP** (`dd/mm/aaaa HH:mm`, último minuto incluido), estado
+  con icono + texto (Listo = success; En cola / Generándose = neutro con spinner, sin animación con
+  `prefers-reduced-motion`; Error = error con el motivo; Caducado = archivos borrados por la retención), tamaño,
+  creación y caducidad, y botones **PDF** / **CSV (zip)**.
+- La descarga se pide con el token (`GET /reports/{id}/download`, `parseAs: 'blob'`) y se guarda con un enlace
+  local (`URL.createObjectURL`): nunca una URL compartible ni la IP de un cliente en una URL.
+- «Generar ahora» (`reports.export`): última semana completa o rango de días (desde/hasta incluidos, ≤ 31 días)
+  convertido a instantes UTC en la zona del ISP (`utils/reports.ts`, seguro con cambio de horario), formatos;
+  `Idempotency-Key` por diálogo (reintentar no duplica) y mensaje del cupo de 10 por hora (`429`).
+- Tarjeta **Programación semanal** (`settings.manage`; resto en solo lectura): generar cada semana, día y hora,
+  zona horaria, formatos y destinatarios del aviso por correo (deshabilitado si la instalación no tiene SMTP);
+  `If-Match` y recarga con aviso ante `412`. Muestra la próxima ejecución.
+- Refresco cada 5 s mientras haya reportes en curso (60 s si no) y al llegar `horus.reporting.report.*` por el
+  topic `me` (toast "Reporte listo para descargar").
 
 ### 8.x Asistente de IA
 

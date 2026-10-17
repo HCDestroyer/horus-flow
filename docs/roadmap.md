@@ -323,6 +323,9 @@ Convención: **Dep.** son dependencias duras. Los riesgos se puntúan Probabilid
   (rotación de claves del router, revocación desde la UI, segundo hub, gestión de rangos); reportes programados; destino
   remoto SFTP con verificación de checksum (rclone como candidato).
 - **Se pospone:** WhatsApp/SMS, editor de reglas libre, Excel.
+- **Avance:** reporte semanal de seguridad por ISP en PDF/CSV, programado (lunes 07:00 hora del ISP) y a
+  petición, con descarga autenticada y auditada y aviso por correo opcional: rol `reporting`
+  ([`services/analytics/README.md`](../services/analytics/README.md), [`api.md`](api.md) §2.10 bis).
 - **Criterios:** ninguna alerta duplicada en la prueba de caída de nodo; aviso en < 1 min desde
   el hallazgo; restauración desde la copia SFTP probada.
 - **Riesgos:** (M/A) fatiga de alertas → solo severidad alta por defecto y agrupación por IP/nodo.

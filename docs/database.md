@@ -420,6 +420,17 @@ incluidas): crece con cada alta, edición o baja. `tenant_rule_set`/`tenant_rule
   parametrizada, intervalo de refresco; `dashboard.kiosk_enabled`, `rotation_seconds` para modo NOC,
   D8), `report_definition`, `report_run` (`object_key` en almacenamiento local, `sha256`,
   `expires_at`), `archive_manifest` (ledger de archivado y de copias remotas, [`storage.md`](storage.md)).
+  Implementado en I3 (migración `20261017120000_analytics_reports.sql`, rol `reporting`):
+  - `report_definition`: una por (`tenant_id`, `kind`) (`security_weekly`); `enabled` (por defecto `true`),
+    `weekday` ISO 1–7, `hour`, `minute`, `timezone` IANA (la del ISP), `formats` ⊆ {pdf, csv}, `recipients`
+    (≤ 20 correos del aviso), copia de `tenant_name`/`tenant_slug` del directorio de auth, `version`.
+  - `report_run`: ejecución y cola de trabajo (`status` queued → running → completed | failed, `attempts`,
+    `claimed_until`), `period_from`/`period_to` (semiabierto, UTC) y `timezone`, `formats`, `files` jsonb
+    (`[{format, object_key, sha256, size_bytes}]`, `object_key` relativo a `HORUS_DATA_DIR`: `reports/<tenant_id>/…`),
+    `error`, `created_by` (null = programado), `idempotency_key`, `expires_at` (retención) y `purged_at`
+    (archivos borrados; la fila queda como historial). Unicidad parcial `(definition_id, period_from)` (una
+    ejecución programada por periodo, varias réplicas) y `(tenant_id, created_by, idempotency_key)`.
+  - Ambas con RLS `p_tenant` forzada; el planificador y el worker leen con `analytics_platform`.
 
 ---
 

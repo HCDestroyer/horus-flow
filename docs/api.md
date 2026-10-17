@@ -321,7 +321,7 @@ Valores alineados con [`security.md`](./security.md):
 | `POST /auth/login`, `/auth/mfa/verify`, `/auth/password/*` | 5/min por cuenta + 20/min por IP; bloqueo progresivo según `security.md`. |
 | API autenticada | 600 req/min por sesión (`sid`; ráfaga 100). |
 | Analítica (`/analytics/*`) | 60 req/min por sesión. |
-| Exportaciones / reportes | 10/h por usuario. |
+| Exportaciones / reportes | 10/h por usuario (reportes: lo aplica el rol `reporting` sobre `report_run`; además 10/min por IP en el gateway, cubo `reports`). |
 | **Por tenant** (vecino ruidoso) | API 3.000 req/min y analítica 300 req/min por tenant, sumando usuarios y kioscos; superarlo → `429 TENANT_RATE_LIMITED`. Ajustable por tenant (`platform.tenants.manage`). |
 | Kioscos (§2.12) | 120 req/min por kiosco; sólo `GET` de datos de widgets y configuración. |
 | `POST /kiosk/enroll` | 5/min por IP y 10 intentos fallidos por código (el código se invalida). |
@@ -749,6 +749,22 @@ por tenant y permiso; no hay URLs prefirmadas.
 | Método y ruta | Descripción | Permiso |
 | --- | --- | --- |
 | `GET /reports/{id}/download` · `GET /exports/{id}/download` | Stream del archivo (`Content-Disposition: attachment`, `no-store`). Auditado. Otro tenant → `404`. | `reports.read` / permiso de la exportación |
+
+**Reportes (I3, rol `reporting`; contrato en [`analytics.yaml`](../packages/schemas/openapi/v0/analytics.yaml), tag
+`reports`).** Hoy un tipo: `security_weekly`, el reporte semanal de seguridad del ISP en PDF y CSV. Los reportes cubren
+todo el ISP: los permisos se exigen con alcance de tenant completo (un permiso limitado a nodos → `403`).
+
+| Método y ruta | Descripción | Permiso |
+| --- | --- | --- |
+| `GET /reports` | Ejecuciones (programadas y a petición), más recientes primero, paginadas; filtro `kind`. | `reports.read` |
+| `POST /reports` | Genera a petición → `202` + `Location: /api/v1/reports/{id}`. Sin `from`/`to`: la última semana ISO completa (lunes 00:00 → lunes 00:00) en la zona del ISP; con rango, ≤ 31 días. `Idempotency-Key` **obligatoria** (misma clave del mismo usuario → misma ejecución, `Idempotency-Replayed: true`). 10 por usuario y hora (`429 RATE_LIMITED` + `Retry-After`; lo aplica el rol sobre `report_run`) y cubo por IP `reports` en el gateway. | `reports.export` |
+| `GET /reports/{id}` | Estado (`queued`, `running`, `completed`, `failed` con `error` legible), periodo, archivos (`format`, `size_bytes`, `sha256`), `expires_at`/`expired`. | `reports.read` |
+| `GET /reports/{id}/download?format=pdf\|csv` | Archivo (PDF o zip de CSV) con `Repr-Digest` (SHA-256). Auditado (`reports.download`). No generado → `409 REPORT_NOT_READY`; borrado por la retención → `409 REPORT_EXPIRED`. | `reports.read` |
+| `GET /report-definitions` | Programación por tipo (se crea con los valores por defecto: habilitada, lunes 07:00 en la zona del ISP, PDF y CSV); `next_run_at`, `email_available`. | `reports.read` |
+| `PATCH /report-definitions/{id}` | Merge Patch con `If-Match`: `enabled`, `weekday` (ISO 1–7), `hour`, `minute`, `timezone`, `formats`, `recipients` (≤ 20; aviso por correo con el enlace a la consola, sin adjunto, si hay SMTP). Auditado. | `settings.manage` |
+
+El aviso "reporte listo/fallido" llega por WebSocket (topic `me`, `horus.reporting.report.completed|failed`). La
+capacidad `reports` de `GET /system/status` vale `ok` si el proceso sirve `/api/v1/reports`.
 
 ### 2.10 quater Asistente de IA (`assist`)
 
