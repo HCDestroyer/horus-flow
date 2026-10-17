@@ -95,6 +95,8 @@ Sustituye el copiado manual de URL, token y secreto (§1.1–§1.3), que se mant
    muestra una sola vez:
    `https://<A>/conectar#<codigo>` (el código va en el fragmento, que el navegador no envía en peticiones
    ni deja en registros de servidores).
+   `<A>` es el host público donde A sirve `/api/v1/<prefijo>/conexion/canjear` (en Argos, la API). Si la
+   interfaz vive en otro host, `GET /conectar` de ese host redirige a la interfaz conservando el fragmento.
 2. En el sistema **B**, un administrador pega el enlace en *Conectar con enlace*. B (servidor a servidor):
    ```
    POST https://<A>/api/v1/<prefijo>/conexion/canjear          # Argos: /integraciones/horus · Horus: /integrations/argosisp
@@ -214,9 +216,13 @@ POST /api/v1/integrations/ip-lookup
               "exporter": { "status": "exporting", "last_flow_at": "…" },
               "last_seen_minutes": 2 },
   "security": { "state": "suspected", "open_findings": 1,
-                "findings": [ { "id": "…", "kind": "outbound_scanning", "severity": "high", "opened_at": "…", "summary": "…" } ] } }
+                "findings": [ { "id": "…", "kind": "outbound_scanning", "severity": "high", "opened_at": "…", "summary": "…" } ] },
+  "meta": { "at": "…", "omitted": [ { "block": "security", "reason": "permission" } ] } }
 → 404 si la IP no es de un prefijo de clientes del ISP o nunca se vio.
 ```
+
+`meta.omitted` es siempre una lista de `{ block, reason }` (lista vacía si no se omitió nada); `block` es
+`consumption`, `health` o `security`, y `reason` uno de los motivos de arriba.
 
 Con `external_service_id`, Horus usa la identidad vigente de ese servicio (§2.4) y responde con su IP
 actual; 404 si el servicio no tiene identidad vigente. Así Argos consulta desde la ficha del servicio o
