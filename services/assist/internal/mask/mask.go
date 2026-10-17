@@ -27,11 +27,19 @@ var dropAlways = map[string]bool{
 	"alias": true, "aliases": true, "notes": true, "note": true, "email": true, "phone": true, "contact": true,
 	"rendered_commands": true, "acknowledged_by": true, "created_by": true, "updated_by": true, "actor_id": true,
 	"user_id": true, "public_key": true, "customer_message_rendered": true, "username": true, "password": true,
+	// Identidad en ArgosISP (ADR-0030): ids y usuario PPPoE identifican a la persona.
+	"external_customer_id": true, "external_service_id": true, "user_ppp": true,
 }
 
 // Claves que, dentro de un contexto de cliente, identifican a la persona.
 var dropInCustomer = map[string]bool{
 	"name": true, "label": true, "display_name": true, "description": true, "hostname": true, "mac": true,
+}
+
+// Claves de la identidad en ArgosISP (bloque "external", ADR-0030) que
+// identifican a la persona: se quitan como el alias.
+var dropInExternal = map[string]bool{
+	"customer_id": true, "service_id": true, "code": true, "display_name": true, "plan": true, "name": true,
 }
 
 // Claves que contienen la IP del cliente (en cualquier contexto).
@@ -41,6 +49,9 @@ var customerIPKeys = map[string]bool{
 
 // Claves que abren un contexto de cliente (su contenido es del cliente).
 var customerContextKeys = map[string]bool{"customer": true, "customers": true}
+
+// Claves que abren un bloque de identidad externa (ArgosISP).
+var externalKeys = map[string]bool{"external": true, "external_identity": true, "current": true, "history": true}
 
 var ipLike = regexp.MustCompile(`(?:\d{1,3}\.){3}\d{1,3}(?:/\d{1,2})?|[0-9A-Fa-f]{0,4}(?::[0-9A-Fa-f]{0,4}){2,7}(?:/\d{1,3})?`)
 
@@ -162,6 +173,8 @@ func (m *Masker) walk(v any, customer, infra bool) any {
 				out[k] = m.ipValue(val)
 			case customerContextKeys[lk]:
 				out[k] = m.walk(val, true, false)
+			case externalKeys[lk] && (lk == "external" || lk == "external_identity" || customer):
+				out[k] = m.walk(dropExternal(val), true, false)
 			default:
 				out[k] = m.walk(val, customer, infra)
 			}
@@ -181,6 +194,28 @@ func (m *Masker) walk(v any, customer, infra bool) any {
 	default:
 		return v
 	}
+}
+
+// dropExternal quita de un bloque de identidad externa (o de una lista de
+// ellos) las claves que identifican a la persona.
+func dropExternal(v any) any {
+	switch x := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, val := range x {
+			if !dropInExternal[strings.ToLower(k)] {
+				out[k] = val
+			}
+		}
+		return out
+	case []any:
+		out := make([]any, len(x))
+		for i, e := range x {
+			out[i] = dropExternal(e)
+		}
+		return out
+	}
+	return v
 }
 
 // ipValue seudonimiza el valor de una clave de IP de cliente (texto o lista).

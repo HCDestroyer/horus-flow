@@ -133,6 +133,9 @@ type Customers struct {
 	// InactivityDays y RetentionMonths del ciclo de vida.
 	InactivityDays  int
 	RetentionMonths int
+	// Discovered recibe los clientes recién creados (resolución de su
+	// identidad en ArgosISP en segundo plano; nunca bloquea la ingesta).
+	Discovered func(t pgdb.TenantID, cs []domain.Customer)
 }
 
 // NewCustomers crea el servicio.

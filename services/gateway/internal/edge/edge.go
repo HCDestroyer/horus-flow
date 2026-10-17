@@ -76,8 +76,8 @@ type Options struct {
 	// (nil = 503 para hf_pat_, fail-closed).
 	APITokens authapi.APITokenExchanger
 	Local     Matcher
-	Logger *slog.Logger
-	Now    func() time.Time
+	Logger    *slog.Logger
+	Now       func() time.Time
 	// RateLimits: nombre (x-rate-limit) → peticiones por minuto y por IP.
 	RateLimits map[string]int
 }

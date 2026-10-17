@@ -37,6 +37,11 @@ type Config struct {
 	CustomerInactivityDays  int           `env:"HORUS_DEVICES_CUSTOMER_INACTIVITY_DAYS" envDefault:"30"`
 	CustomerRetentionMonths int           `env:"HORUS_DEVICES_CUSTOMER_RETENTION_MONTHS" envDefault:"25"`
 	CustomerLifecycleEvery  time.Duration `env:"HORUS_DEVICES_CUSTOMER_LIFECYCLE_EVERY" envDefault:"24h"`
+	// Conector ArgosISP (ADR-0030): barrido de identidades (> 6 h) y modo
+	// laboratorio que permite URLs http y destinos privados o loopback.
+	ArgosSweepEvery          time.Duration `env:"HORUS_INTEGRATIONS_SWEEP_EVERY" envDefault:"10m"`
+	IntegrationsAllowPrivate bool          `env:"HORUS_INTEGRATIONS_ALLOW_PRIVATE" envDefault:"false"`
+	ArgosRequestsPerSecond   int           `env:"HORUS_INTEGRATIONS_ARGOS_RPS" envDefault:"10"`
 }
 
 // LogValue implementa slog.LogValuer (sin secretos).
