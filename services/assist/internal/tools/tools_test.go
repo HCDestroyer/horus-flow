@@ -306,20 +306,28 @@ func TestRouterOSCatalogAndAllowed(t *testing.T) {
 		"/system resource print": true,
 		"/ip firewall connection print count-only where src-address~\"10.20.1.5\"": true,
 		"/ping 10.70.0.1 count=5": true,
-		"/tool torch interface=ether2 src-address=10.20.1.5 duration=10":                                                                                                       true,
-		"/ip firewall address-list add list=horus-revisar address=10.20.1.5 comment=\"horus f1\" timeout=1d":                                                                   true,
-		"/ip firewall address-list add list=blocked address=10.20.1.5":                                                                                                         false, // sin etiqueta horus, lista distinta
-		"/ip firewall filter add chain=forward src-address=10.20.1.5 protocol=tcp dst-port=25 action=drop log=yes log-prefix=\"horus-f1\" comment=\"horus f1\" place-before=0": true,
-		"/ip firewall filter add chain=input action=accept":                                                                                                                    false,
-		"/ip firewall filter add chain=forward src-address=10.20.1.5 action=accept comment=\"horus f1\"":                                                                       false, // action fijo = drop
-		"/ip firewall filter remove [find comment=\"horus f1\"]":                                                                                                               true,
-		"/ip firewall filter remove [find chain=forward]":                                                                                                                      false,
-		"/interface ethernet disable ether1":                                                                                                                                   false,
-		"/system reboot":                                                                                                                                                       false,
-		"/ip traffic-flow set enabled=yes interfaces=all":                                                                                                                      true,
-		"/system ntp client set enabled=yes servers=time.cloudflare.com,pool.ntp.org":                                                                                          true,
-		"/user add name=x password=y":                                                                                                                                          false,
-		"echo hola":                                                                                                                                                            false,
+		"/tool torch interface=ether2 src-address=10.20.1.5 duration=10":                                                                                        true,
+		"/ip firewall address-list add list=horus-revisar address=10.20.1.5 comment=\"horus f1\" timeout=1d":                                                    true,
+		"/ip firewall address-list add list=blocked address=10.20.1.5":                                                                                          false, // sin etiqueta horus, lista distinta
+		"/ip firewall filter add chain=forward src-address=10.20.1.5 protocol=tcp dst-port=25 action=drop log=yes log-prefix=\"horus-f1\" comment=\"horus f1\"": true,
+		// place-before=0 ya no está verificado: falla en RouterOS real con la lista vacía o la numeración vieja.
+		"/ip firewall filter add chain=forward src-address=10.20.1.5 protocol=tcp dst-port=25 action=drop log=yes log-prefix=\"horus-f1\" comment=\"horus f1\" place-before=0": false,
+		"/ip firewall filter move [find comment=\"horus f1\"] destination=[:pick [find where comment!=\"horus f1\"] 0]":                                                        true,
+		"/ip traffic-flow target add dst-address=10.255.0.1 port=4739 version=ipfix":                                                                                           true,
+		"/ip traffic-flow target add dst-address=10.255.0.1 port=4739 version=ipfix comment=\"horus\"":                                                                         false, // RouterOS no admite comment
+		"/ip traffic-flow target remove [find dst-address=10.255.0.1 port=4739]":                                                                                               true,
+		"/ip traffic-flow target remove [find comment=\"horus\"]":                                                                                                              false,
+		"/log print": true,
+		"/ip firewall filter add chain=input action=accept":                                              false,
+		"/ip firewall filter add chain=forward src-address=10.20.1.5 action=accept comment=\"horus f1\"": false, // action fijo = drop
+		"/ip firewall filter remove [find comment=\"horus f1\"]":                                         true,
+		"/ip firewall filter remove [find chain=forward]":                                                false,
+		"/interface ethernet disable ether1":                                                             false,
+		"/system reboot":                                                                                 false,
+		"/ip traffic-flow set enabled=yes interfaces=all":                                                true,
+		"/system ntp client set enabled=yes servers=time.cloudflare.com,pool.ntp.org":                    true,
+		"/user add name=x password=y":                                                                    false,
+		"echo hola":                                                                                      false,
 	}
 	for cmd, want := range cases {
 		if got := CommandAllowed(cmd); got != want {
