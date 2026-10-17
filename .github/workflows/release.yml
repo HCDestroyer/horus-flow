@@ -168,7 +168,7 @@ jobs:
           if [ "$DRY_RUN" != true ]; then
             cosign sign-blob --yes --bundle dist/SHA256SUMS.sigstore.json dist/SHA256SUMS
           fi
-          ls -l dist | tee -a "$GITHUB_STEP_SUMMARY"
+          find dist -maxdepth 1 -type f -printf '%s\t%f\n' | sort -k2 | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Artefactos del ensayo
         if: env.DRY_RUN == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
