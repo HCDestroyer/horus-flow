@@ -126,9 +126,14 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 	reader := routeros.Reader{Timeout: cfg.RouterOSTimeout, BaseURL: func(ip string) string {
 		return strings.ReplaceAll(cfg.RouterOSBaseURL, "{ip}", ip)
 	}}
+	// Huella TLS del router: captura en el alta (TOFU, pendiente) y confirmación explícita de un administrador.
+	pins := app.NewTLSPins(store, reader, func() (authapi.AuditRecorder, bool) {
+		return module.Lookup[authapi.AuditRecorder](deps.Services, authapi.ServiceAudit)
+	}, nil, logger)
 	// Sondas netwatch del router (pérdida, latencia y jitter por enlace) para el rol snmp: solo GET y huella fijada.
 	if deps.Services != nil {
-		if err := deps.Services.Provide(devapi.ServiceRouterProbes, devapi.RouterProbeReader(app.NewRouterProbes(store, onboarding, reader))); err != nil {
+		probes := app.NewRouterProbes(store, onboarding, reader).WithTLSPins(pins)
+		if err := deps.Services.Provide(devapi.ServiceRouterProbes, devapi.RouterProbeReader(probes)); err != nil {
 			db.Close()
 			return nil, err
 		}
@@ -136,7 +141,7 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 	importer := app.NewImporter(store, onboarding, reader, exclude,
 		func() (authapi.AuditRecorder, bool) {
 			return module.Lookup[authapi.AuditRecorder](deps.Services, authapi.ServiceAudit)
-		}, nil, logger)
+		}, nil, logger).WithTLSPins(pins)
 	customers := app.NewCustomers(store, pagination.NewCodec([]byte(cfg.CursorKey.Reveal())),
 		func() (authapi.AuditRecorder, bool) {
 			return module.Lookup[authapi.AuditRecorder](deps.Services, authapi.ServiceAudit)
@@ -221,6 +226,7 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		httpapi.New(svc, guard, cfg.PublicBaseURL, logger).WithCredentials(credentials).Mount(deps.Routes)
 		httpapi.NewCredentials(credentials, guard, logger).Mount(deps.Routes)
 		httpapi.NewImport(importer, guard, logger).Mount(deps.Routes)
+		httpapi.NewTLSPins(pins, guard, logger).Mount(deps.Routes)
 		httpapi.NewCustomers(customers, guard, logger).Mount(deps.Routes)
 		httpapi.NewAsnRules(app.NewAsnRules(store, nil, nil), guard, cfg.PublicBaseURL, logger).Mount(deps.Routes)
 		httpapi.NewIntegrations(integrations, guard, logger).Mount(deps.Routes)

@@ -13,6 +13,7 @@ import type { MockTenant } from './data'
 import { assistRoute } from './assist'
 import { detectionSettingsRoute } from './detection-settings'
 import { deviceRoutes } from './devices'
+import { tlsPinOf, tlsPinRoute } from './tls-pins'
 import { evidenceFlows, findFinding, findingsOf, securitySummary, sortFindings } from './findings'
 import {
   forbidden,
@@ -755,6 +756,8 @@ function inventoryRoutes(ctx: TenantRouteContext): Response | undefined {
   const item = routers().find((r) => r.router.id === routerMatch[1])
   if (!item) return notFound('ROUTER_NOT_FOUND')
 
+  const pinRes = tlsPinRoute(ctx, item)
+  if (pinRes) return pinRes
   if (match(ctx, 'GET', '/routers/{id}')) return json(item.router, 200, etag(item.router.version))
   if (match(ctx, 'GET', '/flow-exporters/{id}')) return json(item.exporter)
   if (match(ctx, 'POST', '/routers/{id}/provisioning-script')) {
@@ -791,6 +794,14 @@ function inventoryRoutes(ctx: TenantRouteContext): Response | undefined {
     if (!ctx.can('sites.update')) return forbidden()
     if (item.router.onboarding_state === 'pending_configuration') {
       return problem(502, 'ROUTER_UNREACHABLE', 'El router no responde por el túnel')
+    }
+    // Horus solo lee el router con la huella TLS confirmada por un administrador.
+    const pin = tlsPinOf(item, now)
+    if (pin.status === 'pending_confirmation' || pin.status === 'not_captured') {
+      return problem(409, 'ROUTER_TLS_FINGERPRINT_UNCONFIRMED', 'Confirme la huella TLS del router')
+    }
+    if (pin.status === 'changed') {
+      return problem(409, 'ROUTER_TLS_FINGERPRINT_CHANGED', 'La huella TLS del router cambió')
     }
     return json(prefixImportPreview(tenant, item, now))
   }

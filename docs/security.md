@@ -842,8 +842,12 @@ o USB cifrado en caja fuerte), cifrada con age; procedimiento en
   ambas sólo dentro del túnel WireGuard; nunca `api` 8728 ni `www` en claro. Usuario dedicado
   `horus-ro` en un grupo de **solo lectura** (políticas `read`, `api`, `rest-api`; sin `write`,
   `policy`, `sensitive`, `password`, `ftp`, `winbox`, `web`, `ssh`), con `address=` = red de
-  servicios de Horus. Certificado del router fijado en el primer contacto (TOFU con confirmación) o
-  firmado por la CA del ISP; el cliente de Horus **no** desactiva la verificación TLS en silencio.
+  servicios de Horus. Certificado del router fijado por huella SHA-256 (TOFU **con confirmación
+  explícita**: la captura del alta es solo el saludo TLS y queda pendiente; un administrador con
+  `devices.credentials.write` y re-autenticación la confirma; una huella distinta de la fijada detiene
+  las lecturas, avisa en la ficha del router y nunca se acepta sola; las tres acciones se auditan) o
+  firmado por la CA del ISP; el cliente de Horus **no** desactiva la verificación TLS en silencio y
+  nunca envía la contraseña de solo lectura a un certificado sin confirmar.
   Contraseña de ≥ 24 caracteres aleatoria generada por Horus y entregada dentro del script de alta
   `.rsc` (que por eso es `no-store`, se genera bajo re-auth y caduca con el token de enrolamiento).
 - **SSH:** no se usa en v1.

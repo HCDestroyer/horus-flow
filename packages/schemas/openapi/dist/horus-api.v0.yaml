@@ -8951,9 +8951,11 @@ paths:
       operationId: previewRouterPrefixImport
       summary: Lee del MikroTik (REST, solo lectura) pools y redes de cara al cliente y propone prefijos
       description: |
-        No aplica nada (I1-28). Usa el usuario de solo lectura por el túnel; solo métodos GET hacia RouterOS.
-        Router inalcanzable → `502 ROUTER_UNREACHABLE`; huella TLS distinta → `409 ROUTER_TLS_FINGERPRINT_CHANGED`
-        (requiere confirmación explícita, auditada).
+        No aplica nada (I1-28). Usa el usuario de solo lectura por el túnel; solo métodos GET hacia RouterOS y solo con la
+        huella TLS ya confirmada por un administrador. Router inalcanzable → `502 ROUTER_UNREACHABLE`; huella sin confirmar →
+        `409 ROUTER_TLS_FINGERPRINT_UNCONFIRMED` (la captura queda pendiente, sin enviar la contraseña); huella distinta de la
+        fijada → `409 ROUTER_TLS_FINGERPRINT_CHANGED` (queda pendiente). En ambos casos se confirma con
+        `POST /routers/{router_id}/tls-fingerprint/confirm`.
       x-module: devices
       x-scope: tenant
       x-permission: sites.update
@@ -8970,7 +8972,8 @@ paths:
                   type:
                     - string
                     - 'null'
-                  description: Huella nueva que el admin confirma.
+                  deprecated: true
+                  description: Obsoleto y sin efecto; la huella se confirma con `POST /routers/{router_id}/tls-fingerprint/confirm`.
       responses:
         '200':
           description: Propuesta.
@@ -9063,6 +9066,124 @@ paths:
           $ref: '#/components/responses/UnprocessableEntity'
         '428':
           $ref: '#/components/responses/PreconditionRequired'
+  /routers/{router_id}/tls-fingerprint:
+    parameters:
+      - $ref: '#/components/parameters/RouterId'
+    get:
+      tags:
+        - routers
+      operationId: getRouterTlsFingerprint
+      summary: Huella TLS del router (fijada, pendiente de confirmar o cambiada)
+      description: |
+        Las lecturas REST de solo lectura del router (importación de prefijos, sondas netwatch) exigen una huella confirmada
+        por un administrador. Una huella observada en el alta (TOFU) o distinta de la fijada queda pendiente y nunca se
+        acepta sola.
+      x-module: devices
+      x-scope: tenant
+      x-permission: devices.read
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Estado de la huella.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RouterTlsFingerprint'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /routers/{router_id}/tls-fingerprint/capture:
+    parameters:
+      - $ref: '#/components/parameters/RouterId'
+    post:
+      tags:
+        - routers
+      operationId: captureRouterTlsFingerprint
+      summary: Lee la huella del certificado del router por el túnel (queda pendiente de confirmar)
+      description: |
+        Solo el saludo TLS con el servicio `www-ssl` del router: no envía peticiones HTTP ni la contraseña del usuario de
+        solo lectura. Si coincide con la fijada no queda nada pendiente; si no, queda pendiente (`changed` si ya había una
+        fijada; auditado). Sin túnel o router caído → `502 ROUTER_UNREACHABLE`.
+      x-module: devices
+      x-scope: tenant
+      x-permission: devices.update
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Estado de la huella tras la lectura.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RouterTlsFingerprint'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '502':
+          description: Router inalcanzable por el túnel.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /routers/{router_id}/tls-fingerprint/confirm:
+    parameters:
+      - $ref: '#/components/parameters/RouterId'
+    post:
+      tags:
+        - routers
+      operationId: confirmRouterTlsFingerprint
+      summary: Un administrador confirma (o vuelve a fijar) la huella pendiente
+      description: |
+        `fingerprint_sha256` debe ser exactamente la huella pendiente que muestra la consola; si no hay pendiente o no
+        coincide → `409 ROUTER_TLS_FINGERPRINT_MISMATCH`. Requiere re-autenticación reciente. Auditado como
+        `devices.router.tls_fingerprint_confirmed` (primera) o `devices.router.tls_fingerprint_repinned` (con la anterior).
+      x-module: devices
+      x-scope: tenant
+      x-permission: devices.credentials.write
+      x-reauth: true
+      x-audited: true
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - fingerprint_sha256
+              additionalProperties: false
+              properties:
+                fingerprint_sha256:
+                  type: string
+                  description: SHA-256 del certificado en hexadecimal (64 dígitos, con o sin `:`).
+                  examples:
+                    - AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99
+      responses:
+        '200':
+          description: Huella fijada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RouterTlsFingerprint'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
   /security/summary:
     get:
       tags:
@@ -10028,6 +10149,8 @@ components:
             - ROUTEROS_VERSION_UNSUPPORTED
             - ROUTER_UNREACHABLE
             - ROUTER_TLS_FINGERPRINT_CHANGED
+            - ROUTER_TLS_FINGERPRINT_UNCONFIRMED
+            - ROUTER_TLS_FINGERPRINT_MISMATCH
             - SITE_NOT_FOUND
             - SITE_NOT_EMPTY
             - PEER_ALREADY_REVOKED
@@ -19802,6 +19925,73 @@ components:
                 oneOf:
                   - $ref: '#/components/schemas/Uuid'
                   - type: 'null'
+    RouterTlsFingerprint:
+      type: object
+      description: |
+        Huella TLS (SHA-256 del certificado, `AA:BB:…`) del servicio REST del router. `not_captured`: aún no leída;
+        `pending_confirmation`: observada en el alta, falta que un administrador la confirme; `confirmed`: fijada;
+        `changed`: el router presenta otra distinta de la fijada (lecturas detenidas hasta volver a fijarla).
+      required:
+        - router_id
+        - status
+        - pinned_sha256
+        - observed_sha256
+        - observed_at
+        - confirmed_at
+        - confirmed_by
+        - last_result
+        - last_used_at
+      properties:
+        router_id:
+          $ref: '#/components/schemas/Uuid'
+        status:
+          type: string
+          enum:
+            - not_captured
+            - pending_confirmation
+            - confirmed
+            - changed
+        pinned_sha256:
+          type:
+            - string
+            - 'null'
+          description: Huella fijada (la única con la que se leen datos).
+        observed_sha256:
+          type:
+            - string
+            - 'null'
+          description: Huella observada pendiente de confirmación.
+        observed_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        confirmed_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: Null en huellas fijadas antes de la confirmación explícita.
+        confirmed_by:
+          type:
+            - string
+            - 'null'
+          description: Id del usuario que confirmó la huella.
+        last_result:
+          type:
+            - string
+            - 'null'
+          enum:
+            - ok
+            - auth_failed
+            - unreachable
+            - tls_fingerprint_changed
+            - null
+        last_used_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
     SecuritySummary:
       type: object
       required:

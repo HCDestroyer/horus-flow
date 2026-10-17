@@ -445,6 +445,14 @@ useHead({ title: () => rt.value?.name ?? t('router.title') })
         </div>
       </UCard>
 
+      <RouterTlsFingerprint
+        v-if="can('devices.read')"
+        :key="`tls-banner-${rt.id}`"
+        :router="rt"
+        compact
+        @review="tab = 'credentials'"
+      />
+
       <UTabs v-model="tab" :items="tabs" :content="false" variant="link" class="w-full" />
 
       <div
@@ -484,6 +492,7 @@ useHead({ title: () => rt.value?.name ?? t('router.title') })
           :discovery="site?.discovery_mode ?? false"
           @refresh="refreshAll"
         />
+        <RouterTlsFingerprint v-if="rt.onboarding_state !== 'pending_configuration'" :router="rt" />
         <UCard data-testid="next-steps">
           <div class="flex flex-col gap-3">
             <h2 class="text-highlighted font-semibold">{{ t('devices.steps.next') }}</h2>
@@ -498,11 +507,11 @@ useHead({ title: () => rt.value?.name ?? t('router.title') })
           </div>
         </UCard>
       </template>
-      <RouterCredentials
-        v-else-if="tab === 'credentials'"
-        :router="rt"
-        @refresh="refreshRouter()"
-      />
+      <template v-else-if="tab === 'credentials'">
+        <!-- La huella se comparte con el aviso de la cabecera (misma clave de useTenantQuery). -->
+        <RouterTlsFingerprint :router="rt" />
+        <RouterCredentials :router="rt" @refresh="refreshRouter()" />
+      </template>
       <PrefixesPanel
         v-else-if="tab === 'prefixes'"
         :site-id="rt.site_id"

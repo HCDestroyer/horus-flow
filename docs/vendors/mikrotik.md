@@ -363,8 +363,21 @@ sigue siendo la IP; usuario PPPoE, MAC y hostname se guardan como alias con rete
 ### 4.3 TLS
 
 - El router necesita un certificado para `www-ssl` y `api-ssl`. Opción v1: certificado
-  **autofirmado** generado en el router por el script (§7) y **fijado por huella** en Horus
-  (TOFU: Horus registra el SHA-256 en el primer contacto por el túnel y alerta si cambia).
+  **autofirmado** generado en el router por el script (§7) y **fijado por huella** en Horus:
+  - **Captura (TOFU):** en el alta (ficha del router › Conexión o Credenciales, «Leer huella»;
+    también la primera lectura en segundo plano o la importación de prefijos) Horus hace **solo el
+    saludo TLS** por el túnel y guarda el SHA-256 del certificado como **pendiente**. No envía
+    ninguna petición ni la contraseña del usuario de solo lectura a un certificado sin confirmar.
+  - **Confirmación:** un administrador (`devices.credentials.write`, re-autenticado) compara el
+    SHA-256 que muestra la consola con el del router (`/certificate print detail` → `fingerprint`
+    del certificado de `www-ssl`) y pulsa «Confirmar huella» (`POST /routers/{id}/tls-fingerprint/confirm`,
+    auditado como `devices.router.tls_fingerprint_confirmed`). Hasta entonces Horus no lee nada
+    del router por REST (sondas netwatch e importación devuelven «huella sin confirmar»).
+  - **Cambio:** si el router presenta otra huella (certificado regenerado o un intermediario), las
+    lecturas se detienen, la nueva queda pendiente (`status: changed`, auditado como
+    `devices.router.tls_fingerprint_changed`) y la ficha del router muestra un aviso. **Nunca se
+    acepta sola:** volver a fijarla es la misma acción explícita del administrador
+    (`devices.router.tls_fingerprint_repinned`, con la huella anterior).
 - Opción posterior: Horus actúa de CA interna y firma un CSR del router.
 - Restringir servicios: `www-ssl` y `api-ssl` solo desde `<HORUS_SERVICES_CIDR>`; `api` (8728) y
   `www` (80) deshabilitados o restringidos; telnet/ftp deshabilitados (higiene general, decisión del

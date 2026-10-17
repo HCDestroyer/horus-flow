@@ -1339,7 +1339,18 @@
         "exists": "Ya existe",
         "overlaps": "Solapa con uno existente"
       },
-      "existsAs": "Ya registrado como {role}"
+      "existsAs": "Ya registrado como {role}",
+      "pin": {
+        "review": "Revisar la huella",
+        "ROUTER_TLS_FINGERPRINT_UNCONFIRMED": {
+          "title": "Confirma primero la huella TLS del router",
+          "body": "Horus ya leyó el certificado del router, pero no lo leerá hasta que un administrador compare y confirme su huella SHA-256."
+        },
+        "ROUTER_TLS_FINGERPRINT_CHANGED": {
+          "title": "La huella TLS del router cambió",
+          "body": "El router presenta un certificado distinto del confirmado. Horus no lo lee hasta que un administrador revise la huella nueva y la vuelva a fijar."
+        }
+      }
     },
     "confirm": {
       "pending": "Sin confirmar",
@@ -3990,5 +4001,48 @@
     "secretTitle": "Trátalo como una contraseña",
     "secretBody": "Sirve una sola vez y caduca en 15 minutos. Si lo compartiste por error, genera otro en Horus: el anterior deja de valer.",
     "home": "Ir a Horus Flow"
+  },
+  "tlsPin": {
+    "title": "Huella TLS de la API",
+    "body": "Horus solo lee el router por su API REST si la huella SHA-256 de su certificado está confirmada. Así nadie puede hacerse pasar por el router y recibir la contraseña de solo lectura.",
+    "status": {
+      "not_captured": "Sin leer",
+      "pending_confirmation": "Pendiente de confirmar",
+      "confirmed": "Confirmada",
+      "changed": "Cambió"
+    },
+    "pinned": "Huella confirmada (SHA-256)",
+    "observed": "Huella leída del router (SHA-256)",
+    "observedNew": "Huella nueva que presenta el router (SHA-256)",
+    "observedAt": "leída",
+    "confirmedAt": "confirmada",
+    "notCaptured": "Aún no se ha leído el certificado del router. «Leer huella» solo hace el saludo TLS: no envía la contraseña.",
+    "needsTunnel": "Disponible cuando el router tenga túnel con Horus.",
+    "howToCompare": "Compárala con la del router antes de confirmar: en RouterOS, /certificate print detail (fingerprint del certificado de www-ssl).",
+    "capture": "Leer huella",
+    "recapture": "Volver a leer",
+    "confirm": "Confirmar huella",
+    "repin": "Fijar la huella nueva",
+    "confirmDescription": "Confirma solo si coincide con la que muestra el router. Queda registrado en la auditoría.",
+    "confirmSubmit": "Confirmar huella",
+    "repinWarning": "Sustituye a la huella confirmada {previous}. Si no esperabas un cambio de certificado (p. ej. no regeneraste el de www-ssl), no la fijes y revisa el túnel.",
+    "confirmed": "Huella TLS confirmada",
+    "mismatch": "La huella del router cambió mientras confirmabas: revisa la nueva antes de confirmar.",
+    "unreachable": "Horus no pudo hacer el saludo TLS con el router por el túnel.",
+    "reauth": "Confirma tu identidad para fijar la huella TLS del router.",
+    "reauthCancelled": "Sin confirmar tu identidad la huella no se fija.",
+    "noPermission": "Un administrador con permiso de credenciales debe confirmar la huella.",
+    "changedBody": "Horus dejó de leer el router (sondas netwatch e importación) hasta que un administrador revise y fije la huella nueva. Nunca se acepta sola.",
+    "review": "Revisar huella",
+    "banner": {
+      "pending_confirmation": {
+        "title": "Huella TLS pendiente de confirmar",
+        "body": "Horus no lee el router por su API hasta que un administrador confirme la huella de su certificado."
+      },
+      "changed": {
+        "title": "La huella TLS del router cambió",
+        "body": "El router presenta un certificado distinto del confirmado: las lecturas por la API están detenidas."
+      }
+    }
   }
 }

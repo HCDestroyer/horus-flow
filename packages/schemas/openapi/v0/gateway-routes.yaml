@@ -865,6 +865,22 @@ modules:
       scope: tenant
       methods:
         POST: sites.update
+    - prefix: /api/v1/routers/{router_id}/tls-fingerprint
+      scope: tenant
+      methods:
+        GET: devices.read
+    - prefix: /api/v1/routers/{router_id}/tls-fingerprint/capture
+      scope: tenant
+      methods:
+        POST: devices.update
+    - prefix: /api/v1/routers/{router_id}/tls-fingerprint/confirm
+      scope: tenant
+      methods:
+        POST: devices.credentials.write
+      reauth:
+        - POST
+      audited:
+        - POST
     - prefix: /api/v1/sites
       scope: tenant
       methods:

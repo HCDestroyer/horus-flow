@@ -90,6 +90,7 @@ export type ClientPrefix = Schemas['ClientPrefix']
 export type ClientPrefixInput = Schemas['ClientPrefixInput']
 export type ClientPrefixRole = Schemas['ClientPrefixRole']
 export type PrefixImportPreview = Schemas['PrefixImportPreview']
+export type RouterTlsFingerprint = Schemas['RouterTlsFingerprint']
 export type PrefixImportItem = PrefixImportPreview['items'][number]
 export type PrefixProposal =
   operations['listPrefixProposals']['responses'][200]['content']['application/json']['data'][number]

@@ -694,6 +694,12 @@ Google o Meta) y qué revisar; la capacidad `classification` aparece en el estad
      (p. ej. `10.20.0.0/24 · 212 IPs vistas · 41 GB`) con "Aceptar como Clientes", "Marcar como
      Infraestructura" o "Excluir".
   Quitar o reducir un prefijo avisa de cuántos clientes pasarán a *Inactivo*.
+- **Huella TLS** (`RouterTlsFingerprint`, en Conexión tras el túnel y en Credenciales): estado
+  (*Sin leer*, *Pendiente de confirmar*, *Confirmada*, *Cambió*), SHA-256 fijado y observado,
+  «Leer huella» (`devices.update`; solo el saludo TLS) y «Confirmar huella» / «Fijar la huella nueva»
+  (`devices.credentials.write`, diálogo con el SHA-256 completo y `ReauthModal`). Pendiente o
+  cambiada → aviso en la cabecera de la ficha («Revisar huella») y la importación del MikroTik
+  muestra el aviso en lugar de leer el router.
 - "Script de desinstalación" en "Más".
 
 ### 8.5 Servicios de infraestructura (I2, rol snmp)
