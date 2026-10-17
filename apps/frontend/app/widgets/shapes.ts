@@ -7,7 +7,9 @@
  * `traffic.summary`). Pendiente de fijarlas en C9 (ver README › Pendientes).
  */
 import type {
+  CapacityForecastLevel,
   FlowExporterState,
+  HealthStatus,
   RouterEffectiveStatus,
   SecurityState,
   Severity,
@@ -142,4 +144,21 @@ export interface RouterStatusRow {
   tunnel_state: string | null
   interfaces_up: number | null
   interfaces_total: number | null
+}
+
+/**
+ * `site_health` (table): salud explicable por nodo del rol snmp (capacidad de enlaces).
+ * `worst_util_p95` es proporción (0..1+); `worst_loss_pct`, porcentaje.
+ */
+export interface SiteHealthRow {
+  site: string
+  site_id: string
+  status: HealthStatus
+  summary: string
+  uplinks: number
+  uplinks_down: number
+  worst_util_p95: number | null
+  worst_loss_pct: number | null
+  forecast_level: CapacityForecastLevel | null
+  next_crossing: string | null
 }

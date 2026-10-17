@@ -25,7 +25,7 @@ var ErrCapacityUnavailable = errors.New("analytics: snmp capacity not available 
 // que espera el frontend (apps/frontend/app/widgets/shapes.ts, SiteHealthRow).
 var siteHealthColumns = []tw.Column{
 	{Key: "site", Type: "string"}, {Key: "site_id", Type: "string"}, {Key: "status", Type: "state"}, {Key: "summary", Type: "string"},
-	{Key: "uplinks", Type: "number"}, {Key: "uplinks_down", Type: "number"}, {Key: "worst_util_p95", Type: "number"},
+	{Key: "uplinks", Type: "number"}, {Key: "uplinks_down", Type: "number"}, {Key: "worst_util_p95", Type: "percent"},
 	{Key: "worst_loss_pct", Type: "number"}, {Key: "forecast_level", Type: "string"}, {Key: "next_crossing", Type: "timestamp"},
 }
 

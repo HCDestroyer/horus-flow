@@ -54,6 +54,7 @@ import {
   analyticsMeta as seriesMeta,
   rangeMs,
 } from './analytics-meta'
+import { capacityRoutes } from './capacity'
 import { infraServiceRoutes } from './infra-services'
 import { integrationsRoute } from './integrations'
 import { reportRoutes } from './reports'
@@ -1160,6 +1161,7 @@ export function tenantRoute(ctx: TenantRouteContext): Response | undefined {
     findingRoutes(ctx) ??
     deviceRoutes(ctx) ??
     snmpRoutes(ctx) ??
+    capacityRoutes(ctx) ??
     infraServiceRoutes(ctx) ??
     inventoryRoutes(ctx) ??
     classificationRoute(ctx) ??

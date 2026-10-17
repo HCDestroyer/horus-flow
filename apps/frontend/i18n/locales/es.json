@@ -87,7 +87,8 @@
       "ai": "Inteligencia artificial",
       "routers": "Salud de routers",
       "infraServices": "Servicios de infraestructura",
-      "integrations": "Integraciones"
+      "integrations": "Integraciones",
+      "capacity": "Capacidad"
     },
     "search": "Buscar",
     "searchPlaceholder": "Buscar secciones…",
@@ -235,6 +236,9 @@
     },
     "infra-services": {
       "question": "¿Responden mis servidores de IPTV, web, DNS y RADIUS?"
+    },
+    "capacity": {
+      "question": "¿Qué enlace se llena o pierde paquetes y cuándo toca ampliar?"
     }
   },
   "account": {
@@ -547,6 +551,15 @@
       "empty": "Ningún router monitoreado todavía.",
       "summary": "{ok} de {total} en línea",
       "listLabel": "Estado de routers"
+    },
+    "site_health": {
+      "description": "Muestra la salud de cada nodo con su razón: enlaces caídos, saturación, pérdida, latencia y el pronóstico de capacidad.",
+      "empty": "Ningún nodo con enlaces o routers observados todavía.",
+      "summary": "{ok} de {total} sanos",
+      "listLabel": "Salud de los nodos",
+      "p95": "p95",
+      "down": "{n} enlace caído | {n} enlaces caídos",
+      "crossing": "upgrade hacia {date}"
     }
   },
   "common": {
@@ -2015,7 +2028,13 @@
       "tunnel_down": "Túnel caído",
       "tunnel_recovered": "Túnel recuperado",
       "finding_resolved": "Hallazgo resuelto",
-      "customer_security_state_changed": "Cambio de estado de seguridad de un cliente"
+      "customer_security_state_changed": "Cambio de estado de seguridad de un cliente",
+      "uplink_saturated": "Enlace saturado",
+      "uplink_degraded": "Pérdida o latencia en un enlace",
+      "uplink_recovered": "Enlace normalizado",
+      "capacity_forecast_planning": "Planificar capacidad",
+      "capacity_forecast_urgent": "Capacidad urgente",
+      "capacity_forecast_cleared": "Capacidad sin urgencia"
     },
     "form": {
       "title": "Nuevo canal de notificación",
@@ -2086,6 +2105,10 @@
       "security_updates": {
         "label": "Seguridad: resoluciones y estado",
         "help": "Hallazgos resueltos y cambios del estado de seguridad de un cliente (para integraciones como ArgosISP)."
+      },
+      "capacity": {
+        "label": "Capacidad",
+        "help": "Enlaces de subida saturados o con pérdida/latencia sostenidas y pronósticos que cruzan el umbral de planificación o el urgente."
       }
     },
     "deliveries": {
@@ -3628,6 +3651,241 @@
       "secret": "Secreto del webhook",
       "secretShown": "Copia el secreto ahora: no se volverá a mostrar. El anterior sigue valiendo 24 h.",
       "rotate": "Generar secreto"
+    }
+  },
+  "capacity": {
+    "title": "Capacidad",
+    "intro": "Salud de cada nodo y de sus enlaces de subida: utilización sobre la capacidad contratada, horas cerca del límite, pérdida y latencia hacia el proveedor y cuándo tocará ampliar. Horus solo lee: las sondas del router las crea usted.",
+    "noHistory": "Sin histórico (ClickHouse no disponible): solo datos en vivo, sin p95 ni pronósticos.",
+    "empty": "Todavía no hay enlaces de subida observados",
+    "emptyHint": "Cuando el sondeador lea los routers por SNMP aparecerá su enlace de subida; también puede configurar otras interfaces como enlace.",
+    "noSite": "Sin nodo",
+    "noUplinks": "Sin enlaces de subida detectados ni configurados en este nodo.",
+    "footnote": "{n} enlaces. p95 = pico diario (percentil 95 de las medias de 5 min); fechas en UTC.",
+    "egressBadge": "Salida internacional",
+    "detectedOnly": "Solo detectado",
+    "down": "Caído",
+    "noProbe": "Sin sonda",
+    "health": {
+      "online": "Sano",
+      "warning": "Aviso",
+      "degraded": "Degradado",
+      "critical": "Crítico",
+      "offline": "Fuera de servicio",
+      "unknown": "Sin datos"
+    },
+    "kind": {
+      "international_transit": "Tránsito internacional",
+      "local_ix": "IX local",
+      "cache": "Cachés",
+      "other": "Otro"
+    },
+    "window": {
+      "1": "Hoy",
+      "7": "Últimos 7 días",
+      "30": "Últimos 30 días"
+    },
+    "filters": {
+      "site": "Nodo",
+      "window": "Ventana",
+      "series": "Periodo de la serie"
+    },
+    "egress": {
+      "title": "Salida internacional",
+      "members": "Suma de {n} enlace | Suma de {n} enlaces",
+      "detail": "Ver pronóstico",
+      "capacity": "Capacidad agregada",
+      "intro": "Suma intervalo a intervalo de {n} enlace marcado como salida internacional. | Suma intervalo a intervalo de los {n} enlaces marcados como salida internacional."
+    },
+    "table": {
+      "caption": "Enlaces de subida del nodo",
+      "uplink": "Enlace",
+      "now": "Ahora",
+      "p95": "Pico p95",
+      "hours": "Horas > {warn} · > {crit}",
+      "quality": "Pérdida · RTT · jitter",
+      "capacity": "Capacidad",
+      "forecast": "Pronóstico",
+      "actions": "Acciones"
+    },
+    "capacitySource": {
+      "contracted": "contratada",
+      "port_speed": "velocidad del puerto",
+      "unknown": "desconocida"
+    },
+    "diagnosis": {
+      "ok": "Holgado",
+      "busy": "Cerca del límite",
+      "full": "Lleno",
+      "faulty": "Posible avería",
+      "full_and_faulty": "Lleno y con errores",
+      "no_data": "Sin datos",
+      "no_capacity": "Sin capacidad"
+    },
+    "forecast": {
+      "already": "ya supera el {pct}",
+      "crossesOn": "cruza el {pct} hacia {date}",
+      "crossesOnDays": "hacia el {date} (en {days} días)",
+      "noCrossing": "no cruza el {pct} en 36 meses",
+      "growth": "{g} mensual",
+      "none": "Sin pronóstico todavía",
+      "level": {
+        "ok": "Sin acción",
+        "planning": "Planificar",
+        "urgent": "Urgente",
+        "insufficient_data": "Datos insuficientes",
+        "no_capacity": "Sin capacidad"
+      }
+    },
+    "actions": {
+      "configure": "Configurar el enlace {name}",
+      "configureShort": "Configurar enlace",
+      "snippet": "Sondas netwatch"
+    },
+    "probesError": {
+      "no_api_credential": "Sin credencial de la API: genere el script de alta",
+      "tls_fingerprint_not_pinned": "Huella TLS sin fijar: importe los prefijos del router una vez",
+      "tls_fingerprint_changed": "La huella TLS del router cambió",
+      "auth_failed": "El router rechaza el usuario de solo lectura",
+      "unreachable": "El router no responde por el túnel",
+      "no_tunnel": "Sin túnel con Horus",
+      "router_not_found": "Router no encontrado"
+    },
+    "horusProbes": {
+      "title": "Ruta Horus → destino",
+      "intro": "Sondas de respaldo desde el servidor de Horus a los destinos configurados. Miden el camino hasta el destino, no un enlace concreto del ISP."
+    },
+    "config": {
+      "title": "Enlace {name}",
+      "description": "Router {router}. Horus no cambia nada en el router: solo cómo evalúa el enlace.",
+      "label": "Nombre visible",
+      "labelHelp": "Por ejemplo «Proveedor A 10G».",
+      "provider": "Proveedor",
+      "kind": "Tipo de enlace",
+      "capacity": "Capacidad contratada",
+      "capacityHelp": "Vacía = velocidad del puerto ({speed}). Puede ser menor que el puerto.",
+      "capacityPlaceholder": "Velocidad del puerto",
+      "unit": "Unidad",
+      "egress": "Forma parte de la salida internacional",
+      "egressHelp": "Los enlaces marcados se suman para pronosticar la salida internacional agregada.",
+      "reset": "Quitar configuración",
+      "saved": "Enlace guardado",
+      "removed": "Configuración quitada: el enlace vuelve a solo detección",
+      "labelRequired": "Escriba un nombre",
+      "capacityInvalid": "Capacidad no válida",
+      "unknownSpeed": "desconocida"
+    },
+    "snippet": {
+      "title": "Sondas netwatch · {router}",
+      "description": "Pegue estas sondas en el router para medir pérdida, latencia y jitter por enlace. Horus solo las lee.",
+      "invalidIp": "IPv4 no válida",
+      "notRead": "Horus no puede leer las sondas de este router",
+      "found": "Horus lee {n} sonda de este router | Horus lee {n} sondas de este router",
+      "gateway": "Puerta de enlace por {iface}",
+      "missing": "Falta la IP de {n} puerta de enlace: el script la deja marcada | Faltan las IP de {n} puertas de enlace: el script las deja marcadas",
+      "scriptLabel": "Script RouterOS (.rsc)",
+      "warnings": "Avisos",
+      "readOnly": "Las IP que escribe aquí solo completan el script en su navegador; no se envían a Horus."
+    },
+    "settings": {
+      "open": "Ajustes",
+      "title": "Ajustes de capacidad",
+      "description": "Umbrales del pronóstico y de las alertas, tráfico local y sondas de respaldo de este ISP.",
+      "forecast": "Pronóstico",
+      "planning": "Planificar al (%)",
+      "urgent": "Urgente al (%)",
+      "leadDays": "Antelación (días)",
+      "saturation": "Saturación",
+      "satWarn": "Aviso (%)",
+      "satCrit": "Crítico (%)",
+      "sustained": "Sostenida (min)",
+      "quality": "Pérdida y latencia",
+      "lossWarn": "Pérdida aviso (%)",
+      "lossCrit": "Pérdida crítica (%)",
+      "latWarn": "Latencia aviso (ms)",
+      "latCrit": "Latencia crítica (ms)",
+      "traffic": "Tráfico local",
+      "country": "País",
+      "countryHelp": "Vacío = país del ISP ({country}).",
+      "asns": "ASN locales",
+      "asnsHelp": "IXP y cachés on-net (Google GGC, Netflix OCA, Meta FNA…), separados por comas.",
+      "asnInvalid": "ASN no válidos: {list}",
+      "targets": "Sondas de respaldo desde Horus",
+      "targetsHelp": "Destinos IPv4 públicos (hasta 10). Miden la ruta Horus → destino, no un enlace del ISP.",
+      "targetLabel": "Etiqueta",
+      "targetAddress": "Dirección IPv4",
+      "removeTarget": "Quitar el destino {n}",
+      "addTarget": "Añadir destino",
+      "targetInvalid": "Etiqueta e IPv4 obligatorias",
+      "saved": "Ajustes guardados",
+      "reset": "Volver a los valores por defecto",
+      "resetDone": "Ajustes por defecto"
+    },
+    "traffic": {
+      "title": "Tráfico local vs internacional",
+      "intro": "Volumen remoto de los últimos {days} días según el ASN del otro extremo.",
+      "empty": "Sin tráfico clasificado en este periodo.",
+      "international": "Internacional",
+      "local": "Local",
+      "unknown": "Sin clasificar",
+      "unknownHint": "Sin ASN o sin país: no cuenta en las proporciones.",
+      "byList": "lista local {v}",
+      "chartLabel": "Tráfico remoto por día y origen, últimos {days} días",
+      "bySite": "Reparto por nodo",
+      "site": "Nodo",
+      "volume": "Volumen",
+      "basis": "País: {country} ({source}) · {n} ASN en la lista local.",
+      "source": {
+        "settings": "ajustes de capacidad",
+        "tenant": "país del ISP",
+        "none": "sin país: solo cuenta la lista local"
+      }
+    },
+    "chart": {
+      "rx": "Pico p95 de entrada",
+      "tx": "Pico p95 de salida",
+      "projection": "Proyección",
+      "low": "Banda baja",
+      "high": "Banda alta",
+      "capacity": "Capacidad {v}",
+      "planning": "Planificar {pct}",
+      "urgent": "Urgente {pct}",
+      "projectionTable": "{chart}: proyección semanal",
+      "label": "Pico diario de {name} frente a la capacidad, {days} días y proyección a 12 meses"
+    },
+    "detail": {
+      "title": "Enlace de subida",
+      "back": "Capacidad",
+      "p95": "Pico p95 ({days} días)",
+      "diagnosis": "Diagnóstico",
+      "forecastTitle": "Pronóstico y recomendación",
+      "growth": "Crecimiento mensual del pico",
+      "peak": "Pico de tendencia",
+      "in6m": "en 6 meses",
+      "planning": "Cruce del {pct}",
+      "urgent": "Cruce del {pct}",
+      "method": "Tendencia robusta (Theil–Sen) sobre el logaritmo del pico diario con {days} días de historia; confianza {confidence}; antelación de alerta {lead} días.",
+      "seasonality": "Se descontó la estacionalidad semanal.",
+      "noDaily": "Todavía no hay picos diarios (se calculan cada día).",
+      "days": {
+        "30": "30 días",
+        "90": "90 días",
+        "182": "26 semanas",
+        "365": "12 meses"
+      }
+    },
+    "confidence": {
+      "low": "baja",
+      "medium": "media",
+      "high": "alta"
+    },
+    "probe": {
+      "loss": "Pérdida",
+      "rtt": "RTT medio",
+      "jitter": "Jitter",
+      "lossTitle": "Pérdida hacia {target} (por hora)",
+      "rttTitle": "Latencia y jitter hacia {target} (por hora)",
+      "threshold": "Aviso {v}"
     }
   }
 }

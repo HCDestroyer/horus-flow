@@ -1021,6 +1021,89 @@ export const WIDGET_CATALOG = [
     },
     "increment": "I2",
     "version": 1
+  },
+  {
+    "type": "site_health",
+    "title": "Salud de sitios / capacidad",
+    "description": "¿Qué nodo está mal y por qué? Salud explicable por nodo (enlaces caídos, saturación, pérdida, latencia, routers y servicios), peor utilización p95, pérdida y el pronóstico de capacidad más próximo.",
+    "category": "infrastructure",
+    "config_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "site_ids": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "default": [],
+          "description": "Vacío = todo el ISP o la variable del dashboard."
+        },
+        "show": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "online",
+              "warning",
+              "degraded",
+              "critical",
+              "offline",
+              "unknown"
+            ]
+          },
+          "default": [],
+          "description": "Vacío = todos los estados."
+        },
+        "sort": {
+          "type": "string",
+          "enum": [
+            "status",
+            "name"
+          ],
+          "default": "status"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "required_permission": "snmp.read",
+    "data_endpoint_kind": "table",
+    "realtime_topic": null,
+    "contains_personal_data": false,
+    "kiosk_allowed": true,
+    "sizes": {
+      "allowed": [
+        {
+          "w": 4,
+          "h": 3
+        },
+        {
+          "w": 6,
+          "h": 3
+        },
+        {
+          "w": 6,
+          "h": 4
+        },
+        {
+          "w": 12,
+          "h": 2
+        },
+        {
+          "w": 12,
+          "h": 4
+        }
+      ],
+      "default": {
+        "w": 6,
+        "h": 3
+      }
+    },
+    "increment": "I3",
+    "version": 1
   }
 ] as const
 

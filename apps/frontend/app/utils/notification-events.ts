@@ -46,6 +46,19 @@ export const NOTIFICATION_CATEGORIES: {
     icon: 'i-lucide-shield-check',
     events: ['finding_resolved', 'customer_security_state_changed'],
   },
+  {
+    // Enlaces de subida saturados o con pérdida/latencia sostenidas y pronósticos de capacidad.
+    key: 'capacity',
+    icon: 'i-lucide-gauge',
+    events: [
+      'uplink_saturated',
+      'uplink_degraded',
+      'uplink_recovered',
+      'capacity_forecast_planning',
+      'capacity_forecast_urgent',
+      'capacity_forecast_cleared',
+    ],
+  },
 ]
 
 /** Categoría de un tipo de evento. */

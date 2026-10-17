@@ -8,6 +8,7 @@ import {
   type FindingsSummaryValues,
   type RouterStatusRow,
   type SecurityByNodeRow,
+  type SiteHealthRow,
   type TopCustomerRow,
   type TopRow,
   type TrafficNowValues,
@@ -35,6 +36,7 @@ import {
 import type { MockTenant } from './data'
 import { customerCounts, customersOf, isInactive, routersOf, sitesOf } from './inventory'
 import { hash, iso, rng } from './random'
+import { capacityOverview } from './capacity'
 import { routerStatusList, sortRouterStatus } from './snmp'
 
 export { openFindings, type MockFinding } from './base'
@@ -567,6 +569,8 @@ export function widgetData(
       return exportersStatus(ctx, options.degraded)
     case 'routers_status_grid':
       return routersStatusGrid(ctx, options)
+    case 'site_health':
+      return siteHealthGrid(ctx, options)
     case 'traffic_timeseries':
       return trafficTimeseries(ctx)
     case 'top_categories':
@@ -586,6 +590,86 @@ export function widgetData(
     default:
       return undefined
   }
+}
+
+/**
+ * `site_health` (table): una fila por nodo con la salud explicable (misma base que
+ * `GET /capacity/overview`); respeta `site_ids`, `show` y `sort`.
+ */
+function siteHealthGrid(ctx: WidgetDataContext, options: WidgetDataOptions): WidgetData {
+  const siteIds = (ctx.widget.config.site_ids as string[] | undefined) ?? []
+  const show = (ctx.widget.config.show as string[] | undefined) ?? []
+  const ov = capacityOverview(ctx.tenant, ctx.now, {
+    degraded: options.degraded,
+    scenario: options.scenario,
+  })
+  const rank: Record<string, number> = {
+    offline: 0,
+    critical: 1,
+    degraded: 2,
+    warning: 3,
+    unknown: 4,
+    online: 5,
+  }
+  const fcRank: Record<string, number> = {
+    urgent: 4,
+    planning: 3,
+    ok: 2,
+    insufficient_data: 1,
+    no_capacity: 1,
+  }
+  let rows: SiteHealthRow[] = ov.data
+    .filter(
+      (s) =>
+        (!siteIds.length || (s.site_id && siteIds.includes(s.site_id))) &&
+        (!show.length || show.includes(s.health.status)),
+    )
+    .map((s) => {
+      const utils = s.uplinks.map((u) => u.window?.util_p95).filter((v): v is number => v != null)
+      const losses = s.uplinks.map((u) => u.probe?.loss_pct).filter((v): v is number => v != null)
+      const fcs = s.uplinks.map((u) => u.forecast).filter((f) => !!f)
+      const worst = fcs.sort((a, b) => (fcRank[b!.level] ?? 0) - (fcRank[a!.level] ?? 0))[0]
+      const next = fcs
+        .map((f) => f!.planning.date)
+        .filter((d): d is string => !!d)
+        .sort()[0]
+      return {
+        site: s.site_name,
+        site_id: s.site_id ?? '',
+        status: s.health.status,
+        summary: s.health.summary,
+        uplinks: s.uplinks.length,
+        uplinks_down: s.uplinks.filter((u) => u.oper_status && u.oper_status !== 'up').length,
+        worst_util_p95: utils.length ? Math.max(...utils) : null,
+        worst_loss_pct: losses.length ? Math.max(...losses) : null,
+        forecast_level: worst?.level ?? null,
+        next_crossing: next ?? null,
+      }
+    })
+  rows =
+    String(ctx.widget.config.sort ?? 'status') === 'name'
+      ? [...rows].sort((a, b) => a.site.localeCompare(b.site, 'es'))
+      : [...rows].sort(
+          (a, b) =>
+            (rank[a.status] ?? 4) - (rank[b.status] ?? 4) || a.site.localeCompare(b.site, 'es'),
+        )
+  return table(
+    ctx,
+    [
+      { key: 'site', type: 'string' },
+      { key: 'site_id', type: 'string' },
+      { key: 'status', type: 'state' },
+      { key: 'summary', type: 'string' },
+      { key: 'uplinks', type: 'number' },
+      { key: 'uplinks_down', type: 'number' },
+      { key: 'worst_util_p95', type: 'percent' },
+      { key: 'worst_loss_pct', type: 'number' },
+      { key: 'forecast_level', type: 'string' },
+      { key: 'next_crossing', type: 'timestamp' },
+    ],
+    rows,
+    { meta: { freshness_seconds: 60 } },
+  )
 }
 
 /** Valor en vivo de `traffic.summary` (mensaje WS `state`, C6) para la API simulada. */

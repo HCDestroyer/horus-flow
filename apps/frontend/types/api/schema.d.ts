@@ -651,6 +651,146 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/capacity/egress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Detalle de la salida internacional agregada (serie diaria y pronóstico)
+         * @description Suma de los enlaces marcados `international_egress`: pico diario (p95 de la suma intervalo a intervalo), capacidad
+         *     agregada y pronóstico con proyección. Solo con alcance completo del ISP (`404` con alcance por nodo o sin
+         *     enlaces marcados).
+         */
+        get: operations["getCapacityEgress"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/capacity/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Capacidad y salud de los nodos (enlaces de subida, sondas, pronósticos)
+         * @description Vista NOC de capacidad: un bloque por nodo con su **salud explicable** (enlaces caídos, saturación, pérdida,
+         *     latencia, routers y servicios de infraestructura; siempre con razones) y la tabla de sus enlaces de subida (el
+         *     detectado por el sondeador y los configurados): utilización en vivo sobre la capacidad (contratada o, si no,
+         *     velocidad del puerto), p95 y horas sobre el 70 / 85 % de la ventana (`days`, últimos días completos + hoy al
+         *     vuelo), diagnóstico lleno/averiado, pérdida/latencia/jitter de la sonda de su puerta de enlace, condiciones
+         *     sostenidas vigentes y el último pronóstico. `egress` es la salida internacional agregada (solo con alcance
+         *     completo) y `horus_probes` las sondas de respaldo «ruta Horus → destino» (no miden un enlace del ISP). Sin
+         *     datos personales. Las razones de salud y las recomendaciones van en español.
+         */
+        get: operations["getCapacityOverview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/capacity/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Umbrales de capacidad, país para el tráfico local, ASN locales y sondas de respaldo
+         * @description Sin ajustes del ISP (`customized=false`, `version=0`) rigen los valores por defecto (también en `defaults`):
+         *     planificación 80 %, urgente 90 %, antelación 90 días, saturación 70 / 85 % sostenida 15 min, pérdida 1 / 5 %,
+         *     latencia 80 / 200 ms. `effective_country` es `country` si se fijó y, si no, el país del ISP (`tenant_country`).
+         */
+        get: operations["getCapacitySettings"];
+        /**
+         * Fija los ajustes de capacidad del ISP
+         * @description Proporciones entre 0,3 y 1; planificación ≤ urgente, aviso ≤ crítico (`422`). `probe_targets`: hasta 10 IPv4
+         *     públicas que Horus sondea desde su host («ruta Horus → destino»); las redes internas de la instalación se
+         *     rechazan. `local_asns`: hasta 200 (IXP, cachés on-net). `If-Match` opcional (`412`). Sin PostgreSQL → `503`.
+         *     Auditado (`snmp.capacity_settings.updated`).
+         */
+        put: operations["putCapacitySettings"];
+        post?: never;
+        /** Vuelve a los ajustes de capacidad por defecto */
+        delete: operations["resetCapacitySettings"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/capacity/traffic-split": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tráfico remoto local vs internacional por nodo y por día
+         * @description Volumen remoto (`flows.site_1d`, días UTC) clasificado por el ASN remoto: **local** si está en `local_asns` del
+         *     ISP o su organización es del país efectivo; **internacional** si es de otro país; **desconocido** sin ASN o sin
+         *     país (no entra en las proporciones). Sin país (`country_source=none`) solo la lista local cuenta como local.
+         */
+        get: operations["getCapacityTrafficSplit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/capacity/uplinks/{interface_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description interface_id estable (UUIDv5 del router y el nombre de la interfaz). */
+                interface_id: components["parameters"]["InterfaceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Detalle de un enlace de subida (serie diaria, pronóstico y sondas)
+         * @description Serie de picos diarios (p95 rx/tx, horas sobre umbral, errores, descartes) de los últimos `days` días, el último
+         *     pronóstico con su banda de proyección (12 meses) y la serie horaria de la sonda de su puerta de enlace. Las series
+         *     de bits/s por minuto las sirve analytics (`getRouterInterfaceMetrics`). Un enlace de otro ISP o fuera del
+         *     alcance → `404`.
+         */
+        get: operations["getCapacityUplink"];
+        /**
+         * Configura un enlace de subida (proveedor, tipo, capacidad contratada, salida internacional)
+         * @description La interfaz debe ser de un router sondeado del ISP (`router_id` es su router) y estar en el alcance del usuario;
+         *     si no → `404 UPLINK_NOT_FOUND`. Una interfaz configurada cuenta como enlace de subida aunque el sondeador no la
+         *     haya elegido. `contracted_bps` (bits/s) puede ser menor que la velocidad del puerto; si falta se usa la
+         *     velocidad. `international_egress` por defecto es `true` solo para `international_transit`. `If-Match` opcional
+         *     (`412`). Máximo 500 enlaces configurados por ISP (`409 UPLINK_LIMIT_REACHED`). Sin PostgreSQL → `503`. Auditado
+         *     (`snmp.uplink_config.updated`, antes y después). Horus no escribe nada en el router.
+         */
+        put: operations["putCapacityUplink"];
+        post?: never;
+        /**
+         * Quita la configuración de un enlace (vuelve a solo detección)
+         * @description Auditado (`snmp.uplink_config.deleted`). Sin configuración → `404`.
+         */
+        delete: operations["deleteCapacityUplink"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/classification/status": {
         parameters: {
             query?: never;
@@ -3144,6 +3284,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/routers/{router_id}/netwatch-snippet": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Script RouterOS de sondas netwatch por enlace (lo pega el usuario; Horus solo lo lee)
+         * @description Sondas ICMP de `/tool netwatch` (RouterOS v7) hacia la puerta de enlace del proveedor de cada enlace de subida del
+         *     router (`{GATEWAY_n}`: el usuario completa la IP en la consola antes de copiar; nunca viaja en la URL) y hacia
+         *     referencias internacionales (1.1.1.1, 8.8.8.8), con `comment="horus-uplink;…"` y sin scripts. Horus **nunca
+         *     escribe en el router**: las lee cada minuto con el usuario de solo lectura por la API REST (huella TLS ya
+         *     fijada). `probes_error` dice por qué no se pudieron leer (`no_api_credential`, `tls_fingerprint_not_pinned`,
+         *     `auth_failed`, `unreachable`…).
+         */
+        get: operations["getRouterNetwatchSnippet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/routers/{router_id}/poll": {
         parameters: {
             query?: never;
@@ -3922,6 +4089,217 @@ export interface components {
         };
         /** @enum {string} */
         CapabilityState: "ok" | "degraded" | "stale" | "unavailable";
+        /** @enum {string} */
+        CapacityConfidence: "low" | "medium" | "high";
+        CapacityCrossing: {
+            /** @description El pico actual ya supera el umbral. */
+            already: boolean;
+            /** @description Fecha estimada de cruce (null = no cruza en 36 meses o datos insuficientes). */
+            date: components["schemas"]["Timestamp"] | null;
+            days_until: number | null;
+            /** @description Proporción de la capacidad (0,8 = 80 %). */
+            threshold: number;
+        };
+        CapacityEgress: {
+            capacity_bps: number;
+            forecast: components["schemas"]["CapacityForecastSummary"] | null;
+            members: components["schemas"]["Uuid"][];
+            rx_bps: number | null;
+            subject_id: components["schemas"]["Uuid"];
+            tx_bps: number | null;
+            utilization: number | null;
+            window: components["schemas"]["UplinkWindow"] | null;
+        };
+        /** @description Pronóstico completo (método Theil–Sen sobre ln del pico diario con estacionalidad semanal; docs/capacity-forecast.md). */
+        CapacityForecast: {
+            capacity_bps: number;
+            confidence: components["schemas"]["CapacityConfidence"];
+            current_peak_bps: number | null;
+            first_day: components["schemas"]["NullableTimestamp"];
+            growth_6m: number | null;
+            history_days: number;
+            last_day: components["schemas"]["NullableTimestamp"];
+            lead_days: number;
+            level: components["schemas"]["CapacityForecastLevel"];
+            /** @example theil_sen_log_weekly */
+            method: string;
+            monthly_growth: number | null;
+            monthly_growth_high: number | null;
+            monthly_growth_low: number | null;
+            observed_peak_bps: number | null;
+            peak_6m_bps: number | null;
+            planning: components["schemas"]["CapacityCrossing"];
+            /** @description Semanal, 12 meses. */
+            projection: components["schemas"]["CapacityForecastPoint"][];
+            seasonality: boolean;
+            urgent: components["schemas"]["CapacityCrossing"];
+        };
+        /** @enum {string} */
+        CapacityForecastLevel: "ok" | "planning" | "urgent" | "insufficient_data" | "no_capacity";
+        CapacityForecastPoint: {
+            bps: number;
+            day: components["schemas"]["Timestamp"];
+            high_bps: number;
+            low_bps: number;
+        };
+        CapacityForecastSummary: {
+            /** @description bits/s. */
+            capacity_bps: number;
+            computed_at: components["schemas"]["Timestamp"];
+            confidence: components["schemas"]["CapacityConfidence"];
+            /** @description Pico actual de tendencia (día de la semana más cargado), bits/s. */
+            current_peak_bps: number | null;
+            growth_6m: number | null;
+            history_days: number;
+            lead_days: number;
+            level: components["schemas"]["CapacityForecastLevel"];
+            /** @description Crecimiento mensual del pico (0,04 = +4 %). */
+            monthly_growth: number | null;
+            peak_6m_bps: number | null;
+            planning: components["schemas"]["CapacityCrossing"];
+            recommendation: string;
+            /** @description Se descontó la estacionalidad semanal (≥ 21 días). */
+            seasonality: boolean;
+            subject_id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            subject_kind: "uplink" | "international_egress";
+            urgent: components["schemas"]["CapacityCrossing"];
+        };
+        CapacityOverview: {
+            /** @description Nodos, peor salud primero. */
+            data: components["schemas"]["CapacitySite"][];
+            egress: components["schemas"]["CapacityEgress"] | null;
+            horus_probes: components["schemas"]["CapacityProbe"][];
+            meta: {
+                generated_at: components["schemas"]["Timestamp"];
+                /** @description false: sin ClickHouse (solo datos en vivo, sin pronósticos). */
+                history: boolean;
+                /** @description false: sin PostgreSQL (sin configuración por enlace). */
+                store: boolean;
+                window_days: number;
+            };
+            settings: components["schemas"]["CapacitySettingsValues"];
+        };
+        CapacityProbe: {
+            interface_id: components["schemas"]["Uuid"] | null;
+            /** @description Media de 24 h. */
+            jitter_ms: number | null;
+            label: string;
+            last_at: components["schemas"]["NullableTimestamp"];
+            last_jitter_ms: number | null;
+            last_loss_pct: number | null;
+            last_rtt_ms: number | null;
+            /** @description Media de 24 h (%). */
+            loss_pct: number | null;
+            loss_pct_max: number | null;
+            probe_id: components["schemas"]["Uuid"];
+            /** @description gw (puerta de enlace del proveedor) | intl (referencia internacional) | horus. */
+            ref: string;
+            router_id: components["schemas"]["Uuid"] | null;
+            /** @description Media de 24 h. */
+            rtt_avg_ms: number | null;
+            /**
+             * @description `router_netwatch` = sonda del router (por enlace); `horus` = ruta Horus → destino (no mide un enlace).
+             * @enum {string}
+             */
+            source: "router_netwatch" | "horus";
+            /** @enum {string} */
+            status: "up" | "down" | "unknown";
+            /** @description IP sondeada (infraestructura o referencia pública; nunca un cliente). */
+            target: string;
+        };
+        CapacityProbeTarget: {
+            /** Format: ipv4 */
+            address: string;
+            label: string;
+        };
+        CapacityRouterBrief: {
+            name: string;
+            /** @description Por qué no se leen sus sondas netwatch (null = se leen o no hay intento). */
+            probes_error: string | null;
+            router_id: components["schemas"]["Uuid"];
+            status: components["schemas"]["RouterEffectiveStatus"];
+        };
+        CapacitySettings: components["schemas"]["CapacitySettingsValues"] & {
+            customized: boolean;
+            defaults: components["schemas"]["CapacitySettingsValues"];
+            effective_country: string | null;
+            tenant_country: string | null;
+            updated_at: components["schemas"]["NullableTimestamp"];
+            version: number;
+        };
+        CapacitySettingsValues: {
+            /** @description ISO 3166-1 alfa-2; null = el país del ISP. */
+            country: string | null;
+            latency_critical_ms: number;
+            latency_warning_ms: number;
+            lead_days: number;
+            local_asns: number[];
+            loss_critical_pct: number;
+            loss_warning_pct: number;
+            planning_threshold: number;
+            probe_targets: components["schemas"]["CapacityProbeTarget"][];
+            saturation_critical: number;
+            saturation_warning: number;
+            sustained_minutes: number;
+            urgent_threshold: number;
+        };
+        CapacitySite: {
+            health: components["schemas"]["SiteHealth"];
+            /** @description Referencias internacionales de sus routers. */
+            router_probes: components["schemas"]["CapacityProbe"][];
+            routers: components["schemas"]["CapacityRouterBrief"][];
+            site_id: components["schemas"]["Uuid"] | null;
+            site_name: string;
+            uplinks: components["schemas"]["CapacityUplink"][];
+        };
+        CapacitySubjectDetail: {
+            computed_at: components["schemas"]["NullableTimestamp"];
+            daily: components["schemas"]["UplinkDaily"][];
+            days: number;
+            egress: components["schemas"]["CapacityEgress"] | null;
+            forecast: components["schemas"]["CapacityForecast"] | null;
+            probe_series: components["schemas"]["ProbeSeries"][];
+            recommendation: string | null;
+            settings: components["schemas"]["CapacitySettingsValues"];
+            subject_id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            subject_kind: "uplink" | "international_egress";
+            uplink: components["schemas"]["CapacityUplink"] | null;
+        };
+        CapacityUplink: {
+            /** @description Es el enlace de subida que eligió el sondeador. */
+            auto_detected: boolean;
+            capacity_bps: number | null;
+            /** @enum {string} */
+            capacity_source: "contracted" | "port_speed" | "unknown";
+            conditions: components["schemas"]["UplinkCondition"][];
+            configured: boolean;
+            contracted_bps: number | null;
+            diagnosis: components["schemas"]["UplinkDiagnosis"];
+            forecast: components["schemas"]["CapacityForecastSummary"] | null;
+            interface_id: components["schemas"]["Uuid"];
+            interface_name: string;
+            international_egress: boolean;
+            kind: components["schemas"]["UplinkKind"] | null;
+            label: string;
+            oper_status: components["schemas"]["InterfaceOperStatus"] | null;
+            probe: components["schemas"]["CapacityProbe"] | null;
+            provider: string | null;
+            router_id: components["schemas"]["Uuid"];
+            router_name: string;
+            rx_bps: number | null;
+            sampled_at: components["schemas"]["NullableTimestamp"];
+            site_id: components["schemas"]["Uuid"] | null;
+            site_name: string;
+            speed_bps: number | null;
+            tx_bps: number | null;
+            /** @description Última muestra, max(rx, tx) / capacidad. */
+            utilization: number | null;
+            /** @description Versión de la configuración (0 = sin configurar). */
+            version: number;
+            window: components["schemas"]["UplinkWindow"] | null;
+        };
         /**
          * @description Un evento llega al canal si su tipo está en `event_types` **o** su categoría en `categories` (al menos una de las
          *     dos con valores), su severidad alcanza `min_severity` y su nodo está en `site_ids`. Compatible con las
@@ -4500,6 +4878,11 @@ export interface components {
          * @enum {string}
          */
         FlowExporterState: "pending_configuration" | "exporting" | "silent" | "lossy" | "clock_skew";
+        /**
+         * @description Vocabulario de estado de equipos (online = sano). `unknown` = sin datos observados.
+         * @enum {string}
+         */
+        HealthStatus: "online" | "warning" | "degraded" | "critical" | "offline" | "unknown";
         /** @description Un chequeo. Solo se aceptan los campos de su `type`; `id` lo asigna el servidor y se conserva al editar. */
         InfraCheck: {
             /** @description ddos_inbound. */
@@ -5127,11 +5510,27 @@ export interface components {
             mfa_required: true;
             mfa_token: string;
         };
+        NetwatchSnippet: {
+            placeholders: {
+                description: string;
+                interface: string;
+                /** @example {GATEWAY_1} */
+                key: string;
+            }[];
+            probes_error: string | null;
+            /** @description Sondas de Horus leídas del router en el último ciclo. */
+            probes_found: number;
+            router_id: components["schemas"]["Uuid"];
+            router_name: string;
+            /** @description Script RouterOS (.rsc) con marcadores {GATEWAY_n}. */
+            script: string;
+            warnings: string[];
+        };
         /**
          * @description Grupo de tipos de evento (ver NotificationEventType). Enum abierto.
          * @enum {string}
          */
-        NotificationCategory: "security" | "routers" | "infrastructure" | "exporter_tunnel" | "security_updates";
+        NotificationCategory: "security" | "routers" | "infrastructure" | "exporter_tunnel" | "security_updates" | "capacity";
         NotificationChannel: components["schemas"]["TenantScopedResource"] & components["schemas"]["NotificationChannelInput"] & {
             has_credentials: boolean;
             last_delivery_at: components["schemas"]["Timestamp"] | null;
@@ -5209,10 +5608,16 @@ export interface components {
          *     - `infrastructure` (servicios vigilados, `horus.snmp.service.state_changed`): `service_down`,
          *       `service_degraded`, `service_recovered`.
          *     - `exporter_tunnel`: `exporter_silent`, `exporter_recovered`, `tunnel_down`, `tunnel_recovered`.
-         *     Las recuperaciones (`*_recovered`, `router_interface_up`) tienen severidad `info`.
+         *     - `capacity` (enlaces de subida y pronósticos, `horus.snmp.uplink.condition_changed` y
+         *       `horus.snmp.capacity.forecast_changed`): `uplink_saturated` (saturación sostenida; aviso → `medium`, crítico →
+         *       `high`), `uplink_degraded` (pérdida o latencia sostenidas, mismas severidades), `uplink_recovered`,
+         *       `capacity_forecast_planning` (cruza el umbral de planificación dentro de la antelación → `low`),
+         *       `capacity_forecast_urgent` (cruza el urgente o ya lo supera → `high`) y `capacity_forecast_cleared`.
+         *     Las recuperaciones (`*_recovered`, `router_interface_up`, `capacity_forecast_cleared`) tienen severidad `info`.
          * @enum {string}
          */
-        NotificationEventType: "finding_opened" | "finding_reopened" | "exporter_silent" | "exporter_recovered" | "tunnel_down" | "tunnel_recovered" | "router_offline" | "router_recovered" | "router_cpu_high" | "router_memory_high" | "router_temperature_high" | "router_hardware_failed" | "router_interface_down" | "router_interface_up" | "router_rebooted" | "service_down" | "service_degraded" | "service_recovered" | "finding_resolved" | "customer_security_state_changed";
+        NotificationEventType: "finding_opened" | "finding_reopened" | "exporter_silent" | "exporter_recovered" | "tunnel_down" | "tunnel_recovered" | "router_offline" | "router_recovered" | "router_cpu_high" | "router_memory_high" | "router_temperature_high" | "router_hardware_failed" | "router_interface_down" | "router_interface_up" | "router_rebooted" | "service_down" | "service_degraded" | "service_recovered" | "finding_resolved" | "customer_security_state_changed" | "uplink_saturated" | "uplink_degraded" | "uplink_recovered" | "capacity_forecast_planning" | "capacity_forecast_urgent" | "capacity_forecast_cleared";
+        NullableTimestamp: components["schemas"]["Timestamp"] | null;
         PageInfo: {
             has_more: boolean;
             limit: number;
@@ -5408,6 +5813,17 @@ export interface components {
             router_id: components["schemas"]["Uuid"];
             routeros_version: string;
             tls_fingerprint_sha256?: string;
+        };
+        ProbeSeries: {
+            label: string;
+            points: {
+                at: components["schemas"]["Timestamp"];
+                jitter_ms: number | null;
+                loss_pct: number | null;
+                rtt_avg_ms: number | null;
+            }[];
+            probe_id: components["schemas"]["Uuid"];
+            target: string;
         };
         /** @description RFC 9457 `application/problem+json`. Lo producen los módulos y el gateway con el mismo formato. */
         Problem: {
@@ -6069,6 +6485,22 @@ export interface components {
             /** @description Realm `node_private` del nodo (RFC1918 y 100.64.0.0/10). */
             private_realm_id: components["schemas"]["Uuid"];
         };
+        SiteHealth: {
+            reasons: components["schemas"]["SiteHealthReason"][];
+            status: components["schemas"]["HealthStatus"];
+            /** @example Degradado: enlace Proveedor A al 92 % en hora pico y 2,0 % de pérdida */
+            summary: string;
+        };
+        SiteHealthReason: {
+            /**
+             * @description Enum abierto: `uplink_down`, `all_uplinks_down`, `uplink_saturated`, `uplink_quality`, `router_<estado>`,
+             *     `service_down`, `service_degraded`.
+             */
+            code: string;
+            status: components["schemas"]["HealthStatus"];
+            /** @description Razón legible en español (p. ej. «enlace Proveedor A al 92 % en hora pico»). */
+            text: string;
+        };
         SiteInput: {
             address?: string | null;
             code?: string | null;
@@ -6324,6 +6756,37 @@ export interface components {
             share: number;
             up_bytes: components["schemas"]["Uint64String"];
         };
+        TrafficSplit: {
+            international_bytes: number;
+            /** @description Sobre lo clasificado (sin desconocido). */
+            international_share: number | null;
+            local_by_country_bytes: number;
+            local_by_list_bytes: number;
+            local_bytes: number;
+            local_share: number | null;
+            unknown_bytes: number;
+        };
+        TrafficSplitReport: {
+            country: string | null;
+            /** @enum {string} */
+            country_source: "settings" | "tenant" | "none";
+            daily: {
+                day: components["schemas"]["Timestamp"];
+                international_bytes: number;
+                local_bytes: number;
+                unknown_bytes: number;
+            }[];
+            days: number;
+            from: components["schemas"]["Timestamp"];
+            /** @description Cuántos ASN tiene la lista local. */
+            local_asns: number;
+            sites: (components["schemas"]["TrafficSplit"] & {
+                site_id: components["schemas"]["Uuid"];
+                site_name: string;
+            })[];
+            to: components["schemas"]["Timestamp"];
+            total: components["schemas"]["TrafficSplit"];
+        };
         /** @description Contador que puede superar 2^53, serializado como string decimal. */
         Uint64String: string;
         UpdateStatus: {
@@ -6357,6 +6820,85 @@ export interface components {
              */
             status: "up_to_date" | "available" | "unchecked";
             update_available: boolean;
+        };
+        UplinkCondition: {
+            /** @enum {string} */
+            condition: "saturation" | "loss" | "latency";
+            /** @enum {string} */
+            level: "ok" | "warning" | "critical";
+            since: components["schemas"]["Timestamp"];
+            /** @description saturation: proporción; loss: %; latency: ms. */
+            value: number;
+        };
+        UplinkConfig: {
+            contracted_bps: number | null;
+            interface_id: components["schemas"]["Uuid"];
+            international_egress: boolean;
+            kind: components["schemas"]["UplinkKind"];
+            label: string;
+            provider: string | null;
+            router_id: components["schemas"]["Uuid"];
+            updated_at: components["schemas"]["Timestamp"];
+            version: number;
+        };
+        UplinkConfigInput: {
+            /** @description bits/s. */
+            contracted_bps?: number | null;
+            /** @description Forma parte de la salida internacional agregada (por defecto: kind = international_transit). */
+            international_egress?: boolean | null;
+            kind: components["schemas"]["UplinkKind"];
+            /** @description Nombre visible (p. ej. «Proveedor A 10G»). */
+            label: string;
+            provider?: string | null;
+            router_id: components["schemas"]["Uuid"];
+        };
+        UplinkDaily: {
+            capacity_bps: number;
+            day: components["schemas"]["Timestamp"];
+            drops: number;
+            errors: number;
+            hours_above_critical: number;
+            hours_above_warning: number;
+            packets: number;
+            rx_max_bps: number;
+            rx_p95_bps: number;
+            samples: number;
+            tx_max_bps: number;
+            tx_p95_bps: number;
+        };
+        UplinkDiagnosis: {
+            drop_ratio: number;
+            error_ratio: number;
+            /**
+             * @description `full` = saturado sin errores físicos (descartes de cola esperables); `faulty` = errores o descartes con el
+             *     enlace holgado (física, negociación o política); `full_and_faulty`; `busy` = p95 sobre el aviso; `ok`;
+             *     `no_data`; `no_capacity`.
+             * @enum {string}
+             */
+            kind: "ok" | "busy" | "full" | "faulty" | "full_and_faulty" | "no_data" | "no_capacity";
+        };
+        /**
+         * @description `international_transit` (tránsito a Internet), `local_ix` (punto de intercambio local), `cache` (enlace a cachés
+         *     de contenido) u `other`.
+         * @enum {string}
+         */
+        UplinkKind: "international_transit" | "local_ix" | "cache" | "other";
+        UplinkWindow: {
+            days: number;
+            drops: number;
+            errors: number;
+            from: components["schemas"]["Timestamp"];
+            hours_above_critical: number;
+            /** @description Horas con la media de 5 min sobre el aviso de saturación. */
+            hours_above_warning: number;
+            /** @description Peor p95 diario de entrada (bits/s). */
+            rx_p95_bps: number;
+            /** @description Intervalos de 5 min con dato. */
+            samples: number;
+            to: components["schemas"]["Timestamp"];
+            tx_p95_bps: number;
+            /** @description Peor p95 diario sobre la capacidad (0..1+). */
+            util_p95: number | null;
         };
         /**
          * Format: uuid
@@ -6612,6 +7154,10 @@ export interface components {
     };
     parameters: {
         AsnRuleId: components["schemas"]["Uuid"];
+        /** @description Días de la serie diaria (7–365). */
+        CapacityDays: number;
+        /** @description Un nodo (dentro del alcance del usuario). */
+        CapacitySiteId: components["schemas"]["Uuid"];
         ChannelId: components["schemas"]["Uuid"];
         ClientPrefixId: components["schemas"]["Uuid"];
         /** @description Cursor opaco (`page.next_cursor`); ligado a filtros, orden y `tid`. Ajeno → `400 INVALID_CURSOR`. */
@@ -6631,6 +7177,8 @@ export interface components {
         /** @description Solo en colecciones administrativas pequeñas; ignorado en las grandes. */
         IncludeTotal: boolean;
         InfraServiceId: components["schemas"]["Uuid"];
+        /** @description interface_id estable (UUIDv5 del router y el nombre de la interfaz). */
+        InterfaceId: components["schemas"]["Uuid"];
         KioskId: components["schemas"]["Uuid"];
         /** @description Tamaño de página (1–200, por defecto 50). Fuera de rango → 400. */
         Limit: number;
@@ -7765,6 +8313,255 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    getCapacityEgress: {
+        parameters: {
+            query?: {
+                /** @description Días de la serie diaria (7–365). */
+                days?: components["parameters"]["CapacityDays"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Serie y pronóstico. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapacitySubjectDetail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getCapacityOverview: {
+        parameters: {
+            query?: {
+                /** @description Ventana en días para p95, horas sobre umbral y diagnóstico (1–30). */
+                days?: number;
+                /** @description Un nodo (dentro del alcance del usuario). */
+                site_id?: components["parameters"]["CapacitySiteId"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Nodos con su capacidad. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapacityOverview"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    getCapacitySettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ajustes vigentes. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapacitySettings"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    putCapacitySettings: {
+        parameters: {
+            query?: never;
+            header?: {
+                "If-Match"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CapacitySettingsValues"];
+            };
+        };
+        responses: {
+            /** @description Ajustes guardados. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapacitySettings"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["UnprocessableEntity"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    resetCapacitySettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ajustes por defecto (customized=false). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapacitySettings"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    getCapacityTrafficSplit: {
+        parameters: {
+            query?: {
+                /** @description Días completos (1–90). */
+                days?: number;
+                /** @description Un nodo (dentro del alcance del usuario). */
+                site_id?: components["parameters"]["CapacitySiteId"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Reparto. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrafficSplitReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    getCapacityUplink: {
+        parameters: {
+            query?: {
+                /** @description Días de la serie diaria (7–365). */
+                days?: components["parameters"]["CapacityDays"];
+            };
+            header?: never;
+            path: {
+                /** @description interface_id estable (UUIDv5 del router y el nombre de la interfaz). */
+                interface_id: components["parameters"]["InterfaceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Detalle del enlace. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapacitySubjectDetail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    putCapacityUplink: {
+        parameters: {
+            query?: never;
+            header?: {
+                "If-Match"?: string;
+            };
+            path: {
+                /** @description interface_id estable (UUIDv5 del router y el nombre de la interfaz). */
+                interface_id: components["parameters"]["InterfaceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UplinkConfigInput"];
+            };
+        };
+        responses: {
+            /** @description Configuración guardada. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UplinkConfig"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["UnprocessableEntity"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    deleteCapacityUplink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description interface_id estable (UUIDv5 del router y el nombre de la interfaz). */
+                interface_id: components["parameters"]["InterfaceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: components["responses"]["NoContent"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     getClassificationStatus: {
@@ -12236,6 +13033,31 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RouterLiveMetrics"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getRouterNetwatchSnippet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Script y estado de la lectura. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NetwatchSnippet"];
                 };
             };
             401: components["responses"]["Unauthorized"];

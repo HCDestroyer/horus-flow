@@ -47,6 +47,7 @@ export const NAV_SECTIONS: NavSection[] = [
   { id: 'nodes', group: 'operation', labelKey: 'nav.items.nodes', icon: 'i-lucide-router', path: 'nodes', scope: 'tenant', increment: 'I0', permission: 'devices.read' },
   { id: 'routers', group: 'operation', labelKey: 'nav.items.routers', icon: 'i-lucide-heart-pulse', path: 'routers', scope: 'tenant', increment: 'I1', permission: 'devices.read' },
   { id: 'infra-services', group: 'operation', labelKey: 'nav.items.infraServices', icon: 'i-lucide-server', path: 'infra-services', scope: 'tenant', increment: 'I1', permission: 'snmp.read' },
+  { id: 'capacity', group: 'operation', labelKey: 'nav.items.capacity', icon: 'i-lucide-gauge', path: 'capacity', scope: 'tenant', increment: 'I1', permission: 'snmp.read' },
   { id: 'clients', group: 'operation', labelKey: 'nav.items.clients', icon: 'i-lucide-users', path: 'clients', scope: 'tenant', increment: 'I1', permission: 'customers.read' },
   { id: 'traffic', group: 'operation', labelKey: 'nav.items.traffic', icon: 'i-lucide-arrow-down-up', path: 'traffic', scope: 'tenant', increment: 'I1', permission: 'traffic.read' },
   { id: 'findings', group: 'security', labelKey: 'nav.items.findings', icon: 'i-lucide-shield-alert', path: 'security/findings', scope: 'tenant', increment: 'I1', permission: 'security.findings.read' },
