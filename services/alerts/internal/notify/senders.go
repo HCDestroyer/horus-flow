@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hcdestroyer/horus-flow/packages/go/datasets"
 	"github.com/hcdestroyer/horus-flow/packages/go/mailer"
 )
 
@@ -22,6 +23,9 @@ type Message struct {
 	Subject string `json:"subject"`
 	Text    string `json:"text"`
 	Link    string `json:"link,omitempty"`
+	// Webhook es el cuerpo firmado del canal webhook ({id, event, occurred_at,
+	// tenant, data}); solo en entregas de canales webhook.
+	Webhook json.RawMessage `json:"webhook,omitempty"`
 	// DeliveryID identifica la entrega (no se guarda con el mensaje): en
 	// LibreNMS va al final de la línea de syslog («| id=<entrega>») para
 	// reconocer el duplicado de un reintento tras un reinicio (D23).
@@ -38,6 +42,9 @@ type Senders struct {
 	TelegramToken  string // bot de la instalación
 	HTTPClient     func(tlsVerify bool, timeout time.Duration) *http.Client
 	DefaultTimeout time.Duration
+	// WebhookGuard limita los destinos del canal webhook (https y direcciones
+	// públicas; modo laboratorio con HORUS_ALERTS_WEBHOOK_ALLOW_PRIVATE).
+	WebhookGuard *datasets.EgressGuard
 }
 
 // TestResult es ConnectionTestResult sin canal ni fecha.

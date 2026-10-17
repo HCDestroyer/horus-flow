@@ -14061,7 +14061,7 @@ components:
         `infra_service.state_changed` (service_*); los demás tipos no se envían por webhook. Con identidad ArgosISP del
         cliente, `data.external` lleva sus ids. La IP y el alias del cliente solo con `include_personal_data`.
         Reintentos: 1 min, 5 min, 30 min, 2 h y 12 h. Solo https y destinos públicos (privados o loopback solo con
-        HORUS_ALERTS_WEBHOOK_ALLOW_PRIVATE=true, laboratorios); sin redirecciones.
+        HORUS_ALERTS_WEBHOOK_ALLOW_PRIVATE=true, laboratorios); cada redirección se valida igual.
       required:
         - url
       additionalProperties: false
@@ -14083,8 +14083,8 @@ components:
       type: string
       description: |
         Tipos de evento a los que se suscribe un canal (enum abierto), por categoría:
-        - `security`: `finding_opened`, `finding_reopened`. Fuera de categoría (solo por suscripción explícita, pensados
-          para webhooks): `finding_resolved` y `customer_security_state_changed`.
+        - `security`: `finding_opened`, `finding_reopened`.
+        - `security_updates` (pensada para webhooks, ADR-0030): `finding_resolved` y `customer_security_state_changed`.
         - `routers` (rol snmp): `router_offline`, `router_recovered` (vuelve tras una caída o un umbral avisado),
           `router_cpu_high`, `router_memory_high`, `router_temperature_high` (aviso → `medium`, crítico → `high`),
           `router_hardware_failed` (fuente o ventilador), `router_interface_down` / `router_interface_up` (enlace de
@@ -14122,6 +14122,7 @@ components:
         - routers
         - infrastructure
         - exporter_tunnel
+        - security_updates
     Severity:
       type: string
       description: Severidad (enum abierto; el cliente trata valores desconocidos como "otro").

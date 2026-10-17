@@ -73,10 +73,14 @@ const (
 	CategoryRouters        = "routers"
 	CategoryInfrastructure = "infrastructure"
 	CategoryExporterTunnel = "exporter_tunnel"
+	// CategorySecurityUpdates: resoluciones de hallazgos y cambios de estado
+	// de seguridad de clientes (pensada para webhooks, ADR-0030; aparte de
+	// `security` para no cambiar lo que reciben los canales ya suscritos).
+	CategorySecurityUpdates = "security_updates"
 )
 
 // Categories en el orden en que las muestra la consola.
-var Categories = []string{CategorySecurity, CategoryRouters, CategoryInfrastructure, CategoryExporterTunnel}
+var Categories = []string{CategorySecurity, CategoryRouters, CategoryInfrastructure, CategoryExporterTunnel, CategorySecurityUpdates}
 
 // EventCategory asigna cada tipo de evento a su categoría.
 var EventCategory = map[string]string{
@@ -87,18 +91,21 @@ var EventCategory = map[string]string{
 	eventServiceDown: CategoryInfrastructure, eventServiceDegraded: CategoryInfrastructure, eventServiceRecovered: CategoryInfrastructure,
 	eventExporterSilent: CategoryExporterTunnel, eventExporterRecovered: CategoryExporterTunnel,
 	eventTunnelDown: CategoryExporterTunnel, eventTunnelRecovered: CategoryExporterTunnel,
+	eventFindingResolved: CategorySecurityUpdates, eventCustomerSecurity: CategorySecurityUpdates,
 }
 
 // EventTypes son los tipos de evento suscribibles.
 var EventTypes = []string{eventFindingOpened, eventFindingReopened, eventExporterSilent, eventExporterRecovered, eventTunnelDown, eventTunnelRecovered,
 	eventRouterOffline, eventRouterRecovered, eventRouterCPUHigh, eventRouterMemoryHigh, eventRouterTemperatureHigh, eventRouterHardwareFailed,
-	eventRouterInterfaceDown, eventRouterInterfaceUp, eventRouterRebooted, eventServiceDown, eventServiceDegraded, eventServiceRecovered}
+	eventRouterInterfaceDown, eventRouterInterfaceUp, eventRouterRebooted, eventServiceDown, eventServiceDegraded, eventServiceRecovered,
+	// Categoría security_updates (pensados para webhooks, ADR-0030).
+	eventFindingResolved, eventCustomerSecurity}
 
 // RecoveryOf relaciona cada tipo de recuperación con las alarmas que cierra
 // (mismo recurso): una recuperación llega siempre al canal que recibió la
 // alarma, aunque su severidad (info) quede por debajo de min_severity.
 var RecoveryOf = map[string][]string{
-	eventRouterRecovered: {eventRouterOffline, eventRouterCPUHigh, eventRouterMemoryHigh, eventRouterTemperatureHigh, eventRouterHardwareFailed},
+	eventRouterRecovered:   {eventRouterOffline, eventRouterCPUHigh, eventRouterMemoryHigh, eventRouterTemperatureHigh, eventRouterHardwareFailed},
 	eventRouterInterfaceUp: {eventRouterInterfaceDown},
 	eventServiceRecovered:  {eventServiceDown, eventServiceDegraded},
 	eventExporterRecovered: {eventExporterSilent},
@@ -174,6 +181,8 @@ type Credentials struct {
 	TelegramBotToken string `json:"telegram_bot_token,omitempty"`
 	Password         string `json:"password,omitempty"`
 	APIToken         string `json:"api_token,omitempty"`
+	// WebhookSecret: secreto HMAC del canal webhook (lo genera el receptor).
+	WebhookSecret string `json:"webhook_secret,omitempty"`
 }
 
 // Channel es un canal de notificación del ISP.
