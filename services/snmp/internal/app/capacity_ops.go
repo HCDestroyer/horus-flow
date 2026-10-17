@@ -43,8 +43,8 @@ func (c *Capacity) reloadTenant(ctx context.Context, tenant uuid.UUID) {
 	} else {
 		delete(c.settings, tenant)
 	}
-	delete(c.cache, tenant)
 	c.mu.Unlock()
+	c.invalidate(tenant)
 }
 
 // findInterface busca la interfaz entre los routers sondeados del ISP.

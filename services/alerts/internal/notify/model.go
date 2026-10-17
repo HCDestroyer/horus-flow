@@ -62,6 +62,12 @@ const (
 	eventServiceDown            = "service_down"
 	eventServiceDegraded        = "service_degraded"
 	eventServiceRecovered       = "service_recovered"
+	eventUplinkSaturated        = "uplink_saturated"
+	eventUplinkDegraded         = "uplink_degraded"
+	eventUplinkRecovered        = "uplink_recovered"
+	eventCapacityPlanning       = "capacity_forecast_planning"
+	eventCapacityUrgent         = "capacity_forecast_urgent"
+	eventCapacityCleared        = "capacity_forecast_cleared"
 	notificationChannelEventSrc = "horus/alerts"
 )
 
@@ -77,10 +83,15 @@ const (
 	// de seguridad de clientes (pensada para webhooks, ADR-0030; aparte de
 	// `security` para no cambiar lo que reciben los canales ya suscritos).
 	CategorySecurityUpdates = "security_updates"
+	// CategoryCapacity: enlaces de subida saturados o con pérdida/latencia
+	// sostenidas y pronósticos de capacidad que cruzan el umbral de
+	// planificación o el urgente dentro de la antelación configurada.
+	CategoryCapacity = "capacity"
 )
 
 // Categories en el orden en que las muestra la consola.
-var Categories = []string{CategorySecurity, CategoryRouters, CategoryInfrastructure, CategoryExporterTunnel, CategorySecurityUpdates}
+var Categories = []string{CategorySecurity, CategoryRouters, CategoryInfrastructure, CategoryExporterTunnel, CategorySecurityUpdates,
+	CategoryCapacity}
 
 // EventCategory asigna cada tipo de evento a su categoría.
 var EventCategory = map[string]string{
@@ -92,6 +103,8 @@ var EventCategory = map[string]string{
 	eventExporterSilent: CategoryExporterTunnel, eventExporterRecovered: CategoryExporterTunnel,
 	eventTunnelDown: CategoryExporterTunnel, eventTunnelRecovered: CategoryExporterTunnel,
 	eventFindingResolved: CategorySecurityUpdates, eventCustomerSecurity: CategorySecurityUpdates,
+	eventUplinkSaturated: CategoryCapacity, eventUplinkDegraded: CategoryCapacity, eventUplinkRecovered: CategoryCapacity,
+	eventCapacityPlanning: CategoryCapacity, eventCapacityUrgent: CategoryCapacity, eventCapacityCleared: CategoryCapacity,
 }
 
 // EventTypes son los tipos de evento suscribibles.
@@ -99,7 +112,9 @@ var EventTypes = []string{eventFindingOpened, eventFindingReopened, eventExporte
 	eventRouterOffline, eventRouterRecovered, eventRouterCPUHigh, eventRouterMemoryHigh, eventRouterTemperatureHigh, eventRouterHardwareFailed,
 	eventRouterInterfaceDown, eventRouterInterfaceUp, eventRouterRebooted, eventServiceDown, eventServiceDegraded, eventServiceRecovered,
 	// Categoría security_updates (pensados para webhooks, ADR-0030).
-	eventFindingResolved, eventCustomerSecurity}
+	eventFindingResolved, eventCustomerSecurity,
+	// Categoría capacity (enlaces de subida y pronósticos).
+	eventUplinkSaturated, eventUplinkDegraded, eventUplinkRecovered, eventCapacityPlanning, eventCapacityUrgent, eventCapacityCleared}
 
 // RecoveryOf relaciona cada tipo de recuperación con las alarmas que cierra
 // (mismo recurso): una recuperación llega siempre al canal que recibió la
@@ -110,6 +125,8 @@ var RecoveryOf = map[string][]string{
 	eventServiceRecovered:  {eventServiceDown, eventServiceDegraded},
 	eventExporterRecovered: {eventExporterSilent},
 	eventTunnelRecovered:   {eventTunnelDown},
+	eventUplinkRecovered:   {eventUplinkSaturated, eventUplinkDegraded},
+	eventCapacityCleared:   {eventCapacityPlanning, eventCapacityUrgent},
 }
 
 // Severities en orden creciente.

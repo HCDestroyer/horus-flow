@@ -203,6 +203,11 @@ func cases() map[string]tenanttest.Case {
 	c["refreshCustomerExternalIdentity"] = tenanttest.Case{Kind: tenanttest.ByID}
 	pending("EP-08 (snmp: umbrales por ISP; TestSNMPThresholdsPerTenant)",
 		"getRouterThresholds", "putRouterThresholds", "resetRouterThresholds")
+	// snmp: capacidad de enlaces (el arnés de la matriz no monta snmp). Ajustes y enlaces de otro ISP → 404, RLS de las
+	// tablas nuevas y visor sin escritura: TestCapacityAPI.
+	pending("FLOW I3 (snmp: capacidad de enlaces; TestCapacityAPI)",
+		"getCapacityOverview", "getCapacityEgress", "getCapacityUplink", "putCapacityUplink", "deleteCapacityUplink",
+		"getCapacitySettings", "putCapacitySettings", "resetCapacitySettings", "getCapacityTrafficSplit", "getRouterNetwatchSnippet")
 	return c
 }
 

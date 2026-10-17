@@ -27,7 +27,8 @@ var NotifyConsumers = []NotifyConsumer{
 	{Stream: "FLOWS_EVENTS", Suffix: "flows", Subjects: []string{"horus.flows.exporter.silent.>", "horus.flows.exporter.recovered.>"}},
 	{Stream: "WIREGUARD_EVENTS", Suffix: "wireguard", Subjects: []string{"horus.wireguard.peer.handshake_stale.>", "horus.wireguard.peer.handshake_recovered.>"}},
 	{Stream: "SNMP_EVENTS", Suffix: "snmp", Subjects: []string{"horus.snmp.router.state_changed.>", "horus.snmp.router.rebooted.>",
-		"horus.snmp.interface.oper_status_changed.>", "horus.snmp.service.state_changed.>"}},
+		"horus.snmp.interface.oper_status_changed.>", "horus.snmp.service.state_changed.>", "horus.snmp.uplink.condition_changed.>",
+		"horus.snmp.capacity.forecast_changed.>"}},
 }
 
 // NotifySubjects son todos los filtros de los durables alerts-notify-*.
@@ -101,6 +102,14 @@ func str(data map[string]any, k string) string {
 // eventResource es el recurso que agrupa avisos (throttle) y empareja una
 // recuperación con su alarma.
 func eventResource(typ string, data map[string]any) string {
+	// Una condición de un enlace (saturación, pérdida, latencia) es su propio
+	// recurso: la pérdida no queda agrupada con la saturación del mismo enlace.
+	if typ == "horus.snmp.uplink.condition_changed" {
+		return str(data, "interface_id") + ":" + str(data, "condition")
+	}
+	if typ == "horus.snmp.capacity.forecast_changed" {
+		return "forecast:" + str(data, "subject_id")
+	}
 	for _, k := range []string{"id", "interface_id", "service_id", "router_id", "peer_id", "customer_id"} {
 		if v, ok := data[k].(string); ok && v != "" {
 			return v
@@ -162,6 +171,43 @@ func mapEvent(typ string, data map[string]any) string {
 		case cur == serviceUp && (prev == serviceDown || prev == serviceDegr):
 			return eventServiceRecovered
 		}
+	case "horus.snmp.uplink.condition_changed":
+		return mapUplinkCondition(str(data, "condition"), str(data, "previous_level"), str(data, "level"))
+	case "horus.snmp.capacity.forecast_changed":
+		return mapForecast(str(data, "previous_level"), str(data, "level"))
+	}
+	return ""
+}
+
+var levelRank = map[string]int{"ok": 0, "": 0, "warning": 1, "critical": 2}
+
+// mapUplinkCondition: subir de nivel (ok → aviso → crítico) avisa; volver a
+// ok recupera; bajar de crítico a aviso no se notifica (como los routers).
+func mapUplinkCondition(condition, prev, level string) string {
+	switch {
+	case level == "ok" && levelRank[prev] > 0:
+		return eventUplinkRecovered
+	case levelRank[level] > levelRank[prev]:
+		if condition == "saturation" {
+			return eventUplinkSaturated
+		}
+		return eventUplinkDegraded
+	}
+	return ""
+}
+
+// mapForecast: entrar en planificación o en urgente avisa (urgente también
+// desde planificación); volver a ok (o sin datos) desde un nivel accionable
+// cierra el aviso; de urgente a planificación no se notifica.
+func mapForecast(prev, level string) string {
+	actionable := func(l string) bool { return l == "planning" || l == "urgent" }
+	switch {
+	case level == "urgent" && prev != "urgent":
+		return eventCapacityUrgent
+	case level == "planning" && !actionable(prev):
+		return eventCapacityPlanning
+	case !actionable(level) && actionable(prev):
+		return eventCapacityCleared
 	}
 	return ""
 }
@@ -214,6 +260,25 @@ var routerReasonText = map[string]string{
 	"no_snmp_credentials":         "Responde a ping; sin credencial SNMP configurada.",
 	"psu_failed":                  "Fallo de una fuente de alimentación.",
 	"fan_failed":                  "Fallo de un ventilador.",
+}
+
+var conditionLabel = map[string]string{"saturation": "saturación", "loss": "pérdida de paquetes", "latency": "latencia"}
+
+// conditionValue escribe el valor de una condición con su unidad.
+func conditionValue(data map[string]any, key string) string {
+	v, ok := data[key].(float64)
+	if !ok {
+		return "—"
+	}
+	switch str(data, "unit") {
+	case "ratio":
+		return strconv.FormatFloat(float64(int(v*100+0.5)), 'f', -1, 64) + " %"
+	case "percent":
+		return round1(v) + " %"
+	case "ms":
+		return strconv.FormatFloat(float64(int(v+0.5)), 'f', -1, 64) + " ms"
+	}
+	return num(v)
 }
 
 var checkLabel = map[string]string{"icmp": "ping (ICMP)", "tcp": "puerto TCP", "http": "HTTP", "no_traffic": "sin tráfico",
@@ -441,8 +506,69 @@ func (s *Service) render(eventType string, data map[string]any, rc renderCtx) (M
 			m.Text += "\nMotivo: " + strings.ReplaceAll(r, "_", " ")
 		}
 		m.Text += rc.site()
+	case eventUplinkSaturated, eventUplinkDegraded, eventUplinkRecovered:
+		label := str(data, "label")
+		if label == "" {
+			label = str(data, "interface_name")
+		}
+		cond := conditionLabel[str(data, "condition")]
+		if cond == "" {
+			cond = str(data, "condition")
+		}
+		where := "«" + label + "» del router " + rc.router(routerID)
+		switch eventType {
+		case eventUplinkRecovered:
+			m.Subject, sev = "Enlace "+where+" normalizado ("+cond+")", "info"
+			m.Text = "Valor actual: " + conditionValue(data, "value") + "."
+		default:
+			m.Subject = "Enlace " + where + ": " + cond + " sostenida"
+			if str(data, "condition") == "saturation" {
+				m.Subject = "Enlace " + where + " saturado"
+			}
+			sev = "medium"
+			if str(data, "level") == "critical" {
+				sev = "high"
+			}
+			m.Text = "Valor: " + conditionValue(data, "value") + " (umbral " + conditionValue(data, "threshold") + "), sostenido desde " +
+				shortTime(str(data, "since")) + "."
+		}
+		if site := str(data, "site_name"); site != "" && rc.siteName == "" {
+			m.Text += "\nNodo: " + site
+		} else {
+			m.Text += rc.site()
+		}
+		if id := str(data, "interface_id"); id != "" {
+			m.Link = link("/capacity/uplinks/" + id)
+		}
+	case eventCapacityPlanning, eventCapacityUrgent, eventCapacityCleared:
+		label := str(data, "label")
+		if str(data, "subject_kind") == "international_egress" {
+			label = "Salida internacional"
+		}
+		switch eventType {
+		case eventCapacityUrgent:
+			m.Subject, sev = "Capacidad urgente: "+label, "high"
+		case eventCapacityPlanning:
+			m.Subject, sev = "Planificar capacidad: "+label, "low"
+		default:
+			m.Subject, sev = "Capacidad sin urgencia: "+label, "info"
+		}
+		m.Text = str(data, "recommendation")
+		m.Link = link("/capacity")
+		if id := str(data, "subject_id"); id != "" && str(data, "subject_kind") == "uplink" {
+			m.Link = link("/capacity/uplinks/" + id)
+		}
 	}
 	return m, sev
+}
+
+// shortTime escribe un instante RFC 3339 como dd/mm/aaaa HH:mm UTC.
+func shortTime(s string) string {
+	t, err := time.Parse(time.RFC3339Nano, s)
+	if err != nil {
+		return s
+	}
+	return t.UTC().Format("02/01/2006 15:04") + " UTC"
 }
 
 func humanDuration(d time.Duration) string {

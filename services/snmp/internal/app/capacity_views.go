@@ -312,6 +312,8 @@ func (c *Capacity) Overview(ctx context.Context, tenant uuid.UUID, days int) (*O
 }
 
 func (c *Capacity) buildOverview(ctx context.Context, tenant uuid.UUID, days int, now time.Time) (*Overview, error) {
+	// Configuración fresca del ISP (otra réplica pudo cambiarla; el sondeador la recarga cada minuto).
+	c.reloadTenant(ctx, tenant)
 	st := c.settingsFor(tenant)
 	info := c.tenantInfo(ctx, tenant)
 	loc := location(info.Timezone)

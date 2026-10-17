@@ -1,0 +1,41 @@
+{
+  "id": "0192f0d2-0000-7000-8000-000000000803",
+  "type": "horus.snmp.capacity.forecast_changed",
+  "source": "horus/snmp",
+  "subject": "0192f9b2-0000-5000-8000-0000000009d1",
+  "time": "2026-10-17T06:20:00.000Z",
+  "schema_version": 1,
+  "tenant_id": "0192e000-0000-7000-8000-000000000001",
+  "aggregate_type": "capacity_forecast",
+  "aggregate_version": 1,
+  "actor": {
+    "type": "service",
+    "id": "svc:snmp",
+    "via_platform": false
+  },
+  "trace_parent": null,
+  "correlation_id": null,
+  "causation_id": null,
+  "data": {
+    "tenant_id": "0192e000-0000-7000-8000-000000000001",
+    "subject_id": "0192f9b2-0000-5000-8000-0000000009d1",
+    "subject_kind": "international_egress",
+    "site_id": null,
+    "label": "Salida internacional",
+    "previous_level": "ok",
+    "level": "planning",
+    "capacity_bps": 1000000000,
+    "current_peak_bps": 780000000,
+    "monthly_growth": 0.042,
+    "confidence": "high",
+    "planning_threshold": 0.8,
+    "planning_date": "2026-11-20",
+    "days_until_planning": 34,
+    "urgent_threshold": 0.9,
+    "urgent_date": "2027-03-01",
+    "days_until_urgent": 135,
+    "lead_days": 90,
+    "recommendation": "Planificar upgrade de salida internacional: pico 780 Mb/s, en 6 meses ~1,0 Gb/s (+28 %), cruza el 80 % hacia 11/2026.",
+    "computed_at": "2026-10-17T06:20:00.000Z"
+  }
+}

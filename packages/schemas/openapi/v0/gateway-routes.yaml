@@ -907,6 +907,36 @@ modules:
       methods:
         GET: platform.updates.read
   snmp:
+    - prefix: /api/v1/capacity/egress
+      scope: tenant
+      methods:
+        GET: snmp.read
+    - prefix: /api/v1/capacity/overview
+      scope: tenant
+      methods:
+        GET: snmp.read
+    - prefix: /api/v1/capacity/settings
+      scope: tenant
+      methods:
+        GET: snmp.read
+        PUT: snmp.manage
+        DELETE: snmp.manage
+      audited:
+        - PUT
+        - DELETE
+    - prefix: /api/v1/capacity/traffic-split
+      scope: tenant
+      methods:
+        GET: snmp.read
+    - prefix: /api/v1/capacity/uplinks/{interface_id}
+      scope: tenant
+      methods:
+        GET: snmp.read
+        PUT: snmp.manage
+        DELETE: snmp.manage
+      audited:
+        - PUT
+        - DELETE
     - prefix: /api/v1/infra-services
       scope: tenant
       methods:
@@ -955,6 +985,10 @@ modules:
         - user
         - api_token
         - kiosk
+    - prefix: /api/v1/routers/{router_id}/netwatch-snippet
+      scope: tenant
+      methods:
+        GET: snmp.manage
     - prefix: /api/v1/routers/{router_id}/poll
       scope: tenant
       methods:

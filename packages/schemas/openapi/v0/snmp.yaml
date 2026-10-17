@@ -24,6 +24,11 @@ tags:
     description: Estado observado y métricas en vivo de los routers (SNMP + ICMP por el túnel).
   - name: infra-services
     description: Servicios de infraestructura del ISP (IPTV, HTTP, DNS, RADIUS…) y sus chequeos activos y pasivos.
+  - name: capacity
+    description: |
+      Capacidad de enlaces de subida y salud de los nodos (NOC): utilización y saturación, pérdida/latencia/jitter por
+      enlace (sondas netwatch del router, leídas en solo lectura), tráfico local vs internacional y pronóstico de
+      crecimiento con fecha estimada de upgrade.
 paths:
   /routers/status:
     get:
@@ -434,6 +439,304 @@ paths:
         '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
         '403': { $ref: './common.yaml#/components/responses/Forbidden' }
         '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
+  /capacity/overview:
+    get:
+      tags: [capacity]
+      operationId: getCapacityOverview
+      summary: Capacidad y salud de los nodos (enlaces de subida, sondas, pronósticos)
+      description: |
+        Vista NOC de capacidad: un bloque por nodo con su **salud explicable** (enlaces caídos, saturación, pérdida,
+        latencia, routers y servicios de infraestructura; siempre con razones) y la tabla de sus enlaces de subida (el
+        detectado por el sondeador y los configurados): utilización en vivo sobre la capacidad (contratada o, si no,
+        velocidad del puerto), p95 y horas sobre el 70 / 85 % de la ventana (`days`, últimos días completos + hoy al
+        vuelo), diagnóstico lleno/averiado, pérdida/latencia/jitter de la sonda de su puerta de enlace, condiciones
+        sostenidas vigentes y el último pronóstico. `egress` es la salida internacional agregada (solo con alcance
+        completo) y `horus_probes` las sondas de respaldo «ruta Horus → destino» (no miden un enlace del ISP). Sin
+        datos personales. Las razones de salud y las recomendaciones van en español.
+      x-module: snmp
+      x-scope: tenant
+      x-permission: snmp.read
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: '#/components/parameters/CapacitySiteId'
+        - name: days
+          in: query
+          description: Ventana en días para p95, horas sobre umbral y diagnóstico (1–30).
+          schema: { type: integer, minimum: 1, maximum: 30, default: 7 }
+      responses:
+        '200':
+          description: Nodos con su capacidad.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CapacityOverview' }
+        '400': { $ref: './common.yaml#/components/responses/BadRequest' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
+  /capacity/egress:
+    get:
+      tags: [capacity]
+      operationId: getCapacityEgress
+      summary: Detalle de la salida internacional agregada (serie diaria y pronóstico)
+      description: |
+        Suma de los enlaces marcados `international_egress`: pico diario (p95 de la suma intervalo a intervalo), capacidad
+        agregada y pronóstico con proyección. Solo con alcance completo del ISP (`404` con alcance por nodo o sin
+        enlaces marcados).
+      x-module: snmp
+      x-scope: tenant
+      x-permission: snmp.read
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: '#/components/parameters/CapacityDays'
+      responses:
+        '200':
+          description: Serie y pronóstico.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CapacitySubjectDetail' }
+        '400': { $ref: './common.yaml#/components/responses/BadRequest' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+  /capacity/uplinks/{interface_id}:
+    parameters:
+      - $ref: '#/components/parameters/InterfaceId'
+    get:
+      tags: [capacity]
+      operationId: getCapacityUplink
+      summary: Detalle de un enlace de subida (serie diaria, pronóstico y sondas)
+      description: |
+        Serie de picos diarios (p95 rx/tx, horas sobre umbral, errores, descartes) de los últimos `days` días, el último
+        pronóstico con su banda de proyección (12 meses) y la serie horaria de la sonda de su puerta de enlace. Las series
+        de bits/s por minuto las sirve analytics (`getRouterInterfaceMetrics`). Un enlace de otro ISP o fuera del
+        alcance → `404`.
+      x-module: snmp
+      x-scope: tenant
+      x-permission: snmp.read
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: '#/components/parameters/CapacityDays'
+      responses:
+        '200':
+          description: Detalle del enlace.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CapacitySubjectDetail' }
+        '400': { $ref: './common.yaml#/components/responses/BadRequest' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+    put:
+      tags: [capacity]
+      operationId: putCapacityUplink
+      summary: Configura un enlace de subida (proveedor, tipo, capacidad contratada, salida internacional)
+      description: |
+        La interfaz debe ser de un router sondeado del ISP (`router_id` es su router) y estar en el alcance del usuario;
+        si no → `404 UPLINK_NOT_FOUND`. Una interfaz configurada cuenta como enlace de subida aunque el sondeador no la
+        haya elegido. `contracted_bps` (bits/s) puede ser menor que la velocidad del puerto; si falta se usa la
+        velocidad. `international_egress` por defecto es `true` solo para `international_transit`. `If-Match` opcional
+        (`412`). Máximo 500 enlaces configurados por ISP (`409 UPLINK_LIMIT_REACHED`). Sin PostgreSQL → `503`. Auditado
+        (`snmp.uplink_config.updated`, antes y después). Horus no escribe nada en el router.
+      x-module: snmp
+      x-scope: tenant
+      x-permission: snmp.manage
+      x-audited: true
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      parameters:
+        - name: If-Match
+          in: header
+          required: false
+          schema: { type: string, examples: ['"2"'] }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UplinkConfigInput' }
+      responses:
+        '200':
+          description: Configuración guardada.
+          headers:
+            ETag: { $ref: './common.yaml#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UplinkConfig' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+        '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
+    delete:
+      tags: [capacity]
+      operationId: deleteCapacityUplink
+      summary: Quita la configuración de un enlace (vuelve a solo detección)
+      description: Auditado (`snmp.uplink_config.deleted`). Sin configuración → `404`.
+      x-module: snmp
+      x-scope: tenant
+      x-permission: snmp.manage
+      x-audited: true
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      responses:
+        '204': { $ref: './common.yaml#/components/responses/NoContent' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
+  /capacity/settings:
+    get:
+      tags: [capacity]
+      operationId: getCapacitySettings
+      summary: Umbrales de capacidad, país para el tráfico local, ASN locales y sondas de respaldo
+      description: |
+        Sin ajustes del ISP (`customized=false`, `version=0`) rigen los valores por defecto (también en `defaults`):
+        planificación 80 %, urgente 90 %, antelación 90 días, saturación 70 / 85 % sostenida 15 min, pérdida 1 / 5 %,
+        latencia 80 / 200 ms. `effective_country` es `country` si se fijó y, si no, el país del ISP (`tenant_country`).
+      x-module: snmp
+      x-scope: tenant
+      x-permission: snmp.read
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Ajustes vigentes.
+          headers:
+            ETag: { $ref: './common.yaml#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CapacitySettings' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+    put:
+      tags: [capacity]
+      operationId: putCapacitySettings
+      summary: Fija los ajustes de capacidad del ISP
+      description: |
+        Proporciones entre 0,3 y 1; planificación ≤ urgente, aviso ≤ crítico (`422`). `probe_targets`: hasta 10 IPv4
+        públicas que Horus sondea desde su host («ruta Horus → destino»); las redes internas de la instalación se
+        rechazan. `local_asns`: hasta 200 (IXP, cachés on-net). `If-Match` opcional (`412`). Sin PostgreSQL → `503`.
+        Auditado (`snmp.capacity_settings.updated`).
+      x-module: snmp
+      x-scope: tenant
+      x-permission: snmp.manage
+      x-audited: true
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      parameters:
+        - name: If-Match
+          in: header
+          required: false
+          schema: { type: string, examples: ['"3"'] }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CapacitySettingsValues' }
+      responses:
+        '200':
+          description: Ajustes guardados.
+          headers:
+            ETag: { $ref: './common.yaml#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CapacitySettings' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+        '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
+    delete:
+      tags: [capacity]
+      operationId: resetCapacitySettings
+      summary: Vuelve a los ajustes de capacidad por defecto
+      x-module: snmp
+      x-scope: tenant
+      x-permission: snmp.manage
+      x-audited: true
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Ajustes por defecto (customized=false).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CapacitySettings' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
+  /capacity/traffic-split:
+    get:
+      tags: [capacity]
+      operationId: getCapacityTrafficSplit
+      summary: Tráfico remoto local vs internacional por nodo y por día
+      description: |
+        Volumen remoto (`flows.site_1d`, días UTC) clasificado por el ASN remoto: **local** si está en `local_asns` del
+        ISP o su organización es del país efectivo; **internacional** si es de otro país; **desconocido** sin ASN o sin
+        país (no entra en las proporciones). Sin país (`country_source=none`) solo la lista local cuenta como local.
+      x-module: snmp
+      x-scope: tenant
+      x-permission: snmp.read
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: '#/components/parameters/CapacitySiteId'
+        - name: days
+          in: query
+          description: Días completos (1–90).
+          schema: { type: integer, minimum: 1, maximum: 90, default: 30 }
+      responses:
+        '200':
+          description: Reparto.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TrafficSplitReport' }
+        '400': { $ref: './common.yaml#/components/responses/BadRequest' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
+  /routers/{router_id}/netwatch-snippet:
+    parameters:
+      - $ref: '#/components/parameters/RouterId'
+    get:
+      tags: [capacity]
+      operationId: getRouterNetwatchSnippet
+      summary: Script RouterOS de sondas netwatch por enlace (lo pega el usuario; Horus solo lo lee)
+      description: |
+        Sondas ICMP de `/tool netwatch` (RouterOS v7) hacia la puerta de enlace del proveedor de cada enlace de subida del
+        router (`{GATEWAY_n}`: el usuario completa la IP en la consola antes de copiar; nunca viaja en la URL) y hacia
+        referencias internacionales (1.1.1.1, 8.8.8.8), con `comment="horus-uplink;…"` y sin scripts. Horus **nunca
+        escribe en el router**: las lee cada minuto con el usuario de solo lectura por la API REST (huella TLS ya
+        fijada). `probes_error` dice por qué no se pudieron leer (`no_api_credential`, `tls_fingerprint_not_pinned`,
+        `auth_failed`, `unreachable`…).
+      x-module: snmp
+      x-scope: tenant
+      x-permission: snmp.manage
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Script y estado de la lectura.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NetwatchSnippet' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
 components:
   securitySchemes:
     tenantBearer: { $ref: './common.yaml#/components/securitySchemes/tenantBearer' }
@@ -449,6 +752,24 @@ components:
       in: path
       required: true
       schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    InterfaceId:
+      name: interface_id
+      in: path
+      required: true
+      description: interface_id estable (UUIDv5 del router y el nombre de la interfaz).
+      schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    CapacitySiteId:
+      name: site_id
+      in: query
+      required: false
+      description: Un nodo (dentro del alcance del usuario).
+      schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    CapacityDays:
+      name: days
+      in: query
+      required: false
+      description: Días de la serie diaria (7–365).
+      schema: { type: integer, minimum: 7, maximum: 365, default: 90 }
   schemas:
     RouterEffectiveStatus:
       type: string
@@ -843,3 +1164,418 @@ components:
         memory_critical: { type: number, minimum: 1, maximum: 100 }
         temperature_warning: { type: number, minimum: 20, maximum: 150, description: °C. }
         temperature_critical: { type: number, minimum: 20, maximum: 150 }
+    NullableTimestamp:
+      oneOf:
+        - $ref: './common.yaml#/components/schemas/Timestamp'
+        - type: 'null'
+    UplinkKind:
+      type: string
+      description: |
+        `international_transit` (tránsito a Internet), `local_ix` (punto de intercambio local), `cache` (enlace a cachés
+        de contenido) u `other`.
+      enum: [international_transit, local_ix, cache, other]
+    HealthStatus:
+      type: string
+      description: Vocabulario de estado de equipos (online = sano). `unknown` = sin datos observados.
+      enum: [online, warning, degraded, critical, offline, unknown]
+    SiteHealthReason:
+      type: object
+      required: [status, code, text]
+      properties:
+        status: { $ref: '#/components/schemas/HealthStatus' }
+        code:
+          type: string
+          description: |
+            Enum abierto: `uplink_down`, `all_uplinks_down`, `uplink_saturated`, `uplink_quality`, `router_<estado>`,
+            `service_down`, `service_degraded`.
+        text: { type: string, description: 'Razón legible en español (p. ej. «enlace Proveedor A al 92 % en hora pico»).' }
+    SiteHealth:
+      type: object
+      required: [status, summary, reasons]
+      properties:
+        status: { $ref: '#/components/schemas/HealthStatus' }
+        summary: { type: string, examples: ['Degradado: enlace Proveedor A al 92 % en hora pico y 2,0 % de pérdida'] }
+        reasons: { type: array, items: { $ref: '#/components/schemas/SiteHealthReason' } }
+    CapacityCrossing:
+      type: object
+      required: [threshold, date, days_until, already]
+      properties:
+        threshold: { type: number, description: 'Proporción de la capacidad (0,8 = 80 %).' }
+        date:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
+          description: Fecha estimada de cruce (null = no cruza en 36 meses o datos insuficientes).
+        days_until: { type: [integer, 'null'] }
+        already: { type: boolean, description: El pico actual ya supera el umbral. }
+    CapacityForecastLevel:
+      type: string
+      enum: [ok, planning, urgent, insufficient_data, no_capacity]
+    CapacityConfidence:
+      type: string
+      enum: [low, medium, high]
+    CapacityForecastSummary:
+      type: object
+      required: [subject_id, subject_kind, level, confidence, computed_at, history_days, seasonality, capacity_bps, current_peak_bps,
+        monthly_growth, peak_6m_bps, growth_6m, planning, urgent, lead_days, recommendation]
+      properties:
+        subject_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        subject_kind: { type: string, enum: [uplink, international_egress] }
+        level: { $ref: '#/components/schemas/CapacityForecastLevel' }
+        confidence: { $ref: '#/components/schemas/CapacityConfidence' }
+        computed_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        history_days: { type: integer }
+        seasonality: { type: boolean, description: Se descontó la estacionalidad semanal (≥ 21 días). }
+        capacity_bps: { type: integer, description: bits/s. }
+        current_peak_bps: { type: [number, 'null'], description: 'Pico actual de tendencia (día de la semana más cargado), bits/s.' }
+        monthly_growth: { type: [number, 'null'], description: 'Crecimiento mensual del pico (0,04 = +4 %).' }
+        peak_6m_bps: { type: [number, 'null'] }
+        growth_6m: { type: [number, 'null'] }
+        planning: { $ref: '#/components/schemas/CapacityCrossing' }
+        urgent: { $ref: '#/components/schemas/CapacityCrossing' }
+        lead_days: { type: integer }
+        recommendation: { type: string }
+    CapacityForecastPoint:
+      type: object
+      required: [day, bps, low_bps, high_bps]
+      properties:
+        day: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        bps: { type: number }
+        low_bps: { type: number }
+        high_bps: { type: number }
+    CapacityForecast:
+      type: object
+      description: Pronóstico completo (método Theil–Sen sobre ln del pico diario con estacionalidad semanal; docs/capacity-forecast.md).
+      required: [level, method, history_days, first_day, last_day, seasonality, confidence, capacity_bps, observed_peak_bps, current_peak_bps,
+        monthly_growth, monthly_growth_low, monthly_growth_high, peak_6m_bps, growth_6m, planning, urgent, lead_days, projection]
+      properties:
+        level: { $ref: '#/components/schemas/CapacityForecastLevel' }
+        method: { type: string, examples: [theil_sen_log_weekly] }
+        history_days: { type: integer }
+        first_day: { $ref: '#/components/schemas/NullableTimestamp' }
+        last_day: { $ref: '#/components/schemas/NullableTimestamp' }
+        seasonality: { type: boolean }
+        confidence: { $ref: '#/components/schemas/CapacityConfidence' }
+        capacity_bps: { type: integer }
+        observed_peak_bps: { type: [number, 'null'] }
+        current_peak_bps: { type: [number, 'null'] }
+        monthly_growth: { type: [number, 'null'] }
+        monthly_growth_low: { type: [number, 'null'] }
+        monthly_growth_high: { type: [number, 'null'] }
+        peak_6m_bps: { type: [number, 'null'] }
+        growth_6m: { type: [number, 'null'] }
+        planning: { $ref: '#/components/schemas/CapacityCrossing' }
+        urgent: { $ref: '#/components/schemas/CapacityCrossing' }
+        lead_days: { type: integer }
+        projection: { type: array, items: { $ref: '#/components/schemas/CapacityForecastPoint' }, description: 'Semanal, 12 meses.' }
+    UplinkWindow:
+      type: object
+      required: [days, from, to, samples, rx_p95_bps, tx_p95_bps, util_p95, hours_above_warning, hours_above_critical, errors, drops]
+      properties:
+        days: { type: integer }
+        from: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        to: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        samples: { type: integer, description: Intervalos de 5 min con dato. }
+        rx_p95_bps: { type: number, description: 'Peor p95 diario de entrada (bits/s).' }
+        tx_p95_bps: { type: number }
+        util_p95: { type: [number, 'null'], description: Peor p95 diario sobre la capacidad (0..1+). }
+        hours_above_warning: { type: number, description: Horas con la media de 5 min sobre el aviso de saturación. }
+        hours_above_critical: { type: number }
+        errors: { type: integer }
+        drops: { type: integer }
+    UplinkDiagnosis:
+      type: object
+      required: [kind, error_ratio, drop_ratio]
+      properties:
+        kind:
+          type: string
+          description: |
+            `full` = saturado sin errores físicos (descartes de cola esperables); `faulty` = errores o descartes con el
+            enlace holgado (física, negociación o política); `full_and_faulty`; `busy` = p95 sobre el aviso; `ok`;
+            `no_data`; `no_capacity`.
+          enum: [ok, busy, full, faulty, full_and_faulty, no_data, no_capacity]
+        error_ratio: { type: number }
+        drop_ratio: { type: number }
+    CapacityProbe:
+      type: object
+      required: [probe_id, source, ref, target, label, router_id, interface_id, status, last_at, loss_pct, loss_pct_max, rtt_avg_ms, jitter_ms,
+        last_loss_pct, last_rtt_ms, last_jitter_ms]
+      properties:
+        probe_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        source:
+          type: string
+          enum: [router_netwatch, horus]
+          description: '`router_netwatch` = sonda del router (por enlace); `horus` = ruta Horus → destino (no mide un enlace).'
+        ref: { type: string, description: 'gw (puerta de enlace del proveedor) | intl (referencia internacional) | horus.' }
+        target: { type: string, description: IP sondeada (infraestructura o referencia pública; nunca un cliente). }
+        label: { type: string }
+        router_id: { oneOf: [{ $ref: './common.yaml#/components/schemas/Uuid' }, { type: 'null' }] }
+        interface_id: { oneOf: [{ $ref: './common.yaml#/components/schemas/Uuid' }, { type: 'null' }] }
+        status: { type: string, enum: [up, down, unknown] }
+        last_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        loss_pct: { type: [number, 'null'], description: Media de 24 h (%). }
+        loss_pct_max: { type: [number, 'null'] }
+        rtt_avg_ms: { type: [number, 'null'], description: Media de 24 h. }
+        jitter_ms: { type: [number, 'null'], description: Media de 24 h. }
+        last_loss_pct: { type: [number, 'null'] }
+        last_rtt_ms: { type: [number, 'null'] }
+        last_jitter_ms: { type: [number, 'null'] }
+    UplinkCondition:
+      type: object
+      required: [condition, level, since, value]
+      properties:
+        condition: { type: string, enum: [saturation, loss, latency] }
+        level: { type: string, enum: [ok, warning, critical] }
+        since: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        value: { type: number, description: 'saturation: proporción; loss: %; latency: ms.' }
+    CapacityUplink:
+      type: object
+      required: [interface_id, router_id, router_name, site_id, site_name, interface_name, configured, auto_detected, label, provider, kind,
+        international_egress, contracted_bps, speed_bps, capacity_bps, capacity_source, oper_status, rx_bps, tx_bps, utilization, sampled_at,
+        window, diagnosis, probe, conditions, forecast, version]
+      properties:
+        interface_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        router_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        router_name: { type: string }
+        site_id: { oneOf: [{ $ref: './common.yaml#/components/schemas/Uuid' }, { type: 'null' }] }
+        site_name: { type: string }
+        interface_name: { type: string }
+        configured: { type: boolean }
+        auto_detected: { type: boolean, description: Es el enlace de subida que eligió el sondeador. }
+        label: { type: string }
+        provider: { type: [string, 'null'] }
+        kind: { oneOf: [{ $ref: '#/components/schemas/UplinkKind' }, { type: 'null' }] }
+        international_egress: { type: boolean }
+        contracted_bps: { type: [integer, 'null'] }
+        speed_bps: { type: [integer, 'null'] }
+        capacity_bps: { type: [integer, 'null'] }
+        capacity_source: { type: string, enum: [contracted, port_speed, unknown] }
+        oper_status: { oneOf: [{ $ref: '#/components/schemas/InterfaceOperStatus' }, { type: 'null' }] }
+        rx_bps: { type: [number, 'null'] }
+        tx_bps: { type: [number, 'null'] }
+        utilization: { type: [number, 'null'], description: 'Última muestra, max(rx, tx) / capacidad.' }
+        sampled_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        window: { oneOf: [{ $ref: '#/components/schemas/UplinkWindow' }, { type: 'null' }] }
+        diagnosis: { $ref: '#/components/schemas/UplinkDiagnosis' }
+        probe: { oneOf: [{ $ref: '#/components/schemas/CapacityProbe' }, { type: 'null' }] }
+        conditions: { type: array, items: { $ref: '#/components/schemas/UplinkCondition' } }
+        forecast: { oneOf: [{ $ref: '#/components/schemas/CapacityForecastSummary' }, { type: 'null' }] }
+        version: { type: integer, description: Versión de la configuración (0 = sin configurar). }
+    CapacityRouterBrief:
+      type: object
+      required: [router_id, name, status, probes_error]
+      properties:
+        router_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        name: { type: string }
+        status: { $ref: '#/components/schemas/RouterEffectiveStatus' }
+        probes_error: { type: [string, 'null'], description: Por qué no se leen sus sondas netwatch (null = se leen o no hay intento). }
+    CapacitySite:
+      type: object
+      required: [site_id, site_name, health, uplinks, router_probes, routers]
+      properties:
+        site_id: { oneOf: [{ $ref: './common.yaml#/components/schemas/Uuid' }, { type: 'null' }] }
+        site_name: { type: string }
+        health: { $ref: '#/components/schemas/SiteHealth' }
+        uplinks: { type: array, items: { $ref: '#/components/schemas/CapacityUplink' } }
+        router_probes: { type: array, items: { $ref: '#/components/schemas/CapacityProbe' }, description: Referencias internacionales de sus routers. }
+        routers: { type: array, items: { $ref: '#/components/schemas/CapacityRouterBrief' } }
+    CapacityEgress:
+      type: object
+      required: [subject_id, members, capacity_bps, rx_bps, tx_bps, utilization, window, forecast]
+      properties:
+        subject_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        members: { type: array, items: { $ref: './common.yaml#/components/schemas/Uuid' } }
+        capacity_bps: { type: integer }
+        rx_bps: { type: [number, 'null'] }
+        tx_bps: { type: [number, 'null'] }
+        utilization: { type: [number, 'null'] }
+        window: { oneOf: [{ $ref: '#/components/schemas/UplinkWindow' }, { type: 'null' }] }
+        forecast: { oneOf: [{ $ref: '#/components/schemas/CapacityForecastSummary' }, { type: 'null' }] }
+    CapacityProbeTarget:
+      type: object
+      required: [label, address]
+      additionalProperties: false
+      properties:
+        label: { type: string, minLength: 1, maxLength: 60 }
+        address: { type: string, format: ipv4 }
+    CapacitySettingsValues:
+      type: object
+      required: [country, planning_threshold, urgent_threshold, lead_days, saturation_warning, saturation_critical, sustained_minutes,
+        loss_warning_pct, loss_critical_pct, latency_warning_ms, latency_critical_ms, local_asns, probe_targets]
+      additionalProperties: false
+      properties:
+        country: { type: [string, 'null'], pattern: '^[A-Za-z]{2}$', description: ISO 3166-1 alfa-2; null = el país del ISP. }
+        planning_threshold: { type: number, minimum: 0.3, maximum: 1 }
+        urgent_threshold: { type: number, minimum: 0.3, maximum: 1 }
+        lead_days: { type: integer, minimum: 7, maximum: 365 }
+        saturation_warning: { type: number, minimum: 0.3, maximum: 1 }
+        saturation_critical: { type: number, minimum: 0.3, maximum: 1 }
+        sustained_minutes: { type: integer, minimum: 5, maximum: 240 }
+        loss_warning_pct: { type: number, exclusiveMinimum: 0, maximum: 100 }
+        loss_critical_pct: { type: number, exclusiveMinimum: 0, maximum: 100 }
+        latency_warning_ms: { type: number, exclusiveMinimum: 0 }
+        latency_critical_ms: { type: number, exclusiveMinimum: 0, maximum: 10000 }
+        local_asns: { type: array, maxItems: 200, items: { type: integer, minimum: 1, maximum: 4294967295 } }
+        probe_targets: { type: array, maxItems: 10, items: { $ref: '#/components/schemas/CapacityProbeTarget' } }
+    CapacitySettings:
+      allOf:
+        - $ref: '#/components/schemas/CapacitySettingsValues'
+        - type: object
+          required: [defaults, customized, version, updated_at, tenant_country, effective_country]
+          properties:
+            defaults: { $ref: '#/components/schemas/CapacitySettingsValues' }
+            customized: { type: boolean }
+            version: { type: integer, minimum: 0 }
+            updated_at: { $ref: '#/components/schemas/NullableTimestamp' }
+            tenant_country: { type: [string, 'null'] }
+            effective_country: { type: [string, 'null'] }
+    CapacityOverview:
+      type: object
+      required: [data, egress, horus_probes, settings, meta]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/CapacitySite' }, description: 'Nodos, peor salud primero.' }
+        egress: { oneOf: [{ $ref: '#/components/schemas/CapacityEgress' }, { type: 'null' }] }
+        horus_probes: { type: array, items: { $ref: '#/components/schemas/CapacityProbe' } }
+        settings: { $ref: '#/components/schemas/CapacitySettingsValues' }
+        meta:
+          type: object
+          required: [generated_at, window_days, history, store]
+          properties:
+            generated_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+            window_days: { type: integer }
+            history: { type: boolean, description: 'false: sin ClickHouse (solo datos en vivo, sin pronósticos).' }
+            store: { type: boolean, description: 'false: sin PostgreSQL (sin configuración por enlace).' }
+    UplinkDaily:
+      type: object
+      required: [day, samples, rx_p95_bps, tx_p95_bps, rx_max_bps, tx_max_bps, capacity_bps, hours_above_warning, hours_above_critical,
+        errors, drops, packets]
+      properties:
+        day: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        samples: { type: integer }
+        rx_p95_bps: { type: number }
+        tx_p95_bps: { type: number }
+        rx_max_bps: { type: number }
+        tx_max_bps: { type: number }
+        capacity_bps: { type: integer }
+        hours_above_warning: { type: number }
+        hours_above_critical: { type: number }
+        errors: { type: integer }
+        drops: { type: integer }
+        packets: { type: number }
+    ProbeSeries:
+      type: object
+      required: [probe_id, label, target, points]
+      properties:
+        probe_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        label: { type: string }
+        target: { type: string }
+        points:
+          type: array
+          items:
+            type: object
+            required: [at, loss_pct, rtt_avg_ms, jitter_ms]
+            properties:
+              at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+              loss_pct: { type: [number, 'null'] }
+              rtt_avg_ms: { type: [number, 'null'] }
+              jitter_ms: { type: [number, 'null'] }
+    CapacitySubjectDetail:
+      type: object
+      required: [subject_id, subject_kind, uplink, egress, days, daily, forecast, recommendation, computed_at, probe_series, settings]
+      properties:
+        subject_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        subject_kind: { type: string, enum: [uplink, international_egress] }
+        uplink: { oneOf: [{ $ref: '#/components/schemas/CapacityUplink' }, { type: 'null' }] }
+        egress: { oneOf: [{ $ref: '#/components/schemas/CapacityEgress' }, { type: 'null' }] }
+        days: { type: integer }
+        daily: { type: array, items: { $ref: '#/components/schemas/UplinkDaily' } }
+        forecast: { oneOf: [{ $ref: '#/components/schemas/CapacityForecast' }, { type: 'null' }] }
+        recommendation: { type: [string, 'null'] }
+        computed_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        probe_series: { type: array, items: { $ref: '#/components/schemas/ProbeSeries' } }
+        settings: { $ref: '#/components/schemas/CapacitySettingsValues' }
+    UplinkConfigInput:
+      type: object
+      required: [router_id, label, kind]
+      additionalProperties: false
+      properties:
+        router_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        label: { type: string, minLength: 1, maxLength: 120, description: 'Nombre visible (p. ej. «Proveedor A 10G»).' }
+        provider: { type: [string, 'null'], maxLength: 120 }
+        kind: { $ref: '#/components/schemas/UplinkKind' }
+        contracted_bps: { type: [integer, 'null'], minimum: 1000000, maximum: 1600000000000, description: bits/s. }
+        international_egress: { type: [boolean, 'null'], description: 'Forma parte de la salida internacional agregada (por defecto: kind = international_transit).' }
+    UplinkConfig:
+      type: object
+      required: [interface_id, router_id, label, provider, kind, contracted_bps, international_egress, updated_at, version]
+      properties:
+        interface_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        router_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        label: { type: string }
+        provider: { type: [string, 'null'] }
+        kind: { $ref: '#/components/schemas/UplinkKind' }
+        contracted_bps: { type: [integer, 'null'] }
+        international_egress: { type: boolean }
+        updated_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        version: { type: integer }
+    TrafficSplit:
+      type: object
+      required: [local_bytes, local_by_country_bytes, local_by_list_bytes, international_bytes, unknown_bytes, international_share, local_share]
+      properties:
+        local_bytes: { type: integer }
+        local_by_country_bytes: { type: integer }
+        local_by_list_bytes: { type: integer }
+        international_bytes: { type: integer }
+        unknown_bytes: { type: integer }
+        international_share: { type: [number, 'null'], description: Sobre lo clasificado (sin desconocido). }
+        local_share: { type: [number, 'null'] }
+    TrafficSplitReport:
+      type: object
+      required: [from, to, days, country, country_source, local_asns, total, sites, daily]
+      properties:
+        from: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        to: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        days: { type: integer }
+        country: { type: [string, 'null'] }
+        country_source: { type: string, enum: [settings, tenant, none] }
+        local_asns: { type: integer, description: Cuántos ASN tiene la lista local. }
+        total: { $ref: '#/components/schemas/TrafficSplit' }
+        sites:
+          type: array
+          items:
+            allOf:
+              - $ref: '#/components/schemas/TrafficSplit'
+              - type: object
+                required: [site_id, site_name]
+                properties:
+                  site_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+                  site_name: { type: string }
+        daily:
+          type: array
+          items:
+            type: object
+            required: [day, local_bytes, international_bytes, unknown_bytes]
+            properties:
+              day: { $ref: './common.yaml#/components/schemas/Timestamp' }
+              local_bytes: { type: integer }
+              international_bytes: { type: integer }
+              unknown_bytes: { type: integer }
+    NetwatchSnippet:
+      type: object
+      required: [router_id, router_name, script, placeholders, warnings, probes_found, probes_error]
+      properties:
+        router_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        router_name: { type: string }
+        script: { type: string, description: 'Script RouterOS (.rsc) con marcadores {GATEWAY_n}.' }
+        placeholders:
+          type: array
+          items:
+            type: object
+            required: [key, interface, description]
+            properties:
+              key: { type: string, examples: ['{GATEWAY_1}'] }
+              interface: { type: string }
+              description: { type: string }
+        warnings: { type: array, items: { type: string } }
+        probes_found: { type: integer, description: Sondas de Horus leídas del router en el último ciclo. }
+        probes_error: { type: [string, 'null'] }
