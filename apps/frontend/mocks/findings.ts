@@ -210,7 +210,8 @@ function detailFor(kind: Kind, summary: string, seq: number): KindDetail {
               customer_message: null,
             },
             [
-              '/ip firewall filter add chain=forward dst-address={{remote_ip}} action=drop comment="horus finding {{finding_id}}" place-before=0',
+              '/ip firewall filter add chain=forward dst-address={{remote_ip}} action=drop comment="horus finding {{finding_id}}"',
+              '/ip firewall filter move [find comment="horus finding {{finding_id}}"] destination=[:pick [find where comment!="horus finding {{finding_id}}"] 0]',
             ],
             ['/ip firewall filter remove [find comment="horus finding {{finding_id}}"]'],
             ['remote_ip', 'finding_id'],
@@ -262,7 +263,8 @@ function detailFor(kind: Kind, summary: string, seq: number): KindDetail {
               customer_message: null,
             },
             [
-              '/ip firewall filter add chain=forward src-address={{customer_address}} protocol=tcp dst-port=25 action=drop comment="horus finding {{finding_id}}" place-before=0',
+              '/ip firewall filter add chain=forward src-address={{customer_address}} protocol=tcp dst-port=25 action=drop comment="horus finding {{finding_id}}"',
+              '/ip firewall filter move [find comment="horus finding {{finding_id}}"] destination=[:pick [find where comment!="horus finding {{finding_id}}"] 0]',
             ],
             ['/ip firewall filter remove [find comment="horus finding {{finding_id}}"]'],
             ['customer_address', 'finding_id'],
@@ -321,7 +323,8 @@ function detailFor(kind: Kind, summary: string, seq: number): KindDetail {
               customer_message: null,
             },
             [
-              '/ip firewall filter add chain=forward src-address={{customer_address}} dst-address={{remote_ip}} action=drop comment="horus finding {{finding_id}}" place-before=0',
+              '/ip firewall filter add chain=forward src-address={{customer_address}} dst-address={{remote_ip}} action=drop comment="horus finding {{finding_id}}"',
+              '/ip firewall filter move [find comment="horus finding {{finding_id}}"] destination=[:pick [find where comment!="horus finding {{finding_id}}"] 0]',
             ],
             ['/ip firewall filter remove [find comment="horus finding {{finding_id}}"]'],
             ['customer_address', 'remote_ip', 'finding_id'],

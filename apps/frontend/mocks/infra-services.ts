@@ -349,7 +349,7 @@ function snippet(
         `/ip firewall nat add chain=srcnat src-address=${RED_SERVICIOS} dst-address=${s.target} protocol=tcp dst-port=${port} \\\n` +
         `    action=masquerade comment="horus-infra ${short}"\n` +
         `/ip firewall filter add chain=forward in-interface=wg-horus src-address=${RED_SERVICIOS} dst-address=${s.target} protocol=tcp dst-port=${port} \\\n` +
-        `    action=accept place-before=0 comment="horus-infra ${short}"`,
+        `    action=accept comment="horus-infra ${short}"`,
     )
   }
   if (!rules.length) {
@@ -368,7 +368,13 @@ function snippet(
     '# Revise el script antes de pegarlo en el router. Horus nunca escribe en el router.\n' +
     `# Se deshace con: /ip firewall nat remove [find comment~"^horus-infra ${short}"]\n\n` +
     rules.join('\n\n') +
-    '\n'
+    '\n\n# Colocar las reglas de forward de Horus antes de la primera regla ajena (por id)\n' +
+    '{\n' +
+    `    :local first [:pick [/ip firewall filter find where comment!="horus-infra ${short}"] 0]\n` +
+    '    :if ([:typeof $first] = "id") do={\n' +
+    `        /ip firewall filter move [find where comment="horus-infra ${short}"] destination=$first\n` +
+    '    }\n' +
+    '}\n'
   return {
     router_id: router.id,
     router_name: router.name,
