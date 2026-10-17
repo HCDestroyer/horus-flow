@@ -62,7 +62,9 @@ func (f *fakeIntStore) RecordArgosSync(_ context.Context, _ pgdb.TenantID, st Ar
 	return nil
 }
 
-func (f *fakeIntStore) CountIdentities(context.Context, pgdb.TenantID) (int, int, error) { return 0, 0, nil }
+func (f *fakeIntStore) CountIdentities(context.Context, pgdb.TenantID) (int, int, error) {
+	return 0, 0, nil
+}
 
 func (f *fakeIntStore) CurrentIdentities(_ context.Context, _ pgdb.TenantID, ids []uuid.UUID) (map[uuid.UUID]domain.ExternalIdentity, error) {
 	out := map[uuid.UUID]domain.ExternalIdentity{}

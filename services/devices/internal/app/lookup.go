@@ -157,7 +157,9 @@ func (s *Integrations) IPLookup(ctx context.Context, in IPLookupInput) (*IPLooku
 		return nil, apperr.NotFound(domain.CodeCustomerNotFound)
 	}
 	res := &IPLookupResult{Customer: c, At: at, Omitted: []Omitted{}}
-	omit := func(section, reason string) { res.Omitted = append(res.Omitted, Omitted{Section: section, Reason: reason}) }
+	omit := func(section, reason string) {
+		res.Omitted = append(res.Omitted, Omitted{Section: section, Reason: reason})
+	}
 	site := "site:" + c.SiteID.String()
 	if s.Readers.Site != nil {
 		if st, err := s.Readers.Site(ctx, t, c.SiteID); err == nil {

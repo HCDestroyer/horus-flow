@@ -224,7 +224,9 @@ func (c *ArgosConnector) HasToken() bool { return len(c.TokenCiphertext) > 0 }
 func (c *ArgosConnector) HasSecret() bool { return len(c.SecretCiphertext) > 0 }
 
 // Active indica si el conector puede resolver (activo y con token).
-func (c *ArgosConnector) Active() bool { return c != nil && c.Enabled && c.HasToken() && c.BaseURL != "" }
+func (c *ArgosConnector) Active() bool {
+	return c != nil && c.Enabled && c.HasToken() && c.BaseURL != ""
+}
 
 // InBackoff indica si hay que esperar antes de volver a llamar a ArgosISP.
 func (c *ArgosConnector) InBackoff(now time.Time) bool {
