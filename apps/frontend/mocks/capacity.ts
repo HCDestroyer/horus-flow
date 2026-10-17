@@ -7,6 +7,7 @@ import type {
   CapacitySettings,
   CapacitySettingsValues,
   CapacitySite,
+  CapacityPeriod,
   CapacitySubjectDetail,
   CapacityUplink,
   HealthStatus,
@@ -1001,6 +1002,7 @@ export function capacityRoutes(ctx: TenantRouteContext): Response | undefined {
       computed_at: eg.forecast.summary.computed_at,
       probe_series: [],
       settings: st,
+      capacity_history: [],
     }
     return json(detail)
   }
@@ -1028,13 +1030,37 @@ export function capacityRoutes(ctx: TenantRouteContext): Response | undefined {
       now,
     )
     const probe = view.probe
+    // Historia: los enlaces con capacidad contratada tuvieron la mitad hasta hace 45 días
+    // (upgrade): esos días se midieron contra la capacidad de entonces.
+    const contracted = seed.config?.contracted_bps ?? null
+    const upgradeAt = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) - 45 * DAY
+    const history: CapacityPeriod[] = contracted
+      ? [
+          {
+            valid_from: new Date(upgradeAt).toISOString(),
+            valid_to: null,
+            contracted_bps: contracted,
+          },
+          {
+            valid_from: new Date(upgradeAt - 365 * DAY).toISOString(),
+            valid_to: new Date(upgradeAt).toISOString(),
+            contracted_bps: Math.round(contracted / 2),
+          },
+        ]
+      : []
+    const daily = dailySeries(seed, seed.peak, seed.growth, capacity, now, d).map((x) =>
+      contracted && Date.parse(x.day) < upgradeAt
+        ? { ...x, capacity_bps: Math.round(contracted / 2) }
+        : x,
+    )
     const detail: CapacitySubjectDetail = {
       subject_id: id,
       subject_kind: 'uplink',
       uplink: view,
       egress: null,
       days: d,
-      daily: dailySeries(seed, seed.peak, seed.growth, capacity, now, d),
+      daily,
+      capacity_history: history,
       forecast: fc.full,
       recommendation: fc.summary.recommendation,
       computed_at: fc.summary.computed_at,
@@ -1099,6 +1125,16 @@ export function capacityRoutes(ctx: TenantRouteContext): Response | undefined {
         code: 'OUT_OF_RANGE',
         message: 'La capacidad contratada va de 1 Mb/s a 1,6 Tb/s.',
       })
+    }
+    if (b.capacity_valid_from != null) {
+      const at = Date.parse(String(b.capacity_valid_from))
+      if (!Number.isFinite(at) || at > now.getTime() + 300_000 || at < now.getTime() - 90 * DAY) {
+        errors.push({
+          field: 'capacity_valid_from',
+          code: 'OUT_OF_RANGE',
+          message: 'Como mucho 90 días atrás y nunca en el futuro.',
+        })
+      }
     }
     if (errors.length) return invalid(errors)
     const i = cfgs.findIndex((c) => c.interface_id === id)

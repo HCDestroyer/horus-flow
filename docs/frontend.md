@@ -747,6 +747,9 @@ Google o Meta) y qué revisar; la capacidad `classification` aparece en el estad
   destinos de las sondas de respaldo.
 - Script netwatch (`NetwatchSnippetModal`): el usuario escribe la IP de la puerta de enlace de cada enlace y el
   script se completa **en el navegador** (la IP no viaja a la API); estado de la lectura de sondas del router.
+- Capacidad con vigencia: al cambiar la capacidad contratada en `UplinkConfigModal` aparece «Vigente desde» (fecha
+  local, hasta 90 días atrás; vacío = ahora). El detalle del enlace muestra «Historial de capacidad contratada»
+  (más reciente primero) y el gráfico dibuja la capacidad vigente de cada día como escalón cuando cambió.
 - Widget **`site_health`** «Salud de sitios / capacidad» (tabla, `snmp.read`, apto para kiosco): una línea por nodo
   con la insignia de salud, la razón, el peor p95, enlaces caídos y el mes de upgrade si hay planificación; en mural
   una sola línea por nodo y las que no caben se ocultan enteras (`v-fit-rows`).

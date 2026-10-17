@@ -25,6 +25,13 @@ Horus **nunca escribe en routers**: todo lo que se configura en el router (sonda
 ## 3. Pico diario y diagnóstico
 
 - **Capacidad** de un enlace = capacidad contratada configurada o, si no hay, velocidad del puerto (`ifHighSpeed`).
+- **Capacidad con vigencia** (`snmp.uplink_capacity_history`): cada cambio de `contracted_bps` cierra la vigencia
+  anterior y abre otra desde `capacity_valid_from` (por defecto, el momento del cambio; hasta 90 días atrás y nunca
+  antes del cambio anterior). Cada intervalo de 5 min se compara con la capacidad **vigente entonces** (horas sobre
+  umbral), cada día guarda la vigente al final del día (`uplink_daily.capacity_bps`) y el p95 de una ventana es el peor
+  día contra su propia capacidad: un upgrade no rebaja la utilización pasada. Antes de la primera vigencia rige la
+  primera (la capacidad ya existía antes de configurarla). Un cambio fechado en el pasado se corrige solo: el trabajo
+  diario detecta los días guardados con otra capacidad y los recalcula (`ReplacingMergeTree`), solo esos días.
 - **Pico diario** = percentil 95 (interpolación lineal) de las medias de 5 min del día **local** del ISP, por sentido;
   el pico del enlace es el mayor de los dos sentidos. Descarta ráfagas sueltas (≈ 72 min/día por encima).
 - **Horas sobre umbral** = intervalos de 5 min con `max(rx, tx) / capacidad` ≥ 70 % (aviso) y ≥ 85 % (crítico).
@@ -51,7 +58,8 @@ primera vez rellena hasta 89 días (lo que guarda `interface_5m`). La vista calc
 5. Intervalo de la pendiente: el de Sen (rangos de las pendientes por pares con z = 1,96). Ruido residual:
    σ = 1,4826 · MAD. Banda de la proyección = pendientes extremas ± 1,645 σ (≈ 90 %).
 6. Crecimiento mensual = `e^(30,44·b) − 1`; pico a 6 meses = `e^(a + 182·b + s_max)`.
-7. Fecha de cruce de θ·capacidad (θ = 80 % planificación, 90 % urgente, configurables):
+7. Fecha de cruce de θ·capacidad, con la capacidad **vigente hoy** (la serie son bits/s, no utilización: la historia
+   de capacidad no la distorsiona) (θ = 80 % planificación, 90 % urgente, configurables):
    `t = (ln(θ·C) − a − s_max) / b`. Si el pico actual ya lo supera → «ya supera»; sin crecimiento o más allá de
    36 meses → no cruza.
 8. **Nivel**: `urgent` si el urgente cruza dentro de la antelación (90 días por defecto); `planning` si lo hace el de
@@ -92,4 +100,5 @@ de pérdida».
 - Las estadísticas de netwatch son las de la última prueba del router (10 ecos cada 30 s), leídas cada minuto.
 - Un único rol `snmp` activo por instalación (como el sondeador): el trabajo diario no tiene bloqueo distribuido;
   repetirlo es idempotente (ReplacingMergeTree y mismo nivel → sin eventos).
-- La capacidad histórica se supone igual a la actual (un upgrade reciente rebaja la utilización pasada calculada).
+- Un cambio de capacidad a media jornada se aplica por intervalo de 5 min a las horas sobre umbral, pero el p95 del día
+  se compara con la capacidad vigente al final del día.

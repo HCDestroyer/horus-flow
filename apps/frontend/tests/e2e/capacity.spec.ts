@@ -48,6 +48,10 @@ test.describe('capacidad de enlaces @capacity', () => {
     await expect(
       page.getByTestId('detail-forecast').locator('table caption').first(),
     ).toContainText('Pico diario')
+    // Historial de la capacidad contratada: cada día contra la capacidad vigente entonces.
+    await expect(page.getByTestId('detail-capacity-history')).toContainText(
+      'Historial de capacidad contratada',
+    )
     expect(await seriousViolations(page)).toEqual([])
   })
 
@@ -60,6 +64,16 @@ test.describe('capacidad de enlaces @capacity', () => {
     await form.getByTestId('uplink-label').fill('Proveedor E2E')
     await page.getByTestId('uplink-save').click()
     await expect(page.getByTestId('uplink-row').filter({ hasText: 'Proveedor E2E' })).toBeVisible()
+    // Cambiar la capacidad pregunta desde cuándo rige (upgrade fechado en el pasado).
+    await page
+      .getByTestId('uplink-row')
+      .filter({ hasText: 'Proveedor E2E' })
+      .getByTestId('uplink-configure')
+      .click()
+    await expect(page.getByTestId('uplink-valid-from')).toHaveCount(0)
+    await page.getByTestId('uplink-capacity').locator('input').fill('2500')
+    await expect(page.getByTestId('uplink-valid-from')).toBeVisible()
+    await page.keyboard.press('Escape')
 
     const requests: string[] = []
     page.on('request', (r) => requests.push(r.url()))

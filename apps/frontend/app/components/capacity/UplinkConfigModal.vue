@@ -23,6 +23,8 @@ const form = reactive({
   unit: 'Mbit/s' as CapacityUnit,
   egress: true,
   egressTouched: false,
+  /** Fecha (local, aaaa-mm-dd) desde la que rige un cambio de capacidad; vacía = ahora. */
+  validFrom: '',
 })
 const errors = ref<Record<string, string>>({})
 const saving = ref(false)
@@ -42,7 +44,16 @@ watch(open, (o) => {
       ? u.international_egress
       : (u.kind ?? 'international_transit') === 'international_transit',
     egressTouched: u.configured,
+    validFrom: '',
   })
+})
+const today = () => new Date().toLocaleDateString('sv-SE')
+const minValidFrom = () => new Date(Date.now() - 89 * 86_400_000).toLocaleDateString('sv-SE')
+/** ¿Cambia la capacidad contratada? Solo entonces se pregunta desde cuándo rige. */
+const capacityChanged = computed(() => {
+  const u = props.uplink
+  if (!u?.configured) return false
+  return capacityFromForm(form.capacity, form.unit) !== (u.contracted_bps ?? null)
 })
 watch(
   () => form.kind,
@@ -89,6 +100,10 @@ async function save() {
           kind: form.kind,
           contracted_bps: contracted,
           international_egress: form.egress,
+          capacity_valid_from:
+            capacityChanged.value && form.validFrom && form.validFrom !== today()
+              ? new Date(`${form.validFrom}T00:00:00`).toISOString()
+              : null,
         },
       }),
     )
@@ -186,6 +201,21 @@ async function reset() {
               :aria-label="t('capacity.config.unit')"
             />
           </div>
+        </UFormField>
+        <UFormField
+          v-if="capacityChanged"
+          :label="t('capacity.config.validFrom')"
+          :help="t('capacity.config.validFromHelp')"
+          :error="errors.capacity_valid_from"
+        >
+          <UInput
+            v-model="form.validFrom"
+            type="date"
+            :min="minValidFrom()"
+            :max="today()"
+            class="w-full"
+            data-testid="uplink-valid-from"
+          />
         </UFormField>
         <UFormField :help="t('capacity.config.egressHelp')">
           <USwitch

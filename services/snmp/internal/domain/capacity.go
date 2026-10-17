@@ -74,6 +74,29 @@ type UplinkConfigInput struct {
 	Kind                string    `json:"kind"`
 	ContractedBps       *int64    `json:"contracted_bps"`
 	InternationalEgress *bool     `json:"international_egress"`
+	// CapacityValidFrom fecha el cambio de capacidad contratada (por
+	// defecto, ahora): desde cuándo rige la nueva para medir la utilización.
+	CapacityValidFrom *time.Time `json:"capacity_valid_from"`
+}
+
+// ValidateValidFrom comprueba la fecha de un cambio de capacidad: no futura
+// (5 min de holgura) ni anterior a lo que guarda interface_5m.
+func (in *UplinkConfigInput) ValidateValidFrom(now time.Time) []FieldError {
+	if in.CapacityValidFrom == nil {
+		return nil
+	}
+	v := in.CapacityValidFrom.UTC()
+	in.CapacityValidFrom = &v
+	switch {
+	case v.After(now.Add(5 * time.Minute)):
+		return []FieldError{{Field: "capacity_valid_from", Code: "OUT_OF_RANGE", Msg: "El cambio de capacidad no puede ser futuro."}}
+	case v.Before(now.Add(-MaxCapacityBackdate)):
+		return []FieldError{{Field: "capacity_valid_from", Code: "OUT_OF_RANGE", Msg: "Como mucho 90 días atrás (lo que guarda el histórico de 5 min)."}}
+	}
+	if v.After(now) {
+		in.CapacityValidFrom = &now
+	}
+	return nil
 }
 
 // Validate normaliza y valida la entrada. international_egress, si falta,

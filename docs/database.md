@@ -807,6 +807,12 @@ No hay agregado diario ni cuantiles en I2 (13 meses de 1 h bastan para las serie
   trabajo diario (se lee con `FINAL`).
 Interfaces dinámicas PPPoE del MikroTik no se sondean (el consumo por cliente sale de flujos).
 
+Capacidad de enlaces (PostgreSQL, esquema `snmp`): `uplink_config` (proveedor, tipo, capacidad contratada actual),
+`uplink_capacity_history` (capacidad contratada con vigencia `valid_from`/`valid_to`, una sola abierta por enlace,
+RLS por tenant; la utilización histórica se mide contra la capacidad vigente en cada momento), `capacity_settings`,
+`uplink_condition` y `capacity_forecast`. En ClickHouse, `snmp.uplink_daily.capacity_bps` es la capacidad vigente
+ese día.
+
 ### 6.4 Otras tablas ClickHouse
 
 - `wireguard.peer_metrics` — `(tenant_id, peer_id, ts)`; TTL 90 d; agregado `_1h` 13 meses.

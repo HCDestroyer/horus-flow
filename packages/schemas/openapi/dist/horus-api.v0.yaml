@@ -11630,6 +11630,7 @@ components:
           type: number
         capacity_bps:
           type: integer
+          description: Capacidad vigente ese día (contratada según su historia, o velocidad del puerto); la utilización y las horas sobre umbral del día se miden contra ella.
         hours_above_warning:
           type: number
         hours_above_critical:
@@ -11864,6 +11865,22 @@ components:
           maxItems: 10
           items:
             $ref: '#/components/schemas/CapacityProbeTarget'
+    CapacityPeriod:
+      type: object
+      required:
+        - valid_from
+        - valid_to
+        - contracted_bps
+      properties:
+        valid_from:
+          $ref: '#/components/schemas/Timestamp'
+        valid_to:
+          $ref: '#/components/schemas/NullableTimestamp'
+        contracted_bps:
+          type:
+            - integer
+            - 'null'
+          description: bits/s; null = sin capacidad contratada (se mide contra la velocidad del puerto).
     CapacitySubjectDetail:
       type: object
       required:
@@ -11878,6 +11895,7 @@ components:
         - computed_at
         - probe_series
         - settings
+        - capacity_history
       properties:
         subject_id:
           $ref: '#/components/schemas/Uuid'
@@ -11916,6 +11934,11 @@ components:
             $ref: '#/components/schemas/ProbeSeries'
         settings:
           $ref: '#/components/schemas/CapacitySettingsValues'
+        capacity_history:
+          type: array
+          description: Capacidad contratada del enlace con su vigencia, la más reciente primero (vacía en la salida internacional).
+          items:
+            $ref: '#/components/schemas/CapacityPeriod'
     HealthStatus:
       type: string
       description: Vocabulario de estado de equipos (online = sano). `unknown` = sin datos observados.
@@ -12223,6 +12246,14 @@ components:
             - boolean
             - 'null'
           description: 'Forma parte de la salida internacional agregada (por defecto: kind = international_transit).'
+        capacity_valid_from:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: |
+            Desde cuándo rige un cambio de `contracted_bps` (por defecto, ahora). Hasta 90 días atrás y nunca antes del cambio
+            anterior (`422`); los picos diarios afectados se recalculan con la capacidad de cada día. Sin cambio de capacidad se ignora.
     UplinkConfig:
       type: object
       required:

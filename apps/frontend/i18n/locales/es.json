@@ -3847,7 +3847,9 @@
       "removed": "Configuración quitada: el enlace vuelve a solo detección",
       "labelRequired": "Escriba un nombre",
       "capacityInvalid": "Capacidad no válida",
-      "unknownSpeed": "desconocida"
+      "unknownSpeed": "desconocida",
+      "validFrom": "Vigente desde",
+      "validFromHelp": "Si el upgrade ocurrió antes, indica la fecha (hasta 90 días atrás): los días desde entonces se recalculan con la capacidad nueva. Vacío = desde ahora."
     },
     "snippet": {
       "title": "Sondas netwatch · {router}",
@@ -3925,7 +3927,8 @@
       "planning": "Planificar {pct}",
       "urgent": "Urgente {pct}",
       "projectionTable": "{chart}: proyección semanal",
-      "label": "Pico diario de {name} frente a la capacidad, {days} días y proyección a 12 meses"
+      "label": "Pico diario de {name} frente a la capacidad, {days} días y proyección a 12 meses",
+      "capacityHistory": "Capacidad vigente"
     },
     "detail": {
       "title": "Enlace de subida",
@@ -3960,6 +3963,14 @@
       "lossTitle": "Pérdida hacia {target} (por hora)",
       "rttTitle": "Latencia y jitter hacia {target} (por hora)",
       "threshold": "Aviso {v}"
+    },
+    "history": {
+      "title": "Historial de capacidad contratada",
+      "hint": "Cada día se mide contra la capacidad vigente entonces: un upgrade no rebaja la utilización pasada. El pronóstico usa la capacidad actual.",
+      "since": "desde el {from}",
+      "range": "del {from} al {to}",
+      "portSpeed": "Sin contratada (velocidad del puerto)",
+      "empty": "Sin capacidad contratada configurada: se mide contra la velocidad del puerto."
     }
   },
   "sso": {

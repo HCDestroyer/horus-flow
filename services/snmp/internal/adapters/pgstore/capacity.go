@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -78,6 +79,14 @@ func (s *Store) PutUplinkConfig(ctx context.Context, tenant, iface uuid.UUID, in
 		if n >= domain.MaxUplinksPerTenant {
 			return ErrTooMany
 		}
+		var prev *int64
+		existed := true
+		if err := tx.QueryRow(ctx, `SELECT contracted_bps FROM snmp.uplink_config WHERE tenant_id = $1 AND interface_id = $2 FOR UPDATE`,
+			tenant, iface).Scan(&prev); errors.Is(err, pgx.ErrNoRows) {
+			existed = false
+		} else if err != nil {
+			return fmt.Errorf("snmp: lock uplink config: %w", err)
+		}
 		egress := in.InternationalEgress != nil && *in.InternationalEgress
 		c, err := scanUplink(tx.QueryRow(ctx, `INSERT INTO snmp.uplink_config (tenant_id, interface_id, router_id, label, provider, kind,
 				contracted_bps, international_egress, updated_by)
@@ -93,6 +102,16 @@ func (s *Store) PutUplinkConfig(ctx context.Context, tenant, iface uuid.UUID, in
 		}
 		if err != nil {
 			return fmt.Errorf("snmp: put uplink config: %w", err)
+		}
+		// Capacidad con vigencia: un cambio (o el alta) abre un periodo nuevo.
+		if !existed || !sameBps(prev, in.ContractedBps) {
+			from := time.Now().UTC()
+			if in.CapacityValidFrom != nil {
+				from = in.CapacityValidFrom.UTC()
+			}
+			if err := recordCapacityChange(ctx, tx, tenant, iface, in.ContractedBps, actor, from); err != nil {
+				return err
+			}
 		}
 		out = c
 		return nil
@@ -113,10 +132,15 @@ func (s *Store) DeleteUplinkConfig(ctx context.Context, tenant, iface uuid.UUID)
 			return fmt.Errorf("snmp: delete uplink config: %w", err)
 		}
 		found = tag.RowsAffected() > 0
+		if found {
+			return closeCapacityPeriod(ctx, tx, tenant, iface)
+		}
 		return nil
 	})
 	return found, err
 }
+
+func sameBps(a, b *int64) bool { return (a == nil && b == nil) || (a != nil && b != nil && *a == *b) }
 
 const settingsCols = `country, planning_threshold, urgent_threshold, lead_days, saturation_warning, saturation_critical, sustained_minutes,
 	loss_warning_pct, loss_critical_pct, latency_warning_ms, latency_critical_ms, local_asns, probe_targets`
@@ -225,13 +249,19 @@ type CapacityState struct {
 	Settings   map[uuid.UUID]domain.CapacitySettings
 	Conditions []domain.ConditionRow
 	Forecasts  []domain.ForecastRow
+	// History: capacidad contratada con vigencia por ISP y enlace.
+	History map[uuid.UUID]map[uuid.UUID][]domain.CapacityPeriod
 }
 
 // LoadCapacity carga configuraciones, ajustes, condiciones y niveles de
 // pronóstico de todos los ISP.
 func (s *Store) LoadCapacity(ctx context.Context) (*CapacityState, error) {
-	out := &CapacityState{Configs: map[uuid.UUID][]domain.UplinkConfig{}, Settings: map[uuid.UUID]domain.CapacitySettings{}}
+	out := &CapacityState{Configs: map[uuid.UUID][]domain.UplinkConfig{}, Settings: map[uuid.UUID]domain.CapacitySettings{},
+		History: map[uuid.UUID]map[uuid.UUID][]domain.CapacityPeriod{}}
 	err := s.db.PlatformTx(ctx, func(tx pgx.Tx) error {
+		if err := loadHistory(ctx, tx, out.History); err != nil {
+			return err
+		}
 		rows, err := tx.Query(ctx, `SELECT tenant_id, `+uplinkCols+` FROM snmp.uplink_config`)
 		if err != nil {
 			return fmt.Errorf("snmp: load uplink configs: %w", err)

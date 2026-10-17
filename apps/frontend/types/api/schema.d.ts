@@ -4611,6 +4611,12 @@ export interface components {
             };
             settings: components["schemas"]["CapacitySettingsValues"];
         };
+        CapacityPeriod: {
+            /** @description bits/s; null = sin capacidad contratada (se mide contra la velocidad del puerto). */
+            contracted_bps: number | null;
+            valid_from: components["schemas"]["Timestamp"];
+            valid_to: components["schemas"]["NullableTimestamp"];
+        };
         CapacityProbe: {
             interface_id: components["schemas"]["Uuid"] | null;
             /** @description Media de 24 h. */
@@ -4685,6 +4691,8 @@ export interface components {
             uplinks: components["schemas"]["CapacityUplink"][];
         };
         CapacitySubjectDetail: {
+            /** @description Capacidad contratada del enlace con su vigencia, la más reciente primero (vacía en la salida internacional). */
+            capacity_history: components["schemas"]["CapacityPeriod"][];
             computed_at: components["schemas"]["NullableTimestamp"];
             daily: components["schemas"]["UplinkDaily"][];
             days: number;
@@ -7436,6 +7444,12 @@ export interface components {
             version: number;
         };
         UplinkConfigInput: {
+            /**
+             * Format: date-time
+             * @description Desde cuándo rige un cambio de `contracted_bps` (por defecto, ahora). Hasta 90 días atrás y nunca antes del cambio
+             *     anterior (`422`); los picos diarios afectados se recalculan con la capacidad de cada día. Sin cambio de capacidad se ignora.
+             */
+            capacity_valid_from?: string | null;
             /** @description bits/s. */
             contracted_bps?: number | null;
             /** @description Forma parte de la salida internacional agregada (por defecto: kind = international_transit). */
@@ -7447,6 +7461,7 @@ export interface components {
             router_id: components["schemas"]["Uuid"];
         };
         UplinkDaily: {
+            /** @description Capacidad vigente ese día (contratada según su historia, o velocidad del puerto); la utilización y las horas sobre umbral del día se miden contra ella. */
             capacity_bps: number;
             day: components["schemas"]["Timestamp"];
             drops: number;

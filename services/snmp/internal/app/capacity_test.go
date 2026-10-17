@@ -30,6 +30,7 @@ type fakeCapRepo struct {
 	forecasts map[uuid.UUID]domain.ForecastRow
 	events    []outbox.Event
 	failSave  bool
+	history   map[uuid.UUID]map[uuid.UUID][]domain.CapacityPeriod
 }
 
 func newFakeCapRepo() *fakeCapRepo {
@@ -115,7 +116,14 @@ func (f *fakeCapRepo) LoadCapacity(context.Context) (*pgstore.CapacityState, err
 	for _, c := range f.conds {
 		st.Conditions = append(st.Conditions, c)
 	}
+	st.History = f.history
 	return st, nil
+}
+
+func (f *fakeCapRepo) ListCapacityHistory(_ context.Context, t uuid.UUID) (map[uuid.UUID][]domain.CapacityPeriod, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.history[t], nil
 }
 func (f *fakeCapRepo) SaveCondition(_ context.Context, c domain.ConditionRow, ev *outbox.Event) error {
 	f.mu.Lock()

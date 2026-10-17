@@ -210,8 +210,9 @@ func windowOf(days []domain.DailyStats, n int, capBps int64) *WindowStats {
 	if capBps > 0 {
 		m.CapacityBps = capBps
 	}
+	// Cada día contra la capacidad vigente ese día: un upgrade no rebaja la utilización pasada.
 	w := &WindowStats{Days: n, From: days[0].Day, To: days[len(days)-1].Day, Samples: m.Samples, RxP95Bps: m.RxP95Bps, TxP95Bps: m.TxP95Bps,
-		UtilP95: m.UtilP95(), HoursAboveWarning: m.HoursAboveWarning, HoursAboveCritical: m.HoursAboveCritical, Errors: m.Errors, Drops: m.Drops}
+		UtilP95: domain.WindowUtilP95(days, capBps), HoursAboveWarning: m.HoursAboveWarning, HoursAboveCritical: m.HoursAboveCritical, Errors: m.Errors, Drops: m.Drops}
 	return w
 }
 
@@ -545,10 +546,11 @@ func uplinkView(u *uplinkRef, data *overviewData, days int, gw map[uuid.UUID]Pro
 	v.Window = windowOf(daily, days, capBps)
 	if len(daily) > 0 {
 		m := domain.MergeDaily(daily)
-		// «1 h/día sobre el crítico» se juzga con la media diaria de la ventana.
-		v.Diagnosis = domain.Diagnose(domain.DailyStats{Samples: m.Samples, RxP95Bps: m.RxP95Bps, TxP95Bps: m.TxP95Bps,
+		// «1 h/día sobre el crítico» se juzga con la media diaria de la ventana; la utilización, cada día
+		// contra la capacidad vigente ese día.
+		v.Diagnosis = domain.DiagnoseWithUtil(domain.DailyStats{Samples: m.Samples, RxP95Bps: m.RxP95Bps, TxP95Bps: m.TxP95Bps,
 			CapacityBps: capBps, HoursAboveCritical: m.HoursAboveCritical / float64(len(daily)), Errors: m.Errors,
-			Drops: m.Drops, Packets: m.Packets}, st.SaturationWarning, st.SaturationCritical)
+			Drops: m.Drops, Packets: m.Packets}, domain.WindowUtilP95(daily, capBps), st.SaturationWarning, st.SaturationCritical)
 	} else {
 		v.Diagnosis = domain.Diagnosis{Kind: domain.DiagnosisNoData}
 	}

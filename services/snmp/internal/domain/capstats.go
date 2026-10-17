@@ -159,6 +159,12 @@ type Diagnosis struct {
 // descartes con el enlace holgado apuntan a un problema físico, de
 // negociación o de política, no de capacidad.
 func Diagnose(s DailyStats, warn, crit float64) Diagnosis {
+	return DiagnoseWithUtil(s, s.UtilP95(), warn, crit)
+}
+
+// DiagnoseWithUtil es Diagnose con la utilización p95 ya calculada (p. ej.
+// cada día contra la capacidad vigente ese día: WindowUtilP95).
+func DiagnoseWithUtil(s DailyStats, u *float64, warn, crit float64) Diagnosis {
 	d := Diagnosis{Kind: DiagnosisOK}
 	if s.Samples == 0 {
 		d.Kind = DiagnosisNoData
@@ -168,7 +174,6 @@ func Diagnose(s DailyStats, warn, crit float64) Diagnosis {
 		d.ErrorRatio = float64(s.Errors) / s.Packets
 		d.DropRatio = float64(s.Drops) / s.Packets
 	}
-	u := s.UtilP95()
 	if u == nil {
 		if d.ErrorRatio >= errorRatioFaulty {
 			d.Kind = DiagnosisFaulty

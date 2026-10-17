@@ -36,8 +36,14 @@ func (c *Capacity) reloadTenant(ctx context.Context, tenant uuid.UUID) {
 		c.log.WarnContext(ctx, "snmp: capacity settings not reloaded", "error", err)
 		return
 	}
+	hist, err := c.o.Repo.ListCapacityHistory(ctx, tenant)
+	if err != nil {
+		c.log.WarnContext(ctx, "snmp: capacity history not reloaded", "error", err)
+		return
+	}
 	c.mu.Lock()
 	c.configs[tenant] = cfgs
+	c.history[tenant] = hist
 	if row != nil {
 		c.settings[tenant] = row.Settings
 	} else {
@@ -88,6 +94,10 @@ func (c *Capacity) PutUplink(ctx context.Context, tenant uuid.UUID, sites []uuid
 		}
 	default:
 		return nil, nil, ErrUplinkNotFound
+	}
+	if in.CapacityValidFrom == nil {
+		now := c.now().UTC()
+		in.CapacityValidFrom = &now
 	}
 	after, err := c.o.Repo.PutUplinkConfig(ctx, tenant, iface, in, actor, expect)
 	if err != nil {
@@ -215,6 +225,9 @@ type SubjectDetail struct {
 	ComputedAt     *time.Time              `json:"computed_at"`
 	ProbeSeries    []ProbeSeries           `json:"probe_series"`
 	Settings       domain.CapacitySettings `json:"settings"`
+	// CapacityHistory es la capacidad contratada del enlace con su vigencia
+	// (más reciente primero; vacía en la salida internacional o sin configuración).
+	CapacityHistory []domain.CapacityPeriod `json:"capacity_history"`
 }
 
 // UplinkDetail devuelve la serie diaria, el pronóstico completo y las
@@ -236,7 +249,8 @@ func (c *Capacity) UplinkDetail(ctx context.Context, tenant uuid.UUID, sites []u
 	if view == nil {
 		return nil, ErrUplinkNotFound
 	}
-	d := &SubjectDetail{SubjectID: iface, SubjectKind: domain.SubjectUplink, Uplink: view, Settings: ov.Settings}
+	d := &SubjectDetail{SubjectID: iface, SubjectKind: domain.SubjectUplink, Uplink: view, Settings: ov.Settings,
+		CapacityHistory: c.historyOf(tenant, iface)}
 	if err := c.fillDetail(ctx, tenant, d, days, view.Label, view.CapacityBps); err != nil {
 		return nil, err
 	}
@@ -266,12 +280,24 @@ func (c *Capacity) EgressDetail(ctx context.Context, tenant uuid.UUID, sites []u
 		return nil, ErrUplinkNotFound
 	}
 	d := &SubjectDetail{SubjectID: ov.Egress.SubjectID, SubjectKind: domain.SubjectInternationalEgress, Egress: ov.Egress,
-		Settings: ov.Settings, ProbeSeries: []ProbeSeries{}}
+		Settings: ov.Settings, ProbeSeries: []ProbeSeries{}, CapacityHistory: []domain.CapacityPeriod{}}
 	capBps := ov.Egress.CapacityBps
 	if err := c.fillDetail(ctx, tenant, d, days, "Salida internacional", &capBps); err != nil {
 		return nil, err
 	}
 	return d, nil
+}
+
+// historyOf devuelve la historia de capacidad de un enlace, la más reciente primero.
+func (c *Capacity) historyOf(tenant, iface uuid.UUID) []domain.CapacityPeriod {
+	c.mu.RLock()
+	h := slices.Clone(c.history[tenant][iface])
+	c.mu.RUnlock()
+	slices.Reverse(h)
+	if h == nil {
+		h = []domain.CapacityPeriod{}
+	}
+	return h
 }
 
 func (c *Capacity) fillDetail(ctx context.Context, tenant uuid.UUID, d *SubjectDetail, days int, label string, capBps *int64) error {
