@@ -330,6 +330,8 @@ services:
       HORUS_SMTP_USERNAME: ${HORUS_SMTP_USERNAME:-}
       HORUS_SMTP_TLS: ${HORUS_SMTP_TLS:-starttls}
       HORUS_SMTP_PASSWORD_FILE: /run/secrets/smtp_password
+      # Reportes (rol reporting): días que se conservan los archivos en <almacén>/reports/<tenant_id>/.
+      HORUS_REPORTS_RETENTION_DAYS: ${HORUS_REPORTS_RETENTION_DAYS:-365}
       HORUS_DEVICES_CURSOR_KEY_FILE: /run/secrets/cursor_key
       HORUS_WIREGUARD_CURSOR_KEY_FILE: /run/secrets/cursor_key
       HORUS_DETECTION_CURSOR_KEY_FILE: /run/secrets/cursor_key

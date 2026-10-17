@@ -223,7 +223,9 @@ los aplica un job idempotente de `infrastructure/nats/` en cada arranque; los se
 - `max_age` 24 h en TLM_FLOWS: más allá, re-ingerir flujos no aporta (agregados cerrados) y libera disco.
 - `TLM_SNMP` 72 h: ~30 MB/h a 1.000 routers ⇒ cubre un fin de semana de caída del writer.
 - `WORK` `workqueue`: cada mensaje lo procesa un solo worker y se borra al confirmarse. La verdad del trabajo sigue en la
-  fila `report_runs` de PostgreSQL (`analytics`).
+  fila `report_run` de PostgreSQL (`analytics`). **I3:** el rol `reporting` no usa `WORK` todavía: reclama las
+  ejecuciones directamente de `report_run` (`FOR UPDATE SKIP LOCKED`, plazo y reintentos), así genera sin NATS; la orden
+  `horus.work.reporting.generate_report` queda como optimización (despertar al worker) si hace falta más de una réplica.
 
 ### 3.3 Ajustes del servidor
 
@@ -316,7 +318,7 @@ mensaje DLQ a su subject original (seguro por idempotencia).
 | `alerts-<dominio>` (uno por stream) | `SNMP_`, `WIREGUARD_`, `FLOWS_`, `DETECTION_`, `REPORTING_EVENTS` | eventos que alimentan reglas, incl. `horus.snmp.poller.heartbeat.>` | alerts | `Alert Rule → Event → Alert → Notification` | 11 |
 | `analytics-names` | `DEVICES_EVENTS` | `router.>`, `site.>`, `customer.>` | analytics | Caché de nombres y tipo de cliente por tenant | 9 |
 | `auth-tenant-lifecycle` (y uno por servicio con datos) | `AUTH_EVENTS` | `horus.auth.tenant.>` | todos los dueños de datos | Suspender/pausar ingesta, ejecutar la purga de un tenant dado de baja | 1 |
-| `reporting-worker` | `WORK` | `horus.work.reporting.>` | reporting | Generar reportes | 12 |
+| `reporting-worker` | `WORK` | `horus.work.reporting.>` | reporting | Generar reportes (aplazado: en I3 la cola es `analytics.report_run`, §3.2) | 12 |
 
 > No existen `traffic-enricher`, `TLM_FLOWS_ENRICHED` ni un escritor de flujos en `analytics`: según
 > [ADR-0015](./adr/0015-enriquecimiento-de-flujos-en-ingesta.md) el ingester de `flows` clasifica en ingesta y es el único
@@ -1135,8 +1137,8 @@ aplica antes de publicar y el evento lleva `apply_threshold`, que `devices` comp
 
 | Tipo | Stream | Productor | Consumidores |
 | --- | --- | --- | --- |
-| `horus.reporting.report.completed` | `REPORTING_EVENTS` | analytics (reporting-worker) | alerts (notificar), api-gateway (topic `me`) |
-| `horus.reporting.report.failed` | `REPORTING_EVENTS` | ídem | alerts, api-gateway |
+| `horus.reporting.report.completed` | `REPORTING_EVENTS` | analytics (rol reporting, outbox de `analytics`) | api-gateway (topic `me`); alerts (notificar, futuro) |
+| `horus.reporting.report.failed` | `REPORTING_EVENTS` | ídem | api-gateway; alerts (futuro) |
 | `horus.reporting.audit.recorded` | `REPORTING_EVENTS` | ídem (exportaciones: quién, filtro, filas) | auth |
 | `horus.analytics.archive.completed` | `ANALYTICS_EVENTS` | analytics (archiver) | alerts |
 | `horus.analytics.audit.recorded` | `ANALYTICS_EVENTS` | analytics | auth |
@@ -1146,12 +1148,15 @@ aplica antes de publicar y el evento lleva `apply_threshold`, que `devices` comp
 > regla E3.
 
 ```jsonc
-// horus.reporting.report.completed   (entity_id = id de la ejecución)
-{ "id": "0192...", "version": 3, "report_definition_id": "0192...", "kind": "consumption_by_customer",
-  "format": "pdf", "period_from": "2026-09-01T00:00:00Z", "period_to": "2026-10-01T00:00:00Z",
-  "object_key": "reports/2026/10/0192....pdf", "size_bytes": 482113, "sha256": "9f86d0...",
-  "requested_by": "0192..." }
+// horus.reporting.report.completed   (entity_id = id de la ejecución; mensaje horus.events.reporting.v1.ReportRun)
+{ "id": "0192...", "report_definition_id": "0192..." /* null = a petición */, "kind": "security_weekly",
+  "status": "completed", "formats": ["pdf", "csv"],
+  "period_from": "2026-10-05T06:00:00.000Z", "period_to": "2026-10-12T06:00:00.000Z", "timezone": "America/Mexico_City",
+  "files": [{ "format": "pdf", "object_key": "reports/<tenant_id>/<id>.pdf", "sha256": "9f86d0...", "size_bytes": 48211 }],
+  "size_bytes": 54331, "requested_by": null /* usuario si fue a petición */, "error": null }
 ```
+El archivo (con IPs de clientes) nunca viaja en el evento: se descarga por `GET /reports/{id}/download`. La descarga se
+audita como `horus.analytics.audit.recorded` (acción `reports.download`) si auth no está en el proceso.
 
 ### 8.11 Auditoría: `horus.<dominio>.audit.recorded`
 

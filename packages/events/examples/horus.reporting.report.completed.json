@@ -1,0 +1,45 @@
+{
+  "id": "0192f0d2-0000-7000-8000-000000000801",
+  "type": "horus.reporting.report.completed",
+  "source": "horus/analytics",
+  "subject": "0192f7a0-0000-7000-8000-00000000a001",
+  "time": "2026-10-12T13:00:41.512Z",
+  "schema_version": 1,
+  "tenant_id": "0192e000-0000-7000-8000-000000000001",
+  "aggregate_type": "report",
+  "aggregate_version": 1,
+  "actor": {
+    "type": "system",
+    "id": "system:horus"
+  },
+  "trace_parent": null,
+  "correlation_id": null,
+  "causation_id": null,
+  "data": {
+    "id": "0192f7a0-0000-7000-8000-00000000a001",
+    "report_definition_id": "0192f7a0-0000-7000-8000-00000000a0d1",
+    "kind": "security_weekly",
+    "status": "completed",
+    "formats": ["pdf", "csv"],
+    "period_from": "2026-10-05T06:00:00.000Z",
+    "period_to": "2026-10-12T06:00:00.000Z",
+    "timezone": "America/Mexico_City",
+    "files": [
+      {
+        "format": "pdf",
+        "object_key": "reports/0192e000-0000-7000-8000-000000000001/0192f7a0-0000-7000-8000-00000000a001.pdf",
+        "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+        "size_bytes": 48211
+      },
+      {
+        "format": "csv",
+        "object_key": "reports/0192e000-0000-7000-8000-000000000001/0192f7a0-0000-7000-8000-00000000a001-csv.zip",
+        "sha256": "60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752",
+        "size_bytes": 6120
+      }
+    ],
+    "size_bytes": 54331,
+    "requested_by": null,
+    "error": null
+  }
+}

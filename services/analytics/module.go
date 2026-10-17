@@ -32,6 +32,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/services/analytics/internal/adapters/httpapi"
 	"github.com/hcdestroyer/horus-flow/services/analytics/internal/app"
 	modcfg "github.com/hcdestroyer/horus-flow/services/analytics/internal/config"
+	"github.com/hcdestroyer/horus-flow/services/analytics/reporting"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
 	snmpapi "github.com/hcdestroyer/horus-flow/services/snmp/api"
 )
@@ -182,9 +183,12 @@ func (m *mod) Stop(ctx context.Context) error {
 // RoleReporting es el nombre del rol en HORUS_ROLES: generación de reportes (CPU intensiva).
 const RoleReporting = "reporting"
 
-// RegisterReporting construye el módulo del rol reporting (firma module.Factory).
-func RegisterReporting(_ context.Context, _ module.Deps) (module.Module, error) {
-	return module.Idle(), nil
+// RegisterReporting construye el módulo del rol reporting (firma
+// module.Factory): reporte semanal de seguridad por ISP en PDF y CSV (I3,
+// services/analytics/reporting). Vive en el módulo analytics (mismo esquema
+// PostgreSQL, mismos agregados de ClickHouse), no como módulo propio.
+func RegisterReporting(ctx context.Context, deps module.Deps) (module.Module, error) {
+	return reporting.New(ctx, deps)
 }
 
 // lazyQuerier es el lector ClickHouse, disponible tras Start.

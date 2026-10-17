@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+// Payloads de horus.reporting.* (docs/events.md §8.10). Dominio lógico `reporting` (regla E3): lo
+// produce el rol reporting del módulo analytics por su outbox.
+package horus.events.reporting.v1;
+
+// ReportFile es un archivo generado (almacén local, reports/<tenant_id>/).
+message ReportFile {
+  // pdf | csv
+  string format = 1;
+  // Relativo a HORUS_DATA_DIR; solo se descarga por la API.
+  string object_key = 2;
+  string sha256 = 3;
+  int64 size_bytes = 4;
+}
+
+// ReportRun: horus.reporting.report.completed | failed (entity_id = id de la ejecución).
+message ReportRun {
+  string id = 1;
+  // null = a petición.
+  optional string report_definition_id = 2;
+  // security_weekly (enum abierto)
+  string kind = 3;
+  // completed | failed
+  string status = 4;
+  repeated string formats = 5;
+  // Periodo semiabierto [period_from, period_to) en UTC (RFC 3339).
+  string period_from = 6;
+  string period_to = 7;
+  // Zona IANA del ISP con la que se calculó el periodo.
+  string timezone = 8;
+  repeated ReportFile files = 9;
+  int64 size_bytes = 10;
+  // Usuario que lo pidió; null = programado.
+  optional string requested_by = 11;
+  // Motivo legible del fallo (sin detalles internos); null si se completó.
+  optional string error = 12;
+}

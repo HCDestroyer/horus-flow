@@ -46,7 +46,7 @@ rules:
       property: x-increment
     assertions:
       defined: true
-      enum: [I0, I1, I2]
+      enum: [I0, I1, I2, I3]
     severity: error
   rule/problem-json-errors:
     subject:

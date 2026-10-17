@@ -133,7 +133,8 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 			From: cfg.SMTPFrom, TLS: cfg.SMTPTLS},
 		TelegramAPI: cfg.TelegramAPI, TelegramToken: cfg.TelegramToken.Reveal(), DefaultTimeout: 10 * time.Second,
 	}
-	svc := notify.NewService(notify.NewStore(db), sealer, senders, pagination.NewCodec([]byte(cfg.CursorKey.Reveal())),
+	store := notify.NewStore(db)
+	svc := notify.NewService(store, sealer, senders, pagination.NewCodec([]byte(cfg.CursorKey.Reveal())),
 		func() (authapi.AuditRecorder, bool) {
 			return module.Lookup[authapi.AuditRecorder](deps.Services, authapi.ServiceAudit)
 		},
@@ -154,6 +155,11 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 	})
 	if deps.Services != nil {
 		if err := deps.Services.Provide(alertsapi.ServiceLibreNMSInfrastructure, alertsapi.LibreNMSInfrastructure(notify.InfraHook{Svc: svc})); err != nil {
+			db.Close()
+			return nil, err
+		}
+		// Resumen de notificaciones para el reporte semanal del rol reporting (I3).
+		if err := deps.Services.Provide(alertsapi.ServiceNotificationStats, alertsapi.NotificationStats(notify.Stats{Store: store})); err != nil {
 			db.Close()
 			return nil, err
 		}

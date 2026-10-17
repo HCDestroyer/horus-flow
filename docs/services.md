@@ -252,13 +252,25 @@ NATS KV); **Sharded** = N instancias con *leases*.
 | Campo | Valor |
 | --- | --- |
 | Responsabilidad | Consultas analíticas por tenant sobre tablas publicadas (consumo por IP, top servicios/ASN/categorías, por nodo/router, cobertura); **widgets y layouts de dashboard guardados** y **modo kiosco/NOC** ([D8](po-decisions.md)): consultas de widgets cacheadas en Valkey y autorrefresco; resolución de nombres con caché; límites de concurrencia por tenant. **reporting** (rol): reportes de consumo, seguridad (hallazgos), disponibilidad, comerciales; PDF/CSV/Excel al almacén local; programación. |
-| Dueño de datos | PG `analytics`: `dashboards`, `dashboard_widgets`, `kiosk_profiles`, `report_definitions`, `report_runs`, `outbox`. Almacén local: `reports/<tenant_id>/`. Lee tablas publicadas de ingester, snmp, detection. |
-| API pública | `/api/v1/analytics/*`, `/api/v1/dashboards`, `/api/v1/widgets/{type}/data`, `/api/v1/kiosk/*`, `/api/v1/reports`, `/api/v1/reports/{id}/download` (servido por la API, autorizado por tenant). |
+| Dueño de datos | PG `analytics`: `dashboards`, `dashboard_widgets`, `kiosk_profiles`, `report_definition`, `report_run`, `outbox`. Almacén local: `reports/<tenant_id>/`. Lee tablas publicadas de ingester, snmp, detection. |
+| API pública | `/api/v1/analytics/*`, `/api/v1/dashboards`, `/api/v1/widgets/{type}/data`, `/api/v1/kiosk/*`, `/api/v1/reports`, `/api/v1/reports/{id}`, `/api/v1/reports/{id}/download` (servido por la API, autorizado por tenant), `/api/v1/report-definitions`. |
 | Publica | `reporting.report.completed/failed`, `analytics.audit.recorded`. |
 | Consume | `devices.router.updated`, `devices.customer.*` (caché de nombres/alias). |
 | Dependencias | ClickHouse (crítica para su función), PostgreSQL, Valkey, almacén local (reporting). |
 | Incremento | 3 (básico), 6 (widgets y kiosco), 7 (reporting) |
-| Estado | **Stateless**; `reporting` con cola (JetStream work-queue). |
+| Estado | **Stateless**; `reporting` con cola en PostgreSQL (`report_run`, `FOR UPDATE SKIP LOCKED`). |
+
+**Rol `reporting` (I3, implementado):** vive en el módulo analytics (`services/analytics/reporting`), no como módulo
+propio: comparte el esquema `analytics` (un único juego de migraciones goose; ambos roles lo aplican al arrancar,
+serializado por el lock de sesión de goose) y los agregados de ClickHouse que ya lee analytics. Hoy genera el
+**reporte semanal de seguridad por ISP** en PDF (A4, go-pdf/fpdf, Go puro, sin navegador) y CSV (zip con un CSV por
+sección). Datos: hallazgos y estado de seguridad por el contrato en proceso `detection/api/securityreport` (detection
+va en el mismo proceso que reporting en los dos perfiles de §1.2), disponibilidad de routers (`snmp.device_1h`) y
+tráfico (`flows.site_1h`) leídos de ClickHouse, y avisos enviados por `alerts/api` `NotificationStats` (sin alerts en
+el proceso, perfil estándar, esa sección sale con una nota). La cola es la tabla `report_run`, no el stream `WORK`:
+la verdad ya estaba en PostgreSQL y así una réplica sin NATS sigue generando; el planificador encola una ejecución
+por definición y periodo (índice único parcial), seguro con varias réplicas. Retención de archivos
+`HORUS_REPORTS_RETENTION_DAYS` (365). Detalle en [`services/analytics/README.md`](../services/analytics/README.md).
 
 ### jobs (rol)
 
@@ -328,6 +340,6 @@ Ciclos: ninguno síncrono. `devices ⇄ ingester` (realms/clientes ↔ IPs nueva
 | ingester | Stateless | 1–2 | flujos/s, CPU | queue group |
 | detection (jobs de ventana) | Singleton por job | 1 | IPs × reglas | lease; partición por tenant si crece |
 | alerts (evaluador) | Singleton | 1 | reglas | lease |
-| reporting | Stateless | 1 | reportes | work-queue |
+| reporting | Stateless | 1 | reportes | cola en PostgreSQL (`report_run`, `SKIP LOCKED`); una ejecución programada por definición y periodo (índice único) |
 | assist | Stateless | 1 (en `horus-app`) | análisis/día | límite diario por ISP en PostgreSQL |
 | jobs | Singleton por tarea | 1 | — | lease |

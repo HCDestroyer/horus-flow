@@ -25,7 +25,7 @@ BusyBox (GPL-2.0) se usa como imagen auxiliar independiente, sin enlazarse con H
 se distribuye en el paquete offline, se ofrece su código fuente correspondiente a petición o en
 el enlace indicado, como exige la GPL.
 
-## Módulos Go enlazados en el binario `horus` (72)
+## Módulos Go enlazados en el binario `horus` (73)
 
 | Módulo | Versión | Licencia |
 | --- | --- | --- |
@@ -44,6 +44,7 @@ el enlace indicado, como exige la GPL.
 | `github.com/go-chi/chi/v5` | v5.2.3 | MIT |
 | `github.com/go-faster/city` | v1.0.1 | MIT |
 | `github.com/go-faster/errors` | v0.7.1 | BSD-3-Clause |
+| `github.com/go-pdf/fpdf` | v0.9.0 | MIT |
 | `github.com/golang-jwt/jwt/v5` | v5.3.1 | MIT |
 | `github.com/google/jsonschema-go` | v0.4.3 | MIT |
 | `github.com/google/uuid` | v1.6.0 | BSD-3-Clause |

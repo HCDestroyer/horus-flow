@@ -57,3 +57,38 @@ Variables: `HORUS_CLICKHOUSE_DSN`, `HORUS_CLICKHOUSE_ANALYTICS_PASSWORD`,
 `HORUS_ANALYTICS_QUERY_TIMEOUT` (10s), `HORUS_ANALYTICS_CACHE_TTL` (10s),
 `HORUS_FLOWS_INVENTORY_FILE`, `HORUS_NATS_URL` (estado de exportadores), `HORUS_CATALOG_SNAPSHOT_DIR`.
 Tests: `make test-analytics`.
+
+## Rol `reporting`: reporte semanal de seguridad (I3)
+
+Paquete `services/analytics/reporting` (el rol vive en este módulo: mismo esquema PostgreSQL
+`analytics` y mismos agregados de ClickHouse; no es un módulo propio, `docs/services.md`).
+
+- **Contenido** (una semana ISO, lunes 00:00 → lunes 00:00 en la zona del ISP, o un rango a petición
+  de hasta 31 días): hallazgos abiertos/resueltos/falsos positivos por tipo y severidad, MTTR,
+  clientes con más hallazgos activos (alias o IP), críticos/altos vigentes, estado de seguridad de los
+  clientes y contactos con listas de reputación (contrato en proceso
+  `services/detection/api/securityreport`); disponibilidad ICMP/SNMP por router (`snmp.device_1h` +
+  `dim.router`/`dim.site`); bajada/subida frente al periodo anterior y por día local (`flows.site_1h`);
+  avisos enviados por canal y evento (`services/alerts/api` `NotificationStats`). Una fuente que no
+  está en el proceso o falla deja su sección con una nota (nunca ceros).
+- **Formatos:** PDF A4 imprimible (go-pdf/fpdf, Helvetica estándar en cp1252, identidad Horus en
+  claro, salida reproducible) y zip de CSV (uno por sección, UTF-8 con BOM, `;`, decimales con coma,
+  fórmulas neutralizadas). Archivos en `$HORUS_DATA_DIR/reports/<tenant_id>/<run_id>.pdf|-csv.zip`.
+- **Cola y programación:** `analytics.report_definition` (una por ISP y tipo; por defecto habilitada,
+  lunes 07:00 en la zona del ISP, PDF y CSV) y `analytics.report_run` (verdad de la cola; el worker
+  reclama con `FOR UPDATE SKIP LOCKED`, plazo de 15 min y 3 intentos). El planificador encola una
+  ejecución por definición y periodo (`ux_report_run__scheduled`: idempotente con varias réplicas),
+  recupera la última ejecución perdida y no genera reportes anteriores al alta de la definición. Con
+  auth en el proceso crea la definición por defecto de cada ISP activo y copia su nombre, slug y zona.
+- **API:** `GET/POST /reports`, `GET /reports/{id}`, `GET /reports/{id}/download` (auditada como
+  `reports.download`), `GET /report-definitions`, `PATCH /report-definitions/{id}`.
+- **Eventos:** `horus.reporting.report.completed|failed` por el outbox de `analytics` (topic WebSocket `me`).
+- **Aviso por correo:** con `HORUS_SMTP_*` y destinatarios en la definición, cada reporte programado
+  envía un aviso con el enlace a la página de reportes (`HORUS_PUBLIC_BASE_URL`), sin adjunto.
+
+Variables: `HORUS_DATA_DIR`, `HORUS_REPORTS_RETENTION_DAYS` (365), `HORUS_REPORTS_WORKER` (true; false =
+solo API), `HORUS_REPORTS_QUERY_TIMEOUT` (60s), `HORUS_CLICKHOUSE_DSN`,
+`HORUS_CLICKHOUSE_ANALYTICS_PASSWORD`, `HORUS_SMTP_*`, `HORUS_PUBLIC_BASE_URL`. Revisión visual del PDF:
+`HORUS_REPORTING_PDF_OUT=/tmp/muestra.pdf go test -run TestRenderPDF ./services/analytics/reporting/`.
+Tests de integración: `go test -tags integration ./services/analytics/reporting/` (PostgreSQL y ClickHouse
+con Docker o `HORUS_TEST_POSTGRES_DSN` / `HORUS_CH_TEST_DSN`).

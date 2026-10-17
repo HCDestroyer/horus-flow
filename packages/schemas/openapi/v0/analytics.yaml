@@ -24,6 +24,8 @@ tags:
     description: Configuración del kiosco.
   - name: routers
     description: Series históricas de los routers (SNMP e ICMP), para la ficha y la vista NOC.
+  - name: reports
+    description: Reportes programados y a petición (rol reporting; I3 — seguridad semanal en PDF y CSV).
 paths:
   /analytics/traffic/top:
     get:
@@ -894,6 +896,211 @@ paths:
         '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
         '403': { $ref: './common.yaml#/components/responses/Forbidden' }
         '404': { $ref: './common.yaml#/components/responses/NotFound' }
+  /reports:
+    get:
+      tags: [reports]
+      operationId: listReports
+      summary: Ejecuciones de reportes del ISP (programadas y a petición), más recientes primero
+      description: |
+        Reporte semanal de seguridad por ISP (I3, rol `reporting`). Los reportes cubren todo el ISP: el permiso
+        debe tener alcance de todo el ISP (un permiso limitado a nodos → 403).
+      x-module: analytics
+      x-scope: tenant
+      x-permission: reports.read
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Limit'
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - name: kind
+          in: query
+          schema: { $ref: '#/components/schemas/ReportKind' }
+      responses:
+        '200':
+          description: Página de ejecuciones.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/ReportRun' }
+                  page: { $ref: './common.yaml#/components/schemas/PageInfo' }
+        '400': { $ref: './common.yaml#/components/responses/BadRequest' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+    post:
+      tags: [reports]
+      operationId: createReport
+      summary: Genera un reporte a petición (asíncrono → 202 + Location de la ejecución)
+      description: |
+        Sin `from`/`to`: la última semana ISO completa (lunes 00:00 → lunes 00:00) en la zona horaria del ISP.
+        Con rango: como mucho 31 días, sin empezar en el futuro (`to` se recorta a ahora). Idempotency-Key
+        obligatorio: la misma clave del mismo usuario devuelve la misma ejecución (`Idempotency-Replayed: true`).
+        Máximo 10 por usuario y hora (`429 RATE_LIMITED` con `Retry-After`). El aviso de "reporte listo" llega
+        por WebSocket (topic `me`, `horus.reporting.report.completed|failed`).
+      x-module: analytics
+      x-scope: tenant
+      x-permission: reports.export
+      x-increment: I3
+      x-rate-limit: reports
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IdempotencyKeyRequired'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReportCreate' }
+      responses:
+        '202':
+          description: Encolado (o ya existente con la misma Idempotency-Key).
+          headers:
+            Location: { $ref: './common.yaml#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReportRun' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+        '428': { $ref: './common.yaml#/components/responses/PreconditionRequired' }
+        '429': { $ref: './common.yaml#/components/responses/TooManyRequests' }
+  /reports/{report_id}:
+    parameters:
+      - $ref: '#/components/parameters/ReportId'
+    get:
+      tags: [reports]
+      operationId: getReport
+      summary: Estado de una ejecución (queued, running, completed, failed) y sus archivos
+      description: Otro ISP o inexistente → `404 REPORT_NOT_FOUND`.
+      x-module: analytics
+      x-scope: tenant
+      x-permission: reports.read
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Ejecución.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReportRun' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+  /reports/{report_id}/download:
+    parameters:
+      - $ref: '#/components/parameters/ReportId'
+    get:
+      tags: [reports]
+      operationId: downloadReport
+      summary: Descarga el archivo de un reporte (PDF o zip de CSV), autenticada y auditada
+      description: |
+        Solo por la API (docs/api.md §2.10 bis; sin URLs firmadas): `Content-Disposition: attachment`,
+        `Cache-Control: no-store`, `Repr-Digest` con el SHA-256. Cada descarga queda en la auditoría
+        (`reports.download`). Otro ISP → `404`; aún no generado → `409 REPORT_NOT_READY`; archivos borrados por
+        la retención → `409 REPORT_EXPIRED`. CSV: zip con un archivo por sección, UTF-8 con BOM, separador `;`.
+      x-module: analytics
+      x-scope: tenant
+      x-permission: reports.read
+      x-increment: I3
+      x-audited: true
+      security:
+        - tenantBearer: []
+      parameters:
+        - name: format
+          in: query
+          schema: { $ref: '#/components/schemas/ReportFormat' }
+      responses:
+        '200':
+          description: Archivo.
+          headers:
+            Content-Disposition:
+              description: '`attachment; filename="horus-seguridad-2026-W41-0192f0c4.pdf"`'
+              schema: { type: string }
+            Repr-Digest:
+              description: SHA-256 del archivo (RFC 9530).
+              schema: { type: string }
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+            application/zip:
+              schema: { type: string, format: binary }
+        '400': { $ref: './common.yaml#/components/responses/BadRequest' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+  /report-definitions:
+    get:
+      tags: [reports]
+      operationId: listReportDefinitions
+      summary: Programación de los reportes del ISP (se crea con los valores por defecto si falta)
+      description: Por defecto el reporte semanal de seguridad está habilitado los lunes a las 07:00 (zona del ISP), en PDF y CSV.
+      x-module: analytics
+      x-scope: tenant
+      x-permission: reports.read
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Definiciones.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/ReportDefinition' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+  /report-definitions/{definition_id}:
+    parameters:
+      - $ref: '#/components/parameters/ReportDefinitionId'
+    patch:
+      tags: [reports]
+      operationId: updateReportDefinition
+      summary: Cambia la programación (habilitado, día y hora, zona, formatos, destinatarios del aviso)
+      description: |
+        JSON Merge Patch con `If-Match`. `recipients`: hasta 20 correos que reciben un aviso con el enlace a la
+        página de reportes de la consola (sin adjunto) si la instalación tiene SMTP (`email_available`).
+      x-module: analytics
+      x-scope: tenant
+      x-permission: settings.manage
+      x-increment: I3
+      x-audited: true
+      security:
+        - tenantBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/ReportDefinitionPatch' }
+          application/json:
+            schema: { $ref: '#/components/schemas/ReportDefinitionPatch' }
+      responses:
+        '200':
+          description: Actualizada.
+          headers:
+            ETag: { $ref: './common.yaml#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReportDefinition' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+        '428': { $ref: './common.yaml#/components/responses/PreconditionRequired' }
 components:
   securitySchemes:
     tenantBearer: { $ref: './common.yaml#/components/securitySchemes/tenantBearer' }
@@ -910,7 +1117,129 @@ components:
       in: path
       required: true
       schema: { type: string, pattern: '^[a-z0-9][a-z0-9_-]{0,63}$' }
+    ReportId:
+      name: report_id
+      in: path
+      required: true
+      schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    ReportDefinitionId:
+      name: definition_id
+      in: path
+      required: true
+      schema: { $ref: './common.yaml#/components/schemas/Uuid' }
   schemas:
+    ReportKind:
+      type: string
+      description: Tipo de reporte (enum abierto; I3 trae el semanal de seguridad).
+      enum: [security_weekly]
+    ReportFormat:
+      type: string
+      enum: [pdf, csv]
+    ReportStatus:
+      type: string
+      enum: [queued, running, completed, failed]
+    ReportFile:
+      type: object
+      required: [format, size_bytes, sha256, download_path]
+      properties:
+        format: { $ref: '#/components/schemas/ReportFormat' }
+        size_bytes: { type: integer, format: int64, minimum: 0 }
+        sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+        download_path: { type: string, description: 'Ruta de descarga (`/api/v1/reports/{id}/download?format=pdf`), autenticada.' }
+    ReportRun:
+      type: object
+      required: [id, tenant_id, kind, status, definition_id, scheduled, period_from, period_to, timezone, iso_week, formats, files,
+        size_bytes, error, created_by, created_at, started_at, completed_at, expires_at, expired]
+      properties:
+        id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        tenant_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        kind: { $ref: '#/components/schemas/ReportKind' }
+        status: { $ref: '#/components/schemas/ReportStatus' }
+        definition_id:
+          type: [string, 'null']
+          format: uuid
+          description: Definición que la programó; null = a petición.
+        scheduled: { type: boolean }
+        period_from: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        period_to:
+          $ref: './common.yaml#/components/schemas/Timestamp'
+          description: Fin excluyente del periodo `[period_from, period_to)`.
+        timezone: { type: string, description: Zona IANA con la que se calculó y se muestra el periodo. }
+        iso_week: { type: string, pattern: '^[0-9]{4}-W[0-9]{2}$', description: Semana ISO del inicio del periodo. }
+        formats:
+          type: array
+          items: { $ref: '#/components/schemas/ReportFormat' }
+        files:
+          type: array
+          items: { $ref: '#/components/schemas/ReportFile' }
+        size_bytes: { type: integer, format: int64, minimum: 0 }
+        error: { type: [string, 'null'], description: Motivo legible del fallo (sin detalles internos). }
+        created_by:
+          type: [string, 'null']
+          format: uuid
+          description: Usuario que lo pidió; null = programado.
+        created_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        started_at: { type: [string, 'null'], format: date-time }
+        completed_at: { type: [string, 'null'], format: date-time }
+        expires_at:
+          type: [string, 'null']
+          format: date-time
+          description: Cuándo se borran los archivos (retención, 365 días por defecto).
+        expired: { type: boolean, description: Los archivos ya se borraron por la retención. }
+    ReportCreate:
+      type: object
+      additionalProperties: false
+      properties:
+        kind: { $ref: '#/components/schemas/ReportKind' }
+        from: { type: string, format: date-time, description: Inicio (con `to`); omitidos = última semana ISO completa. }
+        to: { type: string, format: date-time }
+        formats:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/ReportFormat' }
+          description: Por defecto PDF y CSV.
+    ReportDefinition:
+      type: object
+      required: [id, tenant_id, kind, enabled, weekday, hour, minute, timezone, formats, recipients, next_run_at, email_available, version,
+        created_at, updated_at]
+      properties:
+        id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        tenant_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        kind: { $ref: '#/components/schemas/ReportKind' }
+        enabled: { type: boolean }
+        weekday: { type: integer, minimum: 1, maximum: 7, description: 'Día ISO de la ejecución: 1 = lunes … 7 = domingo.' }
+        hour: { type: integer, minimum: 0, maximum: 23 }
+        minute: { type: integer, minimum: 0, maximum: 59 }
+        timezone: { type: string, description: Zona IANA (por defecto la del ISP). }
+        formats:
+          type: array
+          items: { $ref: '#/components/schemas/ReportFormat' }
+        recipients:
+          type: array
+          maxItems: 20
+          items: { type: string, format: email }
+        next_run_at: { type: [string, 'null'], format: date-time, description: Próxima ejecución (null si está deshabilitada). }
+        email_available: { type: boolean, description: La instalación tiene SMTP para el aviso a los destinatarios. }
+        version: { $ref: './common.yaml#/components/schemas/Version' }
+        created_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        updated_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+    ReportDefinitionPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        enabled: { type: boolean }
+        weekday: { type: integer, minimum: 1, maximum: 7 }
+        hour: { type: integer, minimum: 0, maximum: 23 }
+        minute: { type: integer, minimum: 0, maximum: 59 }
+        timezone: { type: string }
+        formats:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/ReportFormat' }
+        recipients:
+          type: array
+          maxItems: 20
+          items: { type: string, format: email }
     AsnInfo:
       type: object
       required: [asn, name, country, catalog_organization, tenant_rule]

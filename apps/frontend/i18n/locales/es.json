@@ -182,7 +182,7 @@
       "question": "¿Qué alertas están activas?"
     },
     "reports": {
-      "question": "Reportes periódicos del ISP."
+      "question": "¿Cómo fue la semana en seguridad? Reporte semanal en PDF y CSV."
     },
     "users": {
       "question": "¿Quién tiene acceso a este ISP y con qué rol?"
@@ -3428,6 +3428,88 @@
       "scriptLabel": "Script RouterOS",
       "horusSide": "Del lado de Horus",
       "warnings": "Avisos"
+    }
+  },
+  "reports": {
+    "title": "Reportes",
+    "intro": "Reporte semanal de seguridad del ISP: hallazgos, clientes afectados, disponibilidad de routers, tráfico y avisos de la semana. Se genera solo cada semana y puedes pedirlo cuando quieras. Los archivos contienen IPs de clientes: solo se descargan desde aquí.",
+    "generate": "Generar ahora",
+    "generateTitle": "Generar reporte de seguridad",
+    "generateBody": "Sin fechas se genera la última semana completa (lunes a domingo, zona horaria del ISP). Puedes elegir otro rango de hasta 31 días.",
+    "rangeMode": {
+      "lastWeek": "Última semana completa",
+      "custom": "Rango de fechas"
+    },
+    "from": "Desde",
+    "to": "Hasta (incluido)",
+    "rangeInvalid": "El rango debe ir en orden y no superar 31 días.",
+    "formats": "Formatos",
+    "formatLabel": {
+      "pdf": "PDF",
+      "csv": "CSV (zip)"
+    },
+    "submit": "Generar",
+    "queued": "Reporte en cola. Te avisaremos cuando esté listo.",
+    "ready": "Reporte listo para descargar.",
+    "failedToast": "No se pudo generar el reporte.",
+    "replayed": "Ya habías pedido este reporte: se muestra el existente.",
+    "rateLimited": "Has pedido demasiados reportes en la última hora. Inténtalo de nuevo en {minutes} min.",
+    "empty": "Todavía no hay reportes",
+    "emptyHint": "El primero se generará el próximo {day} a las {time}, o pulsa «Generar ahora».",
+    "emptyNoSchedule": "Pulsa «Generar ahora» para crear el primero.",
+    "columns": {
+      "period": "Periodo",
+      "status": "Estado",
+      "origin": "Origen",
+      "size": "Tamaño",
+      "created": "Creado",
+      "actions": "Descargas"
+    },
+    "week": "Semana {week} de {year}",
+    "customRange": "Rango a petición",
+    "origin": {
+      "scheduled": "Programado",
+      "manual": "A petición"
+    },
+    "status": {
+      "queued": "En cola",
+      "running": "Generándose",
+      "completed": "Listo",
+      "failed": "Error"
+    },
+    "expired": "Caducado",
+    "expiredHint": "Los archivos se borraron al cumplirse la retención.",
+    "expires": "Se conserva hasta el {date}",
+    "download": "Descargar {format}",
+    "downloadAria": "Descargar {format} del reporte {period}",
+    "downloadFailed": "No se pudo descargar el archivo.",
+    "zone": "Zona horaria: {zone}",
+    "more": "Cargar más",
+    "schedule": {
+      "title": "Programación semanal",
+      "body": "Cada semana se genera el reporte de la semana anterior (lunes 00:00 a lunes 00:00 en la zona del ISP).",
+      "enabled": "Generar cada semana",
+      "day": "Día",
+      "time": "Hora",
+      "timezone": "Zona horaria",
+      "formats": "Formatos",
+      "recipients": "Avisar por correo a",
+      "recipientsHelp": "Correos separados por comas (máx. 20). Reciben un aviso con el enlace a esta página, sin adjunto.",
+      "recipientsUnavailable": "La instalación no tiene correo saliente configurado: el aviso por correo no está disponible.",
+      "next": "Próxima ejecución: {date}",
+      "off": "Desactivada",
+      "saved": "Programación guardada.",
+      "readOnly": "Solo quien administra la configuración del ISP puede cambiar la programación.",
+      "conflict": "Otra persona cambió la programación: se cargaron sus valores."
+    },
+    "weekday": {
+      "1": "lunes",
+      "2": "martes",
+      "3": "miércoles",
+      "4": "jueves",
+      "5": "viernes",
+      "6": "sábado",
+      "7": "domingo"
     }
   }
 }

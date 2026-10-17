@@ -401,6 +401,10 @@ components:
             - ASN_RULE_NOT_FOUND
             - FINDING_NOT_FOUND
             - FINDING_STATE_INVALID
+            - REPORT_NOT_FOUND
+            - REPORT_NOT_READY
+            - REPORT_EXPIRED
+            - REPORT_DEFINITION_NOT_FOUND
             - DASHBOARD_NOT_FOUND
             - DASHBOARD_READ_ONLY
             - WIDGET_TYPE_NOT_ALLOWED

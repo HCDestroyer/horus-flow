@@ -82,7 +82,7 @@ describe('buildNavigation', () => {
 
   it('muestra la consola de plataforma solo con permisos platform.*', () => {
     const groups = buildNavigation(admin, 'fibra-norte', 'I1').map((g) => g.id)
-    expect(groups).toEqual(['main', 'operation', 'security', 'admin', 'platform'])
+    expect(groups).toEqual(['main', 'operation', 'security', 'management', 'admin', 'platform'])
   })
 
   it('aplica la aparición progresiva por incremento', () => {
@@ -91,6 +91,7 @@ describe('buildNavigation', () => {
     const i1 = ids(buildNavigation(admin, 'fibra-norte', 'I1'))
     expect(i1).not.toContain('investigate') // I2
     expect(i1).not.toContain('alerts') // I3
+    expect(i1).toContain('reports') // implementada: visible desde I1
     expect(ids(buildNavigation(admin, 'fibra-norte', 'I3'))).toContain('alerts')
   })
 
@@ -169,7 +170,7 @@ describe('incrementos futuros (aparición progresiva)', () => {
 
   it('con I1, ninguna sección de I2/I3 aparece en el menú y su URL da "no encontrado"', () => {
     const future = NAV_SECTIONS.filter((s) => s.increment === 'I2' || s.increment === 'I3')
-    expect(future.map((s) => s.id)).toEqual(['investigate', 'alerts', 'reports', 'audit'])
+    expect(future.map((s) => s.id)).toEqual(['investigate', 'alerts', 'audit'])
     const visible = ids(buildNavigation(admin, 'fibra-norte', DEFAULT_NAV_INCREMENT))
     for (const s of future) {
       expect(visible).not.toContain(s.id)

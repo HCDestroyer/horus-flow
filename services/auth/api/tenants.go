@@ -16,6 +16,8 @@ type TenantSummary struct {
 	Slug   string
 	Name   string
 	Status string // active | suspended | offboarding
+	// Timezone es la zona horaria IANA del ISP (periodos de los reportes).
+	Timezone string
 }
 
 // TenantDirectory lista los tenants no borrados de la instalación (rol de
