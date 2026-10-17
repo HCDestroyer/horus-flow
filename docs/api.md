@@ -328,6 +328,9 @@ Valores alineados con [`security.md`](./security.md):
 | Pruebas de conexión de canales (`connection_test`) | 10/min por IP. |
 | Integración LibreNMS: sincronizar y probar (`librenms`) | 10/min por IP. |
 | Asistentes de Telegram: validar bot y detectar chat (`telegram_setup`) | 20/min por IP. |
+| **API tokens `hf_pat_`** (`api_token`, ADR-0030) | 600 req/min por token (todas sus rutas), además del límite de cada ruta. |
+| Conector ArgosISP: probar y "Actualizar desde ArgosISP" (`argosisp`) | 20/min por IP. |
+| Receptor de webhooks de ArgosISP (`webhook_in`) | 600/min por IP (firma obligatoria). |
 | WebSocket | §4.9. |
 
 Headers (draft IETF `ratelimit-headers`) en rutas limitadas: `RateLimit-Policy: "default";q=600;w=60` y
@@ -344,8 +347,14 @@ Modelo de tokens decidido en [`security.md`](./security.md) §5.1 (S4/S5); aquí
   Sólo lo usan `POST /auth/refresh` y `POST /auth/logout`. Al recargar la página la SPA llama a `/auth/refresh`.
 - **CSRF**: la API no se autentica con cookies ⇒ no aplica, salvo en `/auth/refresh` y `/auth/logout`, que exigen
   `SameSite=Strict` + cabecera `X-Requested-With: horus` + `Origin` permitido (fallo → `403 ORIGIN_NOT_ALLOWED`).
-- Integraciones no navegador: `Authorization: Bearer hf_pat_...`; el gateway lo canjea por un access JWT de corta vida
-  antes de reenviar. Un API token pertenece a **un solo tenant** (el JWT canjeado lleva su `tid`) o a la plataforma.
+- Integraciones no navegador: `Authorization: Bearer hf_pat_...`; el gateway lo canjea con `auth` (en proceso,
+  `auth.APITokens`) por un access JWT de **2 min** (`typ=service`, `scope=tenant`, `tid`, `via=api_token`,
+  `api_token_id`, `sub` = quien lo creó) con la intersección entre los permisos del token y los **actuales** del creador
+  (con sus alcances); `auth` cachea el canje por token hasta 30 s antes de su caducidad y lo invalida al revocar. El
+  Bearer se sustituye por el JWT para el módulo dueño. Un API token pertenece a **un solo tenant**. En una ruta cuyo
+  `x-principals` no incluye `api_token` → `403 PERMISSION_DENIED` (p. ej. `/api-tokens`, `/integrations/argosisp`);
+  token desconocido, caducado, revocado o cuyo creador ya no está activo en el ISP → `401 UNAUTHENTICATED`; sin `auth`
+  en el proceso → `503`. Cupo de 600 req/min por token (§1.10).
 - Pantallas NOC: credencial de **dispositivo kiosco** propia (cookie `__Secure-hf_kiosk`, `Path=/api/v1/kiosk`), que
   se canjea por un access JWT de solo lectura (§2.12).
 - El gateway valida firma/`exp`/`aud` y revocación (`sid`) y **reenvía el mismo JWT** al servicio
@@ -466,7 +475,7 @@ caché de membresías revocadas, igual que la de sesiones).
 | `POST /roles` · `PATCH /roles/{id}` · `DELETE /roles/{id}` | Roles propios del tenant con permisos de tenant del catálogo (`UNKNOWN_PERMISSION` si no). Anti-escalada: quien crea o amplía un rol debe tener cada permiso nuevo en todo el tenant (`*`), si no `403 PERMISSION_DENIED`. Clave única en el tenant y distinta de la de cualquier rol de sistema (`409 ALREADY_EXISTS`); `requires_mfa` si algún permiso exige 2FA. `PATCH`/`DELETE` con `If-Match`; los de sistema `422 ROLE_READ_ONLY`; de otro tenant `404 ROLE_NOT_FOUND`; asignado `409 ROLE_IN_USE`. Un cambio de permisos llega a los miembros en su siguiente token (como mucho la vida del access token). | `roles.manage` |
 | `GET /audit-events` | Auditoría **del tenant** (sólo registros con ese `tenant_id`, incluidos los accesos de soporte de plataforma). Filtros `actor_id`, `action`, `resource_type`, `resource_id`, `outcome`, `occurred_at_gte/lte`. | `audit.read` |
 | `POST /audit-events/exports` | Exportación (asíncrona, `202`). | `audit.export` |
-| `GET /api-tokens` · `POST /api-tokens` 🔒 · `DELETE /api-tokens/{id}` | API tokens de integración ligados a este tenant (alcance ⊆ permisos del creador en el tenant). | `api_tokens.manage` |
+| `GET /api-tokens` · `POST /api-tokens` 🔒 · `DELETE /api-tokens/{api_token_id}` · `GET /api-token-templates` | API tokens de integración `hf_pat_<32 B base62>` ligados a este tenant (ADR-0030): `{name, template?, permissions?, expires_at?}`; permisos ⊆ los del creador **ahora** (nunca `api_tokens.manage`), caducidad por defecto y máxima 1 año, valor mostrado una vez (`201` con `token`, `Cache-Control: no-store`), solo SHA-256 en la base, `last_used_at`/`last_used_ip`, revocación inmediata. Plantilla `argosisp` = código de conexión para ArgosISP (`customers.read`, `traffic.customer.read`, `security.findings.read`, `snmp.read`). Solo personas (`x-principals: [user]`). Alta y revocación auditadas. | `api_tokens.manage` |
 
 `GET /permissions` (sin tenant) devuelve el catálogo. Las sesiones son de la persona, no del tenant: un administrador
 de ISP **no** puede revocar sesiones (afectarían a otros ISP del mismo usuario); quita la membresía. Revocar sesiones
@@ -743,8 +752,20 @@ creados por Horus, `409 LIBRENMS_DEVICE_NOT_OWNED`). Cada router necesita una IP
 `PUT /librenms/routers/{router_id}/snmp-credentials` 🔒 (write-only). Las notificaciones salen como línea de syslog
 `HORUS <SEVERIDAD> <tipo> <asunto> | <texto> | <enlace> | id=<entrega>` por `POST /api/v0/syslogsink` (host = «Horus
 Flow»); sin aprovisionar fallan con `librenms_not_provisioned`. Guía: [`services/alerts/README.md`](../services/alerts/README.md).
+**`webhook` (ADR-0030)**: `config = {url, timeout_seconds}` (https; http o destinos privados/loopback solo con
+`HORUS_ALERTS_WEBHOOK_ALLOW_PRIVATE=true`, laboratorios; guardia de egreso con la dirección real del socket y cada
+redirección) y `webhook_secret` write-only por `…/credentials` (lo genera el receptor). Cada entrega es un `POST` con
+`{id, event, occurred_at, tenant, data}` firmado según [`integrations/argosisp.md`](integrations/argosisp.md) §1.3
+(`X-Webhook-Id` = `id` = id de la entrega, estable entre reintentos; `X-Webhook-Timestamp`; `X-Webhook-Signature:
+v1=hex(HMAC-SHA256(secreto, timestamp + "." + cuerpo))`); reintentos 1 min, 5 min, 30 min, 2 h y 12 h y después
+`notification.failed`; sin agrupación (`throttle` 0). `event` del contrato §3.4: `finding.opened` (finding_opened y
+finding_reopened), `finding.resolved`, `customer.security_state_changed`, `router.status_changed` (router_* de estado,
+umbrales y hardware) e `infra_service.state_changed` (service_*); los demás tipos no se envían por webhook. Con identidad
+ArgosISP vigente del cliente, `data.external = {system, customer_id, service_id}`; la IP y el alias solo con
+`include_personal_data`. Prueba de conexión = `POST` firmado con `event: "ping"`; envío de prueba = `event: "test"`.
 Suscripción por `event_types` (`finding_opened`, `finding_reopened`, `exporter_silent`, `exporter_recovered`,
-`tunnel_down`, `tunnel_recovered`), `min_severity`, `site_ids` y `throttle_minutes`. Los mensajes no llevan la IP del
+`tunnel_down`, `tunnel_recovered`; categoría `security_updates`: `finding_resolved`,
+`customer_security_state_changed`), `min_severity`, `site_ids` y `throttle_minutes`. Los mensajes no llevan la IP del
 cliente salvo `include_personal_data=true` (auditado). Permisos `alerts.read` / `alerts.manage`. Reglas, silencios y
 escalado siguen en el incremento de alertas completo.
 
@@ -773,6 +794,27 @@ todo el ISP: los permisos se exigen con alcance de tenant completo (un permiso l
 
 El aviso "reporte listo/fallido" llega por WebSocket (topic `me`, `horus.reporting.report.completed|failed`). La
 capacidad `reports` de `GET /system/status` vale `ok` si el proceso sirve `/api/v1/reports`.
+
+### 2.10 quinquies Integraciones de ecosistema (`devices`; ADR-0030)
+
+Contrato compartido con ArgosISP en [`integrations/argosisp.md`](integrations/argosisp.md); OpenAPI en
+[`devices.yaml`](../packages/schemas/openapi/v0/devices.yaml) (tag `integrations`). Las IPs de clientes van **siempre en
+el cuerpo**.
+
+| Método y ruta | Descripción | Permiso |
+| --- | --- | --- |
+| `POST /integrations/ip-lookup` | Consulta 360: `{address, at?, include?}` → `customer`, `external` (identidad ArgosISP vigente en `at`), `consumption` (24 h/7 d/30 d, pico de bajada de 24 h, 5 servicios de 7 d), `health` (router principal del nodo, exportador, minutos desde la última vez) y `security` (estado, hallazgos activos). Cada bloque exige además su permiso (`traffic.customer.read`, `snmp.read`, `security.findings.read`); sin él, o sin el módulo en el proceso, es `null` y `meta.omitted` dice por qué (`permission`, `unavailable`, `not_requested`, `not_configured`). `404 CUSTOMER_NOT_FOUND` si la IP no es de un cliente del ISP. Auditado (`integrations.ip_lookup`). | `customers.read` |
+| `POST /integrations/consumption` | Lote ≤ 500 por `address` o `external_service_id` (`from`, `to` ≤ 400 días, `granularity` `day`\|`total`). Por servicio suma las IPs que tuvo en el periodo, cada una dentro de su vigencia (bordes con precisión de 1 h; 1 día si el rango supera 35 días). Sin conector activo, `external_service_id` → `422`. Sin analytics/ClickHouse → `503 ANALYTICS_UNAVAILABLE`. Auditado. | `traffic.customer.read` |
+| `GET` · `PUT /integrations/argosisp` 🔒 | Conector: `base_url` (con `/api/v1` de Argos), `enabled`, `token` `atk_…` write-only cifrado con la KEK de devices (`has_token`); devuelve `webhook_url`, estado de la última sincronización (`ok`\|`degraded` = respaldo `GET /ip/:ip`\|`failing`), `resolver`, identidades vigentes y desactualizadas. Solo personas. | `settings.read` / `settings.manage` |
+| `POST /integrations/argosisp/webhook-secret` 🔒 | Secreto nuevo del webhook (mostrado una vez; el anterior vale 24 h). | `settings.manage` |
+| `POST /integrations/argosisp/connection-test` | Resuelve `192.0.2.1` en ArgosISP sin cambiar nada (`resolver`, `error_code`). Cupo `argosisp`. | `settings.manage` |
+| `POST /integrations/argosisp/webhook/{connector_id}` | Receptor público: firma obligatoria, ≤ 5 min de desfase, deduplicación por `X-Webhook-Id`, `202` inmediato y proceso en segundo plano; firma inválida `401`, conector desconocido o apagado `404`. | firma HMAC |
+| `GET /customers/{id}/external-identity` | Identidad vigente (`ExternalRef`) e historial de vigencias. | `customers.read` |
+| `POST /customers/{id}/external-identity/refresh` | "Actualizar desde ArgosISP" (síncrono, 10 s); ArgosISP caído → `200` con `stale = true`. `409 INTEGRATION_NOT_CONFIGURED` sin conector activo. | `customers.update` |
+
+Con identidad vigente y `alias_source <> 'manual'`, el alias del cliente toma el nombre de ArgosISP
+(`alias_source = argosisp`); sin identidad vigente se quita un alias que vino de ArgosISP. Un alias manual nunca se toca.
+`GET /routers/status` y `GET /infra-services` ya admitían `api_token` (H4).
 
 ### 2.10 quater Asistente de IA (`assist`)
 

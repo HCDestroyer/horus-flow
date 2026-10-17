@@ -25,6 +25,8 @@ tags:
     description: Miembros, roles y permisos del tenant.
   - name: kiosks
     description: Kioscos (pantallas NOC) como dispositivos registrados.
+  - name: api-tokens
+    description: API tokens de integración (hf_pat_) del ISP, p. ej. el código de conexión para ArgosISP.
   - name: realtime
     description: Tiempo real (WebSocket `wss://<dominio>/api/v1/ws`, subprotocolo `horus.ws.v1`).
   - name: system
@@ -41,6 +43,8 @@ tags:
     description: Clientes = IPs observadas (D1).
   - name: asn-rules
     description: ASN propios del ISP — nombre, categoría y servicio que se aplican al clasificar el tráfico nuevo.
+  - name: integrations
+    description: Integraciones de ecosistema (ADR-0030) — consulta 360 por IP, consumo por lotes y conector ArgosISP.
   - name: onboarding
     description: Script de alta, enrolamiento y script inverso.
   - name: wireguard
@@ -86,6 +90,12 @@ paths:
     $ref: ./analytics.yaml#/paths/~1analytics~1traffic~1timeseries
   /analytics/traffic/top:
     $ref: ./analytics.yaml#/paths/~1analytics~1traffic~1top
+  /api-token-templates:
+    $ref: ./auth.yaml#/paths/~1api-token-templates
+  /api-tokens:
+    $ref: ./auth.yaml#/paths/~1api-tokens
+  /api-tokens/{api_token_id}:
+    $ref: ./auth.yaml#/paths/~1api-tokens~1{api_token_id}
   /asn-rules:
     $ref: ./devices.yaml#/paths/~1asn-rules
   /asn-rules/catalog:
@@ -146,6 +156,10 @@ paths:
     $ref: ./devices.yaml#/paths/~1customers~1stats
   /customers/{customer_id}:
     $ref: ./devices.yaml#/paths/~1customers~1{customer_id}
+  /customers/{customer_id}/external-identity:
+    $ref: ./devices.yaml#/paths/~1customers~1{customer_id}~1external-identity
+  /customers/{customer_id}/external-identity/refresh:
+    $ref: ./devices.yaml#/paths/~1customers~1{customer_id}~1external-identity~1refresh
   /customers/{customer_id}/findings:
     $ref: ./detection.yaml#/paths/~1customers~1{customer_id}~1findings
   /customers/{customer_id}/kind-history:
@@ -200,6 +214,18 @@ paths:
     $ref: ./snmp.yaml#/paths/~1infra-services~1{service_id}
   /infra-services/{service_id}/router-snippet:
     $ref: ./snmp.yaml#/paths/~1infra-services~1{service_id}~1router-snippet
+  /integrations/argosisp:
+    $ref: ./devices.yaml#/paths/~1integrations~1argosisp
+  /integrations/argosisp/connection-test:
+    $ref: ./devices.yaml#/paths/~1integrations~1argosisp~1connection-test
+  /integrations/argosisp/webhook-secret:
+    $ref: ./devices.yaml#/paths/~1integrations~1argosisp~1webhook-secret
+  /integrations/argosisp/webhook/{connector_id}:
+    $ref: ./devices.yaml#/paths/~1integrations~1argosisp~1webhook~1{connector_id}
+  /integrations/consumption:
+    $ref: ./devices.yaml#/paths/~1integrations~1consumption
+  /integrations/ip-lookup:
+    $ref: ./devices.yaml#/paths/~1integrations~1ip-lookup
   /kiosk/config:
     $ref: ./analytics.yaml#/paths/~1kiosk~1config
   /kiosk/enroll:

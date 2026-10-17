@@ -86,7 +86,8 @@
       "roles": "Roles y permisos",
       "ai": "Inteligencia artificial",
       "routers": "Salud de routers",
-      "infraServices": "Servicios de infraestructura"
+      "infraServices": "Servicios de infraestructura",
+      "integrations": "Integraciones"
     },
     "search": "Buscar",
     "searchPlaceholder": "Buscar secciones…",
@@ -755,6 +756,44 @@
       },
       "series": "Puntuación de los últimos 90 días",
       "seriesSummary": "Puntuación actual {now}/100; máxima {max}/100 en el periodo."
+    },
+    "external": {
+      "title": "ArgosISP",
+      "none": "Sin identidad en ArgosISP todavía.",
+      "notFound": "ArgosISP no tiene esta IP asignada a ningún servicio.",
+      "update": "Actualizar desde ArgosISP",
+      "name": "Nombre",
+      "code": "Código",
+      "service": "Servicio",
+      "synced": "Sincronizado",
+      "stale": "Desactualizado",
+      "staleToast": "ArgosISP no respondió: se muestra el último dato conocido.",
+      "history": "Vigencias ({n})",
+      "current": "vigente"
+    },
+    "ip360": {
+      "open": "Consulta 360",
+      "title": "Consulta 360 por IP",
+      "description": "Identidad, consumo, salud del servicio y seguridad de una IP de cliente. La IP no queda en la URL.",
+      "address": "IP del cliente",
+      "search": "Consultar",
+      "notFound": "Esa IP no es de un cliente de este ISP o nunca se vio.",
+      "customer": "Cliente",
+      "consumption": "Consumo",
+      "health": "Salud del servicio",
+      "security": "Seguridad",
+      "last_24h": "24 h",
+      "last_7d": "7 días",
+      "last_30d": "30 días",
+      "topServices": "Servicios principales (7 días)",
+      "noRouter": "Sin router principal en el nodo",
+      "lastSeen": "visto hace {n} min",
+      "omitted": {
+        "permission": "Sin permiso para ver este bloque.",
+        "unavailable": "No disponible ahora.",
+        "not_requested": "No pedido.",
+        "not_configured": "ArgosISP no está conectado."
+      }
     }
   },
   "findings": {
@@ -1934,7 +1973,8 @@
     "kind": {
       "email": "Correo",
       "telegram": "Telegram",
-      "librenms": "LibreNMS"
+      "librenms": "LibreNMS",
+      "webhook": "Webhook"
     },
     "status": {
       "ok": "Funciona",
@@ -1973,7 +2013,9 @@
       "exporter_silent": "Exportador silencioso",
       "exporter_recovered": "Exportador recuperado",
       "tunnel_down": "Túnel caído",
-      "tunnel_recovered": "Túnel recuperado"
+      "tunnel_recovered": "Túnel recuperado",
+      "finding_resolved": "Hallazgo resuelto",
+      "customer_security_state_changed": "Cambio de estado de seguridad de un cliente"
     },
     "form": {
       "title": "Nuevo canal de notificación",
@@ -2014,7 +2056,12 @@
       "sites": "Nodos",
       "sitesHelp": "Vacío: todos los nodos.",
       "notifyRecovery": "Avisar cuando se recupere",
-      "notifyRecoveryHelp": "La recuperación llega siempre a este canal si recibió la alarma, aunque su severidad sea menor que la mínima."
+      "notifyRecoveryHelp": "La recuperación llega siempre a este canal si recibió la alarma, aunque su severidad sea menor que la mínima.",
+      "webhookUrl": "URL del receptor",
+      "webhookUrlHelp": "https obligatorio. Para ArgosISP, la URL de su receptor de Horus.",
+      "webhookSecret": "Secreto de firma",
+      "webhookSecretHelp": "Lo genera el receptor (p. ej. ArgosISP). Se guarda cifrado y no se vuelve a mostrar.",
+      "webhookSigning": "Cada envío va firmado (X-Webhook-Signature: v1=HMAC-SHA256) con un id estable; se reintenta a 1 min, 5 min, 30 min, 2 h y 12 h."
     },
     "recoveryOn": "Avisa de recuperaciones",
     "sitesCount": "{n} nodo | {n} nodos",
@@ -2035,6 +2082,10 @@
       "exporter_tunnel": {
         "label": "Exportador y túnel",
         "help": "Routers que dejan de enviar flujos o pierden el túnel WireGuard."
+      },
+      "security_updates": {
+        "label": "Seguridad: resoluciones y estado",
+        "help": "Hallazgos resueltos y cambios del estado de seguridad de un cliente (para integraciones como ArgosISP)."
       }
     },
     "deliveries": {
@@ -3510,6 +3561,73 @@
       "5": "viernes",
       "6": "sábado",
       "7": "domingo"
+    }
+  },
+  "integrations": {
+    "intro": "Conecta Horus con otros sistemas del ISP. Cada sistema funciona sin el otro; si uno no responde, se conserva el último dato.",
+    "tokens": {
+      "title": "Códigos de conexión (API tokens)",
+      "body": "Tokens hf_pat_ para que otro sistema lea datos de este ISP con permisos acotados. Se muestran una sola vez; caducan como máximo en un año y puedes revocarlos.",
+      "noPermission": "Para gestionar códigos de conexión necesitas el permiso api_tokens.manage.",
+      "name": "Nombre",
+      "template": "Plantilla",
+      "templateArgos": "Código de conexión para ArgosISP",
+      "templateCustom": "Permisos a medida",
+      "argosPermissions": "Clientes, consumo por cliente, hallazgos de seguridad y salud de la red (customers.read, traffic.customer.read, security.findings.read, snmp.read).",
+      "permissions": "Permisos",
+      "permissionsHelp": "Solo los que tú tienes: un token nunca lleva más que quien lo crea.",
+      "expiry": "Caducidad",
+      "expiryDays": "{n} días",
+      "create": "Crear token",
+      "createArgos": "Generar código de conexión",
+      "created": "Copia el código ahora: no se volverá a mostrar.",
+      "createdHelp": "Pégalo en ArgosISP (Integraciones › Horus). Si se pierde, revócalo y genera otro.",
+      "value": "Código de conexión",
+      "empty": "Aún no hay códigos de conexión.",
+      "permissionsCount": "{n} permisos",
+      "expires": "caduca el {time}",
+      "revokedAt": "revocado el {time}",
+      "lastUsed": "último uso {time}",
+      "lastUsedFrom": "último uso {time} desde {ip}",
+      "neverUsed": "sin usar",
+      "stateActive": "Activo",
+      "stateRevoked": "Revocado",
+      "stateExpired": "Caducado",
+      "revoke": "Revocar",
+      "revoked": "Token revocado"
+    },
+    "argos": {
+      "title": "ArgosISP",
+      "body": "Horus toma de ArgosISP el nombre, el código y el estado del servicio de cada IP, con su vigencia. Un alias puesto a mano nunca se sobrescribe.",
+      "baseUrl": "URL de la API de ArgosISP",
+      "baseUrlHelp": "Incluye /api/v1. Solo https.",
+      "token": "Token de ArgosISP",
+      "tokenHelp": "Token atk_… con alcances ip.resolver, clientes.ver y servicios.ver. Se guarda cifrado y no se vuelve a mostrar.",
+      "tokenKeep": "Guardado. Escribe uno nuevo solo para reemplazarlo.",
+      "tokenSaved": "guardado — escribe para reemplazar",
+      "enabled": "Conector activo",
+      "enabledHelp": "Apagado, Horus no consulta ArgosISP ni acepta sus webhooks.",
+      "saved": "Conector guardado",
+      "test": "Probar conexión",
+      "testOk": "Conexión correcta",
+      "testFail": "No se pudo conectar",
+      "fallback": "respaldo GET /ip/:ip",
+      "fallbackHelp": "ArgosISP aún no tiene la resolución por lotes: Horus usa el respaldo IP por IP (más lento).",
+      "lastSync": "última sincronización {time}",
+      "identities": "{n} identidades · {stale} desactualizadas",
+      "degradedHelp": "Mientras ArgosISP no responda, Horus conserva la última identidad conocida y reintenta con espera creciente (máx. 15 min). La ingesta y la detección siguen igual.",
+      "sync": {
+        "ok": "Sincronizado",
+        "degraded": "Sincronizado (respaldo)",
+        "failing": "Sin respuesta",
+        "never": "Sin sincronizar"
+      },
+      "webhookTitle": "Webhook de ArgosISP → Horus",
+      "webhookBody": "Copia en ArgosISP esta URL y el secreto para que avise a Horus de cambios de asignación, sesión, cliente y estado del servicio.",
+      "webhookUrl": "URL del webhook",
+      "secret": "Secreto del webhook",
+      "secretShown": "Copia el secreto ahora: no se volverá a mostrar. El anterior sigue valiendo 24 h.",
+      "rotate": "Generar secreto"
     }
   }
 }

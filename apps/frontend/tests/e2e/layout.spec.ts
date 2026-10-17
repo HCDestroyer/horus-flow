@@ -95,6 +95,7 @@ const I1_SCREENS = [
   '/t/fibra-norte/admin/kiosks',
   '/t/fibra-norte/admin/notifications',
   '/t/fibra-norte/admin/librenms',
+  '/t/fibra-norte/admin/integrations',
   '/t/fibra-norte/admin/roles',
   '/t/fibra-norte/admin/roles?view=matrix',
   '/platform/isps',

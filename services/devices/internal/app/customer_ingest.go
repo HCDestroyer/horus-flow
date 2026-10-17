@@ -81,6 +81,9 @@ func (s *Customers) Discover(ctx context.Context, t pgdb.TenantID, realm uuid.UU
 	}
 	if len(created) > 0 {
 		s.logger.DebugContext(ctx, "customers discovered", slog.Int("count", len(created)))
+		if s.Discovered != nil {
+			s.Discovered(t, created)
+		}
 	}
 	return nil
 }

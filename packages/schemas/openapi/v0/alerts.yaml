@@ -178,6 +178,8 @@ paths:
         - `librenms` (D17): `password` obligatoria salvo que se envíe `api_token`; `api_token` opcional
           (cabecera `X-Auth-Token` de la API de LibreNMS). Reemplaza el conjunto completo: lo no enviado se borra.
         - `email`: usa el SMTP de la instalación (HORUS_SMTP_*); no tiene secretos por canal (`422`).
+        - `webhook`: `webhook_secret` obligatorio (lo genera el receptor; sin él la entrega falla con
+          `missing_credentials`).
       x-module: alerts
       x-scope: tenant
       x-permission: alerts.manage
@@ -631,14 +633,16 @@ components:
     NotificationChannelKind:
       type: string
       description: |
-        `email`, `telegram` y `librenms` (D17, por API) disponibles. Enum abierto (después: webhook, whatsapp,
-        sms); un `kind` conocido por el contrato pero aún no implementado → `422 NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE`.
-      enum: [email, telegram, librenms]
+        `email`, `telegram`, `librenms` (D17, por API) y `webhook` (POST JSON firmado con HMAC-SHA256, ADR-0030;
+        contrato docs/integrations/argosisp.md §1.3 y §3.4) disponibles. Enum abierto (después: whatsapp, sms); un
+        `kind` conocido por el contrato pero aún no implementado → `422 NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE`.
+      enum: [email, telegram, librenms, webhook]
     NotificationEventType:
       type: string
       description: |
         Tipos de evento a los que se suscribe un canal (enum abierto), por categoría:
         - `security`: `finding_opened`, `finding_reopened`.
+        - `security_updates` (pensada para webhooks, ADR-0030): `finding_resolved` y `customer_security_state_changed`.
         - `routers` (rol snmp): `router_offline`, `router_recovered` (vuelve tras una caída o un umbral avisado),
           `router_cpu_high`, `router_memory_high`, `router_temperature_high` (aviso → `medium`, crítico → `high`),
           `router_hardware_failed` (fuente o ventilador), `router_interface_down` / `router_interface_up` (enlace de
@@ -666,10 +670,12 @@ components:
         - service_down
         - service_degraded
         - service_recovered
+        - finding_resolved
+        - customer_security_state_changed
     NotificationCategory:
       type: string
       description: Grupo de tipos de evento (ver NotificationEventType). Enum abierto.
-      enum: [security, routers, infrastructure, exporter_tunnel]
+      enum: [security, routers, infrastructure, exporter_tunnel, security_updates]
     EmailChannelConfig:
       type: object
       title: EmailChannelConfig
@@ -719,6 +725,31 @@ components:
         username: { type: string, minLength: 1, maxLength: 128, description: Usuario de LibreNMS dedicado a Horus. }
         tls_verify: { type: boolean, default: true, description: false solo para certificados autofirmados (auditado). }
         timeout_seconds: { type: integer, minimum: 2, maximum: 30, default: 10 }
+    WebhookChannelConfig:
+      type: object
+      title: WebhookChannelConfig
+      description: |
+        Webhook firmado (ADR-0030, p. ej. el receptor de ArgosISP). Cada entrega es un `POST` con
+        `{id, event, occurred_at, tenant, data}` y las cabeceras `X-Webhook-Id` (= `id`, estable entre reintentos),
+        `X-Webhook-Timestamp` y `X-Webhook-Signature: v1=hex(HMAC-SHA256(secreto, timestamp + "." + cuerpo))`. El
+        secreto lo genera el receptor y va por `PUT …/credentials` (`webhook_secret`, write-only). `event` sigue el
+        contrato §3.4: `finding.opened` (finding_opened, finding_reopened), `finding.resolved`,
+        `customer.security_state_changed`, `router.status_changed` (router_*: offline, recovered, umbrales, hardware) e
+        `infra_service.state_changed` (service_*); los demás tipos no se envían por webhook. Con identidad ArgosISP del
+        cliente, `data.external` lleva sus ids. La IP y el alias del cliente solo con `include_personal_data`.
+        Reintentos: 1 min, 5 min, 30 min, 2 h y 12 h. Solo https y destinos públicos (privados o loopback solo con
+        HORUS_ALERTS_WEBHOOK_ALLOW_PRIVATE=true, laboratorios); cada redirección se valida igual.
+      required: [url]
+      additionalProperties: false
+      properties:
+        url:
+          type: string
+          format: uri
+          maxLength: 2048
+          pattern: '^https?://'
+          description: URL del receptor (sin credenciales en la URL).
+          examples: ['https://argos.isp.example/api/v1/integraciones/horus/webhook']
+        timeout_seconds: { type: integer, minimum: 2, maximum: 30, default: 10 }
     NotificationChannelCredentials:
       type: object
       description: Secretos write-only por `kind` (nunca devueltos). Ver `PUT /notification-channels/{id}/credentials`.
@@ -728,6 +759,7 @@ components:
         telegram_bot_token: { type: string, writeOnly: true, pattern: '^[0-9]+:[A-Za-z0-9_-]{30,}$' }
         password: { type: string, writeOnly: true, minLength: 1, maxLength: 256, description: 'librenms: contraseña del usuario.' }
         api_token: { type: string, writeOnly: true, minLength: 16, maxLength: 256, description: 'librenms: token de API (opcional).' }
+        webhook_secret: { type: string, writeOnly: true, minLength: 16, maxLength: 256, description: 'webhook: secreto HMAC que genera el receptor.' }
     ConnectionTestResult:
       type: object
       required: [ok, channel_id, channel_kind, checked_at]
@@ -744,7 +776,7 @@ components:
           anyOf:
             - type: string
               enum: [dns_failed, connect_failed, tls_invalid, auth_failed, forbidden, timeout, unexpected_response, missing_credentials,
-                chat_not_found, bot_not_member, bot_cannot_post]
+                chat_not_found, bot_not_member, bot_cannot_post, not_allowed]
             - type: 'null'
         error:
           type: [string, 'null']
@@ -798,6 +830,7 @@ components:
             - $ref: '#/components/schemas/EmailChannelConfig'
             - $ref: '#/components/schemas/TelegramChannelConfig'
             - $ref: '#/components/schemas/LibreNmsChannelConfig'
+            - $ref: '#/components/schemas/WebhookChannelConfig'
         subscription: { $ref: '#/components/schemas/ChannelSubscription' }
         include_personal_data:
           type: boolean
@@ -814,6 +847,7 @@ components:
             - $ref: '#/components/schemas/EmailChannelConfig'
             - $ref: '#/components/schemas/TelegramChannelConfig'
             - $ref: '#/components/schemas/LibreNmsChannelConfig'
+            - $ref: '#/components/schemas/WebhookChannelConfig'
         subscription: { $ref: '#/components/schemas/ChannelSubscription' }
         include_personal_data: { type: boolean }
     NotificationChannel:

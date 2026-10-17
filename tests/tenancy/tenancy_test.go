@@ -185,6 +185,22 @@ func cases() map[string]tenanttest.Case {
 	c["updateReportDefinition"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"enabled": false}}
 	// Umbrales de routers por ISP (B no ve ni cambia los de A; RLS de snmp.router_thresholds) los cubre
 	// TestSNMPThresholdsPerTenant.
+	// auth: API tokens de integración hf_pat_ (H1, ADR-0030).
+	c["listApiTokens"] = tenanttest.Case{Kind: tenanttest.List}
+	c["listApiTokenTemplates"] = tenanttest.Case{Kind: tenanttest.List}
+	c["createApiToken"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"name": "pirata", "template": "argosisp"}}
+	c["revokeApiToken"] = tenanttest.Case{Kind: tenanttest.ByID}
+	// devices: integraciones (H2, H3, H6). La IP va en el cuerpo; el cruce con un hf_pat_ de otro ISP lo
+	// cubre TestAPITokenTenantIsolation.
+	c["lookupIpIntegration"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"address": "10.10.0.41"}}
+	c["getIntegrationConsumption"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"from": "2026-10-01T00:00:00Z",
+		"to": "2026-10-02T00:00:00Z", "items": []any{map[string]any{"address": "10.10.0.41"}}}}
+	c["getArgosIntegration"] = tenanttest.Case{Kind: tenanttest.List}
+	c["putArgosIntegration"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"base_url": "https://argos.example/api/v1", "enabled": false}}
+	c["rotateArgosWebhookSecret"] = tenanttest.Case{Kind: tenanttest.Create}
+	c["testArgosIntegration"] = tenanttest.Case{Kind: tenanttest.Create}
+	c["getCustomerExternalIdentity"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["refreshCustomerExternalIdentity"] = tenanttest.Case{Kind: tenanttest.ByID}
 	pending("EP-08 (snmp: umbrales por ISP; TestSNMPThresholdsPerTenant)",
 		"getRouterThresholds", "putRouterThresholds", "resetRouterThresholds")
 	return c
@@ -240,6 +256,8 @@ func (a *app) fixtureISP(x isp, cidr string) map[string]string {
 		a.t.Fatalf("definiciones de reportes = %v", defs)
 	}
 	out["definition_id"], _ = defs[0].(map[string]any)["id"].(string)
+	// API token de integración (H1) para /api-tokens/{api_token_id}.
+	out["api_token_id"] = a.must(a.post(x.token, "/api/v1/api-tokens", map[string]any{"name": "ArgosISP", "template": "argosisp"}), 201).str("id")
 	if _, err := a.admin.Exec(context.Background(), `UPDATE detection.finding SET customer_id = $1 WHERE id = $2`,
 		out["customer_id"], out["finding_id"]); err != nil {
 		a.t.Fatal(err)
@@ -307,7 +325,7 @@ func TestTenantIsolationMatrix(t *testing.T) {
 				"{kiosk_id}", paramsA["kiosk_id"], "{dashboard_id}", paramsA["dashboard_id"], "{widget_id}", paramsA["widget_id"],
 				"{playlist_id}", paramsA["playlist_id"], "{channel_id}", paramsA["channel_id"], "{user_id}", paramsA["user_id"],
 				"{kind}", paramsA["kind"], "{role_id}", paramsA["role_id"], "{asn_rule_id}", paramsA["asn_rule_id"], "{asn}", "263237",
-				"{report_id}", paramsA["report_id"], "{definition_id}", paramsA["definition_id"],
+				"{report_id}", paramsA["report_id"], "{definition_id}", paramsA["definition_id"], "{api_token_id}", paramsA["api_token_id"],
 			).Replace(tmpl), nil)
 			return a.mux.Matches(r)
 		},

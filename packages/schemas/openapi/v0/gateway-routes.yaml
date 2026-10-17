@@ -303,6 +303,31 @@ modules:
       methods:
         GET: authenticated
   auth:
+    - prefix: /api/v1/api-token-templates
+      scope: tenant
+      methods:
+        GET: api_tokens.manage
+      principals:
+        - user
+    - prefix: /api/v1/api-tokens
+      scope: tenant
+      methods:
+        GET: api_tokens.manage
+        POST: api_tokens.manage
+      principals:
+        - user
+      reauth:
+        - POST
+      audited:
+        - POST
+    - prefix: /api/v1/api-tokens/{api_token_id}
+      scope: tenant
+      methods:
+        DELETE: api_tokens.manage
+      principals:
+        - user
+      audited:
+        - DELETE
     - prefix: /api/v1/auth/invitations/accept
       scope: public
       methods:
@@ -650,6 +675,19 @@ modules:
         PATCH: customers.update
       audited:
         - GET
+    - prefix: /api/v1/customers/{customer_id}/external-identity
+      scope: tenant
+      methods:
+        GET: customers.read
+    - prefix: /api/v1/customers/{customer_id}/external-identity/refresh
+      scope: tenant
+      methods:
+        POST: customers.update
+      principals:
+        - user
+      rate_limit: argosisp
+      audited:
+        - POST
     - prefix: /api/v1/customers/{customer_id}/kind-history
       scope: tenant
       methods:
@@ -668,6 +706,51 @@ modules:
       scope: tenant
       methods:
         POST: customers.kind.write
+    - prefix: /api/v1/integrations/argosisp
+      scope: tenant
+      methods:
+        GET: settings.read
+        PUT: settings.manage
+      principals:
+        - user
+      reauth:
+        - PUT
+      audited:
+        - PUT
+    - prefix: /api/v1/integrations/argosisp/connection-test
+      scope: tenant
+      methods:
+        POST: settings.manage
+      principals:
+        - user
+      rate_limit: argosisp
+    - prefix: /api/v1/integrations/argosisp/webhook-secret
+      scope: tenant
+      methods:
+        POST: settings.manage
+      principals:
+        - user
+      reauth:
+        - POST
+      audited:
+        - POST
+    - prefix: /api/v1/integrations/argosisp/webhook/{connector_id}
+      scope: public
+      methods:
+        POST: public
+      rate_limit: webhook_in
+    - prefix: /api/v1/integrations/consumption
+      scope: tenant
+      methods:
+        POST: traffic.customer.read
+      audited:
+        - POST
+    - prefix: /api/v1/integrations/ip-lookup
+      scope: tenant
+      methods:
+        POST: customers.read
+      audited:
+        - POST
     - prefix: /api/v1/routers
       scope: tenant
       methods:

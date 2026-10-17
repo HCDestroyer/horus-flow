@@ -43,6 +43,9 @@ const (
 	TypeService = "service"
 )
 
+// ViaAPIToken es el claim `via` de un access token canjeado por un API token.
+const ViaAPIToken = "api_token"
+
 // Audience es el `aud` de los access tokens de la API.
 const Audience = "horus-api"
 
@@ -71,6 +74,10 @@ type Claims struct {
 	Perms       map[string][]string `json:"perms,omitempty"`
 	// KioskID es el kiosco de un token `typ = kiosk` (C7: claims kiosk [tid, kiosk_id]).
 	KioskID string `json:"kiosk_id,omitempty"`
+	// Via = "api_token" en los access tokens canjeados por un API token
+	// `hf_pat_…` (docs/security.md §5.4); APITokenID es ese token.
+	Via        string `json:"via,omitempty"`
+	APITokenID string `json:"api_token_id,omitempty"`
 }
 
 // KeyID calcula el `kid` de una clave pública (huella SHA-256 truncada).
@@ -202,6 +209,15 @@ func principalFromClaims(c *Claims, raw string) (*Principal, error) {
 		Perms:       c.Perms,
 		TokenID:     c.ID,
 		Raw:         raw,
+	}
+	if c.Via == ViaAPIToken {
+		id, err := uuid.Parse(c.APITokenID)
+		if err != nil || c.Typ != TypeService || c.Scope != ScopeTenant {
+			return nil, fmt.Errorf("%w: api_token claims", ErrInvalidToken)
+		}
+		p.Via, p.APITokenID = ViaAPIToken, id
+	} else if c.Via != "" {
+		return nil, fmt.Errorf("%w: via %q", ErrInvalidToken, c.Via)
 	}
 	if c.ExpiresAt != nil {
 		p.ExpiresAt = c.ExpiresAt.Time

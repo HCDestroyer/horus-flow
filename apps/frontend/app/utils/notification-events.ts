@@ -40,6 +40,12 @@ export const NOTIFICATION_CATEGORIES: {
     icon: 'i-lucide-cable',
     events: ['exporter_silent', 'exporter_recovered', 'tunnel_down', 'tunnel_recovered'],
   },
+  {
+    // Resoluciones y estado de seguridad de clientes (pensada para webhooks, ADR-0030).
+    key: 'security_updates',
+    icon: 'i-lucide-shield-check',
+    events: ['finding_resolved', 'customer_security_state_changed'],
+  },
 ]
 
 /** Categoría de un tipo de evento. */

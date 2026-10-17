@@ -32,7 +32,15 @@ type Principal struct {
 	Perms map[string][]string
 	// Raw es el JWT original (para reenviarlo; nunca se registra).
 	Raw string
+	// Via = ViaAPIToken si el token se canjeó por un API token (hf_pat_);
+	// APITokenID es ese token. Type es entonces service y Subject el usuario
+	// que creó el token (actúa con sus permisos actuales ∩ los del token).
+	Via        string
+	APITokenID uuid.UUID
 }
+
+// IsAPIToken indica si la petición llega con un API token de integración.
+func (p *Principal) IsAPIToken() bool { return p != nil && p.Via == ViaAPIToken }
 
 // Has indica si tiene perm en algún alcance (permiso grueso del gateway).
 func (p *Principal) Has(perm string) bool {

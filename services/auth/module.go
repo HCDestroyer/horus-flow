@@ -132,8 +132,10 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 	kiosks := app.NewKiosks(store, signer, svc, cursor, cfg.PublicBaseURL, nil, logger)
 	// Tokens delegados de 2 min para el servidor MCP del asistente (docs/assist.md).
 	delegation := app.NewDelegation(store, authz.NewSigner(signKey, cfg.Issuer, 2*time.Minute, nil))
+	// API tokens de integración hf_pat_ (docs/security.md §5.4): el gateway los canjea por access tokens de 2 min.
+	apiTokens := app.NewAPITokens(store, authz.NewSigner(signKey, cfg.Issuer, app.APITokenTTL(), nil), catalog, svc, nil, logger)
 	for name, v := range map[string]any{api.ServiceSessions: svc, api.ServiceVerifier: verifier, api.ServiceAudit: svc, api.ServiceKiosks: kiosks,
-		api.ServiceTenants: svc, api.ServiceDelegation: delegation} {
+		api.ServiceTenants: svc, api.ServiceDelegation: delegation, api.ServiceAPITokens: apiTokens} {
 		if deps.Services == nil {
 			break
 		}
@@ -152,6 +154,7 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		})
 		h.Mount(deps.Routes)
 		httpapi.NewKiosks(h, kiosks).Mount(deps.Routes)
+		httpapi.NewAPITokens(h, apiTokens).Mount(deps.Routes)
 	}
 	logger.InfoContext(ctx, "auth configured", slog.Any("auth", cfg), slog.String("postgres", pgdb.RedactDSN(cfg.PostgresDSN)))
 	return natsx.WithRelay(ctx, deps, &mod{db: db, svc: svc, cfg: cfg, logger: logger, migrate: cfg.Migrate}, db, migrations.Schema)

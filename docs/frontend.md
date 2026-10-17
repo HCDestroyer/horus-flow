@@ -138,6 +138,7 @@ ADMINISTRACIÓN DEL ISP
 ├─ Pantallas NOC (kioscos)    /t/:slug/admin/kiosks                             I1
 ├─ Detección                  /t/:slug/admin/detection (umbrales)               I1 lectura · I2
 ├─ ASN propios                /t/:slug/admin/asn (nombre/servicio por ASN)      I1
+├─ Integraciones             /t/:slug/admin/integrations (códigos de conexión, ArgosISP) I1
 └─ Auditoría                  /t/:slug/admin/audit                              I2
 PLATAFORMA (solo superadmin, §3.4)
 ├─ Vista global               /global                                            I2
@@ -740,6 +741,28 @@ está activo, un aviso con enlace a Administración › Inteligencia artificial 
 La respuesta es Markdown **seguro** (`utils/markdown.ts` → plantillas, nunca `v-html`; enlaces como
 texto), con el aviso "Generado por IA; revisa antes de aplicar. Horus no ejecuta nada en tus routers." y
 los comandos RouterOS en `CodeBlock` para copiar. Ver [`assist.md`](assist.md).
+
+### 8.y Integraciones de ecosistema (ADR-0030)
+
+- **Administración › Integraciones** (`pages/t/[slug]/admin/integrations.vue`, `settings.read`): códigos de
+  conexión (`components/integrations/ApiTokensPanel.vue`, `api_tokens.manage`) con la plantilla
+  **"Código de conexión para ArgosISP"** preseleccionada, caducidad (1 año por defecto), valor mostrado una sola vez
+  en `CodeBlock` (copiar), último uso con IP y revocar; y la tarjeta del conector ArgosISP
+  (`components/integrations/ArgosConnectorCard.vue`): URL, token `atk_…` de solo escritura (`SecretInput`, vuelve
+  vacío al guardar y solo dice que hay uno guardado), activo, "Probar conexión", última sincronización (sincronizado,
+  respaldo `GET /ip/:ip`, sin respuesta), identidades vigentes y desactualizadas, y URL del webhook + "Generar
+  secreto" (secreto mostrado una vez). Guardar y crear tokens piden re-autenticación (`useReauth`).
+- **Ficha del cliente**: bloque ArgosISP (`components/clients/ExternalIdentityCard.vue`) con nombre, código, estado
+  del servicio, plan y sincronización; insignia "Desactualizado" si ArgosISP no respondió (nunca se inventa un dato:
+  se muestra el último conocido con su fecha); "Actualizar desde ArgosISP" (`customers.update`) y vigencias
+  anteriores. Oculto si el ISP no tiene conector ni identidad.
+- **Consulta 360 por IP** (`components/clients/Ip360Modal.vue`) desde la lista de clientes y desde la ficha: la IP vive
+  en el estado del componente y en el cuerpo de `POST /integrations/ip-lookup`, nunca en la URL; cada bloque sin
+  permiso o no disponible lo dice (`meta.omitted`) en lugar de mostrar ceros.
+- **Canal webhook** en Administración › Canales de notificación (`ChannelForm.vue`): URL https y secreto de firma
+  write-only; al elegirlo se proponen todas las categorías del contrato, severidad `info` y sin agrupación.
+- Mocks (`mocks/integrations.ts`, estado en `localStorage` para las pruebas con recarga) y e2e
+  `tests/e2e/integrations.spec.ts` (`pnpm e2e --grep @integrations`).
 
 ## 9. Estados
 

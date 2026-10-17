@@ -8,8 +8,8 @@ import type {
 } from '~~/types/api'
 
 /**
- * Alta / edición de un canal de notificación (D13, D17): email, Telegram o LibreNMS por su
- * API, por ISP. Las credenciales (token del bot, contraseña y token de LibreNMS) son
+ * Alta / edición de un canal de notificación (D13, D17): email, Telegram, LibreNMS por su
+ * API o webhook firmado (ADR-0030, p. ej. ArgosISP), por ISP. Las credenciales (token del bot, contraseña y token de LibreNMS) son
  * write-only: se envían aparte (`PUT …/credentials`) y nunca se vuelven a mostrar; al editar
  * se dejan vacías y solo se reemplazan si se escriben. Los avisos se eligen por categoría
  * (seguridad, routers, infraestructura, exportador y túnel), con la opción de afinar por tipo;
@@ -50,6 +50,8 @@ const form = reactive({
   botToken: '',
   password: '',
   apiToken: '',
+  webhookUrl: 'https://',
+  webhookSecret: '',
 })
 const errors = ref<Record<string, string>>({})
 const saving = ref(false)
@@ -82,6 +84,8 @@ watch(open, (o) => {
     botToken: '',
     password: '',
     apiToken: '',
+    webhookUrl: (cfg.url as string) ?? 'https://',
+    webhookSecret: '',
   })
   expanded.value = Object.fromEntries(
     NOTIFICATION_CATEGORIES.map((cat) => [
@@ -98,6 +102,9 @@ function config(): NotificationChannelInput['config'] {
       language: 'es',
       subject_prefix: '[Horus]',
     }
+  }
+  if (form.kind === 'webhook') {
+    return { url: form.webhookUrl.trim() }
   }
   if (form.kind === 'telegram') {
     return {
@@ -116,6 +123,9 @@ function config(): NotificationChannelInput['config'] {
 function credentials() {
   if (form.kind === 'telegram' && form.ownBot && form.botToken) {
     return { telegram_bot_token: form.botToken.trim() }
+  }
+  if (form.kind === 'webhook' && form.webhookSecret) {
+    return { webhook_secret: form.webhookSecret.trim() }
   }
   if (form.kind === 'librenms' && (form.password || form.apiToken)) {
     return { password: form.password || undefined, api_token: form.apiToken || undefined }
@@ -183,10 +193,24 @@ async function save() {
 }
 
 const kindItems = computed(() =>
-  (['email', 'telegram', 'librenms'] as const).map((k) => ({
+  (['email', 'telegram', 'librenms', 'webhook'] as const).map((k) => ({
     label: t(`channels.kind.${k}`),
     value: k,
   })),
+)
+// Un webhook es un receptor máquina (p. ej. ArgosISP): todos los eventos del contrato, sin
+// agrupar ni filtrar por severidad (el receptor deduplica por id).
+watch(
+  () => form.kind,
+  (k) => {
+    if (editing.value || k !== 'webhook') return
+    Object.assign(form, {
+      categories: ['security', 'security_updates', 'routers', 'infrastructure'],
+      events: [],
+      minSeverity: 'info',
+      throttle: 0,
+    })
+  },
 )
 function toggleCategory(key: NotificationCategory, on: boolean | 'indeterminate') {
   form.categories =
@@ -256,6 +280,38 @@ const siteItems = computed(() => (sites.value ?? []).map((s) => ({ label: s.name
           :has-own-bot="!!props.channel?.has_credentials && props.channel?.kind === 'telegram'"
           :errors="errors"
         />
+
+        <template v-if="form.kind === 'webhook'">
+          <UFormField
+            :label="t('channels.form.webhookUrl')"
+            :help="t('channels.form.webhookUrlHelp')"
+            :error="errors['config.url']"
+            required
+          >
+            <UInput
+              v-model="form.webhookUrl"
+              type="url"
+              class="w-full"
+              :ui="{ base: 'font-mono' }"
+              data-testid="channel-webhook-url"
+            />
+          </UFormField>
+          <UFormField
+            :label="t('channels.form.webhookSecret')"
+            :help="editing ? t('channels.form.keepSecret') : t('channels.form.webhookSecretHelp')"
+            :error="errors.webhook_secret"
+            :required="!editing"
+          >
+            <UInput
+              v-model="form.webhookSecret"
+              type="password"
+              autocomplete="new-password"
+              class="w-full"
+              data-testid="channel-webhook-secret"
+            />
+          </UFormField>
+          <p class="text-muted text-xs">{{ t('channels.form.webhookSigning') }}</p>
+        </template>
 
         <template v-if="form.kind === 'librenms'">
           <UFormField

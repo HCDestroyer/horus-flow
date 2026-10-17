@@ -311,7 +311,7 @@ mensaje DLQ a su subject original (seguro por idempotencia).
 | `devices-customer-detection` | `DETECTION_EVENTS` | `horus.detection.customer.security_state_changed.>` (I1); `horus.detection.customer.kind_suggested.>` (I2) | devices | Proyecta `security_state` y `open_findings` en la ficha del cliente (el evento se publica al cambiar el estado **o** el conteo). Guarda la sugerencia del scoring (`suggested_*`, `commercial_score`, `commercial_use_suspected` solo en residenciales) y aplica el tipo sugerido si `kind_locked = false` y `confidence × 100 ≥ apply_threshold` → `customer.kind_changed` (`source=scoring`, razones copiadas, `model_ref = score_ref`, `causation_event_id`); idempotente por la hora del evento | 10 |
 | `ingester-known-clients` | `DEVICES_EVENTS` | `horus.devices.customer.>`, `horus.devices.client_prefix.>`, `horus.devices.realm.>` | flows (ingester) | Conjunto de IPs conocidas por realm y prefijos de clientes | 6 |
 | `detection-customers` | `DEVICES_EVENTS` | `horus.devices.customer.>` | detection | Universo de clientes a puntuar; respeta `kind_locked` para no proponer cambios ya decididos a mano | 8–10 |
-| `alerts-notify-<stream>` (detection, flows, wireguard, snmp; deliver new) | `DETECTION_`, `FLOWS_`, `WIREGUARD_`, `SNMP_EVENTS` | `finding.opened/updated`, `exporter.silent/recovered`, `peer.handshake_stale/recovered`, `snmp.router.state_changed/rebooted`, `snmp.interface.oper_status_changed`, `snmp.service.state_changed` | alerts | Canal mínimo (D13): encola notificaciones por categoría (security, routers, infrastructure, exporter_tunnel) | I1–I2 |
+| `alerts-notify-<stream>` (detection, flows, wireguard, snmp; deliver new) | `DETECTION_`, `FLOWS_`, `WIREGUARD_`, `SNMP_EVENTS` | `finding.opened/updated/resolved`, `customer.security_state_changed`, `exporter.silent/recovered`, `peer.handshake_stale/recovered`, `snmp.router.state_changed/rebooted`, `snmp.interface.oper_status_changed`, `snmp.service.state_changed` | alerts | Canal mínimo (D13): encola notificaciones por categoría (security, routers, infrastructure, exporter_tunnel, security_updates). El canal `webhook` (ADR-0030) traduce a los `event` del contrato con ArgosISP (§3.4) y firma cada entrega; idempotente por (canal, evento) | I1–I3 |
 | `alerts-jobs` | `JOBS_EVENTS` | `horus.jobs.coverage.low.>`, `horus.jobs.remote_sync.lagging.>`, `horus.jobs.remote_sync.failed.>` | alerts | Alertas de cobertura de flujos y de copia remota | backups |
 | `flows-snapshots` | `TRAFFIC_EVENTS`, `DETECTION_EVENTS` | `horus.traffic.catalog.published.>`, `horus.detection.reputation.snapshot_published.>` | flows (ingester) | Recargar snapshots desde NATS Object Store (doble buffer) | 7–8 |
 | `detection-signals` | `SNMP_EVENTS`, `FLOWS_EVENTS` | `router.state_changed`, `exporter.*` | detection | Contexto de correlación | 8 |
@@ -361,6 +361,10 @@ mapeo es trivial si hiciera falta exportar).
 | `sid` | Opcional, sólo `type=user`: sesión |
 | `via` | `session` \| `api_token` — distingue acciones hechas con API token |
 | `api_token_id` | Sólo si `via=api_token` |
+
+Con un API token `hf_pat_` (ADR-0030) el actor es `type=service`, `id` = UUID de quien creó el token (actúa con sus
+permisos actuales ∩ los del token), `via=api_token` y `api_token_id`; lo rellena `outbox.ActorFrom` desde el principal
+del access token canjeado. La auditoría guarda lo mismo en `changes.via` / `changes.api_token_id`.
 
 Sin `name` (dato personal; se resuelve por ID cuando haga falta mostrarlo), sin IP ni User-Agent (sólo en el payload de
 auditoría, §8.11). **Nunca** tokens, permisos ni secretos.

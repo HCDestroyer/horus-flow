@@ -40,6 +40,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/pgdb"
 	"github.com/hcdestroyer/horus-flow/packages/go/platformoverview"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
+	"github.com/hcdestroyer/horus-flow/services/detection/api/customerfindings"
 	"github.com/hcdestroyer/horus-flow/services/detection/api/securityreport"
 	"github.com/hcdestroyer/horus-flow/services/detection/api/securitywidgets"
 	chreader "github.com/hcdestroyer/horus-flow/services/detection/internal/adapters/clickhouse"
@@ -174,6 +175,11 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		}
 		// Datos de seguridad del reporte semanal del rol reporting (I3).
 		if err := deps.Services.Provide(securityreport.ServiceSecurityReport, securityreport.Reader(svc)); err != nil {
+			db.Close()
+			return nil, err
+		}
+		// Hallazgos activos de un cliente para la consulta 360 por IP de devices (ADR-0030).
+		if err := deps.Services.Provide(customerfindings.ServiceCustomerFindings, customerfindings.Reader(svc)); err != nil {
 			db.Close()
 			return nil, err
 		}

@@ -190,6 +190,24 @@ CREATE TABLE auth.kiosk_enrollment_code (
   FOREIGN KEY (tenant_id, kiosk_id) REFERENCES auth.kiosk (tenant_id, id) ON DELETE CASCADE
 );
 
+CREATE TABLE auth.api_token (              -- API tokens de integración hf_pat_ (security.md §5.4, ADR-0030)
+  id           uuid PRIMARY KEY,
+  tenant_id    uuid NOT NULL REFERENCES auth.tenant (id) ON DELETE CASCADE,
+  user_id      uuid NOT NULL,                -- creador: el token actúa con sus permisos actuales ∩ permissions
+  name         text NOT NULL,
+  prefix       text NOT NULL,
+  token_hash   bytea NOT NULL UNIQUE,        -- SHA-256
+  permissions  text[] NOT NULL,              -- claves de permiso (los alcances salen de las asignaciones del creador)
+  template     text,                         -- p. ej. argosisp
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  expires_at   timestamptz NOT NULL,         -- ≤ 1 año
+  last_used_at timestamptz,
+  last_used_ip inet,
+  revoked_at   timestamptz,
+  revoked_by   uuid,
+  CONSTRAINT ck_api_token__expiry CHECK (expires_at > created_at AND expires_at <= created_at + interval '366 days')
+);
+
 CREATE TABLE auth.audit_log (              -- append-only, cadena de hashes; solo INSERT
   id           uuid NOT NULL,
   tenant_id    uuid,                         -- NULL = acción de plataforma
@@ -372,7 +390,7 @@ CREATE TABLE devices.customer (            -- cliente = IP observada (ADR-0018)
   security_state           text NOT NULL DEFAULT 'clean' CHECK (security_state IN ('clean', 'suspected', 'infected', 'mitigated')),
   open_findings            integer NOT NULL DEFAULT 0,
   alias                    text,              -- dato personal
-  alias_source             text CHECK (alias_source IN ('manual', 'routeros_ppp')),
+  alias_source             text CHECK (alias_source IN ('manual', 'routeros_ppp', 'argosisp')),
   notes                    text,              -- dato personal
   status                   text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
   inactive_reason          text CHECK (inactive_reason IN ('no_traffic', 'prefix_removed')),
@@ -414,6 +432,44 @@ CREATE TABLE devices.customer_kind_change (  -- historial inmutable (solo INSERT
   CONSTRAINT ck_kind_change__manual_reason CHECK (source <> 'manual' OR manual_reason IS NOT NULL)
 );
 CREATE INDEX ix_kind_change__customer ON devices.customer_kind_change (tenant_id, customer_id, changed_at DESC);
+
+-- Identidad externa con vigencia (ADR-0030; contrato docs/integrations/argosisp.md §2.4).
+CREATE TABLE devices.customer_external_identity (
+  id                   uuid NOT NULL PRIMARY KEY,
+  tenant_id            uuid NOT NULL,
+  customer_id          uuid NOT NULL,
+  system               text NOT NULL DEFAULT 'argosisp' CHECK (system IN ('argosisp')),
+  external_customer_id bigint,
+  external_service_id  bigint,
+  display_name         text,                 -- dato personal
+  code                 text,
+  service_state        text,
+  plan                 text,
+  valid_from           timestamptz NOT NULL,
+  valid_to             timestamptz,          -- NULL = vigente
+  synced_at            timestamptz NOT NULL,
+  stale                boolean NOT NULL DEFAULT false,
+  FOREIGN KEY (tenant_id, customer_id) REFERENCES devices.customer (tenant_id, id) ON DELETE CASCADE,
+  CONSTRAINT ck_ext_identity__validity CHECK (valid_to IS NULL OR valid_to >= valid_from)
+);
+CREATE UNIQUE INDEX ux_ext_identity__current ON devices.customer_external_identity (tenant_id, customer_id, system) WHERE valid_to IS NULL;
+CREATE INDEX ix_ext_identity__service ON devices.customer_external_identity (tenant_id, system, external_service_id, valid_from);
+
+CREATE TABLE devices.integration_argosisp (    -- conector por ISP; token y secretos cifrados (KEK de devices)
+  id                uuid NOT NULL PRIMARY KEY,
+  tenant_id         uuid NOT NULL UNIQUE,
+  base_url          text NOT NULL,
+  enabled           boolean NOT NULL DEFAULT false,
+  token_ciphertext  bytea,
+  token_dek         bytea,
+  secret_ciphertext bytea,
+  secret_dek        bytea,
+  last_sync_at      timestamptz,
+  last_sync_status  text CHECK (last_sync_status IN ('ok', 'degraded', 'failing')),
+  failures          integer NOT NULL DEFAULT 0,
+  backoff_until     timestamptz,
+  version           integer NOT NULL DEFAULT 1
+);
 
 -- Outbox estándar (una por esquema; sin RLS: solo la lee el relay del módulo).
 CREATE TABLE auth.outbox (

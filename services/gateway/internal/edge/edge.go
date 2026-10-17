@@ -5,7 +5,9 @@
 //  1. deny by default: solo pasan las rutas de la tabla gateway-routes
 //     (404 NOT_FOUND / 405 METHOD_NOT_ALLOWED);
 //  2. elimina cabeceras X-Horus-* entrantes y aplica el rate limit de la ruta;
-//  3. valida el access JWT (firma, exp, aud), el tipo de principal
+//  3. canjea los API tokens hf_pat_ por un access JWT de corta vida (auth),
+//     rechaza un API token en rutas cuyo x-principals no lo incluye y aplica
+//     el cupo por token; valida el access JWT (firma, exp, aud), el tipo de principal
 //     (kioscos solo en rutas que lo declaran), el ámbito del token
 //     (`tenant` → token con tid; si no, 403 TOKEN_SCOPE_INVALID sin tocar la
 //     base) y el permiso grueso ("¿lo tiene en algún alcance?");
@@ -21,9 +23,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -68,9 +72,12 @@ type Options struct {
 	// para tokens de kiosco, fail-closed).
 	Kiosks authapi.KioskChecker
 	Audit  authapi.AuditRecorder
-	Local  Matcher
-	Logger *slog.Logger
-	Now    func() time.Time
+	// APITokens canjea los API tokens hf_pat_ por access tokens de corta vida
+	// (nil = 503 para hf_pat_, fail-closed).
+	APITokens authapi.APITokenExchanger
+	Local     Matcher
+	Logger    *slog.Logger
+	Now       func() time.Time
 	// RateLimits: nombre (x-rate-limit) → peticiones por minuto y por IP.
 	RateLimits map[string]int
 }
@@ -79,7 +86,11 @@ type Options struct {
 // es el freno por IP de la generación de reportes; el cupo de 10/h por
 // usuario lo aplica el rol reporting sobre analytics.report_run.
 var DefaultRateLimits = map[string]int{"login": 20, "kiosk_enroll": 5, "enroll": 10, "connection_test": 10,
-	"librenms": 10, "telegram_setup": 20, "reports": 10}
+	"librenms": 10, "telegram_setup": 20, "reports": 10, "webhook_in": 600, "argosisp": 20, RateLimitAPIToken: 600}
+
+// RateLimitAPIToken es el cupo por minuto de cada API token hf_pat_ (todas
+// sus rutas), además del límite propio de cada ruta.
+const RateLimitAPIToken = "api_token"
 
 // Edge es el middleware.
 type Edge struct {
@@ -147,6 +158,16 @@ func (e *Edge) serve(w http.ResponseWriter, r *http.Request, rt routes.Route, ne
 		problem.Std(w, r, http.StatusUnauthorized, problem.CodeUnauthenticated)
 		return
 	}
+	if strings.HasPrefix(tok, authapi.APITokenPrefix) {
+		// API token de integración (security.md §5.4): se canjea por un access
+		// token de corta vida, que sustituye al Bearer para el módulo dueño.
+		jwt, ok := e.exchange(w, r, tok)
+		if !ok {
+			return
+		}
+		tok = jwt
+		r.Header.Set("Authorization", "Bearer "+jwt)
+	}
 	p, err := e.o.Verifier.Verify(tok)
 	if err != nil {
 		code := problem.CodeUnauthenticated
@@ -155,6 +176,18 @@ func (e *Edge) serve(w http.ResponseWriter, r *http.Request, rt routes.Route, ne
 		}
 		problem.Std(w, r, http.StatusUnauthorized, code)
 		return
+	}
+	if p.IsAPIToken() {
+		if !slices.Contains(rt.Principals, "api_token") {
+			problem.Std(w, r, http.StatusForbidden, problem.CodePermissionDenied,
+				problem.WithDetail("Esta ruta no admite API tokens de integración."))
+			return
+		}
+		if n := e.o.RateLimits[RateLimitAPIToken]; n > 0 && !e.limiter.allow(RateLimitAPIToken+"|"+p.APITokenID.String(), n) {
+			w.Header().Set("Retry-After", "60")
+			problem.Std(w, r, http.StatusTooManyRequests, problem.CodeRateLimited)
+			return
+		}
 	}
 	req := authz.Requirement{Scope: rt.Scope, AllowKiosk: rt.AllowsKiosk()}
 	switch rt.Permission {
@@ -202,6 +235,29 @@ func (e *Edge) serve(w http.ResponseWriter, r *http.Request, rt routes.Route, ne
 		e.auditPlatformAccess(r, rt, p)
 	}
 	e.forward(w, r, rt, next)
+}
+
+// exchange canjea un hf_pat_ con auth (en proceso). 401 si no sirve; 503 si
+// auth no está en el proceso o falla.
+func (e *Edge) exchange(w http.ResponseWriter, r *http.Request, raw string) (string, bool) {
+	if e.o.APITokens == nil {
+		problem.Std(w, r, http.StatusServiceUnavailable, problem.CodeServiceUnavailable,
+			problem.WithDetail("No se pueden validar API tokens en este proceso."))
+		return "", false
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	jwt, err := e.o.APITokens.ExchangeAPIToken(ctx, raw, clientIP(r))
+	if errors.Is(err, authapi.ErrAPITokenInvalid) {
+		problem.Std(w, r, http.StatusUnauthorized, problem.CodeUnauthenticated)
+		return "", false
+	}
+	if err != nil {
+		e.o.Logger.ErrorContext(r.Context(), "api token exchange failed", slog.Any("error", err))
+		problem.Std(w, r, http.StatusServiceUnavailable, problem.CodeServiceUnavailable)
+		return "", false
+	}
+	return jwt, true
 }
 
 func (e *Edge) forward(w http.ResponseWriter, r *http.Request, rt routes.Route, next http.Handler) {

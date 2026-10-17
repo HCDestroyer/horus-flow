@@ -13,40 +13,51 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"net/netip"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/hcdestroyer/horus-flow/packages/go/authz"
 	"github.com/hcdestroyer/horus-flow/packages/go/config"
 	"github.com/hcdestroyer/horus-flow/packages/go/crypto/envelope"
+	"github.com/hcdestroyer/horus-flow/packages/go/datasets"
 	"github.com/hcdestroyer/horus-flow/packages/go/health"
 	"github.com/hcdestroyer/horus-flow/packages/go/module"
 	"github.com/hcdestroyer/horus-flow/packages/go/natsx"
 	"github.com/hcdestroyer/horus-flow/packages/go/pagination"
 	"github.com/hcdestroyer/horus-flow/packages/go/pgdb"
+	consumptionapi "github.com/hcdestroyer/horus-flow/services/analytics/api/consumption"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
+	findingsapi "github.com/hcdestroyer/horus-flow/services/detection/api/customerfindings"
 	devapi "github.com/hcdestroyer/horus-flow/services/devices/api"
+	"github.com/hcdestroyer/horus-flow/services/devices/internal/adapters/argos"
 	"github.com/hcdestroyer/horus-flow/services/devices/internal/adapters/httpapi"
 	"github.com/hcdestroyer/horus-flow/services/devices/internal/adapters/postgres"
 	"github.com/hcdestroyer/horus-flow/services/devices/internal/adapters/routeros"
 	"github.com/hcdestroyer/horus-flow/services/devices/internal/app"
 	modcfg "github.com/hcdestroyer/horus-flow/services/devices/internal/config"
+	"github.com/hcdestroyer/horus-flow/services/devices/internal/domain"
 	"github.com/hcdestroyer/horus-flow/services/devices/migrations"
+	snmpapi "github.com/hcdestroyer/horus-flow/services/snmp/api"
 )
 
 // Role es el nombre del rol en HORUS_ROLES: nodos, routers, realms, credenciales y clientes.
 const Role = "devices"
 
 type mod struct {
-	db        *pgdb.DB
-	logger    *slog.Logger
-	migrate   bool
-	customers *app.Customers
-	onboard   *app.Onboarding
-	bus       *natsx.Bus
-	every     time.Duration
+	db           *pgdb.DB
+	logger       *slog.Logger
+	migrate      bool
+	customers    *app.Customers
+	onboard      *app.Onboarding
+	integrations *app.Integrations
+	bus          *natsx.Bus
+	every        time.Duration
+	sweep        time.Duration
 }
 
 // Register construye el módulo del rol devices (firma module.Factory).
@@ -122,6 +133,50 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 			return module.Lookup[authapi.AuditRecorder](deps.Services, authapi.ServiceAudit)
 		}, nil, logger)
 	customers.InactivityDays, customers.RetentionMonths = cfg.CustomerInactivityDays, cfg.CustomerRetentionMonths
+	// Integraciones de ecosistema (ADR-0030): conector ArgosISP, consulta 360 y consumo por lotes.
+	limiter := app.NewTenantLimiter(cfg.ArgosRequestsPerSecond)
+	egress := &datasets.EgressGuard{Deny: datasets.InstallationPrefixes(), AllowPrivate: cfg.IntegrationsAllowPrivate,
+		AllowHTTP: cfg.IntegrationsAllowPrivate}
+	if cfg.IntegrationsAllowPrivate {
+		logger.WarnContext(ctx, "devices: HORUS_INTEGRATIONS_ALLOW_PRIVATE=true: ArgosISP may be reached over http or private addresses (labs only)")
+	}
+	integrations := app.NewIntegrations(app.IntegrationsOptions{
+		Store: store, Sealer: sealer, BaseURL: cfg.PublicBaseURL, AllowPrivate: cfg.IntegrationsAllowPrivate, Logger: logger,
+		Audit: func() (authapi.AuditRecorder, bool) {
+			return module.Lookup[authapi.AuditRecorder](deps.Services, authapi.ServiceAudit)
+		},
+		Dial: func(tenant uuid.UUID, baseURL, token string) app.ArgosResolver {
+			return &argos.Client{BaseURL: baseURL, Token: token, HTTP: &http.Client{}, Guard: egress, Timeout: 10 * time.Second,
+				Limiter: tenantWait{l: limiter, tenant: tenant}}
+		},
+		Readers: app.Readers{
+			Consumption: func() (consumptionapi.Reader, bool) {
+				return module.Lookup[consumptionapi.Reader](deps.Services, consumptionapi.ServiceConsumption)
+			},
+			Findings: func() (findingsapi.Reader, bool) {
+				return module.Lookup[findingsapi.Reader](deps.Services, findingsapi.ServiceCustomerFindings)
+			},
+			Routers: func() (snmpapi.RouterStatusReader, bool) {
+				return module.Lookup[snmpapi.RouterStatusReader](deps.Services, snmpapi.ServiceRouterStatus)
+			},
+			Site: store.GetSite,
+			PrimaryRouter: func(ctx context.Context, t pgdb.TenantID, site uuid.UUID) (*domain.Router, error) {
+				primary := true
+				rs, err := store.ListRouters(ctx, t, app.ListQuery{SortCol: "name", Limit: 1, SiteIDs: []uuid.UUID{site}, IsPrimary: &primary})
+				if err != nil || len(rs) == 0 {
+					return nil, err
+				}
+				return &rs[0], nil
+			},
+		},
+	})
+	customers.Discovered = integrations.EnqueueDiscovered
+	if deps.Services != nil {
+		if err := deps.Services.Provide(devapi.ServiceCustomerDirectory, devapi.CustomerDirectory(app.CustomerDirectory{Store: store})); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
 	credentials := app.NewCredentials(store, sealer,
 		func() (authapi.AuditRecorder, bool) {
 			return module.Lookup[authapi.AuditRecorder](deps.Services, authapi.ServiceAudit)
@@ -133,15 +188,25 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		httpapi.NewImport(importer, guard, logger).Mount(deps.Routes)
 		httpapi.NewCustomers(customers, guard, logger).Mount(deps.Routes)
 		httpapi.NewAsnRules(app.NewAsnRules(store, nil, nil), guard, cfg.PublicBaseURL, logger).Mount(deps.Routes)
+		httpapi.NewIntegrations(integrations, guard, logger).Mount(deps.Routes)
 	}
 	bus, err := natsx.Shared(ctx, deps.Services, deps.Environ, logger)
 	if err != nil {
 		db.Close()
 		return nil, err
 	}
-	m := &mod{db: db, logger: logger, migrate: cfg.Migrate, customers: customers, onboard: onboarding, bus: bus, every: cfg.CustomerLifecycleEvery}
+	m := &mod{db: db, logger: logger, migrate: cfg.Migrate, customers: customers, onboard: onboarding, integrations: integrations, bus: bus,
+		every: cfg.CustomerLifecycleEvery, sweep: cfg.ArgosSweepEvery}
 	return natsx.WithRelay(ctx, deps, m, db, migrations.Schema)
 }
+
+// tenantWait adapta el limitador por ISP al cliente de ArgosISP.
+type tenantWait struct {
+	l      *app.TenantLimiter
+	tenant uuid.UUID
+}
+
+func (w tenantWait) Wait(ctx context.Context) error { return w.l.Wait(ctx, w.tenant) }
 
 // loadSealer carga la KEK de credenciales (efímera solo en dev).
 func loadSealer(cfg modcfg.Config, dev bool, logger *slog.Logger) (*envelope.Sealer, error) {
@@ -178,8 +243,11 @@ func (m *mod) Start(ctx context.Context) error {
 // NATS) y ejecuta el ciclo de vida diario (inactivación y purga).
 func (m *mod) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
-	wg.Add(1)
+	wg.Add(2)
 	go func() { defer wg.Done(); m.customers.RunLifecycleDaily(ctx, m.every) }()
+	// Conector ArgosISP: cola de descubiertos, webhooks y barrido. Sus fallos
+	// nunca paran la ingesta ni la detección (identidad stale).
+	go func() { defer wg.Done(); m.integrations.Run(ctx, m.sweep) }()
 	if m.bus != nil {
 		wg.Add(4)
 		go func() {

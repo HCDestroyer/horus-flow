@@ -53,10 +53,21 @@ type Service struct {
 	maxAttempts int
 	backoff     []time.Duration
 	lease       time.Duration
+	// webhookBackoff: reintentos del canal webhook (contrato §1.3).
+	webhookBackoff []time.Duration
 	// Integración con LibreNMS: inventario de devices (perezoso) y un
 	// candado por canal para no sincronizar dos veces a la vez.
 	devices   DevicesLookup
 	syncLocks sync.Map
+	// Canal webhook: cliente e ids de ArgosISP (devices) y modo laboratorio.
+	webhookCustomers    WebhookCustomers
+	webhookAllowPrivate bool
+}
+
+// SetWebhook configura el canal webhook: quién resuelve el cliente de un
+// evento (devices, opcional) y si se permiten http y destinos privados (laboratorios).
+func (s *Service) SetWebhook(customers WebhookCustomers, allowPrivate bool) {
+	s.webhookCustomers, s.webhookAllowPrivate = customers, allowPrivate
 }
 
 // NewService crea el servicio.
@@ -71,7 +82,7 @@ func NewService(st *Store, sealer *envelope.Sealer, senders *Senders, cursor *pa
 	}
 	return &Service{st: st, sealer: sealer, senders: senders, cursor: cursor, audit: audit, baseURL: strings.TrimRight(baseURL, "/"),
 		now: time.Now, logger: logger, kick: make(chan struct{}, 1), maxAttempts: DefaultMaxAttempts, backoff: DefaultBackoff,
-		lease: DefaultLease}
+		lease: DefaultLease, webhookBackoff: WebhookBackoff}
 }
 
 // Reintentos de la cola persistente de entregas (D23): 8 intentos en ~2 h
@@ -163,10 +174,10 @@ func (s *Service) apply(c *Channel, in ChannelInput, create bool) error {
 	}
 	if create {
 		if in.Kind == nil {
-			f.add("kind", "REQUIRED", "email, telegram o librenms.")
+			f.add("kind", "REQUIRED", "email, telegram, librenms o webhook.")
 		} else {
 			switch *in.Kind {
-			case KindEmail, KindTelegram, KindLibreNMS:
+			case KindEmail, KindTelegram, KindLibreNMS, KindWebhook:
 				c.Kind = *in.Kind
 			default:
 				return &apperr.Error{Kind: apperr.KindInvalid, Code: CodeKindNotAvailable, Detail: "Tipo de canal no disponible: " + *in.Kind}
@@ -184,7 +195,11 @@ func (s *Service) apply(c *Channel, in ChannelInput, create bool) error {
 	if in.Enabled != nil {
 		c.Enabled = *in.Enabled
 	}
-	if in.Config != nil && c.Kind != "" {
+	if in.Config != nil && c.Kind == KindWebhook {
+		if cfg := normalizeWebhook(*in.Config, &f, s.webhookAllowPrivate); cfg != nil {
+			c.Config = cfg
+		}
+	} else if in.Config != nil && c.Kind != "" {
 		if cfg := normalizeConfig(c.Kind, *in.Config, &f); cfg != nil {
 			if c.Kind == KindTelegram {
 				var tc TelegramConfig
@@ -347,14 +362,21 @@ func (s *Service) PutCredentials(ctx context.Context, id uuid.UUID, cr Credentia
 	case KindEmail:
 		return apperr.Validation(apperr.Field("kind", "NOT_APPLICABLE", "Los canales email usan el SMTP de la instalación: no tienen secretos."))
 	case KindTelegram:
-		if cr.Password != "" || cr.APIToken != "" {
+		if cr.Password != "" || cr.APIToken != "" || cr.WebhookSecret != "" {
 			f.add("credentials", "NOT_APPLICABLE", "Solo telegram_bot_token.")
 		}
 		if !botTokenRe.MatchString(cr.TelegramBotToken) {
 			f.add("telegram_bot_token", "INVALID_FORMAT", "Token de bot no válido.")
 		}
+	case KindWebhook:
+		if cr.TelegramBotToken != "" || cr.Password != "" || cr.APIToken != "" {
+			f.add("credentials", "NOT_APPLICABLE", "Solo webhook_secret.")
+		}
+		if n := len(cr.WebhookSecret); n < 16 || n > 256 {
+			f.add("webhook_secret", "INVALID_VALUE", "Secreto de 16 a 256 caracteres (lo genera el receptor).")
+		}
 	case KindLibreNMS:
-		if cr.TelegramBotToken != "" {
+		if cr.TelegramBotToken != "" || cr.WebhookSecret != "" {
 			f.add("telegram_bot_token", "NOT_APPLICABLE", "Solo password y api_token.")
 		}
 		if cr.Password == "" && cr.APIToken == "" {
@@ -388,7 +410,8 @@ func (s *Service) PutCredentials(ctx context.Context, id uuid.UUID, cr Credentia
 		return err
 	}
 	fields := []string{}
-	for k, v := range map[string]string{"telegram_bot_token": cr.TelegramBotToken, "password": cr.Password, "api_token": cr.APIToken} {
+	for k, v := range map[string]string{"telegram_bot_token": cr.TelegramBotToken, "password": cr.Password, "api_token": cr.APIToken,
+		"webhook_secret": cr.WebhookSecret} {
 		if v != "" {
 			fields = append(fields, k)
 		}
@@ -439,6 +462,10 @@ func (s *Service) ConnectionTest(ctx context.Context, id uuid.UUID) (*Channel, T
 		var lc LibreNMSConfig
 		_ = json.Unmarshal(c.Config, &lc)
 		res = s.senders.testLibreNMS(ctx, lc, cr)
+	case KindWebhook:
+		var wc WebhookConfig
+		_ = json.Unmarshal(c.Config, &wc)
+		res = s.senders.testWebhook(ctx, wc, cr, s.slug(ctx, t.UUID()))
 	}
 	ms := int(time.Since(start).Milliseconds())
 	res.LatencyMS = &ms
@@ -505,11 +532,15 @@ func (s *Service) HandleEvent(ctx context.Context, msg *natsx.Message) error {
 	}
 	m, sev := s.render(eventType, data, rc)
 	resource := eventResource(env.Type, data)
+	webhookEvent := contractEvent(eventType)
 	var errs []error
 	queued := 0
 	for i := range channels {
 		c := &channels[i]
 		throttle := c.Subscription.Throttle()
+		if c.Kind == KindWebhook {
+			throttle = 0 // un receptor máquina necesita cada evento (deduplica por id)
+		}
 		deliver := matches(c, eventType, sev, site)
 		if isRecovery(eventType) && c.Enabled && c.Subscription.Recovery() {
 			// La recuperación llega siempre al canal que recibió la alarma
@@ -524,7 +555,7 @@ func (s *Service) HandleEvent(ctx context.Context, msg *natsx.Message) error {
 				deliver, throttle = true, 0
 			}
 		}
-		if !deliver {
+		if !deliver || (c.Kind == KindWebhook && webhookEvent == "") {
 			continue
 		}
 		evID := env.ID
@@ -533,6 +564,11 @@ func (s *Service) HandleEvent(ctx context.Context, msg *natsx.Message) error {
 		d := &Delivery{ID: uuid.Must(uuid.NewV7()), TenantID: t.UUID(), ChannelID: c.ID, ChannelKind: c.Kind, Status: deliveryQueued,
 			EventType: &eventType, SourceEventType: &srcType, SourceEventID: &evID, ResourceID: &resource, CreatedAt: s.ts(),
 			Message: &msgCopy, Severity: &sevCopy, TraceParent: env.TraceParent}
+		if c.Kind == KindWebhook {
+			// Cuerpo del contrato con id = entrega (estable entre reintentos: el receptor deduplica).
+			msgCopy.Webhook = webhookBody(d.ID.String(), webhookEvent, env.Time, rc.slug,
+				s.webhookData(ctx, msg.Tenant.String(), eventType, data, rc, c.IncludePersonalData))
+		}
 		inserted, err := s.st.queueDelivery(ctx, t, d, throttle)
 		if err != nil {
 			errs = append(errs, err)
@@ -646,6 +682,14 @@ func (s *Service) deliver(ctx context.Context, t pgdb.TenantID, c *Channel, d *D
 				et = *d.EventType
 			}
 			err = s.sendLibreNMS(sctx, t, c, cr, m, et, severity)
+		case KindWebhook:
+			var wc WebhookConfig
+			_ = json.Unmarshal(c.Config, &wc)
+			body := m.Webhook
+			if len(body) == 0 { // envío de prueba
+				body = webhookBody(d.ID.String(), "test", s.ts(), s.slug(ctx, t.UUID()), map[string]any{"message": m.Subject + ". " + m.Text})
+			}
+			err = s.senders.sendWebhook(sctx, wc, cr, d.ID.String(), body, s.ts())
 		}
 		cancel()
 	}
@@ -671,8 +715,12 @@ func (s *Service) deliver(ctx context.Context, t pgdb.TenantID, c *Channel, d *D
 			}
 			return
 		}
-		if d.Attempts < s.maxAttempts {
-			wait := s.backoff[min(max(d.Attempts-1, 0), len(s.backoff)-1)]
+		maxAttempts, backoff := s.maxAttempts, s.backoff
+		if c.Kind == KindWebhook && len(s.webhookBackoff) > 0 {
+			maxAttempts, backoff = len(s.webhookBackoff)+1, s.webhookBackoff
+		}
+		if d.Attempts < maxAttempts {
+			wait := backoff[min(max(d.Attempts-1, 0), len(backoff)-1)]
 			s.logger.WarnContext(ctx, "notification failed; retry scheduled", slog.String("delivery_id", d.ID.String()),
 				slog.String("channel_id", c.ID.String()), slog.String("kind", c.Kind), slog.Int("attempt", d.Attempts),
 				slog.Duration("retry_in", wait), slog.String("error", errText))
@@ -771,7 +819,7 @@ func (s *Service) Deliveries(ctx context.Context, q DeliveryQuery, cursor string
 	if q.Status != "" && !slices.Contains([]string{deliverySent, deliveryFailed, deliveryThrottled}, q.Status) {
 		return nil, pagination.Page{}, apperr.New(apperr.KindBadRequest, problem.CodeInvalidFilter, "status: sent, failed o throttled")
 	}
-	if q.Kind != "" && !slices.Contains([]string{KindEmail, KindTelegram, KindLibreNMS}, q.Kind) {
+	if q.Kind != "" && !slices.Contains([]string{KindEmail, KindTelegram, KindLibreNMS, KindWebhook}, q.Kind) {
 		return nil, pagination.Page{}, apperr.New(apperr.KindBadRequest, problem.CodeInvalidFilter, "channel_kind")
 	}
 	fk := pagination.FilterKey(q.Status, q.Kind, fmt.Sprint(q.ChannelID))
@@ -805,4 +853,21 @@ func (s *Service) Deliveries(ctx context.Context, q DeliveryQuery, cursor string
 		rows = []Delivery{}
 	}
 	return rows, pg, nil
+}
+
+// slug devuelve el slug del ISP ("" si no se puede resolver).
+func (s *Service) slug(ctx context.Context, tenant uuid.UUID) string {
+	if s.dir.TenantSlug == nil {
+		return ""
+	}
+	v, _ := s.dir.TenantSlug(ctx, tenant)
+	return v
+}
+
+// SetWebhookRetry ajusta los reintentos del canal webhook (tests).
+func (s *Service) SetWebhookRetry(backoff []time.Duration) { s.webhookBackoff = backoff }
+
+func mustUUID(v string) uuid.UUID {
+	id, _ := uuid.Parse(v)
+	return id
 }

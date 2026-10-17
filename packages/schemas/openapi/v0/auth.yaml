@@ -24,6 +24,8 @@ tags:
     description: Miembros, roles y permisos del tenant.
   - name: kiosks
     description: Kioscos (pantallas NOC) como dispositivos registrados.
+  - name: api-tokens
+    description: API tokens de integración (hf_pat_) del ISP, p. ej. el código de conexión para ArgosISP.
 paths:
   /auth/login:
     post:
@@ -1061,6 +1063,111 @@ paths:
               schema: { $ref: '#/components/schemas/AccessTokenResponse' }
         '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
         '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+  /api-tokens:
+    get:
+      tags: [api-tokens]
+      operationId: listApiTokens
+      summary: API tokens de integración del ISP (sin su valor)
+      x-module: auth
+      x-scope: tenant
+      x-permission: api_tokens.manage
+      x-principals: [user]
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Tokens (más recientes primero; incluye revocados y caducados).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/ApiToken' } }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+    post:
+      tags: [api-tokens]
+      operationId: createApiToken
+      summary: Crea un API token `hf_pat_…` (el valor se muestra una sola vez)
+      description: |
+        Token opaco `hf_pat_<32 B base62>` ligado a este ISP y a quien lo crea (docs/security.md §5.4). Lleva un
+        subconjunto de los permisos **actuales** del creador (por `template` o `permissions`); en cada uso el
+        gateway lo canjea por un access token de 2 min con la intersección entre esos permisos y los que el creador
+        tenga en ese momento (con sus alcances por nodo). Caducidad por defecto 1 año (máximo 1 año). Solo se guarda
+        su SHA-256. Plantilla `argosisp` = código de conexión para ArgosISP (docs/integrations/argosisp.md §1.1).
+        Un API token no puede crear ni gestionar API tokens.
+      x-module: auth
+      x-scope: tenant
+      x-permission: api_tokens.manage
+      x-principals: [user]
+      x-reauth: true
+      x-audited: true
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApiTokenInput' }
+      responses:
+        '201':
+          description: Token creado (incluye `token`, que no se vuelve a mostrar).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiTokenIssued' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /api-tokens/{api_token_id}:
+    parameters:
+      - name: api_token_id
+        in: path
+        required: true
+        schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    delete:
+      tags: [api-tokens]
+      operationId: revokeApiToken
+      summary: Revoca un API token (deja de servir de inmediato)
+      x-module: auth
+      x-scope: tenant
+      x-permission: api_tokens.manage
+      x-principals: [user]
+      x-audited: true
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      responses:
+        '204': { $ref: './common.yaml#/components/responses/NoContent' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+  /api-token-templates:
+    get:
+      tags: [api-tokens]
+      operationId: listApiTokenTemplates
+      summary: Plantillas de permisos para API tokens (p. ej. ArgosISP)
+      x-module: auth
+      x-scope: tenant
+      x-permission: api_tokens.manage
+      x-principals: [user]
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Plantillas.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/ApiTokenTemplate' } }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
 components:
   securitySchemes:
     tenantBearer: { $ref: './common.yaml#/components/securitySchemes/tenantBearer' }
@@ -1326,3 +1433,65 @@ components:
                 - type: 'null'
             last_ip: { type: [string, 'null'] }
             frontend_version: { type: [string, 'null'] }
+    ApiTokenInput:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80, examples: [ArgosISP] }
+        template:
+          type: [string, 'null']
+          enum: [argosisp, null]
+          description: Plantilla de permisos. Si también llega `permissions`, mandan estos.
+        permissions:
+          type: array
+          maxItems: 64
+          items: { type: string }
+          description: Claves de permiso de tenant que el creador tiene ahora (nunca `api_tokens.manage`).
+        expires_at:
+          description: Caducidad (≥ 1 h, ≤ 1 año). Por defecto, dentro de un año.
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
+    ApiToken:
+      type: object
+      required: [id, name, prefix, user_id, permissions, template, created_at, expires_at, last_used_at, last_used_ip, revoked_at, active]
+      properties:
+        id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        name: { type: string }
+        prefix: { type: string, description: 'Primeros caracteres del token (hf_pat_XXXX) para reconocerlo.' }
+        user_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+          description: Quien lo creó (el token actúa con sus permisos actuales ∩ los del token).
+        permissions: { type: array, items: { type: string } }
+        template: { type: [string, 'null'] }
+        created_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        expires_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        last_used_at:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
+        last_used_ip: { type: [string, 'null'], description: IP del último canje (resolución ~2 min). }
+        revoked_at:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
+        active: { type: boolean }
+    ApiTokenIssued:
+      allOf:
+        - $ref: '#/components/schemas/ApiToken'
+        - type: object
+          required: [token]
+          properties:
+            token:
+              type: string
+              pattern: '^hf_pat_[0-9A-Za-z]{43}$'
+              description: Valor del token. Solo en esta respuesta.
+    ApiTokenTemplate:
+      type: object
+      required: [key, name, description, permissions]
+      properties:
+        key: { type: string, examples: [argosisp] }
+        name: { type: string, examples: [ArgosISP] }
+        description: { type: string }
+        permissions: { type: array, items: { type: string } }

@@ -147,3 +147,32 @@ func TestMaskedAddressFromHorus(t *testing.T) {
 		t.Errorf("salida = %s", out)
 	}
 }
+
+// La identidad de ArgosISP (nombre, código, ids) se enmascara como el alias (ADR-0030).
+func TestMaskExternalIdentity(t *testing.T) {
+	t.Parallel()
+	m := New()
+	in := map[string]any{
+		"customer": map[string]any{"id": "c1", "address": "100.64.1.20", "alias": "Ferretería López", "alias_source": "argosisp"},
+		"external": map[string]any{"system": "argosisp", "customer_id": 455.0, "service_id": 812.0, "code": "C-000455",
+			"display_name": "Ferretería López", "service_state": "activo"},
+		"external_service_id": 812.0,
+	}
+	out := m.Value(in, Mixed).(map[string]any)
+	ext := out["external"].(map[string]any)
+	for _, k := range []string{"customer_id", "service_id", "code", "display_name"} {
+		if _, ok := ext[k]; ok {
+			t.Errorf("external.%s no debe salir hacia la IA", k)
+		}
+	}
+	if ext["service_state"] != "activo" || ext["system"] != "argosisp" {
+		t.Errorf("el estado del servicio sí se conserva: %v", ext)
+	}
+	if _, ok := out["external_service_id"]; ok {
+		t.Error("external_service_id fuera")
+	}
+	c := out["customer"].(map[string]any)
+	if _, ok := c["alias"]; ok || c["address"] == "100.64.1.20" {
+		t.Errorf("cliente = %v", c)
+	}
+}

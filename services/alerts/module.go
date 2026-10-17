@@ -24,6 +24,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/authz"
 	"github.com/hcdestroyer/horus-flow/packages/go/config"
 	"github.com/hcdestroyer/horus-flow/packages/go/crypto/envelope"
+	"github.com/hcdestroyer/horus-flow/packages/go/datasets"
 	"github.com/hcdestroyer/horus-flow/packages/go/health"
 	"github.com/hcdestroyer/horus-flow/packages/go/module"
 	"github.com/hcdestroyer/horus-flow/packages/go/natsx"
@@ -65,6 +66,8 @@ type Config struct {
 	DispatchEvery time.Duration   `env:"HORUS_ALERTS_DISPATCH_INTERVAL" envDefault:"5s"`
 	MaxAttempts   int             `env:"HORUS_ALERTS_MAX_ATTEMPTS" envDefault:"8"`
 	RetryBackoff  []time.Duration `env:"HORUS_ALERTS_RETRY_BACKOFF" envSeparator:","`
+	// WebhookAllowPrivate (solo laboratorios): el canal webhook admite http y destinos privados o loopback.
+	WebhookAllowPrivate bool `env:"HORUS_ALERTS_WEBHOOK_ALLOW_PRIVATE" envDefault:"false"`
 }
 
 type mod struct {
@@ -132,6 +135,12 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		SMTP: notify.SMTPConfig{Host: cfg.SMTPHost, Port: cfg.SMTPPort, Username: cfg.SMTPUsername, Password: cfg.SMTPPassword.Reveal(),
 			From: cfg.SMTPFrom, TLS: cfg.SMTPTLS},
 		TelegramAPI: cfg.TelegramAPI, TelegramToken: cfg.TelegramToken.Reveal(), DefaultTimeout: 10 * time.Second,
+		// Canal webhook: solo https y direcciones públicas que no sean de la instalación (ADR-0030).
+		WebhookGuard: &datasets.EgressGuard{Deny: datasets.InstallationPrefixes(), AllowPrivate: cfg.WebhookAllowPrivate,
+			AllowHTTP: cfg.WebhookAllowPrivate},
+	}
+	if cfg.WebhookAllowPrivate {
+		logger.WarnContext(ctx, "alerts: HORUS_ALERTS_WEBHOOK_ALLOW_PRIVATE=true: webhooks may target http or private addresses (labs only)")
 	}
 	store := notify.NewStore(db)
 	svc := notify.NewService(store, sealer, senders, pagination.NewCodec([]byte(cfg.CursorKey.Reveal())),
@@ -165,6 +174,9 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		}
 	}
 	svc.SetDirectory(directory(deps))
+	svc.SetWebhook(func() (devapi.CustomerDirectory, bool) {
+		return module.Lookup[devapi.CustomerDirectory](deps.Services, devapi.ServiceCustomerDirectory)
+	}, cfg.WebhookAllowPrivate)
 	if deps.Health != nil {
 		deps.Health.AddCheck(health.Check{Name: "postgres", Critical: true, Probe: db.Ping})
 	}

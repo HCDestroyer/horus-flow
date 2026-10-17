@@ -22,7 +22,8 @@ type NotifyConsumer struct {
 
 // NotifyConsumers son los durables alerts-notify-*.
 var NotifyConsumers = []NotifyConsumer{
-	{Stream: "DETECTION_EVENTS", Suffix: "detection", Subjects: []string{"horus.detection.finding.opened.>", "horus.detection.finding.updated.>"}},
+	{Stream: "DETECTION_EVENTS", Suffix: "detection", Subjects: []string{"horus.detection.finding.opened.>", "horus.detection.finding.updated.>",
+		"horus.detection.finding.resolved.>", "horus.detection.customer.security_state_changed.>"}},
 	{Stream: "FLOWS_EVENTS", Suffix: "flows", Subjects: []string{"horus.flows.exporter.silent.>", "horus.flows.exporter.recovered.>"}},
 	{Stream: "WIREGUARD_EVENTS", Suffix: "wireguard", Subjects: []string{"horus.wireguard.peer.handshake_stale.>", "horus.wireguard.peer.handshake_recovered.>"}},
 	{Stream: "SNMP_EVENTS", Suffix: "snmp", Subjects: []string{"horus.snmp.router.state_changed.>", "horus.snmp.router.rebooted.>",
@@ -100,7 +101,7 @@ func str(data map[string]any, k string) string {
 // eventResource es el recurso que agrupa avisos (throttle) y empareja una
 // recuperación con su alarma.
 func eventResource(typ string, data map[string]any) string {
-	for _, k := range []string{"id", "interface_id", "service_id", "router_id", "peer_id"} {
+	for _, k := range []string{"id", "interface_id", "service_id", "router_id", "peer_id", "customer_id"} {
 		if v, ok := data[k].(string); ok && v != "" {
 			return v
 		}
@@ -124,6 +125,12 @@ func mapEvent(typ string, data map[string]any) string {
 			if prev, _ := data["previous_state"].(string); prev == "resolved" || prev == "false_positive" {
 				return eventFindingReopened
 			}
+		}
+	case "horus.detection.finding.resolved":
+		return eventFindingResolved
+	case "horus.detection.customer.security_state_changed":
+		if str(data, "state") != str(data, "previous_state") {
+			return eventCustomerSecurity
 		}
 	case "horus.flows.exporter.silent":
 		return eventExporterSilent
@@ -194,6 +201,8 @@ func mapRouterState(prev, state, reason string) string {
 	}
 	return ""
 }
+
+var securityStateLabel = map[string]string{"clean": "limpio", "suspected": "sospechoso", "infected": "infectado", "mitigated": "mitigado"}
 
 var severityLabel = map[string]string{"info": "informativa", "low": "baja", "medium": "media", "high": "alta", "critical": "crítica"}
 
@@ -293,6 +302,22 @@ func (s *Service) render(eventType string, data map[string]any, rc renderCtx) (M
 		}
 		if id := str(data, "id"); id != "" {
 			m.Link = link("/security/findings/" + id)
+		}
+	case eventFindingResolved:
+		m.Subject = "Hallazgo resuelto: " + strings.ReplaceAll(str(data, "kind"), "_", " ")
+		m.Text, sev = "El hallazgo se cerró.", "info"
+		if id := str(data, "id"); id != "" {
+			m.Link = link("/security/findings/" + id)
+		}
+	case eventCustomerSecurity:
+		m.Subject = "Estado de seguridad de un cliente: " + securityStateLabel[str(data, "state")]
+		m.Text = "Antes: " + securityStateLabel[str(data, "previous_state")]
+		if n, ok := data["open_findings"].(float64); ok {
+			m.Text += " · hallazgos abiertos: " + num(n)
+		}
+		sev = "info"
+		if s := str(data, "max_severity"); s != "" && (str(data, "state") == "suspected" || str(data, "state") == "infected") {
+			sev = s
 		}
 	case eventExporterSilent:
 		m.Subject, m.Text = "Exportador silencioso", "El router "+rc.router(routerID)+" dejó de enviar flujos."+rc.site()

@@ -45,6 +45,17 @@ cuando están en el mismo proceso.
 recurso es una alarma), sin filtro de severidad ni agrupación; si el canal no recibió la alarma, solo por su
 suscripción normal.
 
+## Webhook firmado (ADR-0030)
+
+Canal `webhook` (p. ej. el receptor de ArgosISP): `POST` JSON `{id, event, occurred_at, tenant, data}` firmado con
+`X-Webhook-Id` (id de la entrega, estable entre reintentos), `X-Webhook-Timestamp` y
+`X-Webhook-Signature: v1=hex(HMAC-SHA256(secreto, timestamp + "." + cuerpo))` (`packages/go/webhooksig`). Secreto
+write-only (`webhook_secret`, cifrado con la KEK de alerts). Eventos del contrato §3.4: `finding.opened`,
+`finding.resolved`, `customer.security_state_changed`, `router.status_changed`, `infra_service.state_changed`; con
+identidad ArgosISP del cliente, `data.external` lleva sus ids (de `devices.CustomerDirectory`). Reintentos 1 min,
+5 min, 30 min, 2 h y 12 h; sin agrupación. Solo https y destinos públicos (guardia de egreso);
+`HORUS_ALERTS_WEBHOOK_ALLOW_PRIVATE=true` permite http, privadas y loopback en laboratorios.
+
 ## Telegram
 
 Bot API oficial: mensajes `parse_mode=HTML` con todo el texto dinámico escapado (`<`, `>`, `&`), emoji de severidad,
