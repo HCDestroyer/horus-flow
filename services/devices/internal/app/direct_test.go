@@ -136,6 +136,17 @@ func TestDirectOnboardingCreate(t *testing.T) {
 		DirectOnboardingInput{ManagementAddress: &mgmt}); !isCode(err, domain.CodeVendorNotSupported) {
 		t.Fatalf("MikroTik: %v", err)
 	}
+	// Una IP de los túneles de Horus (o de la propia instalación) nunca es dirección de gestión.
+	dDeny := NewDirectOnboarding(st, on, DirectSettings{Deny: []netip.Prefix{netip.MustParsePrefix("10.255.0.0/16")}}, nil, nil, nil)
+	tunnelIP := "10.255.0.7"
+	if _, err := dDeny.Create(ctx, id, DirectOnboardingInput{ManagementAddress: &tunnelIP}); !isCode(err, "VALIDATION_FAILED") {
+		t.Fatalf("IP de túnel como dirección de gestión: %v", err)
+	}
+	var f fieldErrs
+	checkManagementDeny(&f, &domain.Router{ManagementAddress: &tunnelIP}, []netip.Prefix{netip.MustParsePrefix("10.255.0.0/16")})
+	if f.err() == nil {
+		t.Fatal("checkManagementDeny")
+	}
 	// Sin permiso.
 	if _, err := d.Create(asnCtx(tenant, "devices.read"), id, DirectOnboardingInput{}); err == nil {
 		t.Fatal("sin devices.credentials.write")

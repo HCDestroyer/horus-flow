@@ -227,6 +227,7 @@ func (s *Service) CreateRouter(ctx context.Context, fields Fields) (*domain.Rout
 		f.add("site_id", "REQUIRED", "site_id (UUID) es obligatorio.")
 	}
 	applyRouter(&f, r, fields, true)
+	checkManagementDeny(&f, r, s.deny)
 	if err := f.err(); err != nil {
 		return nil, err
 	}
@@ -257,6 +258,7 @@ func (s *Service) UpdateRouter(ctx context.Context, id uuid.UUID, ifMatch int, f
 	}
 	var f fieldErrs
 	applyRouter(&f, r, fields, false)
+	checkManagementDeny(&f, r, s.deny)
 	if err := f.err(); err != nil {
 		return nil, err
 	}

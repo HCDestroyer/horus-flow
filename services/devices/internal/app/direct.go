@@ -29,6 +29,19 @@ type DirectSettings struct {
 	CollectorPort    int
 	PollerAddress    netip.Addr
 	NTPServer        netip.Addr
+	// Deny: rangos que nunca son dirección de gestión (túneles de Horus,
+	// IPs de la instalación).
+	Deny []netip.Prefix
+}
+
+func managementDenied(a netip.Addr, deny []netip.Prefix) bool {
+	a = a.Unmap()
+	for _, p := range deny {
+		if p.Contains(a) {
+			return true
+		}
+	}
+	return false
 }
 
 // directStore es lo que necesita DirectOnboarding del repositorio.
@@ -104,9 +117,9 @@ func (d *DirectOnboarding) Create(ctx context.Context, routerID uuid.UUID, in Di
 	switch {
 	case in.ManagementAddress != nil:
 		a, err := netip.ParseAddr(strings.TrimSpace(*in.ManagementAddress))
-		if err != nil || !domain.ValidManagementAddress(a) {
+		if err != nil || !domain.ValidManagementAddress(a) || managementDenied(a, d.settings.Deny) {
 			return nil, apperr.Validation(apperr.Field("management_address", "INVALID_VALUE",
-				"IP unicast del router tal y como la ve Horus (sin loopback, link-local ni multicast)."))
+				"IP unicast del router tal y como la ve Horus (sin loopback, link-local, multicast ni direcciones de Horus)."))
 		}
 		mgmt = a.Unmap()
 	case r.ManagementAddress != nil:

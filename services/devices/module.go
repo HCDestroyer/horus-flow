@@ -241,8 +241,10 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		httpapi.NewImport(importer, guard, logger).Mount(deps.Routes)
 		httpapi.NewTLSPins(pins, guard, logger).Mount(deps.Routes)
 		collector, poller, ntp, port := cfg.DirectSettings()
+		deny := append(append([]netip.Prefix(nil), exclude...), datasets.InstallationPrefixes()...)
+		svc.SetManagementDeny(deny)
 		direct := app.NewDirectOnboarding(store, onboarding, app.DirectSettings{CollectorAddress: collector, CollectorPort: port,
-			PollerAddress: poller, NTPServer: ntp}, func() (authapi.AuditRecorder, bool) {
+			PollerAddress: poller, NTPServer: ntp, Deny: deny}, func() (authapi.AuditRecorder, bool) {
 			return module.Lookup[authapi.AuditRecorder](deps.Services, authapi.ServiceAudit)
 		}, logger, nil)
 		httpapi.NewDirect(direct, guard, logger).Mount(deps.Routes)
