@@ -25,6 +25,8 @@ type Actor struct {
 	SID         string `json:"sid,omitempty"`
 	Via         string `json:"via,omitempty"`
 	ViaPlatform bool   `json:"via_platform"`
+	// APITokenID: solo con Via = api_token (events.md §5.1).
+	APITokenID string `json:"api_token_id,omitempty"`
 }
 
 // ActorFrom construye el actor a partir del principal de la petición.
@@ -35,6 +37,9 @@ func ActorFrom(p *authz.Principal) Actor {
 	a := Actor{Type: p.Type, ID: p.Subject, ViaPlatform: p.ViaPlatform}
 	if p.SessionID != uuid.Nil {
 		a.SID, a.Via = p.SessionID.String(), "session"
+	}
+	if p.IsAPIToken() {
+		a.Via, a.APITokenID = authz.ViaAPIToken, p.APITokenID.String()
 	}
 	return a
 }

@@ -77,7 +77,23 @@ type EgressGuard struct {
 	Resolver Resolver
 	// MaxRedirects: 0 = 5.
 	MaxRedirects int
+	// AllowPrivate (solo laboratorios, con una variable de entorno explícita):
+	// permite direcciones privadas, CGNAT, ULA y loopback y no aplica Deny.
+	// Enlace local (incluidos los metadatos de nube), multicast y "sin
+	// especificar" siguen prohibidos.
+	AllowPrivate bool
+	// AllowHTTP permite http además de https (solo con AllowPrivate en laboratorios).
+	AllowHTTP bool
 }
+
+// alwaysDenied son los rangos prohibidos incluso con AllowPrivate.
+var alwaysDenied = func() []netip.Prefix {
+	var out []netip.Prefix
+	for _, s := range []string{"0.0.0.0/8", "169.254.0.0/16", "224.0.0.0/4", "240.0.0.0/4", "::/128", "fe80::/10", "ff00::/8"} {
+		out = append(out, netip.MustParsePrefix(s))
+	}
+	return out
+}()
 
 // InstallationPrefixes devuelve las direcciones de las interfaces locales
 // (las de la propia instalación) como /32 y /128.
@@ -102,6 +118,14 @@ func InstallationPrefixes() []netip.Prefix {
 func (g *EgressGuard) CheckAddr(a netip.Addr) error {
 	a = a.Unmap().WithZone("")
 	p := netip.PrefixFrom(a, a.BitLen())
+	if g.AllowPrivate && a.IsValid() {
+		for _, d := range alwaysDenied {
+			if d.Contains(a) {
+				return fmt.Errorf("%w: %s no es una dirección permitida", ErrEgressDenied, a)
+			}
+		}
+		return nil
+	}
 	if !a.IsValid() || OverlapsReserved(p) {
 		return fmt.Errorf("%w: %s no es una dirección pública", ErrEgressDenied, a)
 	}
@@ -115,7 +139,7 @@ func (g *EgressGuard) CheckAddr(a netip.Addr) error {
 
 // CheckURL exige https y que el host (o todas sus direcciones) sea público.
 func (g *EgressGuard) CheckURL(ctx context.Context, u *url.URL) error {
-	if u.Scheme != "https" {
+	if u.Scheme != "https" && (!g.AllowHTTP || u.Scheme != "http") {
 		return fmt.Errorf("%w: %s no es https", ErrEgressDenied, u.Redacted())
 	}
 	host := u.Hostname()
@@ -188,4 +212,14 @@ func (g *EgressGuard) guardedClient(base *http.Client, req *http.Request) *http.
 	tr.DialContext = d.DialContext
 	c.Transport = tr
 	return &c
+}
+
+// Do valida la URL de req y la ejecuta con un cliente protegido derivado de
+// base (dirección real del socket y redirecciones). Lo usan los clientes
+// salientes configurados por un ISP (webhooks de alertas, conector ArgosISP).
+func (g *EgressGuard) Do(base *http.Client, req *http.Request) (*http.Response, error) {
+	if err := g.CheckURL(req.Context(), req.URL); err != nil {
+		return nil, err
+	}
+	return g.guardedClient(base, req).Do(req)
 }

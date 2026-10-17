@@ -29,6 +29,8 @@ tags:
     description: Clientes = IPs observadas (D1).
   - name: asn-rules
     description: ASN propios del ISP — nombre, categoría y servicio que se aplican al clasificar el tráfico nuevo.
+  - name: integrations
+    description: Integraciones de ecosistema (ADR-0030) — consulta 360 por IP, consumo por lotes y conector ArgosISP.
 paths:
   /sites:
     get:
@@ -1025,6 +1027,266 @@ paths:
         '404': { $ref: './common.yaml#/components/responses/NotFound' }
         '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
         '428': { $ref: './common.yaml#/components/responses/PreconditionRequired' }
+  /customers/{customer_id}/external-identity:
+    parameters:
+      - $ref: '#/components/parameters/CustomerId'
+    get:
+      tags: [integrations]
+      operationId: getCustomerExternalIdentity
+      summary: Identidad del cliente en sistemas externos (ArgosISP) con sus periodos de vigencia
+      description: |
+        La identidad de Horus sigue siendo `(tenant, realm, ip)` (ADR-0018); la externa es una anotación con vigencia
+        (`valid_from`/`valid_to`), porque en PPPoE una IP cambia de dueño (ADR-0030). `current` es la vigente;
+        `stale = true` si ArgosISP no respondió en la última resolución (se conserva el último dato). Dato personal.
+      x-module: devices
+      x-scope: tenant
+      x-permission: customers.read
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Identidad vigente e historial (más reciente primero, máx. 50).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerExternalIdentity' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+  /customers/{customer_id}/external-identity/refresh:
+    parameters:
+      - $ref: '#/components/parameters/CustomerId'
+    post:
+      tags: [integrations]
+      operationId: refreshCustomerExternalIdentity
+      summary: Actualiza ahora la identidad del cliente desde ArgosISP ("Actualizar desde ArgosISP")
+      description: |
+        Resuelve la IP del cliente en ArgosISP (síncrono, timeout 10 s). Si ArgosISP no responde, conserva el último
+        dato marcado `stale` y responde 200 igualmente con `stale = true`. Un alias puesto a mano nunca se sobrescribe.
+        409 `INTEGRATION_NOT_CONFIGURED` si el conector no está activo.
+      x-module: devices
+      x-scope: tenant
+      x-permission: customers.update
+      x-principals: [user]
+      x-rate-limit: connection_test
+      x-audited: true
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Identidad tras la resolución.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerExternalIdentity' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+  /integrations/ip-lookup:
+    post:
+      tags: [integrations]
+      operationId: lookupIpIntegration
+      summary: Consulta 360 de una IP de cliente (identidad, consumo, salud y seguridad) con la IP en el cuerpo
+      description: |
+        Contrato docs/integrations/argosisp.md §3.1. La IP viaja en el cuerpo, nunca en la URL. `at` fija el instante
+        de la identidad externa (quién tenía la IP entonces; por defecto ahora) y el final de las ventanas de consumo.
+        Cada bloque exige además su permiso: `consumption` → `traffic.customer.read`, `health` → `snmp.read`,
+        `security` → `security.findings.read`; sin él, o si el módulo que lo calcula no está en el proceso, el bloque
+        es `null` y `meta.omitted` dice por qué. Si la IP coincide con clientes de varios realms, se devuelve el visto
+        más recientemente. Acceso auditado (dato personal). Lo usan la consola y ArgosISP con su código de conexión.
+      x-module: devices
+      x-scope: tenant
+      x-permission: customers.read
+      x-audited: true
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IpLookupRequest' }
+      responses:
+        '200':
+          description: Todo sobre la IP.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IpLookupResponse' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /integrations/consumption:
+    post:
+      tags: [integrations]
+      operationId: getIntegrationConsumption
+      summary: Consumo por lotes (≤ 500) por IP o por servicio de ArgosISP
+      description: |
+        Contrato docs/integrations/argosisp.md §3.2. `external_service_id` usa las vigencias de la identidad externa:
+        suma todas las IPs que tuvo el servicio en el periodo, cada una solo dentro de su vigencia (precisión de 1 h en
+        los bordes). Sin conector ArgosISP activo solo se acepta `address`. Días en UTC. Un elemento sin datos o sin
+        cliente devuelve ceros y `error` (`not_found`); el lote no falla por un elemento. Acceso auditado.
+      x-module: devices
+      x-scope: tenant
+      x-permission: traffic.customer.read
+      x-audited: true
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConsumptionRequest' }
+      responses:
+        '200':
+          description: Consumo por elemento, en el orden pedido.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConsumptionResponse' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+        '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
+  /integrations/argosisp:
+    get:
+      tags: [integrations]
+      operationId: getArgosIntegration
+      summary: Conector ArgosISP del ISP (sin credenciales)
+      x-module: devices
+      x-scope: tenant
+      x-permission: settings.read
+      x-principals: [user]
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Conector (`configured = false` si nunca se configuró).
+          headers:
+            ETag: { $ref: './common.yaml#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ArgosIntegration' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+    put:
+      tags: [integrations]
+      operationId: putArgosIntegration
+      summary: Configura el conector ArgosISP (URL, token `atk_…` de solo escritura, activo)
+      description: |
+        `token` es de solo escritura: se guarda cifrado con la KEK de devices y nunca se devuelve (`has_token`).
+        Omitirlo conserva el guardado. La URL base incluye `/api/v1` de ArgosISP; https obligatorio (destinos
+        privados o http solo con HORUS_INTEGRATIONS_ALLOW_PRIVATE=true, laboratorios). La primera configuración genera
+        el secreto del webhook (mostrarlo con `POST …/webhook-secret`).
+      x-module: devices
+      x-scope: tenant
+      x-permission: settings.manage
+      x-principals: [user]
+      x-reauth: true
+      x-audited: true
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ArgosIntegrationInput' }
+      responses:
+        '200':
+          description: Conector guardado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ArgosIntegration' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /integrations/argosisp/webhook-secret:
+    post:
+      tags: [integrations]
+      operationId: rotateArgosWebhookSecret
+      summary: Genera un secreto nuevo para el webhook de ArgosISP y lo muestra una vez (con la URL a copiar en Argos)
+      description: |
+        El secreto lo genera Horus (receptor) y se copia en ArgosISP junto con `webhook_url` (contrato §1.3). El
+        anterior sigue valiendo 24 h para que dé tiempo a cambiarlo en Argos.
+      x-module: devices
+      x-scope: tenant
+      x-permission: settings.manage
+      x-principals: [user]
+      x-reauth: true
+      x-audited: true
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: URL y secreto (el secreto no se vuelve a mostrar).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ArgosWebhookSecret' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+  /integrations/argosisp/connection-test:
+    post:
+      tags: [integrations]
+      operationId: testArgosIntegration
+      summary: Prueba la conexión con ArgosISP (síncrona, timeout 10 s, no cambia nada)
+      x-module: devices
+      x-scope: tenant
+      x-permission: settings.manage
+      x-principals: [user]
+      x-rate-limit: connection_test
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Resultado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ArgosConnectionTest' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+  /integrations/argosisp/webhook/{connector_id}:
+    parameters:
+      - name: connector_id
+        in: path
+        required: true
+        description: Identificador opaco del conector (no es el ISP); forma parte de la URL que se copia en ArgosISP.
+        schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    post:
+      tags: [integrations]
+      operationId: receiveArgosWebhook
+      summary: Receptor de webhooks firmados de ArgosISP
+      description: |
+        Contrato docs/integrations/argosisp.md §1.3 y §2.3. Firma obligatoria (`X-Webhook-Signature: v1=…` con el
+        secreto del conector), marca de tiempo con ≤ 5 min de desfase y deduplicación por `X-Webhook-Id`. Responde
+        202 rápido y procesa en segundo plano (re-resolución de las IPs o servicios afectados). Firma inválida → 401;
+        conector desconocido o apagado → 404 (sin distinguir). Eventos desconocidos se aceptan y se ignoran.
+      x-module: devices
+      x-scope: public
+      x-permission: public
+      x-rate-limit: webhook_in
+      x-increment: I3
+      security: []
+      parameters:
+        - { name: X-Webhook-Id, in: header, required: true, schema: { type: string, maxLength: 128 } }
+        - { name: X-Webhook-Timestamp, in: header, required: true, schema: { type: string, pattern: '^[0-9]{1,12}$' } }
+        - { name: X-Webhook-Signature, in: header, required: true, schema: { type: string, pattern: '^v1=[0-9a-f]{64}' } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ArgosWebhookEvent' }
+      responses:
+        '202': { description: Aceptado (o duplicado ya recibido). }
+        '400': { $ref: './common.yaml#/components/responses/BadRequest' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '413': { description: Cuerpo de más de 1 MiB. }
+        '429': { $ref: './common.yaml#/components/responses/TooManyRequests' }
 components:
   securitySchemes:
     tenantBearer: { $ref: './common.yaml#/components/securitySchemes/tenantBearer' }
@@ -1353,7 +1615,7 @@ components:
         security_state: { $ref: '#/components/schemas/SecurityState' }
         open_findings: { type: integer, minimum: 0 }
         alias: { type: [string, 'null'], maxLength: 120, description: Dato personal. }
-        alias_source: { type: [string, 'null'], enum: [manual, routeros_ppp, null] }
+        alias_source: { type: [string, 'null'], enum: [manual, routeros_ppp, argosisp, null], description: 'argosisp = nombre del cliente en ArgosISP (nunca pisa uno manual).' }
         first_seen: { $ref: './common.yaml#/components/schemas/Timestamp' }
         last_seen:
           $ref: './common.yaml#/components/schemas/Timestamp'
@@ -1430,3 +1692,293 @@ components:
             - $ref: './common.yaml#/components/schemas/Uuid'
             - type: 'null'
         manual_reason: { type: [string, 'null'] }
+    ExternalRef:
+      type: object
+      description: Identidad del cliente en un sistema externo vigente en el instante consultado (contrato ArgosISP §3.1).
+      required: [system, customer_id, service_id, code, display_name, service_state, plan, synced_at, stale]
+      properties:
+        system: { type: string, enum: [argosisp] }
+        customer_id: { type: [integer, 'null'], description: Id del cliente en ArgosISP. }
+        service_id: { type: [integer, 'null'], description: Id del servicio en ArgosISP. }
+        code: { type: [string, 'null'], examples: [C-000455] }
+        display_name: { type: [string, 'null'], description: Nombre en ArgosISP (dato personal). }
+        service_state: { type: [string, 'null'], description: 'activo, limitado, suspendido o retirado (enum abierto de ArgosISP).' }
+        plan: { type: [string, 'null'] }
+        synced_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        stale: { type: boolean, description: ArgosISP no respondió en la última resolución; se muestra el último dato conocido. }
+    ExternalIdentityPeriod:
+      type: object
+      required: [id, system, external_customer_id, external_service_id, display_name, code, service_state, plan, valid_from, valid_to, synced_at, stale]
+      properties:
+        id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        system: { type: string, enum: [argosisp] }
+        external_customer_id: { type: [integer, 'null'] }
+        external_service_id: { type: [integer, 'null'] }
+        display_name: { type: [string, 'null'] }
+        code: { type: [string, 'null'] }
+        service_state: { type: [string, 'null'] }
+        plan: { type: [string, 'null'] }
+        valid_from: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        valid_to:
+          description: null = vigente.
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
+        synced_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        stale: { type: boolean }
+    CustomerExternalIdentity:
+      type: object
+      required: [customer_id, connector_enabled, current, history, last_checked_at, last_check_status]
+      properties:
+        customer_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        connector_enabled: { type: boolean }
+        current:
+          oneOf:
+            - $ref: '#/components/schemas/ExternalRef'
+            - type: 'null'
+        history: { type: array, items: { $ref: '#/components/schemas/ExternalIdentityPeriod' } }
+        last_checked_at:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
+        last_check_status: { type: [string, 'null'], enum: [found, not_found, error, null] }
+    IpLookupRequest:
+      type: object
+      additionalProperties: false
+      required: [address]
+      properties:
+        address: { $ref: './common.yaml#/components/schemas/IpAddress' }
+        at:
+          description: Instante de la consulta (por defecto ahora).
+          $ref: './common.yaml#/components/schemas/Timestamp'
+        include:
+          type: array
+          description: Bloques opcionales (por defecto los tres).
+          items: { type: string, enum: [consumption, health, security] }
+    ByteCounters:
+      type: object
+      required: [up_bytes, down_bytes]
+      properties:
+        up_bytes: { type: integer, minimum: 0 }
+        down_bytes: { type: integer, minimum: 0 }
+    IpLookupResponse:
+      type: object
+      required: [customer, external, consumption, health, security, meta]
+      properties:
+        customer:
+          type: object
+          required: [id, address, alias, alias_source, kind, kind_source, status, first_seen, last_seen, site]
+          properties:
+            id: { $ref: './common.yaml#/components/schemas/Uuid' }
+            address: { $ref: './common.yaml#/components/schemas/IpAddress' }
+            alias: { type: [string, 'null'] }
+            alias_source: { type: [string, 'null'], enum: [manual, routeros_ppp, argosisp, null] }
+            kind: { $ref: '#/components/schemas/CustomerKind' }
+            kind_source: { type: string, enum: [default, scoring, manual] }
+            status: { type: string, enum: [active, inactive] }
+            first_seen: { $ref: './common.yaml#/components/schemas/Timestamp' }
+            last_seen: { $ref: './common.yaml#/components/schemas/Timestamp' }
+            site:
+              type: object
+              required: [id, name]
+              properties:
+                id: { $ref: './common.yaml#/components/schemas/Uuid' }
+                name: { type: [string, 'null'] }
+        external:
+          oneOf:
+            - $ref: '#/components/schemas/ExternalRef'
+            - type: 'null'
+        consumption:
+          oneOf:
+            - type: object
+              required: [last_24h, last_7d, last_30d, peak_down_bps_24h, top_services_7d]
+              properties:
+                last_24h: { $ref: '#/components/schemas/ByteCounters' }
+                last_7d: { $ref: '#/components/schemas/ByteCounters' }
+                last_30d: { $ref: '#/components/schemas/ByteCounters' }
+                peak_down_bps_24h: { type: number, minimum: 0, description: Pico de bajada en buckets de 5 min. }
+                top_services_7d:
+                  type: array
+                  maxItems: 5
+                  items:
+                    type: object
+                    required: [name, bytes]
+                    properties:
+                      name: { type: string }
+                      bytes: { type: integer, minimum: 0 }
+            - type: 'null'
+        health:
+          oneOf:
+            - type: object
+              required: [router, exporter, last_seen_minutes]
+              properties:
+                router:
+                  oneOf:
+                    - type: object
+                      required: [id, name, status, since]
+                      properties:
+                        id: { $ref: './common.yaml#/components/schemas/Uuid' }
+                        name: { type: string }
+                        status: { type: string, description: 'online, warning, critical, degraded, offline o unknown.' }
+                        since:
+                          oneOf:
+                            - $ref: './common.yaml#/components/schemas/Timestamp'
+                            - type: 'null'
+                    - type: 'null'
+                exporter:
+                  type: object
+                  required: [status, last_flow_at]
+                  properties:
+                    status: { type: [string, 'null'], description: 'FlowExporterState del router principal del nodo.' }
+                    last_flow_at:
+                      oneOf:
+                        - $ref: './common.yaml#/components/schemas/Timestamp'
+                        - type: 'null'
+                last_seen_minutes: { type: integer, minimum: 0 }
+            - type: 'null'
+        security:
+          oneOf:
+            - type: object
+              required: [state, open_findings, findings]
+              properties:
+                state: { $ref: '#/components/schemas/SecurityState' }
+                open_findings: { type: integer, minimum: 0 }
+                findings:
+                  type: array
+                  maxItems: 20
+                  items:
+                    type: object
+                    required: [id, kind, severity, opened_at, summary]
+                    properties:
+                      id: { $ref: './common.yaml#/components/schemas/Uuid' }
+                      kind: { type: string }
+                      severity: { type: string }
+                      state: { type: string }
+                      opened_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+                      summary: { type: string }
+            - type: 'null'
+        meta:
+          type: object
+          required: [at, omitted]
+          properties:
+            at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+            omitted:
+              type: array
+              items:
+                type: object
+                required: [section, reason]
+                properties:
+                  section: { type: string, enum: [external, consumption, health, security] }
+                  reason: { type: string, enum: [permission, unavailable, not_requested, not_configured] }
+    ConsumptionRequest:
+      type: object
+      additionalProperties: false
+      required: [from, to, items]
+      properties:
+        from: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        to: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        granularity: { type: string, enum: [day, total], default: total }
+        items:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              address: { $ref: './common.yaml#/components/schemas/IpAddress' }
+              external_service_id: { type: integer, minimum: 1 }
+    ConsumptionResponse:
+      type: object
+      required: [items, meta]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [address, external_service_id, up_bytes, down_bytes, series]
+            properties:
+              address: { type: [string, 'null'] }
+              external_service_id: { type: [integer, 'null'] }
+              up_bytes: { type: integer, minimum: 0 }
+              down_bytes: { type: integer, minimum: 0 }
+              addresses:
+                type: array
+                description: Solo por servicio — IPs sumadas (dato personal).
+                items: { type: string }
+              series:
+                type: array
+                description: Solo con granularity=day (días UTC).
+                items:
+                  type: object
+                  required: [day, up_bytes, down_bytes]
+                  properties:
+                    day: { type: string, format: date }
+                    up_bytes: { type: integer, minimum: 0 }
+                    down_bytes: { type: integer, minimum: 0 }
+              error: { type: string, enum: [not_found, invalid] }
+        meta:
+          type: object
+          required: [from, to, granularity]
+          properties:
+            from: { $ref: './common.yaml#/components/schemas/Timestamp' }
+            to: { $ref: './common.yaml#/components/schemas/Timestamp' }
+            granularity: { type: string, enum: [day, total] }
+    ArgosIntegration:
+      type: object
+      required: [id, configured, enabled, base_url, has_token, webhook_url, has_webhook_secret, last_sync_at, last_sync_status,
+        last_error, identities, stale_identities, version]
+      properties:
+        id:
+          description: Id del conector (parte de webhook_url); null si nunca se configuró.
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Uuid'
+            - type: 'null'
+        configured: { type: boolean }
+        enabled: { type: boolean }
+        base_url: { type: [string, 'null'], examples: ['https://argos.isp.example/api/v1'] }
+        has_token: { type: boolean }
+        webhook_url: { type: [string, 'null'], description: URL a copiar en ArgosISP (con el secreto). }
+        has_webhook_secret: { type: boolean }
+        last_sync_at:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
+        last_sync_status: { type: [string, 'null'], enum: [ok, degraded, failing, null] }
+        last_error: { type: [string, 'null'] }
+        resolver: { type: [string, 'null'], enum: [batch, fallback, null], description: 'batch = POST /integraciones/horus/resolver; fallback = GET /ip/:ip.' }
+        identities: { type: integer, minimum: 0, description: Identidades vigentes. }
+        stale_identities: { type: integer, minimum: 0 }
+        version: { type: integer, minimum: 0 }
+    ArgosIntegrationInput:
+      type: object
+      additionalProperties: false
+      required: [base_url, enabled]
+      properties:
+        base_url: { type: string, format: uri, maxLength: 2048 }
+        enabled: { type: boolean }
+        token: { type: string, writeOnly: true, minLength: 8, maxLength: 512, description: 'Token atk_… de ArgosISP (solo escritura).' }
+    ArgosWebhookSecret:
+      type: object
+      required: [webhook_url, webhook_secret]
+      properties:
+        webhook_url: { type: string }
+        webhook_secret: { type: string, description: Solo en esta respuesta. }
+    ArgosConnectionTest:
+      type: object
+      required: [ok, tested_at, latency_ms, resolver, error_code, error]
+      properties:
+        ok: { type: boolean }
+        tested_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        latency_ms: { type: [integer, 'null'] }
+        resolver: { type: [string, 'null'], enum: [batch, fallback, null] }
+        error_code: { type: [string, 'null'], enum: [auth_failed, forbidden, timeout, connect_failed, tls_invalid, unexpected_response, not_allowed, null] }
+        error: { type: [string, 'null'] }
+    ArgosWebhookEvent:
+      type: object
+      required: [id, evento, payload]
+      properties:
+        id: { type: string, maxLength: 128 }
+        evento: { type: string, examples: [asignacion.cambiada, sesion.iniciada, sesion.terminada, cliente.actualizado, servicio.estado_cambiado] }
+        ocurrido_en: { type: string }
+        payload: { type: object, additionalProperties: true }

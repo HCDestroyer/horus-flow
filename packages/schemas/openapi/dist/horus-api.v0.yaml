@@ -25,6 +25,8 @@ tags:
     description: Miembros, roles y permisos del tenant.
   - name: kiosks
     description: Kioscos (pantallas NOC) como dispositivos registrados.
+  - name: api-tokens
+    description: API tokens de integración (hf_pat_) del ISP, p. ej. el código de conexión para ArgosISP.
   - name: realtime
     description: Tiempo real (WebSocket `wss://<dominio>/api/v1/ws`, subprotocolo `horus.ws.v1`).
   - name: system
@@ -41,6 +43,8 @@ tags:
     description: Clientes = IPs observadas (D1).
   - name: asn-rules
     description: ASN propios del ISP — nombre, categoría y servicio que se aplican al clasificar el tráfico nuevo.
+  - name: integrations
+    description: Integraciones de ecosistema (ADR-0030) — consulta 360 por IP, consumo por lotes y conector ArgosISP.
   - name: onboarding
     description: Script de alta, enrolamiento y script inverso.
   - name: wireguard
@@ -389,6 +393,141 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
         '504':
           $ref: '#/components/responses/GatewayTimeout'
+  /api-token-templates:
+    get:
+      tags:
+        - api-tokens
+      operationId: listApiTokenTemplates
+      summary: Plantillas de permisos para API tokens (p. ej. ArgosISP)
+      x-module: auth
+      x-scope: tenant
+      x-permission: api_tokens.manage
+      x-principals:
+        - user
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Plantillas.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ApiTokenTemplate'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api-tokens:
+    get:
+      tags:
+        - api-tokens
+      operationId: listApiTokens
+      summary: API tokens de integración del ISP (sin su valor)
+      x-module: auth
+      x-scope: tenant
+      x-permission: api_tokens.manage
+      x-principals:
+        - user
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Tokens (más recientes primero; incluye revocados y caducados).
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ApiToken'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+        - api-tokens
+      operationId: createApiToken
+      summary: Crea un API token `hf_pat_…` (el valor se muestra una sola vez)
+      description: |
+        Token opaco `hf_pat_<32 B base62>` ligado a este ISP y a quien lo crea (docs/security.md §5.4). Lleva un
+        subconjunto de los permisos **actuales** del creador (por `template` o `permissions`); en cada uso el
+        gateway lo canjea por un access token de 2 min con la intersección entre esos permisos y los que el creador
+        tenga en ese momento (con sus alcances por nodo). Caducidad por defecto 1 año (máximo 1 año). Solo se guarda
+        su SHA-256. Plantilla `argosisp` = código de conexión para ArgosISP (docs/integrations/argosisp.md §1.1).
+        Un API token no puede crear ni gestionar API tokens.
+      x-module: auth
+      x-scope: tenant
+      x-permission: api_tokens.manage
+      x-principals:
+        - user
+      x-reauth: true
+      x-audited: true
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiTokenInput'
+      responses:
+        '201':
+          description: Token creado (incluye `token`, que no se vuelve a mostrar).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiTokenIssued'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /api-tokens/{token_id}:
+    parameters:
+      - name: token_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+    delete:
+      tags:
+        - api-tokens
+      operationId: revokeApiToken
+      summary: Revoca un API token (deja de servir de inmediato)
+      x-module: auth
+      x-scope: tenant
+      x-permission: api_tokens.manage
+      x-principals:
+        - user
+      x-audited: true
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContent'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /asn-rules:
     get:
       tags:
@@ -1865,6 +2004,70 @@ paths:
           $ref: '#/components/responses/PreconditionFailed'
         '428':
           $ref: '#/components/responses/PreconditionRequired'
+  /customers/{customer_id}/external-identity:
+    parameters:
+      - $ref: '#/components/parameters/CustomerId'
+    get:
+      tags:
+        - integrations
+      operationId: getCustomerExternalIdentity
+      summary: Identidad del cliente en sistemas externos (ArgosISP) con sus periodos de vigencia
+      description: |
+        La identidad de Horus sigue siendo `(tenant, realm, ip)` (ADR-0018); la externa es una anotación con vigencia
+        (`valid_from`/`valid_to`), porque en PPPoE una IP cambia de dueño (ADR-0030). `current` es la vigente;
+        `stale = true` si ArgosISP no respondió en la última resolución (se conserva el último dato). Dato personal.
+      x-module: devices
+      x-scope: tenant
+      x-permission: customers.read
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Identidad vigente e historial (más reciente primero, máx. 50).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerExternalIdentity'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /customers/{customer_id}/external-identity/refresh:
+    parameters:
+      - $ref: '#/components/parameters/CustomerId'
+    post:
+      tags:
+        - integrations
+      operationId: refreshCustomerExternalIdentity
+      summary: Actualiza ahora la identidad del cliente desde ArgosISP ("Actualizar desde ArgosISP")
+      description: |
+        Resuelve la IP del cliente en ArgosISP (síncrono, timeout 10 s). Si ArgosISP no responde, conserva el último
+        dato marcado `stale` y responde 200 igualmente con `stale = true`. Un alias puesto a mano nunca se sobrescribe.
+        409 `INTEGRATION_NOT_CONFIGURED` si el conector no está activo.
+      x-module: devices
+      x-scope: tenant
+      x-permission: customers.update
+      x-principals:
+        - user
+      x-rate-limit: connection_test
+      x-audited: true
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Identidad tras la resolución.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerExternalIdentity'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /customers/{customer_id}/findings:
     parameters:
       - name: customer_id
@@ -3317,6 +3520,275 @@ paths:
           $ref: '#/components/responses/UnprocessableEntity'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /integrations/argosisp:
+    get:
+      tags:
+        - integrations
+      operationId: getArgosIntegration
+      summary: Conector ArgosISP del ISP (sin credenciales)
+      x-module: devices
+      x-scope: tenant
+      x-permission: settings.read
+      x-principals:
+        - user
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Conector (`configured = false` si nunca se configuró).
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArgosIntegration'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    put:
+      tags:
+        - integrations
+      operationId: putArgosIntegration
+      summary: Configura el conector ArgosISP (URL, token `atk_…` de solo escritura, activo)
+      description: |
+        `token` es de solo escritura: se guarda cifrado con la KEK de devices y nunca se devuelve (`has_token`).
+        Omitirlo conserva el guardado. La URL base incluye `/api/v1` de ArgosISP; https obligatorio (destinos
+        privados o http solo con HORUS_INTEGRATIONS_ALLOW_PRIVATE=true, laboratorios). La primera configuración genera
+        el secreto del webhook (mostrarlo con `POST …/webhook-secret`).
+      x-module: devices
+      x-scope: tenant
+      x-permission: settings.manage
+      x-principals:
+        - user
+      x-reauth: true
+      x-audited: true
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArgosIntegrationInput'
+      responses:
+        '200':
+          description: Conector guardado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArgosIntegration'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /integrations/argosisp/connection-test:
+    post:
+      tags:
+        - integrations
+      operationId: testArgosIntegration
+      summary: Prueba la conexión con ArgosISP (síncrona, timeout 10 s, no cambia nada)
+      x-module: devices
+      x-scope: tenant
+      x-permission: settings.manage
+      x-principals:
+        - user
+      x-rate-limit: connection_test
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Resultado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArgosConnectionTest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /integrations/argosisp/webhook-secret:
+    post:
+      tags:
+        - integrations
+      operationId: rotateArgosWebhookSecret
+      summary: Genera un secreto nuevo para el webhook de ArgosISP y lo muestra una vez (con la URL a copiar en Argos)
+      description: |
+        El secreto lo genera Horus (receptor) y se copia en ArgosISP junto con `webhook_url` (contrato §1.3). El
+        anterior sigue valiendo 24 h para que dé tiempo a cambiarlo en Argos.
+      x-module: devices
+      x-scope: tenant
+      x-permission: settings.manage
+      x-principals:
+        - user
+      x-reauth: true
+      x-audited: true
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: URL y secreto (el secreto no se vuelve a mostrar).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArgosWebhookSecret'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /integrations/argosisp/webhook/{connector_id}:
+    parameters:
+      - name: connector_id
+        in: path
+        required: true
+        description: Identificador opaco del conector (no es el ISP); forma parte de la URL que se copia en ArgosISP.
+        schema:
+          $ref: '#/components/schemas/Uuid'
+    post:
+      tags:
+        - integrations
+      operationId: receiveArgosWebhook
+      summary: Receptor de webhooks firmados de ArgosISP
+      description: |
+        Contrato docs/integrations/argosisp.md §1.3 y §2.3. Firma obligatoria (`X-Webhook-Signature: v1=…` con el
+        secreto del conector), marca de tiempo con ≤ 5 min de desfase y deduplicación por `X-Webhook-Id`. Responde
+        202 rápido y procesa en segundo plano (re-resolución de las IPs o servicios afectados). Firma inválida → 401;
+        conector desconocido o apagado → 404 (sin distinguir). Eventos desconocidos se aceptan y se ignoran.
+      x-module: devices
+      x-scope: public
+      x-permission: public
+      x-rate-limit: webhook_in
+      x-increment: I3
+      security: []
+      parameters:
+        - name: X-Webhook-Id
+          in: header
+          required: true
+          schema:
+            type: string
+            maxLength: 128
+        - name: X-Webhook-Timestamp
+          in: header
+          required: true
+          schema:
+            type: string
+            pattern: ^[0-9]{1,12}$
+        - name: X-Webhook-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+            pattern: ^v1=[0-9a-f]{64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArgosWebhookEvent'
+      responses:
+        '202':
+          description: Aceptado (o duplicado ya recibido).
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '413':
+          description: Cuerpo de más de 1 MiB.
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /integrations/consumption:
+    post:
+      tags:
+        - integrations
+      operationId: getIntegrationConsumption
+      summary: Consumo por lotes (≤ 500) por IP o por servicio de ArgosISP
+      description: |
+        Contrato docs/integrations/argosisp.md §3.2. `external_service_id` usa las vigencias de la identidad externa:
+        suma todas las IPs que tuvo el servicio en el periodo, cada una solo dentro de su vigencia (precisión de 1 h en
+        los bordes). Sin conector ArgosISP activo solo se acepta `address`. Días en UTC. Un elemento sin datos o sin
+        cliente devuelve ceros y `error` (`not_found`); el lote no falla por un elemento. Acceso auditado.
+      x-module: devices
+      x-scope: tenant
+      x-permission: traffic.customer.read
+      x-audited: true
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConsumptionRequest'
+      responses:
+        '200':
+          description: Consumo por elemento, en el orden pedido.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsumptionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /integrations/ip-lookup:
+    post:
+      tags:
+        - integrations
+      operationId: lookupIpIntegration
+      summary: Consulta 360 de una IP de cliente (identidad, consumo, salud y seguridad) con la IP en el cuerpo
+      description: |
+        Contrato docs/integrations/argosisp.md §3.1. La IP viaja en el cuerpo, nunca en la URL. `at` fija el instante
+        de la identidad externa (quién tenía la IP entonces; por defecto ahora) y el final de las ventanas de consumo.
+        Cada bloque exige además su permiso: `consumption` → `traffic.customer.read`, `health` → `snmp.read`,
+        `security` → `security.findings.read`; sin él, o si el módulo que lo calcula no está en el proceso, el bloque
+        es `null` y `meta.omitted` dice por qué. Si la IP coincide con clientes de varios realms, se devuelve el visto
+        más recientemente. Acceso auditado (dato personal). Lo usan la consola y ArgosISP con su código de conexión.
+      x-module: devices
+      x-scope: tenant
+      x-permission: customers.read
+      x-audited: true
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IpLookupRequest'
+      responses:
+        '200':
+          description: Todo sobre la IP.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IpLookupResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
   /kiosk/config:
     get:
       tags:
@@ -4555,6 +5027,8 @@ paths:
         - `librenms` (D17): `password` obligatoria salvo que se envíe `api_token`; `api_token` opcional
           (cabecera `X-Auth-Token` de la API de LibreNMS). Reemplaza el conjunto completo: lo no enviado se borra.
         - `email`: usa el SMTP de la instalación (HORUS_SMTP_*); no tiene secretos por canal (`422`).
+        - `webhook`: `webhook_secret` obligatorio (lo genera el receptor; sin él la entrega falla con
+          `missing_credentials`).
       x-module: alerts
       x-scope: tenant
       x-permission: alerts.manage
@@ -8542,6 +9016,9 @@ components:
             - REMOTE_DESTINATION_NOT_FOUND
             - REMOTE_DESTINATION_NOT_READY
             - REMOTE_DESTINATION_SYNC_RUNNING
+            - API_TOKEN_NOT_FOUND
+            - INTEGRATION_NOT_CONFIGURED
+            - INTEGRATION_UNAVAILABLE
         - type: string
           pattern: ^[A-Z][A-Z0-9_]*$
     FieldError:
@@ -8681,6 +9158,123 @@ components:
               $ref: '#/components/schemas/Uint64String'
             up_bytes:
               $ref: '#/components/schemas/Uint64String'
+    ApiTokenTemplate:
+      type: object
+      required:
+        - key
+        - name
+        - description
+        - permissions
+      properties:
+        key:
+          type: string
+          examples:
+            - argosisp
+        name:
+          type: string
+          examples:
+            - ArgosISP
+        description:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+    ApiToken:
+      type: object
+      required:
+        - id
+        - name
+        - prefix
+        - user_id
+        - permissions
+        - template
+        - created_at
+        - expires_at
+        - last_used_at
+        - last_used_ip
+        - revoked_at
+        - active
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        name:
+          type: string
+        prefix:
+          type: string
+          description: Primeros caracteres del token (hf_pat_XXXX) para reconocerlo.
+        user_id:
+          $ref: '#/components/schemas/Uuid'
+          description: Quien lo creó (el token actúa con sus permisos actuales ∩ los del token).
+        permissions:
+          type: array
+          items:
+            type: string
+        template:
+          type:
+            - string
+            - 'null'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        expires_at:
+          $ref: '#/components/schemas/Timestamp'
+        last_used_at:
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: 'null'
+        last_used_ip:
+          type:
+            - string
+            - 'null'
+          description: IP del último canje (resolución ~2 min).
+        revoked_at:
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: 'null'
+        active:
+          type: boolean
+    ApiTokenInput:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          examples:
+            - ArgosISP
+        template:
+          type:
+            - string
+            - 'null'
+          enum:
+            - argosisp
+            - null
+          description: Plantilla de permisos. Si también llega `permissions`, mandan estos.
+        permissions:
+          type: array
+          maxItems: 64
+          items:
+            type: string
+          description: Claves de permiso de tenant que el creador tiene ahora (nunca `api_tokens.manage`).
+        expires_at:
+          description: Caducidad (≥ 1 h, ≤ 1 año). Por defecto, dentro de un año.
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: 'null'
+    ApiTokenIssued:
+      allOf:
+        - $ref: '#/components/schemas/ApiToken'
+        - type: object
+          required:
+            - token
+          properties:
+            token:
+              type: string
+              pattern: ^hf_pat_[0-9A-Za-z]{43}$
+              description: Valor del token. Solo en esta respuesta.
     Version:
       type: integer
       minimum: 1
@@ -9650,7 +10244,9 @@ components:
           enum:
             - manual
             - routeros_ppp
+            - argosisp
             - null
+          description: argosisp = nombre del cliente en ArgosISP (nunca pisa uno manual).
         first_seen:
           $ref: '#/components/schemas/Timestamp'
         last_seen:
@@ -9762,6 +10358,151 @@ components:
             - string
             - 'null'
           maxLength: 2000
+    ExternalRef:
+      type: object
+      description: Identidad del cliente en un sistema externo vigente en el instante consultado (contrato ArgosISP §3.1).
+      required:
+        - system
+        - customer_id
+        - service_id
+        - code
+        - display_name
+        - service_state
+        - plan
+        - synced_at
+        - stale
+      properties:
+        system:
+          type: string
+          enum:
+            - argosisp
+        customer_id:
+          type:
+            - integer
+            - 'null'
+          description: Id del cliente en ArgosISP.
+        service_id:
+          type:
+            - integer
+            - 'null'
+          description: Id del servicio en ArgosISP.
+        code:
+          type:
+            - string
+            - 'null'
+          examples:
+            - C-000455
+        display_name:
+          type:
+            - string
+            - 'null'
+          description: Nombre en ArgosISP (dato personal).
+        service_state:
+          type:
+            - string
+            - 'null'
+          description: activo, limitado, suspendido o retirado (enum abierto de ArgosISP).
+        plan:
+          type:
+            - string
+            - 'null'
+        synced_at:
+          $ref: '#/components/schemas/Timestamp'
+        stale:
+          type: boolean
+          description: ArgosISP no respondió en la última resolución; se muestra el último dato conocido.
+    ExternalIdentityPeriod:
+      type: object
+      required:
+        - id
+        - system
+        - external_customer_id
+        - external_service_id
+        - display_name
+        - code
+        - service_state
+        - plan
+        - valid_from
+        - valid_to
+        - synced_at
+        - stale
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        system:
+          type: string
+          enum:
+            - argosisp
+        external_customer_id:
+          type:
+            - integer
+            - 'null'
+        external_service_id:
+          type:
+            - integer
+            - 'null'
+        display_name:
+          type:
+            - string
+            - 'null'
+        code:
+          type:
+            - string
+            - 'null'
+        service_state:
+          type:
+            - string
+            - 'null'
+        plan:
+          type:
+            - string
+            - 'null'
+        valid_from:
+          $ref: '#/components/schemas/Timestamp'
+        valid_to:
+          description: null = vigente.
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: 'null'
+        synced_at:
+          $ref: '#/components/schemas/Timestamp'
+        stale:
+          type: boolean
+    CustomerExternalIdentity:
+      type: object
+      required:
+        - customer_id
+        - connector_enabled
+        - current
+        - history
+        - last_checked_at
+        - last_check_status
+      properties:
+        customer_id:
+          $ref: '#/components/schemas/Uuid'
+        connector_enabled:
+          type: boolean
+        current:
+          oneOf:
+            - $ref: '#/components/schemas/ExternalRef'
+            - type: 'null'
+        history:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExternalIdentityPeriod'
+        last_checked_at:
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: 'null'
+        last_check_status:
+          type:
+            - string
+            - 'null'
+          enum:
+            - found
+            - not_found
+            - error
+            - null
     RouterosTemplate:
       type: string
       maxLength: 1000
@@ -12226,6 +12967,543 @@ components:
           type: array
           items:
             type: string
+    ArgosIntegration:
+      type: object
+      required:
+        - id
+        - configured
+        - enabled
+        - base_url
+        - has_token
+        - webhook_url
+        - has_webhook_secret
+        - last_sync_at
+        - last_sync_status
+        - last_error
+        - identities
+        - stale_identities
+        - version
+      properties:
+        id:
+          description: Id del conector (parte de webhook_url); null si nunca se configuró.
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        configured:
+          type: boolean
+        enabled:
+          type: boolean
+        base_url:
+          type:
+            - string
+            - 'null'
+          examples:
+            - https://argos.isp.example/api/v1
+        has_token:
+          type: boolean
+        webhook_url:
+          type:
+            - string
+            - 'null'
+          description: URL a copiar en ArgosISP (con el secreto).
+        has_webhook_secret:
+          type: boolean
+        last_sync_at:
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: 'null'
+        last_sync_status:
+          type:
+            - string
+            - 'null'
+          enum:
+            - ok
+            - degraded
+            - failing
+            - null
+        last_error:
+          type:
+            - string
+            - 'null'
+        resolver:
+          type:
+            - string
+            - 'null'
+          enum:
+            - batch
+            - fallback
+            - null
+          description: batch = POST /integraciones/horus/resolver; fallback = GET /ip/:ip.
+        identities:
+          type: integer
+          minimum: 0
+          description: Identidades vigentes.
+        stale_identities:
+          type: integer
+          minimum: 0
+        version:
+          type: integer
+          minimum: 0
+    ArgosIntegrationInput:
+      type: object
+      additionalProperties: false
+      required:
+        - base_url
+        - enabled
+      properties:
+        base_url:
+          type: string
+          format: uri
+          maxLength: 2048
+        enabled:
+          type: boolean
+        token:
+          type: string
+          writeOnly: true
+          minLength: 8
+          maxLength: 512
+          description: Token atk_… de ArgosISP (solo escritura).
+    ArgosConnectionTest:
+      type: object
+      required:
+        - ok
+        - tested_at
+        - latency_ms
+        - resolver
+        - error_code
+        - error
+      properties:
+        ok:
+          type: boolean
+        tested_at:
+          $ref: '#/components/schemas/Timestamp'
+        latency_ms:
+          type:
+            - integer
+            - 'null'
+        resolver:
+          type:
+            - string
+            - 'null'
+          enum:
+            - batch
+            - fallback
+            - null
+        error_code:
+          type:
+            - string
+            - 'null'
+          enum:
+            - auth_failed
+            - forbidden
+            - timeout
+            - connect_failed
+            - tls_invalid
+            - unexpected_response
+            - not_allowed
+            - null
+        error:
+          type:
+            - string
+            - 'null'
+    ArgosWebhookSecret:
+      type: object
+      required:
+        - webhook_url
+        - webhook_secret
+      properties:
+        webhook_url:
+          type: string
+        webhook_secret:
+          type: string
+          description: Solo en esta respuesta.
+    ArgosWebhookEvent:
+      type: object
+      required:
+        - id
+        - evento
+        - payload
+      properties:
+        id:
+          type: string
+          maxLength: 128
+        evento:
+          type: string
+          examples:
+            - asignacion.cambiada
+            - sesion.iniciada
+            - sesion.terminada
+            - cliente.actualizado
+            - servicio.estado_cambiado
+        ocurrido_en:
+          type: string
+        payload:
+          type: object
+          additionalProperties: true
+    ConsumptionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - from
+        - to
+        - items
+      properties:
+        from:
+          $ref: '#/components/schemas/Timestamp'
+        to:
+          $ref: '#/components/schemas/Timestamp'
+        granularity:
+          type: string
+          enum:
+            - day
+            - total
+          default: total
+        items:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              address:
+                $ref: '#/components/schemas/IpAddress'
+              external_service_id:
+                type: integer
+                minimum: 1
+    ConsumptionResponse:
+      type: object
+      required:
+        - items
+        - meta
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required:
+              - address
+              - external_service_id
+              - up_bytes
+              - down_bytes
+              - series
+            properties:
+              address:
+                type:
+                  - string
+                  - 'null'
+              external_service_id:
+                type:
+                  - integer
+                  - 'null'
+              up_bytes:
+                type: integer
+                minimum: 0
+              down_bytes:
+                type: integer
+                minimum: 0
+              addresses:
+                type: array
+                description: Solo por servicio — IPs sumadas (dato personal).
+                items:
+                  type: string
+              series:
+                type: array
+                description: Solo con granularity=day (días UTC).
+                items:
+                  type: object
+                  required:
+                    - day
+                    - up_bytes
+                    - down_bytes
+                  properties:
+                    day:
+                      type: string
+                      format: date
+                    up_bytes:
+                      type: integer
+                      minimum: 0
+                    down_bytes:
+                      type: integer
+                      minimum: 0
+              error:
+                type: string
+                enum:
+                  - not_found
+                  - invalid
+        meta:
+          type: object
+          required:
+            - from
+            - to
+            - granularity
+          properties:
+            from:
+              $ref: '#/components/schemas/Timestamp'
+            to:
+              $ref: '#/components/schemas/Timestamp'
+            granularity:
+              type: string
+              enum:
+                - day
+                - total
+    IpLookupRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - address
+      properties:
+        address:
+          $ref: '#/components/schemas/IpAddress'
+        at:
+          description: Instante de la consulta (por defecto ahora).
+          $ref: '#/components/schemas/Timestamp'
+        include:
+          type: array
+          description: Bloques opcionales (por defecto los tres).
+          items:
+            type: string
+            enum:
+              - consumption
+              - health
+              - security
+    ByteCounters:
+      type: object
+      required:
+        - up_bytes
+        - down_bytes
+      properties:
+        up_bytes:
+          type: integer
+          minimum: 0
+        down_bytes:
+          type: integer
+          minimum: 0
+    IpLookupResponse:
+      type: object
+      required:
+        - customer
+        - external
+        - consumption
+        - health
+        - security
+        - meta
+      properties:
+        customer:
+          type: object
+          required:
+            - id
+            - address
+            - alias
+            - alias_source
+            - kind
+            - kind_source
+            - status
+            - first_seen
+            - last_seen
+            - site
+          properties:
+            id:
+              $ref: '#/components/schemas/Uuid'
+            address:
+              $ref: '#/components/schemas/IpAddress'
+            alias:
+              type:
+                - string
+                - 'null'
+            alias_source:
+              type:
+                - string
+                - 'null'
+              enum:
+                - manual
+                - routeros_ppp
+                - argosisp
+                - null
+            kind:
+              $ref: '#/components/schemas/CustomerKind'
+            kind_source:
+              type: string
+              enum:
+                - default
+                - scoring
+                - manual
+            status:
+              type: string
+              enum:
+                - active
+                - inactive
+            first_seen:
+              $ref: '#/components/schemas/Timestamp'
+            last_seen:
+              $ref: '#/components/schemas/Timestamp'
+            site:
+              type: object
+              required:
+                - id
+                - name
+              properties:
+                id:
+                  $ref: '#/components/schemas/Uuid'
+                name:
+                  type:
+                    - string
+                    - 'null'
+        external:
+          oneOf:
+            - $ref: '#/components/schemas/ExternalRef'
+            - type: 'null'
+        consumption:
+          oneOf:
+            - type: object
+              required:
+                - last_24h
+                - last_7d
+                - last_30d
+                - peak_down_bps_24h
+                - top_services_7d
+              properties:
+                last_24h:
+                  $ref: '#/components/schemas/ByteCounters'
+                last_7d:
+                  $ref: '#/components/schemas/ByteCounters'
+                last_30d:
+                  $ref: '#/components/schemas/ByteCounters'
+                peak_down_bps_24h:
+                  type: number
+                  minimum: 0
+                  description: Pico de bajada en buckets de 5 min.
+                top_services_7d:
+                  type: array
+                  maxItems: 5
+                  items:
+                    type: object
+                    required:
+                      - name
+                      - bytes
+                    properties:
+                      name:
+                        type: string
+                      bytes:
+                        type: integer
+                        minimum: 0
+            - type: 'null'
+        health:
+          oneOf:
+            - type: object
+              required:
+                - router
+                - exporter
+                - last_seen_minutes
+              properties:
+                router:
+                  oneOf:
+                    - type: object
+                      required:
+                        - id
+                        - name
+                        - status
+                        - since
+                      properties:
+                        id:
+                          $ref: '#/components/schemas/Uuid'
+                        name:
+                          type: string
+                        status:
+                          type: string
+                          description: online, warning, critical, degraded, offline o unknown.
+                        since:
+                          oneOf:
+                            - $ref: '#/components/schemas/Timestamp'
+                            - type: 'null'
+                    - type: 'null'
+                exporter:
+                  type: object
+                  required:
+                    - status
+                    - last_flow_at
+                  properties:
+                    status:
+                      type:
+                        - string
+                        - 'null'
+                      description: FlowExporterState del router principal del nodo.
+                    last_flow_at:
+                      oneOf:
+                        - $ref: '#/components/schemas/Timestamp'
+                        - type: 'null'
+                last_seen_minutes:
+                  type: integer
+                  minimum: 0
+            - type: 'null'
+        security:
+          oneOf:
+            - type: object
+              required:
+                - state
+                - open_findings
+                - findings
+              properties:
+                state:
+                  $ref: '#/components/schemas/SecurityState'
+                open_findings:
+                  type: integer
+                  minimum: 0
+                findings:
+                  type: array
+                  maxItems: 20
+                  items:
+                    type: object
+                    required:
+                      - id
+                      - kind
+                      - severity
+                      - opened_at
+                      - summary
+                    properties:
+                      id:
+                        $ref: '#/components/schemas/Uuid'
+                      kind:
+                        type: string
+                      severity:
+                        type: string
+                      state:
+                        type: string
+                      opened_at:
+                        $ref: '#/components/schemas/Timestamp'
+                      summary:
+                        type: string
+            - type: 'null'
+        meta:
+          type: object
+          required:
+            - at
+            - omitted
+          properties:
+            at:
+              $ref: '#/components/schemas/Timestamp'
+            omitted:
+              type: array
+              items:
+                type: object
+                required:
+                  - section
+                  - reason
+                properties:
+                  section:
+                    type: string
+                    enum:
+                      - external
+                      - consumption
+                      - health
+                      - security
+                  reason:
+                    type: string
+                    enum:
+                      - permission
+                      - unavailable
+                      - not_requested
+                      - not_configured
     PlaylistItem:
       type: object
       required:
@@ -12679,12 +13957,14 @@ components:
     NotificationChannelKind:
       type: string
       description: |
-        `email`, `telegram` y `librenms` (D17, por API) disponibles. Enum abierto (después: webhook, whatsapp,
-        sms); un `kind` conocido por el contrato pero aún no implementado → `422 NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE`.
+        `email`, `telegram`, `librenms` (D17, por API) y `webhook` (POST JSON firmado con HMAC-SHA256, ADR-0030;
+        contrato docs/integrations/argosisp.md §1.3 y §3.4) disponibles. Enum abierto (después: whatsapp, sms); un
+        `kind` conocido por el contrato pero aún no implementado → `422 NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE`.
       enum:
         - email
         - telegram
         - librenms
+        - webhook
     EmailChannelConfig:
       type: object
       title: EmailChannelConfig
@@ -12768,11 +14048,43 @@ components:
           minimum: 2
           maximum: 30
           default: 10
+    WebhookChannelConfig:
+      type: object
+      title: WebhookChannelConfig
+      description: |
+        Webhook firmado (ADR-0030, p. ej. el receptor de ArgosISP). Cada entrega es un `POST` con
+        `{id, event, occurred_at, tenant, data}` y las cabeceras `X-Webhook-Id` (= `id`, estable entre reintentos),
+        `X-Webhook-Timestamp` y `X-Webhook-Signature: v1=hex(HMAC-SHA256(secreto, timestamp + "." + cuerpo))`. El
+        secreto lo genera el receptor y va por `PUT …/credentials` (`webhook_secret`, write-only). `event` sigue el
+        contrato §3.4: `finding.opened` (finding_opened, finding_reopened), `finding.resolved`,
+        `customer.security_state_changed`, `router.status_changed` (router_*: offline, recovered, umbrales, hardware) e
+        `infra_service.state_changed` (service_*); los demás tipos no se envían por webhook. Con identidad ArgosISP del
+        cliente, `data.external` lleva sus ids. La IP y el alias del cliente solo con `include_personal_data`.
+        Reintentos: 1 min, 5 min, 30 min, 2 h y 12 h. Solo https y destinos públicos (privados o loopback solo con
+        HORUS_ALERTS_WEBHOOK_ALLOW_PRIVATE=true, laboratorios); sin redirecciones.
+      required:
+        - url
+      additionalProperties: false
+      properties:
+        url:
+          type: string
+          format: uri
+          maxLength: 2048
+          pattern: ^https?://
+          description: URL del receptor (sin credenciales en la URL).
+          examples:
+            - https://argos.isp.example/api/v1/integraciones/horus/webhook
+        timeout_seconds:
+          type: integer
+          minimum: 2
+          maximum: 30
+          default: 10
     NotificationEventType:
       type: string
       description: |
         Tipos de evento a los que se suscribe un canal (enum abierto), por categoría:
-        - `security`: `finding_opened`, `finding_reopened`.
+        - `security`: `finding_opened`, `finding_reopened`. Fuera de categoría (solo por suscripción explícita, pensados
+          para webhooks): `finding_resolved` y `customer_security_state_changed`.
         - `routers` (rol snmp): `router_offline`, `router_recovered` (vuelve tras una caída o un umbral avisado),
           `router_cpu_high`, `router_memory_high`, `router_temperature_high` (aviso → `medium`, crítico → `high`),
           `router_hardware_failed` (fuente o ventilador), `router_interface_down` / `router_interface_up` (enlace de
@@ -12800,6 +14112,8 @@ components:
         - service_down
         - service_degraded
         - service_recovered
+        - finding_resolved
+        - customer_security_state_changed
     NotificationCategory:
       type: string
       description: Grupo de tipos de evento (ver NotificationEventType). Enum abierto.
@@ -12875,6 +14189,7 @@ components:
             - $ref: '#/components/schemas/EmailChannelConfig'
             - $ref: '#/components/schemas/TelegramChannelConfig'
             - $ref: '#/components/schemas/LibreNmsChannelConfig'
+            - $ref: '#/components/schemas/WebhookChannelConfig'
         subscription:
           $ref: '#/components/schemas/ChannelSubscription'
         include_personal_data:
@@ -12993,6 +14308,7 @@ components:
             - $ref: '#/components/schemas/EmailChannelConfig'
             - $ref: '#/components/schemas/TelegramChannelConfig'
             - $ref: '#/components/schemas/LibreNmsChannelConfig'
+            - $ref: '#/components/schemas/WebhookChannelConfig'
         subscription:
           $ref: '#/components/schemas/ChannelSubscription'
         include_personal_data:
@@ -13039,6 +14355,7 @@ components:
                 - chat_not_found
                 - bot_not_member
                 - bot_cannot_post
+                - not_allowed
             - type: 'null'
         error:
           type:
@@ -13080,6 +14397,12 @@ components:
           minLength: 16
           maxLength: 256
           description: 'librenms: token de API (opcional).'
+        webhook_secret:
+          type: string
+          writeOnly: true
+          minLength: 16
+          maxLength: 256
+          description: 'webhook: secreto HMAC que genera el receptor.'
     LibreNmsErrorCode:
       type: string
       description: Enum abierto.

@@ -757,6 +757,15 @@ func (s *Service) Record(ctx context.Context, e api.AuditEntry) error {
 	if e.ActorID == "" {
 		e.ActorID = "system:auth"
 	}
+	// Acciones hechas con un API token (docs/events.md §5.1: via, api_token_id).
+	if p := authz.FromContext(ctx); p.IsAPIToken() && e.ActorID == p.Subject {
+		ch := make(map[string]any, len(e.Changes)+2)
+		for k, v := range e.Changes {
+			ch[k] = v
+		}
+		ch["via"], ch["api_token_id"] = authz.ViaAPIToken, p.APITokenID.String()
+		e.Changes = ch
+	}
 	if err := s.store.InsertAudit(ctx, e); err != nil {
 		s.o.Logger.ErrorContext(ctx, "audit write failed", slog.String("action", e.Action), slog.Any("error", err))
 		return err

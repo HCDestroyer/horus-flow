@@ -438,6 +438,9 @@ components:
             - REMOTE_DESTINATION_NOT_FOUND
             - REMOTE_DESTINATION_NOT_READY
             - REMOTE_DESTINATION_SYNC_RUNNING
+            - API_TOKEN_NOT_FOUND
+            - INTEGRATION_NOT_CONFIGURED
+            - INTEGRATION_UNAVAILABLE
         - type: string
           pattern: '^[A-Z][A-Z0-9_]*$'
     ActorRef:
