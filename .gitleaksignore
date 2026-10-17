@@ -1,0 +1,7 @@
+# Falsos positivos de gitleaks (generic-api-key): valores ficticios en pruebas del
+# conector ArgosISP y del canal webhook (squash de la PR #1); no son credenciales.
+95b6626f775b33afbc503fd58eee1a9d0860fb0c:apps/frontend/tests/unit/mock-integrations.test.ts:generic-api-key:73
+95b6626f775b33afbc503fd58eee1a9d0860fb0c:tests/tenancy/argos_test.go:generic-api-key:71
+95b6626f775b33afbc503fd58eee1a9d0860fb0c:services/alerts/internal/notify/webhook_test.go:generic-api-key:95
+95b6626f775b33afbc503fd58eee1a9d0860fb0c:services/alerts/internal/notify/webhook_test.go:generic-api-key:144
+95b6626f775b33afbc503fd58eee1a9d0860fb0c:services/alerts/internal/notify/webhook_test.go:generic-api-key:148
