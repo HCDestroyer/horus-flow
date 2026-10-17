@@ -1,12 +1,15 @@
 # Release de Horus Flow (historia I1-22; docs/install-debian.md).
 #
 # En cada etiqueta v* (vX.Y.Z estable, vX.Y.Z-beta.N / -rc.N beta):
-#   1. Construye y publica en GHCR las imágenes horus, horus-web y horus-postgres para
-#      linux/amd64 y linux/arm64 (etiquetas X.Y.Z y, si es estable, X.Y y latest).
+#   1. Construye y publica en GHCR las imágenes horus, horus-web, horus-postgres y horus-installer
+#      (instalación solo con Docker; lleva el images.lock de las otras) para linux/amd64 y
+#      linux/arm64 (etiquetas X.Y.Z y, si es estable, X.Y y latest; la documentación y el stack
+#      usan siempre el digest).
 #   2. Las firma con cosign keyless (OIDC de GitHub: la identidad es este workflow en la etiqueta).
 #   3. Genera con scripts/release/build-release.sh el instalador, los paquetes offline
 #      horus-<v>-linux-{amd64,arm64}.tar.gz (docker save de TODAS las imágenes fijadas por digest),
-#      bootstrap-debian.sh, latest.json y SHA256SUMS, y firma SHA256SUMS (SHA256SUMS.sigstore.json).
+#      bootstrap-debian.sh, compose.stack.yaml + stack.env.example (stack de Portainer/TrueNAS con el
+#      digest de horus-installer), latest.json y SHA256SUMS, y firma SHA256SUMS (SHA256SUMS.sigstore.json).
 #   4. Publica la release de GitHub (prerelease si la versión lleva sufijo).
 #
 # Nada se construye en los servidores: bootstrap-debian.sh y `horus-ctl upgrade` descargan estos
@@ -113,6 +116,14 @@ jobs:
           build horus Dockerfile .
           build horus-web apps/frontend/Dockerfile .
           build horus-postgres deployments/images/postgres/Dockerfile deployments/images/postgres
+          # horus-installer (instalación solo con Docker, docs/install-docker.md): lleva el árbol de
+          # la versión con el images.lock de las tres imágenes de arriba y las de terceros (fijadas
+          # por digest); su propio digest lo añade build-release.sh al images.lock de la release.
+          bash scripts/release/build-release.sh --version "$VERSION" --out /tmp/lock --arch amd64 --no-installer \
+            --registry "$REGISTRY" --source registry --no-bundle
+          tar -xzOf "/tmp/lock/horus-$VERSION-installer.tar.gz" "horus-$VERSION/images.lock" >/tmp/images.lock
+          bash scripts/release/build-installer-image.sh --version "$VERSION" --lock /tmp/images.lock --stage /tmp/installer-ctx
+          build horus-installer /tmp/installer-ctx/deployments/images/installer/Dockerfile /tmp/installer-ctx
 
   # -------------------------------------------------------------------------------------------
   bundles:
@@ -153,7 +164,7 @@ jobs:
         env:
           REPO: ${{ github.repository }}
         run: |
-          for n in horus horus-web horus-postgres; do
+          for n in horus horus-web horus-postgres horus-installer; do
             cosign verify --certificate-oidc-issuer https://token.actions.githubusercontent.com \
               --certificate-identity-regexp "(?i)^https://github.com/$REPO/.github/workflows/release.yml@refs/tags/v" \
               "$REGISTRY/$n:$VERSION" >/dev/null

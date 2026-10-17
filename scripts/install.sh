@@ -80,6 +80,10 @@
 #   --confirm-bundle             marca el paquete offline como guardado fuera del servidor
 #   --skip-firewall --skip-tunnel --skip-systemd --skip-backup --force (ignora requisitos no críticos)
 #   --yes                        no pregunta (usa opciones, respuestas guardadas o valores por defecto)
+#   --runtime host|docker        host (por defecto): túnel, cortafuegos y timers en el propio servidor;
+#                                docker: lo ejecuta la imagen horus-installer (docs/install-docker.md) y
+#                                el contenedor horus-host hace túnel, cortafuegos y backups programados
+#   --installer-image IMAGEN     (docker) imagen de horus-host (por defecto la del propio instalador)
 #
 # Códigos de salida: 0 bien, 1 fallo, 2 uso incorrecto.
 
@@ -102,7 +106,7 @@ unset _v
 action=install
 opt_yes=0 opt_force=0 opt_purge=0 skip_fw=0 skip_tunnel=0 skip_systemd=0 skip_backup=0 confirm_bundle=0
 declare -A opt=()
-usage() { sed -n '2,84p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,88p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 need_arg() { [ "$#" -ge 2 ] && [ -n "$2" ] || { echo "install.sh: $1 necesita un valor" >&2; exit 2; }; }
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -111,7 +115,8 @@ while [ "$#" -gt 0 ]; do
       --https-port | --wg-port | --wg-interface | --docker-subnet | --tlm-max-bytes | --bundle-recipient | --bundle-out | \
       --smtp-host | --smtp-port | --smtp-from | --smtp-user | --smtp-tls | --smtp-password-file | --backup-metrics-port | --backup-keep-full | \
       --image-source | --registry | --registry-user | --registry-token-file | --channel | --auto-update | --update-window | \
-      --update-source | --web-image | --postgres-image | --size | --tls | --public-url | --trusted-proxies | --http-bind | --wg-endpoint)
+      --update-source | --web-image | --postgres-image | --size | --tls | --public-url | --trusted-proxies | --http-bind | --wg-endpoint | \
+      --runtime | --installer-image)
       need_arg "$@"; opt[${1#--}]="$2"; shift 2 ;;
     --acme-staging) opt[acme-staging]=1; shift ;;
     --no-update-check) opt[update-check]=false; shift ;;
@@ -163,6 +168,16 @@ tls_dir="$etc_dir/tls"
 config_dir="$install_dir/config"
 env_file="$install_dir/.env"
 compose=(docker compose --project-directory "$install_dir" -f "$install_dir/compose.yaml" --env-file "$env_file")
+# Entorno de ejecución (docs/install-docker.md): host = este script en el servidor (systemd, iptables,
+# wg0 en el propio sistema); docker = dentro de la imagen horus-installer, con el socket de Docker y
+# las rutas del anfitrión montadas en la MISMA ruta; túnel, cortafuegos y backups programados pasan
+# al contenedor horus-host (perfil "docker" de compose.prod.yaml).
+runtime="$(get runtime host)"
+case "$runtime" in host | docker) ;; *) echo "install.sh: --runtime inválido: $runtime (host | docker)" >&2; exit 2 ;; esac
+docker_mode() { [ "$runtime" = docker ]; }
+if docker_mode && [ -n "$root" ]; then echo "install.sh: --runtime docker no admite --root" >&2; exit 2; fi
+# Contenedor horus-host del proyecto (docker): túnel, cortafuegos y crons.
+host_cid() { docker ps -q --filter "label=com.docker.compose.project=$project" --filter "label=com.docker.compose.service=horus-host" 2>/dev/null | head -1; }
 
 c_ok=$'\033[32m' c_warn=$'\033[33m' c_err=$'\033[31m' c_off=$'\033[0m'
 [ -t 1 ] || { c_ok=""; c_warn=""; c_err=""; c_off=""; }
@@ -219,7 +234,9 @@ project_running() {
 check_requirements() {
   say "Requisitos del servidor"
   local id ver
-  if [ -r /etc/os-release ]; then
+  if docker_mode; then
+    ok "instalador en contenedor; anfitrión: $(docker info --format '{{.OperatingSystem}}, kernel {{.KernelVersion}}' 2>/dev/null || echo '?')"
+  elif [ -r /etc/os-release ]; then
     id="$(. /etc/os-release; echo "${ID:-}")"; ver="$(. /etc/os-release; echo "${VERSION_ID:-}")"
     case "$id:$ver" in
       debian:12* | debian:13* | ubuntu:22.04 | ubuntu:24.04 | ubuntu:26.04) ok "sistema $id $ver" ;;
@@ -264,7 +281,9 @@ check_requirements() {
   for t in openssl curl flock ip; do
     command -v "$t" >/dev/null 2>&1 && ok "herramienta $t" || fail "falta la herramienta $t"
   done
-  if [ "$skip_tunnel" = 0 ]; then
+  if docker_mode; then
+    check_docker_runtime
+  elif [ "$skip_tunnel" = 0 ]; then
     if modprobe wireguard 2>/dev/null || [ -d /sys/module/wireguard ]; then ok "WireGuard en el kernel"
     elif command -v wireguard-go >/dev/null 2>&1 && [ -c /dev/net/tun ]; then warn "sin módulo WireGuard del kernel: se usará wireguard-go (más CPU)"
     else fail "sin WireGuard: instala el kernel con el módulo o wireguard-go (apt install wireguard-tools wireguard-go)"; fi
@@ -286,6 +305,36 @@ check_requirements() {
 }
 
 existing_parent() { local p="$1"; while [ ! -e "$p" ]; do p="$(dirname "$p")"; done; printf '%s' "$p"; }
+
+# probe <argumentos de docker run…> IMAGEN <orden…>: contenedor efímero con la imagen del instalador para
+# comprobar lo que ve el ANFITRIÓN (rutas, red, /dev/net/tun) en el modo docker.
+probe() { docker run --rm --pull never --entrypoint "" "$@" 2>/dev/null; }
+
+# Requisitos propios del modo docker: socket de Docker, red del anfitrión, rutas montadas en la misma
+# ruta (compose las interpreta en el anfitrión) y WireGuard (módulo del kernel o /dev/net/tun para
+# wireguard-go en horus-host).
+check_docker_runtime() {
+  docker image inspect "$installer_image" >/dev/null 2>&1 || { fail "imagen del instalador $installer_image no presente (--installer-image)"; return 0; }
+  local mine hostns d tok got
+  mine="$(readlink /proc/self/ns/net)"
+  hostns="$(probe --network host "$installer_image" readlink /proc/self/ns/net || true)"
+  if [ -n "$hostns" ] && [ "$mine" = "$hostns" ]; then ok "instalador en la red del anfitrión (--network host)"
+  else fail "el instalador debe ejecutarse con --network host (puertos, IP pública, interfaz $wg_if, comprobaciones HTTPS)"; fi
+  for d in "$install_dir" "$etc_dir" "$data_dir" "$store_dir"; do
+    install -d -m 0755 "$d"
+    tok="$(random_alnum 24)"
+    printf '%s' "$tok" >"$d/.horus-path-probe"
+    got="$(probe --network none -v "$d:/probe:ro" "$installer_image" cat /probe/.horus-path-probe || true)"
+    rm -f "$d/.horus-path-probe"
+    if [ "$got" = "$tok" ]; then ok "$d montado con la misma ruta en el anfitrión"
+    else fail "$d no está montado con la MISMA ruta del anfitrión: añade -v $d:$d (compose interpreta las rutas en el anfitrión)"; fi
+  done
+  [ "$skip_tunnel" = 0 ] || return 0
+  if probe --network none --device /dev/net/tun:/dev/net/tun "$installer_image" true; then ok "/dev/net/tun disponible para horus-host"
+  else fail "el anfitrión no tiene /dev/net/tun (Proxmox LXC: docs/install-docker.md §Proxmox)"; fi
+  if [ -d /sys/module/wireguard ]; then ok "WireGuard en el kernel del anfitrión"
+  else warn "módulo WireGuard no cargado en el anfitrión: horus-host intentará cargarlo al crear $wg_if y, si no puede, usará wireguard-go (más CPU; en el anfitrión: modprobe wireguard)"; fi
+}
 
 # --- Configuración (preguntas) --------------------------------------------------------------------
 configure() {
@@ -543,6 +592,26 @@ configure_images() {
   image="${img[HORUS_IMAGE]:?images.lock sin HORUS_IMAGE}"
   [ -n "${img[HORUS_WEB_IMAGE]:-}" ] || die "falta la imagen horus-web (images.lock o --web-image)"
   [ -n "${img[HORUS_POSTGRES_IMAGE]:-}" ] || img[HORUS_POSTGRES_IMAGE]=horus-postgres:18.6-pgbackrest2.59.3
+  configure_installer_image
+}
+
+# Imagen de horus-host (modo docker): --installer-image > la del contenedor que ejecuta este script
+# (así una actualización con la imagen nueva actualiza también horus-host) > images.lock de la
+# release > la guardada.
+self_image() {
+  local id
+  id="$(sed -n 's#.*/containers/\([0-9a-f]\{64\}\)/.*#\1#p' /proc/self/mountinfo 2>/dev/null | head -1)"
+  [ -n "$id" ] || return 0
+  docker inspect -f '{{.Config.Image}}' "$id" 2>/dev/null || true
+}
+configure_installer_image() {
+  installer_image=""
+  docker_mode || return 0
+  installer_image="${opt[installer-image]:-}"
+  [ -n "$installer_image" ] || installer_image="$(self_image)"
+  [ -n "$installer_image" ] || installer_image="${img[HORUS_INSTALLER_IMAGE]:-}"
+  [ -n "$installer_image" ] || installer_image="${saved[installer-image]:-}"
+  [ -n "$installer_image" ] || die "no sé qué imagen usar para horus-host: pasa --installer-image IMAGEN"
 }
 
 configure_updates() {
@@ -553,6 +622,10 @@ configure_updates() {
   update_window="$(get update-window "Sun *-*-* 03:30:00")"
   update_source="$(get update-source "https://api.github.com/repos/hcdestroyer/horus-flow/releases?per_page=50")"
   update_check="$(get update-check true)"
+  if docker_mode && [ "$auto_update" = on ]; then
+    warn "--auto-update on no está disponible con --runtime docker: actualiza ejecutando la imagen horus-installer nueva (docs/install-docker.md)"
+    auto_update=off
+  fi
   registry_user="$(get registry-user "")"
   if [ -n "${opt[registry-token-file]:-}" ]; then
     [ -r "${opt[registry-token-file]}" ] || die "no puedo leer ${opt[registry-token-file]}"
@@ -573,13 +646,13 @@ save_conf() {
       https-port "$https_port" wg-port "$wg_port" wg-interface "$wg_if" docker-subnet "$docker_subnet" \
       tlm-max-bytes "$tlm_max_bytes" smtp-host "$(get smtp-host "")" smtp-port "$(get smtp-port 587)" \
       smtp-from "$(get smtp-from "")" smtp-user "$(get smtp-user "")" smtp-tls "$(get smtp-tls starttls)" \
-      backup-metrics-port "$(get backup-metrics-port 9109)" backup-keep-full "$(backup_keep_full)" bundle-out "$(get bundle-out "${root:-}/root")" \
+      backup-metrics-port "$(get backup-metrics-port 9109)" backup-keep-full "$(backup_keep_full)" bundle-out "$(get bundle-out "$(default_bundle_out)")" \
       image-source "$image_source" registry "$registry" registry-user "$registry_user" channel "$channel" \
       auto-update "$auto_update" update-window "$update_window" update-source "$update_source" \
       update-check "$update_check" web-image "${img[HORUS_WEB_IMAGE]}" postgres-image "${img[HORUS_POSTGRES_IMAGE]}" \
       version "$horus_version" tls "$tls_choice" public-url "$([ "$tls_choice" = external ] && echo "$public_base_url")" \
       trusted-proxies "$trusted_proxies" http-bind "$([ "$tls_choice" = external ] && echo "$http_bind_addr:$http_port")" \
-      wg-endpoint "$(get wg-endpoint "")" size "$size"
+      wg-endpoint "$(get wg-endpoint "")" size "$size" runtime "$runtime" installer-image "$installer_image"
     [ -z "${opt[acme-staging]:-${saved[acme-staging]:-}}" ] || echo "acme-staging=1"
   } >"$conf_file"
   chmod 0644 "$conf_file"
@@ -634,7 +707,7 @@ gen_age_identity() {
   pub="$({ printf '\x30\x2e\x02\x01\x00\x30\x05\x06\x03\x2b\x65\x6e\x04\x22\x04\x20'; base64 -d <<<"$priv"; } |
     openssl pkey -inform DER -pubout -outform DER 2>/dev/null | tail -c 32 | od -An -tu1 -v)"
   [ -n "$pub" ] || die "no se pudo generar la identidad age (openssl ≥ 1.1.1 o apt install age)"
-  # shellcheck disable=SC2046 # palabras = bytes/grupos de 5 bits
+  # shellcheck disable=SC2046,SC2086 # palabras = bytes/grupos de 5 bits
   printf '# created: %s\n# public key: %s\n%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     "$(bech32_encode age $(to5bits $pub))" \
     "$(bech32_encode age-secret-key- $(to5bits $(base64 -d <<<"$priv" | od -An -tu1 -v)) | tr '[:lower:]' '[:upper:]')"
@@ -808,6 +881,8 @@ EOF
 }
 
 # --- Paquete de secretos offline (ADR-0029) ------------------------------------------------------
+# En el modo docker /root es del contenedor (se perdería): <etc>/offline-bundle, en el anfitrión.
+default_bundle_out() { if docker_mode; then printf '%s' "$etc_dir/offline-bundle"; else printf '%s' "${root:-}/root"; fi; }
 secrets_digest() { (cd "$etc_dir" && find secrets tls -type f ! -name '*.srl' -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1); }
 
 make_bundle() {
@@ -823,7 +898,7 @@ make_bundle() {
     date -u +%Y-%m-%dT%H:%M:%SZ >"$etc_dir/bundle.confirmed"; ok "paquete de secretos offline confirmado"; return 0
   fi
   say "Paquete de secretos offline (disaster-recovery.md §3.6)"
-  out_dir="$(get bundle-out "${root:-}/root")"; install -d -m 0700 "$out_dir"
+  out_dir="$(get bundle-out "$(default_bundle_out)")"; install -d -m 0700 "$out_dir"
   host="$(hostname -s 2>/dev/null || hostname)"; stamp="$(date -u +%Y%m%dT%H%M%SZ)"
   tmp="$(mktemp -d)"
   cp -a "$secrets_dir" "$tmp/secrets"; cp -a "$tls_dir" "$tmp/tls"; cp "$conf_file" "$tmp/install.conf"
@@ -866,6 +941,9 @@ release_paths=(VERSION images.lock deployments/compose/compose.prod.yaml deploym
   infrastructure/clickhouse/horus-logs.xml
   infrastructure/backup/httpd.conf packages/events/streams/streams.yaml scripts/install.sh scripts/horus-ctl.sh
   scripts/bootstrap-debian.sh scripts/backup/horus-backup.sh docs/install-debian.md
+  deployments/images/installer/Dockerfile deployments/images/installer/horus-installer.sh
+  deployments/images/installer/iptables-auto.sh deployments/compose/compose.stack.yaml
+  deployments/compose/stack.env.example docs/install-docker.md
   LICENSE THIRD_PARTY_NOTICES.md)
 
 # copy_release: copia el árbol de esta versión a <instalación>/release (lo usan bin/install.sh,
@@ -913,7 +991,7 @@ render_files() {
   copy_release
   ln -sfn ../release/scripts/install.sh "$install_dir/bin/install.sh"
   ln -sfn ../release/scripts/horus-ctl.sh "$install_dir/bin/horus-ctl"
-  [ -n "$root" ] || ln -sfn "$install_dir/bin/horus-ctl" /usr/local/sbin/horus-ctl
+  [ -n "$root" ] || docker_mode || ln -sfn "$install_dir/bin/horus-ctl" /usr/local/sbin/horus-ctl
   # .env de compose: SIN secretos (los secretos son archivos en $secrets_dir).
   local acme_ca="https://acme-v02.api.letsencrypt.org/directory"
   [ -n "${opt[acme-staging]:-${saved[acme-staging]:-}}" ] && acme_ca="https://acme-staging-v02.api.letsencrypt.org/directory"
@@ -979,11 +1057,31 @@ HORUS_SMTP_FROM=$(get smtp-from "")
 HORUS_SMTP_USERNAME=$(get smtp-user "")
 HORUS_SMTP_TLS=$(get smtp-tls starttls)
 HORUS_BACKUP_CH_KEEP_FULL=$(backup_keep_full)
+HORUS_INSTALL_DIR=$install_dir
+HORUS_ETC_DIR=$etc_dir
 EOF
+  if docker_mode; then
+    # Perfil "docker" de compose.prod.yaml: contenedor horus-host (túnel, cortafuegos y backups).
+    printf 'COMPOSE_PROFILES=docker\nHORUS_INSTALLER_IMAGE=%s\n' "$installer_image" >>"$env_file"
+    write_host_crontab
+  fi
   chmod 0644 "$env_file"
   # Primer metrics.prom (lo sirve backup-metrics desde el arranque).
   HORUS_ENV_FILE="$env_file" "$install_dir/bin/horus-backup" metrics >/dev/null 2>&1 || true
   ok "compose.yaml, .env, config/, release/ ($horus_version), bin/{horus-backup,horus-ctl,install.sh}"
+}
+
+# Backups programados del modo docker (los mismos que los timers de systemd, en UTC): los ejecuta
+# supercronic dentro de horus-host.
+write_host_crontab() {
+  cat >"$config_dir/horus-host.crontab" <<EOF
+# Horus Flow — backups (I1-23) en el contenedor horus-host (--runtime docker). Generado por install.sh. UTC.
+15 2 * * * $install_dir/bin/horus-backup run all
+0 6 * * 0 $install_dir/bin/horus-backup verify all
+10 5 * * * $install_dir/bin/horus-backup check-ttl
+*/5 * * * * $install_dir/bin/horus-backup metrics
+EOF
+  chmod 0644 "$config_dir/horus-host.crontab"
 }
 
 # Tamaños de NATS según el disco: telemetría = 50 GB por defecto (≥ 6 h de autonomía, C-12),
@@ -1019,6 +1117,8 @@ ensure_images() {
     ghcr)
       registry_login
       for v in HORUS_IMAGE HORUS_WEB_IMAGE HORUS_POSTGRES_IMAGE; do verify_signature "${img[$v]}"; done
+      # horus-host corre con el socket de Docker y NET_ADMIN: su imagen también debe estar firmada.
+      ! docker_mode || verify_signature "$installer_image"
       for v in "${img_vars[@]}"; do
         ref="${img[$v]:-}"; [ -n "$ref" ] || continue
         if docker image inspect "$ref" >/dev/null 2>&1; then continue; fi
@@ -1097,6 +1197,16 @@ sysctl_file() { printf '%s' "${root:-}/etc/sysctl.d/90-horus.conf"; }
 setup_sysctl() {
   say "Parámetros del kernel ($(sysctl_file))"
   local rmem="${HORUS_UDP_RMEM_BYTES:-33554432}" rdef="${HORUS_UDP_RMEM_DEFAULT:-1048576}" kv k v cur
+  if docker_mode; then
+    # Desde un contenedor no se pueden cambiar (son globales del anfitrión): solo se comprueban.
+    for kv in "net.core.rmem_max=$rmem" "net.ipv4.ip_forward=1"; do
+      k="${kv%%=*}"; v="${kv#*=}"
+      cur="$(cat "/proc/sys/${k//.//}" 2>/dev/null || echo "?")"
+      if [ "$cur" = "$v" ] || { [ "$k" = net.core.rmem_max ] && [ "$cur" != "?" ] && [ "$cur" -ge "$v" ]; }; then ok "$k = $cur"
+      else warn "$k = $cur en el anfitrión (recomendado $v; ponlo en el anfitrión: echo '$k = $v' > /etc/sysctl.d/90-horus.conf && sysctl --system)"; fi
+    done
+    return 0
+  fi
   install -d -m 0755 "$(dirname "$(sysctl_file)")"
   cat >"$(sysctl_file)" <<EOF
 # Horus Flow (scripts/install.sh). Búfer UDP del collector de IPFIX/NetFlow y reenvío del túnel.
@@ -1208,7 +1318,17 @@ setup_tunnel() {
   tunnel_script >"$install_dir/bin/horus-tunnel"
   chmod 0755 "$install_dir/bin/horus-tunnel"
   ip link show "$wg_if" >/dev/null 2>&1 || tunnel_created=1
-  "$install_dir/bin/horus-tunnel" up
+  if docker_mode; then
+    # El mismo horus-tunnel, pero dentro de horus-host (red del anfitrión, NET_ADMIN, /dev/net/tun):
+    # crea wg0 (kernel o wireguard-go, que vive en ese contenedor) y pone las reglas de iptables
+    # del anfitrión. Se vuelve a aplicar aunque horus-host ya estuviera en marcha (reglas nuevas).
+    "${compose[@]}" up -d --wait --wait-timeout 180 --no-deps horus-host \
+      || { "${compose[@]}" logs --tail 60 horus-host || true; die "horus-host no quedó healthy (túnel $wg_if)"; }
+    docker exec "$(host_cid)" "$install_dir/bin/horus-tunnel" up || die "horus-tunnel up falló en horus-host"
+    ip link show "$wg_if" >/dev/null 2>&1 || die "la interfaz $wg_if no existe en el anfitrión tras arrancar horus-host"
+  else
+    "$install_dir/bin/horus-tunnel" up
+  fi
   ok "$wg_if con $collector_ip/${services_cidr#*/}, ruta $tunnel_cidr"
   [ "$skip_fw" = 1 ] && warn "--skip-firewall: el UDP 4739/2055 no se filtra por interfaz" || ok "UDP 4739/2055 solo por $wg_if (DOCKER-USER e INPUT)"
 }
@@ -1302,6 +1422,13 @@ EOF
 }
 
 setup_schedules() {
+  if docker_mode; then
+    # Sin systemd ni cron en el anfitrión: el arranque tras reiniciar lo hace Docker (restart:
+    # unless-stopped) y horus-host recrea wg0, reaplica el cortafuegos, arranca collector/wg-agent y
+    # ejecuta los backups programados (config/horus-host.crontab).
+    ok "backups programados en horus-host (supercronic, UTC): run 02:15, verify dom 06:00, check-ttl 05:10, metrics cada 5 min"
+    return 0
+  fi
   write_units
   if have_systemd; then
     systemctl daemon-reload
@@ -1379,12 +1506,23 @@ summary() {
   if [ -n "${bundle_file:-}" ]; then
     echo "  SECRETOS:       $bundle_file"
     [ -z "${bundle_passphrase:-}" ] || echo "                  frase de descifrado: $bundle_passphrase  (NO se guarda en el servidor)"
-    echo "                  cópialo FUERA del servidor (2 sitios), bórralo de aquí y ejecuta: $install_dir/bin/install.sh --confirm-bundle"
+    if docker_mode; then
+      echo "                  cópialo FUERA del servidor (2 sitios), bórralo de aquí y ejecuta: horus-installer confirm-bundle"
+    else
+      echo "                  cópialo FUERA del servidor (2 sitios), bórralo de aquí y ejecuta: $install_dir/bin/install.sh --confirm-bundle"
+    fi
   fi
   echo "  Backups:        $store_dir/backups (horus-backup status); métricas en 127.0.0.1:$(get backup-metrics-port 9109)/metrics.prom"
   echo "  Versión:        $horus_version (canal $channel; actualización automática de parches: $auto_update)"
-  echo "  Gestión:        horus-ctl status | logs | upgrade | backup | restore | uninstall  (horus-ctl help)"
-  echo "  Comprobar:      $install_dir/bin/install.sh --check"
+  if docker_mode; then
+    # "horus-installer ORDEN" = docker run --rm -it --network host <montajes> IMAGEN ORDEN (docs/install-docker.md).
+    echo "  Gestión:        horus-installer check | ctl status | ctl logs | backup status | upgrade | uninstall"
+    echo "                  (= docker run --rm -it --network host -v /var/run/docker.sock:/var/run/docker.sock <los mismos -v> $installer_image ORDEN)"
+    echo "  horus-host:     túnel $wg_if, cortafuegos y backups programados (docker logs ${project}-horus-host-1)"
+  else
+    echo "  Gestión:        horus-ctl status | logs | upgrade | backup | restore | uninstall  (horus-ctl help)"
+    echo "  Comprobar:      $install_dir/bin/install.sh --check"
+  fi
   [ "$warnings" = 0 ] || echo "  Avisos:         $warnings (ver arriba)"
 }
 
@@ -1418,6 +1556,12 @@ traefik_base() {
   fi
 }
 
+# netx <orden…>: en el modo docker, iptables y wg necesitan NET_ADMIN en la red del anfitrión, que
+# solo tiene horus-host; en el modo host, directamente.
+netx() {
+  if docker_mode; then local c; c="$(host_cid)"; [ -n "$c" ] || return 1; docker exec "$c" "$@"; else "$@"; fi
+}
+
 do_check() {
   [ -f "$env_file" ] || die "no hay instalación en $install_dir"
   set -a; . "$env_file"; set +a
@@ -1449,14 +1593,22 @@ do_check() {
 
   if ip link show "$HORUS_WG_INTERFACE" >/dev/null 2>&1; then
     ok "interfaz $HORUS_WG_INTERFACE presente ($(ip -4 -o addr show "$HORUS_WG_INTERFACE" | awk '{ print $4 }' | head -1))"
-    if command -v wg >/dev/null 2>&1; then
-      local lp; lp="$(timeout 5 wg show "$HORUS_WG_INTERFACE" listen-port 2>/dev/null || true)"
-      [ "$lp" = "$HORUS_WG_PORT" ] && ok "WireGuard escucha en UDP $lp" || fail "WireGuard: puerto '${lp:-?}' (esperado $HORUS_WG_PORT; lo configura horus-wg-agent)"
+    if docker_mode || command -v wg >/dev/null 2>&1; then
+      local lp; lp="$(netx timeout 5 wg show "$HORUS_WG_INTERFACE" listen-port 2>/dev/null || true)"
+      if [ "$lp" = "$HORUS_WG_PORT" ]; then ok "WireGuard escucha en UDP $lp"
+      # wireguard-go ≥ 0.0.20250515 (Alpine 3.22, imagen horus-installer) informa listen_port 0 por
+      # UAPI aunque el socket esté abierto: se comprueba el socket UDP del propio wireguard-go.
+      elif [ "$lp" = 0 ] && netx ss -lunpH "sport = :$HORUS_WG_PORT" 2>/dev/null | grep -q wireguard-go; then
+        ok "WireGuard (wireguard-go) escucha en UDP $HORUS_WG_PORT"
+      else fail "WireGuard: puerto '${lp:-?}' (esperado $HORUS_WG_PORT; lo configura horus-wg-agent)"; fi
     fi
   else
     fail "falta la interfaz $HORUS_WG_INTERFACE"
   fi
-  iptables -C DOCKER-USER ! -i "$HORUS_WG_INTERFACE" -p udp -m multiport --dports 4739,2055 -m comment --comment horus-ipfix-only-wg -j DROP 2>/dev/null \
+  if docker_mode; then
+    [ -n "$(host_cid)" ] && ok "horus-host en marcha (túnel, cortafuegos y backups programados)" || fail "horus-host no está en marcha"
+  fi
+  netx iptables -C DOCKER-USER ! -i "$HORUS_WG_INTERFACE" -p udp -m multiport --dports 4739,2055 -m comment --comment horus-ipfix-only-wg -j DROP 2>/dev/null \
     && ok "IPFIX/NetFlow filtrado: solo por $HORUS_WG_INTERFACE" || warn "sin regla DOCKER-USER para IPFIX (¿--skip-firewall?)"
   say "TLS ($HORUS_TLS_MODE)"
   if [ "$HORUS_TLS_MODE" = self_signed ]; then
@@ -1485,12 +1637,45 @@ do_check() {
 }
 
 # --- --uninstall ---------------------------------------------------------------------------------
+# rm_tree <dir>: en el modo docker los directorios son montajes del anfitrión (no se pueden borrar
+# desde el contenedor): se vacían, también los montajes anidados (p. ej. el almacén dentro de datos).
+clear_tree() {
+  local c
+  for c in "$1"/* "$1"/.[!.]* "$1"/..?*; do
+    [ -e "$c" ] || [ -L "$c" ] || continue
+    if mountpoint -q "$c"; then clear_tree "$c"; else rm -rf "$c"; fi
+  done
+}
+rm_tree() {
+  [ -e "$1" ] || return 0
+  if docker_mode && mountpoint -q "$1"; then
+    clear_tree "$1"; ok "$1 vaciado (es un montaje: el directorio vacío queda en el anfitrión)"
+  else
+    rm -rf "$1"
+  fi
+}
 do_uninstall() {
   say "Desinstalación de Horus Flow ($install_dir)"
   if [ "$opt_purge" = 1 ] && [ "$opt_yes" = 0 ]; then
     local a=""
     read -r -p "  --purge BORRA datos, backups y secretos ($data_dir, $store_dir, $etc_dir). Escribe 'borrar': " a || true
     [ "$a" = borrar ] || die "cancelado"
+  fi
+  # Modo docker: wg0 del kernel y las reglas de iptables sobreviven a los contenedores. Se para
+  # horus-host (si no, su vigilancia volvería a crear wg0) y un contenedor efímero con la imagen
+  # del instalador, red del anfitrión y NET_ADMIN ejecuta horus-tunnel down.
+  if docker_mode && [ -x "$install_dir/bin/horus-tunnel" ]; then
+    local hc ii
+    hc="$(host_cid)"; [ -z "$hc" ] || docker stop -t 20 "$hc" >/dev/null 2>&1 || true
+    ii="${opt[installer-image]:-$(self_image)}"
+    [ -n "$ii" ] || ii="$(sed -n 's/^HORUS_INSTALLER_IMAGE=//p' "$env_file" 2>/dev/null | tail -1)"
+    [ -n "$ii" ] || ii="${saved[installer-image]:-}"
+    if [ -n "$ii" ] && docker run --rm --pull never --network host --cap-add NET_ADMIN \
+      -v "$install_dir/bin:$install_dir/bin:ro" --entrypoint "$install_dir/bin/horus-tunnel" "$ii" down; then
+      ok "interfaz WireGuard y reglas de cortafuegos eliminadas"
+    else
+      warn "no se pudo quitar ${saved[wg-interface]:-wg0} ni las reglas horus-ipfix-only-wg (sin la imagen del instalador)"
+    fi
   fi
   if [ -f "$install_dir/compose.yaml" ] && [ -f "$env_file" ]; then
     "${compose[@]}" down --remove-orphans || true
@@ -1500,7 +1685,7 @@ do_uninstall() {
   if have_systemd; then
     systemctl disable --now horus-backup-run.timer horus-backup-verify.timer horus-backup-ttl.timer horus-backup-metrics.timer horus-autoupdate.timer horus.service >/dev/null 2>&1 || true
   fi
-  [ -x "$install_dir/bin/horus-tunnel" ] && "$install_dir/bin/horus-tunnel" down && ok "interfaz WireGuard y reglas de cortafuegos eliminadas"
+  docker_mode || { [ -x "$install_dir/bin/horus-tunnel" ] && "$install_dir/bin/horus-tunnel" down && ok "interfaz WireGuard y reglas de cortafuegos eliminadas"; } || true
   if have_systemd; then systemctl disable horus-tunnel.service >/dev/null 2>&1 || true; fi
   rm -f "$u"/horus.service "$u"/horus-tunnel.service "$u"/horus-backup-*.service "$u"/horus-backup-*.timer \
     "$u"/horus-autoupdate.service "$u"/horus-autoupdate.timer "$(sysctl_file)"
@@ -1509,10 +1694,10 @@ do_uninstall() {
     [ "$(readlink /usr/local/sbin/horus-ctl 2>/dev/null)" = "$install_dir/bin/horus-ctl" ] && rm -f /usr/local/sbin/horus-ctl
   fi
   have_systemd && systemctl daemon-reload || true
-  rm -rf "$install_dir"
+  rm_tree "$install_dir"
   ok "units, cron y $install_dir eliminados"
   if [ "$opt_purge" = 1 ]; then
-    rm -rf "$store_dir" "$data_dir" "$etc_dir"
+    rm_tree "$store_dir"; rm_tree "$data_dir"; rm_tree "$etc_dir"
     ok "datos, backups y secretos eliminados ($data_dir, $store_dir, $etc_dir)"
   else
     ok "se conservan datos ($data_dir), backups ($store_dir) y secretos ($etc_dir): reinstalar los reutiliza"

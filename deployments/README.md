@@ -43,6 +43,11 @@ make reset   # para y BORRA los volúmenes (PostgreSQL, ClickHouse, NATS, Valkey
 
 ## Producción en un servidor (I1-22) y backups locales (I1-23)
 
+> Sin scripts en el anfitrión (solo Docker, Portainer, Proxmox, TrueNAS): imagen `horus-installer`
+> ([`images/installer/`](images/installer/), `install.sh --runtime docker`), servicio `horus-host`
+> (perfil `docker` de `compose.prod.yaml`) y stack [`compose/compose.stack.yaml`](compose/compose.stack.yaml)
+> + [`compose/stack.env.example`](compose/stack.env.example). Guía: [`docs/install-docker.md`](../docs/install-docker.md).
+
 Requisitos: Debian 12/13 o Ubuntu 22.04/24.04 LTS, Docker Engine ≥ 24 con compose v2, ≥ 4 núcleos,
 ≥ 8 GiB de RAM, ≥ 100 GiB libres (mejor un **segundo disco** para `--store-dir`), puertos 80/443 TCP
 y 51820 UDP libres, módulo WireGuard del kernel (o `wireguard-go`).
