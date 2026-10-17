@@ -27,6 +27,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/module"
 	"github.com/hcdestroyer/horus-flow/packages/go/natsx"
 	consumptionapi "github.com/hcdestroyer/horus-flow/services/analytics/api/consumption"
+	"github.com/hcdestroyer/horus-flow/services/analytics/api/servingrouter"
 	analyticsapi "github.com/hcdestroyer/horus-flow/services/analytics/api/trafficwidgets"
 	"github.com/hcdestroyer/horus-flow/services/analytics/dashboards"
 	"github.com/hcdestroyer/horus-flow/services/analytics/internal/adapters/chread"
@@ -76,6 +77,8 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		_ = deps.Services.Provide(analyticsapi.ServiceWidgetData, analyticsapi.WidgetDataProvider(m.widgets))
 		// Consumo de clientes para las integraciones de devices (consulta 360 y consumo por lotes, ADR-0030).
 		_ = deps.Services.Provide(consumptionapi.ServiceConsumption, consumptionapi.Reader(app.Consumption{Svc: m.svc}))
+		// Router que lleva el tráfico de un cliente (consulta 360: router de sus flujos más recientes).
+		_ = deps.Services.Provide(servingrouter.ServiceServingRouter, servingrouter.Reader(app.ServingRouter{Svc: m.svc}))
 	}
 	if deps.Routes != nil {
 		if v := verifier(cfg, deps); v != nil {

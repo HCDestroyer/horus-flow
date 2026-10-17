@@ -22,7 +22,7 @@ func TestCapacityAPI(t *testing.T) {
 	a := startAppWith(t, []roleFactory{{snmp.Role, snmp.Register}}, "HORUS_SNMP_ENABLED=false")
 	pt := a.superadmin().platformToken()
 	A, B := a.newISP(pt, "isp-ca"), a.newISP(pt, "isp-cb")
-	if tables := tenanttest.AssertRLS(t, a.admin, []string{"snmp"}, []string{"snmp.outbox"}, []string{"snmp.outbox"}); len(tables) != 8 {
+	if tables := tenanttest.AssertRLS(t, a.admin, []string{"snmp"}, []string{"snmp.outbox"}, []string{"snmp.outbox"}); len(tables) != 9 {
 		t.Fatalf("tablas con tenant_id en snmp: %v", tables)
 	}
 

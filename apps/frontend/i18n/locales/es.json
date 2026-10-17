@@ -813,13 +813,18 @@
       "last_7d": "7 días",
       "last_30d": "30 días",
       "topServices": "Servicios principales (7 días)",
-      "noRouter": "Sin router principal en el nodo",
+      "noRouter": "Sin router conocido para este cliente",
       "lastSeen": "visto hace {n} min",
       "omitted": {
         "permission": "Sin permiso para ver este bloque.",
         "unavailable": "No disponible ahora.",
         "not_requested": "No pedido.",
         "not_configured": "ArgosISP no está conectado."
+      },
+      "lastFlow": "último flujo del router",
+      "routerSource": {
+        "flows": "Por sus flujos recientes",
+        "primary_router": "Router principal del nodo (sin flujos recientes)"
       }
     }
   },
@@ -1194,7 +1199,8 @@
     "exitWall": "Salir del mural",
     "wallUplink": "Enlace de subida · últimas 6 h",
     "wallInterfaces": "Interfaces físicas",
-    "noSnmpAccess": "Sin permiso para ver las métricas SNMP de este router (snmp.read)."
+    "noSnmpAccess": "Sin permiso para ver las métricas SNMP de este router (snmp.read).",
+    "lastFlow": "último flujo"
   },
   "onboarding": {
     "stepN": "Paso {n}",
@@ -1339,7 +1345,18 @@
         "exists": "Ya existe",
         "overlaps": "Solapa con uno existente"
       },
-      "existsAs": "Ya registrado como {role}"
+      "existsAs": "Ya registrado como {role}",
+      "pin": {
+        "review": "Revisar la huella",
+        "ROUTER_TLS_FINGERPRINT_UNCONFIRMED": {
+          "title": "Confirma primero la huella TLS del router",
+          "body": "Horus ya leyó el certificado del router, pero no lo leerá hasta que un administrador compare y confirme su huella SHA-256."
+        },
+        "ROUTER_TLS_FINGERPRINT_CHANGED": {
+          "title": "La huella TLS del router cambió",
+          "body": "El router presenta un certificado distinto del confirmado. Horus no lo lee hasta que un administrador revise la huella nueva y la vuelva a fijar."
+        }
+      }
     },
     "confirm": {
       "pending": "Sin confirmar",
@@ -3334,7 +3351,8 @@
       "noSample": "Sin muestra todavía",
       "sparkline": "Bajada por {name} en la última hora",
       "open": "Abrir la ficha de {name}",
-      "signals": "Señales"
+      "signals": "Señales",
+      "lastFlow": "último flujo"
     },
     "wall": "Mural",
     "exitWall": "Salir del mural",
@@ -3829,7 +3847,9 @@
       "removed": "Configuración quitada: el enlace vuelve a solo detección",
       "labelRequired": "Escriba un nombre",
       "capacityInvalid": "Capacidad no válida",
-      "unknownSpeed": "desconocida"
+      "unknownSpeed": "desconocida",
+      "validFrom": "Vigente desde",
+      "validFromHelp": "Si el upgrade ocurrió antes, indica la fecha (hasta 90 días atrás): los días desde entonces se recalculan con la capacidad nueva. Vacío = desde ahora."
     },
     "snippet": {
       "title": "Sondas netwatch · {router}",
@@ -3875,7 +3895,11 @@
       "targetInvalid": "Etiqueta e IPv4 obligatorias",
       "saved": "Ajustes guardados",
       "reset": "Volver a los valores por defecto",
-      "resetDone": "Ajustes por defecto"
+      "resetDone": "Ajustes por defecto",
+      "prefixes": "Prefijos locales (CIDR)",
+      "prefixesHelp": "Uno por línea: LAN de un IXP o cachés on-net (Google GGC, Netflix OCA, Meta FNA). El tráfico hacia ellos cuenta como local aunque su ASN no esté en la lista. Más específicos que /24 o /48 se cuentan por su /24 o /48.",
+      "prefixInvalid": "Prefijos no válidos: {list}",
+      "prefixWarningsTitle": "Revisa la lista de prefijos locales ({n})"
     },
     "traffic": {
       "title": "Tráfico local vs internacional",
@@ -3890,12 +3914,13 @@
       "bySite": "Reparto por nodo",
       "site": "Nodo",
       "volume": "Volumen",
-      "basis": "País: {country} ({source}) · {n} ASN en la lista local.",
+      "basis": "País: {country} ({source}) · {n} ASN y {p} prefijos en la lista local.",
       "source": {
         "settings": "ajustes de capacidad",
         "tenant": "país del ISP",
         "none": "sin país: solo cuenta la lista local"
-      }
+      },
+      "byPrefix": "prefijos locales {v}"
     },
     "chart": {
       "rx": "Pico p95 de entrada",
@@ -3907,7 +3932,8 @@
       "planning": "Planificar {pct}",
       "urgent": "Urgente {pct}",
       "projectionTable": "{chart}: proyección semanal",
-      "label": "Pico diario de {name} frente a la capacidad, {days} días y proyección a 12 meses"
+      "label": "Pico diario de {name} frente a la capacidad, {days} días y proyección a 12 meses",
+      "capacityHistory": "Capacidad vigente"
     },
     "detail": {
       "title": "Enlace de subida",
@@ -3942,6 +3968,14 @@
       "lossTitle": "Pérdida hacia {target} (por hora)",
       "rttTitle": "Latencia y jitter hacia {target} (por hora)",
       "threshold": "Aviso {v}"
+    },
+    "history": {
+      "title": "Historial de capacidad contratada",
+      "hint": "Cada día se mide contra la capacidad vigente entonces: un upgrade no rebaja la utilización pasada. El pronóstico usa la capacidad actual.",
+      "since": "desde el {from}",
+      "range": "del {from} al {to}",
+      "portSpeed": "Sin contratada (velocidad del puerto)",
+      "empty": "Sin capacidad contratada configurada: se mide contra la velocidad del puerto."
     }
   },
   "sso": {
@@ -3990,5 +4024,48 @@
     "secretTitle": "Trátalo como una contraseña",
     "secretBody": "Sirve una sola vez y caduca en 15 minutos. Si lo compartiste por error, genera otro en Horus: el anterior deja de valer.",
     "home": "Ir a Horus Flow"
+  },
+  "tlsPin": {
+    "title": "Huella TLS de la API",
+    "body": "Horus solo lee el router por su API REST si la huella SHA-256 de su certificado está confirmada. Así nadie puede hacerse pasar por el router y recibir la contraseña de solo lectura.",
+    "status": {
+      "not_captured": "Sin leer",
+      "pending_confirmation": "Pendiente de confirmar",
+      "confirmed": "Confirmada",
+      "changed": "Cambió"
+    },
+    "pinned": "Huella confirmada (SHA-256)",
+    "observed": "Huella leída del router (SHA-256)",
+    "observedNew": "Huella nueva que presenta el router (SHA-256)",
+    "observedAt": "leída",
+    "confirmedAt": "confirmada",
+    "notCaptured": "Aún no se ha leído el certificado del router. «Leer huella» solo hace el saludo TLS: no envía la contraseña.",
+    "needsTunnel": "Disponible cuando el router tenga túnel con Horus.",
+    "howToCompare": "Compárala con la del router antes de confirmar: en RouterOS, /certificate print detail (fingerprint del certificado de www-ssl).",
+    "capture": "Leer huella",
+    "recapture": "Volver a leer",
+    "confirm": "Confirmar huella",
+    "repin": "Fijar la huella nueva",
+    "confirmDescription": "Confirma solo si coincide con la que muestra el router. Queda registrado en la auditoría.",
+    "confirmSubmit": "Confirmar huella",
+    "repinWarning": "Sustituye a la huella confirmada {previous}. Si no esperabas un cambio de certificado (p. ej. no regeneraste el de www-ssl), no la fijes y revisa el túnel.",
+    "confirmed": "Huella TLS confirmada",
+    "mismatch": "La huella del router cambió mientras confirmabas: revisa la nueva antes de confirmar.",
+    "unreachable": "Horus no pudo hacer el saludo TLS con el router por el túnel.",
+    "reauth": "Confirma tu identidad para fijar la huella TLS del router.",
+    "reauthCancelled": "Sin confirmar tu identidad la huella no se fija.",
+    "noPermission": "Un administrador con permiso de credenciales debe confirmar la huella.",
+    "changedBody": "Horus dejó de leer el router (sondas netwatch e importación) hasta que un administrador revise y fije la huella nueva. Nunca se acepta sola.",
+    "review": "Revisar huella",
+    "banner": {
+      "pending_confirmation": {
+        "title": "Huella TLS pendiente de confirmar",
+        "body": "Horus no lee el router por su API hasta que un administrador confirme la huella de su certificado."
+      },
+      "changed": {
+        "title": "La huella TLS del router cambió",
+        "body": "El router presenta un certificado distinto del confirmado: las lecturas por la API están detenidas."
+      }
+    }
   }
 }

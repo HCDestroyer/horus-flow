@@ -43,6 +43,11 @@ const option = computed<ChartOption>(() => {
   const ts = (points: TimeSeries['points']) => points.map(([at, v]) => [new Date(at).getTime(), v])
   const [rx, tx] = series.value.history
   const [proj, low, high] = series.value.projection
+  // Capacidad vigente cada día (escalón): un upgrade se ve donde ocurrió.
+  const capSteps = props.daily
+    .filter((d) => d.capacity_bps > 0)
+    .map((d) => [new Date(d.day).getTime(), d.capacity_bps])
+  const capChanged = new Set(capSteps.map(([, v]) => v)).size > 1
   const cap = props.capacityBps
   const marks = cap
     ? [
@@ -104,6 +109,20 @@ const option = computed<ChartOption>(() => {
       splitLine: { lineStyle: { color: ink.grid, width: 1 } },
     },
     series: [
+      ...(capChanged
+        ? [
+            {
+              type: 'line' as const,
+              name: t('capacity.chart.capacityHistory'),
+              data: capSteps,
+              step: 'end' as const,
+              showSymbol: false,
+              silent: true,
+              lineStyle: { width: 1, type: 'dashed' as const, color: ink.axis },
+              itemStyle: { color: ink.axis },
+            },
+          ]
+        : []),
       {
         type: 'line',
         name: rx?.name,

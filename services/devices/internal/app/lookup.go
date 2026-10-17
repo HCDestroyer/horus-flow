@@ -14,6 +14,8 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/apperr"
 	"github.com/hcdestroyer/horus-flow/packages/go/pgdb"
 	consumptionapi "github.com/hcdestroyer/horus-flow/services/analytics/api/consumption"
+	"github.com/hcdestroyer/horus-flow/services/analytics/api/servingrouter"
+	"github.com/hcdestroyer/horus-flow/services/collector/api/lastflow"
 	findingsapi "github.com/hcdestroyer/horus-flow/services/detection/api/customerfindings"
 	secstatesapi "github.com/hcdestroyer/horus-flow/services/detection/api/securitystates"
 	"github.com/hcdestroyer/horus-flow/services/devices/internal/domain"
@@ -41,6 +43,12 @@ type Readers struct {
 	// Site y PrimaryRouter leen el inventario propio (nombre del nodo y su router principal).
 	Site          func(ctx context.Context, t pgdb.TenantID, id uuid.UUID) (*domain.Site, error)
 	PrimaryRouter func(ctx context.Context, t pgdb.TenantID, site uuid.UUID) (*domain.Router, error)
+	// Router lee un router del inventario (el que sirve al cliente).
+	Router func(ctx context.Context, t pgdb.TenantID, id uuid.UUID) (*domain.Router, error)
+	// ServingRouter: router de los flujos más recientes del cliente (analytics).
+	ServingRouter func() (servingrouter.Reader, bool)
+	// LastFlow: último flujo de cada exportador (estado del collector, rol ingester).
+	LastFlow func() (lastflow.Reader, bool)
 }
 
 // Bloques de la consulta 360.
@@ -74,12 +82,27 @@ type Omitted struct {
 	Reason  string `json:"reason"`
 }
 
-// RouterHealth es el router principal del nodo del cliente.
+// Origen del router de la consulta 360.
+const (
+	// RouterSourceFlows: el router de los flujos más recientes del cliente.
+	RouterSourceFlows = "flows"
+	// RouterSourcePrimary: sin flujos recientes del cliente (o analítica no
+	// disponible): el router principal de su nodo.
+	RouterSourcePrimary = "primary_router"
+)
+
+// RouterHealth es el router que lleva el tráfico del cliente (o, si no se
+// sabe, el principal de su nodo; Source lo indica).
 type RouterHealth struct {
 	ID     uuid.UUID
+	SiteID uuid.UUID
 	Name   string
 	Status string
 	Since  *time.Time
+	Source string
+	// CustomerLastFlowAt es el flujo más reciente del cliente por ese router
+	// (solo con Source = flows).
+	CustomerLastFlowAt *time.Time
 }
 
 // Health es el bloque health.
@@ -236,28 +259,30 @@ func (s *Integrations) IPLookup(ctx context.Context, in IPLookupInput) (*IPLooku
 	default:
 		h := &Health{LastSeenMinutes: max(0, int(now.Sub(c.LastSeen).Minutes()))}
 		res.Health = h
-		var primary *domain.Router
-		if s.Readers.PrimaryRouter != nil {
-			primary, _ = s.Readers.PrimaryRouter(ctx, t, c.SiteID)
-		}
-		if primary == nil {
+		h.Router = s.healthRouter(ctx, t, c, at)
+		if h.Router == nil {
 			break
 		}
-		name := primary.Hostname
-		if primary.DisplayName != nil && *primary.DisplayName != "" {
-			name = *primary.DisplayName
-		}
-		h.Router = &RouterHealth{ID: primary.ID, Name: name, Status: "unknown"}
 		if r, ok := lookupReader(s.Readers.Routers); ok {
-			if list, _, err := r.List(ctx, t.UUID(), []uuid.UUID{c.SiteID}); err == nil {
+			if list, _, err := r.List(ctx, t.UUID(), []uuid.UUID{h.Router.SiteID}); err == nil {
 				for _, st := range list {
-					if st.RouterID == primary.ID {
-						h.Router.Status, h.Router.Since, h.ExporterStatus = st.Status, st.Since, st.Signals.Exporter
+					if st.RouterID == h.Router.ID {
+						h.Router.Status, h.Router.Since, h.ExporterStatus, h.LastFlowAt = st.Status, st.Since, st.Signals.Exporter, st.LastFlowAt
 						if st.Name != "" {
 							h.Router.Name = st.Name
 						}
 					}
 				}
+			}
+		}
+		// Último flujo del exportador: el estado del collector (más fresco que el último sondeo SNMP).
+		if r, ok := lookupReader(s.Readers.LastFlow); ok {
+			if m, err := r.LastFlowAt(ctx, t.UUID(), []uuid.UUID{h.Router.ID}); err == nil {
+				if v, ok := m[h.Router.ID]; ok {
+					h.LastFlowAt = &v
+				}
+			} else {
+				s.logger.WarnContext(ctx, "ip lookup: last flow unavailable", "error", err)
 			}
 		}
 	}
@@ -290,6 +315,41 @@ func (s *Integrations) IPLookup(ctx context.Context, in IPLookupInput) (*IPLooku
 	}
 	s.record(ctx, t, "integrations.ip_lookup", "customer", c.ID.String(), audit)
 	return res, nil
+}
+
+func routerName(r *domain.Router) string {
+	if r.DisplayName != nil && *r.DisplayName != "" {
+		return *r.DisplayName
+	}
+	return r.Hostname
+}
+
+// healthRouter elige el router que lleva el tráfico del cliente: el de sus
+// flujos más recientes (hasta 24 h antes de at); si no hay, la analítica no
+// está o el router ya no existe, el principal de su nodo con
+// Source = primary_router.
+func (s *Integrations) healthRouter(ctx context.Context, t pgdb.TenantID, c domain.Customer, at time.Time) *RouterHealth {
+	if r, ok := lookupReader(s.Readers.ServingRouter); ok && s.Readers.Router != nil {
+		sv, err := r.ServingRouter(ctx, t.UUID(), servingrouter.Query{SiteID: c.SiteID, RealmID: c.RealmID, Prefix: c.Address, At: at})
+		switch {
+		case err != nil:
+			s.logger.WarnContext(ctx, "ip lookup: serving router unavailable (primary router used)", "error", err)
+		case sv != nil:
+			if rt, err := s.Readers.Router(ctx, t, sv.RouterID); err == nil && rt != nil {
+				last := sv.LastFlowAt
+				return &RouterHealth{ID: rt.ID, SiteID: rt.SiteID, Name: routerName(rt), Status: "unknown", Source: RouterSourceFlows,
+					CustomerLastFlowAt: &last}
+			}
+		}
+	}
+	if s.Readers.PrimaryRouter == nil {
+		return nil
+	}
+	primary, _ := s.Readers.PrimaryRouter(ctx, t, c.SiteID)
+	if primary == nil {
+		return nil
+	}
+	return &RouterHealth{ID: primary.ID, SiteID: primary.SiteID, Name: routerName(primary), Status: "unknown", Source: RouterSourcePrimary}
 }
 
 // primaryOf elige, entre las identidades de un mismo servicio (IPv4 y

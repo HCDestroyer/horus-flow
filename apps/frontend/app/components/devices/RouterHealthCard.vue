@@ -218,6 +218,9 @@ const sparkSeries = computed(() =>
           >{{ t('routersHealth.card.rtt') }}
           <span class="text-highlighted">{{ formatMs(d.icmp_rtt_ms) }}</span></span
         >
+        <span v-if="row.last_flow_at" data-testid="router-card-last-flow">
+          <RelativeTime :at="row.last_flow_at" :prefix="t('routersHealth.card.lastFlow')" />
+        </span>
         <span v-if="row.interfaces_up !== null && row.interfaces_total !== null">
           {{
             t('routersHealth.card.interfaces', {

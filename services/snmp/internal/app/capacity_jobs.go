@@ -454,7 +454,16 @@ func (c *Capacity) dailyTenant(ctx context.Context, s CapacitySeries, tenant uui
 		return err
 	}
 	first := today.AddDate(0, 0, -backfillDays)
-	need := func(id uuid.UUID, day time.Time) bool { l, ok := last[id]; return !ok || l.Before(day) }
+	// Días ya calculados con una capacidad que no es la vigente entonces (un cambio fechado en el
+	// pasado): se recalculan con la historia (autocurativo: no depende de quién hizo el cambio).
+	stale, err := c.staleDays(ctx, s, tenant, ups, egress, egressID, first, today, loc)
+	if err != nil {
+		return err
+	}
+	need := func(id uuid.UUID, day time.Time) bool {
+		l, ok := last[id]
+		return !ok || l.Before(day) || stale[id][day]
+	}
 	// Primer día pendiente de algún sujeto (como mucho 90 días atrás: lo que guarda interface_5m).
 	start := today
 	subjects := slices.Clone(ifaces)
@@ -469,9 +478,17 @@ func (c *Capacity) dailyTenant(ctx context.Context, s CapacitySeries, tenant uui
 		if cand.Before(start) {
 			start = cand
 		}
+		for d := range stale[id] {
+			if d.Before(start) {
+				start = d
+			}
+		}
 	}
 	meta := map[uuid.UUID]clickhouse.IfaceMeta{}
 	for day := start; day.Before(today); day = day.AddDate(0, 0, 1) {
+		if !slices.ContainsFunc(subjects, func(id uuid.UUID) bool { return need(id, day) }) {
+			continue // nada que calcular ese día (p. ej. entre días recalculados)
+		}
 		from, to := dayBounds(day, loc)
 		buckets, m, err := s.Buckets(ctx, tenant, ifaces, from, to)
 		if err != nil {
@@ -482,11 +499,11 @@ func (c *Capacity) dailyTenant(ctx context.Context, s CapacitySeries, tenant uui
 		}
 		var rows []clickhouse.DailyRow
 		var eb [][]domain.Bucket5m
-		var ecap int64
+		var ecap []domain.CapacityFunc
 		for _, u := range ups {
-			capBps := capacityWithMeta(u, meta[u.InterfaceID])
+			capAt := u.capacityAt(meta[u.InterfaceID].SpeedBps)
 			if need(u.InterfaceID, day) {
-				if d, ok := domain.ComputeDaily(day, buckets[u.InterfaceID], capBps, st.SaturationWarning, st.SaturationCritical); ok {
+				if d, ok := domain.ComputeDailyAt(day, buckets[u.InterfaceID], capAt, to, st.SaturationWarning, st.SaturationCritical); ok {
 					siteID := u.SiteID
 					if siteID == uuid.Nil {
 						siteID = meta[u.InterfaceID].SiteID
@@ -497,11 +514,12 @@ func (c *Capacity) dailyTenant(ctx context.Context, s CapacitySeries, tenant uui
 			}
 			if u.Config != nil && u.Config.InternationalEgress {
 				eb = append(eb, buckets[u.InterfaceID])
-				ecap += capBps
+				ecap = append(ecap, capAt)
 			}
 		}
 		if len(egress) > 0 && need(egressID, day) {
-			if d, ok := domain.ComputeDaily(day, domain.SumBuckets(eb), ecap, st.SaturationWarning, st.SaturationCritical); ok {
+			if d, ok := domain.ComputeDailyAt(day, domain.SumBuckets(eb), domain.SumCapacity(ecap), to, st.SaturationWarning,
+				st.SaturationCritical); ok {
 				rows = append(rows, clickhouse.DailyRow{SubjectID: egressID, SubjectKind: domain.SubjectInternationalEgress, Stats: d})
 			}
 		}
@@ -510,6 +528,50 @@ func (c *Capacity) dailyTenant(ctx context.Context, s CapacitySeries, tenant uui
 		}
 	}
 	return c.forecastTenant(ctx, s, tenant, ups, egress, meta, today, now, st)
+}
+
+// staleDays devuelve, por sujeto, los días ya guardados en uplink_daily cuya
+// capacidad no es la contratada vigente ese día según la historia (solo
+// enlaces con historia y días con capacidad contratada conocida).
+func (c *Capacity) staleDays(ctx context.Context, s CapacitySeries, tenant uuid.UUID, ups, egress []*uplinkRef, egressID uuid.UUID,
+	first, today time.Time, loc *time.Location) (map[uuid.UUID]map[time.Time]bool, error) {
+	out := map[uuid.UUID]map[time.Time]bool{}
+	var ids []uuid.UUID
+	for _, u := range ups {
+		if len(u.History) > 0 {
+			ids = append(ids, u.InterfaceID)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	stored, err := s.DailySeries(ctx, tenant, ids, first, today.AddDate(0, 0, -1))
+	if err != nil {
+		return nil, err
+	}
+	isEgress := map[uuid.UUID]bool{}
+	for _, u := range egress {
+		isEgress[u.InterfaceID] = true
+	}
+	for _, u := range ups {
+		for _, d := range stored[u.InterfaceID] {
+			_, end := dayBounds(d.Day, loc)
+			want, ok := domain.ContractedAt(u.History, end.Add(-time.Second))
+			if !ok || want == nil || *want == d.CapacityBps {
+				continue
+			}
+			for _, id := range []uuid.UUID{u.InterfaceID, egressID} {
+				if id == egressID && !isEgress[u.InterfaceID] {
+					continue
+				}
+				if out[id] == nil {
+					out[id] = map[time.Time]bool{}
+				}
+				out[id][d.Day] = true
+			}
+		}
+	}
+	return out, nil
 }
 
 func capacityWithMeta(u *uplinkRef, m clickhouse.IfaceMeta) int64 {

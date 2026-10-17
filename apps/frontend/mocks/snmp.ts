@@ -287,6 +287,7 @@ export function snmpRouters(
         profile === 'unknown' ? null : INTERFACES.filter((d) => d.oper === 'up').length,
       interfaces_total: profile === 'unknown' ? null : INTERFACES.length,
       thresholds,
+      last_flow_at: item.exporter.last_flow_at,
     }
     return { item, profile, status: status_, rx, tx, seed }
   })
@@ -772,6 +773,7 @@ export function routerStatusEvent(status: RouterStatus, now: Date): RealtimeEven
         interfaces_up: status.interfaces_up,
         interfaces_total: status.interfaces_total,
         thresholds: status.thresholds,
+        last_flow_at: status.last_flow_at,
       },
     },
   }

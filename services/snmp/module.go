@@ -45,6 +45,7 @@ import (
 	collectorapi "github.com/hcdestroyer/horus-flow/services/collector/api"
 	devapi "github.com/hcdestroyer/horus-flow/services/devices/api"
 	"github.com/hcdestroyer/horus-flow/services/snmp/api"
+	"github.com/hcdestroyer/horus-flow/services/snmp/api/capacityreport"
 	chadapter "github.com/hcdestroyer/horus-flow/services/snmp/internal/adapters/clickhouse"
 	"github.com/hcdestroyer/horus-flow/services/snmp/internal/adapters/httpapi"
 	"github.com/hcdestroyer/horus-flow/services/snmp/internal/adapters/icmp"
@@ -148,6 +149,10 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		if err := deps.Services.Provide(api.ServiceCapacity, api.CapacityReader(m.capacity)); err != nil {
 			return nil, err
 		}
+		// Sección de capacidad del reporte semanal (rol reporting).
+		if err := deps.Services.Provide(capacityreport.ServiceCapacityReport, capacityreport.Reader(m.capacity)); err != nil {
+			return nil, err
+		}
 	}
 	if deps.Routes != nil {
 		if v := verifier(cfg, deps); v != nil {
@@ -247,7 +252,18 @@ func (m *mod) setupCapacity() {
 		Probes: func() (devapi.RouterProbeReader, bool) {
 			return module.Lookup[devapi.RouterProbeReader](m.deps.Services, devapi.ServiceRouterProbes)
 		},
-		Tenants: tenantDirectory(m.deps.Services)}
+		Tenants: tenantDirectory(m.deps.Services),
+		ClientPrefixes: func(tenant uuid.UUID) []netip.Prefix {
+			var out []netip.Prefix
+			if s := m.inv.Load(); s != nil {
+				for _, p := range s.Data().Prefixes {
+					if p.TenantID == tenant && p.Role == flowinv.RoleCustomers {
+						out = append(out, p.Prefix)
+					}
+				}
+			}
+			return out
+		}}
 	if m.db != nil {
 		opts.Repo = pgstore.New(m.db)
 	}

@@ -39,6 +39,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/services/analytics/internal/adapters/chread"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
 	secapi "github.com/hcdestroyer/horus-flow/services/detection/api/securityreport"
+	capreport "github.com/hcdestroyer/horus-flow/services/snmp/api/capacityreport"
 )
 
 // Config del rol reporting (PostgreSQL y ClickHouse comunes con analytics).
@@ -131,6 +132,9 @@ func New(ctx context.Context, deps module.Deps) (module.Module, error) {
 		},
 		Alerts: func() (alertsapi.NotificationStats, bool) {
 			return module.Lookup[alertsapi.NotificationStats](deps.Services, alertsapi.ServiceNotificationStats)
+		},
+		Capacity: func() (capreport.Reader, bool) {
+			return module.Lookup[capreport.Reader](deps.Services, capreport.ServiceCapacityReport)
 		},
 		Metrics: func() Metrics {
 			if r := m.ch.Load(); r != nil {

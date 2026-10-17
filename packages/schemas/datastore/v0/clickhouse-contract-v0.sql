@@ -191,6 +191,26 @@ SELECT tenant_id, site_id, toStartOfFiveMinutes(ts) AS bucket, attribution_statu
 FROM flows.flows_raw
 GROUP BY tenant_id, site_id, bucket, attribution_status;
 
+-- Lista local por prefijos (capacidad, I3): volumen por red remota /24 (IPv4) o /48 (IPv6).
+CREATE TABLE flows.site_remote_net_1d
+(
+    tenant_id UUID, site_id UUID, bucket Date, remote_net IPv6, remote_asn UInt32,
+    direction Enum8('unknown' = 0, 'upload' = 1, 'download' = 2, 'internal' = 3),
+    bytes SimpleAggregateFunction(sum, UInt64)
+)
+ENGINE = AggregatingMergeTree PARTITION BY toYYYYMM(bucket)
+ORDER BY (tenant_id, site_id, bucket, remote_net, remote_asn, direction)
+TTL bucket + INTERVAL 90 DAY DELETE;
+
+CREATE MATERIALIZED VIEW flows.mv_site_remote_net_1d TO flows.site_remote_net_1d AS
+SELECT tenant_id, site_id, toDate(ts) AS bucket,
+       tupleElement(IPv6CIDRToRange(remote_ip,
+         if(remote_ip BETWEEN toIPv6('::ffff:0.0.0.0') AND toIPv6('::ffff:255.255.255.255'), 120, 48)), 1) AS remote_net,
+       remote_asn, direction, sum(bytes) AS bytes
+FROM flows.flows_raw
+WHERE direction IN ('download', 'upload') AND remote_ip != toIPv6('::')
+GROUP BY tenant_id, site_id, bucket, remote_net, remote_asn, direction;
+
 -- ---------------------------------------------------------------- señales de detección (D5, ADR-0024)
 CREATE TABLE flows.client_security_1m
 (

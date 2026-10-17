@@ -42,6 +42,7 @@ type row struct {
 	asn               uint32
 	remotePort        uint16
 	proto             uint8
+	router            uuid.UUID // vacío = el router del entorno
 }
 
 type env struct {
@@ -132,7 +133,11 @@ func (e *env) insert(rows []row) {
 		if !remote.IsValid() {
 			remote = netip.MustParseAddr("8.8.8.8")
 		}
-		if err := b.Append(e.tenant, r.ts, r.ts, r.ts, site, e.router, r.realm, r.status, r.direction,
+		router := r.router
+		if router == uuid.Nil {
+			router = e.router
+		}
+		if err := b.Append(e.tenant, r.ts, r.ts, r.ts, site, router, r.realm, r.status, r.direction,
 			netip.AddrFrom16(client.As16()), netip.AddrFrom16(remote.As16()), r.remotePort, r.proto, r.bytes, r.packets,
 			uint32(1), uint16(1), "ipfix", r.asn, r.service, r.category, uuid.New()); err != nil {
 			e.t.Fatal(err)

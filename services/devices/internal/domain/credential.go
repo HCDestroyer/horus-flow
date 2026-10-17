@@ -22,8 +22,14 @@ type Credential struct {
 	DEKWrapped           []byte
 	KEKID                string
 	TLSFingerprintSHA256 *string
-	LastUsedAt           *time.Time
-	LastResult           *string
-	UpdatedAt            time.Time
-	Version              int
+	// TLSPending es la huella observada a la espera de confirmación
+	// (primer contacto o distinta de la fijada); nunca se acepta sola.
+	TLSPending     *string
+	TLSPendingAt   *time.Time
+	TLSConfirmedAt *time.Time
+	TLSConfirmedBy *string
+	LastUsedAt     *time.Time
+	LastResult     *string
+	UpdatedAt      time.Time
+	Version        int
 }

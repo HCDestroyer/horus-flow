@@ -240,7 +240,8 @@ func (h *Integrations) ipLookup(w http.ResponseWriter, r *http.Request) {
 	if hl := res.Health; hl != nil {
 		var router any
 		if rt := hl.Router; rt != nil {
-			router = map[string]any{"id": rt.ID, "name": rt.Name, "status": rt.Status, "since": tsPtr(rt.Since)}
+			router = map[string]any{"id": rt.ID, "name": rt.Name, "status": rt.Status, "since": tsPtr(rt.Since), "source": rt.Source,
+				"customer_last_flow_at": tsPtr(rt.CustomerLastFlowAt)}
 		}
 		out["health"] = map[string]any{"router": router, "exporter": map[string]any{"status": hl.ExporterStatus, "last_flow_at": tsPtr(hl.LastFlowAt)},
 			"last_seen_minutes": hl.LastSeenMinutes}

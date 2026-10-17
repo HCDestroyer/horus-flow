@@ -20,8 +20,9 @@ métricas y eventos publicados/consumidos cuando el módulo tenga implementació
   espera exponencial hasta 15 min; nunca bloquea la ingesta ni la detección.
 - **Consulta 360** (`POST /integrations/ip-lookup`, por IP o por `external_service_id`), **consumo por lotes**
   (`POST /integrations/consumption`) y **estado de seguridad por lotes** (`POST /integrations/security-states`)
-  sobre los contratos en proceso `analytics.Consumption`, `detection.CustomerFindings`, `detection.SecurityStates` y
-  `snmp.RouterStatus`.
+  sobre los contratos en proceso `analytics.Consumption`, `detection.CustomerFindings`, `detection.SecurityStates`,
+  `snmp.RouterStatus`, `analytics.ServingRouter` (router de los flujos más recientes del cliente; si no hay, el principal
+  con `source = primary_router`) y `flows.LastFlow` (último flujo del exportador).
 - **Multiempresa** (contrato 1.2.0): la identidad guarda la empresa del servicio (`external_company_id`,
   `company_name`, `company_nit`); un webhook de servicio con `empresa_id` la refresca.
 - **Enlace de conexión** (contrato §1.4, H10; `internal/app/connection.go`, `internal/adapters/argos/peer.go`):
@@ -53,10 +54,16 @@ métricas y eventos publicados/consumidos cuando el módulo tenga implementació
   y emitir las credenciales de solo lectura (SNMPv3 y usuario `horus` de la API) que el script muestra una vez; se guardan
   cifradas con envelope encryption (`HORUS_DEVICES_KEK_FILE`; efímera solo en dev) y AAD ligado a tenant, router y tipo.
 - `POST /routers/{id}/prefix-import-preview`: lee por REST (solo GET; `internal/adapters/routeros` rechaza cualquier otro método)
-  `/ip/pool`, `/ipv6/pool`, `/ppp/profile`, `/ipv6/dhcp-server` y direcciones de interfaz por el túnel, con huella TLS fijada en el
-  primer contacto (auditado); huella distinta → `409 ROUTER_TLS_FINGERPRINT_CHANGED` salvo confirmación explícita
-  (`accept_new_tls_fingerprint`, auditada); router caído → `502 ROUTER_UNREACHABLE`. Propone rol, modo y campos IPv6 de la
+  `/ip/pool`, `/ipv6/pool`, `/ppp/profile`, `/ipv6/dhcp-server` y direcciones de interfaz por el túnel, solo con la huella TLS
+  confirmada: sin confirmar → `409 ROUTER_TLS_FINGERPRINT_UNCONFIRMED` (la captura queda pendiente, sin enviar la contraseña);
+  distinta de la fijada → `409 ROUTER_TLS_FINGERPRINT_CHANGED` (queda pendiente); `accept_new_tls_fingerprint` está obsoleto y no
+  fija nada; router caído → `502 ROUTER_UNREACHABLE`. Propone rol, modo y campos IPv6 de la
   enmienda E-IPv6-1 sin aplicar nada. `POST /sites/{id}/client-prefixes/batch` crea la selección todo o nada.
+- Huella TLS del router (`internal/app/tlspin.go`, `internal/adapters/routeros/tlsprobe.go`): `GET /routers/{id}/tls-fingerprint`
+  (`devices.read`), `POST …/capture` (`devices.update`; solo el saludo TLS, deja la huella **pendiente**) y `POST …/confirm`
+  (`devices.credentials.write`, re-autenticación; debe coincidir con la pendiente, CAS en BD). Columnas `tls_fingerprint_pending*` y
+  `tls_fingerprint_confirmed_*` de `devices.credential`. Auditoría: `devices.router.tls_fingerprint_observed|changed|confirmed|repinned`.
+  Una huella distinta en segundo plano detiene las lecturas y avisa en la ficha; nunca se acepta sola.
 - Sondas netwatch para el rol `snmp` (capacidad de enlaces): `devapi.RouterProbeReader` (`devices.RouterProbes`, en
   proceso) lee `/tool/netwatch` con el mismo usuario de solo lectura, solo GET y **solo con la huella TLS ya fijada** (en
   segundo plano nunca se acepta una huella nueva); sin túnel, credencial o huella → `ErrRouterAPIUnavailable`.

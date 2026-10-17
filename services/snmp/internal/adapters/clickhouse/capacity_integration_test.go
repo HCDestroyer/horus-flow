@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"log/slog"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -167,5 +168,29 @@ func TestCapacitySeries(t *testing.T) {
 	}
 	if v, err := c.TrafficByCountry(ctx, tenantB, nil, nil, day, day.AddDate(0, 0, 1)); err != nil || len(v) != 0 {
 		t.Fatalf("B ve el tráfico de A: %v %d", err, len(v))
+	}
+
+	// Lista local por prefijos: 300 de los 700 de Cloudflare van a una caché on-net (198.51.100.0/24, valor de
+	// documentación) y 40 a la LAN IPv6 de un IXP; el resto no está en la lista.
+	mustExec(t, admin, `INSERT INTO flows.site_remote_net_1d (tenant_id, site_id, bucket, remote_net, remote_asn, direction, bytes)
+		SELECT ?, ?, toDate(?), toIPv6(net), asn, dir, b
+		FROM (SELECT arrayJoin([('::ffff:198.51.100.0', toUInt32(13335), 'download', toUInt64(300)),
+			('::ffff:203.0.113.0', toUInt32(13335), 'download', toUInt64(400)),
+			('2001:db8:7a00::', toUInt32(0), 'upload', toUInt64(40))]) AS t, t.1 AS net, t.2 AS asn, t.3 AS dir, t.4 AS b)`,
+		tenantA, site, day)
+	local := []netip.Prefix{netip.MustParsePrefix("198.51.100.64/26"), netip.MustParsePrefix("2001:db8:7a00::/48")}
+	moved, err := c.TrafficByLocalPrefix(ctx, tenantA, nil, []uint32{15169}, local, day, day.AddDate(0, 0, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range moved {
+		split.MoveToPrefix(v, "GT")
+	}
+	split.Finish()
+	if split.InternationalBytes != 400 || split.LocalByPrefix != 340 || split.UnknownBytes != 10 || split.LocalBytes != 640 {
+		t.Fatalf("reparto con prefijos locales: %+v (%+v)", split, moved)
+	}
+	if v, err := c.TrafficByLocalPrefix(ctx, tenantB, nil, nil, local, day, day.AddDate(0, 0, 1)); err != nil || len(v) != 0 {
+		t.Fatalf("B ve el tráfico de A por prefijo: %v %d", err, len(v))
 	}
 }

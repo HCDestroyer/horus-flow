@@ -68,6 +68,10 @@ const rttSeries = computed<TimeSeries[]>(() =>
       ]
     : [],
 )
+// Historial de la capacidad contratada (más reciente primero): cada día se mide contra la
+// capacidad vigente entonces.
+const history = computed(() => props.detail.capacity_history ?? [])
+const periodBps = (v: number | null) => (v == null ? t('capacity.history.portSpeed') : bps(v))
 const pctFmt = (v: number) => `${formatNumber(v, 1)} %`
 const msFmt = (v: number) => formatMs(v)
 </script>
@@ -211,6 +215,34 @@ const msFmt = (v: number) => formatMs(v)
           {{ t('capacity.detail.noDaily') }}
         </p>
       </div>
+    </UCard>
+
+    <UCard v-if="uplink" :ui="{ body: 'p-4 sm:p-4' }" data-testid="detail-capacity-history">
+      <h2 class="text-highlighted text-base font-semibold">{{ t('capacity.history.title') }}</h2>
+      <p class="text-muted mt-1 text-sm">{{ t('capacity.history.hint') }}</p>
+      <ul v-if="history.length" class="mt-3 flex flex-col gap-2">
+        <li
+          v-for="p in history"
+          :key="p.valid_from"
+          class="flex flex-wrap items-baseline justify-between gap-2 text-sm"
+          data-testid="capacity-period"
+        >
+          <span class="text-highlighted tabular font-semibold">{{
+            periodBps(p.contracted_bps)
+          }}</span>
+          <span class="text-muted tabular">
+            {{
+              p.valid_to
+                ? t('capacity.history.range', {
+                    from: formatDay(p.valid_from),
+                    to: formatDay(p.valid_to),
+                  })
+                : t('capacity.history.since', { from: formatDay(p.valid_from) })
+            }}
+          </span>
+        </li>
+      </ul>
+      <p v-else class="text-muted mt-3 text-sm">{{ t('capacity.history.empty') }}</p>
     </UCard>
 
     <div v-if="probe" class="grid gap-4 lg:grid-cols-2">

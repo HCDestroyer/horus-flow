@@ -158,6 +158,13 @@ func (c *Credentials) PutCredential(ctx context.Context, routerID uuid.UUID, kin
 		return nil, fmt.Errorf("devices: seal credential: %w", err)
 	}
 	now := c.now().UTC()
+	if fpChange == "set" {
+		// Fijarla a mano es la confirmación explícita del administrador.
+		cred.TLSConfirmedAt, cred.TLSConfirmedBy = &now, &p.Subject
+		if cred.TLSPending != nil && strings.EqualFold(*cred.TLSPending, *cred.TLSFingerprintSHA256) {
+			cred.TLSPending, cred.TLSPendingAt = nil, nil
+		}
+	}
 	cred.ID, cred.RouterID, cred.Kind = uuid.Must(uuid.NewV7()), routerID, dbKind
 	cred.Ciphertext, cred.DEKWrapped, cred.KEKID, cred.UpdatedAt, cred.Version = ct, dek, c.sealer.KEKID(), now, 1
 	if err := c.store.PutCredentials(ctx, t, routerID, []domain.Credential{cred}); err != nil {
@@ -215,7 +222,7 @@ func (c *Credentials) parse(ctx context.Context, t pgdb.TenantID, routerID uuid.
 		case fpSent && fp != nil:
 			cred.TLSFingerprintSHA256, change = fp, "set"
 		case fpSent:
-			change = "cleared" // null explícito: se vuelve a fijar en el primer contacto (TOFU)
+			change = "cleared" // null explícito: se vuelve a capturar en el primer contacto y un admin la confirma
 		default:
 			// Sin el campo se conserva la huella fijada: rotar la contraseña no
 			// cambia la identidad del router.
@@ -226,6 +233,11 @@ func (c *Credentials) parse(ctx context.Context, t pgdb.TenantID, routerID uuid.
 			if prev != nil && prev.TLSFingerprintSHA256 != nil {
 				fp := *prev.TLSFingerprintSHA256
 				cred.TLSFingerprintSHA256, change = &fp, "kept"
+				cred.TLSConfirmedAt, cred.TLSConfirmedBy = prev.TLSConfirmedAt, prev.TLSConfirmedBy
+			}
+			if prev != nil {
+				// Una huella observada pendiente de confirmar sigue pendiente.
+				cred.TLSPending, cred.TLSPendingAt = prev.TLSPending, prev.TLSPendingAt
 			}
 		}
 		return cred, []byte(pw), change, nil

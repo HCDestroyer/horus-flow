@@ -69,6 +69,9 @@ Paquete `services/analytics/reporting` (el rol vive en este módulo: mismo esque
   clientes y contactos con listas de reputación (contrato en proceso
   `services/detection/api/securityreport`); disponibilidad ICMP/SNMP por router (`snmp.device_1h` +
   `dim.router`/`dim.site`); bajada/subida frente al periodo anterior y por día local (`flows.site_1h`);
+  capacidad de enlaces por nodo (p95 del periodo contra la capacidad vigente cada día, horas sobre
+  70 / 85 %, pérdida, latencia, pronóstico y recomendación, salida internacional y reparto local /
+  internacional; contrato en proceso `services/snmp/api/capacityreport`, sin datos personales);
   avisos enviados por canal y evento (`services/alerts/api` `NotificationStats`). Una fuente que no
   está en el proceso o falla deja su sección con una nota (nunca ceros).
 - **Formatos:** PDF A4 imprimible (go-pdf/fpdf, Helvetica estándar en cp1252, identidad Horus en
@@ -97,3 +100,8 @@ solo API), `HORUS_REPORTS_QUERY_TIMEOUT` (60s), `HORUS_CLICKHOUSE_DSN`,
 `HORUS_REPORTING_PDF_OUT=/tmp/muestra.pdf go test -run TestRenderPDF ./services/analytics/reporting/`.
 Tests de integración: `go test -tags integration ./services/analytics/reporting/` (PostgreSQL y ClickHouse
 con Docker o `HORUS_TEST_POSTGRES_DSN` / `HORUS_CH_TEST_DSN`).
+
+## Contratos en proceso que provee (además de los de I1)
+
+- `analytics.ServingRouter` (`api/servingrouter`): router de los flujos más recientes de un cliente en `flows.flows_raw`
+  (filtro por todo el prefijo de la clave de ordenación y 24 h antes de `at`). Lo usa la consulta 360 de devices.

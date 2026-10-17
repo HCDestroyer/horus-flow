@@ -856,7 +856,7 @@ components:
         interface_name: { type: [string, 'null'] }
     RouterStatus:
       type: object
-      required: [router_id, site_id, name, site_name, status, observed_state, reason, since, last_observed_at, signals, device, uplink, interfaces_up, interfaces_total, thresholds]
+      required: [router_id, site_id, name, site_name, status, observed_state, reason, since, last_observed_at, signals, device, uplink, interfaces_up, interfaces_total, thresholds, last_flow_at]
       properties:
         router_id: { $ref: './common.yaml#/components/schemas/Uuid' }
         site_id: { $ref: './common.yaml#/components/schemas/Uuid' }
@@ -889,6 +889,11 @@ components:
         interfaces_up: { type: [integer, 'null'] }
         interfaces_total: { type: [integer, 'null'] }
         thresholds: { type: array, items: { $ref: '#/components/schemas/RouterThresholdHit' } }
+        last_flow_at:
+          description: Último flujo recibido del exportador de flujos del router (estado del collector leído en el último sondeo; null = nunca).
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
     PollerHealth:
       type: object
       required: [healthy, last_cycle_at, interval_seconds, targets]
@@ -1401,7 +1406,7 @@ components:
     CapacitySettingsValues:
       type: object
       required: [country, planning_threshold, urgent_threshold, lead_days, saturation_warning, saturation_critical, sustained_minutes,
-        loss_warning_pct, loss_critical_pct, latency_warning_ms, latency_critical_ms, local_asns, probe_targets]
+        loss_warning_pct, loss_critical_pct, latency_warning_ms, latency_critical_ms, local_asns, local_prefixes, probe_targets]
       additionalProperties: false
       properties:
         country: { type: [string, 'null'], pattern: '^[A-Za-z]{2}$', description: ISO 3166-1 alfa-2; null = el país del ISP. }
@@ -1416,13 +1421,32 @@ components:
         latency_warning_ms: { type: number, exclusiveMinimum: 0 }
         latency_critical_ms: { type: number, exclusiveMinimum: 0, maximum: 10000 }
         local_asns: { type: array, maxItems: 200, items: { type: integer, minimum: 1, maximum: 4294967295 } }
+        local_prefixes:
+          type: array
+          maxItems: 200
+          description: |
+            Prefijos CIDR IPv4/IPv6 que cuentan como tráfico local aunque su ASN no esté en la lista (LAN de un IXP,
+            cachés on-net). Se normalizan (red, sin duplicados); como mínimo /8 en IPv4 y /16 en IPv6. Un prefijo más
+            específico que /24 (IPv4) o /48 (IPv6) se cuenta por su /24 o /48 completo (aviso en `local_prefix_warnings`).
+          items: { type: string, examples: ['198.51.100.0/24', '2001:db8:7a00::/48'] }
         probe_targets: { type: array, maxItems: 10, items: { $ref: '#/components/schemas/CapacityProbeTarget' } }
     CapacitySettings:
       allOf:
         - $ref: '#/components/schemas/CapacitySettingsValues'
         - type: object
-          required: [defaults, customized, version, updated_at, tenant_country, effective_country]
+          required: [defaults, customized, version, updated_at, tenant_country, effective_country, local_prefix_warnings]
           properties:
+            local_prefix_warnings:
+              type: array
+              description: Avisos sobre la lista local por prefijos (no impiden guardar).
+              items:
+                type: object
+                required: [prefix, code, client_prefix, detail]
+                properties:
+                  prefix: { type: string }
+                  code: { type: string, enum: [overlaps_client_prefix, counted_as_aggregate] }
+                  client_prefix: { type: [string, 'null'], description: Prefijo de clientes con el que se solapa. }
+                  detail: { type: string }
             defaults: { $ref: '#/components/schemas/CapacitySettingsValues' }
             customized: { type: boolean }
             version: { type: integer, minimum: 0 }
@@ -1456,7 +1480,7 @@ components:
         tx_p95_bps: { type: number }
         rx_max_bps: { type: number }
         tx_max_bps: { type: number }
-        capacity_bps: { type: integer }
+        capacity_bps: { type: integer, description: 'Capacidad vigente ese día (contratada según su historia, o velocidad del puerto); la utilización y las horas sobre umbral del día se miden contra ella.' }
         hours_above_warning: { type: number }
         hours_above_critical: { type: number }
         errors: { type: integer }
@@ -1481,7 +1505,8 @@ components:
               jitter_ms: { type: [number, 'null'] }
     CapacitySubjectDetail:
       type: object
-      required: [subject_id, subject_kind, uplink, egress, days, daily, forecast, recommendation, computed_at, probe_series, settings]
+      required: [subject_id, subject_kind, uplink, egress, days, daily, forecast, recommendation, computed_at, probe_series, settings,
+        capacity_history]
       properties:
         subject_id: { $ref: './common.yaml#/components/schemas/Uuid' }
         subject_kind: { type: string, enum: [uplink, international_egress] }
@@ -1494,6 +1519,17 @@ components:
         computed_at: { $ref: '#/components/schemas/NullableTimestamp' }
         probe_series: { type: array, items: { $ref: '#/components/schemas/ProbeSeries' } }
         settings: { $ref: '#/components/schemas/CapacitySettingsValues' }
+        capacity_history:
+          type: array
+          description: Capacidad contratada del enlace con su vigencia, la más reciente primero (vacía en la salida internacional).
+          items: { $ref: '#/components/schemas/CapacityPeriod' }
+    CapacityPeriod:
+      type: object
+      required: [valid_from, valid_to, contracted_bps]
+      properties:
+        valid_from: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        valid_to: { $ref: '#/components/schemas/NullableTimestamp' }
+        contracted_bps: { type: [integer, 'null'], description: 'bits/s; null = sin capacidad contratada (se mide contra la velocidad del puerto).' }
     UplinkConfigInput:
       type: object
       required: [router_id, label, kind]
@@ -1505,6 +1541,12 @@ components:
         kind: { $ref: '#/components/schemas/UplinkKind' }
         contracted_bps: { type: [integer, 'null'], minimum: 1000000, maximum: 1600000000000, description: bits/s. }
         international_egress: { type: [boolean, 'null'], description: 'Forma parte de la salida internacional agregada (por defecto: kind = international_transit).' }
+        capacity_valid_from:
+          type: [string, 'null']
+          format: date-time
+          description: |
+            Desde cuándo rige un cambio de `contracted_bps` (por defecto, ahora). Hasta 90 días atrás y nunca antes del cambio
+            anterior (`422`); los picos diarios afectados se recalculan con la capacidad de cada día. Sin cambio de capacidad se ignora.
     UplinkConfig:
       type: object
       required: [interface_id, router_id, label, provider, kind, contracted_bps, international_egress, updated_at, version]
@@ -1520,18 +1562,20 @@ components:
         version: { type: integer }
     TrafficSplit:
       type: object
-      required: [local_bytes, local_by_country_bytes, local_by_list_bytes, international_bytes, unknown_bytes, international_share, local_share]
+      required: [local_bytes, local_by_country_bytes, local_by_list_bytes, local_by_prefix_bytes, international_bytes, unknown_bytes,
+        international_share, local_share]
       properties:
         local_bytes: { type: integer }
         local_by_country_bytes: { type: integer }
         local_by_list_bytes: { type: integer }
+        local_by_prefix_bytes: { type: integer, description: Hacia la lista local por prefijos (manda sobre la clasificación por ASN). }
         international_bytes: { type: integer }
         unknown_bytes: { type: integer }
         international_share: { type: [number, 'null'], description: Sobre lo clasificado (sin desconocido). }
         local_share: { type: [number, 'null'] }
     TrafficSplitReport:
       type: object
-      required: [from, to, days, country, country_source, local_asns, total, sites, daily]
+      required: [from, to, days, country, country_source, local_asns, local_prefixes, total, sites, daily]
       properties:
         from: { $ref: './common.yaml#/components/schemas/Timestamp' }
         to: { $ref: './common.yaml#/components/schemas/Timestamp' }
@@ -1539,6 +1583,7 @@ components:
         country: { type: [string, 'null'] }
         country_source: { type: string, enum: [settings, tenant, none] }
         local_asns: { type: integer, description: Cuántos ASN tiene la lista local. }
+        local_prefixes: { type: integer, description: Cuántos prefijos tiene la lista local. }
         total: { $ref: '#/components/schemas/TrafficSplit' }
         sites:
           type: array
