@@ -58,6 +58,35 @@ const company = computed(() => {
     nit: period?.company_nit ?? null,
   }
 })
+// "Ver en ArgosISP" (contrato §1.5): el servidor de Horus pide el ticket a ArgosISP y devuelve
+// una URL de un uso (60 s) que se abre en otra pestaña; ArgosISP aplica su propio ACL.
+const opening = ref(false)
+async function openInArgos() {
+  opening.value = true
+  // La pestaña se abre en el clic (sin bloqueador de ventanas) y luego recibe la URL.
+  const win = window.open('', '_blank')
+  try {
+    const res = await unwrap(
+      $api.POST('/integrations/argosisp/sso/open', { body: { customer_id: props.customerId } }),
+    )
+    if (!isSafeArgosEntryUrl(res.url)) throw new Error('URL de ArgosISP no válida')
+    if (win) {
+      win.opener = null
+      win.location.href = res.url
+    } else {
+      window.open(res.url, '_blank', 'noopener,noreferrer')
+    }
+  } catch (e) {
+    win?.close()
+    toast.add({
+      title: t('clients.external.openFailed'),
+      description: e instanceof ApiError ? (e.problem.detail ?? undefined) : undefined,
+      color: 'error',
+    })
+  } finally {
+    opening.value = false
+  }
+}
 const STATE_COLOR: Record<string, 'success' | 'warning' | 'error' | 'neutral'> = {
   activo: 'success',
   limitado: 'warning',
@@ -83,17 +112,30 @@ const STATE_COLOR: Record<string, 'success' | 'warning' | 'error' | 'neutral'> =
             }}
           </p>
         </div>
-        <UButton
-          v-if="data.connector_enabled && can('customers.update')"
-          size="sm"
-          color="neutral"
-          variant="outline"
-          icon="i-lucide-refresh-cw"
-          :loading="updating"
-          :label="t('clients.external.update')"
-          data-testid="client-external-refresh"
-          @click="update"
-        />
+        <div class="flex flex-wrap gap-2">
+          <UButton
+            v-if="data.connector_enabled && data.current?.service_id && can('customers.read')"
+            size="sm"
+            color="neutral"
+            variant="outline"
+            icon="i-lucide-external-link"
+            :loading="opening"
+            :label="t('clients.external.openInArgos')"
+            data-testid="client-external-open"
+            @click="openInArgos"
+          />
+          <UButton
+            v-if="data.connector_enabled && can('customers.update')"
+            size="sm"
+            color="neutral"
+            variant="outline"
+            icon="i-lucide-refresh-cw"
+            :loading="updating"
+            :label="t('clients.external.update')"
+            data-testid="client-external-refresh"
+            @click="update"
+          />
+        </div>
       </div>
       <dl
         v-if="data.current"

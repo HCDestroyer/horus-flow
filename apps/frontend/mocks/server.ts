@@ -23,6 +23,7 @@ import { mockState } from './state'
 import { tenantRoute } from './tenant-routes'
 import { createTenant, restoreTenants } from './tenants'
 import { remoteStorageComponent, restoreRemoteDestinations } from './remote-destinations'
+import { createLink, deleteMyLink, myLinks, redeemTicket, tenantSsoLinksRoute } from './sso'
 import { restoreWireguard } from './wireguard'
 import { widgetData } from './widget-data'
 
@@ -285,18 +286,64 @@ export function createMockFetch(options: MockOptions = {}) {
     return json(user.me)
   }
 
-  function issue(user: MockUser, scope: TokenRecord['scope'], tenantId?: string) {
+  function issueBody(
+    user: MockUser,
+    scope: TokenRecord['scope'],
+    tenantId?: string,
+  ): AccessTokenResponse {
     const token = `mock.${scope}.${randomHex(24)}`
     const expires = now().getTime() + ttl
     tokens.set(token, { userId: user.me.id, scope, tenantId, expires })
-    const body: AccessTokenResponse = {
+    return {
       access_token: token,
       token_type: 'Bearer',
       expires_at: new Date(expires).toISOString(),
       scope,
       tenant_id: tenantId ?? null,
     }
-    return json(body)
+  }
+
+  function issue(user: MockUser, scope: TokenRecord['scope'], tenantId?: string) {
+    return json(issueBody(user, scope, tenantId))
+  }
+
+  /**
+   * `POST /integrations/argosisp/sso/redeem` (contrato ArgosISP §1.5): un uso; con vinculación
+   * abre la sesión del usuario (con su 2FA); sin ella, `link_required`.
+   */
+  function ssoRedeem(req: Request, body: { ticket?: string }) {
+    if (req.headers.get('X-Requested-With') !== 'horus') {
+      return problem(403, 'ORIGIN_NOT_ALLOWED', 'Origen no permitido')
+    }
+    const out = redeemTicket(String(body.ticket ?? ''), now())
+    if (out.kind === 'gone') {
+      return problem(
+        410,
+        'SSO_TICKET_INVALID',
+        'El enlace de acceso no es válido, caducó o ya se usó.',
+      )
+    }
+    if (out.kind === 'link') return json(out.body, 200, { 'Cache-Control': 'no-store' })
+    const user = findUser(out.userId)
+    if (!user || platformUserStatus(user) === 'disabled') {
+      return problem(
+        403,
+        'SSO_ACCOUNT_UNAVAILABLE',
+        'La cuenta vinculada no puede entrar a este ISP.',
+      )
+    }
+    if (user.mfa) {
+      const mfaToken = `mfa.${randomHex(16)}`
+      mfaTokens.set(mfaToken, { userId: user.me.id, expires: now().getTime() + 5 * 60_000 })
+      return json({ ...out.body, status: 'mfa_required', mfa_token: mfaToken }, 200, {
+        'Cache-Control': 'no-store',
+      })
+    }
+    storage?.setItem(SESSION_KEY, user.me.id)
+    const tok = issueBody(user, 'session')
+    return json({ ...out.body, status: 'authenticated', ...tok, scope: 'session' }, 200, {
+      'Cache-Control': 'no-store',
+    })
   }
 
   function rawRecord(req: Request) {
@@ -602,6 +649,8 @@ export function createMockFetch(options: MockOptions = {}) {
       case 'POST /auth/invitations/inspect':
       case 'POST /auth/invitations/accept':
         return invitationRoute(route, body, now())!
+      case 'POST /integrations/argosisp/sso/redeem':
+        return ssoRedeem(req, body)
       case 'POST /auth/password/forgot':
       case 'POST /auth/password/reset/inspect':
       case 'POST /auth/password/reset':
@@ -663,7 +712,13 @@ export function createMockFetch(options: MockOptions = {}) {
         return json({ data: WIDGET_CATALOG as unknown as WidgetType[] })
       case 'GET /permissions':
         return json({ version: 'v0', permissions: PERMISSION_CATALOG, roles: ROLES })
+      case 'GET /me/sso-links':
+        return myLinks(user)
+      case 'POST /me/sso-links':
+        return createLink(user, String(body.link_token ?? ''), record.expires - ttl, now())
     }
+    const myLink = path.match(/^\/me\/sso-links\/([^/]+)$/)
+    if (req.method === 'DELETE' && myLink) return deleteMyLink(user, myLink[1]!)
 
     if (record.scope === 'platform' && route === 'POST /platform/tenants') {
       return createTenant({
@@ -723,6 +778,13 @@ export function createMockFetch(options: MockOptions = {}) {
     const mode = scenario()
     const shared = { req, path, method: req.method, body, tenant, can, now: now() }
     const res =
+      tenantSsoLinksRoute({
+        path,
+        method: req.method,
+        tenantId,
+        can,
+        reauthRequired: reauthRequired(user),
+      }) ??
       tenantRoute({
         ...shared,
         url,

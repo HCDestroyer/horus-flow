@@ -76,6 +76,10 @@ export const PERMISSION_CATALOG: Permission[] = [
   tenant('settings.read', 'Ver configuración del ISP'),
   tenant('settings.manage', 'Configuración del ISP (inactividad, reglas de tipo, retenciones)'),
   tenant('api_tokens.manage', 'API tokens del ISP'),
+  tenant(
+    'sso.issue',
+    'Emitir tickets de autologin hacia Horus (solo API tokens; plantilla ArgosISP)',
+  ),
   platform('platform.tenants.read', 'Ver ISP de la instalación'),
   platform('platform.tenants.manage', 'Alta, edición, suspensión y baja de ISP'),
   platform('platform.users.read', 'Ver usuarios y membresías'),

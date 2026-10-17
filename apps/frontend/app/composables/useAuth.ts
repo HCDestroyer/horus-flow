@@ -55,11 +55,19 @@ export function useAuth() {
   const me = useState<Me | null>('auth:me', () => null)
   const status = useState<AuthStatus>('auth:status', () => 'unknown')
 
-  async function establish(res: AccessTokenResponse) {
+  async function establish(res: Pick<AccessTokenResponse, 'access_token'>) {
     session.value = res.access_token
     scoped.value = null
     me.value = await unwrap($api.GET('/me'))
     status.value = 'authenticated'
+  }
+
+  /**
+   * Sesión abierta por un ticket de autologin (`POST /integrations/argosisp/sso/redeem` con
+   * `status = authenticated`, contrato ArgosISP §1.5): el servidor ya fijó la cookie de refresh.
+   */
+  async function adoptSession(accessToken: string) {
+    await establish({ access_token: accessToken })
   }
 
   /** Devuelve el `mfa_token` si la cuenta tiene 2FA; si no, deja la sesión iniciada. */
@@ -149,6 +157,7 @@ export function useAuth() {
     activeScope: computed(() => scoped.value?.scope),
     login,
     verifyMfa,
+    adoptSession,
     restore,
     activateScope,
     reauthenticate,

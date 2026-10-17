@@ -527,6 +527,9 @@ function errorMessage(error: unknown) {
 
         <p v-if="totpError" class="text-error mt-3 text-sm" role="alert">{{ totpError }}</p>
       </UCard>
+
+      <!-- Cuentas vinculadas para el autologin (ArgosISP, contrato §1.5) -->
+      <MySsoLinks />
     </div>
   </AppPage>
 </template>

@@ -318,6 +318,16 @@
       "exists": "Ya existe una cuenta con ese correo.",
       "reauthBody": "Por seguridad, cambiar el correo exige confirmar que eres tú: escribe de nuevo tu contraseña.",
       "reauthCancelled": "No se cambió el correo: confirma tu identidad para continuar."
+    },
+    "sso": {
+      "title": "Cuentas vinculadas",
+      "intro": "Cuentas de otros sistemas (ArgosISP) que pueden abrir Horus como tú sin volver a iniciar sesión. Entran con tus permisos y tu 2FA.",
+      "empty": "No tienes cuentas vinculadas.",
+      "where": "ISP {tenant}",
+      "lastUsed": "último uso {time}",
+      "since": "vinculada el {time}",
+      "remove": "Quitar",
+      "removed": "Vinculación quitada"
     }
   },
   "states": {
@@ -784,7 +794,9 @@
       "stale": "Desactualizado",
       "staleToast": "ArgosISP no respondió: se muestra el último dato conocido.",
       "history": "Vigencias ({n})",
-      "current": "vigente"
+      "current": "vigente",
+      "openInArgos": "Ver en ArgosISP",
+      "openFailed": "No se pudo abrir ArgosISP"
     },
     "ip360": {
       "open": "Consulta 360",
@@ -3653,7 +3665,48 @@
       "webhookUrl": "URL del webhook",
       "secret": "Secreto del webhook",
       "secretShown": "Copia el secreto ahora: no se volverá a mostrar. El anterior sigue valiendo 24 h.",
-      "rotate": "Generar secreto"
+      "rotate": "Generar secreto",
+      "connection": {
+        "link_generated": "Conectado con un enlace de Horus el {time}",
+        "link_redeemed": "Conectado con un enlace de ArgosISP el {time}",
+        "activate": "Actívalo cuando quieras empezar a sincronizar"
+      }
+    },
+    "link": {
+      "title": "Enlace de conexión con ArgosISP",
+      "body": "Conecta Horus y ArgosISP en un paso, sin copiar a mano URL, token y secreto. Al canjearse, cada sistema guarda lo del otro cifrado y el conector queda apagado hasta que lo actives.",
+      "noPermission": "Para conectar con un enlace necesitas los permisos de configuración, API tokens y canales de notificación del ISP.",
+      "reauth": "El enlace emite un código de conexión a tu nombre: confirma tu identidad.",
+      "generateTitle": "Generar enlace de conexión",
+      "generateBody": "Pégalo en ArgosISP (Integraciones › Horus › Conectar con enlace). Sirve una sola vez y caduca en 15 minutos.",
+      "generate": "Generar enlace de conexión",
+      "regenerate": "Generar otro enlace",
+      "shownOnce": "Cópialo ahora: no se vuelve a mostrar.",
+      "expiresIn": "Caduca en {time}. Generar otro anula este.",
+      "expired": "El enlace caducó sin usarse. Genera otro si lo necesitas.",
+      "url": "Enlace de conexión",
+      "redeemTitle": "Canjear enlace de Argos",
+      "redeemBody": "¿Generaste el enlace en ArgosISP? Pégalo aquí y Horus lo canjea directamente con ArgosISP.",
+      "peerLink": "Enlace generado en ArgosISP",
+      "peerLinkHelp": "Tiene la forma https://…/conectar#… y caduca en 15 minutos.",
+      "peerLinkInvalid": "No parece un enlace de conexión de ArgosISP (https://…/conectar#…).",
+      "redeem": "Conectar",
+      "redeemed": "ArgosISP conectado",
+      "redeemedTitle": "Conexión preparada",
+      "redeemedBody": "El conector y el canal webhook hacia ArgosISP quedaron apagados. Revísalos y actívalos cuando quieras.",
+      "peerExpired": "ArgosISP dice que el enlace caducó o ya se usó. Genera otro en ArgosISP."
+    },
+    "sso": {
+      "title": "Autologin desde ArgosISP",
+      "body": "Cuentas de ArgosISP que entran a Horus sin volver a iniciar sesión. Cada una la vinculó su usuario iniciando sesión en Horus; entra siempre con sus propios permisos.",
+      "empty": "Nadie vinculó todavía su cuenta de ArgosISP.",
+      "linkedTo": "Vinculada a {who} en ArgosISP",
+      "lastUsed": "Último uso {time}",
+      "since": "Vinculada el {time}",
+      "revoke": "Revocar",
+      "revoked": "Vinculación revocada",
+      "revokeAll": "Revocar todas",
+      "revokedAll": "{n} vinculaciones revocadas"
     }
   },
   "capacity": {
@@ -3890,5 +3943,52 @@
       "rttTitle": "Latencia y jitter hacia {target} (por hora)",
       "threshold": "Aviso {v}"
     }
+  },
+  "sso": {
+    "enter": {
+      "title": "Entrar desde ArgosISP",
+      "description": "Estás abriendo Horus Flow desde ArgosISP.",
+      "checking": "Comprobando el acceso…",
+      "invalid": {
+        "title": "El enlace de acceso no es válido",
+        "body": "Caducó, ya se usó o está incompleto. Vuelve a abrirlo desde ArgosISP."
+      },
+      "unavailable": {
+        "title": "Tu cuenta no puede entrar a este ISP",
+        "body": "La cuenta de Horus vinculada no está activa en este ISP. Inicia sesión normalmente o pide ayuda a un administrador."
+      },
+      "link": {
+        "title": "Vincula tu cuenta",
+        "body": "Es la primera vez que entras desde ArgosISP como {who}. Inicia sesión en Horus para vincular esa cuenta con tu usuario.",
+        "never": "Horus nunca crea usuarios ni vincula cuentas por coincidir el correo: solo tú puedes vincular la tuya.",
+        "login": "Iniciar sesión para vincular",
+        "continue": "Continuar"
+      },
+      "toLogin": "Ir al inicio de sesión"
+    },
+    "link": {
+      "title": "Vincular cuenta de ArgosISP",
+      "description": "Después de vincularla, entrarás a Horus desde ArgosISP sin volver a iniciar sesión, con tus permisos de siempre.",
+      "external": "Cuenta de ArgosISP",
+      "local": "Tu usuario de Horus",
+      "expires": "Puedes vincularla hasta",
+      "hint": "Si no abriste este enlace tú, cancela: nadie más debería vincular una cuenta con tu usuario.",
+      "confirm": "Vincular",
+      "reauth": "Confirma tu contraseña para vincular la cuenta de ArgosISP.",
+      "reauthCancelled": "Para vincular la cuenta tienes que confirmar tu identidad.",
+      "notMember": "Tu usuario no es miembro activo del ISP de esta integración.",
+      "exists": "Esa cuenta de ArgosISP ya está vinculada a otro usuario de Horus.",
+      "missing": {
+        "title": "No hay ninguna vinculación pendiente",
+        "body": "Caducó o ya se usó. Vuelve a abrir el enlace desde ArgosISP."
+      }
+    }
+  },
+  "connect": {
+    "title": "Enlace de conexión de Horus Flow",
+    "body": "Este enlace no se abre en el navegador: pégalo en ArgosISP (Integraciones › Horus › Conectar con enlace) para conectar los dos sistemas.",
+    "secretTitle": "Trátalo como una contraseña",
+    "secretBody": "Sirve una sola vez y caduca en 15 minutos. Si lo compartiste por error, genera otro en Horus: el anterior deja de valer.",
+    "home": "Ir a Horus Flow"
   }
 }

@@ -131,6 +131,16 @@ const SYNC_COLOR = { ok: 'success', degraded: 'warning', failing: 'error' } as c
             }}
           </span>
         </div>
+        <p v-if="conn.connection" class="text-muted text-sm" data-testid="argos-connection">
+          {{
+            t(`integrations.argos.connection.${conn.connection.method}`, {
+              time: d(new Date(conn.connection.linked_at), 'long'),
+            })
+          }}
+          <template v-if="!conn.enabled">
+            · {{ t('integrations.argos.connection.activate') }}</template
+          >
+        </p>
         <UAlert
           v-if="conn.last_error"
           color="warning"
