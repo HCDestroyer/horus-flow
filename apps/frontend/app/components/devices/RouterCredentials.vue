@@ -124,7 +124,10 @@ const authItems = [
   { label: 'SHA-1', value: 'sha1' },
   { label: 'SHA-256', value: 'sha256' },
 ]
-const KINDS: Kind[] = ['snmp', 'routeros_api']
+// Huawei VRP (modo directo) no tiene API REST de RouterOS: solo la credencial SNMPv3.
+const KINDS = computed<Kind[]>(() =>
+  (props.router.vendor ?? 'mikrotik') === 'mikrotik' ? ['snmp', 'routeros_api'] : ['snmp'],
+)
 </script>
 
 <template>

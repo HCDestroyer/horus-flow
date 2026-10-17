@@ -45,7 +45,7 @@ const (
 	icmpProbes       = 3
 	icmpFailCycles   = 3
 	credentialRetry  = 5 * time.Minute
-	vendorMikroTik   = "mikrotik"
+	verifyRetry      = 5 * time.Minute
 )
 
 // instanceNamespace deriva el entity_id del heartbeat (UUIDv5 de la instancia).
@@ -100,6 +100,9 @@ type Options struct {
 	// Devices lista los routers (objetivos); Credentials revela la credencial SNMPv3.
 	Devices     func() (devapi.Onboarding, bool)
 	Credentials func() (devapi.SNMPCredentialReader, bool)
+	// Verifier marca como verificado un router en modo directo tras la
+	// primera respuesta SNMPv3 authPriv en su dirección (opcional).
+	Verifier func() (devapi.DirectVerifier, bool)
 	// Inv da nombres de router y nodo (opcional).
 	Inv *flowinv.Store
 	// Exporters: estado del exportador de flujos (opcional).
@@ -115,8 +118,8 @@ type Options struct {
 	// PostgreSQL rigen los de la instalación).
 	Thresholds ThresholdLoader
 	Metrics    prometheus.Registerer
-	Logger    *slog.Logger
-	Now       func() time.Time
+	Logger     *slog.Logger
+	Now        func() time.Time
 }
 
 // ThresholdLoader devuelve los umbrales propios de todos los ISP.
@@ -420,14 +423,14 @@ func (e *Engine) refreshTargets(ctx context.Context) {
 	seen := map[uuid.UUID]bool{}
 	e.mu.Lock()
 	for _, ri := range list {
-		if ri.TunnelAddress == nil || !ri.TunnelAddress.IsValid() {
-			continue
-		}
-		if ri.OnboardingState != devapi.OnboardingTunnelUp && ri.OnboardingState != devapi.OnboardingExporting {
+		addr, ok := pollAddress(ri)
+		if !ok {
 			continue
 		}
 		seen[ri.ID] = true
-		t := Target{RouterID: ri.ID, TenantID: ri.TenantID, SiteID: ri.SiteID, Name: ri.Name, Tunnel: ri.TunnelAddress.Unmap()}
+		t := Target{RouterID: ri.ID, TenantID: ri.TenantID, SiteID: ri.SiteID, Name: ri.Name, Tunnel: addr,
+			Vendor: snmpclient.ForVendor(ri.Vendor).Vendor(), Direct: ri.ConnectionMode == devapi.ConnectionDirect,
+			OnboardingState: ri.OnboardingState}
 		if inv != nil {
 			if x, ok := inv.Router(ri.ID); ok {
 				if x.Name != "" {
@@ -471,6 +474,26 @@ func (e *Engine) refreshTargets(ctx context.Context) {
 	e.m.targets.Set(float64(n))
 }
 
+// pollAddress devuelve la dirección por la que se sondea un router: la IP de
+// túnel WireGuard con el túnel arriba (MikroTik), o la dirección de gestión
+// declarada en modo directo (Huawei VRP, sin túnel; docs/vendors/huawei.md
+// §5), en cuanto existe.
+func pollAddress(ri devapi.RouterInfo) (netip.Addr, bool) {
+	if ri.ConnectionMode == devapi.ConnectionDirect {
+		if ri.ManagementAddress == nil || !ri.ManagementAddress.IsValid() {
+			return netip.Addr{}, false
+		}
+		return ri.ManagementAddress.Unmap(), true
+	}
+	if ri.TunnelAddress == nil || !ri.TunnelAddress.IsValid() {
+		return netip.Addr{}, false
+	}
+	if ri.OnboardingState != devapi.OnboardingTunnelUp && ri.OnboardingState != devapi.OnboardingExporting {
+		return netip.Addr{}, false
+	}
+	return ri.TunnelAddress.Unmap(), true
+}
+
 // Target es un router a sondear.
 type Target struct {
 	RouterID uuid.UUID
@@ -478,7 +501,15 @@ type Target struct {
 	SiteID   uuid.UUID
 	Name     string
 	SiteName string
-	Tunnel   netip.Addr
+	// Tunnel es la dirección de sondeo: IP de túnel o, en modo directo, la
+	// dirección de gestión del router.
+	Tunnel netip.Addr
+	// Vendor elige el adaptador SNMP (snmpclient.ForVendor).
+	Vendor string
+	// Direct: modo directo sin túnel (sin señal WireGuard).
+	Direct bool
+	// OnboardingState del router (devices).
+	OnboardingState string
 	// Upstream: ifIndex marcados upstream en el inventario.
 	Upstream []int
 }
@@ -494,6 +525,8 @@ type router struct {
 	polling   bool
 	lastPoll  time.Time
 	lastManua time.Time
+	// verifyAt: último intento de verificar un router en modo directo.
+	verifyAt time.Time
 }
 
 func (e *Engine) snapshot() []*router {

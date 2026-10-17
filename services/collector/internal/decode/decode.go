@@ -1,5 +1,6 @@
-// Package decode decodifica datagramas IPFIX (RFC 7011) y NetFlow v9
-// (RFC 3954) leyendo las plantillas que anuncia cada exportador: no asume
+// Package decode decodifica datagramas IPFIX (RFC 7011), NetFlow v9
+// (RFC 3954) y sFlow v5 (sflow.go) leyendo las plantillas que anuncia cada
+// exportador (NetStream de Huawei VRP incluido: docs/vendors/huawei.md §7): no asume
 // orden ni contenido de campos (docs/vendors/mikrotik.md §2,
 // docs/traffic-model.md §3). Es independiente del codificador de flowsim y
 // del decodificador del verificador (goflow2), así el test dorado compara
@@ -48,6 +49,7 @@ const (
 	ieDstIPv6                = 28
 	ieICMPTypeCodeV4         = 32
 	ieSamplingInterval       = 34
+	ieSamplerRandomInterval  = 50 // v9 FLOW_SAMPLER_RANDOM_INTERVAL (opciones del sampler de NetStream)
 	ieVlanID                 = 58
 	ieFlowDirection          = 61
 	ieNextHopV6              = 62
@@ -67,6 +69,8 @@ const (
 	iePostNAPTDstPort        = 228
 	ieSamplingPacketInterval = 305
 	ieSamplingPacketSpace    = 306
+	ieSamplingSize           = 309 // samplingSize: paquetes muestreados por población
+	ieSamplingPopulation     = 310 // samplingPopulation
 	varLen                   = 0xffff
 	maxFieldsPerTemplate     = 512
 	defaultPendingTTL        = 30 * time.Second
@@ -237,6 +241,9 @@ func (d *Decoder) Decode(src string, p []byte) (Result, error) {
 	var res Result
 	if len(p) < 4 {
 		return res, ErrShort
+	}
+	if binary.BigEndian.Uint32(p) == sflowVersion { // sFlow v5: versión de 32 bits
+		return d.decodeSFlow(p)
 	}
 	ver := binary.BigEndian.Uint16(p)
 	var body []byte
@@ -592,7 +599,7 @@ func (d *Decoder) record(src string, t *Template, b []byte, h Header) (flowpb.Fl
 	var hasStartUp, hasEndUp, hasStartAbs, hasEndAbs, hasStartSec, hasEndSec, hasSysInit bool
 	var icmpType, icmpCode uint16
 	var hasICMPSplit bool
-	var sampling uint64
+	var sampling, sampleSize, population uint64
 	for _, f := range t.Fields {
 		l := int(f.Length)
 		if f.Length == varLen {
@@ -688,13 +695,20 @@ func (d *Decoder) record(src string, t *Template, b []byte, h Header) (flowpb.Fl
 			r.PostNATSrcPort, r.HasPostNATSrcPort = uint16(u), true //nolint:gosec // puerto
 		case iePostNAPTDstPort:
 			r.PostNATDstPort, r.HasPostNATDstPort = uint16(u), true //nolint:gosec // puerto
-		case ieSamplingInterval, ieSamplingPacketInterval:
+		case ieSamplingInterval, ieSamplingPacketInterval, ieSamplerRandomInterval:
 			sampling = u
+		case ieSamplingSize:
+			sampleSize = u
+		case ieSamplingPopulation:
+			population = u
 		case ieSamplingPacketSpace:
 			if u > 0 && sampling > 0 {
 				sampling = (sampling + u) / sampling // intervalo + espacio sobre intervalo
 			}
 		}
+	}
+	if sampling == 0 && sampleSize > 0 && population >= sampleSize {
+		sampling = population / sampleSize // muestreo n de N (IPFIX PSAMP, RFC 5477)
 	}
 	if hasICMPSplit && r.ICMPTypeCode == 0 {
 		r.ICMPTypeCode = icmpType<<8 | icmpCode

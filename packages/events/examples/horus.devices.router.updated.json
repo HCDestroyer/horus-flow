@@ -30,6 +30,8 @@
     "admin_state": "active",
     "onboarding_state": "tunnel_up",
     "tunnel_address": "10.255.3.17/32",
+    "connection_mode": "wireguard",
+    "management_address": null,
     "tags": [
       "core"
     ],

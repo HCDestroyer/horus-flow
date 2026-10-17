@@ -16,7 +16,7 @@ import (
 // del laboratorio (infrastructure/lab/chr) con RouterOS 7.12 y 7.23.8 (última long-term al grabar),
 // de exactamente los OIDs que usa este adaptador. Solo se anonimizó mtxrLicSoftwareId.
 
-var walkLine = regexp.MustCompile(`^(\.[0-9.]+) = (?:([A-Za-z0-9]+): )?(.*)$`)
+var walkLine = regexp.MustCompile(`^(\.[0-9.]+) = (?:([A-Za-z0-9-]+): )?(.*)$`)
 
 // loadWalk convierte la salida de snmpwalk en el mapa OID → valor que entrega el transporte real
 // (convert): INTEGER → int64, Counter/Gauge/Timeticks → uint64, STRING/OID → string.
@@ -58,6 +58,16 @@ func loadWalk(t *testing.T, name string) *fake {
 			vars[oid] = strings.Trim(val, `"`)
 		case "OID":
 			vars[oid] = val
+		case "Hex-STRING": // octetos en bruto (InetAddress), como los entrega convert
+			var b []byte
+			for _, h := range strings.Fields(val) {
+				n, err := strconv.ParseUint(h, 16, 8)
+				if err != nil {
+					t.Fatalf("%s: %v", sc.Text(), err)
+				}
+				b = append(b, byte(n))
+			}
+			vars[oid] = string(b)
 		case "":
 			vars[oid] = strings.Trim(val, `"`) // cadena vacía ("")
 		default:

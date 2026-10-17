@@ -25,6 +25,12 @@ const (
 	CodeRouterPrimaryExists  = "ROUTER_PRIMARY_EXISTS"
 	CodeClientPrefixNotFound = "CLIENT_PREFIX_NOT_FOUND"
 	CodeClientPrefixOverlap  = "CLIENT_PREFIX_OVERLAP"
+	// CodeVendorNotSupported: la operación solo existe para otro fabricante
+	// (p. ej. la API REST de RouterOS en un router Huawei).
+	CodeVendorNotSupported = "ROUTER_VENDOR_NOT_SUPPORTED"
+	// CodeManagementAddressInUse: otro router verificado ya usa esa
+	// dirección de gestión (identidad del exportador en modo directo).
+	CodeManagementAddressInUse = "MANAGEMENT_ADDRESS_IN_USE"
 )
 
 // Avisos del router.
@@ -55,7 +61,7 @@ type Site struct {
 // DiscoveryMode: sin prefijos el tráfico cuenta para el nodo, no crea clientes.
 func (s *Site) DiscoveryMode() bool { return s.PrefixCount == 0 }
 
-// Router es un router MikroTik registrado.
+// Router es un router registrado (MikroTik RouterOS o Huawei VRP).
 type Router struct {
 	ID                      uuid.UUID
 	TenantID                uuid.UUID
@@ -72,11 +78,15 @@ type Router struct {
 	RouterOSVersionOK       *bool
 	TunnelAddress           *string
 	WireguardPeerID         *uuid.UUID
-	Tags                    []string
-	CreatedAt               time.Time
-	UpdatedAt               time.Time
-	DeletedAt               *time.Time
-	Version                 int
+	// ConnectionMode: wireguard | direct (sin túnel; Huawei).
+	ConnectionMode string
+	// ManagementAddress: IP de origen del router vista por Horus (modo directo).
+	ManagementAddress *string
+	Tags              []string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	DeletedAt         *time.Time
+	Version           int
 }
 
 // Warnings devuelve los avisos del router.
@@ -125,7 +135,35 @@ var (
 	CustomerKinds   = []string{"residential", "commercial", "unknown"}
 	PrefixSources   = []string{"manual", "routeros_api", "discovery_confirmed"}
 	IPv6ClientLens  = []int{48, 56, 60, 64}
+	Vendors         = []string{VendorMikroTik, VendorHuawei}
 )
+
+// Fabricantes y modos de conexión (devices.router.vendor, connection_mode).
+const (
+	VendorMikroTik      = "mikrotik"
+	VendorHuawei        = "huawei"
+	ConnectionWireGuard = "wireguard"
+	ConnectionDirect    = "direct"
+)
+
+// ConnectionModeFor: MikroTik se conecta por el túnel WireGuard; Huawei VRP
+// no tiene WireGuard y va en modo directo (docs/vendors/huawei.md §5).
+func ConnectionModeFor(vendor string) string {
+	if vendor == VendorHuawei {
+		return ConnectionDirect
+	}
+	return ConnectionWireGuard
+}
+
+// ValidManagementAddress acepta una IP unicast enrutable como dirección de
+// gestión de un router en modo directo: nunca sin especificar, loopback,
+// link-local, multicast ni broadcast (Horus le envía SNMP; no debe poder
+// apuntarse a sí mismo).
+func ValidManagementAddress(a netip.Addr) bool {
+	a = a.Unmap()
+	return a.IsValid() && a.Zone() == "" && !a.IsUnspecified() && !a.IsLoopback() && !a.IsLinkLocalUnicast() &&
+		!a.IsLinkLocalMulticast() && !a.IsMulticast() && !a.IsInterfaceLocalMulticast() && a != netip.AddrFrom4([4]byte{255, 255, 255, 255})
+}
 
 var routerOSRe = regexp.MustCompile(`^7\.[0-9]+(\.[0-9]+)?$`)
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"slices"
 	"strings"
@@ -26,6 +27,24 @@ type Service struct {
 	store  Store
 	cursor *pagination.Codec
 	now    func() time.Time
+	// deny: rangos que nunca son dirección de gestión (túneles de Horus,
+	// IPs de la propia instalación).
+	deny []netip.Prefix
+}
+
+// SetManagementDeny fija los rangos prohibidos como dirección de gestión
+// (HORUS_WG_TUNNEL_CIDRS y las IPs de la instalación): Horus envía SNMP a esa
+// dirección y la usa como identidad del exportador.
+func (s *Service) SetManagementDeny(deny []netip.Prefix) { s.deny = deny }
+
+// checkManagementDeny añade el error de campo si la dirección está prohibida.
+func checkManagementDeny(f *fieldErrs, r *domain.Router, deny []netip.Prefix) {
+	if r.ManagementAddress == nil {
+		return
+	}
+	if a, err := netip.ParseAddr(*r.ManagementAddress); err == nil && managementDenied(a, deny) {
+		f.add("management_address", "INVALID_VALUE", "La dirección pertenece a Horus (túneles o la propia instalación).")
+	}
 }
 
 // NewService crea el servicio.
@@ -289,6 +308,8 @@ func mapStoreErr(err error, notFoundCode string) error {
 		return apperr.Conflict(domain.CodeSiteNotEmpty, "El nodo tiene routers: délos de baja primero.")
 	case errors.Is(err, ErrOverlap):
 		return apperr.Conflict(domain.CodeClientPrefixOverlap, "El prefijo se solapa con otro del mismo realm.")
+	case errors.Is(err, ErrManagementAddressTaken):
+		return apperr.Conflict(domain.CodeManagementAddressInUse, "Otro router verificado ya usa esa dirección de gestión.")
 	}
 	return err
 }

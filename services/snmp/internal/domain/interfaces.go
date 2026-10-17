@@ -125,7 +125,8 @@ func ChooseUplink(cands []UplinkCandidate) int {
 	var list []scored
 	for _, c := range cands {
 		switch c.IfType {
-		case IfTypeEthernet, IfTypeWLAN, IfTypeL2VLAN, IfTypeLAG:
+		case IfTypeEthernet, IfTypeWLAN, IfTypeL2VLAN, IfTypeLAG,
+			IfTypeL3IPVLAN: // subinterfaces y Vlanif de Huawei VRP (RouterOS no publica este tipo)
 		default:
 			continue
 		}

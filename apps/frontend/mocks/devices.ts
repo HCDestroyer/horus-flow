@@ -164,6 +164,21 @@ function routerFields(body: Record<string, unknown>, create: boolean) {
       })
     } else out.routeros_version = version
   }
+  if (create && body.vendor !== undefined) {
+    if (body.vendor !== 'mikrotik' && body.vendor !== 'huawei') {
+      errors.push({ field: 'vendor', code: 'INVALID_VALUE', message: 'mikrotik o huawei.' })
+    } else out.vendor = body.vendor
+  }
+  if (body.management_address !== undefined) {
+    const v = body.management_address
+    if (v !== null && (typeof v !== 'string' || !isManagementAddress(v))) {
+      errors.push({
+        field: 'management_address',
+        code: 'INVALID_VALUE',
+        message: 'IP unicast del router tal y como la ve Horus.',
+      })
+    } else out.management_address = v
+  }
   if (create && body.is_primary !== undefined) {
     if (typeof body.is_primary !== 'boolean') {
       errors.push({ field: 'is_primary', code: 'INVALID_TYPE', message: 'Debe ser booleano.' })
@@ -176,6 +191,14 @@ function routerFields(body: Record<string, unknown>, create: boolean) {
   }
   if (Array.isArray(body.tags)) out.tags = body.tags.map(String)
   return { errors, fields: out }
+}
+
+/** IP unicast aceptable como dirección de gestión (modo directo, sin loopback ni link-local). */
+export function isManagementAddress(v: string) {
+  const s = v.trim()
+  if (/^(127\.|0\.|169\.254\.|22[4-9]\.|23\d\.|255\.)/.test(s)) return false
+  if (/^(::1?|fe80:.*)$/i.test(s)) return false
+  return /^(\d{1,3}\.){3}\d{1,3}$/.test(s) || /^[0-9a-f:]+$/i.test(s)
 }
 
 function credentialErrors(kind: string, body: Record<string, unknown>): Errors {

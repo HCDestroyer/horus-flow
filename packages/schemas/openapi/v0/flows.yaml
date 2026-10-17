@@ -145,7 +145,7 @@ components:
         flows_per_second: { type: [number, 'null'] }
         loss_ratio_5m: { type: [number, 'null'], minimum: 0, maximum: 1 }
         clock_skew_seconds: { type: [number, 'null'] }
-        flow_source: { type: [string, 'null'], enum: [ipfix, netflow_v9, netflow_v5, null] }
+        flow_source: { type: [string, 'null'], enum: [ipfix, netflow_v9, netflow_v5, sflow_v5, null] }
         sampling_rate: { type: [integer, 'null'], minimum: 1 }
         coverage_ratio:
           type: [number, 'null']

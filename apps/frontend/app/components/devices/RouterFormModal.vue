@@ -6,7 +6,8 @@ import type { Router } from '~~/types/api'
  * `If-Match`). Reglas del contrato: un principal por nodo (`409 ROUTER_PRIMARY_EXISTS`, con
  * la opción de registrarlo como secundario), solo RouterOS 7.x y aviso si es < 7.12 (D15: se
  * registra, pero no se podrá generar el script). Tras el alta, el siguiente paso guiado es el
- * script de conexión WireGuard.
+ * script de conexión WireGuard (MikroTik) o la configuración VRP en modo directo (Huawei, sin
+ * túnel: docs/vendors/huawei.md). El fabricante solo se elige en el alta.
  */
 const props = withDefaults(
   defineProps<{
@@ -27,14 +28,21 @@ const toast = useToast()
 const slug = computed(() => String(route.params.slug))
 
 type AdminState = Router['admin_state']
+type Vendor = Router['vendor']
 const form = reactive({
   name: '',
   displayName: '',
   isPrimary: true,
+  vendor: 'mikrotik' as Vendor,
   model: '',
   version: '',
+  managementAddress: '',
   adminState: 'active' as AdminState,
 })
+const huawei = computed(() => form.vendor === 'huawei')
+const vendorItems = computed(() =>
+  (['mikrotik', 'huawei'] as const).map((v) => ({ label: t(`devices.vendor.${v}`), value: v })),
+)
 const errors = ref<Record<string, string>>({})
 const error = shallowRef<unknown>(null)
 const primaryExists = ref(false)
@@ -51,8 +59,10 @@ function fill(r: Router | null) {
     name: r?.name ?? '',
     displayName: r?.display_name ?? '',
     isPrimary: r ? r.is_primary !== false : !props.siteHasPrimary,
+    vendor: r?.vendor ?? 'mikrotik',
     model: r?.model ?? '',
     version: r?.routeros_version ?? '',
+    managementAddress: r?.management_address ?? '',
     adminState: r?.admin_state ?? 'active',
   })
 }
@@ -67,7 +77,10 @@ watch(open, (o) => {
   created.value = null
 })
 
-const versionCheck = computed(() => checkRouterOsVersion(form.version))
+const versionCheck = computed(() =>
+  huawei.value ? ('ok' as const) : checkRouterOsVersion(form.version),
+)
+const createdDirect = computed(() => created.value?.connection_mode === 'direct')
 
 function validate() {
   const e: Record<string, string> = {}
@@ -87,7 +100,9 @@ async function save() {
     name: form.name.trim(),
     display_name: nullable(form.displayName),
     model: nullable(form.model),
-    routeros_version: nullable(form.version),
+    ...(huawei.value
+      ? { management_address: nullable(form.managementAddress) }
+      : { routeros_version: nullable(form.version) }),
   }
   try {
     if (base.value) {
@@ -112,7 +127,12 @@ async function save() {
       const saved = await unwrap(
         $api.POST('/routers', {
           params: { header: { 'Idempotency-Key': idempotencyKey() } },
-          body: { ...fields, site_id: props.siteId!, is_primary: form.isPrimary },
+          body: {
+            ...fields,
+            site_id: props.siteId!,
+            is_primary: form.isPrimary,
+            vendor: form.vendor,
+          },
         }),
       )
       created.value = saved
@@ -131,6 +151,9 @@ async function save() {
     } else if (e instanceof ApiError && e.code === 'VALIDATION_FAILED') {
       const fe = fieldErrors(e.problem)
       if (fe.routeros_version) fe.routeros_version = t('devices.router.versionInvalid')
+      if (fe.management_address) {
+        fe.management_address = t('devices.router.managementAddressInvalid')
+      }
       errors.value = fe
       if (fe._ || fe.site_id) error.value = e
     } else {
@@ -173,7 +196,9 @@ const title = computed(() =>
     :title="title"
     :description="
       created
-        ? t('devices.router.createdDescription')
+        ? createdDirect
+          ? t('devices.router.createdDescriptionDirect')
+          : t('devices.router.createdDescription')
         : editing
           ? t('devices.router.editDescription')
           : t('devices.router.createDescription')
@@ -240,6 +265,27 @@ const title = computed(() =>
           />
         </UFormField>
         <UFormField
+          v-if="!editing"
+          :label="t('devices.vendor.label')"
+          :help="t('devices.vendor.help')"
+        >
+          <USelect
+            v-model="form.vendor"
+            :items="vendorItems"
+            class="w-full"
+            data-testid="router-vendor"
+          />
+        </UFormField>
+        <UAlert
+          v-if="huawei"
+          color="warning"
+          variant="subtle"
+          icon="i-lucide-shield-alert"
+          :title="t('onboarding.direct.warningTitle')"
+          :description="t('devices.vendor.directHint')"
+          data-testid="router-direct-warning"
+        />
+        <UFormField
           :label="t('devices.router.displayName')"
           :hint="t('common.optional')"
           :error="errors.display_name"
@@ -262,11 +308,29 @@ const title = computed(() =>
               v-model="form.model"
               class="w-full"
               autocomplete="off"
-              placeholder="CCR2116-12G-4S+"
+              :placeholder="huawei ? t('devices.router.huaweiModelPlaceholder') : 'CCR2116-12G-4S+'"
               data-testid="router-model"
             />
           </UFormField>
           <UFormField
+            v-if="huawei"
+            :label="t('devices.router.managementAddress')"
+            :hint="t('common.optional')"
+            :help="t('devices.router.managementAddressHelp')"
+            :error="errors.management_address"
+          >
+            <UInput
+              v-model="form.managementAddress"
+              class="w-full"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="198.51.100.20"
+              :ui="{ base: 'font-mono' }"
+              data-testid="router-management-address"
+            />
+          </UFormField>
+          <UFormField
+            v-else
             :label="t('devices.router.version')"
             :help="versionCheck === 'unsupported' ? undefined : t('devices.router.versionHelp')"
             :error="errors.routeros_version"
@@ -327,7 +391,11 @@ const title = computed(() =>
         <UButton
           icon="i-lucide-file-code-2"
           trailing-icon="i-lucide-arrow-right"
-          :label="t('devices.router.continueToScript')"
+          :label="
+            createdDirect
+              ? t('devices.router.continueToConfig')
+              : t('devices.router.continueToScript')
+          "
           data-testid="router-continue"
           @click="continueToScript"
         />

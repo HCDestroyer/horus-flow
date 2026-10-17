@@ -54,6 +54,8 @@ func cases() map[string]tenanttest.Case {
 		"captureRouterTlsFingerprint": {Kind: tenanttest.ByID},
 		"confirmRouterTlsFingerprint": {Kind: tenanttest.ByID, Body: map[string]any{
 			"fingerprint_sha256": "AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA"}},
+		// devices: alta directa de Huawei VRP (sin túnel; docs/vendors/huawei.md §5)
+		"createDirectOnboarding":    {Kind: tenanttest.ByID, Body: map[string]any{"management_address": "198.51.100.20"}},
 		"batchCreateClientPrefixes": {Kind: tenanttest.Create, Body: map[string]any{"items": []any{map[string]any{"prefix": "10.98.0.0/24", "role": "customers"}}}},
 	}
 	pending := func(owner string, ids ...string) {

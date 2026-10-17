@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -106,6 +107,7 @@ func (e *Engine) pollOne(ctx context.Context, r *router, at time.Time, cycle uin
 		}
 	}
 	tunnel := r.Tunnel
+	vendor := snmpclient.ForVendor(r.Vendor)
 	r.mu.Unlock()
 	if cred != nil {
 		snmpErr = func() error {
@@ -116,10 +118,10 @@ func (e *Engine) pollOne(ctx context.Context, r *router, at time.Time, cycle uin
 				return err
 			}
 			defer func() { _ = t.Close() }()
-			if sys, err = snmpclient.ReadSystem(pctx, t); err != nil {
+			if sys, err = vendor.ReadSystem(pctx, t); err != nil {
 				return err
 			}
-			if res, err = snmpclient.ReadResources(pctx, t); err != nil {
+			if res, err = vendor.ReadResources(pctx, t); err != nil {
 				return err
 			}
 			if needDisc {
@@ -128,13 +130,13 @@ func (e *Engine) pollOne(ctx context.Context, r *router, at time.Time, cycle uin
 				}
 				monitored = monitored[:0]
 				for _, d := range disc {
-					if domain.Monitored(d.Type, d.Name) {
+					if vendor.Monitored(d.Type, d.Name) {
 						monitored = append(monitored, d.IfIndex)
 					}
 				}
 			}
 			if needHealth {
-				h, err := snmpclient.ReadHealth(pctx, t)
+				h, err := vendor.ReadHealth(pctx, t)
 				if err != nil {
 					return err
 				}
@@ -151,7 +153,7 @@ func (e *Engine) pollOne(ctx context.Context, r *router, at time.Time, cycle uin
 		}()
 	}
 	dur := e.now().Sub(start)
-	e.m.duration.WithLabelValues(vendorMikroTik).Observe(dur.Seconds())
+	e.m.duration.WithLabelValues(vendor.Vendor()).Observe(dur.Seconds())
 	out := pollResult{}
 	var events []Event
 	r.mu.Lock()
@@ -159,27 +161,31 @@ func (e *Engine) pollOne(ctx context.Context, r *router, at time.Time, cycle uin
 	snmpSignal := api.SignalUnknown
 	switch {
 	case cred == nil:
-		e.m.polls.WithLabelValues(vendorMikroTik, "no_credentials").Inc()
+		e.m.polls.WithLabelValues(vendor.Vendor(), "no_credentials").Inc()
 	case snmpErr != nil && snmpclient.IsAuth(snmpErr):
 		snmpSignal = api.SignalAuthFailed
 		r.cred = nil // se recarga en el siguiente ciclo (rotación)
-		e.m.polls.WithLabelValues(vendorMikroTik, "auth_failed").Inc()
+		e.m.polls.WithLabelValues(vendor.Vendor(), "auth_failed").Inc()
 		out.err = snmpErr
 	case snmpErr != nil:
 		snmpSignal = api.SignalFail
 		if errors.Is(snmpErr, context.DeadlineExceeded) || isTimeout(snmpErr) {
-			e.m.polls.WithLabelValues(vendorMikroTik, "timeout").Inc()
+			e.m.polls.WithLabelValues(vendor.Vendor(), "timeout").Inc()
 		} else {
-			e.m.polls.WithLabelValues(vendorMikroTik, "error").Inc()
+			e.m.polls.WithLabelValues(vendor.Vendor(), "error").Inc()
 		}
 		out.err = snmpErr
 	default:
 		snmpSignal = api.SignalOK
-		e.m.polls.WithLabelValues(vendorMikroTik, "ok").Inc()
+		e.m.polls.WithLabelValues(vendor.Vendor(), "ok").Inc()
 	}
 	if snmpSignal == api.SignalOK {
 		events = append(events, e.applySNMP(r, at, dur, sys, res, health, disc, ctrs)...)
 		st.LastSNMPOKAt = &at
+	}
+	verify := snmpSignal == api.SignalOK && r.Direct && r.OnboardingState == devapi.OnboardingPending && start.Sub(r.verifyAt) >= verifyRetry
+	if verify {
+		r.verifyAt = start
 	}
 	// Señales externas.
 	exporter, lastFlow := e.exporterState(ctx, r.RouterID)
@@ -233,6 +239,9 @@ func (e *Engine) pollOne(ctx context.Context, r *router, at time.Time, cycle uin
 	saved, _ := json.Marshal(*st)
 	r.mu.Unlock()
 
+	if verify {
+		e.verifyDirect(ctx, r.TenantID, r.RouterID, tunnel)
+	}
 	for _, ev := range events {
 		e.publish(ctx, ev)
 	}
@@ -249,6 +258,28 @@ func (e *Engine) pollOne(ctx context.Context, r *router, at time.Time, cycle uin
 		}
 	}
 	return out
+}
+
+// verifyDirect avisa a devices de que el router en modo directo respondió
+// con SU credencial SNMPv3 en su dirección de gestión (prueba de control,
+// docs/vendors/huawei.md §5.3). Un fallo se reintenta a los 5 min.
+func (e *Engine) verifyDirect(ctx context.Context, tenant, routerID uuid.UUID, addr netip.Addr) {
+	if e.o.Verifier == nil {
+		return
+	}
+	v, ok := e.o.Verifier()
+	if !ok {
+		return
+	}
+	if err := v.VerifyDirect(ctx, tenant, routerID, addr); err != nil {
+		e.log.WarnContext(ctx, "snmp: direct router not verified", "router_id", routerID, "error", err)
+		return
+	}
+	e.log.InfoContext(ctx, "snmp: direct router verified (SNMPv3 authPriv at its management address)", "router_id", routerID)
+	select {
+	case e.refresh <- struct{}{}:
+	default:
+	}
 }
 
 // credential devuelve la credencial SNMPv3 (memorizada; recarga tras fallo
@@ -413,7 +444,7 @@ func (e *Engine) applyDiscovery(r *router, at time.Time, disc []snmpclient.Disco
 		}
 		x.Name, x.Alias, x.Type, x.AdminUp = d.Name, d.Alias, d.Type, d.AdminUp
 		x.InterfaceID = api.InterfaceID(r.RouterID, d.Name)
-		x.Monitored = domain.Monitored(d.Type, d.Name)
+		x.Monitored = snmpclient.ForVendor(r.Vendor).Monitored(d.Type, d.Name)
 		x.SpeedBps = nil
 		if d.HighSpeedMbps > 0 {
 			sp := int64(d.HighSpeedMbps) * 1_000_000 //nolint:gosec // Mbit/s

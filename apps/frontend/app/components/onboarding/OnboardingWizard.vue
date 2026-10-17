@@ -35,7 +35,9 @@ const generating = ref(false)
 const genError = shallowRef<unknown>(null)
 
 const ORDER = ['pending_configuration', 'key_received', 'tunnel_up', 'exporting'] as const
-const stage = computed(() => Math.max(0, ORDER.indexOf(props.router.onboarding_state)))
+const stage = computed(() =>
+  Math.max(0, ORDER.indexOf(props.router.onboarding_state as (typeof ORDER)[number])),
+)
 const tokenState = computed(() => props.peer?.enrollment.token_state ?? 'none')
 const tokenDead = computed(
   () => stage.value === 0 && (tokenState.value === 'expired' || tokenState.value === 'revoked'),

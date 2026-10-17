@@ -295,18 +295,20 @@ CREATE TABLE devices.router (
   site_id              uuid NOT NULL,
   hostname             text NOT NULL,
   display_name         text,
-  vendor               text NOT NULL DEFAULT 'mikrotik' CHECK (vendor IN ('mikrotik')),
+  vendor               text NOT NULL DEFAULT 'mikrotik' CHECK (vendor IN ('mikrotik', 'huawei')),
   model                text,
   serial_number        text,
   is_primary           boolean NOT NULL DEFAULT true,
   admin_state          text NOT NULL DEFAULT 'active' CHECK (admin_state IN ('active', 'maintenance', 'decommissioned')),
   onboarding_state     text NOT NULL DEFAULT 'pending_configuration'
-                        CHECK (onboarding_state IN ('pending_configuration', 'key_received', 'tunnel_up', 'exporting')),
+                        CHECK (onboarding_state IN ('pending_configuration', 'key_received', 'tunnel_up', 'snmp_verified', 'exporting')),
   routeros_version     text CHECK (routeros_version ~ '^7\.[0-9]+(\.[0-9]+)?$'),   -- D15: solo RouterOS 7.x
   routeros_version_detected text,
   routeros_version_supported boolean,          -- false si < 7.12 (aviso, no bloqueo del registro)
   tunnel_address       inet,                   -- /32 de túnel = identidad del exportador (la asigna wireguard)
   mgmt_wireguard_peer_id uuid,                 -- sin FK: wireguard
+  connection_mode      text NOT NULL DEFAULT 'wireguard' CHECK (connection_mode IN ('wireguard', 'direct')), -- huawei = direct
+  management_address   inet,                   -- modo directo: IP de origen vista por Horus (docs/vendors/huawei.md §5)
   flow_export_enabled  boolean NOT NULL DEFAULT true,
   tags                 text[] NOT NULL DEFAULT '{}',
   metadata             jsonb NOT NULL DEFAULT '{}',
@@ -320,6 +322,9 @@ CREATE TABLE devices.router (
 CREATE UNIQUE INDEX ux_router__primary_per_site ON devices.router (tenant_id, site_id) WHERE is_primary AND deleted_at IS NULL;
 CREATE UNIQUE INDEX ux_router__tenant_hostname ON devices.router (tenant_id, hostname) WHERE deleted_at IS NULL;
 CREATE UNIQUE INDEX ux_router__tunnel_address ON devices.router (tunnel_address) WHERE deleted_at IS NULL AND tunnel_address IS NOT NULL; -- única en la plataforma
+-- La dirección de gestión es única en la plataforma solo una vez verificada (prueba de control por SNMPv3).
+CREATE UNIQUE INDEX ux_router__management_address ON devices.router (management_address)
+  WHERE deleted_at IS NULL AND management_address IS NOT NULL AND onboarding_state IN ('snmp_verified', 'exporting');
 
 CREATE TABLE devices.interface (
   id               uuid NOT NULL PRIMARY KEY,

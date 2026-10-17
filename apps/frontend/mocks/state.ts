@@ -73,6 +73,9 @@ export interface RouterFields {
   is_primary?: boolean
   model?: string | null
   routeros_version?: string | null
+  /** Fabricante (solo en el alta); huawei = modo directo sin túnel. */
+  vendor?: 'mikrotik' | 'huawei'
+  management_address?: string | null
   admin_state?: 'active' | 'maintenance' | 'decommissioned'
   tags?: string[]
 }

@@ -1,4 +1,5 @@
 import type {
+  DirectOnboarding,
   ClientPrefix,
   CustomerDetail,
   FlowExporter,
@@ -426,6 +427,8 @@ export function routersOf(
       admin_state: 'active',
       onboarding_state: progress.stage,
       tunnel_address: hasTunnel ? tunnel : null,
+      connection_mode: 'wireguard',
+      management_address: null,
       wireguard_peer_id: mockUuid('0192e888', ti * 100 + spec.index + 1),
       warnings: lossy ? ['hardware_offload_suspected'] : [],
       credentials: [
@@ -458,11 +461,38 @@ export function routersOf(
     if (spec.created && hasTunnel) {
       router.routeros_version_detected = router.routeros_version ?? '7.16.2'
     }
-    router.routeros_version_supported = routerOsSupported(
-      router.routeros_version_detected ?? router.routeros_version,
-    )
+    router.routeros_version_supported =
+      router.vendor === 'huawei'
+        ? null
+        : routerOsSupported(router.routeros_version_detected ?? router.routeros_version)
     if (router.routeros_version_supported === false) {
       router.warnings = [...router.warnings, 'routeros_version_unsupported']
+    }
+    if (router.vendor === 'huawei') {
+      // Huawei VRP en modo directo (docs/vendors/huawei.md): sin túnel ni API REST. Tras generar la
+      // configuración, el sondeador verifica SNMPv3 (snmp_verified) y luego llegan flujos (exporting).
+      Object.assign(router, {
+        connection_mode: 'direct',
+        tunnel_address: null,
+        wireguard_peer_id: null,
+        routeros_version: null,
+        routeros_version_detected: null,
+        onboarding_state:
+          progress.stage === 'pending_configuration'
+            ? 'pending_configuration'
+            : progress.stage === 'exporting'
+              ? 'exporting'
+              : 'snmp_verified',
+        credentials: [
+          {
+            kind: 'snmp',
+            configured: !!progress.run,
+            last_result: progress.stage === 'pending_configuration' ? null : 'ok',
+            last_used_at: null,
+          },
+        ],
+        warnings: [],
+      } satisfies Partial<Router>)
     }
     const creds = dev.credentials.get(id)
     if (creds) {
@@ -479,7 +509,12 @@ export function routersOf(
       version: 1,
       state,
       state_since: iso(stateSince),
-      exporter_ip: hasTunnel ? tunnel.replace('/32', '') : null,
+      exporter_ip:
+        router.vendor === 'huawei'
+          ? (router.management_address ?? null)
+          : hasTunnel
+            ? tunnel.replace('/32', '')
+            : null,
       flow_source: state === 'pending_configuration' ? null : 'ipfix',
       flows_per_second: state === 'exporting' || state === 'lossy' ? fps : null,
       last_flow_at:
@@ -602,6 +637,92 @@ export function deprovisioningScript(item: MockRouter) {
     '/user group remove [find comment="horus"]',
     '',
   ].join('\n')
+}
+
+/**
+ * Alta directa de un Huawei VRP (sin túnel; docs/vendors/huawei.md): configuración SINTÉTICA con
+ * la misma forma que la del backend (solo comandos; la contraseña tras cada modo, dos veces).
+ */
+export function directOnboarding(
+  item: MockRouter,
+  address: string,
+  sampling: number,
+): DirectOnboarding {
+  const user = `horus-${item.router.id.slice(-8)}`
+  const auth = randomPassword(item.router.id + 'auth')
+  const priv = randomPassword(item.router.id + 'priv')
+  const config = [
+    'system-view',
+    'acl number 2990',
+    ' description horus-snmp-ro',
+    ' rule 5 permit source 203.0.113.11 0',
+    ' rule 10 deny',
+    ' quit',
+    'snmp-agent',
+    'snmp-agent sys-info version v3',
+    ...[
+      '1.3.6.1.2.1.1',
+      '1.3.6.1.2.1.2',
+      '1.3.6.1.2.1.31',
+      '1.3.6.1.2.1.47',
+      '1.3.6.1.2.1.80',
+      '1.3.6.1.4.1.2011.5.25.31',
+      '1.3.6.1.4.1.2011.5.25.111',
+    ].map((oid) => `snmp-agent mib-view included horus-ro ${oid}`),
+    'snmp-agent group v3 horus-ro privacy read-view horus-ro acl 2990',
+    `snmp-agent usm-user v3 ${user} group horus-ro`,
+    `snmp-agent usm-user v3 ${user} authentication-mode sha2-256`,
+    auth,
+    auth,
+    `snmp-agent usm-user v3 ${user} privacy-mode aes128`,
+    priv,
+    priv,
+    `snmp-agent usm-user v3 ${user} acl 2990`,
+    'ip netstream export version 9',
+    'ip netstream export template timeout-rate 1',
+    'ip netstream export template option sampler',
+    `ip netstream export source ${address}`,
+    'ip netstream export host 203.0.113.10 2055',
+    'ip netstream timeout active 1',
+    'ip netstream timeout inactive 15',
+    `ip netstream sampler fix-packets ${sampling} inbound`,
+    `ip netstream sampler fix-packets ${sampling} outbound`,
+    'interface {INTERFAZ_NETSTREAM}',
+    ' ip netstream inbound',
+    ' ip netstream outbound',
+    ' quit',
+    'return',
+    '',
+  ].join('\n')
+  return {
+    router_id: item.router.id,
+    vendor: 'huawei',
+    language: 'vrp',
+    management_address: address,
+    collector_address: '203.0.113.10',
+    collector_port: 2055,
+    snmp_user: user,
+    sampling_rate: sampling,
+    config,
+    notes: [
+      'PENDIENTE DE VALIDACIÓN EN EQUIPO REAL: sintaxis de VRP V8 tomada de la documentación oficial de Huawei.',
+      'Modo DIRECTO, sin túnel: SNMP y NetStream viajan por el camino que usted asegura. Nunca exponga SNMP a Internet.',
+      `Horus solo acepta flujos con IP de origen ${address} y solo después de verificar la credencial SNMPv3 en esa dirección.`,
+    ],
+    placeholders: [
+      {
+        key: '{INTERFAZ_NETSTREAM}',
+        description: 'Interfaz donde activar NetStream (subida al proveedor o lado clientes).',
+      },
+    ],
+    warnings: [],
+  }
+}
+
+function randomPassword(seed: string) {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'
+  const r = rng(hash(seed))
+  return Array.from({ length: 24 }, () => alphabet[Math.floor(r() * alphabet.length)]).join('')
 }
 
 /** Vista previa de importación desde el MikroTik (solo lectura; I1-28, E-IPv6-1). */

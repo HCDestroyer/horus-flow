@@ -206,6 +206,12 @@
   con IPs repetidas serían indistinguibles.
 - **Recomendación:** no soportarlo en v1. Si hiciera falta: IP pública fija registrada por router o
   un puerto de colector distinto por exportador.
+- **Actualización (Huawei VRP, I6):** VRP no tiene WireGuard. Se implementó el **modo directo** (dirección de
+  gestión registrada por router, aceptada por el colector solo tras verificar su credencial SNMPv3 en esa IP y
+  única en la plataforma) por un camino que asegura el operador. Sigue **abierta** la tecnología de túnel para
+  Huawei: opciones comparadas en [`vendors/huawei.md`](../vendors/huawei.md) §5.4 (IPsec IKEv2 a un hub
+  strongSwan, GRE sobre IPsec, relé MikroTik/Linux con WireGuard, VRF de gestión); recomendación: IPsec IKEv2
+  route-based, con relé como alternativa. Decide el PO.
 
 <a id="q23"></a>
 ## Q23. ¿Acciones sobre el router (bloquear, limitar, *walled garden*)?

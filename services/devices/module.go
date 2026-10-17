@@ -115,6 +115,10 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 			db.Close()
 			return nil, err
 		}
+		if err := deps.Services.Provide(devapi.ServiceDirectVerifier, onboarding); err != nil {
+			db.Close()
+			return nil, err
+		}
 	}
 	if deps.Health != nil {
 		deps.Health.AddCheck(health.Check{Name: "postgres", Critical: true, Probe: db.Ping})
@@ -236,6 +240,14 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		httpapi.NewCredentials(credentials, guard, logger).Mount(deps.Routes)
 		httpapi.NewImport(importer, guard, logger).Mount(deps.Routes)
 		httpapi.NewTLSPins(pins, guard, logger).Mount(deps.Routes)
+		collector, poller, ntp, port := cfg.DirectSettings()
+		deny := append(append([]netip.Prefix(nil), exclude...), datasets.InstallationPrefixes()...)
+		svc.SetManagementDeny(deny)
+		direct := app.NewDirectOnboarding(store, onboarding, app.DirectSettings{CollectorAddress: collector, CollectorPort: port,
+			PollerAddress: poller, NTPServer: ntp, Deny: deny}, func() (authapi.AuditRecorder, bool) {
+			return module.Lookup[authapi.AuditRecorder](deps.Services, authapi.ServiceAudit)
+		}, logger, nil)
+		httpapi.NewDirect(direct, guard, logger).Mount(deps.Routes)
 		httpapi.NewCustomers(customers, guard, logger).Mount(deps.Routes)
 		httpapi.NewAsnRules(app.NewAsnRules(store, nil, nil), guard, cfg.PublicBaseURL, logger).Mount(deps.Routes)
 		httpapi.NewIntegrations(integrations, guard, logger).Mount(deps.Routes)

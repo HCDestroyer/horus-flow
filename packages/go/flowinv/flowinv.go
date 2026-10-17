@@ -60,12 +60,18 @@ type Interface struct {
 
 // Exporter es el router principal de un nodo con su IP de túnel.
 type Exporter struct {
-	TenantID   uuid.UUID   `yaml:"tenant_id" json:"tenant_id"`
-	RouterID   uuid.UUID   `yaml:"router_id" json:"router_id"`
-	SiteID     uuid.UUID   `yaml:"site_id" json:"site_id"`
-	Name       string      `yaml:"name" json:"name"`
-	SiteName   string      `yaml:"site_name" json:"site_name"`
-	TunnelIP   netip.Addr  `yaml:"tunnel_ip" json:"tunnel_ip"`
+	TenantID uuid.UUID `yaml:"tenant_id" json:"tenant_id"`
+	RouterID uuid.UUID `yaml:"router_id" json:"router_id"`
+	SiteID   uuid.UUID `yaml:"site_id" json:"site_id"`
+	Name     string    `yaml:"name" json:"name"`
+	SiteName string    `yaml:"site_name" json:"site_name"`
+	// TunnelIP es la IP de origen que identifica al exportador: la /32 de
+	// túnel WireGuard o, en modo directo (Direct), la dirección de gestión
+	// verificada del router (docs/vendors/huawei.md §5).
+	TunnelIP netip.Addr `yaml:"tunnel_ip" json:"tunnel_ip"`
+	// Direct: exportador sin túnel (Huawei VRP). Sus flujos no se filtran por
+	// la IP de túnel (la dirección de gestión puede ser la del NAT).
+	Direct     bool        `yaml:"direct,omitempty" json:"direct,omitempty"`
 	AdminState string      `yaml:"admin_state" json:"admin_state"`
 	Interfaces []Interface `yaml:"interfaces" json:"interfaces"`
 	// MaxFlowsPerSecond es la cuota del tenant (0 = sin límite).

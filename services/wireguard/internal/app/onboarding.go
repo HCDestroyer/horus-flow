@@ -14,6 +14,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/outbox"
 	"github.com/hcdestroyer/horus-flow/packages/go/problem"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
+	devapi "github.com/hcdestroyer/horus-flow/services/devices/api"
 	"github.com/hcdestroyer/horus-flow/services/wireguard/internal/domain"
 	"github.com/hcdestroyer/horus-flow/services/wireguard/internal/script"
 )
@@ -35,6 +36,19 @@ func errUnsupported() error {
 	return apperr.New(apperr.KindInvalid, domain.CodeRouterOSTooOld, "RouterOS v7 ≥ 7.12 requerido")
 }
 
+// CodeVendorNotSupported: el script RouterOS y el túnel WireGuard solo
+// existen para MikroTik (Huawei VRP no tiene WireGuard: modo directo,
+// docs/vendors/huawei.md §5).
+const CodeVendorNotSupported = "ROUTER_VENDOR_NOT_SUPPORTED"
+
+func checkWireGuardVendor(r devapi.RouterInfo) error {
+	if r.ConnectionMode == devapi.ConnectionDirect || (r.Vendor != "" && r.Vendor != devapi.VendorMikroTik) {
+		return apperr.New(apperr.KindInvalid, CodeVendorNotSupported,
+			"El túnel WireGuard y el script RouterOS solo existen para MikroTik; este router se conecta en modo directo.")
+	}
+	return nil
+}
+
 // CreateProvisioningScript genera el script de alta (I1-02): asegura el
 // peer, invalida los tokens y credenciales anteriores, crea un token nuevo
 // de 24 h y credenciales nuevas (que solo aparecen en este script) y lo
@@ -42,6 +56,9 @@ func errUnsupported() error {
 func (s *Service) CreateProvisioningScript(ctx context.Context, routerID uuid.UUID, in ProvisioningInput) (*Provisioning, error) {
 	p, t, r, err := s.routerInScope(ctx, "wireguard.write", routerID)
 	if err != nil {
+		return nil, err
+	}
+	if err := checkWireGuardVendor(r); err != nil {
 		return nil, err
 	}
 	version := strOr(in.RouterOSVersion, strOr(r.RouterOSVersion, ""))
@@ -107,6 +124,9 @@ func (s *Service) CreateProvisioningScript(ctx context.Context, routerID uuid.UU
 func (s *Service) CreateDeprovisioningScript(ctx context.Context, routerID uuid.UUID) (string, error) {
 	p, t, r, err := s.routerInScope(ctx, "wireguard.write", routerID)
 	if err != nil {
+		return "", err
+	}
+	if err := checkWireGuardVendor(r); err != nil {
 		return "", err
 	}
 	var addr netip.Addr

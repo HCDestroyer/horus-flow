@@ -1253,6 +1253,48 @@
       "checkOutbound": "Salida a Internet del router hacia el endpoint de Horus.",
       "checkTrafficFlow": "Traffic Flow habilitado y con destino la IP de túnel de Horus.",
       "checkOffload": "Offload por hardware (fasttrack): el tráfico acelerado no genera flujos."
+    },
+    "direct": {
+      "warningTitle": "Modo directo: sin túnel WireGuard",
+      "warningBody": "Huawei VRP no admite WireGuard. Horus consultará SNMP y recibirá NetStream directamente desde la dirección de gestión del router. Ese camino lo aseguras tú: VRF de gestión, una VPN de sitio existente o un relé MikroTik/Linux en el sitio. Nunca expongas SNMP a Internet. El túnel para Huawei está pendiente de decisión de producto.",
+      "allowList": "Horus solo acepta flujos con IP de origen {ip} y solo después de verificar la credencial SNMPv3 en esa dirección.",
+      "generate": {
+        "title": "Generar configuración VRP",
+        "address": "Dirección de gestión del router",
+        "addressHelp": "La IP de origen con la que Horus verá al router (SNMP y NetStream). Si hay NAT en el camino, la IP tras el NAT.",
+        "sampling": "Muestreo de NetStream (1 de cada N paquetes)",
+        "samplingHelp": "1000 por defecto. Más bajo = más precisión y más carga en el router.",
+        "action": "Generar configuración",
+        "regenerate": "Regenerar (rota la credencial SNMP)",
+        "reauth": "Generar la configuración crea una credencial SNMPv3 nueva: confirma tu identidad para continuar.",
+        "reauthNeeded": "Confirma tu identidad para generar la configuración (pulsa de nuevo \"Generar configuración\").",
+        "onceTitle": "Solo se muestra una vez",
+        "onceBody": "Contiene las contraseñas SNMPv3 de solo lectura. Cópiala o descárgala ahora; si la pierdes, regénerala (la anterior deja de valer).",
+        "configLabel": "Configuración Huawei VRP",
+        "notes": "Antes de pegar",
+        "placeholders": "Valores que completas tú",
+        "pending": "Pendiente de validación en equipo real: la sintaxis sale de la documentación oficial de Huawei.",
+        "noPermission": "Pide a quien administra el ISP que genere la configuración (permiso de credenciales de routers).",
+        "addressRequired": "Indica la dirección de gestión del router.",
+        "addressTaken": "Otro router verificado ya usa esa dirección de gestión."
+      },
+      "paste": {
+        "title": "Pegar en el router",
+        "body": "Entra por SSH o consola, pega la configuración (incluye system-view) y completa los valores marcados. Horus verificará la credencial SNMPv3 en la dirección de gestión en el siguiente ciclo de sondeo.",
+        "waiting": "Esperando respuesta SNMPv3 del router…",
+        "verified": "Credencial SNMPv3 verificada en {ip}"
+      },
+      "verify": {
+        "title": "Verificación",
+        "snmp": "SNMPv3 responde con la credencial de Horus",
+        "flow": "Primer flujo NetStream recibido",
+        "customers": "Primeros clientes descubiertos",
+        "stuck": "¿No avanza? Qué revisar",
+        "checkPath": "Camino de gestión: que Horus alcance la dirección de gestión por UDP 161 y el router alcance el colector por UDP (VRF, VPN o relé).",
+        "checkAcl": "ACL de SNMP: que permita la IP del sondeador de Horus.",
+        "checkNetstream": "NetStream activado en las interfaces (ip netstream inbound/outbound) y exportado con la dirección de gestión como origen.",
+        "checkNat": "Si hay NAT en el camino, la dirección de gestión debe ser la IP que ve Horus."
+      }
     }
   },
   "prefixes": {
@@ -2751,7 +2793,13 @@
       "deleted": "Router {name} eliminado",
       "deleteConflict": "El router cambió mientras lo revisabas. Recargamos sus datos: revísalos y vuelve a intentarlo.",
       "deprovisionFirstTitle": "Desinstala Horus del router antes",
-      "deprovisionFirstBody": "Pega en el MikroTik el script de desinstalación: quita el túnel WireGuard, el usuario de solo lectura y el destino de Traffic Flow que creó el script de alta."
+      "deprovisionFirstBody": "Pega en el MikroTik el script de desinstalación: quita el túnel WireGuard, el usuario de solo lectura y el destino de Traffic Flow que creó el script de alta.",
+      "managementAddress": "Dirección de gestión",
+      "managementAddressHelp": "IP de origen del router tal y como la ve Horus (SNMP y NetStream). Opcional ahora: se puede indicar al generar la configuración.",
+      "managementAddressInvalid": "Escribe una IP unicast (sin loopback, link-local ni multicast).",
+      "createdDescriptionDirect": "Siguiente paso: generar la configuración VRP (modo directo, sin túnel) y pegarla en el router.",
+      "continueToConfig": "Continuar con la configuración",
+      "huaweiModelPlaceholder": "NE40E-X8A"
     },
     "steps": {
       "label": "Pasos para conectar un nodo",
@@ -2776,6 +2824,14 @@
         "title": "Prefijos de clientes",
         "body": "Qué IPs son de clientes: importa del MikroTik o decláralas."
       }
+    },
+    "vendor": {
+      "label": "Fabricante",
+      "mikrotik": "MikroTik (RouterOS 7)",
+      "huawei": "Huawei (VRP)",
+      "help": "MikroTik se conecta por un túnel WireGuard. Huawei VRP no tiene WireGuard: se conecta en modo directo.",
+      "directBadge": "Modo directo",
+      "directHint": "Sin túnel WireGuard: SNMP y NetStream viajan por el camino que asegura el operador."
     }
   },
   "credentials": {
@@ -3861,7 +3917,10 @@
       "missing": "Falta la IP de {n} puerta de enlace: el script la deja marcada | Faltan las IP de {n} puertas de enlace: el script las deja marcadas",
       "scriptLabel": "Script RouterOS (.rsc)",
       "warnings": "Avisos",
-      "readOnly": "Las IP que escribe aquí solo completan el script en su navegador; no se envían a Horus."
+      "readOnly": "Las IP que escribe aquí solo completan el script en su navegador; no se envían a Horus.",
+      "titleVrp": "Pruebas NQA · {router}",
+      "descriptionVrp": "Pegue estas pruebas NQA en el router Huawei para medir pérdida, latencia y jitter por enlace. Horus solo lee sus resultados por SNMP (sintaxis pendiente de validación en equipo real).",
+      "scriptLabelVrp": "Configuración Huawei VRP (NQA)"
     },
     "settings": {
       "open": "Ajustes",

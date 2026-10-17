@@ -5,7 +5,8 @@ import type { NetwatchSnippet } from '~~/types/api'
  * Script RouterOS de sondas netwatch por enlace (`GET /routers/{id}/netwatch-snippet`): el
  * usuario escribe la IP de la puerta de enlace del proveedor de cada enlace (se completa en
  * el navegador; nunca viaja a la API), revisa el script y lo pega en el router. Horus nunca
- * escribe en routers: solo lee las sondas con su usuario de solo lectura.
+ * escribe en routers: solo lee las sondas con su usuario de solo lectura. Con un router Huawei
+ * (`language: vrp`) son pruebas NQA ICMP que Horus lee por SNMP (docs/vendors/huawei.md §4).
  */
 const props = defineProps<{ routerId: string | null }>()
 const open = defineModel<boolean>('open', { default: false })
@@ -45,6 +46,7 @@ const filled = computed(() =>
 )
 const gatewayError = (key: string) =>
   gateways.value[key] && !isIPv4(gateways.value[key]!) ? t('capacity.snippet.invalidIp') : undefined
+const vrp = computed(() => result.value?.language === 'vrp')
 const probesError = computed(() => {
   const e = result.value?.probes_error
   if (!e) return null
@@ -55,8 +57,12 @@ const probesError = computed(() => {
 <template>
   <UModal
     v-model:open="open"
-    :title="t('capacity.snippet.title', { router: result?.router_name ?? '' })"
-    :description="t('capacity.snippet.description')"
+    :title="
+      t(vrp ? 'capacity.snippet.titleVrp' : 'capacity.snippet.title', {
+        router: result?.router_name ?? '',
+      })
+    "
+    :description="t(vrp ? 'capacity.snippet.descriptionVrp' : 'capacity.snippet.description')"
     :ui="{ content: 'sm:max-w-3xl' }"
   >
     <template #body>
@@ -109,8 +115,12 @@ const probesError = computed(() => {
           <CodeBlock
             v-if="filled"
             :code="filled.script"
-            :label="t('capacity.snippet.scriptLabel')"
-            :filename="`horus-netwatch-${routerId?.slice(0, 8)}.rsc`"
+            :label="t(vrp ? 'capacity.snippet.scriptLabelVrp' : 'capacity.snippet.scriptLabel')"
+            :filename="
+              vrp
+                ? `horus-nqa-${routerId?.slice(0, 8)}.txt`
+                : `horus-netwatch-${routerId?.slice(0, 8)}.rsc`
+            "
             max-height="18rem"
             data-testid="netwatch-script"
           />

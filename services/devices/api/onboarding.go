@@ -34,7 +34,7 @@ var ErrRouterNotFound = errors.New("devices: router not found")
 // emitió o se borró).
 var ErrNoCredential = errors.New("devices: credential not found")
 
-// RouterInfo es lo que wireguard necesita de un router.
+// RouterInfo es lo que wireguard (y el rol snmp) necesitan de un router.
 type RouterInfo struct {
 	ID              uuid.UUID
 	TenantID        uuid.UUID
@@ -43,14 +43,37 @@ type RouterInfo struct {
 	RouterOSVersion *string
 	OnboardingState string
 	TunnelAddress   *netip.Addr
+	// Vendor: mikrotik | huawei.
+	Vendor string
+	// ConnectionMode: wireguard (túnel al hub de Horus) | direct (sin
+	// túnel; el camino lo asegura el operador: docs/vendors/huawei.md §5).
+	ConnectionMode string
+	// ManagementAddress: en modo directo, la IP de origen del router tal y
+	// como la ve Horus (destino del sondeo SNMP e identidad del exportador).
+	ManagementAddress *netip.Addr
 }
+
+// Fabricantes (devices.router.vendor).
+const (
+	VendorMikroTik = "mikrotik"
+	VendorHuawei   = "huawei"
+)
+
+// Modos de conexión con Horus (devices.router.connection_mode).
+const (
+	ConnectionWireGuard = "wireguard"
+	ConnectionDirect    = "direct"
+)
 
 // Estados de alta (devices.router.onboarding_state).
 const (
 	OnboardingPending     = "pending_configuration"
 	OnboardingKeyReceived = "key_received"
 	OnboardingTunnelUp    = "tunnel_up"
-	OnboardingExporting   = "exporting"
+	// OnboardingSNMPVerified (modo directo, sin túnel): el sondeador respondió
+	// con la credencial SNMPv3 de ese router en su dirección de gestión.
+	OnboardingSNMPVerified = "snmp_verified"
+	OnboardingExporting    = "exporting"
 )
 
 // TunnelUpdate es la proyección de un peer en su router.
@@ -102,4 +125,20 @@ type SNMPCredential struct {
 // ErrNoCredential si no tiene credencial SNMP.
 type SNMPCredentialReader interface {
 	RevealSNMPCredential(ctx context.Context, tenant, routerID uuid.UUID) (SNMPCredential, error)
+}
+
+// ServiceDirectVerifier → DirectVerifier (lo usa el rol snmp).
+const ServiceDirectVerifier = "devices.DirectVerifier"
+
+// ErrManagementAddressTaken: otro router verificado ya usa esa dirección de
+// gestión (la verificación no avanza).
+var ErrManagementAddressTaken = errors.New("devices: management address taken")
+
+// DirectVerifier marca como verificado un router en modo directo cuando el
+// sondeador SNMP obtiene respuesta authPriv con SU credencial en addr (su
+// dirección de gestión). Es la prueba de que quien registró la dirección
+// controla el equipo: hasta entonces el colector no acepta flujos de esa IP
+// (docs/vendors/huawei.md §5.3).
+type DirectVerifier interface {
+	VerifyDirect(ctx context.Context, tenant, routerID uuid.UUID, addr netip.Addr) error
 }

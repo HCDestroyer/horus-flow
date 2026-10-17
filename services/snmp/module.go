@@ -113,6 +113,9 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		Credentials: func() (devapi.SNMPCredentialReader, bool) {
 			return module.Lookup[devapi.SNMPCredentialReader](deps.Services, devapi.ServiceSNMPCredentials)
 		},
+		Verifier: func() (devapi.DirectVerifier, bool) {
+			return module.Lookup[devapi.DirectVerifier](deps.Services, devapi.ServiceDirectVerifier)
+		},
 	}
 	if cfg.Enabled {
 		sock, err := icmp.Open()

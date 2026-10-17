@@ -273,6 +273,9 @@ func (s *Service) Reconcile(ctx context.Context) error {
 	}
 	live := make(map[string]bool, len(routers))
 	for _, r := range routers {
+		if r.ConnectionMode == devapi.ConnectionDirect {
+			continue // modo directo (Huawei VRP): sin túnel ni IP del pool; un peer previo se revoca
+		}
 		live[routerKey(r.TenantID, r.ID)] = true
 		if _, err := s.EnsurePeer(ctx, r); err != nil {
 			if errors.Is(err, domain.ErrPoolExhausted) {

@@ -20,6 +20,15 @@ import (
 
 func uintString(v uint64) string { return strconv.FormatUint(v, 10) }
 
+// versionLabel es la etiqueta version de horus_collector_datagrams_total
+// (9, 10 o sflow5).
+func versionLabel(v uint16) string {
+	if v == decode.VersionSFlow {
+		return "sflow5"
+	}
+	return strconv.Itoa(int(v))
+}
+
 // Datagram es un datagrama recibido.
 type Datagram struct {
 	Src     netip.AddrPort
@@ -117,7 +126,10 @@ func (j *dgram) decode(m *Metrics) {
 	recs := j.res.Records[:0]
 	for i := range j.res.Records {
 		r := &j.res.Records[i]
-		if r.SrcIP == j.ip || r.DstIP == j.ip {
+		// Tráfico de gestión por el túnel. En modo directo (Huawei) la IP de
+		// origen es la dirección de gestión del router, que puede ser la misma
+		// que usa el NAT de los clientes: no se filtra.
+		if !j.exp.Direct && (r.SrcIP == j.ip || r.DstIP == j.ip) {
 			m.Dropped.WithLabelValues(DropTunnel).Inc()
 			continue
 		}
@@ -144,7 +156,7 @@ func (w *Worker) post(j *dgram) {
 			return
 		}
 	}
-	w.m.Datagrams.WithLabelValues(strconv.Itoa(int(res.Header.Version))).Inc()
+	w.m.Datagrams.WithLabelValues(versionLabel(res.Header.Version)).Inc()
 	w.m.ReceivedRecords.Add(float64(j.total))
 	if res.DroppedNoTemplate > 0 {
 		w.m.Dropped.WithLabelValues(DropNoTemplate).Add(float64(res.DroppedNoTemplate))
@@ -177,8 +189,11 @@ func (w *Worker) post(j *dgram) {
 	skew := res.Header.ExportTime.Sub(j.d.At)
 	w.m.ClockSkew.WithLabelValues(rid).Set(skew.Seconds())
 	source := "ipfix"
-	if res.Header.Version == decode.VersionV9 {
+	switch res.Header.Version {
+	case decode.VersionV9:
 		source = "netflow_v9"
+	case decode.VersionSFlow:
+		source = decode.FlowSourceSFlow
 	}
 	w.states.Observe(exp, Observation{At: j.d.At, Records: j.total, Lost: lost, Skew: skew,
 		FlowSource: source, Sampling: j.plan.Sampling, Gap: lost > 0})

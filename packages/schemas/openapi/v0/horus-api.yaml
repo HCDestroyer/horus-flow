@@ -419,6 +419,8 @@ paths:
     $ref: ./devices.yaml#/paths/~1routers~1{router_id}~1credentials~1{kind}
   /routers/{router_id}/deprovisioning-script:
     $ref: ./wireguard.yaml#/paths/~1routers~1{router_id}~1deprovisioning-script
+  /routers/{router_id}/direct-onboarding:
+    $ref: ./devices.yaml#/paths/~1routers~1{router_id}~1direct-onboarding
   /routers/{router_id}/interfaces:
     $ref: ./snmp.yaml#/paths/~1routers~1{router_id}~1interfaces
   /routers/{router_id}/metrics/live:
