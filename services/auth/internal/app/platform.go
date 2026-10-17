@@ -268,7 +268,7 @@ func (s *Service) TenantSummaries(ctx context.Context) ([]api.TenantSummary, err
 			return nil, err
 		}
 		for _, t := range rows {
-			out = append(out, api.TenantSummary{ID: t.ID, Slug: t.Slug, Name: t.Name, Status: t.Status, Timezone: t.Timezone})
+			out = append(out, api.TenantSummary{ID: t.ID, Slug: t.Slug, Name: t.Name, Status: t.Status, Timezone: t.Timezone, Country: t.Country})
 		}
 		if len(rows) < tenantSummaryBatch {
 			return out, nil

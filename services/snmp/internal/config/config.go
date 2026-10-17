@@ -76,6 +76,13 @@ type Config struct {
 	InfraDenyCIDRs []string `env:"HORUS_SNMP_INFRA_DENY_CIDRS" envSeparator:","`
 	// PublicBaseURL para Location.
 	PublicBaseURL string `env:"HORUS_PUBLIC_BASE_URL"`
+
+	// Capacidad de enlaces (NOC): lectura de las sondas netwatch de los routers (API REST de solo lectura) y sondas
+	// de respaldo desde Horus cada ProbeInterval; trabajo diario de picos y pronósticos.
+	ProbeInterval    time.Duration `env:"HORUS_SNMP_PROBE_INTERVAL" envDefault:"60s"`
+	ProbeConcurrency int           `env:"HORUS_SNMP_PROBE_CONCURRENCY" envDefault:"8"`
+	// CapacityEnabled: false desactiva sondas, monitor y trabajo diario (la API sigue sirviendo lo guardado).
+	CapacityEnabled bool `env:"HORUS_SNMP_CAPACITY_ENABLED" envDefault:"true"`
 }
 
 // Validate implementa config.Validator.
@@ -98,6 +105,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Concurrency <= 0 {
 		errs = append(errs, errors.New("HORUS_SNMP_CONCURRENCY must be > 0"))
+	}
+	if c.ProbeInterval < 10*time.Second {
+		errs = append(errs, errors.New("HORUS_SNMP_PROBE_INTERVAL must be >= 10s"))
+	}
+	if c.ProbeConcurrency <= 0 {
+		errs = append(errs, errors.New("HORUS_SNMP_PROBE_CONCURRENCY must be > 0"))
 	}
 	for name, p := range map[string][2]float64{"CPU": {c.CPUWarning, c.CPUCritical}, "MEMORY": {c.MemoryWarning, c.MemoryCritical},
 		"TEMPERATURE": {c.TemperatureWarning, c.TemperatureCritical}} {

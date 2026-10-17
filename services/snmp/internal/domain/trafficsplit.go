@@ -3,6 +3,9 @@ package domain
 import (
 	"slices"
 	"strings"
+	"time"
+
+	"github.com/google/uuid"
 )
 
 // Clases de tráfico remoto (TrafficOrigin del contrato).
@@ -23,10 +26,18 @@ const (
 // Meta FNA) o si su organización es del país del ISP; internacional si la
 // organización es de otro país; desconocido sin ASN (0) o sin país.
 func ClassifyASN(asn uint32, orgCountry, tenantCountry string, localASNs []uint32) (origin, reason string) {
-	if asn == 0 {
+	_, inList := slices.BinarySearch(localASNs, asn)
+	return ClassifyOrigin(asn == 0, inList, orgCountry, tenantCountry)
+}
+
+// ClassifyOrigin es ClassifyASN sobre filas ya agregadas por país (la
+// consulta a ClickHouse agrupa por país del ASN y pertenencia a la lista
+// local, sin bajar ASN por ASN).
+func ClassifyOrigin(noASN, inLocalList bool, orgCountry, tenantCountry string) (origin, reason string) {
+	if noASN {
 		return OriginUnknown, ""
 	}
-	if _, ok := slices.BinarySearch(localASNs, asn); ok {
+	if inLocalList {
 		return OriginLocal, LocalByList
 	}
 	oc := strings.ToUpper(strings.TrimSpace(orgCountry))
@@ -39,15 +50,16 @@ func ClassifyASN(asn uint32, orgCountry, tenantCountry string, localASNs []uint3
 	return OriginInternational, ""
 }
 
-// ASNVolume es el volumen de un ASN remoto en una ventana.
+// ASNVolume es el volumen remoto de un nodo y un día agregado por país de la
+// organización del ASN y pertenencia a la lista local.
 type ASNVolume struct {
-	ASN        uint32
-	Country    string
-	Name       string
-	BytesDown  uint64
-	BytesUp    uint64
-	SiteKey    string // "" = total
-	BucketUnix int64  // 0 = toda la ventana
+	SiteID    uuid.UUID
+	Day       time.Time
+	Country   string
+	NoASN     bool
+	Local     bool
+	BytesDown uint64
+	BytesUp   uint64
 }
 
 // TrafficSplit son los volúmenes por clase.
@@ -61,10 +73,10 @@ type TrafficSplit struct {
 	LocalShare         *float64 `json:"local_share"`
 }
 
-// Add suma el volumen de un ASN en su clase.
-func (t *TrafficSplit) Add(v ASNVolume, tenantCountry string, localASNs []uint32) {
+// Add suma un volumen en su clase.
+func (t *TrafficSplit) Add(v ASNVolume, tenantCountry string) {
 	b := v.BytesDown + v.BytesUp
-	origin, reason := ClassifyASN(v.ASN, v.Country, tenantCountry, localASNs)
+	origin, reason := ClassifyOrigin(v.NoASN, v.Local, v.Country, tenantCountry)
 	switch origin {
 	case OriginLocal:
 		t.LocalBytes += b

@@ -39,8 +39,8 @@ func TestSNMPSchema(t *testing.T) {
 	if err != nil {
 		t.Fatalf("up: %v", err)
 	}
-	if len(applied) != 2 {
-		t.Fatalf("aplicadas %d migraciones, esperaba 2", len(applied))
+	if len(applied) != 3 {
+		t.Fatalf("aplicadas %d migraciones, esperaba 3", len(applied))
 	}
 	if again, err := chmigrate.Up(ctx, admin, chschema.Migrations(), opts); err != nil || len(again) != 0 {
 		t.Fatalf("segunda ejecución: %d aplicadas, err %v", len(again), err)
@@ -54,7 +54,8 @@ func TestSNMPSchema(t *testing.T) {
 	if _, err := chmigrate.Up(ctx, admin, chschema.Migrations(), opts); err != nil {
 		t.Fatalf("re-up: %v", err)
 	}
-	for _, tbl := range []string{"device_metrics", "interface_metrics", "device_5m", "device_1h", "interface_5m", "interface_1h"} {
+	for _, tbl := range []string{"device_metrics", "interface_metrics", "device_5m", "device_1h", "interface_5m", "interface_1h",
+		"probe_metrics", "probe_5m", "probe_1h", "uplink_daily"} {
 		if n := count(ctx, t, admin, "SELECT count() FROM system.tables WHERE database = 'snmp' AND name = '"+tbl+"'"); n != 1 {
 			t.Fatalf("falta snmp.%s", tbl)
 		}

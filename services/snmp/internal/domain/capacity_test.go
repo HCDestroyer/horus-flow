@@ -318,9 +318,9 @@ func TestClassifyTraffic(t *testing.T) {
 	if s.InternationalShare != nil {
 		t.Fatal("sin tráfico: proporción nil")
 	}
-	for _, v := range []ASNVolume{{ASN: 13335, Country: "US", BytesDown: 600}, {ASN: 15169, Country: "US", BytesDown: 300},
-		{ASN: 14754, Country: "GT", BytesUp: 100}, {ASN: 0, BytesDown: 1000}} {
-		s.Add(v, "GT", local)
+	for _, v := range []ASNVolume{{Country: "US", BytesDown: 600}, {Country: "US", Local: true, BytesDown: 300},
+		{Country: "GT", BytesUp: 100}, {NoASN: true, BytesDown: 1000}, {Country: "", BytesDown: 0}} {
+		s.Add(v, "GT")
 	}
 	s.Finish()
 	if s.InternationalBytes != 600 || s.LocalBytes != 400 || s.LocalByList != 300 || s.LocalByCountry != 100 || s.UnknownBytes != 1000 {

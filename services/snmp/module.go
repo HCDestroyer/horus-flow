@@ -26,6 +26,7 @@ import (
 	"log/slog"
 	"net/netip"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -74,6 +75,9 @@ type mod struct {
 	infra *app.Infra
 	sched *app.InfraScheduler
 	flows *chadapter.FlowReader
+	// Capacidad de enlaces (NOC): configuración, sondas, monitor y pronósticos.
+	capacity *app.Capacity
+	capCH    *chadapter.Capacity
 }
 
 // Register construye el módulo del rol snmp (firma module.Factory).
@@ -136,8 +140,12 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 	if err := m.setupInfra(ctx); err != nil {
 		return nil, err
 	}
+	m.setupCapacity()
 	if deps.Services != nil {
 		if err := deps.Services.Provide(api.ServiceRouterStatus, m.engine); err != nil {
+			return nil, err
+		}
+		if err := deps.Services.Provide(api.ServiceCapacity, api.CapacityReader(m.capacity)); err != nil {
 			return nil, err
 		}
 	}
@@ -151,6 +159,9 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 			httpapi.NewInfra(m.infra, authz.NewGuard(v), func() (authapi.AuditRecorder, bool) {
 				return module.Lookup[authapi.AuditRecorder](deps.Services, authapi.ServiceAudit)
 			}, cfg.PublicBaseURL, servicesCIDR(cfg), log).Mount(deps.Routes)
+			httpapi.NewCapacity(m.capacity, authz.NewGuard(v), func() (authapi.AuditRecorder, bool) {
+				return module.Lookup[authapi.AuditRecorder](deps.Services, authapi.ServiceAudit)
+			}, deniedTargets(cfg), log).Mount(deps.Routes)
 		} else {
 			log.WarnContext(ctx, "snmp: no token verifier (auth not local, HORUS_JWT_PUBLIC_KEYS unset): routers API not served")
 		}
@@ -225,6 +236,54 @@ func (m *mod) setupInfra(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// setupCapacity prepara el análisis de capacidad de enlaces. Sin PostgreSQL
+// no hay configuración por enlace (la API de escritura responde 503) ni
+// eventos; sin ClickHouse no hay histórico ni pronósticos.
+func (m *mod) setupCapacity() {
+	opts := app.CapacityOptions{Engine: m.engine, Infra: m.infra, Deny: deniedTargets(m.cfg), ProbeInterval: m.cfg.ProbeInterval,
+		ProbeConcurrency: m.cfg.ProbeConcurrency, Logger: m.log,
+		Probes: func() (devapi.RouterProbeReader, bool) {
+			return module.Lookup[devapi.RouterProbeReader](m.deps.Services, devapi.ServiceRouterProbes)
+		},
+		Tenants: tenantDirectory(m.deps.Services)}
+	if m.db != nil {
+		opts.Repo = pgstore.New(m.db)
+	}
+	if m.pinger != nil {
+		opts.Pinger = m.pinger
+	}
+	m.capacity = app.NewCapacity(opts)
+}
+
+// tenantDirectory devuelve zona horaria y país de los ISP (auth, en el
+// proceso) con una caché de 5 minutos.
+func tenantDirectory(services *module.Services) func(context.Context) (map[uuid.UUID]app.TenantInfo, bool) {
+	var mu sync.Mutex
+	var at time.Time
+	var cached map[uuid.UUID]app.TenantInfo
+	return func(ctx context.Context) (map[uuid.UUID]app.TenantInfo, bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		if cached != nil && time.Since(at) < 5*time.Minute {
+			return cached, true
+		}
+		dir, ok := module.Lookup[authapi.TenantDirectory](services, authapi.ServiceTenants)
+		if !ok {
+			return nil, false
+		}
+		list, err := dir.TenantSummaries(ctx)
+		if err != nil {
+			return cached, cached != nil
+		}
+		out := make(map[uuid.UUID]app.TenantInfo, len(list))
+		for _, t := range list {
+			out[t.ID] = app.TenantInfo{ID: t.ID, Timezone: t.Timezone, Country: t.Country, Active: t.Status == "active"}
+		}
+		cached, at = out, time.Now()
+		return cached, true
+	}
 }
 
 // deniedTargets son las redes internas de la instalación que un ISP no puede
@@ -305,9 +364,18 @@ func (m *mod) Start(ctx context.Context) error {
 				m.sched.SetFlows(fr)
 			}
 		}
+		if cc, err := chadapter.OpenCapacity(m.cfg.ClickHouseDSN, user, pw); err != nil {
+			m.log.WarnContext(ctx, "snmp: capacity series unavailable (no history, no forecasts)", "error", err)
+		} else {
+			m.capCH = cc
+			m.capacity.SetSeries(cc)
+		}
 		if m.deps.Health != nil {
 			m.deps.Health.AddCheck(health.Check{Name: "clickhouse", Critical: false, Probe: w.Ping})
 		}
+	}
+	if err := m.capacity.Load(ctx); err != nil {
+		m.log.WarnContext(ctx, "snmp: capacity config not loaded (defaults until the next reload)", "error", err)
 	}
 	if m.bus != nil {
 		js := m.bus.JS
@@ -340,6 +408,9 @@ func (m *mod) Run(ctx context.Context) error {
 	if m.sched != nil {
 		go func() { _ = m.sched.Run(ctx) }()
 	}
+	if m.cfg.Enabled && m.cfg.CapacityEnabled {
+		go m.capacity.Run(ctx, m.engine.Interval())
+	}
 	return m.engine.Run(ctx)
 }
 
@@ -354,6 +425,9 @@ func (m *mod) Stop(ctx context.Context) error {
 	}
 	if m.flows != nil {
 		errs = append(errs, m.flows.Close())
+	}
+	if m.capCH != nil {
+		errs = append(errs, m.capCH.Close())
 	}
 	if m.db != nil {
 		m.db.Close()
