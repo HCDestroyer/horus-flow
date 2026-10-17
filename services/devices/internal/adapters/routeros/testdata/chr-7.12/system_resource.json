@@ -1,0 +1,19 @@
+{
+  "architecture-name": "x86_64",
+  "board-name": "CHR",
+  "build-time": "Nov/09/2023 07:45:06",
+  "cpu": "QEMU",
+  "cpu-count": "2",
+  "cpu-frequency": "2099",
+  "cpu-load": "51",
+  "factory-software": "7.1",
+  "free-hdd-space": "73830400",
+  "free-memory": "389263360",
+  "platform": "MikroTik",
+  "total-hdd-space": "93564928",
+  "total-memory": "469762048",
+  "uptime": "14m4s",
+  "version": "7.12 (stable)",
+  "write-sect-since-reboot": "8832",
+  "write-sect-total": "8832"
+}

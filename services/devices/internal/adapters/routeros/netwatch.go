@@ -11,9 +11,11 @@ import (
 	"github.com/hcdestroyer/horus-flow/services/devices/internal/app"
 )
 
-// NetwatchProps son las propiedades leídas de /tool/netwatch (RouterOS v7;
-// las estadísticas ICMP existen desde 7.4, nombres a verificar en cada
-// versión soportada: docs/vendors/mikrotik.md §4.1).
+// NetwatchProps son las propiedades de /tool/netwatch que interpreta Horus (sondas ICMP;
+// nombres y formatos validados en CHR 7.12 y 7.23.8, testdata/chr-*: `loss-percent` sin "%",
+// RTT como "1ms822us", `disabled` solo aparece cuando es true y las sondas caídas no traen RTT).
+// La lectura NO usa `.proplist`: una propiedad que falte en una versión truncaría la respuesta
+// (ver Paths en facts.go) y la tabla tiene pocas filas.
 var NetwatchProps = []string{"host", "type", "status", "comment", "disabled", "sent-count", "response-count", "loss-percent",
 	"rtt-avg", "rtt-min", "rtt-max", "rtt-jitter", "rtt-stdev"}
 
@@ -34,7 +36,7 @@ func (r Reader) ReadNetwatch(ctx context.Context, t app.ReadTarget) ([]devapi.Ne
 		timeout = 10 * time.Second
 	}
 	c := New(Target{BaseURL: base, User: t.User, Password: t.Password, Pinned: t.Pinned}, timeout, r.Dial)
-	rows, err := c.Print(ctx, "tool/netwatch", NetwatchProps...)
+	rows, err := c.Print(ctx, "tool/netwatch")
 	switch {
 	case errors.Is(err, ErrFingerprintChanged):
 		return nil, app.ErrRouterFingerprint

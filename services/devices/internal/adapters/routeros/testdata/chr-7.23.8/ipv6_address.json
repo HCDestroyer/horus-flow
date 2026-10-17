@@ -1,0 +1,44 @@
+[
+  {
+    ".id": "*1",
+    "address": "::1/128",
+    "disabled": "false",
+    "dynamic": "true",
+    "interface": "lo"
+  },
+  {
+    ".id": "*2",
+    "address": "fe80::5054:ff:fe48:4602/64",
+    "disabled": "false",
+    "dynamic": "true",
+    "interface": "ether2-wan"
+  },
+  {
+    ".id": "*3",
+    "address": "fe80::5054:ff:fe48:4601/64",
+    "disabled": "false",
+    "dynamic": "true",
+    "interface": "ether1-mgmt"
+  },
+  {
+    ".id": "*4",
+    "address": "fe80::5054:ff:fe48:4603/64",
+    "disabled": "false",
+    "dynamic": "true",
+    "interface": "ether3-lan"
+  },
+  {
+    ".id": "*6",
+    "address": "fe80::6bf8:2343:8056:e606/64",
+    "disabled": "false",
+    "dynamic": "true",
+    "interface": "wg-horus"
+  },
+  {
+    ".id": "*7",
+    "address": "2001:db8:ffff::1/64",
+    "disabled": "false",
+    "dynamic": "false",
+    "interface": "ether3-lan"
+  }
+]

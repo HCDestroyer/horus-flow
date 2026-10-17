@@ -1,0 +1,30 @@
+[
+  {
+    ".id": "*1",
+    "address": "10.0.2.15/24",
+    "disabled": "false",
+    "dynamic": "true",
+    "interface": "ether1-mgmt"
+  },
+  {
+    ".id": "*2",
+    "address": "198.18.0.2/24",
+    "disabled": "false",
+    "dynamic": "false",
+    "interface": "ether2-wan"
+  },
+  {
+    ".id": "*3",
+    "address": "10.20.0.1/24",
+    "disabled": "false",
+    "dynamic": "false",
+    "interface": "ether3-lan"
+  },
+  {
+    ".id": "*6",
+    "address": "10.255.3.17/32",
+    "disabled": "false",
+    "dynamic": "false",
+    "interface": "wg-horus"
+  }
+]

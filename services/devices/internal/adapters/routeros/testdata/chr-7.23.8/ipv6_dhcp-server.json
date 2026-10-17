@@ -1,0 +1,22 @@
+[
+  {
+    ".id": "*1",
+    "address-lists": "",
+    "address-pool": "v6-na",
+    "dhcp-option": "",
+    "disabled": "false",
+    "duid": "0x00030001525400484601",
+    "dynamic": "false",
+    "ignore-ia-na-bindings": "false",
+    "interface": "ether3-lan",
+    "invalid": "false",
+    "lease-time": "3d",
+    "name": "dhcp6-lan",
+    "preference": "255",
+    "prefix-pool": "v6-pd",
+    "rapid-commit": "true",
+    "route-distance": "1",
+    "use-radius": "no",
+    "use-reconfigure": "false"
+  }
+]
