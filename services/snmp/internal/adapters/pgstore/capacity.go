@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/netip"
 	"time"
 
 	"github.com/google/uuid"
@@ -143,15 +144,17 @@ func (s *Store) DeleteUplinkConfig(ctx context.Context, tenant, iface uuid.UUID)
 func sameBps(a, b *int64) bool { return (a == nil && b == nil) || (a != nil && b != nil && *a == *b) }
 
 const settingsCols = `country, planning_threshold, urgent_threshold, lead_days, saturation_warning, saturation_critical, sustained_minutes,
-	loss_warning_pct, loss_critical_pct, latency_warning_ms, latency_critical_ms, local_asns, probe_targets`
+	loss_warning_pct, loss_critical_pct, latency_warning_ms, latency_critical_ms, local_asns, probe_targets, local_prefixes`
 
 func scanSettings(row pgx.Row, extra ...any) (domain.CapacitySettings, error) {
 	var v domain.CapacitySettings
 	var asns []int64
 	var targets []byte
 	var country *string
+	var prefixes []netip.Prefix
 	dst := append([]any{&country, &v.PlanningThreshold, &v.UrgentThreshold, &v.LeadDays, &v.SaturationWarning, &v.SaturationCritical,
-		&v.SustainedMinutes, &v.LossWarningPct, &v.LossCriticalPct, &v.LatencyWarningMs, &v.LatencyCriticalMs, &asns, &targets}, extra...)
+		&v.SustainedMinutes, &v.LossWarningPct, &v.LossCriticalPct, &v.LatencyWarningMs, &v.LatencyCriticalMs, &asns, &targets, &prefixes},
+		extra...)
 	if err := row.Scan(dst...); err != nil {
 		return v, err
 	}
@@ -161,6 +164,13 @@ func scanSettings(row pgx.Row, extra ...any) (domain.CapacitySettings, error) {
 		if a > 0 && a <= int64(^uint32(0)) {
 			v.LocalASNs = append(v.LocalASNs, uint32(a))
 		}
+	}
+	v.LocalPrefixes = make([]netip.Prefix, 0, len(prefixes))
+	for _, p := range prefixes {
+		if p.Addr().Is4In6() {
+			p = netip.PrefixFrom(p.Addr().Unmap(), p.Bits()-96)
+		}
+		v.LocalPrefixes = append(v.LocalPrefixes, p.Masked())
 	}
 	v.ProbeTargets = []domain.ProbeTarget{}
 	if len(targets) > 0 {
@@ -198,25 +208,30 @@ func (s *Store) PutCapacitySettings(ctx context.Context, tenant uuid.UUID, v dom
 	if err != nil {
 		return nil, err
 	}
+	prefixes := v.LocalPrefixes
+	if prefixes == nil {
+		prefixes = []netip.Prefix{}
+	}
 	asns := make([]int64, 0, len(v.LocalASNs))
 	for _, a := range v.LocalASNs {
 		asns = append(asns, int64(a))
 	}
 	err = s.db.TenantTx(ctx, pgdb.TenantID(tenant), func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx, `INSERT INTO snmp.capacity_settings (tenant_id, `+settingsCols+`, updated_by)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $17, $15)
 			ON CONFLICT (tenant_id) DO UPDATE SET country = excluded.country, planning_threshold = excluded.planning_threshold,
 				urgent_threshold = excluded.urgent_threshold, lead_days = excluded.lead_days,
 				saturation_warning = excluded.saturation_warning, saturation_critical = excluded.saturation_critical,
 				sustained_minutes = excluded.sustained_minutes, loss_warning_pct = excluded.loss_warning_pct,
 				loss_critical_pct = excluded.loss_critical_pct, latency_warning_ms = excluded.latency_warning_ms,
 				latency_critical_ms = excluded.latency_critical_ms, local_asns = excluded.local_asns,
-				probe_targets = excluded.probe_targets, updated_by = excluded.updated_by, updated_at = now(),
+				probe_targets = excluded.probe_targets, local_prefixes = excluded.local_prefixes, updated_by = excluded.updated_by,
+				updated_at = now(),
 				version = snmp.capacity_settings.version + 1
 			WHERE $16 = 0 OR snmp.capacity_settings.version = $16
 			RETURNING updated_at, version`, tenant, v.Country, v.PlanningThreshold, v.UrgentThreshold, v.LeadDays, v.SaturationWarning,
 			v.SaturationCritical, v.SustainedMinutes, v.LossWarningPct, v.LossCriticalPct, v.LatencyWarningMs, v.LatencyCriticalMs,
-			asns, targets, actor, expect).Scan(&r.UpdatedAt, &r.Version)
+			asns, targets, actor, expect, prefixes).Scan(&r.UpdatedAt, &r.Version)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrVersion
 		}

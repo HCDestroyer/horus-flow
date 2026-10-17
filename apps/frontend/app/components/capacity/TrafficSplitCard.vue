@@ -41,7 +41,12 @@ const countryNote = computed(() => {
   const src = te(`capacity.traffic.source.${r.country_source}`)
     ? t(`capacity.traffic.source.${r.country_source}`)
     : r.country_source
-  return t('capacity.traffic.basis', { country: r.country ?? '—', source: src, n: r.local_asns })
+  return t('capacity.traffic.basis', {
+    country: r.country ?? '—',
+    source: src,
+    n: r.local_asns,
+    p: r.local_prefixes,
+  })
 })
 </script>
 
@@ -75,6 +80,12 @@ const countryNote = computed(() => {
             <dd class="text-muted text-xs tabular">
               {{ bytes(data.total.local_bytes) }} ·
               {{ t('capacity.traffic.byList', { v: bytes(data.total.local_by_list_bytes) }) }}
+              <template v-if="data.local_prefixes > 0">
+                ·
+                <span data-testid="traffic-by-prefix">{{
+                  t('capacity.traffic.byPrefix', { v: bytes(data.total.local_by_prefix_bytes) })
+                }}</span>
+              </template>
             </dd>
           </div>
           <div>

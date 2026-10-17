@@ -18,7 +18,7 @@ qué; y **cuándo** habrá que ampliar un enlace o la salida internacional, con 
 | Pérdida, latencia, jitter **por enlace** | Sondas ICMP de `/tool netwatch` **del propio router** hacia la puerta de enlace del proveedor de cada enlace, **leídas** cada minuto por la API REST de solo lectura (usuario `horus-ro`, solo GET, huella TLS ya fijada) | Es la única medida por enlace sin escribir en el router: la sonda sale por ese enlace. MIKROTIK-MIB solo publica el estado up/down de netwatch, no pérdida ni RTT. El script lo genera Horus y lo **pega el usuario**. |
 | Referencia internacional del router | Sondas netwatch a 1.1.1.1 y 8.8.8.8 | Salida del router por su ruta por defecto (no un enlace concreto). |
 | Respaldo sin sondas en el router | ICMP desde el host de Horus a destinos configurados | Etiquetado **«ruta Horus → destino»**: mide el camino Horus → destino, nunca un enlace del ISP. |
-| Local vs internacional | `flows.site_1d.remote_asn` → `dim.asn` → `dim.organization.country` | Local si el ASN está en la lista local del ISP (IXP, cachés on-net) o su organización es del país del ISP. |
+| Local vs internacional | `flows.site_1d.remote_asn` → `dim.asn` → `dim.organization.country`; prefijos: `flows.site_remote_net_1d` | Local si la IP remota está en un **prefijo** de la lista local del ISP (LAN de un IXP, cachés on-net; manda sobre el ASN), si el ASN está en la lista local o si su organización es del país del ISP. |
 
 Horus **nunca escribe en routers**: todo lo que se configura en el router (sondas) lo pega el usuario.
 
@@ -95,7 +95,11 @@ de pérdida».
 
 ## 7. Límites conocidos
 
-- La lista local admite ASN, no prefijos (los agregados de flujos no guardan la IP remota).
+- La lista local por prefijos se aplica sobre `flows.site_remote_net_1d` (red remota truncada a /24 en IPv4 y /48 en
+  IPv6, 90 días): un prefijo más específico se cuenta por su /24 o /48 completo (la consola lo avisa) y los días
+  anteriores a la migración (más allá de los 7 días que se rellenan desde `flows_raw`) solo se clasifican por ASN. La
+  consulta compara `remote_net` con los extremos de cada prefijo (`arrayExists` sobre IPv6): cambiar la lista corrige
+  también los días ya guardados. Se avisa (sin impedir guardar) si un prefijo se solapa con prefijos de clientes.
 - `flows.site_1d` usa días UTC (el reparto local/internacional no se ajusta a la zona del ISP).
 - Las estadísticas de netwatch son las de la última prueba del router (10 ecos cada 30 s), leídas cada minuto.
 - Un único rol `snmp` activo por instalación (como el sondeador): el trabajo diario no tiene bloqueo distribuido;

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"net/netip"
 	"slices"
 	"time"
 
@@ -141,6 +142,9 @@ type SettingsView struct {
 	UpdatedAt        *time.Time              `json:"updated_at"`
 	TenantCountry    *string                 `json:"tenant_country"`
 	EffectiveCountry *string                 `json:"effective_country"`
+	// LocalPrefixWarnings: prefijos locales que se solapan con prefijos de
+	// clientes del ISP o que se cuentan por su /24 o /48 (no impiden guardar).
+	LocalPrefixWarnings []domain.LocalPrefixWarning `json:"local_prefix_warnings"`
 }
 
 func (c *Capacity) settingsView(ctx context.Context, tenant uuid.UUID, row *domain.SettingsRow) SettingsView {
@@ -156,6 +160,11 @@ func (c *Capacity) settingsView(ctx context.Context, tenant uuid.UUID, row *doma
 	if v.Country != nil {
 		v.EffectiveCountry = v.Country
 	}
+	var clients []netip.Prefix
+	if c.o.ClientPrefixes != nil {
+		clients = c.o.ClientPrefixes(tenant)
+	}
+	v.LocalPrefixWarnings = domain.LocalPrefixWarnings(v.LocalPrefixes, clients)
 	return v
 }
 
@@ -409,6 +418,7 @@ type TrafficSplitView struct {
 	Country       *string             `json:"country"`
 	CountrySource string              `json:"country_source"`
 	LocalASNs     int                 `json:"local_asns"`
+	LocalPrefixes int                 `json:"local_prefixes"`
 	Total         domain.TrafficSplit `json:"total"`
 	Sites         []SiteTraffic       `json:"sites"`
 	Daily         []DailyTraffic      `json:"daily"`
@@ -427,8 +437,9 @@ func (c *Capacity) TrafficSplit(ctx context.Context, tenant uuid.UUID, sites []u
 	now := c.now().UTC()
 	_, todayStart, _ := localDay(now, loc)
 	from := todayStart.AddDate(0, 0, -days)
-	out := &TrafficSplitView{From: from, To: todayStart, Days: days, LocalASNs: len(st.LocalASNs), CountrySource: "none",
-		Sites: []SiteTraffic{}, Daily: []DailyTraffic{}}
+	out := &TrafficSplitView{From: from, To: todayStart, Days: days, LocalASNs: len(st.LocalASNs), LocalPrefixes: len(st.LocalPrefixes),
+		CountrySource: "none",
+		Sites:         []SiteTraffic{}, Daily: []DailyTraffic{}}
 	country := ""
 	switch {
 	case st.Country != nil:
@@ -477,6 +488,26 @@ func (c *Capacity) TrafficSplit(ctx context.Context, tenant uuid.UUID, sites []u
 		dd.LocalBytes += one.LocalBytes
 		dd.InternationalBytes += one.InternationalBytes
 		dd.UnknownBytes += one.UnknownBytes
+	}
+	// Lista local por prefijos: el volumen hacia esas redes pasa a local (manda sobre el ASN).
+	byPrefix, err := s.TrafficByLocalPrefix(ctx, tenant, sites, st.LocalASNs, st.LocalPrefixes, from.Truncate(24*time.Hour),
+		todayStart.Add(24*time.Hour))
+	if err != nil {
+		return nil, err
+	}
+	for _, v := range byPrefix {
+		if v.Day.Before(firstDay) || !v.Day.Before(todayStart.Truncate(24*time.Hour)) {
+			continue
+		}
+		out.Total.MoveToPrefix(v, country)
+		if x := bySite[v.SiteID]; x != nil {
+			x.MoveToPrefix(v, country)
+		}
+		if dd := byDay[v.Day]; dd != nil {
+			one := domain.TrafficSplit{LocalBytes: dd.LocalBytes, InternationalBytes: dd.InternationalBytes, UnknownBytes: dd.UnknownBytes}
+			one.MoveToPrefix(v, country)
+			dd.LocalBytes, dd.InternationalBytes, dd.UnknownBytes = one.LocalBytes, one.InternationalBytes, one.UnknownBytes
+		}
 	}
 	out.Total.Finish()
 	for _, x := range bySite {

@@ -53,6 +53,7 @@ export const DEFAULT_CAPACITY_SETTINGS: CapacitySettingsValues = {
   latency_warning_ms: 80,
   latency_critical_ms: 200,
   local_asns: [],
+  local_prefixes: [],
   probe_targets: [],
 }
 
@@ -712,6 +713,36 @@ function settingsView(tenant: MockTenant): CapacitySettings {
     updated_at: s.updated_at || null,
     tenant_country: tenantCountry,
     effective_country: s.values.country ?? tenantCountry,
+    // Avisos como la API: más específicos que /24 o /48 se cuentan por su red completa; los que
+    // caen en 100.64.0.0/10 se solapan con los prefijos de clientes (CGNAT) del ISP simulado.
+    local_prefix_warnings: (s.values.local_prefixes ?? []).flatMap((p) => {
+      const [addr = '', len = '0'] = p.split('/')
+      const bits = Number(len)
+      const v6 = addr.includes(':')
+      const out: CapacitySettings['local_prefix_warnings'] = []
+      if ((!v6 && bits > 24) || (v6 && bits > 48)) {
+        out.push({
+          prefix: p,
+          code: 'counted_as_aggregate',
+          client_prefix: null,
+          detail: `Más específico que /${v6 ? 48 : 24}: se cuenta su red completa.`,
+        })
+      }
+      if (
+        !v6 &&
+        addr.startsWith('100.') &&
+        Number(addr.split('.')[1]) >= 64 &&
+        Number(addr.split('.')[1]) < 128
+      ) {
+        out.push({
+          prefix: p,
+          code: 'overlaps_client_prefix',
+          client_prefix: '100.64.0.0/10',
+          detail: 'Se solapa con el prefijo de clientes 100.64.0.0/10.',
+        })
+      }
+      return out
+    }),
   }
 }
 
@@ -779,10 +810,11 @@ function trafficSplit(
   const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
   const base = ((transitPeak(tenant) * 0.45) / 8) * 86_400 // bytes por día
   const listShare = st.local_asns.length ? 0.14 : 0
+  const prefixShare = (st.local_prefixes ?? []).length ? 0.06 : 0
   const daily: TrafficSplitReport['daily'] = []
   const totals = new Map<
     string,
-    { local: number; country: number; list: number; intl: number; unknown: number }
+    { local: number; country: number; list: number; prefix: number; intl: number; unknown: number }
   >()
   for (let d = days; d >= 1; d--) {
     const day = today - d * DAY
@@ -794,16 +826,25 @@ function trafficSplit(
       const vol = base * (0.9 + r() * 0.2)
       const lc = country ? vol * 0.2 : 0
       const ll = vol * listShare
+      const lp = vol * prefixShare
       const iu = vol * 0.03
-      const it = vol - lc - ll - iu
-      const t = totals.get(s.id) ?? { local: 0, country: 0, list: 0, intl: 0, unknown: 0 }
-      t.local += lc + ll
+      const it = vol - lc - ll - lp - iu
+      const t = totals.get(s.id) ?? {
+        local: 0,
+        country: 0,
+        list: 0,
+        prefix: 0,
+        intl: 0,
+        unknown: 0,
+      }
+      t.local += lc + ll + lp
       t.country += lc
       t.list += ll
+      t.prefix += lp
       t.intl += it
       t.unknown += iu
       totals.set(s.id, t)
-      local += lc + ll
+      local += lc + ll + lp
       intl += it
       unknown += iu
     }
@@ -818,6 +859,7 @@ function trafficSplit(
     local: number
     country: number
     list: number
+    prefix: number
     intl: number
     unknown: number
   }) => {
@@ -826,6 +868,7 @@ function trafficSplit(
       local_bytes: Math.round(t.local),
       local_by_country_bytes: Math.round(t.country),
       local_by_list_bytes: Math.round(t.list),
+      local_by_prefix_bytes: Math.round(t.prefix),
       international_bytes: Math.round(t.intl),
       unknown_bytes: Math.round(t.unknown),
       international_share: known ? t.intl / known : null,
@@ -837,10 +880,11 @@ function trafficSplit(
       local: a.local + t.local,
       country: a.country + t.country,
       list: a.list + t.list,
+      prefix: a.prefix + t.prefix,
       intl: a.intl + t.intl,
       unknown: a.unknown + t.unknown,
     }),
-    { local: 0, country: 0, list: 0, intl: 0, unknown: 0 },
+    { local: 0, country: 0, list: 0, prefix: 0, intl: 0, unknown: 0 },
   )
   return {
     from: new Date(today - days * DAY).toISOString(),
@@ -849,6 +893,7 @@ function trafficSplit(
     country,
     country_source: st.country ? 'settings' : country ? 'tenant' : 'none',
     local_asns: st.local_asns.length,
+    local_prefixes: (st.local_prefixes ?? []).length,
     total: split(all),
     sites: sites.map((s) => ({ site_id: s.id, site_name: s.name, ...split(totals.get(s.id)!) })),
     daily,
@@ -973,6 +1018,7 @@ export function capacityRoutes(ctx: TenantRouteContext): Response | undefined {
         ...b,
         country: b.country ? String(b.country).toUpperCase() : null,
         local_asns: [...new Set(b.local_asns ?? [])].sort((x, y) => x - y),
+        local_prefixes: [...new Set(b.local_prefixes ?? [])],
         probe_targets: b.probe_targets ?? [],
       }
       mockState.capacitySettings.set(tenant.tenant_id, {

@@ -11805,6 +11805,7 @@ components:
         - latency_warning_ms
         - latency_critical_ms
         - local_asns
+        - local_prefixes
         - probe_targets
       additionalProperties: false
       properties:
@@ -11860,6 +11861,18 @@ components:
             type: integer
             minimum: 1
             maximum: 4294967295
+        local_prefixes:
+          type: array
+          maxItems: 200
+          description: |
+            Prefijos CIDR IPv4/IPv6 que cuentan como tráfico local aunque su ASN no esté en la lista (LAN de un IXP,
+            cachés on-net). Se normalizan (red, sin duplicados); como mínimo /8 en IPv4 y /16 en IPv6. Un prefijo más
+            específico que /24 (IPv4) o /48 (IPv6) se cuenta por su /24 o /48 completo (aviso en `local_prefix_warnings`).
+          items:
+            type: string
+            examples:
+              - 198.51.100.0/24
+              - 2001:db8:7a00::/48
         probe_targets:
           type: array
           maxItems: 10
@@ -12098,7 +12111,33 @@ components:
             - updated_at
             - tenant_country
             - effective_country
+            - local_prefix_warnings
           properties:
+            local_prefix_warnings:
+              type: array
+              description: Avisos sobre la lista local por prefijos (no impiden guardar).
+              items:
+                type: object
+                required:
+                  - prefix
+                  - code
+                  - client_prefix
+                  - detail
+                properties:
+                  prefix:
+                    type: string
+                  code:
+                    type: string
+                    enum:
+                      - overlaps_client_prefix
+                      - counted_as_aggregate
+                  client_prefix:
+                    type:
+                      - string
+                      - 'null'
+                    description: Prefijo de clientes con el que se solapa.
+                  detail:
+                    type: string
             defaults:
               $ref: '#/components/schemas/CapacitySettingsValues'
             customized:
@@ -12122,6 +12161,7 @@ components:
         - local_bytes
         - local_by_country_bytes
         - local_by_list_bytes
+        - local_by_prefix_bytes
         - international_bytes
         - unknown_bytes
         - international_share
@@ -12133,6 +12173,9 @@ components:
           type: integer
         local_by_list_bytes:
           type: integer
+        local_by_prefix_bytes:
+          type: integer
+          description: Hacia la lista local por prefijos (manda sobre la clasificación por ASN).
         international_bytes:
           type: integer
         unknown_bytes:
@@ -12155,6 +12198,7 @@ components:
         - country
         - country_source
         - local_asns
+        - local_prefixes
         - total
         - sites
         - daily
@@ -12178,6 +12222,9 @@ components:
         local_asns:
           type: integer
           description: Cuántos ASN tiene la lista local.
+        local_prefixes:
+          type: integer
+          description: Cuántos prefijos tiene la lista local.
         total:
           $ref: '#/components/schemas/TrafficSplit'
         sites:

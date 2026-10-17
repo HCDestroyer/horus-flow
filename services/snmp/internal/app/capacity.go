@@ -75,6 +75,8 @@ type CapacitySeries interface {
 	ProbeSummaries(ctx context.Context, tenant uuid.UUID, from time.Time) ([]clickhouse.ProbeAgg, error)
 	ProbeSeries(ctx context.Context, tenant uuid.UUID, probes []uuid.UUID, from, to time.Time) (map[uuid.UUID][]clickhouse.ProbePoint, error)
 	TrafficByCountry(ctx context.Context, tenant uuid.UUID, sites []uuid.UUID, localASNs []uint32, from, to time.Time) ([]domain.ASNVolume, error)
+	TrafficByLocalPrefix(ctx context.Context, tenant uuid.UUID, sites []uuid.UUID, localASNs []uint32, prefixes []netip.Prefix,
+		from, to time.Time) ([]domain.ASNVolume, error)
 }
 
 // TenantInfo es lo que el análisis necesita de un ISP (auth).
@@ -93,8 +95,11 @@ type CapacityOptions struct {
 	Infra   *Infra
 	Probes  func() (devapi.RouterProbeReader, bool)
 	Tenants func(ctx context.Context) (map[uuid.UUID]TenantInfo, bool)
-	Pinger  icmp.Pinger
-	Deny    []netip.Prefix
+	// ClientPrefixes devuelve los prefijos de clientes del ISP (inventario de
+	// flujos) para avisar de solapes con la lista local por prefijos.
+	ClientPrefixes func(tenant uuid.UUID) []netip.Prefix
+	Pinger         icmp.Pinger
+	Deny           []netip.Prefix
 	// ProbeInterval y ProbeConcurrency del lector de sondas.
 	ProbeInterval    time.Duration
 	ProbeConcurrency int

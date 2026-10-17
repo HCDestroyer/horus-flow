@@ -807,6 +807,10 @@ No hay agregado diario ni cuantiles en I2 (13 meses de 1 h bastan para las serie
   trabajo diario (se lee con `FINAL`).
 Interfaces dinámicas PPPoE del MikroTik no se sondean (el consumo por cliente sale de flujos).
 
+Lista local por prefijos: `flows.site_remote_net_1d` (`tenant_id, site_id, bucket Date, remote_net, remote_asn,
+direction`, `bytes`; red remota truncada a /24 IPv4 o /48 IPv6; 90 días; MV desde `flows_raw`, solo `download` y
+`upload`) y `snmp.capacity_settings.local_prefixes cidr[]` (≤ 200).
+
 Capacidad de enlaces (PostgreSQL, esquema `snmp`): `uplink_config` (proveedor, tipo, capacidad contratada actual),
 `uplink_capacity_history` (capacidad contratada con vigencia `valid_from`/`valid_to`, una sola abierta por enlace,
 RLS por tenant; la utilización histórica se mide contra la capacidad vigente en cada momento), `capacity_settings`,

@@ -3895,7 +3895,11 @@
       "targetInvalid": "Etiqueta e IPv4 obligatorias",
       "saved": "Ajustes guardados",
       "reset": "Volver a los valores por defecto",
-      "resetDone": "Ajustes por defecto"
+      "resetDone": "Ajustes por defecto",
+      "prefixes": "Prefijos locales (CIDR)",
+      "prefixesHelp": "Uno por línea: LAN de un IXP o cachés on-net (Google GGC, Netflix OCA, Meta FNA). El tráfico hacia ellos cuenta como local aunque su ASN no esté en la lista. Más específicos que /24 o /48 se cuentan por su /24 o /48.",
+      "prefixInvalid": "Prefijos no válidos: {list}",
+      "prefixWarningsTitle": "Revisa la lista de prefijos locales ({n})"
     },
     "traffic": {
       "title": "Tráfico local vs internacional",
@@ -3910,12 +3914,13 @@
       "bySite": "Reparto por nodo",
       "site": "Nodo",
       "volume": "Volumen",
-      "basis": "País: {country} ({source}) · {n} ASN en la lista local.",
+      "basis": "País: {country} ({source}) · {n} ASN y {p} prefijos en la lista local.",
       "source": {
         "settings": "ajustes de capacidad",
         "tenant": "país del ISP",
         "none": "sin país: solo cuenta la lista local"
-      }
+      },
+      "byPrefix": "prefijos locales {v}"
     },
     "chart": {
       "rx": "Pico p95 de entrada",

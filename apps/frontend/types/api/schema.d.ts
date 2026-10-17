@@ -4661,6 +4661,15 @@ export interface components {
             customized: boolean;
             defaults: components["schemas"]["CapacitySettingsValues"];
             effective_country: string | null;
+            /** @description Avisos sobre la lista local por prefijos (no impiden guardar). */
+            local_prefix_warnings: {
+                /** @description Prefijo de clientes con el que se solapa. */
+                client_prefix: string | null;
+                /** @enum {string} */
+                code: "overlaps_client_prefix" | "counted_as_aggregate";
+                detail: string;
+                prefix: string;
+            }[];
             tenant_country: string | null;
             updated_at: components["schemas"]["NullableTimestamp"];
             version: number;
@@ -4672,6 +4681,12 @@ export interface components {
             latency_warning_ms: number;
             lead_days: number;
             local_asns: number[];
+            /**
+             * @description Prefijos CIDR IPv4/IPv6 que cuentan como tráfico local aunque su ASN no esté en la lista (LAN de un IXP,
+             *     cachés on-net). Se normalizan (red, sin duplicados); como mínimo /8 en IPv4 y /16 en IPv6. Un prefijo más
+             *     específico que /24 (IPv4) o /48 (IPv6) se cuenta por su /24 o /48 completo (aviso en `local_prefix_warnings`).
+             */
+            local_prefixes: string[];
             loss_critical_pct: number;
             loss_warning_pct: number;
             planning_threshold: number;
@@ -7364,6 +7379,8 @@ export interface components {
             international_share: number | null;
             local_by_country_bytes: number;
             local_by_list_bytes: number;
+            /** @description Hacia la lista local por prefijos (manda sobre la clasificación por ASN). */
+            local_by_prefix_bytes: number;
             local_bytes: number;
             local_share: number | null;
             unknown_bytes: number;
@@ -7382,6 +7399,8 @@ export interface components {
             from: components["schemas"]["Timestamp"];
             /** @description Cuántos ASN tiene la lista local. */
             local_asns: number;
+            /** @description Cuántos prefijos tiene la lista local. */
+            local_prefixes: number;
             sites: (components["schemas"]["TrafficSplit"] & {
                 site_id: components["schemas"]["Uuid"];
                 site_name: string;

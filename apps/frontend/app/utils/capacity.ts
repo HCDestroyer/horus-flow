@@ -197,6 +197,28 @@ export function parseAsnList(text: string): { asns: number[]; invalid: string[] 
   return { asns: [...new Set(asns)].sort((a, b) => a - b), invalid }
 }
 
+const V4_CIDR = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}\/(\d|[12]\d|3[0-2])$/
+const V6_CIDR = /^[0-9a-f:]+(\.\d+\.\d+\.\d+\.\d+)?\/(\d|[1-9]\d|1[01]\d|12[0-8])$/i
+
+/**
+ * Lista de prefijos escrita a mano (uno por línea o separados por comas) → prefijos únicos
+ * en el orden escrito e inválidos. La normalización (red, orden) la hace la API.
+ */
+export function parsePrefixList(text: string): { prefixes: string[]; invalid: string[] } {
+  const parts = text
+    .split(/[\s,;]+/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+  const prefixes: string[] = []
+  const invalid: string[] = []
+  for (const p of parts) {
+    if (V4_CIDR.test(p) || (p.includes(':') && V6_CIDR.test(p))) {
+      if (!prefixes.includes(p.toLowerCase())) prefixes.push(p.toLowerCase())
+    } else invalid.push(p)
+  }
+  return { prefixes, invalid }
+}
+
 /** mm/aaaa (UTC: las fechas de pronóstico son días, sin hora). */
 export function formatMonth(iso: string | null | undefined) {
   if (!iso) return '—'

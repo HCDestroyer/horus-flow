@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"net/netip"
 	"strings"
 	"sync"
 	"testing"
@@ -188,7 +189,9 @@ type fakeSeries struct {
 	probes  []domain.ProbeSample
 	peak    func(iface uuid.UUID, at time.Time) float64
 	traffic []domain.ASNVolume
-	queried int
+	// byPrefix es lo que devuelve TrafficByLocalPrefix (volumen hacia la lista local por prefijos).
+	byPrefix []domain.ASNVolume
+	queried  int
 }
 
 func newFakeSeries(peak func(uuid.UUID, time.Time) float64) *fakeSeries {
@@ -272,6 +275,20 @@ func (f *fakeSeries) ProbeSeries(context.Context, uuid.UUID, []uuid.UUID, time.T
 func (f *fakeSeries) TrafficByCountry(_ context.Context, _ uuid.UUID, sites []uuid.UUID, _ []uint32, _, _ time.Time) ([]domain.ASNVolume, error) {
 	var out []domain.ASNVolume
 	for _, v := range f.traffic {
+		if len(sites) == 0 || contains(sites, v.SiteID) {
+			out = append(out, v)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeSeries) TrafficByLocalPrefix(_ context.Context, _ uuid.UUID, sites []uuid.UUID, _ []uint32, prefixes []netip.Prefix,
+	_, _ time.Time) ([]domain.ASNVolume, error) {
+	if len(prefixes) == 0 {
+		return nil, nil
+	}
+	var out []domain.ASNVolume
+	for _, v := range f.byPrefix {
 		if len(sites) == 0 || contains(sites, v.SiteID) {
 			out = append(out, v)
 		}

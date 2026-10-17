@@ -247,7 +247,18 @@ func (m *mod) setupCapacity() {
 		Probes: func() (devapi.RouterProbeReader, bool) {
 			return module.Lookup[devapi.RouterProbeReader](m.deps.Services, devapi.ServiceRouterProbes)
 		},
-		Tenants: tenantDirectory(m.deps.Services)}
+		Tenants: tenantDirectory(m.deps.Services),
+		ClientPrefixes: func(tenant uuid.UUID) []netip.Prefix {
+			var out []netip.Prefix
+			if s := m.inv.Load(); s != nil {
+				for _, p := range s.Data().Prefixes {
+					if p.TenantID == tenant && p.Role == flowinv.RoleCustomers {
+						out = append(out, p.Prefix)
+					}
+				}
+			}
+			return out
+		}}
 	if m.db != nil {
 		opts.Repo = pgstore.New(m.db)
 	}

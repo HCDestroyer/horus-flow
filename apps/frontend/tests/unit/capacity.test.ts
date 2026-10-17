@@ -12,6 +12,7 @@ import {
   healthMeta,
   isIPv4,
   parseAsnList,
+  parsePrefixList,
   sortByHealth,
   sortUplinks,
   splitShares,
@@ -111,6 +112,12 @@ describe('utilidades de capacidad', () => {
     expect(parseAsnList('AS15169, 2906 2906;36040 x')).toEqual({
       asns: [2906, 15169, 36040],
       invalid: ['x'],
+    })
+    expect(
+      parsePrefixList('198.51.100.0/24\n2001:DB8:7a00::/48, 198.51.100.0/24 10.0.0.0/33 x/8'),
+    ).toEqual({
+      prefixes: ['198.51.100.0/24', '2001:db8:7a00::/48'],
+      invalid: ['10.0.0.0/33', 'x/8'],
     })
   })
 
