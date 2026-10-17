@@ -33,6 +33,8 @@ var (
 	ErrCapacityVersion = pgstore.ErrVersion
 	// ErrTooManyUplinks: máximo de enlaces configurados alcanzado.
 	ErrTooManyUplinks = pgstore.ErrTooMany
+	// ErrCapacityValidFrom: el cambio de capacidad se fecha antes del anterior.
+	ErrCapacityValidFrom = pgstore.ErrCapacityValidFrom
 )
 
 // Tipos de evento del análisis de capacidad (docs/events.md §8.4).
@@ -52,6 +54,7 @@ type CapacityRepo interface {
 	GetUplinkConfig(ctx context.Context, tenant, iface uuid.UUID) (*domain.UplinkConfig, error)
 	PutUplinkConfig(ctx context.Context, tenant, iface uuid.UUID, in domain.UplinkConfigInput, actor string, expect int) (*domain.UplinkConfig, error)
 	DeleteUplinkConfig(ctx context.Context, tenant, iface uuid.UUID) (bool, error)
+	ListCapacityHistory(ctx context.Context, tenant uuid.UUID) (map[uuid.UUID][]domain.CapacityPeriod, error)
 	GetCapacitySettings(ctx context.Context, tenant uuid.UUID) (*domain.SettingsRow, error)
 	PutCapacitySettings(ctx context.Context, tenant uuid.UUID, v domain.CapacitySettings, actor string, expect int) (*domain.SettingsRow, error)
 	DeleteCapacitySettings(ctx context.Context, tenant uuid.UUID) error
@@ -72,6 +75,8 @@ type CapacitySeries interface {
 	ProbeSummaries(ctx context.Context, tenant uuid.UUID, from time.Time) ([]clickhouse.ProbeAgg, error)
 	ProbeSeries(ctx context.Context, tenant uuid.UUID, probes []uuid.UUID, from, to time.Time) (map[uuid.UUID][]clickhouse.ProbePoint, error)
 	TrafficByCountry(ctx context.Context, tenant uuid.UUID, sites []uuid.UUID, localASNs []uint32, from, to time.Time) ([]domain.ASNVolume, error)
+	TrafficByLocalPrefix(ctx context.Context, tenant uuid.UUID, sites []uuid.UUID, localASNs []uint32, prefixes []netip.Prefix,
+		from, to time.Time) ([]domain.ASNVolume, error)
 }
 
 // TenantInfo es lo que el análisis necesita de un ISP (auth).
@@ -90,8 +95,11 @@ type CapacityOptions struct {
 	Infra   *Infra
 	Probes  func() (devapi.RouterProbeReader, bool)
 	Tenants func(ctx context.Context) (map[uuid.UUID]TenantInfo, bool)
-	Pinger  icmp.Pinger
-	Deny    []netip.Prefix
+	// ClientPrefixes devuelve los prefijos de clientes del ISP (inventario de
+	// flujos) para avisar de solapes con la lista local por prefijos.
+	ClientPrefixes func(tenant uuid.UUID) []netip.Prefix
+	Pinger         icmp.Pinger
+	Deny           []netip.Prefix
 	// ProbeInterval y ProbeConcurrency del lector de sondas.
 	ProbeInterval    time.Duration
 	ProbeConcurrency int
@@ -110,6 +118,7 @@ type Capacity struct {
 	mu       sync.RWMutex
 	configs  map[uuid.UUID][]domain.UplinkConfig
 	settings map[uuid.UUID]domain.CapacitySettings
+	history  map[uuid.UUID]map[uuid.UUID][]domain.CapacityPeriod // tenant → interfaz → vigencias
 	loadedAt time.Time
 	latest   map[uuid.UUID]domain.ProbeSample // probe_id → última lectura
 	probeErr map[uuid.UUID]probeFailure       // router_id → último fallo de lectura
@@ -158,7 +167,7 @@ func NewCapacity(o CapacityOptions) *Capacity {
 		o.Probes = func() (devapi.RouterProbeReader, bool) { return nil, false }
 	}
 	return &Capacity{o: o, log: o.Logger, now: o.Now, configs: map[uuid.UUID][]domain.UplinkConfig{},
-		settings: map[uuid.UUID]domain.CapacitySettings{}, latest: map[uuid.UUID]domain.ProbeSample{},
+		settings: map[uuid.UUID]domain.CapacitySettings{}, history: map[uuid.UUID]map[uuid.UUID][]domain.CapacityPeriod{}, latest: map[uuid.UUID]domain.ProbeSample{},
 		probeErr: map[uuid.UUID]probeFailure{}, conds: map[condKey]*condEntry{}, dailyRun: map[uuid.UUID]time.Time{},
 		cache: map[uuid.UUID]cachedOverview{}}
 }
@@ -189,6 +198,9 @@ func (c *Capacity) Load(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.configs, c.settings, c.loadedAt = st.Configs, st.Settings, c.now()
+	if st.History != nil {
+		c.history = st.History
+	}
 	for _, r := range st.Conditions {
 		k := condKey{r.TenantID, r.InterfaceID, r.Condition}
 		if _, ok := c.conds[k]; !ok {
@@ -272,6 +284,24 @@ type uplinkRef struct {
 	Auto        bool
 	Iface       *IfaceSnapshot
 	RouterKnown bool
+	// History es la capacidad contratada con vigencia (vacía sin configuración).
+	History []domain.CapacityPeriod
+}
+
+// capacityAt es la función de capacidad del enlace en el tiempo: la
+// contratada vigente en cada instante o la velocidad del puerto (speed, si
+// no hay snapshot del sondeador).
+func (u *uplinkRef) capacityAt(speed int64) domain.CapacityFunc {
+	var contracted, sp *int64
+	if u.Config != nil {
+		contracted = u.Config.ContractedBps
+	}
+	if u.Iface != nil && u.Iface.SpeedBps != nil {
+		sp = u.Iface.SpeedBps
+	} else if speed > 0 {
+		sp = &speed
+	}
+	return domain.CapacityFuncFor(u.History, contracted, sp)
 }
 
 func (u *uplinkRef) capacity() int64 {
@@ -313,6 +343,9 @@ func (c *Capacity) routersOf(tenant uuid.UUID, now time.Time) []RouterSnapshot {
 // todas las interfaces configuradas (aunque su router no esté sondeándose).
 func (c *Capacity) uplinksOf(tenant uuid.UUID, routers []RouterSnapshot) []*uplinkRef {
 	cfgs := c.configsFor(tenant)
+	c.mu.RLock()
+	hist := c.history[tenant]
+	c.mu.RUnlock()
 	byIface := map[uuid.UUID]*domain.UplinkConfig{}
 	for i := range cfgs {
 		byIface[cfgs[i].InterfaceID] = &cfgs[i]
@@ -344,6 +377,9 @@ func (c *Capacity) uplinksOf(tenant uuid.UUID, routers []RouterSnapshot) []*upli
 			}
 		}
 		out = append(out, u)
+	}
+	for _, u := range out {
+		u.History = hist[u.InterfaceID]
 	}
 	slices.SortFunc(out, func(a, b *uplinkRef) int {
 		if c := strings.Compare(a.SiteName, b.SiteName); c != 0 {

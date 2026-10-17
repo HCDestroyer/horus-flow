@@ -17,8 +17,9 @@ const (
 
 // Motivos de la clase local.
 const (
-	LocalByCountry = "country"    // organización del ASN en el país del ISP
-	LocalByList    = "local_list" // ASN en la lista local del ISP (IXP, cachés on-net)
+	LocalByCountry = "country"      // organización del ASN en el país del ISP
+	LocalByList    = "local_list"   // ASN en la lista local del ISP (IXP, cachés on-net)
+	LocalByPrefix  = "local_prefix" // IP remota en un prefijo de la lista local del ISP
 )
 
 // ClassifyASN clasifica el extremo remoto de un flujo por su ASN: local si
@@ -67,6 +68,7 @@ type TrafficSplit struct {
 	LocalBytes         uint64   `json:"local_bytes"`
 	LocalByCountry     uint64   `json:"local_by_country_bytes"`
 	LocalByList        uint64   `json:"local_by_list_bytes"`
+	LocalByPrefix      uint64   `json:"local_by_prefix_bytes"`
 	InternationalBytes uint64   `json:"international_bytes"`
 	UnknownBytes       uint64   `json:"unknown_bytes"`
 	InternationalShare *float64 `json:"international_share"`
@@ -90,6 +92,37 @@ func (t *TrafficSplit) Add(v ASNVolume, tenantCountry string) {
 	default:
 		t.UnknownBytes += b
 	}
+}
+
+func sub(a, b uint64) uint64 {
+	if b > a {
+		return 0
+	}
+	return a - b
+}
+
+// MoveToPrefix reclasifica como local por prefijo un volumen que ya se sumó
+// por su ASN (v viene de flows.site_remote_net_1d, agregado por las mismas
+// claves que el reparto por ASN): lo resta de su clase y lo suma a local. El
+// prefijo manda sobre el ASN.
+func (t *TrafficSplit) MoveToPrefix(v ASNVolume, tenantCountry string) {
+	b := v.BytesDown + v.BytesUp
+	origin, reason := ClassifyOrigin(v.NoASN, v.Local, v.Country, tenantCountry)
+	switch origin {
+	case OriginLocal:
+		t.LocalBytes = sub(t.LocalBytes, b)
+		if reason == LocalByList {
+			t.LocalByList = sub(t.LocalByList, b)
+		} else {
+			t.LocalByCountry = sub(t.LocalByCountry, b)
+		}
+	case OriginInternational:
+		t.InternationalBytes = sub(t.InternationalBytes, b)
+	default:
+		t.UnknownBytes = sub(t.UnknownBytes, b)
+	}
+	t.LocalBytes += b
+	t.LocalByPrefix += b
 }
 
 // Finish calcula las proporciones sobre el tráfico clasificado (lo

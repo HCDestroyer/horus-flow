@@ -168,6 +168,7 @@ export function patchRouterStatus(row: RouterStatus, data: Record<string, unknow
     'interfaces_up',
     'interfaces_total',
     'thresholds',
+    'last_flow_at',
   ]
   const next = { ...row }
   for (const k of keys) {

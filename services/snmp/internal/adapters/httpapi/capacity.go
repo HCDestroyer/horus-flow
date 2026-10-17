@@ -106,6 +106,9 @@ func (h *CapacityHandler) fail(w http.ResponseWriter, r *http.Request, err error
 			problem.WithDetail("Configuración de capacidad no disponible: el rol snmp no tiene PostgreSQL (HORUS_POSTGRES_DSN)."))
 	case errors.Is(err, app.ErrCapacityVersion):
 		problem.Std(w, r, http.StatusPreconditionFailed, problem.CodePreconditionFailed)
+	case errors.Is(err, app.ErrCapacityValidFrom):
+		invalid(w, r, []domain.FieldError{{Field: "capacity_valid_from", Code: "OUT_OF_RANGE",
+			Msg: "El cambio de capacidad debe ser posterior al anterior cambio registrado."}})
 	case errors.Is(err, app.ErrTooManyUplinks):
 		problem.Write(w, r, http.StatusConflict, CodeTooManyUplinks, "Límite de enlaces configurados",
 			problem.WithDetail("Máximo de "+strconv.Itoa(domain.MaxUplinksPerTenant)+" enlaces configurados por ISP."))
@@ -208,7 +211,7 @@ func (h *CapacityHandler) putUplink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in domain.UplinkConfigInput
-	if !jsonapi.Decode(w, r, &in, true) || invalid(w, r, in.Validate()) {
+	if !jsonapi.Decode(w, r, &in, true) || invalid(w, r, append(in.Validate(), in.ValidateValidFrom(time.Now().UTC())...)) {
 		return
 	}
 	p := authz.FromContext(r.Context())
@@ -221,6 +224,9 @@ func (h *CapacityHandler) putUplink(w http.ResponseWriter, r *http.Request) {
 	changes := map[string]any{"after": after}
 	if before != nil {
 		changes["before"] = before
+	}
+	if before == nil || !sameBps(before.ContractedBps, after.ContractedBps) {
+		changes["capacity_valid_from"] = in.CapacityValidFrom
 	}
 	h.record(r, "snmp.uplink_config.updated", "uplink_config", iface.String(), changes)
 	w.Header().Set("ETag", jsonapi.ETag(after.Version))
@@ -356,3 +362,5 @@ func (h *CapacityHandler) record(r *http.Request, action, rtype, rid string, cha
 		h.log.WarnContext(r.Context(), "snmp: audit not recorded", "error", err, "action", action)
 	}
 }
+
+func sameBps(a, b *int64) bool { return (a == nil && b == nil) || (a != nil && b != nil && *a == *b) }

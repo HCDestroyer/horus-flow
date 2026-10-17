@@ -32,7 +32,9 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/pgdb"
 	alertsapi "github.com/hcdestroyer/horus-flow/services/alerts/api"
 	consumptionapi "github.com/hcdestroyer/horus-flow/services/analytics/api/consumption"
+	"github.com/hcdestroyer/horus-flow/services/analytics/api/servingrouter"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
+	"github.com/hcdestroyer/horus-flow/services/collector/api/lastflow"
 	findingsapi "github.com/hcdestroyer/horus-flow/services/detection/api/customerfindings"
 	secstatesapi "github.com/hcdestroyer/horus-flow/services/detection/api/securitystates"
 	devapi "github.com/hcdestroyer/horus-flow/services/devices/api"
@@ -126,9 +128,14 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 	reader := routeros.Reader{Timeout: cfg.RouterOSTimeout, BaseURL: func(ip string) string {
 		return strings.ReplaceAll(cfg.RouterOSBaseURL, "{ip}", ip)
 	}}
+	// Huella TLS del router: captura en el alta (TOFU, pendiente) y confirmación explícita de un administrador.
+	pins := app.NewTLSPins(store, reader, func() (authapi.AuditRecorder, bool) {
+		return module.Lookup[authapi.AuditRecorder](deps.Services, authapi.ServiceAudit)
+	}, nil, logger)
 	// Sondas netwatch del router (pérdida, latencia y jitter por enlace) para el rol snmp: solo GET y huella fijada.
 	if deps.Services != nil {
-		if err := deps.Services.Provide(devapi.ServiceRouterProbes, devapi.RouterProbeReader(app.NewRouterProbes(store, onboarding, reader))); err != nil {
+		probes := app.NewRouterProbes(store, onboarding, reader).WithTLSPins(pins)
+		if err := deps.Services.Provide(devapi.ServiceRouterProbes, devapi.RouterProbeReader(probes)); err != nil {
 			db.Close()
 			return nil, err
 		}
@@ -136,7 +143,7 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 	importer := app.NewImporter(store, onboarding, reader, exclude,
 		func() (authapi.AuditRecorder, bool) {
 			return module.Lookup[authapi.AuditRecorder](deps.Services, authapi.ServiceAudit)
-		}, nil, logger)
+		}, nil, logger).WithTLSPins(pins)
 	customers := app.NewCustomers(store, pagination.NewCodec([]byte(cfg.CursorKey.Reveal())),
 		func() (authapi.AuditRecorder, bool) {
 			return module.Lookup[authapi.AuditRecorder](deps.Services, authapi.ServiceAudit)
@@ -171,7 +178,14 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 			Routers: func() (snmpapi.RouterStatusReader, bool) {
 				return module.Lookup[snmpapi.RouterStatusReader](deps.Services, snmpapi.ServiceRouterStatus)
 			},
-			Site: store.GetSite,
+			ServingRouter: func() (servingrouter.Reader, bool) {
+				return module.Lookup[servingrouter.Reader](deps.Services, servingrouter.ServiceServingRouter)
+			},
+			LastFlow: func() (lastflow.Reader, bool) {
+				return module.Lookup[lastflow.Reader](deps.Services, lastflow.ServiceLastFlow)
+			},
+			Router: store.GetRouter,
+			Site:   store.GetSite,
 			PrimaryRouter: func(ctx context.Context, t pgdb.TenantID, site uuid.UUID) (*domain.Router, error) {
 				primary := true
 				rs, err := store.ListRouters(ctx, t, app.ListQuery{SortCol: "name", Limit: 1, SiteIDs: []uuid.UUID{site}, IsPrimary: &primary})
@@ -221,6 +235,7 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		httpapi.New(svc, guard, cfg.PublicBaseURL, logger).WithCredentials(credentials).Mount(deps.Routes)
 		httpapi.NewCredentials(credentials, guard, logger).Mount(deps.Routes)
 		httpapi.NewImport(importer, guard, logger).Mount(deps.Routes)
+		httpapi.NewTLSPins(pins, guard, logger).Mount(deps.Routes)
 		httpapi.NewCustomers(customers, guard, logger).Mount(deps.Routes)
 		httpapi.NewAsnRules(app.NewAsnRules(store, nil, nil), guard, cfg.PublicBaseURL, logger).Mount(deps.Routes)
 		httpapi.NewIntegrations(integrations, guard, logger).Mount(deps.Routes)

@@ -28,6 +28,8 @@ type persisted struct {
 	WireGuard   string     `json:"wireguard"`
 	WireGuardAt *time.Time `json:"wireguard_at"`
 	ICMP        icmpState  `json:"icmp"`
+	// ExporterLastFlowAt es el último flujo del exportador (estado del collector).
+	ExporterLastFlowAt *time.Time `json:"exporter_last_flow_at,omitempty"`
 }
 
 type icmpState struct {
@@ -99,7 +101,7 @@ func (e *Engine) status(r *router, now time.Time, healthy bool) api.RouterStatus
 	}
 	out := api.RouterStatus{RouterID: r.RouterID, SiteID: r.SiteID, Name: r.Name, SiteName: r.SiteName, Status: eff,
 		ObservedState: observed, Reason: reason, Since: since, LastObservedAt: st.LastObservedAt, Signals: sig, Device: dev,
-		Thresholds: st.Thresholds}
+		Thresholds: st.Thresholds, LastFlowAt: st.ExporterLastFlowAt}
 	if out.Thresholds == nil {
 		out.Thresholds = []api.ThresholdHit{}
 	}

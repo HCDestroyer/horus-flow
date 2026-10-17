@@ -540,6 +540,7 @@ var sectionTitles = []string{
 	"Estado de seguridad de los clientes",
 	"Disponibilidad de routers",
 	"Contexto de tráfico",
+	"Capacidad de enlaces",
 	"Avisos enviados",
 }
 
@@ -698,8 +699,12 @@ func sections(p *pdfDoc, d *Data) {
 		}
 	}
 
-	// 8. Avisos.
+	// 8. Capacidad.
 	p.heading(8, sectionTitles[7])
+	capacitySection(p, d)
+
+	// 9. Avisos.
+	p.heading(9, sectionTitles[8])
 	if d.Alerts == nil {
 		p.notice(d.AlertsNote)
 	} else {

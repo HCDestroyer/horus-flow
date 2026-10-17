@@ -18,13 +18,20 @@ qué; y **cuándo** habrá que ampliar un enlace o la salida internacional, con 
 | Pérdida, latencia, jitter **por enlace** | Sondas ICMP de `/tool netwatch` **del propio router** hacia la puerta de enlace del proveedor de cada enlace, **leídas** cada minuto por la API REST de solo lectura (usuario `horus-ro`, solo GET, huella TLS ya fijada) | Es la única medida por enlace sin escribir en el router: la sonda sale por ese enlace. MIKROTIK-MIB solo publica el estado up/down de netwatch, no pérdida ni RTT. El script lo genera Horus y lo **pega el usuario**. |
 | Referencia internacional del router | Sondas netwatch a 1.1.1.1 y 8.8.8.8 | Salida del router por su ruta por defecto (no un enlace concreto). |
 | Respaldo sin sondas en el router | ICMP desde el host de Horus a destinos configurados | Etiquetado **«ruta Horus → destino»**: mide el camino Horus → destino, nunca un enlace del ISP. |
-| Local vs internacional | `flows.site_1d.remote_asn` → `dim.asn` → `dim.organization.country` | Local si el ASN está en la lista local del ISP (IXP, cachés on-net) o su organización es del país del ISP. |
+| Local vs internacional | `flows.site_1d.remote_asn` → `dim.asn` → `dim.organization.country`; prefijos: `flows.site_remote_net_1d` | Local si la IP remota está en un **prefijo** de la lista local del ISP (LAN de un IXP, cachés on-net; manda sobre el ASN), si el ASN está en la lista local o si su organización es del país del ISP. |
 
 Horus **nunca escribe en routers**: todo lo que se configura en el router (sondas) lo pega el usuario.
 
 ## 3. Pico diario y diagnóstico
 
 - **Capacidad** de un enlace = capacidad contratada configurada o, si no hay, velocidad del puerto (`ifHighSpeed`).
+- **Capacidad con vigencia** (`snmp.uplink_capacity_history`): cada cambio de `contracted_bps` cierra la vigencia
+  anterior y abre otra desde `capacity_valid_from` (por defecto, el momento del cambio; hasta 90 días atrás y nunca
+  antes del cambio anterior). Cada intervalo de 5 min se compara con la capacidad **vigente entonces** (horas sobre
+  umbral), cada día guarda la vigente al final del día (`uplink_daily.capacity_bps`) y el p95 de una ventana es el peor
+  día contra su propia capacidad: un upgrade no rebaja la utilización pasada. Antes de la primera vigencia rige la
+  primera (la capacidad ya existía antes de configurarla). Un cambio fechado en el pasado se corrige solo: el trabajo
+  diario detecta los días guardados con otra capacidad y los recalcula (`ReplacingMergeTree`), solo esos días.
 - **Pico diario** = percentil 95 (interpolación lineal) de las medias de 5 min del día **local** del ISP, por sentido;
   el pico del enlace es el mayor de los dos sentidos. Descarta ráfagas sueltas (≈ 72 min/día por encima).
 - **Horas sobre umbral** = intervalos de 5 min con `max(rx, tx) / capacidad` ≥ 70 % (aviso) y ≥ 85 % (crítico).
@@ -51,7 +58,8 @@ primera vez rellena hasta 89 días (lo que guarda `interface_5m`). La vista calc
 5. Intervalo de la pendiente: el de Sen (rangos de las pendientes por pares con z = 1,96). Ruido residual:
    σ = 1,4826 · MAD. Banda de la proyección = pendientes extremas ± 1,645 σ (≈ 90 %).
 6. Crecimiento mensual = `e^(30,44·b) − 1`; pico a 6 meses = `e^(a + 182·b + s_max)`.
-7. Fecha de cruce de θ·capacidad (θ = 80 % planificación, 90 % urgente, configurables):
+7. Fecha de cruce de θ·capacidad, con la capacidad **vigente hoy** (la serie son bits/s, no utilización: la historia
+   de capacidad no la distorsiona) (θ = 80 % planificación, 90 % urgente, configurables):
    `t = (ln(θ·C) − a − s_max) / b`. Si el pico actual ya lo supera → «ya supera»; sin crecimiento o más allá de
    36 meses → no cruza.
 8. **Nivel**: `urgent` si el urgente cruza dentro de la antelación (90 días por defecto); `planning` si lo hace el de
@@ -77,6 +85,10 @@ transacción que `snmp.uplink_condition`): deduplicado en origen y con recuperac
 `horus.snmp.capacity.forecast_changed` al entrar o salir de `planning`/`urgent`. `alerts` los publica en la categoría
 `capacity`.
 
+El reporte semanal (rol `reporting`) incluye la sección «Capacidad de enlaces» con estos mismos datos para su periodo
+(p95, horas sobre 70 / 85 %, pérdida, latencia, pronóstico, recomendación y reparto local / internacional), por el
+contrato estrecho `snmp.CapacityReport`.
+
 ## 6. Salud del nodo
 
 Un estado por nodo (vocabulario de equipos) con razones legibles, la más grave primero: todos los enlaces caídos →
@@ -87,9 +99,14 @@ de pérdida».
 
 ## 7. Límites conocidos
 
-- La lista local admite ASN, no prefijos (los agregados de flujos no guardan la IP remota).
+- La lista local por prefijos se aplica sobre `flows.site_remote_net_1d` (red remota truncada a /24 en IPv4 y /48 en
+  IPv6, 90 días): un prefijo más específico se cuenta por su /24 o /48 completo (la consola lo avisa) y los días
+  anteriores a la migración (más allá de los 7 días que se rellenan desde `flows_raw`) solo se clasifican por ASN. La
+  consulta compara `remote_net` con los extremos de cada prefijo (`arrayExists` sobre IPv6): cambiar la lista corrige
+  también los días ya guardados. Se avisa (sin impedir guardar) si un prefijo se solapa con prefijos de clientes.
 - `flows.site_1d` usa días UTC (el reparto local/internacional no se ajusta a la zona del ISP).
 - Las estadísticas de netwatch son las de la última prueba del router (10 ecos cada 30 s), leídas cada minuto.
 - Un único rol `snmp` activo por instalación (como el sondeador): el trabajo diario no tiene bloqueo distribuido;
   repetirlo es idempotente (ReplacingMergeTree y mismo nivel → sin eventos).
-- La capacidad histórica se supone igual a la actual (un upgrade reciente rebaja la utilización pasada calculada).
+- Un cambio de capacidad a media jornada se aplica por intervalo de 5 min a las horas sobre umbral, pero el p95 del día
+  se compara con la capacidad vigente al final del día.

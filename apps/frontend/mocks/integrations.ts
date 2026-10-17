@@ -458,6 +458,8 @@ export function integrationsRoute(ctx: TenantRouteContext): Response | undefined
               name: `rt-${(site?.name ?? 'nodo').toLowerCase().replace(/\s+/g, '-')}`,
               status: 'online',
               since: new Date(now.getTime() - 6 * 3600_000).toISOString(),
+              source: 'flows',
+              customer_last_flow_at: new Date(now.getTime() - 25_000).toISOString(),
             },
             exporter: {
               status: 'exporting',

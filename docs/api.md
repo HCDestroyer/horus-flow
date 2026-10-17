@@ -494,6 +494,9 @@ de cualquiera es de plataforma (§2.8).
 | `GET /routers/status-summary` | Conteo por `status` efectivo (los 8 valores de §2.6), opcional `site_id`/`group_id`. Base del dashboard online/offline/warning/critical. | `devices.read` |
 | `POST /routers` · `GET /routers/{id}` · `PATCH /routers/{id}` · `DELETE /routers/{id}` | Registrar / detalle / editar / baja. | `devices.create` / `devices.read` / `devices.update` / `devices.delete` |
 | `PUT /routers/{id}/credentials/{kind}` 🔒 | Credencial **write-only** por tipo: `snmp` (v3 authPriv preferente; v2c sólo dentro del túnel), `routeros_api` (usuario `horus-ro` de solo lectura para la API binaria con TLS 8729 y la API REST sobre HTTPS de RouterOS v7, D10; [ADR-0022](./adr/0022-mikrotik-routeros-v7-primer-fabricante.md)). `ssh` queda reservado (no se usa en v1). Respuesta sin secretos (`configured`, `kind`, `updated_at`, `last_used_at`, `last_result`). Sustituye a `PUT /routers/{id}/snmp-credentials`. | `devices.credentials.write` |
+| `GET /routers/{id}/tls-fingerprint` | Huella TLS del servicio REST del router: `status` (`not_captured`, `pending_confirmation`, `confirmed`, `changed`), `pinned_sha256`, `observed_sha256` y cuándo se observó/confirmó. Las lecturas REST de solo lectura exigen una huella confirmada. | `devices.read` |
+| `POST /routers/{id}/tls-fingerprint/capture` | Solo el saludo TLS por el túnel (sin peticiones ni contraseña): la huella observada queda **pendiente** si no es la fijada (auditado). `502 ROUTER_UNREACHABLE` sin túnel. | `devices.update` |
+| `POST /routers/{id}/tls-fingerprint/confirm` 🔒 | `{fingerprint_sha256}` debe ser la pendiente (`409 ROUTER_TLS_FINGERPRINT_MISMATCH` si no); fija la huella (primera o re-fijado tras un cambio, con la anterior en la auditoría). Nunca se acepta sola una huella distinta. | `devices.credentials.write` |
 | `POST /routers/{id}/credentials/{kind}/test` | Prueba de conectividad/autenticación con la credencial guardada (`202`; resultado por WebSocket). `Idempotency-Key` obligatorio. | `devices.update` |
 | `POST /routers/{id}/credentials/{kind}/reveal` 🔒 | Revela en claro (auditado, 2FA). Nadie lo tiene por defecto salvo `tenant_admin`. | `devices.credentials.reveal` |
 | `POST /routers/{id}/maintenance` · `DELETE /routers/{id}/maintenance` | Ventana de mantenimiento. | `devices.update` |
@@ -547,10 +550,10 @@ en español. Horus no escribe en routers.
 | Método y ruta | Servicio | Descripción | Permiso |
 | --- | --- | --- | --- |
 | `GET /capacity/overview` | `snmp` | Un bloque por nodo (peor salud primero): `health` (`status` del vocabulario de equipos, `summary`, `reasons[]`), sus enlaces de subida (detectado + configurados) con utilización ahora, `window` (p95 rx/tx y sobre capacidad, horas sobre 70/85 %, errores, descartes), `diagnosis` (`full`, `faulty`, `full_and_faulty`, `busy`, `ok`…), `probe` (pérdida/RTT/jitter de 24 h de la sonda de su puerta de enlace), `conditions` vigentes y `forecast`; referencias internacionales de sus routers y `probes_error` por router. `egress` (salida internacional agregada, solo alcance completo), `horus_probes` («ruta Horus → destino»), `settings`. `site_id`, `days` (1–30, 7). | `snmp.read` |
-| `GET /capacity/uplinks/{interface_id}` · `GET /capacity/egress` | `snmp` | Serie diaria (`days` 7–365, 90) de picos p95, horas sobre umbral, errores y descartes; `forecast` completo con proyección semanal a 12 meses y banda; `recommendation`; serie horaria de la sonda. Fuera del alcance → 404 `UPLINK_NOT_FOUND`. | `snmp.read` |
-| `PUT /capacity/uplinks/{interface_id}` · `DELETE` | `snmp` | Configuración del enlace: `router_id`, `label`, `provider`, `kind` (`international_transit`, `local_ix`, `cache`, `other`), `contracted_bps` (bits/s; vacío = velocidad del puerto), `international_egress` (por defecto solo tránsito internacional). La interfaz debe ser de un router sondeado del ISP. `If-Match` (412), 500 por ISP (409 `UPLINK_LIMIT_REACHED`), sin PostgreSQL 503. Auditado (`snmp.uplink_config.updated|deleted`). | `snmp.manage` |
-| `GET` · `PUT` · `DELETE /capacity/settings` | `snmp` | Umbrales de planificación/urgente (80/90 %) y antelación (90 d), saturación 70/85 % sostenida 15 min, pérdida 1/5 %, latencia 80/200 ms, `country` (por defecto el del ISP), `local_asns` (≤ 200), `probe_targets` (≤ 10 IPv4 públicas). Auditado (`snmp.capacity_settings.updated|reset`). | lectura `snmp.read`, escritura `snmp.manage` |
-| `GET /capacity/traffic-split` | `snmp` | Volumen remoto local / internacional / sin clasificar por nodo y por día (`flows.site_1d`, días UTC), con el país y su origen (`settings`, `tenant`, `none`). `site_id`, `days` (1–90, 30). | `snmp.read` |
+| `GET /capacity/uplinks/{interface_id}` · `GET /capacity/egress` | `snmp` | Serie diaria (`days` 7–365, 90) de picos p95, horas sobre umbral, errores y descartes; `forecast` completo con proyección semanal a 12 meses y banda; `recommendation`; serie horaria de la sonda; `capacity_history` (capacidad contratada con su vigencia, la más reciente primero; cada día se mide contra la capacidad vigente entonces, `daily[].capacity_bps`). Fuera del alcance → 404 `UPLINK_NOT_FOUND`. | `snmp.read` |
+| `PUT /capacity/uplinks/{interface_id}` · `DELETE` | `snmp` | Configuración del enlace: `router_id`, `label`, `provider`, `kind` (`international_transit`, `local_ix`, `cache`, `other`), `contracted_bps` (bits/s; vacío = velocidad del puerto), `international_egress` (por defecto solo tránsito internacional), `capacity_valid_from` (desde cuándo rige un cambio de capacidad: por defecto ahora, hasta 90 días atrás y nunca antes del cambio anterior → 422; recalcula los días afectados). La interfaz debe ser de un router sondeado del ISP. `If-Match` (412), 500 por ISP (409 `UPLINK_LIMIT_REACHED`), sin PostgreSQL 503. Auditado (`snmp.uplink_config.updated|deleted`). | `snmp.manage` |
+| `GET` · `PUT` · `DELETE /capacity/settings` | `snmp` | Umbrales de planificación/urgente (80/90 %) y antelación (90 d), saturación 70/85 % sostenida 15 min, pérdida 1/5 %, latencia 80/200 ms, `country` (por defecto el del ISP), `local_asns` (≤ 200), `local_prefixes` (≤ 200 CIDR IPv4/IPv6, mínimo /8 y /16; LAN de IXP o cachés on-net; avisos sin bloquear en `local_prefix_warnings`: solape con prefijos de clientes o contado por su /24 o /48), `probe_targets` (≤ 10 IPv4 públicas). Auditado (`snmp.capacity_settings.updated|reset`). | lectura `snmp.read`, escritura `snmp.manage` |
+| `GET /capacity/traffic-split` | `snmp` | Volumen remoto local / internacional / sin clasificar por nodo y por día (`flows.site_1d`, días UTC; lo que va a la lista local por prefijos, de `flows.site_remote_net_1d`, pasa a local: `local_by_prefix_bytes`), con el país y su origen (`settings`, `tenant`, `none`). `site_id`, `days` (1–90, 30). | `snmp.read` |
 | `GET /routers/{id}/netwatch-snippet` | `snmp` | Script RouterOS de sondas `/tool netwatch` (ICMP, sin scripts, `comment="horus-uplink;…"`) a la puerta de enlace de cada enlace (`{GATEWAY_n}`: el usuario la completa en la consola; nunca viaja en la URL) y a 1.1.1.1 / 8.8.8.8; `probes_found` y `probes_error` de la última lectura. | `snmp.manage` |
 
 ### 2.6 Estado del router: un solo conjunto de valores
@@ -578,7 +581,9 @@ distinta. Hay dos campos:
 | `unknown` | — | Nunca observado | Router recién creado, SNMP/ICMP deshabilitado, o antes del Sprint 5 |
 | `maintenance` | (cualquiera) | Ventana de mantenimiento activa; suprime alertas | Flag administrativo de `devices` |
 
-Precedencia al calcular `status`: `maintenance` > `unknown` > `stale` > `observed_state`. La respuesta REST incluye
+Precedencia al calcular `status`: `maintenance` > `unknown` > `stale` > `observed_state`. Cada fila de
+`GET /routers/status` lleva además `last_flow_at`: el último flujo del exportador del router (estado del collector en el
+bucket KV `flow_exporter_state`, leído en el último sondeo; null = nunca), para «último flujo hace 12 s». La respuesta REST incluye
 siempre `observed_state` (puede ser `null`), `status_reason` y `last_observed_at`, para que la UI explique, p. ej.,
 "en mantenimiento — último estado observado: offline".
 
@@ -820,6 +825,14 @@ petición): la descarga solo elige archivo. `GET /reports*` describe la variante
 (`personal_data_masked`, `files`, `size_bytes`). Una ejecución anterior a la variante no se sirve a quien no tiene
 `customers.read` (`409 REPORT_NOT_READY`: generarla de nuevo). El aviso por correo no lleva datos personales.
 
+**Sección de capacidad** (8. «Capacidad de enlaces», `capacidad_enlaces.csv`): por nodo y su salud, cada enlace de subida
+con la capacidad vigente, el p95 del periodo (el peor día contra la capacidad vigente ese día), horas sobre los umbrales
+de saturación (70 / 85 % por defecto), pérdida y latencia medias de su sonda, nivel de pronóstico, fecha de cruce del
+umbral de planificación y recomendación; la salida internacional agregada y el reparto de tráfico local / internacional
+del periodo (con la lista local por prefijos; proporciones también en `resumen.csv`). Viene del rol `snmp` por el
+contrato en proceso `snmp.CapacityReport` (`services/snmp/api/capacityreport`); sin el rol o si falla, la sección lleva
+una nota. No contiene datos personales: es igual en las variantes completa y enmascarada.
+
 El aviso "reporte listo/fallido" llega por WebSocket (topic `me`, `horus.reporting.report.completed|failed`). La
 capacidad `reports` de `GET /system/status` vale `ok` si el proceso sirve `/api/v1/reports`.
 
@@ -856,6 +869,12 @@ Multiempresa (contrato 1.2.0, H7): la empresa (`empresa` del resolutor por lotes
 `GET /ip/:ip` no la trae (una identidad nueva queda sin empresa; una existente conserva la suya) y un webhook de un
 servicio con `empresa_id` la refresca antes de re-resolver. En el asistente de IA y el MCP la empresa se enmascara como el
 nombre.
+Consulta 360 (contrato 1.6.0): `health.router` es el router que **lleva el tráfico** del cliente, el `router_id` de sus
+flujos más recientes en `flows.flows_raw` (contrato en proceso `analytics.ServingRouter`, consulta por todo el prefijo de
+la clave de ordenación: `tenant_id, site_id, realm_id, client_ip` y 24 h antes de `at`), con `source = flows` y
+`customer_last_flow_at`; sin flujos recientes o sin analítica, el principal del nodo con `source = primary_router`.
+`health.exporter.last_flow_at` sale del estado del collector (`flows.LastFlow`, rol ingester) o, sin él, del último
+sondeo SNMP.
 `GET /routers/status` y `GET /infra-services` ya admitían `api_token` (H4).
 
 ### 2.10 quater Asistente de IA (`assist`)

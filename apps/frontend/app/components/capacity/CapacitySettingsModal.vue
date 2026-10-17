@@ -32,6 +32,7 @@ const form = reactive({
   latWarn: 80,
   latCrit: 200,
   asns: '',
+  prefixes: '',
   targets: [] as { label: string; address: string }[],
 })
 
@@ -49,6 +50,7 @@ function fill(s: CapacitySettingsValues) {
     latWarn: s.latency_warning_ms,
     latCrit: s.latency_critical_ms,
     asns: s.local_asns.join(', '),
+    prefixes: (s.local_prefixes ?? []).join('\n'),
     targets: s.probe_targets.map((p) => ({ ...p })),
   })
 }
@@ -69,12 +71,23 @@ watch(open, (o) => {
 })
 
 const asnParse = computed(() => parseAsnList(form.asns))
+const prefixParse = computed(() => parsePrefixList(form.prefixes))
+/** Avisos de la lista local por prefijos (solapes con prefijos de clientes, /24 o /48 completos). */
+const prefixWarnings = computed(() => current.value?.local_prefix_warnings ?? [])
 
 async function save() {
   errors.value = {}
   if (asnParse.value.invalid.length) {
     errors.value = {
       local_asns: t('capacity.settings.asnInvalid', { list: asnParse.value.invalid.join(', ') }),
+    }
+    return
+  }
+  if (prefixParse.value.invalid.length) {
+    errors.value = {
+      local_prefixes: t('capacity.settings.prefixInvalid', {
+        list: prefixParse.value.invalid.join(', '),
+      }),
     }
     return
   }
@@ -103,6 +116,7 @@ async function save() {
           latency_warning_ms: Number(form.latWarn),
           latency_critical_ms: Number(form.latCrit),
           local_asns: asnParse.value.asns,
+          local_prefixes: prefixParse.value.prefixes,
           probe_targets: form.targets.map((p) => ({
             label: p.label.trim(),
             address: p.address.trim(),
@@ -112,6 +126,16 @@ async function save() {
     )
     open.value = false
     toast.add({ title: t('capacity.settings.saved'), color: 'success', icon: 'i-lucide-check' })
+    if (saved.local_prefix_warnings.length) {
+      toast.add({
+        title: t('capacity.settings.prefixWarningsTitle', {
+          n: saved.local_prefix_warnings.length,
+        }),
+        description: saved.local_prefix_warnings.map((w) => `${w.prefix}: ${w.detail}`).join(' · '),
+        color: 'warning',
+        icon: 'i-lucide-triangle-alert',
+      })
+    }
     emit('saved', saved)
   } catch (e) {
     if (e instanceof ApiError && e.problem.errors?.length) {
@@ -254,6 +278,36 @@ async function reset() {
               data-testid="settings-asns"
             />
           </UFormField>
+          <UFormField
+            :label="t('capacity.settings.prefixes')"
+            :help="t('capacity.settings.prefixesHelp')"
+            :error="errors.local_prefixes ?? errors['local_prefixes[0]']"
+          >
+            <UTextarea
+              v-model="form.prefixes"
+              :rows="3"
+              class="w-full"
+              :ui="{ base: 'font-mono' }"
+              :placeholder="'198.51.100.0/24\n2001:db8:7a00::/48'"
+              data-testid="settings-prefixes"
+            />
+          </UFormField>
+          <UAlert
+            v-if="prefixWarnings.length"
+            color="warning"
+            variant="subtle"
+            icon="i-lucide-triangle-alert"
+            :title="t('capacity.settings.prefixWarningsTitle', { n: prefixWarnings.length })"
+            data-testid="settings-prefix-warnings"
+          >
+            <template #description>
+              <ul class="flex flex-col gap-1">
+                <li v-for="w in prefixWarnings" :key="w.prefix + w.code">
+                  <span class="font-mono">{{ w.prefix }}</span> — {{ w.detail }}
+                </li>
+              </ul>
+            </template>
+          </UAlert>
         </fieldset>
         <fieldset class="flex flex-col gap-3">
           <legend class="text-highlighted mb-1 text-sm font-semibold">

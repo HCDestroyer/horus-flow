@@ -78,9 +78,11 @@ func (s *Store) PutCredentials(ctx context.Context, t pgdb.TenantID, routerID uu
 				at = time.Now().UTC()
 			}
 			if _, err := tx.Exec(ctx, `INSERT INTO devices.credential (id, tenant_id, router_id, kind, username, secret_ciphertext, dek_wrapped, kek_id,
-					tls_fingerprint_sha256, created_at, updated_at)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)`, c.ID, t.UUID(), routerID, c.Kind, c.Username, c.Ciphertext, c.DEKWrapped, c.KEKID,
-				c.TLSFingerprintSHA256, at); err != nil {
+					tls_fingerprint_sha256, tls_fingerprint_pending, tls_fingerprint_pending_at, tls_fingerprint_confirmed_at,
+					tls_fingerprint_confirmed_by, created_at, updated_at)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14)`, c.ID, t.UUID(), routerID, c.Kind, c.Username,
+				c.Ciphertext, c.DEKWrapped, c.KEKID, c.TLSFingerprintSHA256, c.TLSPending, c.TLSPendingAt, c.TLSConfirmedAt, c.TLSConfirmedBy,
+				at); err != nil {
 				if pgdb.IsCode(err, pgdb.SQLStateForeignKey) {
 					return domain.ErrNotFound
 				}
@@ -96,13 +98,67 @@ func (s *Store) GetCredential(ctx context.Context, t pgdb.TenantID, routerID uui
 	var c domain.Credential
 	err := s.db.TenantTx(ctx, t, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `SELECT id, router_id, kind, username, secret_ciphertext, dek_wrapped, coalesce(kek_id, ''),
-				tls_fingerprint_sha256, last_used_at, last_result, updated_at, version
+				tls_fingerprint_sha256, tls_fingerprint_pending, tls_fingerprint_pending_at, tls_fingerprint_confirmed_at,
+				tls_fingerprint_confirmed_by, last_used_at, last_result, updated_at, version
 			FROM devices.credential WHERE tenant_id = $1 AND router_id = $2 AND kind = $3 AND deleted_at IS NULL`,
 			t.UUID(), routerID, kind).Scan(&c.ID, &c.RouterID, &c.Kind, &c.Username, &c.Ciphertext, &c.DEKWrapped, &c.KEKID,
-			&c.TLSFingerprintSHA256, &c.LastUsedAt, &c.LastResult, &c.UpdatedAt, &c.Version)
+			&c.TLSFingerprintSHA256, &c.TLSPending, &c.TLSPendingAt, &c.TLSConfirmedAt, &c.TLSConfirmedBy, &c.LastUsedAt, &c.LastResult,
+			&c.UpdatedAt, &c.Version)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+// ObserveTLSFingerprint guarda la huella observada del router: si coincide
+// con la fijada limpia la pendiente; si no, la deja pendiente de
+// confirmación (nunca toca la fijada). result, si no es vacío, actualiza
+// last_result. Devuelve la credencial resultante.
+func (s *Store) ObserveTLSFingerprint(ctx context.Context, t pgdb.TenantID, id uuid.UUID, observed, result string, at time.Time) (*domain.Credential, error) {
+	var c domain.Credential
+	err := s.db.TenantTx(ctx, t, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `UPDATE devices.credential SET
+				tls_fingerprint_pending = CASE WHEN upper(tls_fingerprint_sha256) = $3 THEN NULL ELSE $3 END,
+				tls_fingerprint_pending_at = CASE WHEN upper(tls_fingerprint_sha256) = $3 THEN NULL
+					WHEN tls_fingerprint_pending = $3 THEN tls_fingerprint_pending_at ELSE $4 END,
+				last_result = coalesce(nullif($5, ''), last_result), last_used_at = CASE WHEN $5 = '' THEN last_used_at ELSE $4 END,
+				updated_at = now(), version = version + 1
+			WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL
+			RETURNING id, router_id, kind, username, tls_fingerprint_sha256, tls_fingerprint_pending, tls_fingerprint_pending_at,
+				tls_fingerprint_confirmed_at, tls_fingerprint_confirmed_by, last_used_at, last_result, updated_at, version`,
+			t.UUID(), id, observed, at, result).Scan(&c.ID, &c.RouterID, &c.Kind, &c.Username, &c.TLSFingerprintSHA256, &c.TLSPending,
+			&c.TLSPendingAt, &c.TLSConfirmedAt, &c.TLSConfirmedBy, &c.LastUsedAt, &c.LastResult, &c.UpdatedAt, &c.Version)
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, domain.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+// ConfirmTLSFingerprint fija la huella pendiente si sigue siendo fp (CAS:
+// una observación posterior distinta invalida la confirmación). Devuelve
+// domain.ErrTLSPendingChanged si la pendiente ya no es fp.
+func (s *Store) ConfirmTLSFingerprint(ctx context.Context, t pgdb.TenantID, id uuid.UUID, fp, by string, at time.Time) (*domain.Credential, error) {
+	var c domain.Credential
+	err := s.db.TenantTx(ctx, t, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `UPDATE devices.credential SET tls_fingerprint_sha256 = $3, tls_fingerprint_pending = NULL,
+				tls_fingerprint_pending_at = NULL, tls_fingerprint_confirmed_at = $5, tls_fingerprint_confirmed_by = $4,
+				updated_at = now(), version = version + 1
+			WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL AND tls_fingerprint_pending = $3
+			RETURNING id, router_id, kind, username, tls_fingerprint_sha256, tls_fingerprint_pending, tls_fingerprint_pending_at,
+				tls_fingerprint_confirmed_at, tls_fingerprint_confirmed_by, last_used_at, last_result, updated_at, version`,
+			t.UUID(), id, fp, by, at).Scan(&c.ID, &c.RouterID, &c.Kind, &c.Username, &c.TLSFingerprintSHA256, &c.TLSPending,
+			&c.TLSPendingAt, &c.TLSConfirmedAt, &c.TLSConfirmedBy, &c.LastUsedAt, &c.LastResult, &c.UpdatedAt, &c.Version)
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, domain.ErrTLSPendingChanged
 	}
 	if err != nil {
 		return nil, err

@@ -7,13 +7,11 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/hcdestroyer/horus-flow/packages/go/apperr"
-	"github.com/hcdestroyer/horus-flow/packages/go/authz"
 	"github.com/hcdestroyer/horus-flow/packages/go/outbox"
 	"github.com/hcdestroyer/horus-flow/packages/go/pgdb"
 	"github.com/hcdestroyer/horus-flow/packages/go/problem"
@@ -64,7 +62,12 @@ type Importer struct {
 	audit   func() (authapi.AuditRecorder, bool)
 	now     func() time.Time
 	logger  *slog.Logger
+	pins    *TLSPins
 }
+
+// WithTLSPins conecta la captura y confirmación de la huella TLS (sin él,
+// un router sin huella confirmada no se lee).
+func (im *Importer) WithTLSPins(p *TLSPins) *Importer { im.pins = p; return im }
 
 // NewImporter crea el servicio. exclude son los rangos de túneles de Horus.
 func NewImporter(store ImportStore, creds *Onboarding, reader RouterReader, exclude []netip.Prefix,
@@ -89,10 +92,6 @@ type Preview struct {
 	Version        string
 	TLSFingerprint string
 	Items          []domain.ImportItem
-}
-
-func (im *Importer) record(ctx context.Context, p *authz.Principal, t pgdb.TenantID, action, rid string, changes map[string]any) {
-	recordAudit(ctx, im.audit, im.store, im.logger, im.now().UTC(), p, t, action, "router", rid, "tenant", changes)
 }
 
 // PreviewImport lee el router por el túnel y propone prefijos sin aplicar
@@ -120,12 +119,28 @@ func (im *Importer) PreviewImport(ctx context.Context, routerID uuid.UUID, accep
 	if cred.TLSFingerprintSHA256 != nil {
 		pinned = *cred.TLSFingerprintSHA256
 	}
-	target := ReadTarget{TunnelIP: *r.TunnelAddress, User: cred.Username, Password: password, Pinned: pinned}
-	accepting := acceptFingerprint != nil && strings.TrimSpace(*acceptFingerprint) != ""
-	if accepting {
-		target.Pinned = strings.ToUpper(strings.TrimSpace(*acceptFingerprint))
-	}
+	// accept_new_tls_fingerprint quedó obsoleto: una huella se fija solo con
+	// POST /routers/{id}/tls-fingerprint/confirm (administrador, re-autenticado).
+	_ = acceptFingerprint
 	now := im.now().UTC()
+	if pinned == "" {
+		// Primer contacto (TOFU): solo el saludo TLS, sin enviar la contraseña;
+		// la huella queda pendiente hasta que un administrador la confirme.
+		if im.pins == nil {
+			return nil, apperr.Conflict(domain.CodeTLSFingerprintUnconfirmed, "La huella TLS del router no está confirmada.")
+		}
+		observed, err := im.pins.prober.ProbeFingerprint(ctx, *r.TunnelAddress)
+		if err != nil {
+			return nil, apperr.New(apperr.KindBadGateway, domain.CodeRouterUnreachable, "El router no responde por el túnel.")
+		}
+		if _, err := im.pins.Observe(ctx, p, t, r, cred, observed); err != nil {
+			return nil, err
+		}
+		fp, _ := domain.NormalizeFingerprint(observed)
+		return nil, apperr.Conflict(domain.CodeTLSFingerprintUnconfirmed,
+			fmt.Sprintf("Confirme la huella TLS del router antes de leerlo (SHA-256: %s).", fp))
+	}
+	target := ReadTarget{TunnelIP: *r.TunnelAddress, User: cred.Username, Password: password, Pinned: pinned}
 	facts, observed, err := im.reader.Read(ctx, target)
 	result := func(res string, fp *string) {
 		if err := im.store.RecordCredentialUse(ctx, t, cred.ID, res, fp, now); err != nil {
@@ -134,9 +149,15 @@ func (im *Importer) PreviewImport(ctx context.Context, routerID uuid.UUID, accep
 	}
 	switch {
 	case errors.Is(err, ErrRouterFingerprint):
-		result("tls_fingerprint_changed", nil)
+		if im.pins != nil && observed != "" {
+			if _, oerr := im.pins.Observe(ctx, p, t, r, cred, observed); oerr != nil {
+				im.logger.WarnContext(ctx, "record observed fingerprint failed", slog.Any("error", oerr))
+			}
+		} else {
+			result("tls_fingerprint_changed", nil)
+		}
 		return nil, apperr.Conflict(domain.CodeTLSFingerprintChange,
-			fmt.Sprintf("La huella TLS del router cambió (nueva: %s). Si lo esperaba, confírmela con accept_new_tls_fingerprint.", observed))
+			fmt.Sprintf("La huella TLS del router cambió (nueva: %s). Revísela y vuelva a fijarla en la ficha del router.", observed))
 	case errors.Is(err, ErrRouterAuth):
 		result("auth_failed", nil)
 		return nil, apperr.New(apperr.KindBadGateway, domain.CodeRouterUnreachable, "El router rechazó el usuario de solo lectura de Horus.")
@@ -145,14 +166,7 @@ func (im *Importer) PreviewImport(ctx context.Context, routerID uuid.UUID, accep
 		return nil, apperr.New(apperr.KindBadGateway, domain.CodeRouterUnreachable, "El router no responde por el túnel.")
 	}
 	fp := observed
-	result("ok", &fp)
-	switch {
-	case pinned == "":
-		im.record(ctx, p, t, "devices.router.tls_fingerprint_pinned", r.ID.String(), map[string]any{"tls_fingerprint_sha256": fp})
-	case accepting && !strings.EqualFold(pinned, fp):
-		im.record(ctx, p, t, "devices.router.tls_fingerprint_accepted", r.ID.String(),
-			map[string]any{"previous": pinned, "tls_fingerprint_sha256": fp})
-	}
+	result("ok", nil)
 	existing, err := im.store.ListPrefixes(ctx, t, ListQuery{SiteID: r.SiteID, Limit: 10000, SortCol: "created_at"})
 	if err != nil {
 		return nil, err

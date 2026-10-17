@@ -28,7 +28,8 @@ const CSVSeparator = ';'
 
 // CSVFiles son los archivos del zip, en orden.
 var CSVFiles = []string{"resumen.csv", "hallazgos_por_tipo.csv", "hallazgos_por_severidad.csv", "clientes_con_hallazgos.csv",
-	"hallazgos_criticos_altos.csv", "estado_seguridad_clientes.csv", "disponibilidad_routers.csv", "trafico_diario.csv", "avisos_enviados.csv"}
+	"hallazgos_criticos_altos.csv", "estado_seguridad_clientes.csv", "disponibilidad_routers.csv", "trafico_diario.csv",
+	"capacidad_enlaces.csv", "avisos_enviados.csv"}
 
 // RenderCSV escribe el zip de CSV del reporte en w.
 func RenderCSV(w io.Writer, d *Data) error {
@@ -148,6 +149,10 @@ func csvSection(name string, d *Data, loc *time.Location) [][]string {
 				[]string{"bytes_bajada", utoa(t.DownBytes)}, []string{"bytes_subida", utoa(t.UpBytes)},
 				[]string{"bytes_bajada_periodo_anterior", utoa(t.PrevDownBytes)}, []string{"bytes_subida_periodo_anterior", utoa(t.PrevUpBytes)})
 		}
+		if cp := d.Capacity; cp != nil && cp.Traffic != nil {
+			rows = append(rows, []string{"trafico_internacional_pct", pct(cp.Traffic.InternationalShare)},
+				[]string{"trafico_local_pct", pct(cp.Traffic.LocalShare)})
+		}
 		return rows
 	case "hallazgos_por_tipo.csv":
 		if sec == nil {
@@ -218,6 +223,8 @@ func csvSection(name string, d *Data, loc *time.Location) [][]string {
 			rows = append(rows, []string{FmtDate(v.Day, loc), utoa(v.DownBytes), utoa(v.UpBytes)})
 		}
 		return rows
+	case "capacidad_enlaces.csv":
+		return capacityCSV(d, loc)
 	case "avisos_enviados.csv":
 		if d.Alerts == nil {
 			return note(d.AlertsNote)

@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"math"
+	"net/netip"
 	"slices"
 	"time"
 
@@ -36,8 +38,14 @@ func (c *Capacity) reloadTenant(ctx context.Context, tenant uuid.UUID) {
 		c.log.WarnContext(ctx, "snmp: capacity settings not reloaded", "error", err)
 		return
 	}
+	hist, err := c.o.Repo.ListCapacityHistory(ctx, tenant)
+	if err != nil {
+		c.log.WarnContext(ctx, "snmp: capacity history not reloaded", "error", err)
+		return
+	}
 	c.mu.Lock()
 	c.configs[tenant] = cfgs
+	c.history[tenant] = hist
 	if row != nil {
 		c.settings[tenant] = row.Settings
 	} else {
@@ -89,6 +97,10 @@ func (c *Capacity) PutUplink(ctx context.Context, tenant uuid.UUID, sites []uuid
 	default:
 		return nil, nil, ErrUplinkNotFound
 	}
+	if in.CapacityValidFrom == nil {
+		now := c.now().UTC()
+		in.CapacityValidFrom = &now
+	}
 	after, err := c.o.Repo.PutUplinkConfig(ctx, tenant, iface, in, actor, expect)
 	if err != nil {
 		return nil, nil, err
@@ -131,6 +143,9 @@ type SettingsView struct {
 	UpdatedAt        *time.Time              `json:"updated_at"`
 	TenantCountry    *string                 `json:"tenant_country"`
 	EffectiveCountry *string                 `json:"effective_country"`
+	// LocalPrefixWarnings: prefijos locales que se solapan con prefijos de
+	// clientes del ISP o que se cuentan por su /24 o /48 (no impiden guardar).
+	LocalPrefixWarnings []domain.LocalPrefixWarning `json:"local_prefix_warnings"`
 }
 
 func (c *Capacity) settingsView(ctx context.Context, tenant uuid.UUID, row *domain.SettingsRow) SettingsView {
@@ -146,6 +161,11 @@ func (c *Capacity) settingsView(ctx context.Context, tenant uuid.UUID, row *doma
 	if v.Country != nil {
 		v.EffectiveCountry = v.Country
 	}
+	var clients []netip.Prefix
+	if c.o.ClientPrefixes != nil {
+		clients = c.o.ClientPrefixes(tenant)
+	}
+	v.LocalPrefixWarnings = domain.LocalPrefixWarnings(v.LocalPrefixes, clients)
 	return v
 }
 
@@ -215,6 +235,9 @@ type SubjectDetail struct {
 	ComputedAt     *time.Time              `json:"computed_at"`
 	ProbeSeries    []ProbeSeries           `json:"probe_series"`
 	Settings       domain.CapacitySettings `json:"settings"`
+	// CapacityHistory es la capacidad contratada del enlace con su vigencia
+	// (más reciente primero; vacía en la salida internacional o sin configuración).
+	CapacityHistory []domain.CapacityPeriod `json:"capacity_history"`
 }
 
 // UplinkDetail devuelve la serie diaria, el pronóstico completo y las
@@ -236,7 +259,8 @@ func (c *Capacity) UplinkDetail(ctx context.Context, tenant uuid.UUID, sites []u
 	if view == nil {
 		return nil, ErrUplinkNotFound
 	}
-	d := &SubjectDetail{SubjectID: iface, SubjectKind: domain.SubjectUplink, Uplink: view, Settings: ov.Settings}
+	d := &SubjectDetail{SubjectID: iface, SubjectKind: domain.SubjectUplink, Uplink: view, Settings: ov.Settings,
+		CapacityHistory: c.historyOf(tenant, iface)}
 	if err := c.fillDetail(ctx, tenant, d, days, view.Label, view.CapacityBps); err != nil {
 		return nil, err
 	}
@@ -266,12 +290,24 @@ func (c *Capacity) EgressDetail(ctx context.Context, tenant uuid.UUID, sites []u
 		return nil, ErrUplinkNotFound
 	}
 	d := &SubjectDetail{SubjectID: ov.Egress.SubjectID, SubjectKind: domain.SubjectInternationalEgress, Egress: ov.Egress,
-		Settings: ov.Settings, ProbeSeries: []ProbeSeries{}}
+		Settings: ov.Settings, ProbeSeries: []ProbeSeries{}, CapacityHistory: []domain.CapacityPeriod{}}
 	capBps := ov.Egress.CapacityBps
 	if err := c.fillDetail(ctx, tenant, d, days, "Salida internacional", &capBps); err != nil {
 		return nil, err
 	}
 	return d, nil
+}
+
+// historyOf devuelve la historia de capacidad de un enlace, la más reciente primero.
+func (c *Capacity) historyOf(tenant, iface uuid.UUID) []domain.CapacityPeriod {
+	c.mu.RLock()
+	h := slices.Clone(c.history[tenant][iface])
+	c.mu.RUnlock()
+	slices.Reverse(h)
+	if h == nil {
+		h = []domain.CapacityPeriod{}
+	}
+	return h
 }
 
 func (c *Capacity) fillDetail(ctx context.Context, tenant uuid.UUID, d *SubjectDetail, days int, label string, capBps *int64) error {
@@ -383,6 +419,7 @@ type TrafficSplitView struct {
 	Country       *string             `json:"country"`
 	CountrySource string              `json:"country_source"`
 	LocalASNs     int                 `json:"local_asns"`
+	LocalPrefixes int                 `json:"local_prefixes"`
 	Total         domain.TrafficSplit `json:"total"`
 	Sites         []SiteTraffic       `json:"sites"`
 	Daily         []DailyTraffic      `json:"daily"`
@@ -395,14 +432,22 @@ func (c *Capacity) TrafficSplit(ctx context.Context, tenant uuid.UUID, sites []u
 	if days <= 0 {
 		days = DefaultTraffic
 	}
+	info := c.tenantInfo(ctx, tenant)
+	_, todayStart, _ := localDay(c.now().UTC(), location(info.Timezone))
+	return c.trafficSplitRange(ctx, tenant, sites, todayStart.AddDate(0, 0, -days), todayStart)
+}
+
+// trafficSplitRange es TrafficSplit para [from, todayStart): instantes UTC de
+// medianoches locales del ISP (la sección de capacidad del reporte semanal
+// pide exactamente su periodo).
+func (c *Capacity) trafficSplitRange(ctx context.Context, tenant uuid.UUID, sites []uuid.UUID, from, todayStart time.Time) (*TrafficSplitView, error) {
 	st := c.settingsFor(tenant)
 	info := c.tenantInfo(ctx, tenant)
-	loc := location(info.Timezone)
 	now := c.now().UTC()
-	_, todayStart, _ := localDay(now, loc)
-	from := todayStart.AddDate(0, 0, -days)
-	out := &TrafficSplitView{From: from, To: todayStart, Days: days, LocalASNs: len(st.LocalASNs), CountrySource: "none",
-		Sites: []SiteTraffic{}, Daily: []DailyTraffic{}}
+	days := int(math.Round(todayStart.Sub(from).Hours() / 24))
+	out := &TrafficSplitView{From: from, To: todayStart, Days: days, LocalASNs: len(st.LocalASNs), LocalPrefixes: len(st.LocalPrefixes),
+		CountrySource: "none",
+		Sites:         []SiteTraffic{}, Daily: []DailyTraffic{}}
 	country := ""
 	switch {
 	case st.Country != nil:
@@ -451,6 +496,26 @@ func (c *Capacity) TrafficSplit(ctx context.Context, tenant uuid.UUID, sites []u
 		dd.LocalBytes += one.LocalBytes
 		dd.InternationalBytes += one.InternationalBytes
 		dd.UnknownBytes += one.UnknownBytes
+	}
+	// Lista local por prefijos: el volumen hacia esas redes pasa a local (manda sobre el ASN).
+	byPrefix, err := s.TrafficByLocalPrefix(ctx, tenant, sites, st.LocalASNs, st.LocalPrefixes, from.Truncate(24*time.Hour),
+		todayStart.Add(24*time.Hour))
+	if err != nil {
+		return nil, err
+	}
+	for _, v := range byPrefix {
+		if v.Day.Before(firstDay) || !v.Day.Before(todayStart.Truncate(24*time.Hour)) {
+			continue
+		}
+		out.Total.MoveToPrefix(v, country)
+		if x := bySite[v.SiteID]; x != nil {
+			x.MoveToPrefix(v, country)
+		}
+		if dd := byDay[v.Day]; dd != nil {
+			one := domain.TrafficSplit{LocalBytes: dd.LocalBytes, InternationalBytes: dd.InternationalBytes, UnknownBytes: dd.UnknownBytes}
+			one.MoveToPrefix(v, country)
+			dd.LocalBytes, dd.InternationalBytes, dd.UnknownBytes = one.LocalBytes, one.InternationalBytes, one.UnknownBytes
+		}
 	}
 	out.Total.Finish()
 	for _, x := range bySite {

@@ -70,6 +70,9 @@ test.describe('integraciones @integrations', () => {
     const modal = page.getByTestId('ip360')
     await expect(modal.getByTestId('ip360-customer')).toBeVisible()
     await expect(modal.getByTestId('ip360-consumption')).toContainText('30 días')
+    // El router que lleva el tráfico del cliente (sus flujos recientes) y el último flujo del exportador.
+    await expect(modal.getByTestId('ip360-router-source')).toContainText('flujos recientes')
+    await expect(modal.getByTestId('ip360-last-flow')).toContainText('último flujo del router hace')
     await expect(modal.getByTestId('ip360-external')).not.toContainText('no está conectado')
     await expect(modal.getByTestId('ip360-company')).toContainText(/Fibra (Sur|Norte)/)
     const { pathname, search, hash } = new URL(page.url())

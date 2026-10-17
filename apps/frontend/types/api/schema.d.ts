@@ -3648,9 +3648,11 @@ export interface paths {
         put?: never;
         /**
          * Lee del MikroTik (REST, solo lectura) pools y redes de cara al cliente y propone prefijos
-         * @description No aplica nada (I1-28). Usa el usuario de solo lectura por el túnel; solo métodos GET hacia RouterOS.
-         *     Router inalcanzable → `502 ROUTER_UNREACHABLE`; huella TLS distinta → `409 ROUTER_TLS_FINGERPRINT_CHANGED`
-         *     (requiere confirmación explícita, auditada).
+         * @description No aplica nada (I1-28). Usa el usuario de solo lectura por el túnel; solo métodos GET hacia RouterOS y solo con la
+         *     huella TLS ya confirmada por un administrador. Router inalcanzable → `502 ROUTER_UNREACHABLE`; huella sin confirmar →
+         *     `409 ROUTER_TLS_FINGERPRINT_UNCONFIRMED` (la captura queda pendiente, sin enviar la contraseña); huella distinta de la
+         *     fijada → `409 ROUTER_TLS_FINGERPRINT_CHANGED` (queda pendiente). En ambos casos se confirma con
+         *     `POST /routers/{router_id}/tls-fingerprint/confirm`.
          */
         post: operations["previewRouterPrefixImport"];
         delete?: never;
@@ -3683,6 +3685,78 @@ export interface paths {
          *     fetch; nunca desactiva la verificación.
          */
         post: operations["createProvisioningScript"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/routers/{router_id}/tls-fingerprint": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Huella TLS del router (fijada, pendiente de confirmar o cambiada)
+         * @description Las lecturas REST de solo lectura del router (importación de prefijos, sondas netwatch) exigen una huella confirmada
+         *     por un administrador. Una huella observada en el alta (TOFU) o distinta de la fijada queda pendiente y nunca se
+         *     acepta sola.
+         */
+        get: operations["getRouterTlsFingerprint"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/routers/{router_id}/tls-fingerprint/capture": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Lee la huella del certificado del router por el túnel (queda pendiente de confirmar)
+         * @description Solo el saludo TLS con el servicio `www-ssl` del router: no envía peticiones HTTP ni la contraseña del usuario de
+         *     solo lectura. Si coincide con la fijada no queda nada pendiente; si no, queda pendiente (`changed` si ya había una
+         *     fijada; auditado). Sin túnel o router caído → `502 ROUTER_UNREACHABLE`.
+         */
+        post: operations["captureRouterTlsFingerprint"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/routers/{router_id}/tls-fingerprint/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Un administrador confirma (o vuelve a fijar) la huella pendiente
+         * @description `fingerprint_sha256` debe ser exactamente la huella pendiente que muestra la consola; si no hay pendiente o no
+         *     coincide → `409 ROUTER_TLS_FINGERPRINT_MISMATCH`. Requiere re-autenticación reciente. Auditado como
+         *     `devices.router.tls_fingerprint_confirmed` (primera) o `devices.router.tls_fingerprint_repinned` (con la anterior).
+         */
+        post: operations["confirmRouterTlsFingerprint"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4537,6 +4611,12 @@ export interface components {
             };
             settings: components["schemas"]["CapacitySettingsValues"];
         };
+        CapacityPeriod: {
+            /** @description bits/s; null = sin capacidad contratada (se mide contra la velocidad del puerto). */
+            contracted_bps: number | null;
+            valid_from: components["schemas"]["Timestamp"];
+            valid_to: components["schemas"]["NullableTimestamp"];
+        };
         CapacityProbe: {
             interface_id: components["schemas"]["Uuid"] | null;
             /** @description Media de 24 h. */
@@ -4581,6 +4661,15 @@ export interface components {
             customized: boolean;
             defaults: components["schemas"]["CapacitySettingsValues"];
             effective_country: string | null;
+            /** @description Avisos sobre la lista local por prefijos (no impiden guardar). */
+            local_prefix_warnings: {
+                /** @description Prefijo de clientes con el que se solapa. */
+                client_prefix: string | null;
+                /** @enum {string} */
+                code: "overlaps_client_prefix" | "counted_as_aggregate";
+                detail: string;
+                prefix: string;
+            }[];
             tenant_country: string | null;
             updated_at: components["schemas"]["NullableTimestamp"];
             version: number;
@@ -4592,6 +4681,12 @@ export interface components {
             latency_warning_ms: number;
             lead_days: number;
             local_asns: number[];
+            /**
+             * @description Prefijos CIDR IPv4/IPv6 que cuentan como tráfico local aunque su ASN no esté en la lista (LAN de un IXP,
+             *     cachés on-net). Se normalizan (red, sin duplicados); como mínimo /8 en IPv4 y /16 en IPv6. Un prefijo más
+             *     específico que /24 (IPv4) o /48 (IPv6) se cuenta por su /24 o /48 completo (aviso en `local_prefix_warnings`).
+             */
+            local_prefixes: string[];
             loss_critical_pct: number;
             loss_warning_pct: number;
             planning_threshold: number;
@@ -4611,6 +4706,8 @@ export interface components {
             uplinks: components["schemas"]["CapacityUplink"][];
         };
         CapacitySubjectDetail: {
+            /** @description Capacidad contratada del enlace con su vigencia, la más reciente primero (vacía en la salida internacional). */
+            capacity_history: components["schemas"]["CapacityPeriod"][];
             computed_at: components["schemas"]["NullableTimestamp"];
             daily: components["schemas"]["UplinkDaily"][];
             days: number;
@@ -5035,7 +5132,7 @@ export interface components {
          * @description Código estable UPPER_SNAKE_CASE (= `ErrorInfo.reason` de gRPC). **Enum abierto**: se listan los
          *     conocidos en v0; el cliente trata un código desconocido según el `status` HTTP.
          */
-        ErrorCode: ("VALIDATION_FAILED" | "UNAUTHENTICATED" | "TOKEN_EXPIRED" | "SESSION_REVOKED" | "PERMISSION_DENIED" | "ORIGIN_NOT_ALLOWED" | "MFA_REQUIRED" | "MFA_ENROLLMENT_REQUIRED" | "REAUTH_REQUIRED" | "NOT_FOUND" | "ALREADY_EXISTS" | "CONFLICT" | "PRECONDITION_FAILED" | "PRECONDITION_REQUIRED" | "IDEMPOTENCY_KEY_REUSED" | "IDEMPOTENCY_IN_PROGRESS" | "RATE_LIMITED" | "TENANT_RATE_LIMITED" | "INTERNAL" | "SERVICE_UNAVAILABLE" | "ANALYTICS_UNAVAILABLE" | "TIMEOUT" | "INVALID_CREDENTIALS" | "INVALID_CURSOR" | "INVALID_FILTER" | "INVALID_SORT_FIELD" | "TIME_RANGE_TOO_LARGE" | "TENANT_NOT_FOUND" | "TENANT_MISMATCH" | "TENANT_SUSPENDED" | "TOKEN_SCOPE_INVALID" | "KIOSK_FORBIDDEN" | "ROUTER_NOT_FOUND" | "ROUTER_PRIMARY_EXISTS" | "ROUTEROS_VERSION_UNSUPPORTED" | "ROUTER_UNREACHABLE" | "ROUTER_TLS_FINGERPRINT_CHANGED" | "SITE_NOT_FOUND" | "SITE_NOT_EMPTY" | "PEER_ALREADY_REVOKED" | "WIREGUARD_IP_POOL_EXHAUSTED" | "WIREGUARD_PUBLIC_KEY_IN_USE" | "ENROLLMENT_TOKEN_INVALID" | "CUSTOMER_NOT_FOUND" | "CUSTOMER_KIND_LOCKED" | "CLIENT_PREFIX_OVERLAP" | "CLIENT_PREFIX_NOT_FOUND" | "ASN_RULE_NOT_FOUND" | "FINDING_NOT_FOUND" | "FINDING_STATE_INVALID" | "REPORT_NOT_FOUND" | "REPORT_NOT_READY" | "REPORT_EXPIRED" | "REPORT_DEFINITION_NOT_FOUND" | "DASHBOARD_NOT_FOUND" | "DASHBOARD_READ_ONLY" | "WIDGET_TYPE_NOT_ALLOWED" | "WIDGET_TYPE_UNKNOWN" | "WIDGET_CONFIG_INVALID" | "KIOSK_ENROLLMENT_CODE_INVALID" | "NOTIFICATION_CHANNEL_NOT_FOUND" | "NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE" | "NOTIFICATION_CHANNEL_UNREACHABLE" | "NOTIFICATION_CHANNEL_AUTH_FAILED" | "NOTIFICATION_CHANNEL_CREDENTIALS_MISSING" | "LIBRENMS_CHANNEL_REQUIRED" | "LIBRENMS_NOT_PROVISIONED" | "LIBRENMS_DEVICE_NOT_OWNED" | "NOTIFICATION_TELEGRAM_WEBHOOK_ACTIVE" | "NOTIFICATION_TELEGRAM_LINK_CODE_INVALID" | "NOTIFICATION_TELEGRAM_BOT_NOT_CONFIGURED" | "STORAGE_TARGET_UNREACHABLE" | "REPUTATION_SOURCE_NOT_FOUND" | "REPUTATION_SOURCE_READ_ONLY" | "REPUTATION_SOURCE_URL_NOT_ALLOWED" | "ROLE_NOT_FOUND" | "ROLE_READ_ONLY" | "ROLE_IN_USE" | "LAST_PLATFORM_ADMIN" | "WIREGUARD_HUB_NOT_FOUND" | "WIREGUARD_POOL_NOT_FOUND" | "WIREGUARD_POOL_OVERLAP" | "WIREGUARD_POOL_INVALID" | "WIREGUARD_POOL_IN_USE" | "REMOTE_DESTINATION_NOT_FOUND" | "REMOTE_DESTINATION_NOT_READY" | "REMOTE_DESTINATION_SYNC_RUNNING" | "API_TOKEN_NOT_FOUND" | "INTEGRATION_NOT_CONFIGURED" | "INTEGRATION_UNAVAILABLE") | string;
+        ErrorCode: ("VALIDATION_FAILED" | "UNAUTHENTICATED" | "TOKEN_EXPIRED" | "SESSION_REVOKED" | "PERMISSION_DENIED" | "ORIGIN_NOT_ALLOWED" | "MFA_REQUIRED" | "MFA_ENROLLMENT_REQUIRED" | "REAUTH_REQUIRED" | "NOT_FOUND" | "ALREADY_EXISTS" | "CONFLICT" | "PRECONDITION_FAILED" | "PRECONDITION_REQUIRED" | "IDEMPOTENCY_KEY_REUSED" | "IDEMPOTENCY_IN_PROGRESS" | "RATE_LIMITED" | "TENANT_RATE_LIMITED" | "INTERNAL" | "SERVICE_UNAVAILABLE" | "ANALYTICS_UNAVAILABLE" | "TIMEOUT" | "INVALID_CREDENTIALS" | "INVALID_CURSOR" | "INVALID_FILTER" | "INVALID_SORT_FIELD" | "TIME_RANGE_TOO_LARGE" | "TENANT_NOT_FOUND" | "TENANT_MISMATCH" | "TENANT_SUSPENDED" | "TOKEN_SCOPE_INVALID" | "KIOSK_FORBIDDEN" | "ROUTER_NOT_FOUND" | "ROUTER_PRIMARY_EXISTS" | "ROUTEROS_VERSION_UNSUPPORTED" | "ROUTER_UNREACHABLE" | "ROUTER_TLS_FINGERPRINT_CHANGED" | "ROUTER_TLS_FINGERPRINT_UNCONFIRMED" | "ROUTER_TLS_FINGERPRINT_MISMATCH" | "SITE_NOT_FOUND" | "SITE_NOT_EMPTY" | "PEER_ALREADY_REVOKED" | "WIREGUARD_IP_POOL_EXHAUSTED" | "WIREGUARD_PUBLIC_KEY_IN_USE" | "ENROLLMENT_TOKEN_INVALID" | "CUSTOMER_NOT_FOUND" | "CUSTOMER_KIND_LOCKED" | "CLIENT_PREFIX_OVERLAP" | "CLIENT_PREFIX_NOT_FOUND" | "ASN_RULE_NOT_FOUND" | "FINDING_NOT_FOUND" | "FINDING_STATE_INVALID" | "REPORT_NOT_FOUND" | "REPORT_NOT_READY" | "REPORT_EXPIRED" | "REPORT_DEFINITION_NOT_FOUND" | "DASHBOARD_NOT_FOUND" | "DASHBOARD_READ_ONLY" | "WIDGET_TYPE_NOT_ALLOWED" | "WIDGET_TYPE_UNKNOWN" | "WIDGET_CONFIG_INVALID" | "KIOSK_ENROLLMENT_CODE_INVALID" | "NOTIFICATION_CHANNEL_NOT_FOUND" | "NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE" | "NOTIFICATION_CHANNEL_UNREACHABLE" | "NOTIFICATION_CHANNEL_AUTH_FAILED" | "NOTIFICATION_CHANNEL_CREDENTIALS_MISSING" | "LIBRENMS_CHANNEL_REQUIRED" | "LIBRENMS_NOT_PROVISIONED" | "LIBRENMS_DEVICE_NOT_OWNED" | "NOTIFICATION_TELEGRAM_WEBHOOK_ACTIVE" | "NOTIFICATION_TELEGRAM_LINK_CODE_INVALID" | "NOTIFICATION_TELEGRAM_BOT_NOT_CONFIGURED" | "STORAGE_TARGET_UNREACHABLE" | "REPUTATION_SOURCE_NOT_FOUND" | "REPUTATION_SOURCE_READ_ONLY" | "REPUTATION_SOURCE_URL_NOT_ALLOWED" | "ROLE_NOT_FOUND" | "ROLE_READ_ONLY" | "ROLE_IN_USE" | "LAST_PLATFORM_ADMIN" | "WIREGUARD_HUB_NOT_FOUND" | "WIREGUARD_POOL_NOT_FOUND" | "WIREGUARD_POOL_OVERLAP" | "WIREGUARD_POOL_INVALID" | "WIREGUARD_POOL_IN_USE" | "REMOTE_DESTINATION_NOT_FOUND" | "REMOTE_DESTINATION_NOT_READY" | "REMOTE_DESTINATION_SYNC_RUNNING" | "API_TOKEN_NOT_FOUND" | "INTEGRATION_NOT_CONFIGURED" | "INTEGRATION_UNAVAILABLE") | string;
         /** @description Evidencia agregada según kind (nunca payloads; nunca la IP del cliente). Campos conocidos; otros permitidos. */
         Evidence: {
             bps_peak?: number;
@@ -5524,15 +5621,23 @@ export interface components {
             external: components["schemas"]["ExternalRef"] | null;
             health: {
                 exporter: {
+                    /** @description Último flujo recibido del exportador de ese router (estado del collector). */
                     last_flow_at: components["schemas"]["Timestamp"] | null;
-                    /** @description FlowExporterState del router principal del nodo. */
+                    /** @description FlowExporterState del router de `health.router`. */
                     status: string | null;
                 };
                 last_seen_minutes: number;
                 router: {
+                    /** @description Último flujo del cliente por este router (null con `primary_router`). Desde 1.6.0. */
+                    customer_last_flow_at?: components["schemas"]["Timestamp"] | null;
                     id: components["schemas"]["Uuid"];
                     name: string;
                     since: components["schemas"]["Timestamp"] | null;
+                    /**
+                     * @description Desde 1.6.0.
+                     * @enum {string}
+                     */
+                    source?: "flows" | "primary_router";
                     /** @description online, warning, critical, degraded, offline o unknown. */
                     status: string;
                 } | null;
@@ -6727,6 +6832,8 @@ export interface components {
             device: components["schemas"]["RouterDeviceSample"];
             interfaces_total: number | null;
             interfaces_up: number | null;
+            /** @description Último flujo recibido del exportador de flujos del router (estado del collector leído en el último sondeo; null = nunca). */
+            last_flow_at: components["schemas"]["Timestamp"] | null;
             last_observed_at: components["schemas"]["Timestamp"] | null;
             name: string;
             observed_state: components["schemas"]["RouterObservedState"] | null;
@@ -6769,6 +6876,33 @@ export interface components {
             temperature_critical: number;
             /** @description °C. */
             temperature_warning: number;
+        };
+        /**
+         * @description Huella TLS (SHA-256 del certificado, `AA:BB:…`) del servicio REST del router. `not_captured`: aún no leída;
+         *     `pending_confirmation`: observada en el alta, falta que un administrador la confirme; `confirmed`: fijada;
+         *     `changed`: el router presenta otra distinta de la fijada (lecturas detenidas hasta volver a fijarla).
+         */
+        RouterTlsFingerprint: {
+            /**
+             * Format: date-time
+             * @description Null en huellas fijadas antes de la confirmación explícita.
+             */
+            confirmed_at: string | null;
+            /** @description Id del usuario que confirmó la huella. */
+            confirmed_by: string | null;
+            /** @enum {string|null} */
+            last_result: "ok" | "auth_failed" | "unreachable" | "tls_fingerprint_changed" | null;
+            /** Format: date-time */
+            last_used_at: string | null;
+            /** Format: date-time */
+            observed_at: string | null;
+            /** @description Huella observada pendiente de confirmación. */
+            observed_sha256: string | null;
+            /** @description Huella fijada (la única con la que se leen datos). */
+            pinned_sha256: string | null;
+            router_id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            status: "not_captured" | "pending_confirmation" | "confirmed" | "changed";
         };
         /** @description Interfaz que resume el tráfico del router (la de más subida hacia fuera; `flow_role` upstream si está marcado). */
         RouterUplink: {
@@ -7245,6 +7379,8 @@ export interface components {
             international_share: number | null;
             local_by_country_bytes: number;
             local_by_list_bytes: number;
+            /** @description Hacia la lista local por prefijos (manda sobre la clasificación por ASN). */
+            local_by_prefix_bytes: number;
             local_bytes: number;
             local_share: number | null;
             unknown_bytes: number;
@@ -7263,6 +7399,8 @@ export interface components {
             from: components["schemas"]["Timestamp"];
             /** @description Cuántos ASN tiene la lista local. */
             local_asns: number;
+            /** @description Cuántos prefijos tiene la lista local. */
+            local_prefixes: number;
             sites: (components["schemas"]["TrafficSplit"] & {
                 site_id: components["schemas"]["Uuid"];
                 site_name: string;
@@ -7325,6 +7463,12 @@ export interface components {
             version: number;
         };
         UplinkConfigInput: {
+            /**
+             * Format: date-time
+             * @description Desde cuándo rige un cambio de `contracted_bps` (por defecto, ahora). Hasta 90 días atrás y nunca antes del cambio
+             *     anterior (`422`); los picos diarios afectados se recalculan con la capacidad de cada día. Sin cambio de capacidad se ignora.
+             */
+            capacity_valid_from?: string | null;
             /** @description bits/s. */
             contracted_bps?: number | null;
             /** @description Forma parte de la salida internacional agregada (por defecto: kind = international_transit). */
@@ -7336,6 +7480,7 @@ export interface components {
             router_id: components["schemas"]["Uuid"];
         };
         UplinkDaily: {
+            /** @description Capacidad vigente ese día (contratada según su historia, o velocidad del puerto); la utilización y las horas sobre umbral del día se miden contra ella. */
             capacity_bps: number;
             day: components["schemas"]["Timestamp"];
             drops: number;
@@ -14028,7 +14173,10 @@ export interface operations {
         requestBody?: {
             content: {
                 "application/json": {
-                    /** @description Huella nueva que el admin confirma. */
+                    /**
+                     * @deprecated
+                     * @description Obsoleto y sin efecto; la huella se confirma con `POST /routers/{router_id}/tls-fingerprint/confirm`.
+                     */
                     accept_new_tls_fingerprint?: string | null;
                 };
             };
@@ -14097,6 +14245,101 @@ export interface operations {
             409: components["responses"]["Conflict"];
             422: components["responses"]["UnprocessableEntity"];
             428: components["responses"]["PreconditionRequired"];
+        };
+    };
+    getRouterTlsFingerprint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Estado de la huella. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RouterTlsFingerprint"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    captureRouterTlsFingerprint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Estado de la huella tras la lectura. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RouterTlsFingerprint"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            /** @description Router inalcanzable por el túnel. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    confirmRouterTlsFingerprint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * @description SHA-256 del certificado en hexadecimal (64 dígitos, con o sin `:`).
+                     * @example AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99
+                     */
+                    fingerprint_sha256: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Huella fijada. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RouterTlsFingerprint"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
         };
     };
     listRouterStatus: {

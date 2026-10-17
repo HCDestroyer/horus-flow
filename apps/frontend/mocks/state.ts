@@ -1,4 +1,5 @@
 import type {
+  RouterTlsFingerprint,
   ClientPrefix,
   CredentialStatus,
   Member,
@@ -190,6 +191,8 @@ export const mockState = {
     string,
     { values: CapacitySettingsValues; version: number; updated_at: string }
   >(),
+  /** Huella TLS de cada router (`mocks/tls-pins.ts`; sin entrada = según su estado de alta). */
+  tlsPins: new Map<string, RouterTlsFingerprint>(),
 }
 
 export function resetMockState() {
@@ -219,6 +222,7 @@ export function resetMockState() {
   mockState.reports.clear()
   mockState.capacityUplinks.clear()
   mockState.capacitySettings.clear()
+  mockState.tlsPins.clear()
 }
 
 /** Hallazgo cerrado por una acción del usuario: sale de los agregados de "abiertos". */

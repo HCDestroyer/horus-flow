@@ -49,6 +49,11 @@ func cases() map[string]tenanttest.Case {
 		"revokeEnrollmentToken":      {Kind: tenanttest.ByID},
 		// devices: importación del MikroTik (I1-28, CORE)
 		"previewRouterPrefixImport": {Kind: tenanttest.ByID},
+		// devices: huella TLS del router confirmada por un administrador
+		"getRouterTlsFingerprint":     {Kind: tenanttest.ByID},
+		"captureRouterTlsFingerprint": {Kind: tenanttest.ByID},
+		"confirmRouterTlsFingerprint": {Kind: tenanttest.ByID, Body: map[string]any{
+			"fingerprint_sha256": "AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA"}},
 		"batchCreateClientPrefixes": {Kind: tenanttest.Create, Body: map[string]any{"items": []any{map[string]any{"prefix": "10.98.0.0/24", "role": "customers"}}}},
 	}
 	pending := func(owner string, ids ...string) {

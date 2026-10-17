@@ -33,6 +33,9 @@ func (m *memCapRepo) ListUplinkConfigs(context.Context, uuid.UUID) ([]domain.Upl
 func (m *memCapRepo) GetUplinkConfig(context.Context, uuid.UUID, uuid.UUID) (*domain.UplinkConfig, error) {
 	return nil, nil
 }
+func (m *memCapRepo) ListCapacityHistory(context.Context, uuid.UUID) (map[uuid.UUID][]domain.CapacityPeriod, error) {
+	return nil, nil
+}
 func (m *memCapRepo) PutUplinkConfig(context.Context, uuid.UUID, uuid.UUID, domain.UplinkConfigInput, string, int) (*domain.UplinkConfig, error) {
 	return nil, nil
 }

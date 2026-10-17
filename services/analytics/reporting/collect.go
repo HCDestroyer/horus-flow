@@ -11,6 +11,7 @@ import (
 
 	alertsapi "github.com/hcdestroyer/horus-flow/services/alerts/api"
 	secapi "github.com/hcdestroyer/horus-flow/services/detection/api/securityreport"
+	capreport "github.com/hcdestroyer/horus-flow/services/snmp/api/capacityreport"
 )
 
 // Notas de sección cuando una fuente no está disponible (se imprimen en el
@@ -19,6 +20,7 @@ const (
 	NoteSecurityUnavailable = "Datos de seguridad no disponibles: el rol detection no está en este proceso."
 	NoteMetricsUnavailable  = "Datos de ClickHouse no disponibles (HORUS_CLICKHOUSE_DSN no configurado)."
 	NoteAlertsUnavailable   = "Resumen de avisos no disponible: el rol alerts no está en este proceso."
+	NoteCapacityUnavailable = "Capacidad de enlaces no disponible: el rol snmp no está en este proceso."
 	NoteSourceFailed        = "No se pudieron leer los datos: "
 )
 
@@ -74,6 +76,11 @@ type Data struct {
 
 	Alerts     []alertsapi.NotificationCount
 	AlertsNote string
+
+	// Capacity es la sección de capacidad de enlaces (rol snmp). Sin datos
+	// personales: igual en las variantes completa y enmascarada.
+	Capacity     *capreport.Report
+	CapacityNote string
 }
 
 // Metrics lee de ClickHouse la disponibilidad y el tráfico de un tenant.
@@ -87,6 +94,7 @@ type Metrics interface {
 type Collector struct {
 	Security func() (secapi.Reader, bool)
 	Alerts   func() (alertsapi.NotificationStats, bool)
+	Capacity func() (capreport.Reader, bool)
 	Metrics  func() Metrics // nil o devuelve nil = sin ClickHouse
 	Now      func() time.Time
 	Logger   *slog.Logger
@@ -143,6 +151,17 @@ func (c *Collector) Collect(ctx context.Context, tenant uuid.UUID, tenantName st
 		} else {
 			d.Traffic = t
 		}
+	}
+
+	if cr, ok := lookup(c.Capacity); ok {
+		r, err := cr.CapacityReport(ctx, tenant, p.From, p.To)
+		if err != nil {
+			d.CapacityNote = fail("capacity", err)
+		} else {
+			d.Capacity = r
+		}
+	} else {
+		d.CapacityNote = NoteCapacityUnavailable
 	}
 
 	if al, ok := lookup(c.Alerts); ok {

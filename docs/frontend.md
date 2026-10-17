@@ -694,6 +694,12 @@ Google o Meta) y qué revisar; la capacidad `classification` aparece en el estad
      (p. ej. `10.20.0.0/24 · 212 IPs vistas · 41 GB`) con "Aceptar como Clientes", "Marcar como
      Infraestructura" o "Excluir".
   Quitar o reducir un prefijo avisa de cuántos clientes pasarán a *Inactivo*.
+- **Huella TLS** (`RouterTlsFingerprint`, en Conexión tras el túnel y en Credenciales): estado
+  (*Sin leer*, *Pendiente de confirmar*, *Confirmada*, *Cambió*), SHA-256 fijado y observado,
+  «Leer huella» (`devices.update`; solo el saludo TLS) y «Confirmar huella» / «Fijar la huella nueva»
+  (`devices.credentials.write`, diálogo con el SHA-256 completo y `ReauthModal`). Pendiente o
+  cambiada → aviso en la cabecera de la ficha («Revisar huella») y la importación del MikroTik
+  muestra el aviso en lugar de leer el router.
 - "Script de desinstalación" en "Más".
 
 ### 8.5 Servicios de infraestructura (I2, rol snmp)
@@ -741,6 +747,9 @@ Google o Meta) y qué revisar; la capacidad `classification` aparece en el estad
   destinos de las sondas de respaldo.
 - Script netwatch (`NetwatchSnippetModal`): el usuario escribe la IP de la puerta de enlace de cada enlace y el
   script se completa **en el navegador** (la IP no viaja a la API); estado de la lectura de sondas del router.
+- Capacidad con vigencia: al cambiar la capacidad contratada en `UplinkConfigModal` aparece «Vigente desde» (fecha
+  local, hasta 90 días atrás; vacío = ahora). El detalle del enlace muestra «Historial de capacidad contratada»
+  (más reciente primero) y el gráfico dibuja la capacidad vigente de cada día como escalón cuando cambió.
 - Widget **`site_health`** «Salud de sitios / capacidad» (tabla, `snmp.read`, apto para kiosco): una línea por nodo
   con la insignia de salud, la razón, el peor p95, enlaces caídos y el mes de upgrade si hay planificación; en mural
   una sola línea por nodo y las que no caben se ocultan enteras (`v-fit-rows`).

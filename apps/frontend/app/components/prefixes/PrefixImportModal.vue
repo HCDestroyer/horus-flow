@@ -68,6 +68,16 @@ async function load() {
 }
 watch(open, (o) => o && load())
 
+// Huella TLS sin confirmar o cambiada: Horus no lee el router hasta que un administrador la fije.
+const route = useRoute()
+const pinCode = computed(() => {
+  const e = error.value
+  return e instanceof ApiError &&
+    (e.code === 'ROUTER_TLS_FINGERPRINT_UNCONFIRMED' || e.code === 'ROUTER_TLS_FINGERPRINT_CHANGED')
+    ? e.code
+    : null
+})
+
 const isV6 = (r: Row) => r.item.prefix.includes(':')
 function diffLabel(r: Row) {
   const cur =
@@ -149,6 +159,27 @@ const DIFF_COLOR = { new: 'success', exists: 'neutral', overlaps: 'warning' } as
   >
     <template #body>
       <LoadingState v-if="loading" :rows="5" :label="t('prefixes.import.reading')" />
+      <UAlert
+        v-else-if="pinCode"
+        :color="pinCode === 'ROUTER_TLS_FINGERPRINT_CHANGED' ? 'error' : 'warning'"
+        variant="subtle"
+        icon="i-lucide-fingerprint"
+        :title="t(`prefixes.import.pin.${pinCode}.title`)"
+        :description="t(`prefixes.import.pin.${pinCode}.body`)"
+        data-testid="import-pin-required"
+      >
+        <template #actions>
+          <UButton
+            size="sm"
+            color="neutral"
+            variant="outline"
+            icon="i-lucide-shield-check"
+            :label="t('prefixes.import.pin.review')"
+            :to="`/t/${route.params.slug}/routers/${routerId}/credentials`"
+            @click="open = false"
+          />
+        </template>
+      </UAlert>
       <ErrorState
         v-else-if="error"
         :error="error"

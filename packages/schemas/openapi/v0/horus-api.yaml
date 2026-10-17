@@ -431,6 +431,12 @@ paths:
     $ref: ./devices.yaml#/paths/~1routers~1{router_id}~1prefix-import-preview
   /routers/{router_id}/provisioning-script:
     $ref: ./wireguard.yaml#/paths/~1routers~1{router_id}~1provisioning-script
+  /routers/{router_id}/tls-fingerprint:
+    $ref: ./devices.yaml#/paths/~1routers~1{router_id}~1tls-fingerprint
+  /routers/{router_id}/tls-fingerprint/capture:
+    $ref: ./devices.yaml#/paths/~1routers~1{router_id}~1tls-fingerprint~1capture
+  /routers/{router_id}/tls-fingerprint/confirm:
+    $ref: ./devices.yaml#/paths/~1routers~1{router_id}~1tls-fingerprint~1confirm
   /security/summary:
     $ref: ./detection.yaml#/paths/~1security~1summary
   /sites:

@@ -48,6 +48,10 @@ test.describe('capacidad de enlaces @capacity', () => {
     await expect(
       page.getByTestId('detail-forecast').locator('table caption').first(),
     ).toContainText('Pico diario')
+    // Historial de la capacidad contratada: cada día contra la capacidad vigente entonces.
+    await expect(page.getByTestId('detail-capacity-history')).toContainText(
+      'Historial de capacidad contratada',
+    )
     expect(await seriousViolations(page)).toEqual([])
   })
 
@@ -60,6 +64,17 @@ test.describe('capacidad de enlaces @capacity', () => {
     await form.getByTestId('uplink-label').fill('Proveedor E2E')
     await page.getByTestId('uplink-save').click()
     await expect(page.getByTestId('uplink-row').filter({ hasText: 'Proveedor E2E' })).toBeVisible()
+    // Cambiar la capacidad pregunta desde cuándo rige (upgrade fechado en el pasado).
+    await page
+      .getByTestId('uplink-row')
+      .filter({ hasText: 'Proveedor E2E' })
+      .getByTestId('uplink-configure')
+      .click()
+    await expect(page.getByTestId('uplink-valid-from')).toHaveCount(0)
+    await page.getByTestId('uplink-capacity').fill('2500')
+    await page.getByTestId('uplink-capacity').press('Tab')
+    await expect(page.getByTestId('uplink-valid-from')).toBeVisible()
+    await page.keyboard.press('Escape')
 
     const requests: string[] = []
     page.on('request', (r) => requests.push(r.url()))
@@ -69,6 +84,23 @@ test.describe('capacidad de enlaces @capacity', () => {
     await modal.locator('[data-testid^="netwatch-gateway-"]').first().fill('198.51.100.77')
     await expect(modal.getByTestId('netwatch-script')).toContainText('host=198.51.100.77')
     expect(requests.some((u) => u.includes('198.51.100.77'))).toBe(false)
+  })
+
+  test('lista local por prefijos: avisos y reparto local por prefijo', async ({ page }) => {
+    await loginAsAdmin(page)
+    await page.goto(`${T}/capacity`)
+    await page.getByTestId('capacity-settings-open').click()
+    await page.getByTestId('settings-prefixes').fill('10.0.0.0/33')
+    await page.getByTestId('settings-save').click()
+    await expect(page.getByTestId('capacity-settings')).toContainText(
+      'Prefijos no válidos: 10.0.0.0/33',
+    )
+    await page.getByTestId('settings-prefixes').fill('198.51.100.64/26\n100.64.12.0/24')
+    await page.getByTestId('settings-save').click()
+    await expect(page.getByText(/Revisa la lista de prefijos locales/).first()).toBeVisible()
+    await expect(page.getByTestId('traffic-by-prefix')).toContainText('prefijos locales')
+    await page.getByTestId('capacity-settings-open').click()
+    await expect(page.getByTestId('settings-prefix-warnings')).toContainText('100.64.0.0/10')
   })
 
   test('el operador NOC ve la capacidad pero no configura', async ({ page }) => {

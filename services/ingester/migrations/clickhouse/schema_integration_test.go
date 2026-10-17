@@ -214,7 +214,7 @@ func checkLayout(ctx context.Context, t *testing.T, db sqlDB) {
 		"flows.flows_raw", "flows.customer_5m", "flows.customer_1h", "flows.customer_1d",
 		"flows.site_5m", "flows.site_1h", "flows.site_1d", "flows.unattributed_1h",
 		"flows.client_security_1m", "flows.client_security_1h", "flows.client_port_1m",
-		"flows.reputation_hit", "flows.flows_coverage", "flows.attribution_5m",
+		"flows.reputation_hit", "flows.flows_coverage", "flows.attribution_5m", "flows.site_remote_net_1d",
 		"dim.tenant", "dim.site", "dim.router", "dim.interface", "dim.customer", "dim.service",
 		"dim.category", "dim.organization", "dim.asn", "dim.watch_port", "dim.tenant_resolver",
 	} {
@@ -232,7 +232,7 @@ func checkLayout(ctx context.Context, t *testing.T, db sqlDB) {
 	mvs := queryStrings(ctx, t, db, "SELECT name FROM system.tables WHERE database = 'flows' AND engine = 'MaterializedView' ORDER BY name")
 	want := []string{
 		"mv_attribution_5m", "mv_client_port_1m", "mv_client_security_1h", "mv_client_security_1m", "mv_customer_1d", "mv_customer_1h",
-		"mv_customer_5m", "mv_reputation_hit", "mv_site_1d", "mv_site_1h", "mv_site_5m", "mv_unattributed_1h",
+		"mv_customer_5m", "mv_reputation_hit", "mv_site_1d", "mv_site_1h", "mv_site_5m", "mv_site_remote_net_1d", "mv_unattributed_1h",
 	}
 	if !slices.Equal(mvs, want) {
 		t.Errorf("vistas materializadas = %v, se esperaba %v", mvs, want)
@@ -261,6 +261,7 @@ func checkConsumption(ctx context.Context, t *testing.T, db sqlDB, tenant uuid.U
 		{"SELECT sum(flows) FROM flows.attribution_5m WHERE tenant_id = ?", tot["flows"]},
 		{"SELECT sum(bytes) FROM flows.site_1h WHERE tenant_id = ?", up + down},
 		{"SELECT sum(bytes) FROM flows.site_1d WHERE tenant_id = ?", up + down},
+		{"SELECT sum(bytes) FROM flows.site_remote_net_1d WHERE tenant_id = ?", up + down},
 		{"SELECT uniqMerge(clients) FROM flows.site_1d WHERE tenant_id = ?", tot["clients"]},
 		{"SELECT sum(up_bytes) FROM flows.client_security_1m WHERE tenant_id = ?", up},
 		{"SELECT sum(down_bytes) FROM flows.client_security_1m WHERE tenant_id = ?", down},

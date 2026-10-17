@@ -25,6 +25,7 @@ var UplinkKinds = []string{UplinkKindInternational, UplinkKindLocalIX, UplinkKin
 const (
 	MaxUplinksPerTenant     = 500
 	MaxLocalASNs            = 200
+	MaxLocalPrefixes        = 200
 	MaxProbeTargets         = 10
 	MinContractedBps        = 1_000_000         // 1 Mb/s
 	MaxContractedBps        = 1_600_000_000_000 // 1,6 Tb/s
@@ -74,6 +75,29 @@ type UplinkConfigInput struct {
 	Kind                string    `json:"kind"`
 	ContractedBps       *int64    `json:"contracted_bps"`
 	InternationalEgress *bool     `json:"international_egress"`
+	// CapacityValidFrom fecha el cambio de capacidad contratada (por
+	// defecto, ahora): desde cuándo rige la nueva para medir la utilización.
+	CapacityValidFrom *time.Time `json:"capacity_valid_from"`
+}
+
+// ValidateValidFrom comprueba la fecha de un cambio de capacidad: no futura
+// (5 min de holgura) ni anterior a lo que guarda interface_5m.
+func (in *UplinkConfigInput) ValidateValidFrom(now time.Time) []FieldError {
+	if in.CapacityValidFrom == nil {
+		return nil
+	}
+	v := in.CapacityValidFrom.UTC()
+	in.CapacityValidFrom = &v
+	switch {
+	case v.After(now.Add(5 * time.Minute)):
+		return []FieldError{{Field: "capacity_valid_from", Code: "OUT_OF_RANGE", Msg: "El cambio de capacidad no puede ser futuro."}}
+	case v.Before(now.Add(-MaxCapacityBackdate)):
+		return []FieldError{{Field: "capacity_valid_from", Code: "OUT_OF_RANGE", Msg: "Como mucho 90 días atrás (lo que guarda el histórico de 5 min)."}}
+	}
+	if v.After(now) {
+		in.CapacityValidFrom = &now
+	}
+	return nil
 }
 
 // Validate normaliza y valida la entrada. international_egress, si falta,
@@ -137,19 +161,22 @@ type ProbeTarget struct {
 type CapacitySettings struct {
 	// Country sustituye al país del ISP (auth) para clasificar el tráfico
 	// local; nil = el del ISP.
-	Country            *string       `json:"country"`
-	PlanningThreshold  float64       `json:"planning_threshold"`
-	UrgentThreshold    float64       `json:"urgent_threshold"`
-	LeadDays           int           `json:"lead_days"`
-	SaturationWarning  float64       `json:"saturation_warning"`
-	SaturationCritical float64       `json:"saturation_critical"`
-	SustainedMinutes   int           `json:"sustained_minutes"`
-	LossWarningPct     float64       `json:"loss_warning_pct"`
-	LossCriticalPct    float64       `json:"loss_critical_pct"`
-	LatencyWarningMs   float64       `json:"latency_warning_ms"`
-	LatencyCriticalMs  float64       `json:"latency_critical_ms"`
-	LocalASNs          []uint32      `json:"local_asns"`
-	ProbeTargets       []ProbeTarget `json:"probe_targets"`
+	Country            *string  `json:"country"`
+	PlanningThreshold  float64  `json:"planning_threshold"`
+	UrgentThreshold    float64  `json:"urgent_threshold"`
+	LeadDays           int      `json:"lead_days"`
+	SaturationWarning  float64  `json:"saturation_warning"`
+	SaturationCritical float64  `json:"saturation_critical"`
+	SustainedMinutes   int      `json:"sustained_minutes"`
+	LossWarningPct     float64  `json:"loss_warning_pct"`
+	LossCriticalPct    float64  `json:"loss_critical_pct"`
+	LatencyWarningMs   float64  `json:"latency_warning_ms"`
+	LatencyCriticalMs  float64  `json:"latency_critical_ms"`
+	LocalASNs          []uint32 `json:"local_asns"`
+	// LocalPrefixes son prefijos CIDR (IPv4/IPv6) que cuentan como tráfico
+	// local aunque su ASN no esté en la lista (LAN de un IXP, cachés on-net).
+	LocalPrefixes []netip.Prefix `json:"local_prefixes"`
+	ProbeTargets  []ProbeTarget  `json:"probe_targets"`
 }
 
 // DefaultCapacitySettings son los ajustes sin personalizar.
@@ -157,7 +184,7 @@ func DefaultCapacitySettings() CapacitySettings {
 	return CapacitySettings{PlanningThreshold: DefaultPlanningPct, UrgentThreshold: DefaultUrgentPct, LeadDays: DefaultLeadDays,
 		SaturationWarning: DefaultSaturationWarn, SaturationCritical: DefaultSaturationCrit, SustainedMinutes: DefaultSustainedMinutes,
 		LossWarningPct: DefaultLossWarningPct, LossCriticalPct: DefaultLossCriticalPct, LatencyWarningMs: DefaultLatencyWarnMs,
-		LatencyCriticalMs: DefaultLatencyCritMs, LocalASNs: []uint32{}, ProbeTargets: []ProbeTarget{}}
+		LatencyCriticalMs: DefaultLatencyCritMs, LocalASNs: []uint32{}, LocalPrefixes: []netip.Prefix{}, ProbeTargets: []ProbeTarget{}}
 }
 
 func ratioOK(v float64) bool { return v >= 0.3 && v <= 1 }
@@ -216,6 +243,7 @@ func (s *CapacitySettings) Validate(deny []netip.Prefix) []FieldError {
 	if slices.Contains(s.LocalASNs, 0) {
 		add("local_asns", "INVALID_VALUE", "El ASN 0 no es válido.")
 	}
+	errs = append(errs, s.normalizeLocalPrefixes()...)
 	if len(s.ProbeTargets) > MaxProbeTargets {
 		add("probe_targets", "TOO_MANY", fmt.Sprintf("Hasta %d destinos.", MaxProbeTargets))
 	}

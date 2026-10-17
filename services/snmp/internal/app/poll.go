@@ -182,7 +182,10 @@ func (e *Engine) pollOne(ctx context.Context, r *router, at time.Time, cycle uin
 		st.LastSNMPOKAt = &at
 	}
 	// Señales externas.
-	exporter := e.exporterState(ctx, r.RouterID)
+	exporter, lastFlow := e.exporterState(ctx, r.RouterID)
+	if lastFlow != nil {
+		st.ExporterLastFlowAt = lastFlow
+	}
 	sig := api.Signals{ICMP: st.ICMP.Signal, SNMP: snmpSignal, WireGuard: st.WireGuard, Exporter: exporter}
 	if sig.ICMP == "" {
 		sig.ICMP = api.SignalUnknown
@@ -434,15 +437,22 @@ func (e *Engine) applyDiscovery(r *router, at time.Time, disc []snmpclient.Disco
 			"discovered_at": at.UTC().Format(time.RFC3339)}}}
 }
 
-func (e *Engine) exporterState(ctx context.Context, id uuid.UUID) *string {
+// exporterState devuelve el estado del exportador y su último flujo (bucket
+// KV del collector; nil si no hay estado o no se pudo leer).
+func (e *Engine) exporterState(ctx context.Context, id uuid.UUID) (*string, *time.Time) {
 	if e.o.Exporters == nil {
-		return nil
+		return nil, nil
 	}
 	fe, err := e.o.Exporters.Get(ctx, id)
 	if err != nil || fe == nil {
-		return nil
+		return nil, nil
 	}
-	return str(fe.State)
+	var last *time.Time
+	if fe.LastFlowAt != nil {
+		t := fe.LastFlowAt.UTC()
+		last = &t
+	}
+	return str(fe.State), last
 }
 
 // telemetry construye las muestras TLM_SNMP (r.mu tomado).

@@ -161,8 +161,16 @@ function omittedReason(section: string) {
             <h3 class="text-highlighted text-sm font-semibold">{{ t('clients.ip360.health') }}</h3>
             <p v-if="result.health" class="text-sm">
               <template v-if="result.health.router">
-                {{ result.health.router.name }} ·
+                <span data-testid="ip360-router">{{ result.health.router.name }}</span> ·
                 {{ t(`routerStatus.${result.health.router.status}`, result.health.router.status) }}
+                <UBadge
+                  v-if="result.health.router.source"
+                  :color="result.health.router.source === 'flows' ? 'neutral' : 'warning'"
+                  variant="subtle"
+                  size="sm"
+                  :label="t(`clients.ip360.routerSource.${result.health.router.source}`)"
+                  data-testid="ip360-router-source"
+                />
               </template>
               <template v-else>{{ t('clients.ip360.noRouter') }}</template>
               <span v-if="result.health.exporter.status" class="text-muted">
@@ -171,6 +179,16 @@ function omittedReason(section: string) {
                   t(`exporterState.${result.health.exporter.status}`, result.health.exporter.status)
                 }}</span
               >
+              <span
+                v-if="result.health.exporter.last_flow_at"
+                class="text-muted"
+                data-testid="ip360-last-flow"
+              >
+                ·
+                <RelativeTime
+                  :at="result.health.exporter.last_flow_at"
+                  :prefix="t('clients.ip360.lastFlow')"
+              /></span>
               <span class="text-muted">
                 · {{ t('clients.ip360.lastSeen', { n: result.health.last_seen_minutes }) }}</span
               >

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"net/netip"
 	"strings"
 	"sync"
 	"testing"
@@ -30,6 +31,7 @@ type fakeCapRepo struct {
 	forecasts map[uuid.UUID]domain.ForecastRow
 	events    []outbox.Event
 	failSave  bool
+	history   map[uuid.UUID]map[uuid.UUID][]domain.CapacityPeriod
 }
 
 func newFakeCapRepo() *fakeCapRepo {
@@ -115,7 +117,14 @@ func (f *fakeCapRepo) LoadCapacity(context.Context) (*pgstore.CapacityState, err
 	for _, c := range f.conds {
 		st.Conditions = append(st.Conditions, c)
 	}
+	st.History = f.history
 	return st, nil
+}
+
+func (f *fakeCapRepo) ListCapacityHistory(_ context.Context, t uuid.UUID) (map[uuid.UUID][]domain.CapacityPeriod, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.history[t], nil
 }
 func (f *fakeCapRepo) SaveCondition(_ context.Context, c domain.ConditionRow, ev *outbox.Event) error {
 	f.mu.Lock()
@@ -180,7 +189,9 @@ type fakeSeries struct {
 	probes  []domain.ProbeSample
 	peak    func(iface uuid.UUID, at time.Time) float64
 	traffic []domain.ASNVolume
-	queried int
+	// byPrefix es lo que devuelve TrafficByLocalPrefix (volumen hacia la lista local por prefijos).
+	byPrefix []domain.ASNVolume
+	queried  int
 }
 
 func newFakeSeries(peak func(uuid.UUID, time.Time) float64) *fakeSeries {
@@ -264,6 +275,20 @@ func (f *fakeSeries) ProbeSeries(context.Context, uuid.UUID, []uuid.UUID, time.T
 func (f *fakeSeries) TrafficByCountry(_ context.Context, _ uuid.UUID, sites []uuid.UUID, _ []uint32, _, _ time.Time) ([]domain.ASNVolume, error) {
 	var out []domain.ASNVolume
 	for _, v := range f.traffic {
+		if len(sites) == 0 || contains(sites, v.SiteID) {
+			out = append(out, v)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeSeries) TrafficByLocalPrefix(_ context.Context, _ uuid.UUID, sites []uuid.UUID, _ []uint32, prefixes []netip.Prefix,
+	_, _ time.Time) ([]domain.ASNVolume, error) {
+	if len(prefixes) == 0 {
+		return nil, nil
+	}
+	var out []domain.ASNVolume
+	for _, v := range f.byPrefix {
 		if len(sites) == 0 || contains(sites, v.SiteID) {
 			out = append(out, v)
 		}

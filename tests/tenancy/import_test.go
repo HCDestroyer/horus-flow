@@ -58,6 +58,36 @@ func TestPrefixImportE2E(t *testing.T) {
 		Header: map[string]string{"Idempotency-Key": uuid.NewString()}}), 201).Raw)
 	a.must(a.post(A.token, "/api/v1/sites/"+site+"/client-prefixes", map[string]any{"prefix": "10.20.0.0/24", "role": "customers"}), 201)
 
+	// Primer contacto: la huella se captura (solo el saludo TLS, sin la contraseña) y queda pendiente; no se lee nada
+	// hasta que un administrador la confirme.
+	if r := a.post(A.token, preview, nil); r.Status != 409 || r.code() != "ROUTER_TLS_FINGERPRINT_UNCONFIRMED" {
+		t.Fatalf("sin huella confirmada: %d %s", r.Status, r.Raw)
+	}
+	if gets.Load() != 0 {
+		t.Fatal("se leyó el router antes de confirmar la huella")
+	}
+	pin := "/api/v1/routers/" + rt + "/tls-fingerprint"
+	st := a.must(a.do(req{Method: "GET", Path: pin, Token: A.token}), 200)
+	observed := st.str("observed_sha256")
+	if st.str("status") != "pending_confirmation" || len(observed) != 95 || st.Body["pinned_sha256"] != nil {
+		t.Fatalf("huella pendiente = %s", st.Raw)
+	}
+	if a.auditCount("devices.router.tls_fingerprint_observed") != 1 {
+		t.Fatal("captura TOFU no auditada")
+	}
+	if r := a.post(A.token, pin+"/confirm", map[string]any{"fingerprint_sha256": strings.Repeat("AB:", 31) + "AB"}); r.Status != 409 ||
+		r.code() != "ROUTER_TLS_FINGERPRINT_MISMATCH" {
+		t.Fatalf("confirmar otra huella: %d %s", r.Status, r.Raw)
+	}
+	a.must(a.post(A.token, pin+"/capture", nil), 200)
+	if c := a.must(a.post(A.token, pin+"/confirm", map[string]any{"fingerprint_sha256": observed}), 200); c.str("status") != "confirmed" ||
+		c.str("pinned_sha256") != observed || c.Body["confirmed_at"] == nil {
+		t.Fatalf("confirmación = %s", c.Raw)
+	}
+	if a.auditCount("devices.router.tls_fingerprint_confirmed") != 1 {
+		t.Fatal("confirmación de huella no auditada")
+	}
+
 	pv := a.must(a.post(A.token, preview, nil), 200)
 	items := pv.Body["items"].([]any)
 	if pv.str("routeros_version") != "7.12" || len(pv.str("tls_fingerprint_sha256")) != 95 || len(items) < 5 {
@@ -79,19 +109,15 @@ func TestPrefixImportE2E(t *testing.T) {
 	if !strings.HasPrefix(creds, "horus:") || !strings.Contains(script, `password="`+strings.TrimPrefix(creds, "horus:")+`"`) {
 		t.Fatal("no se usó el usuario de solo lectura del script")
 	}
-	if a.auditCount("devices.router.tls_fingerprint_pinned") != 1 {
-		t.Fatal("primer contacto TLS no auditado")
-	}
 	// Nada aplicado: el nodo sigue con 1 prefijo.
 	list := a.must(a.do(req{Method: "GET", Path: "/api/v1/sites/" + site + "/client-prefixes", Token: A.token}), 200)
 	if len(list.Body["data"].([]any)) != 1 {
 		t.Fatal("la propuesta aplicó cambios")
 	}
-	// Huella fijada: otra lectura funciona; una huella "aceptada" distinta de la real → 409.
-	a.must(a.post(A.token, preview, nil), 200)
-	if r := a.post(A.token, preview, map[string]any{"accept_new_tls_fingerprint": strings.Repeat("AB:", 31) + "AB"}); r.Status != 409 ||
-		r.code() != "ROUTER_TLS_FINGERPRINT_CHANGED" {
-		t.Fatalf("huella distinta: %d %s", r.Status, r.Raw)
+	// Huella fijada: otra lectura funciona; accept_new_tls_fingerprint (obsoleto) ya no fija nada.
+	a.must(a.post(A.token, preview, map[string]any{"accept_new_tls_fingerprint": strings.Repeat("AB:", 31) + "AB"}), 200)
+	if st := a.must(a.do(req{Method: "GET", Path: pin, Token: A.token}), 200); st.str("pinned_sha256") != observed {
+		t.Fatalf("la huella cambió sin confirmación: %s", st.Raw)
 	}
 
 	// Lote: solo lo elegido, todo o nada.

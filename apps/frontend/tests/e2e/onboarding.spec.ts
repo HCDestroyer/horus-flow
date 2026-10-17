@@ -55,6 +55,7 @@ test.describe('router y onboarding @onboarding', () => {
       timeout: 15_000,
     })
     await expect(page.getByTestId('router-exporter-state')).toContainText('Exportando')
+    await expect(page.getByTestId('router-last-flow')).toContainText('último flujo hace')
   })
 
   test('si el token caduca, se ofrece regenerarlo', async ({ page }) => {
@@ -121,6 +122,36 @@ test.describe('router y onboarding @onboarding', () => {
     await page.getByTestId('import-confirm').click()
     await expect(page.getByText(/Prefijos importados: \d/).first()).toBeVisible()
     await expect(list.locator('[data-prefix="10.20.32.0/24"]')).toBeVisible()
+  })
+
+  test('huella TLS cambiada: aviso, importación detenida y re-fijado explícito', async ({
+    page,
+  }) => {
+    await page.addInitScript(() =>
+      window.localStorage.setItem('horus.mock.tlsChanged', '0192e333-0000-7000-8000-000000000101'),
+    )
+    await loginAsAdmin(page)
+    await page.goto(`${CENTRO}/prefixes`)
+    await expect(page.getByTestId('tls-pin-banner')).toContainText(
+      'La huella TLS del router cambió',
+    )
+    // La importación no lee el router: pide revisar la huella.
+    await page.getByTestId('import-prefixes').click()
+    await expect(page.getByTestId('import-pin-required')).toContainText('cambió')
+    await page.keyboard.press('Escape')
+    await page.getByTestId('tls-pin-review').click()
+    await expect(page).toHaveURL(/\/credentials$/)
+    const card = page.getByTestId('tls-pin-card')
+    await expect(card.getByTestId('tls-pin-status')).toHaveText('Cambió')
+    await expect(card.getByTestId('tls-pin-pinned')).toContainText('5A:5A')
+    await expect(card.getByTestId('tls-pin-observed')).toContainText('C3:C3')
+    expect(await seriousViolations(page)).toEqual([])
+    await card.getByTestId('tls-pin-confirm').click()
+    await expect(page.getByTestId('tls-pin-confirm-value')).toContainText('C3:C3')
+    await page.getByTestId('tls-pin-confirm-submit').click()
+    await expect(card.getByTestId('tls-pin-status')).toHaveText('Confirmada')
+    await expect(card.getByTestId('tls-pin-pinned')).toContainText('C3:C3')
+    await expect(page.getByTestId('tls-pin-banner')).toHaveCount(0)
   })
 
   test('nodo sin prefijos: banner de modo descubrimiento y propuestas', async ({ page }) => {

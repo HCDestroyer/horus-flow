@@ -231,7 +231,7 @@ erDiagram
 | `router` | `id`, `tenant_id`, `site_id`, `model_id`, `hostname`, `display_name`, `serial_number`, `mgmt_address inet` (típicamente IP WireGuard), `mgmt_wireguard_peer_id` (sin FK), `is_primary bool` (**router principal del nodo**), `admin_state` (`active`/`maintenance`/`decommissioned`), `flow_export_enabled`, `sys_object_id`, `sys_descr`, `routeros_version text`, `metadata jsonb` | `ux(tenant_id, site_id) WHERE is_primary AND deleted_at IS NULL` (**un principal por nodo**); `ux(tenant_id, hostname) WHERE deleted_at IS NULL`; FK `(tenant_id, site_id)` | lógico |
 | `interface` | `id`, `tenant_id`, `router_id`, `if_index` (NULL en la interfaz lógica `customer_edge (dinámica)` que agrupa las PPPoE/L2TP de ifIndex cambiante), `is_dynamic_group bool`, `name`, `descr`, `alias`, `kind`, `vlan_id`, `speed_bps`, `flow_role` (`customer_edge`/`upstream`/`peering`/`core`/`management`/`none`) — orienta la dirección y la deduplicación ([`traffic-model.md` §4.7](traffic-model.md)), `monitored`, `last_seen_at` | `ux(tenant_id, router_id, if_index) WHERE deleted_at IS NULL` | lógico (re-conciliación por `name` si cambia el ifIndex) |
 | `ip_address` | IPs **de infraestructura** configuradas en interfaces: `tenant_id`, `interface_id`, `address inet`, `realm_id` | `ux(tenant_id, realm_id, address)` | físico (re-descubrible) |
-| `credential` | `id`, `tenant_id`, `name`, `kind` (`snmp_v2c`/`snmp_v3`/`routeros_api`/`ssh`), `username`, `secret_ciphertext`, `dek_wrapped`, `kek_id` (o `secret_ref`) | `ux(tenant_id, name) WHERE deleted_at IS NULL` | lógico + crypto-shredding |
+| `credential` | `id`, `tenant_id`, `name`, `kind` (`snmp_v2c`/`snmp_v3`/`routeros_api`/`ssh`), `username`, `secret_ciphertext`, `dek_wrapped`, `kek_id` (o `secret_ref`); `routeros_api`: `tls_fingerprint_sha256` (fijada), `tls_fingerprint_pending(_at)` (observada, pendiente de que un admin la confirme) y `tls_fingerprint_confirmed_at/_by` | `ux(tenant_id, name) WHERE deleted_at IS NULL` | lógico + crypto-shredding |
 | `router_credential` | `tenant_id`, `router_id`, `credential_id`, `purpose`, `priority` | PK `(router_id, purpose, priority)` | físico |
 | `ip_realm` | Espacio donde una dirección es única: `id`, `tenant_id`, `kind` (`public` = uno por tenant / `node_private` = uno por nodo, para RFC1918 y 100.64.0.0/10), `site_id NULL`, `name` | `ux(tenant_id) WHERE kind='public'`; `ux(tenant_id, site_id) WHERE kind='node_private'` | lógico |
 | `client_prefix` | **Qué IPs son de clientes** en cada nodo (forma física de `ip_realm.client_prefixes` de [ADR-0018](adr/0018-la-ip-es-el-cliente.md)): `id`, `tenant_id`, `site_id`, `realm_id`, `prefix cidr`, `source` (`manual`/`discovery_confirmed`/`routeros_api` — importado de pools/rutas del MikroTik), `role` (`customers`/`infrastructure`/`excluded`), `default_kind` (`residential` por defecto; `commercial`/`unknown` para pools dedicados), `assignment_mode` (`static`/`dynamic`/`unknown` — informa la confianza de la detección), `ipv6_client_len smallint` (longitud que identifica a un cliente IPv6: 56 o 64; NULL en IPv4), `note` | `EXCLUDE USING gist (realm_id WITH =, prefix inet_ops WITH &&) WHERE deleted_at IS NULL` (sin solapes en un realm; un prefijo más específico se modela partiendo el rango); `ix GiST(prefix inet_ops)` | lógico |
@@ -806,6 +806,16 @@ No hay agregado diario ni cuantiles en I2 (13 meses de 1 h bastan para las serie
   crítico, errores, descartes y paquetes por enlace y de la salida internacional (`subject_kind`); lo escribe el
   trabajo diario (se lee con `FINAL`).
 Interfaces dinámicas PPPoE del MikroTik no se sondean (el consumo por cliente sale de flujos).
+
+Lista local por prefijos: `flows.site_remote_net_1d` (`tenant_id, site_id, bucket Date, remote_net, remote_asn,
+direction`, `bytes`; red remota truncada a /24 IPv4 o /48 IPv6; 90 días; MV desde `flows_raw`, solo `download` y
+`upload`) y `snmp.capacity_settings.local_prefixes cidr[]` (≤ 200).
+
+Capacidad de enlaces (PostgreSQL, esquema `snmp`): `uplink_config` (proveedor, tipo, capacidad contratada actual),
+`uplink_capacity_history` (capacidad contratada con vigencia `valid_from`/`valid_to`, una sola abierta por enlace,
+RLS por tenant; la utilización histórica se mide contra la capacidad vigente en cada momento), `capacity_settings`,
+`uplink_condition` y `capacity_forecast`. En ClickHouse, `snmp.uplink_daily.capacity_bps` es la capacidad vigente
+ese día.
 
 ### 6.4 Otras tablas ClickHouse
 

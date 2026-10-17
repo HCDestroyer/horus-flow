@@ -125,6 +125,9 @@ type RouterStatus struct {
 	InterfacesUp    *int           `json:"interfaces_up"`
 	InterfacesTotal *int           `json:"interfaces_total"`
 	Thresholds      []ThresholdHit `json:"thresholds"`
+	// LastFlowAt es el último flujo recibido del exportador del router
+	// (estado del collector leído en el último sondeo; nil = nunca).
+	LastFlowAt *time.Time `json:"last_flow_at"`
 }
 
 // PollerHealth es meta.poller de GET /routers/status.
