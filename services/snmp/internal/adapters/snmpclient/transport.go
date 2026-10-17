@@ -131,9 +131,14 @@ func (s *session) Close() error {
 	return nil
 }
 
+// classify marca como ErrAuth los fallos de credencial. Validado contra RouterOS 7.12 y 7.23.8
+// (CHR del laboratorio): con la contraseña de autenticación incorrecta RouterOS responde un
+// Report que gosnmp rechaza con un error sin tipo ("incoming packet is not authentic,
+// discarding"), no con ErrWrongDigest; también es un fallo de credencial.
 func classify(err error) error {
 	switch {
-	case errors.Is(err, gosnmp.ErrUnknownUsername), errors.Is(err, gosnmp.ErrWrongDigest), errors.Is(err, gosnmp.ErrDecryption):
+	case errors.Is(err, gosnmp.ErrUnknownUsername), errors.Is(err, gosnmp.ErrWrongDigest), errors.Is(err, gosnmp.ErrDecryption),
+		strings.Contains(err.Error(), "packet is not authentic"):
 		return fmt.Errorf("%w: %v", ErrAuth, err)
 	}
 	return err

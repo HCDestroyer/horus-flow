@@ -80,7 +80,7 @@ func BuildSnippet(s *Service, routerName string, tunnelIP netip.Addr, servicesCI
 /ip firewall nat add chain=srcnat src-address=%[4]s dst-address=%[5]s protocol=tcp dst-port=%[6]d \
     action=masquerade comment="horus-infra %[7]s"
 /ip firewall filter add chain=forward in-interface=%[1]s src-address=%[4]s dst-address=%[5]s protocol=tcp dst-port=%[6]d \
-    action=accept place-before=0 comment="horus-infra %[7]s"`,
+    action=accept comment="horus-infra %[7]s"`,
 			RouterInterfaceName, tunnelIP, fp, servicesCIDR.Masked(), s.Target, port, shortID(s)))
 	}
 	if len(rules) == 0 {
@@ -94,9 +94,22 @@ func BuildSnippet(s *Service, routerName string, tunnelIP netip.Addr, servicesCI
 	b.WriteString("# aplica usted. Solo aceptan tráfico desde la red de servicios de Horus por la interfaz " + RouterInterfaceName + "\n")
 	b.WriteString("# y se deshacen con: /ip firewall nat remove [find comment~\"^horus-infra " + shortID(s) + "\"]\n")
 	b.WriteString("#                   /ip firewall filter remove [find comment~\"^horus-infra " + shortID(s) + "\"]\n")
-	b.WriteString("# Si el router tiene reglas de entrada/forward propias, compruebe el orden (place-before=0).\n\n")
+	b.WriteString("# Si el router tiene reglas de forward propias, compruebe el orden: el bloque final sube las reglas de\n")
+	b.WriteString("# Horus delante de la primera regla ajena.\n\n")
 	b.WriteString(strings.Join(rules, "\n\n"))
-	b.WriteString("\n")
+	// Se mueve por id y no con place-before=0: validado en CHR 7.12, place-before=0 falla con "no such
+	// item" si la lista está vacía y con "item referred by 'place-before' does not exist" si la
+	// numeración del último print de la sesión quedó vieja.
+	fmt.Fprintf(&b, `
+
+# Colocar las reglas de forward de Horus antes de la primera regla ajena (por id)
+{
+    :local first [:pick [/ip firewall filter find where comment!="horus-infra %[1]s"] 0]
+    :if ([:typeof $first] = "id") do={
+        /ip firewall filter move [find where comment="horus-infra %[1]s"] destination=$first
+    }
+}
+`, shortID(s))
 	out.Script = b.String()
 	return out
 }
