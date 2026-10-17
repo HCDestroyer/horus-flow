@@ -2,6 +2,7 @@ package domain
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -67,7 +68,8 @@ func TestIntersectPermissions(t *testing.T) {
 func TestArgosTemplate(t *testing.T) {
 	t.Parallel()
 	tpl, ok := APITokenTemplateByKey("argosisp")
-	if !ok || len(tpl.Permissions) != 4 {
+	// Desde el contrato ArgosISP 1.2.0 incluye sso.issue (autologin hacia Horus, §1.5).
+	if !ok || len(tpl.Permissions) != 5 || !slices.Contains(tpl.Permissions, "sso.issue") {
 		t.Fatalf("plantilla %v", tpl)
 	}
 }

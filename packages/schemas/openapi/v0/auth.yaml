@@ -26,6 +26,8 @@ tags:
     description: Kioscos (pantallas NOC) como dispositivos registrados.
   - name: api-tokens
     description: API tokens de integración (hf_pat_) del ISP, p. ej. el código de conexión para ArgosISP.
+  - name: sso
+    description: Autologin entre sistemas con tickets de un solo uso y vinculación de cuentas (ArgosISP, contrato §1.5).
 paths:
   /auth/login:
     post:
@@ -1168,6 +1170,217 @@ paths:
                   data: { type: array, items: { $ref: '#/components/schemas/ApiTokenTemplate' } }
         '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
         '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+  /integrations/argosisp/sso/redeem:
+    post:
+      tags: [sso]
+      operationId: redeemSsoTicket
+      summary: Canjea un ticket de autologin de ArgosISP (un uso, 60 s)
+      description: |
+        Contrato docs/integrations/argosisp.md §1.5 (H11). La página `/sso/entrar` de la consola lee el ticket del
+        fragmento de la URL (no viaja en la URL ni queda en registros) y lo canjea aquí, en el servidor de Horus. El
+        ticket es de un solo uso, vive 60 s y está ligado al ISP y al conector que lo emitió, que debe seguir activo.
+
+        - Con la cuenta de ArgosISP vinculada a un usuario de Horus: abre una sesión normal de ese usuario (cookie de
+          refresh, como el login) con **sus** permisos; si tiene 2FA responde `mfa_required` y la sesión se completa
+          con `POST /auth/mfa/verify` (la política de 2FA de Horus no cambia).
+        - Sin vinculación: `link_required` con un `link_token` (10 min, un uso). La persona inicia sesión en Horus con
+          su contraseña (y 2FA) y confirma la vinculación con `POST /me/sso-links`. Nunca se crean usuarios ni se
+          vincula por coincidir el correo.
+
+        Ticket desconocido, caducado, usado o de un conector apagado → `410 SSO_TICKET_INVALID` (sin distinguir).
+        Usuario vinculado inactivo o sin membresía activa en el ISP → `403 SSO_ACCOUNT_UNAVAILABLE`. Defensa CSRF de las
+        rutas que fijan cookie: `X-Requested-With: horus` y `Origin` permitido. Auditado (`auth.sso.redeemed`).
+      x-module: auth
+      x-scope: public
+      x-permission: public
+      x-rate-limit: sso
+      x-increment: I3
+      security: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/XRequestedWith'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ticket]
+              properties:
+                ticket: { type: string, minLength: 20, maxLength: 128, writeOnly: true }
+      responses:
+        '200':
+          description: Sesión abierta, segundo factor requerido o vinculación requerida.
+          headers:
+            Set-Cookie:
+              description: '`__Secure-hf_rt` (solo con `status = authenticated`).'
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SsoRedeemResult' }
+        '400': { $ref: './common.yaml#/components/responses/BadRequest' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '410':
+          description: Ticket desconocido, caducado, ya usado o de un conector apagado (`SSO_TICKET_INVALID`).
+          content:
+            application/problem+json:
+              schema: { $ref: './common.yaml#/components/schemas/Problem' }
+        '429': { $ref: './common.yaml#/components/responses/TooManyRequests' }
+  /me/sso-links:
+    get:
+      tags: [me]
+      operationId: listMySsoLinks
+      summary: Mis cuentas de otros sistemas vinculadas para el autologin
+      x-module: auth
+      x-scope: session
+      x-permission: authenticated
+      x-increment: I3
+      security:
+        - sessionBearer: []
+      responses:
+        '200':
+          description: Vinculaciones del usuario en todos sus ISP.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/SsoLink' } }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+    post:
+      tags: [me]
+      operationId: createMySsoLink
+      summary: Vincula la cuenta de ArgosISP del ticket canjeado con mi usuario
+      description: |
+        Contrato §1.5 (H11). `link_token` sale de `POST /integrations/argosisp/sso/redeem` (`link_required`): vale
+        10 min y un solo uso. Exige haber iniciado sesión (o re-autenticado) **después** de canjear el ticket: una
+        sesión anterior abierta en el navegador no basta (así un enlace ajeno no vincula una cuenta sin que su dueño
+        escriba su contraseña). El usuario debe ser miembro activo del ISP del conector (el acceso de soporte de
+        plataforma no vincula). Devuelve la vinculación y el destino a abrir. Auditado (`auth.sso.linked`).
+      x-module: auth
+      x-scope: session
+      x-permission: authenticated
+      x-audited: true
+      x-increment: I3
+      security:
+        - sessionBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [link_token]
+              properties:
+                link_token: { type: string, minLength: 20, maxLength: 512, writeOnly: true }
+      responses:
+        '201':
+          description: Cuenta vinculada.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [link, target]
+                properties:
+                  link: { $ref: '#/components/schemas/SsoLink' }
+                  target: { $ref: '#/components/schemas/SsoTarget' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+        '410':
+          description: '`link_token` caducado, usado o de un conector apagado (`SSO_LINK_INVALID`).'
+          content:
+            application/problem+json:
+              schema: { $ref: './common.yaml#/components/schemas/Problem' }
+  /me/sso-links/{link_id}:
+    parameters:
+      - $ref: '#/components/parameters/SsoLinkId'
+    delete:
+      tags: [me]
+      operationId: deleteMySsoLink
+      summary: Quita una vinculación propia (el siguiente autologin vuelve a pedir el inicio de sesión)
+      x-module: auth
+      x-scope: session
+      x-permission: authenticated
+      x-audited: true
+      x-increment: I3
+      security:
+        - sessionBearer: []
+      responses:
+        '204': { $ref: './common.yaml#/components/responses/NoContent' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+  /integrations/argosisp/sso/links:
+    get:
+      tags: [sso]
+      operationId: listArgosSsoLinks
+      summary: Cuentas de ArgosISP vinculadas a usuarios del ISP (autologin)
+      x-module: auth
+      x-scope: tenant
+      x-permission: users.read
+      x-principals: [user]
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Vinculaciones del ISP.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/SsoLink' } }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+    delete:
+      tags: [sso]
+      operationId: revokeAllArgosSsoLinks
+      summary: Revoca todas las vinculaciones de autologin del ISP
+      x-module: auth
+      x-scope: tenant
+      x-permission: users.manage
+      x-principals: [user]
+      x-reauth: true
+      x-audited: true
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Vinculaciones revocadas.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [revoked]
+                properties:
+                  revoked: { type: integer, minimum: 0 }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+  /integrations/argosisp/sso/links/{link_id}:
+    parameters:
+      - $ref: '#/components/parameters/SsoLinkId'
+    delete:
+      tags: [sso]
+      operationId: revokeArgosSsoLink
+      summary: Revoca una vinculación de autologin del ISP
+      x-module: auth
+      x-scope: tenant
+      x-permission: users.manage
+      x-principals: [user]
+      x-audited: true
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      responses:
+        '204': { $ref: './common.yaml#/components/responses/NoContent' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
 components:
   securitySchemes:
     tenantBearer: { $ref: './common.yaml#/components/securitySchemes/tenantBearer' }
@@ -1179,6 +1392,11 @@ components:
   parameters:
     KioskId:
       name: kiosk_id
+      in: path
+      required: true
+      schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    SsoLinkId:
+      name: link_id
       in: path
       required: true
       schema: { $ref: './common.yaml#/components/schemas/Uuid' }
@@ -1495,3 +1713,51 @@ components:
         name: { type: string, examples: [ArgosISP] }
         description: { type: string }
         permissions: { type: array, items: { type: string } }
+    SsoTarget:
+      type: object
+      description: Destino pedido por el origen (contrato §1.5). La consola lo resuelve con `POST /integrations/argosisp/sso/resolve` y el ACL del usuario.
+      required: [tenant_id, tenant_slug, type, external_id]
+      properties:
+        tenant_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        tenant_slug: { type: string }
+        type: { type: string, enum: [cliente, servicio, router, hallazgo] }
+        external_id: { type: string, maxLength: 128 }
+    SsoExternalUser:
+      type: object
+      required: [id, email, name]
+      properties:
+        id: { type: string, maxLength: 128, description: '`usuario.id_externo` del origen.' }
+        email: { type: [string, 'null'] }
+        name: { type: [string, 'null'] }
+    SsoRedeemResult:
+      type: object
+      required: [status, system, target]
+      properties:
+        status: { type: string, enum: [authenticated, mfa_required, link_required] }
+        system: { type: string, enum: [argosisp] }
+        target: { $ref: '#/components/schemas/SsoTarget' }
+        access_token: { type: string, description: 'Solo con `authenticated`: token de sesión (como el login).' }
+        token_type: { type: string, const: Bearer }
+        expires_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        scope: { type: string, enum: [session] }
+        mfa_token: { type: string, description: 'Solo con `mfa_required`: para `POST /auth/mfa/verify` (5 min, un uso).' }
+        link_token: { type: string, description: 'Solo con `link_required`: para `POST /me/sso-links` (10 min, un uso).' }
+        link_expires_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        external_user: { $ref: '#/components/schemas/SsoExternalUser' }
+    SsoLink:
+      type: object
+      required: [id, tenant_id, tenant_name, system, connector_id, user_id, user_email, external_user, created_at, last_used_at]
+      properties:
+        id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        tenant_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        tenant_name: { type: string }
+        system: { type: string, enum: [argosisp] }
+        connector_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        user_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        user_email: { type: string }
+        external_user: { $ref: '#/components/schemas/SsoExternalUser' }
+        created_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        last_used_at:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'

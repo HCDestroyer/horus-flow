@@ -85,8 +85,12 @@ type Options struct {
 // DefaultRateLimits son los límites por IP de docs/api.md §1.10. "reports"
 // es el freno por IP de la generación de reportes; el cupo de 10/h por
 // usuario lo aplica el rol reporting sobre analytics.report_run.
+// "connection_link" frena el canje del enlace de conexión (código de un uso,
+// público) y "sso"/"sso_issue" el canje y la emisión de tickets de autologin
+// (contrato ArgosISP §1.4 y §1.5).
 var DefaultRateLimits = map[string]int{"login": 20, "kiosk_enroll": 5, "enroll": 10, "connection_test": 10,
-	"librenms": 10, "telegram_setup": 20, "reports": 10, "webhook_in": 600, "argosisp": 20, RateLimitAPIToken: 600}
+	"librenms": 10, "telegram_setup": 20, "reports": 10, "webhook_in": 600, "argosisp": 20, "connection_link": 10,
+	"sso": 30, "sso_issue": 120, RateLimitAPIToken: 600}
 
 // RateLimitAPIToken es el cupo por minuto de cada API token hf_pat_ (todas
 // sus rutas), además del límite propio de cada ruta.

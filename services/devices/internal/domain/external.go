@@ -229,7 +229,21 @@ type ArgosConnector struct {
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
 	Version              int
+	// Enlace de conexión (contrato §1.4): cómo se preparó, el API token
+	// hf_pat_ emitido para Argos, el canal webhook hacia Argos y el id
+	// opaco del conector en Argos. nil = configurado a mano.
+	LinkedAt         *time.Time
+	LinkMethod       *string // link_generated | link_redeemed
+	PeerConnectorID  *string
+	PeerAPITokenID   *uuid.UUID
+	WebhookChannelID *uuid.UUID
 }
+
+// Métodos del enlace de conexión.
+const (
+	LinkGenerated = "link_generated" // Argos canjeó un enlace generado en Horus
+	LinkRedeemed  = "link_redeemed"  // Horus canjeó un enlace generado en Argos
+)
 
 // HasToken indica si hay token guardado.
 func (c *ArgosConnector) HasToken() bool { return len(c.TokenCiphertext) > 0 }

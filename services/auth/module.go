@@ -134,8 +134,14 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 	delegation := app.NewDelegation(store, authz.NewSigner(signKey, cfg.Issuer, 2*time.Minute, nil))
 	// API tokens de integración hf_pat_ (docs/security.md §5.4): el gateway los canjea por access tokens de 2 min.
 	apiTokens := app.NewAPITokens(store, authz.NewSigner(signKey, cfg.Issuer, app.APITokenTTL(), nil), catalog, svc, nil, logger)
+	// Autologin desde ArgosISP (contrato docs/integrations/argosisp.md §1.5): el dueño del conector
+	// (devices) dice en el canje si sigue activo; sin él en el proceso no se canjea ningún ticket.
+	sso := app.NewSSO(svc, store, func() (api.SSOConnectors, bool) {
+		return module.Lookup[api.SSOConnectors](deps.Services, api.ServiceSSOConnectors)
+	})
 	for name, v := range map[string]any{api.ServiceSessions: svc, api.ServiceVerifier: verifier, api.ServiceAudit: svc, api.ServiceKiosks: kiosks,
-		api.ServiceTenants: svc, api.ServiceDelegation: delegation, api.ServiceAPITokens: apiTokens} {
+		api.ServiceTenants: svc, api.ServiceDelegation: delegation, api.ServiceAPITokens: apiTokens, api.ServiceIntegrationTokens: apiTokens,
+		api.ServiceSSOTickets: sso, api.ServiceUserProfiles: svc} {
 		if deps.Services == nil {
 			break
 		}
@@ -155,6 +161,7 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		h.Mount(deps.Routes)
 		httpapi.NewKiosks(h, kiosks).Mount(deps.Routes)
 		httpapi.NewAPITokens(h, apiTokens).Mount(deps.Routes)
+		httpapi.NewSSO(h, sso).Mount(deps.Routes)
 	}
 	logger.InfoContext(ctx, "auth configured", slog.Any("auth", cfg), slog.String("postgres", pgdb.RedactDSN(cfg.PostgresDSN)))
 	return natsx.WithRelay(ctx, deps, &mod{db: db, svc: svc, cfg: cfg, logger: logger, migrate: cfg.Migrate}, db, migrations.Schema)

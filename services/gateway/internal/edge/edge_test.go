@@ -222,6 +222,27 @@ func TestRateLimit(t *testing.T) {
 	}
 }
 
+// Cada cubo x-rate-limit de una ruta pública tiene su límite (sin él quedaría
+// sin freno: p. ej. el canje del enlace de conexión y de los tickets de
+// autologin de ArgosISP).
+func TestEveryRouteRateLimitHasBudget(t *testing.T) {
+	t.Parallel()
+	rs, err := routes.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rs {
+		if r.Scope == "public" && r.RateLimit != "" && DefaultRateLimits[r.RateLimit] <= 0 {
+			t.Errorf("%s %s: cubo %q sin límite en DefaultRateLimits", r.Method, r.Prefix, r.RateLimit)
+		}
+	}
+	for _, k := range []string{"connection_link", "sso", "sso_issue"} {
+		if DefaultRateLimits[k] <= 0 {
+			t.Errorf("falta el cubo %s", k)
+		}
+	}
+}
+
 // La tabla embebida es copia exacta del contrato C5.
 func TestRouteTableMatchesContract(t *testing.T) {
 	t.Parallel()

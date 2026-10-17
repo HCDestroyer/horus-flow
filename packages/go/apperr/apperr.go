@@ -30,6 +30,8 @@ const (
 	KindUnavailable
 	// KindBadGateway: un sistema externo (p. ej. el router) no responde (502).
 	KindBadGateway
+	// KindGone: credencial de un solo uso caducada o ya usada (410).
+	KindGone
 )
 
 var kindStatus = map[Kind]int{
@@ -44,6 +46,7 @@ var kindStatus = map[Kind]int{
 	KindTooManyRequests:      http.StatusTooManyRequests,
 	KindUnavailable:          http.StatusServiceUnavailable,
 	KindBadGateway:           http.StatusBadGateway,
+	KindGone:                 http.StatusGone,
 }
 
 // Error es un error de aplicación con código del contrato.

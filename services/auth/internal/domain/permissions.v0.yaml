@@ -60,6 +60,7 @@ permissions:
     - { key: settings.read, description: 'Ver configuración del ISP' }
     - { key: settings.manage, description: 'Configuración del ISP (inactividad de clientes, reglas de tipo, retenciones)' }
     - { key: api_tokens.manage, description: 'API tokens del ISP', reauth: true }
+    - { key: sso.issue, description: 'Emitir tickets de autologin hacia Horus desde un sistema integrado (solo API tokens; plantilla ArgosISP)', audited: true }
   platform:
     - { key: platform.tenants.read, description: 'Ver ISP de la instalación' }
     - { key: platform.tenants.manage, description: 'Alta, edición, suspensión y baja de ISP', reauth: true }

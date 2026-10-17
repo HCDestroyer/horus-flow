@@ -19,13 +19,15 @@ var _ app.IntegrationStore = (*Store)(nil)
 
 const connectorCols = `id, tenant_id, base_url, enabled, token_ciphertext, token_dek, secret_ciphertext, secret_dek,
 	prev_secret_ciphertext, prev_secret_dek, prev_secret_until, kek_id, resolver, last_sync_at, last_sync_status, last_error,
-	failures, backoff_until, created_at, updated_at, version`
+	failures, backoff_until, created_at, updated_at, version, linked_at, link_method, peer_connector_id, peer_api_token_id,
+	webhook_channel_id`
 
 func scanConnector(row pgx.Row) (*domain.ArgosConnector, error) {
 	var c domain.ArgosConnector
 	err := row.Scan(&c.ID, &c.TenantID, &c.BaseURL, &c.Enabled, &c.TokenCiphertext, &c.TokenDEK, &c.SecretCiphertext, &c.SecretDEK,
 		&c.PrevSecretCiphertext, &c.PrevSecretDEK, &c.PrevSecretUntil, &c.KEKID, &c.Resolver, &c.LastSyncAt, &c.LastSyncStatus,
-		&c.LastError, &c.Failures, &c.BackoffUntil, &c.CreatedAt, &c.UpdatedAt, &c.Version)
+		&c.LastError, &c.Failures, &c.BackoffUntil, &c.CreatedAt, &c.UpdatedAt, &c.Version, &c.LinkedAt, &c.LinkMethod, &c.PeerConnectorID,
+		&c.PeerAPITokenID, &c.WebhookChannelID)
 	if err != nil {
 		return nil, notFound(err)
 	}
@@ -60,10 +62,12 @@ func (s *Store) SaveArgosConnector(ctx context.Context, t pgdb.TenantID, c *doma
 	return s.db.TenantTx(ctx, t, func(tx pgx.Tx) error {
 		if expect == 0 {
 			err := tx.QueryRow(ctx, `INSERT INTO devices.integration_argosisp (id, tenant_id, base_url, enabled, token_ciphertext, token_dek,
-				secret_ciphertext, secret_dek, kek_id, created_at, updated_at, version)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), now(), 1)
+				secret_ciphertext, secret_dek, kek_id, created_at, updated_at, version, linked_at, link_method, peer_connector_id,
+				peer_api_token_id, webhook_channel_id)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), now(), 1, $10, $11, $12, $13, $14)
 				ON CONFLICT (tenant_id) DO NOTHING RETURNING version, created_at, updated_at`,
-				c.ID, t.UUID(), c.BaseURL, c.Enabled, c.TokenCiphertext, c.TokenDEK, c.SecretCiphertext, c.SecretDEK, c.KEKID).
+				c.ID, t.UUID(), c.BaseURL, c.Enabled, c.TokenCiphertext, c.TokenDEK, c.SecretCiphertext, c.SecretDEK, c.KEKID,
+				c.LinkedAt, c.LinkMethod, c.PeerConnectorID, c.PeerAPITokenID, c.WebhookChannelID).
 				Scan(&c.Version, &c.CreatedAt, &c.UpdatedAt)
 			if errors.Is(err, pgx.ErrNoRows) {
 				return app.ErrVersionChanged
@@ -72,10 +76,12 @@ func (s *Store) SaveArgosConnector(ctx context.Context, t pgdb.TenantID, c *doma
 		}
 		err := tx.QueryRow(ctx, `UPDATE devices.integration_argosisp SET base_url = $3, enabled = $4, token_ciphertext = $5, token_dek = $6,
 			secret_ciphertext = $7, secret_dek = $8, prev_secret_ciphertext = $9, prev_secret_dek = $10, prev_secret_until = $11,
-			kek_id = $12, failures = $13, backoff_until = $14, updated_at = now(), version = version + 1
+			kek_id = $12, failures = $13, backoff_until = $14, linked_at = $16, link_method = $17, peer_connector_id = $18,
+			peer_api_token_id = $19, webhook_channel_id = $20, updated_at = now(), version = version + 1
 			WHERE tenant_id = $1 AND id = $2 AND version = $15 RETURNING version, updated_at`,
 			t.UUID(), c.ID, c.BaseURL, c.Enabled, c.TokenCiphertext, c.TokenDEK, c.SecretCiphertext, c.SecretDEK,
-			c.PrevSecretCiphertext, c.PrevSecretDEK, c.PrevSecretUntil, c.KEKID, c.Failures, c.BackoffUntil, expect).
+			c.PrevSecretCiphertext, c.PrevSecretDEK, c.PrevSecretUntil, c.KEKID, c.Failures, c.BackoffUntil, expect,
+			c.LinkedAt, c.LinkMethod, c.PeerConnectorID, c.PeerAPITokenID, c.WebhookChannelID).
 			Scan(&c.Version, &c.UpdatedAt)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return app.ErrVersionChanged
