@@ -2,7 +2,16 @@
 
 Decisión en [ADR-0030](../adr/0030-integracion-de-ecosistema-sin-dependencias.md).
 
-Versión del contrato: **1.5.0-propuesta** · Estado: lado Horus implementado H1–H11 (§5.2); lado ArgosISP en curso (A1–A9, §5.1).
+Versión del contrato: **1.6.0-propuesta** · Estado: lado Horus implementado H1–H11 (§5.2); lado ArgosISP en curso (A1–A9, §5.1).
+
+Cambios de 1.6.0 (menor, solo aditivos; ningún campo cambia de forma). §3.1 `health`:
+
+- `health.router` es el router que **lleva el tráfico** del cliente (el `router_id` de sus flujos más recientes, hasta
+  24 h antes de `at`), no siempre el principal del nodo. Campos nuevos: `source` (`flows` | `primary_router`: sin
+  flujos recientes del cliente o sin analítica, el principal del nodo) y `customer_last_flow_at` (último flujo del
+  cliente por ese router; null con `primary_router`).
+- `health.exporter.last_flow_at` deja de venir siempre a null: es el último flujo recibido del exportador de ese
+  router (estado del collector).
 
 Cambios de 1.5.0 (menor, solo precisiones; ningún campo cambia). Motivo: al implementar H10–H11 en Horus aparecieron
 huecos que obligaban a adivinar; se elige lo más seguro y se escribe:
@@ -251,7 +260,8 @@ POST /api/v1/integrations/ip-lookup
                 "synced_at": "…", "stale": false },
   "consumption": { "last_24h": { "up_bytes": 0, "down_bytes": 0 }, "last_7d": {…}, "last_30d": {…},
                    "peak_down_bps_24h": 0, "top_services_7d": [ { "name": "YouTube", "bytes": 0 } ] },
-  "health": { "router": { "id": "…", "name": "…", "status": "online", "since": "…" },
+  "health": { "router": { "id": "…", "name": "…", "status": "online", "since": "…",
+                          "source": "flows", "customer_last_flow_at": "…" },
               "exporter": { "status": "exporting", "last_flow_at": "…" },
               "last_seen_minutes": 2 },
   "security": { "state": "suspected", "open_findings": 1,

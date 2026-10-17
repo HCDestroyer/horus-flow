@@ -435,6 +435,16 @@ useHead({ title: () => rt.value?.name ?? t('router.title') })
               {{ peer?.last_handshake_at ? t('router.handshake') : t('router.noHandshake') }}
               <RelativeTime v-if="peer?.last_handshake_at" :at="peer.last_handshake_at" />
             </span>
+            <span
+              v-if="exporter?.last_flow_at ?? routerStatus?.last_flow_at"
+              class="text-muted text-sm"
+              data-testid="router-last-flow"
+            >
+              <RelativeTime
+                :at="exporter?.last_flow_at ?? routerStatus?.last_flow_at"
+                :prefix="t('router.lastFlow')"
+              />
+            </span>
             <span v-if="exporter?.flows_per_second" class="text-muted text-sm tabular">
               {{ t('router.fps', { n: formatNumber(exporter.flows_per_second) }) }}
             </span>

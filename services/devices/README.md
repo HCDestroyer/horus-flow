@@ -20,8 +20,9 @@ métricas y eventos publicados/consumidos cuando el módulo tenga implementació
   espera exponencial hasta 15 min; nunca bloquea la ingesta ni la detección.
 - **Consulta 360** (`POST /integrations/ip-lookup`, por IP o por `external_service_id`), **consumo por lotes**
   (`POST /integrations/consumption`) y **estado de seguridad por lotes** (`POST /integrations/security-states`)
-  sobre los contratos en proceso `analytics.Consumption`, `detection.CustomerFindings`, `detection.SecurityStates` y
-  `snmp.RouterStatus`.
+  sobre los contratos en proceso `analytics.Consumption`, `detection.CustomerFindings`, `detection.SecurityStates`,
+  `snmp.RouterStatus`, `analytics.ServingRouter` (router de los flujos más recientes del cliente; si no hay, el principal
+  con `source = primary_router`) y `flows.LastFlow` (último flujo del exportador).
 - **Multiempresa** (contrato 1.2.0): la identidad guarda la empresa del servicio (`external_company_id`,
   `company_name`, `company_nit`); un webhook de servicio con `empresa_id` la refresca.
 - **Enlace de conexión** (contrato §1.4, H10; `internal/app/connection.go`, `internal/adapters/argos/peer.go`):

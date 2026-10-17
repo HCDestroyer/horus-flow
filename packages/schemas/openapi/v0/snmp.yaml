@@ -856,7 +856,7 @@ components:
         interface_name: { type: [string, 'null'] }
     RouterStatus:
       type: object
-      required: [router_id, site_id, name, site_name, status, observed_state, reason, since, last_observed_at, signals, device, uplink, interfaces_up, interfaces_total, thresholds]
+      required: [router_id, site_id, name, site_name, status, observed_state, reason, since, last_observed_at, signals, device, uplink, interfaces_up, interfaces_total, thresholds, last_flow_at]
       properties:
         router_id: { $ref: './common.yaml#/components/schemas/Uuid' }
         site_id: { $ref: './common.yaml#/components/schemas/Uuid' }
@@ -889,6 +889,11 @@ components:
         interfaces_up: { type: [integer, 'null'] }
         interfaces_total: { type: [integer, 'null'] }
         thresholds: { type: array, items: { $ref: '#/components/schemas/RouterThresholdHit' } }
+        last_flow_at:
+          description: Último flujo recibido del exportador de flujos del router (estado del collector leído en el último sondeo; null = nunca).
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
     PollerHealth:
       type: object
       required: [healthy, last_cycle_at, interval_seconds, targets]

@@ -76,3 +76,9 @@ Métricas: `horus_collector_{datagrams,records,received_records,dropped,sequence
 lotes van a disco o si el directorio no se puede usar.
 
 Tests: `make test-collector` (replay de fixtures + fuzzing), `make test-flows-golden`.
+
+## Último flujo por router
+
+- `flows.LastFlow` (`services/collector/api/lastflow`): último flujo de cada router desde el bucket KV
+  `flow_exporter_state` que escribe el collector (nunca toca la ruta de ingesta). Lo registra el rol ingester; lo usa la
+  consulta 360 de devices. `GET /routers/status` (snmp) lleva el mismo dato leído en cada sondeo (`last_flow_at`).

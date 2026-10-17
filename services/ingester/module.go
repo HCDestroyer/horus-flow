@@ -34,6 +34,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/platformoverview"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
 	collectorapi "github.com/hcdestroyer/horus-flow/services/collector/api"
+	"github.com/hcdestroyer/horus-flow/services/collector/api/lastflow"
 	chadapter "github.com/hcdestroyer/horus-flow/services/ingester/internal/adapters/clickhouse"
 	"github.com/hcdestroyer/horus-flow/services/ingester/internal/adapters/httpapi"
 	"github.com/hcdestroyer/horus-flow/services/ingester/internal/adapters/ledger"
@@ -69,6 +70,17 @@ func Register(_ context.Context, deps module.Deps) (module.Module, error) {
 			if err := deps.Services.Provide(platformoverview.ServiceExporters, platformoverview.SourceFunc(
 				func(ctx context.Context) (map[uuid.UUID]platformoverview.Stats, error) {
 					return collectorapi.OverviewStats(ctx, m.inv.Load(), m.states, time.Now())
+				})); err != nil {
+				return nil, err
+			}
+			// Último flujo por router (consulta 360, estado del router) desde el mismo bucket KV.
+			if err := deps.Services.Provide(lastflow.ServiceLastFlow, lastflow.FromStates(
+				func(ctx context.Context, id uuid.UUID) (*lastflow.Exporter, error) {
+					fe, err := m.states.Get(ctx, id)
+					if err != nil || fe == nil {
+						return nil, err
+					}
+					return &lastflow.Exporter{TenantID: fe.TenantID, LastFlowAt: fe.LastFlowAt}, nil
 				})); err != nil {
 				return nil, err
 			}

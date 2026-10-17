@@ -55,6 +55,7 @@ test.describe('router y onboarding @onboarding', () => {
       timeout: 15_000,
     })
     await expect(page.getByTestId('router-exporter-state')).toContainText('Exportando')
+    await expect(page.getByTestId('router-last-flow')).toContainText('último flujo hace')
   })
 
   test('si el token caduca, se ofrece regenerarlo', async ({ page }) => {

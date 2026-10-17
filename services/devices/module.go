@@ -32,7 +32,9 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/pgdb"
 	alertsapi "github.com/hcdestroyer/horus-flow/services/alerts/api"
 	consumptionapi "github.com/hcdestroyer/horus-flow/services/analytics/api/consumption"
+	"github.com/hcdestroyer/horus-flow/services/analytics/api/servingrouter"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
+	"github.com/hcdestroyer/horus-flow/services/collector/api/lastflow"
 	findingsapi "github.com/hcdestroyer/horus-flow/services/detection/api/customerfindings"
 	secstatesapi "github.com/hcdestroyer/horus-flow/services/detection/api/securitystates"
 	devapi "github.com/hcdestroyer/horus-flow/services/devices/api"
@@ -176,7 +178,14 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 			Routers: func() (snmpapi.RouterStatusReader, bool) {
 				return module.Lookup[snmpapi.RouterStatusReader](deps.Services, snmpapi.ServiceRouterStatus)
 			},
-			Site: store.GetSite,
+			ServingRouter: func() (servingrouter.Reader, bool) {
+				return module.Lookup[servingrouter.Reader](deps.Services, servingrouter.ServiceServingRouter)
+			},
+			LastFlow: func() (lastflow.Reader, bool) {
+				return module.Lookup[lastflow.Reader](deps.Services, lastflow.ServiceLastFlow)
+			},
+			Router: store.GetRouter,
+			Site:   store.GetSite,
 			PrimaryRouter: func(ctx context.Context, t pgdb.TenantID, site uuid.UUID) (*domain.Router, error) {
 				primary := true
 				rs, err := store.ListRouters(ctx, t, app.ListQuery{SortCol: "name", Limit: 1, SiteIDs: []uuid.UUID{site}, IsPrimary: &primary})

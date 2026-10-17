@@ -97,3 +97,8 @@ solo API), `HORUS_REPORTS_QUERY_TIMEOUT` (60s), `HORUS_CLICKHOUSE_DSN`,
 `HORUS_REPORTING_PDF_OUT=/tmp/muestra.pdf go test -run TestRenderPDF ./services/analytics/reporting/`.
 Tests de integración: `go test -tags integration ./services/analytics/reporting/` (PostgreSQL y ClickHouse
 con Docker o `HORUS_TEST_POSTGRES_DSN` / `HORUS_CH_TEST_DSN`).
+
+## Contratos en proceso que provee (además de los de I1)
+
+- `analytics.ServingRouter` (`api/servingrouter`): router de los flujos más recientes de un cliente en `flows.flows_raw`
+  (filtro por todo el prefijo de la clave de ordenación y 24 h antes de `at`). Lo usa la consulta 360 de devices.

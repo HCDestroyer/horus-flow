@@ -16045,6 +16045,9 @@ components:
                         - name
                         - status
                         - since
+                      description: |
+                        Router que lleva el tráfico del cliente (contrato 1.6.0): el de sus flujos más recientes (hasta 24 h
+                        antes de `at`); sin flujos recientes o sin analítica, el principal de su nodo (`source: primary_router`).
                       properties:
                         id:
                           $ref: '#/components/schemas/Uuid'
@@ -16054,6 +16057,17 @@ components:
                           type: string
                           description: online, warning, critical, degraded, offline o unknown.
                         since:
+                          oneOf:
+                            - $ref: '#/components/schemas/Timestamp'
+                            - type: 'null'
+                        source:
+                          type: string
+                          enum:
+                            - flows
+                            - primary_router
+                          description: Desde 1.6.0.
+                        customer_last_flow_at:
+                          description: Último flujo del cliente por este router (null con `primary_router`). Desde 1.6.0.
                           oneOf:
                             - $ref: '#/components/schemas/Timestamp'
                             - type: 'null'
@@ -16068,8 +16082,9 @@ components:
                       type:
                         - string
                         - 'null'
-                      description: FlowExporterState del router principal del nodo.
+                      description: FlowExporterState del router de `health.router`.
                     last_flow_at:
+                      description: Último flujo recibido del exportador de ese router (estado del collector).
                       oneOf:
                         - $ref: '#/components/schemas/Timestamp'
                         - type: 'null'
@@ -19475,6 +19490,7 @@ components:
         - interfaces_up
         - interfaces_total
         - thresholds
+        - last_flow_at
       properties:
         router_id:
           $ref: '#/components/schemas/Uuid'
@@ -19523,6 +19539,11 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/RouterThresholdHit'
+        last_flow_at:
+          description: Último flujo recibido del exportador de flujos del router (estado del collector leído en el último sondeo; null = nunca).
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: 'null'
     PollerHealth:
       type: object
       required:

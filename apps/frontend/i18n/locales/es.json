@@ -813,13 +813,18 @@
       "last_7d": "7 días",
       "last_30d": "30 días",
       "topServices": "Servicios principales (7 días)",
-      "noRouter": "Sin router principal en el nodo",
+      "noRouter": "Sin router conocido para este cliente",
       "lastSeen": "visto hace {n} min",
       "omitted": {
         "permission": "Sin permiso para ver este bloque.",
         "unavailable": "No disponible ahora.",
         "not_requested": "No pedido.",
         "not_configured": "ArgosISP no está conectado."
+      },
+      "lastFlow": "último flujo del router",
+      "routerSource": {
+        "flows": "Por sus flujos recientes",
+        "primary_router": "Router principal del nodo (sin flujos recientes)"
       }
     }
   },
@@ -1194,7 +1199,8 @@
     "exitWall": "Salir del mural",
     "wallUplink": "Enlace de subida · últimas 6 h",
     "wallInterfaces": "Interfaces físicas",
-    "noSnmpAccess": "Sin permiso para ver las métricas SNMP de este router (snmp.read)."
+    "noSnmpAccess": "Sin permiso para ver las métricas SNMP de este router (snmp.read).",
+    "lastFlow": "último flujo"
   },
   "onboarding": {
     "stepN": "Paso {n}",
@@ -3345,7 +3351,8 @@
       "noSample": "Sin muestra todavía",
       "sparkline": "Bajada por {name} en la última hora",
       "open": "Abrir la ficha de {name}",
-      "signals": "Señales"
+      "signals": "Señales",
+      "lastFlow": "último flujo"
     },
     "wall": "Mural",
     "exitWall": "Salir del mural",

@@ -581,7 +581,9 @@ distinta. Hay dos campos:
 | `unknown` | — | Nunca observado | Router recién creado, SNMP/ICMP deshabilitado, o antes del Sprint 5 |
 | `maintenance` | (cualquiera) | Ventana de mantenimiento activa; suprime alertas | Flag administrativo de `devices` |
 
-Precedencia al calcular `status`: `maintenance` > `unknown` > `stale` > `observed_state`. La respuesta REST incluye
+Precedencia al calcular `status`: `maintenance` > `unknown` > `stale` > `observed_state`. Cada fila de
+`GET /routers/status` lleva además `last_flow_at`: el último flujo del exportador del router (estado del collector en el
+bucket KV `flow_exporter_state`, leído en el último sondeo; null = nunca), para «último flujo hace 12 s». La respuesta REST incluye
 siempre `observed_state` (puede ser `null`), `status_reason` y `last_observed_at`, para que la UI explique, p. ej.,
 "en mantenimiento — último estado observado: offline".
 
@@ -859,6 +861,12 @@ Multiempresa (contrato 1.2.0, H7): la empresa (`empresa` del resolutor por lotes
 `GET /ip/:ip` no la trae (una identidad nueva queda sin empresa; una existente conserva la suya) y un webhook de un
 servicio con `empresa_id` la refresca antes de re-resolver. En el asistente de IA y el MCP la empresa se enmascara como el
 nombre.
+Consulta 360 (contrato 1.6.0): `health.router` es el router que **lleva el tráfico** del cliente, el `router_id` de sus
+flujos más recientes en `flows.flows_raw` (contrato en proceso `analytics.ServingRouter`, consulta por todo el prefijo de
+la clave de ordenación: `tenant_id, site_id, realm_id, client_ip` y 24 h antes de `at`), con `source = flows` y
+`customer_last_flow_at`; sin flujos recientes o sin analítica, el principal del nodo con `source = primary_router`.
+`health.exporter.last_flow_at` sale del estado del collector (`flows.LastFlow`, rol ingester) o, sin él, del último
+sondeo SNMP.
 `GET /routers/status` y `GET /infra-services` ya admitían `api_token` (H4).
 
 ### 2.10 quater Asistente de IA (`assist`)

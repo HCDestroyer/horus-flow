@@ -5598,15 +5598,23 @@ export interface components {
             external: components["schemas"]["ExternalRef"] | null;
             health: {
                 exporter: {
+                    /** @description Último flujo recibido del exportador de ese router (estado del collector). */
                     last_flow_at: components["schemas"]["Timestamp"] | null;
-                    /** @description FlowExporterState del router principal del nodo. */
+                    /** @description FlowExporterState del router de `health.router`. */
                     status: string | null;
                 };
                 last_seen_minutes: number;
                 router: {
+                    /** @description Último flujo del cliente por este router (null con `primary_router`). Desde 1.6.0. */
+                    customer_last_flow_at?: components["schemas"]["Timestamp"] | null;
                     id: components["schemas"]["Uuid"];
                     name: string;
                     since: components["schemas"]["Timestamp"] | null;
+                    /**
+                     * @description Desde 1.6.0.
+                     * @enum {string}
+                     */
+                    source?: "flows" | "primary_router";
                     /** @description online, warning, critical, degraded, offline o unknown. */
                     status: string;
                 } | null;
@@ -6801,6 +6809,8 @@ export interface components {
             device: components["schemas"]["RouterDeviceSample"];
             interfaces_total: number | null;
             interfaces_up: number | null;
+            /** @description Último flujo recibido del exportador de flujos del router (estado del collector leído en el último sondeo; null = nunca). */
+            last_flow_at: components["schemas"]["Timestamp"] | null;
             last_observed_at: components["schemas"]["Timestamp"] | null;
             name: string;
             observed_state: components["schemas"]["RouterObservedState"] | null;
