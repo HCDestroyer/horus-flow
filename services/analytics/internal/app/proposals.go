@@ -34,6 +34,8 @@ type Service struct {
 	// el proceso (module.Services, snmpapi.ServiceRouterStatus); nil si el
 	// rol no está: el widget routers_status_grid responde "no disponible".
 	Routers func() snmpapi.RouterStatusReader
+	// Capacity lee la salud de los nodos del rol snmp (widget site_health; nil = no disponible).
+	Capacity func() snmpapi.CapacityReader
 }
 
 func (s *Service) now() time.Time {

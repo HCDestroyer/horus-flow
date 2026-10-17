@@ -23,12 +23,12 @@ import (
 
 // Tipos de widget que resuelve FLOW (packages/schemas/dashboard/v0/widget-types.json).
 var widgetTypes = []string{"traffic_now", "customers_active", "exporters_status", "traffic_timeseries",
-	"top_customers", "top_services", "top_categories", "top_organizations", WidgetRoutersStatusGrid}
+	"top_customers", "top_services", "top_categories", "top_organizations", WidgetRoutersStatusGrid, WidgetSiteHealth}
 
 var widgetKind = map[string]string{
 	"traffic_now": "state", "customers_active": "state", "exporters_status": "table", "traffic_timeseries": "series",
 	"top_customers": "table", "top_services": "table", "top_categories": "table", "top_organizations": "table",
-	WidgetRoutersStatusGrid: "table",
+	WidgetRoutersStatusGrid: "table", WidgetSiteHealth: "table",
 }
 
 // widgetConfig es la unión de los config_schema de los tipos de FLOW.
@@ -176,6 +176,8 @@ func (w *Widgets) resolve(ctx context.Context, req tw.Request, kind string, cfg 
 		return out, w.exporters(ctx, out, sc, cfg, now)
 	case WidgetRoutersStatusGrid:
 		return out, w.routersStatus(ctx, out, sc, cfg, now)
+	case WidgetSiteHealth:
+		return out, w.siteHealth(ctx, out, sc, cfg)
 	case "traffic_timeseries":
 		r, err := ParseRange(rng, from, to, "24h", now)
 		if err != nil {
