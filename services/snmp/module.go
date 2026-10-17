@@ -45,6 +45,7 @@ import (
 	collectorapi "github.com/hcdestroyer/horus-flow/services/collector/api"
 	devapi "github.com/hcdestroyer/horus-flow/services/devices/api"
 	"github.com/hcdestroyer/horus-flow/services/snmp/api"
+	"github.com/hcdestroyer/horus-flow/services/snmp/api/capacityreport"
 	chadapter "github.com/hcdestroyer/horus-flow/services/snmp/internal/adapters/clickhouse"
 	"github.com/hcdestroyer/horus-flow/services/snmp/internal/adapters/httpapi"
 	"github.com/hcdestroyer/horus-flow/services/snmp/internal/adapters/icmp"
@@ -146,6 +147,10 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 			return nil, err
 		}
 		if err := deps.Services.Provide(api.ServiceCapacity, api.CapacityReader(m.capacity)); err != nil {
+			return nil, err
+		}
+		// Sección de capacidad del reporte semanal (rol reporting).
+		if err := deps.Services.Provide(capacityreport.ServiceCapacityReport, capacityreport.Reader(m.capacity)); err != nil {
 			return nil, err
 		}
 	}

@@ -85,6 +85,10 @@ transacción que `snmp.uplink_condition`): deduplicado en origen y con recuperac
 `horus.snmp.capacity.forecast_changed` al entrar o salir de `planning`/`urgent`. `alerts` los publica en la categoría
 `capacity`.
 
+El reporte semanal (rol `reporting`) incluye la sección «Capacidad de enlaces» con estos mismos datos para su periodo
+(p95, horas sobre 70 / 85 %, pérdida, latencia, pronóstico, recomendación y reparto local / internacional), por el
+contrato estrecho `snmp.CapacityReport`.
+
 ## 6. Salud del nodo
 
 Un estado por nodo (vocabulario de equipos) con razones legibles, la más grave primero: todos los enlaces caídos →

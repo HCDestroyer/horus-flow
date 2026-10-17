@@ -69,6 +69,9 @@ Paquete `services/analytics/reporting` (el rol vive en este módulo: mismo esque
   clientes y contactos con listas de reputación (contrato en proceso
   `services/detection/api/securityreport`); disponibilidad ICMP/SNMP por router (`snmp.device_1h` +
   `dim.router`/`dim.site`); bajada/subida frente al periodo anterior y por día local (`flows.site_1h`);
+  capacidad de enlaces por nodo (p95 del periodo contra la capacidad vigente cada día, horas sobre
+  70 / 85 %, pérdida, latencia, pronóstico y recomendación, salida internacional y reparto local /
+  internacional; contrato en proceso `services/snmp/api/capacityreport`, sin datos personales);
   avisos enviados por canal y evento (`services/alerts/api` `NotificationStats`). Una fuente que no
   está en el proceso o falla deja su sección con una nota (nunca ceros).
 - **Formatos:** PDF A4 imprimible (go-pdf/fpdf, Helvetica estándar en cp1252, identidad Horus en

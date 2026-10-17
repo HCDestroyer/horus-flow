@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"math"
 	"net/netip"
 	"slices"
 	"time"
@@ -431,12 +432,19 @@ func (c *Capacity) TrafficSplit(ctx context.Context, tenant uuid.UUID, sites []u
 	if days <= 0 {
 		days = DefaultTraffic
 	}
+	info := c.tenantInfo(ctx, tenant)
+	_, todayStart, _ := localDay(c.now().UTC(), location(info.Timezone))
+	return c.trafficSplitRange(ctx, tenant, sites, todayStart.AddDate(0, 0, -days), todayStart)
+}
+
+// trafficSplitRange es TrafficSplit para [from, todayStart): instantes UTC de
+// medianoches locales del ISP (la sección de capacidad del reporte semanal
+// pide exactamente su periodo).
+func (c *Capacity) trafficSplitRange(ctx context.Context, tenant uuid.UUID, sites []uuid.UUID, from, todayStart time.Time) (*TrafficSplitView, error) {
 	st := c.settingsFor(tenant)
 	info := c.tenantInfo(ctx, tenant)
-	loc := location(info.Timezone)
 	now := c.now().UTC()
-	_, todayStart, _ := localDay(now, loc)
-	from := todayStart.AddDate(0, 0, -days)
+	days := int(math.Round(todayStart.Sub(from).Hours() / 24))
 	out := &TrafficSplitView{From: from, To: todayStart, Days: days, LocalASNs: len(st.LocalASNs), LocalPrefixes: len(st.LocalPrefixes),
 		CountrySource: "none",
 		Sites:         []SiteTraffic{}, Daily: []DailyTraffic{}}

@@ -89,8 +89,9 @@ func sampleData(t *testing.T) *Data {
 			{RouterID: uuid.New(), Name: "rt-centro", Site: "Nodo Centro", ICMPRatio: ptr(1.0), SNMPRatio: ptr(0.999), Samples: 10080},
 			{RouterID: uuid.New(), Name: "rt-nuevo", Site: "Nodo Sur"},
 		}},
-		Traffic: &Traffic{DownBytes: 7_350_000_000_000, UpBytes: 980_000_000_000, PrevDownBytes: 7_000_000_000_000, PrevUpBytes: 1_000_000_000_000, Daily: daily},
-		Alerts:  []alertsapi.NotificationCount{{ChannelKind: "telegram", EventType: "finding_opened", Sent: 11, Failed: 1}, {ChannelKind: "email", EventType: "router_offline", Sent: 2}},
+		Traffic:  &Traffic{DownBytes: 7_350_000_000_000, UpBytes: 980_000_000_000, PrevDownBytes: 7_000_000_000_000, PrevUpBytes: 1_000_000_000_000, Daily: daily},
+		Alerts:   []alertsapi.NotificationCount{{ChannelKind: "telegram", EventType: "finding_opened", Sent: 11, Failed: 1}, {ChannelKind: "email", EventType: "router_offline", Sent: 2}},
+		Capacity: sampleCapacity(p),
 	}
 }
 

@@ -825,6 +825,14 @@ petición): la descarga solo elige archivo. `GET /reports*` describe la variante
 (`personal_data_masked`, `files`, `size_bytes`). Una ejecución anterior a la variante no se sirve a quien no tiene
 `customers.read` (`409 REPORT_NOT_READY`: generarla de nuevo). El aviso por correo no lleva datos personales.
 
+**Sección de capacidad** (8. «Capacidad de enlaces», `capacidad_enlaces.csv`): por nodo y su salud, cada enlace de subida
+con la capacidad vigente, el p95 del periodo (el peor día contra la capacidad vigente ese día), horas sobre los umbrales
+de saturación (70 / 85 % por defecto), pérdida y latencia medias de su sonda, nivel de pronóstico, fecha de cruce del
+umbral de planificación y recomendación; la salida internacional agregada y el reparto de tráfico local / internacional
+del periodo (con la lista local por prefijos; proporciones también en `resumen.csv`). Viene del rol `snmp` por el
+contrato en proceso `snmp.CapacityReport` (`services/snmp/api/capacityreport`); sin el rol o si falla, la sección lleva
+una nota. No contiene datos personales: es igual en las variantes completa y enmascarada.
+
 El aviso "reporte listo/fallido" llega por WebSocket (topic `me`, `horus.reporting.report.completed|failed`). La
 capacidad `reports` de `GET /system/status` vale `ok` si el proceso sirve `/api/v1/reports`.
 
