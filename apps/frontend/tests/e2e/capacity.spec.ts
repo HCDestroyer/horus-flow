@@ -71,7 +71,8 @@ test.describe('capacidad de enlaces @capacity', () => {
       .getByTestId('uplink-configure')
       .click()
     await expect(page.getByTestId('uplink-valid-from')).toHaveCount(0)
-    await page.getByTestId('uplink-capacity').locator('input').fill('2500')
+    await page.getByTestId('uplink-capacity').fill('2500')
+    await page.getByTestId('uplink-capacity').press('Tab')
     await expect(page.getByTestId('uplink-valid-from')).toBeVisible()
     await page.keyboard.press('Escape')
 

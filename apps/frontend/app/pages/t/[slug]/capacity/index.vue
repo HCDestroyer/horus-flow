@@ -56,6 +56,12 @@ function snippet(routerId: string) {
   snippetOpen.value = true
 }
 const settingsOpen = ref(false)
+// Los ajustes cambian el reparto local / internacional (país, ASN y prefijos locales).
+const settingsVersion = ref(0)
+function onSettingsSaved() {
+  settingsVersion.value++
+  refresh()
+}
 const probesError = (code: string) =>
   te(`capacity.probesError.${code}`) ? t(`capacity.probesError.${code}`) : code
 const bps = (v: number | null | undefined) => joinUnit(formatBps(v))
@@ -234,7 +240,7 @@ useHead({ title: () => t('capacity.title') })
         </div>
       </section>
 
-      <TrafficSplitCard :site-id="siteId" :days="30" />
+      <TrafficSplitCard :site-id="siteId" :days="30" :version="settingsVersion" />
 
       <UCard
         v-if="data.horus_probes.length"
@@ -268,6 +274,6 @@ useHead({ title: () => t('capacity.title') })
 
     <UplinkConfigModal v-model:open="configOpen" :uplink="configuring" @saved="refresh()" />
     <NetwatchSnippetModal v-model:open="snippetOpen" :router-id="snippetRouter" />
-    <CapacitySettingsModal v-model:open="settingsOpen" @saved="refresh()" />
+    <CapacitySettingsModal v-model:open="settingsOpen" @saved="onSettingsSaved" />
   </AppPage>
 </template>
