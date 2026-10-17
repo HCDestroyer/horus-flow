@@ -15,6 +15,7 @@ import (
 	devapi "github.com/hcdestroyer/horus-flow/services/devices/api"
 	"github.com/hcdestroyer/horus-flow/services/snmp/api"
 	"github.com/hcdestroyer/horus-flow/services/snmp/internal/adapters/clickhouse"
+	"github.com/hcdestroyer/horus-flow/services/snmp/internal/adapters/snmpclient"
 	"github.com/hcdestroyer/horus-flow/services/snmp/internal/domain"
 )
 
@@ -92,28 +93,43 @@ func (c *Capacity) collectProbes(ctx context.Context) {
 		samples = append(samples, s...)
 		mu.Unlock()
 	}
-	reader, ok := c.o.Probes()
-	if ok {
-		sem := make(chan struct{}, c.o.ProbeConcurrency)
-		var wg sync.WaitGroup
-		for i := range routers {
-			r := routers[i]
-			c.mu.RLock()
-			f, failed := c.probeErr[r.RouterID]
-			c.mu.RUnlock()
-			if failed && now.Before(f.Retry) {
-				continue
-			}
-			if r.Status == api.StatusOffline {
-				continue
-			}
-			wg.Add(1)
-			sem <- struct{}{}
-			go func() {
-				defer wg.Done()
-				defer func() { <-sem }()
-				rctx, cancel := context.WithTimeout(ctx, probeReadTimeout)
-				defer cancel()
+	reader, hasReader := c.o.Probes()
+	sem := make(chan struct{}, c.o.ProbeConcurrency)
+	var wg sync.WaitGroup
+	for i := range routers {
+		r := routers[i]
+		nqa := r.Vendor == snmpclient.VendorHuawei
+		if (!nqa && !hasReader) || (nqa && c.o.Engine == nil) {
+			continue
+		}
+		c.mu.RLock()
+		f, failed := c.probeErr[r.RouterID]
+		c.mu.RUnlock()
+		if failed && now.Before(f.Retry) {
+			continue
+		}
+		if r.Status == api.StatusOffline {
+			continue
+		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			rctx, cancel := context.WithTimeout(ctx, probeReadTimeout)
+			defer cancel()
+			var got []domain.ProbeSample
+			if nqa {
+				// Huawei VRP: pruebas NQA leídas por SNMP (docs/vendors/huawei.md §4).
+				res, err := c.o.Engine.ReadPings(rctx, r.TenantID, r.RouterID)
+				if err != nil {
+					c.mu.Lock()
+					c.probeErr[r.RouterID] = probeFailure{Reason: nqaErrorText(err), At: now, Retry: now.Add(probeRetryAfter)}
+					c.mu.Unlock()
+					return
+				}
+				got = NQASamples(r, res, now)
+			} else {
 				probes, err := reader.ReadNetwatch(rctx, r.TenantID, r.RouterID)
 				if err != nil {
 					c.mu.Lock()
@@ -121,14 +137,15 @@ func (c *Capacity) collectProbes(ctx context.Context) {
 					c.mu.Unlock()
 					return
 				}
-				c.mu.Lock()
-				delete(c.probeErr, r.RouterID)
-				c.mu.Unlock()
-				add(NetwatchSamples(r, probes, now)...)
-			}()
-		}
-		wg.Wait()
+				got = NetwatchSamples(r, probes, now)
+			}
+			c.mu.Lock()
+			delete(c.probeErr, r.RouterID)
+			c.mu.Unlock()
+			add(got...)
+		}()
 	}
+	wg.Wait()
 	add(c.horusProbes(ctx, now)...)
 	if len(samples) == 0 {
 		return

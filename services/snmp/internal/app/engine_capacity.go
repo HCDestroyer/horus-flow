@@ -25,13 +25,16 @@ type IfaceSnapshot struct {
 
 // RouterSnapshot es un router objetivo con sus interfaces.
 type RouterSnapshot struct {
-	TenantID   uuid.UUID
-	SiteID     uuid.UUID
-	RouterID   uuid.UUID
-	Name       string
-	SiteName   string
-	Status     string
-	Reason     string
+	TenantID uuid.UUID
+	SiteID   uuid.UUID
+	RouterID uuid.UUID
+	Name     string
+	SiteName string
+	Status   string
+	Reason   string
+	// Vendor elige de dónde salen las sondas por enlace: netwatch por la API
+	// REST (mikrotik) o NQA por SNMP (huawei).
+	Vendor     string
 	Interfaces []IfaceSnapshot
 }
 
@@ -45,7 +48,7 @@ func (e *Engine) Snapshot(now time.Time) []RouterSnapshot {
 		r.mu.Lock()
 		st := e.status(r, now, healthy)
 		rs := RouterSnapshot{TenantID: r.TenantID, SiteID: r.SiteID, RouterID: r.RouterID, Name: r.Name, SiteName: r.SiteName,
-			Status: st.Status}
+			Status: st.Status, Vendor: r.Vendor}
 		if st.Reason != nil {
 			rs.Reason = *st.Reason
 		}

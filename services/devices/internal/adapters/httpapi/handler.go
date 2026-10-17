@@ -207,8 +207,17 @@ func routerJSON(x *domain.Router) map[string]any {
 		"model": x.Model, "routeros_version": x.RouterOSVersion, "tags": tags, "admin_state": x.AdminState,
 		"onboarding_state": x.OnboardingState, "routeros_version_detected": x.RouterOSVersionDetected,
 		"routeros_version_supported": x.RouterOSVersionOK, "tunnel_address": x.TunnelAddress, "wireguard_peer_id": x.WireguardPeerID,
+		"connection_mode": connectionMode(x), "management_address": x.ManagementAddress,
 		"warnings": x.Warnings(), "credentials": []any{},
 	}
+}
+
+// connectionMode: wireguard para MikroTik, direct para Huawei VRP.
+func connectionMode(x *domain.Router) string {
+	if x.ConnectionMode != "" {
+		return x.ConnectionMode
+	}
+	return domain.ConnectionModeFor(x.Vendor)
 }
 
 func (h *Handler) listRouters(w http.ResponseWriter, r *http.Request) {

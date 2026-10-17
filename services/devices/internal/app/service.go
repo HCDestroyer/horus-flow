@@ -289,6 +289,8 @@ func mapStoreErr(err error, notFoundCode string) error {
 		return apperr.Conflict(domain.CodeSiteNotEmpty, "El nodo tiene routers: délos de baja primero.")
 	case errors.Is(err, ErrOverlap):
 		return apperr.Conflict(domain.CodeClientPrefixOverlap, "El prefijo se solapa con otro del mismo realm.")
+	case errors.Is(err, ErrManagementAddressTaken):
+		return apperr.Conflict(domain.CodeManagementAddressInUse, "Otro router verificado ya usa esa dirección de gestión.")
 	}
 	return err
 }

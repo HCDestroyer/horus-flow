@@ -128,6 +128,16 @@ func (s *TLSPins) routerCred(ctx context.Context, perm string, routerID uuid.UUI
 	return p, t, r, c, nil
 }
 
+// routerOSOnly: la API REST de RouterOS (huella TLS, importación de
+// prefijos, netwatch) solo existe en MikroTik.
+func routerOSOnly(r *domain.Router) error {
+	if r.Vendor != "" && r.Vendor != domain.VendorMikroTik {
+		return apperr.New(apperr.KindInvalid, domain.CodeVendorNotSupported,
+			"Solo los routers MikroTik tienen API REST de RouterOS (Huawei VRP se lee solo por SNMP).")
+	}
+	return nil
+}
+
 // Get es GET /routers/{id}/tls-fingerprint.
 func (s *TLSPins) Get(ctx context.Context, routerID uuid.UUID) (*TLSPinView, error) {
 	_, _, _, c, err := s.routerCred(ctx, PermTLSPinRead, routerID)
@@ -143,6 +153,9 @@ func (s *TLSPins) Get(ctx context.Context, routerID uuid.UUID) (*TLSPinView, err
 func (s *TLSPins) Capture(ctx context.Context, routerID uuid.UUID) (*TLSPinView, error) {
 	p, t, r, c, err := s.routerCred(ctx, PermTLSPinCapture, routerID)
 	if err != nil {
+		return nil, err
+	}
+	if err := routerOSOnly(r); err != nil {
 		return nil, err
 	}
 	if r.TunnelAddress == nil || *r.TunnelAddress == "" {

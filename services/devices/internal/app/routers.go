@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -13,12 +14,14 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/apperr"
 	"github.com/hcdestroyer/horus-flow/packages/go/outbox"
 	"github.com/hcdestroyer/horus-flow/packages/go/problem"
+	devapi "github.com/hcdestroyer/horus-flow/services/devices/api"
 	"github.com/hcdestroyer/horus-flow/services/devices/internal/domain"
 )
 
 var (
-	routerCreateFields = []string{"site_id", "name", "display_name", "is_primary", "vendor", "model", "routeros_version", "tags"}
-	routerPatchFields  = []string{"name", "display_name", "model", "routeros_version", "admin_state", "tags"}
+	routerCreateFields = []string{"site_id", "name", "display_name", "is_primary", "vendor", "model", "routeros_version", "tags",
+		"management_address"}
+	routerPatchFields = []string{"name", "display_name", "model", "routeros_version", "admin_state", "tags", "management_address"}
 )
 
 // RouterEventData es el payload horus.events.devices.v1.Router.
@@ -30,7 +33,8 @@ func RouterEventData(r *domain.Router, changed []string) map[string]any {
 		"id": r.ID.String(), "version": r.Version, "site_id": r.SiteID.String(), "name": r.Hostname, "display_name": r.DisplayName,
 		"is_primary": r.IsPrimary, "vendor": r.Vendor, "model": r.Model, "routeros_version": r.RouterOSVersion,
 		"routeros_version_supported": r.RouterOSVersionOK, "admin_state": r.AdminState, "onboarding_state": r.OnboardingState,
-		"tunnel_address": tunnelCIDR(r.TunnelAddress), "tags": r.Tags, "created_at": r.CreatedAt.UTC().Format(outbox.TimeFormat),
+		"tunnel_address": tunnelCIDR(r.TunnelAddress), "connection_mode": connectionModeOf(r),
+		"management_address": tunnelCIDR(r.ManagementAddress), "tags": r.Tags, "created_at": r.CreatedAt.UTC().Format(outbox.TimeFormat),
 		"updated_at": r.UpdatedAt.UTC().Format(outbox.TimeFormat), "deleted_at": tsOrNil(r.DeletedAt), "changed_fields": changed,
 	}
 }
@@ -46,6 +50,50 @@ func tunnelCIDR(a *string) *string {
 	}
 	v := *a + bits
 	return &v
+}
+
+// connectionModeOf: wireguard para los routers anteriores al campo.
+func connectionModeOf(r *domain.Router) string {
+	if r.ConnectionMode == "" {
+		return domain.ConnectionModeFor(r.Vendor)
+	}
+	return r.ConnectionMode
+}
+
+// applyManagementAddress fija la dirección de gestión (solo modo directo).
+// Cambiarla en un router ya verificado lo devuelve a pending_configuration:
+// el colector deja de aceptar sus flujos hasta que el sondeador verifique la
+// credencial SNMP en la dirección nueva.
+func applyManagementAddress(f *fieldErrs, r *domain.Router, fields Fields) {
+	raw, ok := fields["management_address"]
+	if !ok {
+		return
+	}
+	var v *string
+	if json.Unmarshal(raw, &v) != nil {
+		f.add("management_address", "INVALID_TYPE", "Debe ser una IP o null.")
+		return
+	}
+	if v != nil && connectionModeOf(r) != domain.ConnectionDirect {
+		f.add("management_address", "NOT_APPLICABLE", "Solo los routers en modo directo (Huawei) tienen dirección de gestión.")
+		return
+	}
+	var next *string
+	if v != nil {
+		a, err := netip.ParseAddr(strings.TrimSpace(*v))
+		if err != nil || !domain.ValidManagementAddress(a) {
+			f.add("management_address", "INVALID_VALUE", "IP unicast del router tal y como la ve Horus (sin loopback, link-local ni multicast).")
+			return
+		}
+		s := a.Unmap().String()
+		next = &s
+	}
+	if (next == nil) != (r.ManagementAddress == nil) || (next != nil && *next != *r.ManagementAddress) {
+		r.ManagementAddress = next
+		if r.OnboardingState == devapi.OnboardingSNMPVerified || r.OnboardingState == devapi.OnboardingExporting {
+			r.OnboardingState = devapi.OnboardingPending
+		}
+	}
 }
 
 func applyRouter(f *fieldErrs, r *domain.Router, fields Fields, create bool) {
@@ -68,9 +116,13 @@ func applyRouter(f *fieldErrs, r *domain.Router, fields Fields, create bool) {
 	if v, ok := f.str(fields, "model", 120, true); ok {
 		r.Model = v
 	}
-	if v, ok := f.enum(fields, "vendor", []string{"mikrotik"}); ok {
+	if v, ok := f.enum(fields, "vendor", domain.Vendors); ok && create {
 		r.Vendor = v
 	}
+	if create {
+		r.ConnectionMode = domain.ConnectionModeFor(r.Vendor)
+	}
+	applyManagementAddress(f, r, fields)
 	if v, ok := f.enum(fields, "admin_state", domain.AdminStates); ok {
 		r.AdminState = v
 	}
@@ -82,6 +134,10 @@ func applyRouter(f *fieldErrs, r *domain.Router, fields Fields, create bool) {
 		r.IsPrimary = b
 	}
 	if v, ok := f.str(fields, "routeros_version", 32, true); ok {
+		if v != nil && r.Vendor != domain.VendorMikroTik {
+			f.add("routeros_version", "NOT_APPLICABLE", "routeros_version solo aplica a MikroTik.")
+			return
+		}
 		r.RouterOSVersion = v
 		r.RouterOSVersionOK = nil
 		if v != nil {

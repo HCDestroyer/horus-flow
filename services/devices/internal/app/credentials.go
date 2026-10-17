@@ -148,6 +148,11 @@ func (c *Credentials) PutCredential(ctx context.Context, routerID uuid.UUID, kin
 	if err != nil || !siteAllowed(p, PermCredentialsWrite, r.SiteID) {
 		return nil, apperr.NotFound(domain.CodeRouterNotFound)
 	}
+	if dbKind == domain.CredentialRouterOSAPI {
+		if err := routerOSOnly(r); err != nil {
+			return nil, err
+		}
+	}
 	cred, secret, fpChange, err := c.parse(ctx, t, routerID, dbKind, fields)
 	if err != nil {
 		return nil, err

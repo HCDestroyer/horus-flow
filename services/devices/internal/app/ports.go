@@ -26,6 +26,8 @@ var (
 	ErrOverlap        = errors.New("devices: client prefix overlap")
 	ErrRefNotFound    = errors.New("devices: referenced entity not found")
 	ErrVersionChanged = errors.New("devices: version changed")
+	// ErrManagementAddressTaken: otro router verificado usa esa dirección.
+	ErrManagementAddressTaken = errors.New("devices: management address taken")
 )
 
 // ListQuery es un listado keyset.

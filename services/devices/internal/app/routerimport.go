@@ -105,6 +105,9 @@ func (im *Importer) PreviewImport(ctx context.Context, routerID uuid.UUID, accep
 	if err != nil || !siteAllowed(p, "sites.update", r.SiteID) {
 		return nil, apperr.NotFound(domain.CodeRouterNotFound)
 	}
+	if err := routerOSOnly(r); err != nil {
+		return nil, err
+	}
 	if r.TunnelAddress == nil {
 		return nil, apperr.New(apperr.KindBadGateway, domain.CodeRouterUnreachable, "El router aún no tiene túnel con Horus: pegue el script de alta.")
 	}

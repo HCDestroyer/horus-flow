@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/hcdestroyer/horus-flow/services/snmp/internal/adapters/clickhouse"
+	"github.com/hcdestroyer/horus-flow/services/snmp/internal/adapters/snmpclient"
 	"github.com/hcdestroyer/horus-flow/services/snmp/internal/domain"
 )
 
@@ -543,6 +544,8 @@ func (c *Capacity) trafficSplitRange(ctx context.Context, tenant uuid.UUID, site
 type SnippetView struct {
 	RouterID   uuid.UUID `json:"router_id"`
 	RouterName string    `json:"router_name"`
+	// Language del script: routeros (.rsc, netwatch) | vrp (Huawei, NQA).
+	Language string `json:"language"`
 	domain.NetwatchSnippet
 	ProbesFound int     `json:"probes_found"`
 	ProbesError *string `json:"probes_error"`
@@ -567,7 +570,12 @@ func (c *Capacity) NetwatchSnippet(ctx context.Context, tenant uuid.UUID, sites 
 			ups = append(ups, domain.SnippetUplink{Name: u.Name, Label: u.label()})
 		}
 	}
-	v := &SnippetView{RouterID: r.RouterID, RouterName: r.Name, NetwatchSnippet: domain.BuildNetwatchSnippet(r.Name, ups, domain.DefaultInternationalRefs)}
+	v := &SnippetView{RouterID: r.RouterID, RouterName: r.Name, Language: "routeros"}
+	if r.Vendor == snmpclient.VendorHuawei {
+		v.Language, v.NetwatchSnippet = "vrp", domain.BuildNQASnippet(ups, domain.DefaultInternationalRefs)
+	} else {
+		v.NetwatchSnippet = domain.BuildNetwatchSnippet(r.Name, ups, domain.DefaultInternationalRefs)
+	}
 	c.mu.RLock()
 	for _, s := range c.latest {
 		if s.RouterID == routerID {

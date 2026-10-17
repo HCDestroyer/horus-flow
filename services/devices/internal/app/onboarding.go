@@ -52,14 +52,23 @@ func NewOnboarding(store OnboardingStore, sealer *envelope.Sealer, now func() ti
 var (
 	_ devapi.Onboarding           = (*Onboarding)(nil)
 	_ devapi.SNMPCredentialReader = (*Onboarding)(nil)
+	_ devapi.DirectVerifier       = (*Onboarding)(nil)
 )
 
 func routerInfo(r *domain.Router) devapi.RouterInfo {
 	info := devapi.RouterInfo{ID: r.ID, TenantID: r.TenantID, SiteID: r.SiteID, Name: r.Hostname,
-		RouterOSVersion: r.RouterOSVersion, OnboardingState: r.OnboardingState}
+		RouterOSVersion: r.RouterOSVersion, OnboardingState: r.OnboardingState, Vendor: r.Vendor, ConnectionMode: connectionModeOf(r)}
+	if info.Vendor == "" {
+		info.Vendor = domain.VendorMikroTik
+	}
 	if r.TunnelAddress != nil {
 		if a, err := netip.ParseAddr(*r.TunnelAddress); err == nil {
 			info.TunnelAddress = &a
+		}
+	}
+	if r.ManagementAddress != nil {
+		if a, err := netip.ParseAddr(*r.ManagementAddress); err == nil {
+			info.ManagementAddress = &a
 		}
 	}
 	return info
@@ -91,7 +100,8 @@ func (o *Onboarding) ListRouters(ctx context.Context) ([]devapi.RouterInfo, erro
 }
 
 var onboardingRank = map[string]int{
-	devapi.OnboardingPending: 0, devapi.OnboardingKeyReceived: 1, devapi.OnboardingTunnelUp: 2, devapi.OnboardingExporting: 3,
+	devapi.OnboardingPending: 0, devapi.OnboardingKeyReceived: 1, devapi.OnboardingTunnelUp: 2, devapi.OnboardingSNMPVerified: 2,
+	devapi.OnboardingExporting: 3,
 }
 
 // SetTunnel implementa api.Onboarding: proyección de horus.wireguard.peer.*
@@ -108,6 +118,9 @@ func (o *Onboarding) SetTunnel(ctx context.Context, tenant, routerID uuid.UUID, 
 	var changed []string
 	now := o.now().UTC()
 	err := o.store.SetRouterTunnel(ctx, t, routerID, func(r *domain.Router) bool {
+		if connectionModeOf(r) == domain.ConnectionDirect {
+			return false // modo directo: sin túnel WireGuard
+		}
 		addr := u.Address.String()
 		if r.TunnelAddress == nil || *r.TunnelAddress != addr {
 			r.TunnelAddress = &addr
@@ -150,7 +163,8 @@ var flowingStates = map[string]bool{"exporting": true, "lossy": true, "clock_ske
 
 // HandleExporterState proyecta el primer flujo del colector en el router:
 // onboarding_state pasa a exporting (paso 3 del asistente, I1-19). Solo avanza
-// desde tunnel_up o anteriores con túnel asignado; nunca retrocede.
+// desde tunnel_up o anteriores con túnel asignado (o, en modo directo, desde
+// snmp_verified); nunca retrocede.
 func (o *Onboarding) HandleExporterState(ctx context.Context, m *natsx.Message) error {
 	if m.Envelope == nil || m.Envelope.Type != "horus.flows.exporter.state_changed" {
 		return nil
@@ -168,7 +182,14 @@ func (o *Onboarding) HandleExporterState(ctx context.Context, m *natsx.Message) 
 	t := pgdb.TenantID(m.Tenant)
 	now := o.now().UTC()
 	err := o.store.SetRouterTunnel(ctx, t, d.RouterID, func(r *domain.Router) bool {
-		if r.TunnelAddress == nil || r.OnboardingState == devapi.OnboardingExporting {
+		if r.OnboardingState == devapi.OnboardingExporting {
+			return false
+		}
+		if connectionModeOf(r) == domain.ConnectionDirect {
+			if r.ManagementAddress == nil || r.OnboardingState != devapi.OnboardingSNMPVerified {
+				return false
+			}
+		} else if r.TunnelAddress == nil {
 			return false
 		}
 		r.OnboardingState, r.UpdatedAt = devapi.OnboardingExporting, now
@@ -218,6 +239,17 @@ type snmpSecret struct {
 // usuario `horus` del grupo `horus-ro` con contraseñas nuevas; las anteriores
 // quedan invalidadas.
 func (o *Onboarding) IssueCredentials(ctx context.Context, tenant, routerID uuid.UUID) (devapi.OnboardingCredentials, error) {
+	return o.issue(ctx, tenant, routerID, "sha1", true)
+}
+
+// IssueDirectCredentials genera solo la credencial SNMPv3 de un router en
+// modo directo (Huawei VRP: sin API REST): authPriv SHA-256 + AES-128
+// (`authentication-mode sha2-256`, `privacy-mode aes128`).
+func (o *Onboarding) IssueDirectCredentials(ctx context.Context, tenant, routerID uuid.UUID) (devapi.OnboardingCredentials, error) {
+	return o.issue(ctx, tenant, routerID, "sha256", false)
+}
+
+func (o *Onboarding) issue(ctx context.Context, tenant, routerID uuid.UUID, auth string, withAPI bool) (devapi.OnboardingCredentials, error) {
 	t := pgdb.TenantID(tenant)
 	if _, err := o.store.GetRouter(ctx, t, routerID); err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
@@ -228,18 +260,30 @@ func (o *Onboarding) IssueCredentials(ctx context.Context, tenant, routerID uuid
 	var c devapi.OnboardingCredentials
 	var err error
 	suffix := routerID.String()[len(routerID.String())-8:]
-	c.SNMPUser, c.APIUser = "horus-"+suffix, "horus"
-	for _, p := range []*string{&c.SNMPAuthPassword, &c.SNMPPrivPassword, &c.APIPassword} {
+	c.SNMPUser = "horus-" + suffix
+	secrets := []*string{&c.SNMPAuthPassword, &c.SNMPPrivPassword}
+	if withAPI {
+		c.APIUser = "horus"
+		secrets = append(secrets, &c.APIPassword)
+	}
+	for _, p := range secrets {
 		if *p, err = password(24); err != nil {
 			return c, err
 		}
 	}
-	snmp, _ := json.Marshal(snmpSecret{AuthProtocol: "sha1", AuthPassword: c.SNMPAuthPassword, PrivProtocol: "aes128", PrivPassword: c.SNMPPrivPassword})
-	var creds []domain.Credential
-	for _, x := range []struct {
+	snmp, _ := json.Marshal(snmpSecret{AuthProtocol: auth, AuthPassword: c.SNMPAuthPassword, PrivProtocol: "aes128", PrivPassword: c.SNMPPrivPassword})
+	items := []struct {
 		kind, user string
 		secret     []byte
-	}{{domain.CredentialSNMPv3, c.SNMPUser, snmp}, {domain.CredentialRouterOSAPI, c.APIUser, []byte(c.APIPassword)}} {
+	}{{domain.CredentialSNMPv3, c.SNMPUser, snmp}}
+	if withAPI {
+		items = append(items, struct {
+			kind, user string
+			secret     []byte
+		}{domain.CredentialRouterOSAPI, c.APIUser, []byte(c.APIPassword)})
+	}
+	var creds []domain.Credential
+	for _, x := range items {
 		ct, dek, err := o.sealer.Seal(x.secret, CredentialAAD(tenant, routerID, x.kind))
 		if err != nil {
 			return devapi.OnboardingCredentials{}, err
@@ -251,6 +295,39 @@ func (o *Onboarding) IssueCredentials(ctx context.Context, tenant, routerID uuid
 		return devapi.OnboardingCredentials{}, err
 	}
 	return c, nil
+}
+
+// VerifyDirect implementa api.DirectVerifier: el rol snmp respondió con la
+// credencial SNMPv3 de un router en modo directo en addr. Si addr es su
+// dirección de gestión vigente, el router pasa de pending_configuration a
+// snmp_verified (prueba de control: solo entonces el colector acepta sus
+// flujos) y se publica router.updated. Nunca retrocede ni toca un router
+// con túnel.
+func (o *Onboarding) VerifyDirect(ctx context.Context, tenant, routerID uuid.UUID, addr netip.Addr) error {
+	t := pgdb.TenantID(tenant)
+	now := o.now().UTC()
+	err := o.store.SetRouterTunnel(ctx, t, routerID, func(r *domain.Router) bool {
+		if connectionModeOf(r) != domain.ConnectionDirect || r.ManagementAddress == nil || r.OnboardingState != devapi.OnboardingPending {
+			return false
+		}
+		if a, err := netip.ParseAddr(*r.ManagementAddress); err != nil || a != addr.Unmap() {
+			return false
+		}
+		r.OnboardingState, r.UpdatedAt = devapi.OnboardingSNMPVerified, now
+		return true
+	}, func(r *domain.Router) []outbox.Event {
+		tid := t.UUID()
+		return []outbox.Event{{Type: "horus.devices.router.updated", Source: "horus/devices", TenantID: &tid, AggregateType: "router",
+			AggregateID: r.ID, AggregateVersion: r.Version, Actor: outbox.Actor{Type: "service", ID: "svc:snmp"}, OccurredAt: now,
+			Data: RouterEventData(r, []string{"onboarding_state"})}}
+	})
+	switch {
+	case errors.Is(err, domain.ErrNotFound):
+		return devapi.ErrRouterNotFound
+	case errors.Is(err, ErrManagementAddressTaken):
+		return devapi.ErrManagementAddressTaken
+	}
+	return err
 }
 
 // RevealSNMPCredential implementa api.SNMPCredentialReader: descifra la

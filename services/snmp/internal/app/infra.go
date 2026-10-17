@@ -385,6 +385,12 @@ func (i *Infra) RouterSnippet(ctx context.Context, id uuid.UUID, routerID *uuid.
 	if err != nil {
 		return nil, err
 	}
+	if r.ConnectionMode == devapi.ConnectionDirect || (r.Vendor != "" && r.Vendor != devapi.VendorMikroTik) {
+		// El reenvío por la IP de túnel solo existe con el túnel WireGuard de MikroTik (docs/vendors/huawei.md §5).
+		return &SnippetResult{RouterID: r.ID, RouterName: r.Name, Snippet: domain.Snippet{Warnings: []string{
+			"Este router no tiene túnel WireGuard con Horus (fabricante sin WireGuard o modo directo): el reenvío por la IP de " +
+				"túnel no está disponible. Haga el servidor alcanzable por el camino que asegura el operador."}}}, nil
+	}
 	var tunnel netip.Addr
 	if r.TunnelAddress != nil {
 		tunnel = *r.TunnelAddress

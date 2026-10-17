@@ -70,6 +70,11 @@ type routerData struct {
 	AdminState    string    `json:"admin_state"`
 	TunnelAddress *string   `json:"tunnel_address"`
 	DeletedAt     *string   `json:"deleted_at"`
+	// Modo directo (Huawei VRP): dirección de gestión, aceptada como
+	// exportador solo tras la verificación SNMP (snmp_verified/exporting).
+	ConnectionMode    string  `json:"connection_mode"`
+	ManagementAddress *string `json:"management_address"`
+	OnboardingState   string  `json:"onboarding_state"`
 }
 
 type prefixData struct {
@@ -155,6 +160,12 @@ func (p *Projector) Apply(body []byte) (bool, error) {
 				rs.e.TunnelIP = a
 			}
 		}
+		if !rs.e.TunnelIP.IsValid() && d.ConnectionMode == "direct" && d.ManagementAddress != nil &&
+			(d.OnboardingState == "snmp_verified" || d.OnboardingState == "exporting") {
+			if a, err := netip.ParseAddr(strings.Split(*d.ManagementAddress, "/")[0]); err == nil {
+				rs.e.TunnelIP, rs.e.Direct = a.Unmap(), true
+			}
+		}
 		p.routers[d.ID] = rs
 	case "site":
 		var d siteData
@@ -212,9 +223,26 @@ func (p *Projector) Data() Data {
 	defer p.mu.Unlock()
 	d := Data{Tenants: p.base.Tenants, Customers: p.base.Customers}
 	seenRouter := map[uuid.UUID]bool{}
+	// Una dirección de gestión (modo directo) nunca suplanta una IP de túnel
+	// ni a otro exportador directo: ante un choque se queda fuera.
+	tunnels := map[netip.Addr]bool{}
+	directs := map[netip.Addr]int{}
+	for _, rs := range p.routers {
+		if rs.deleted || !rs.e.TunnelIP.IsValid() {
+			continue
+		}
+		if rs.e.Direct {
+			directs[rs.e.TunnelIP]++
+		} else {
+			tunnels[rs.e.TunnelIP] = true
+		}
+	}
 	for _, rs := range p.routers {
 		seenRouter[rs.e.RouterID] = true
 		if rs.deleted || !rs.e.TunnelIP.IsValid() {
+			continue
+		}
+		if rs.e.Direct && (tunnels[rs.e.TunnelIP] || directs[rs.e.TunnelIP] > 1) {
 			continue
 		}
 		e := rs.e

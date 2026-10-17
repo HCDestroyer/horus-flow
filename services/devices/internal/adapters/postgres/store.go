@@ -292,13 +292,13 @@ func (s *Store) DeleteSite(ctx context.Context, t pgdb.TenantID, id uuid.UUID, e
 
 const routerCols = `r.id, r.tenant_id, r.site_id, r.hostname, r.display_name, r.vendor, r.model, r.is_primary, r.admin_state,
 	r.onboarding_state, r.routeros_version, r.routeros_version_detected, r.routeros_version_supported, host(r.tunnel_address),
-	r.mgmt_wireguard_peer_id, r.tags, r.created_at, r.updated_at, r.deleted_at, r.version`
+	r.mgmt_wireguard_peer_id, r.tags, r.created_at, r.updated_at, r.deleted_at, r.version, r.connection_mode, host(r.management_address)`
 
 func scanRouter(row pgx.Row) (*domain.Router, error) {
 	var r domain.Router
 	err := row.Scan(&r.ID, &r.TenantID, &r.SiteID, &r.Hostname, &r.DisplayName, &r.Vendor, &r.Model, &r.IsPrimary, &r.AdminState,
 		&r.OnboardingState, &r.RouterOSVersion, &r.RouterOSVersionDetected, &r.RouterOSVersionOK, &r.TunnelAddress,
-		&r.WireguardPeerID, &r.Tags, &r.CreatedAt, &r.UpdatedAt, &r.DeletedAt, &r.Version)
+		&r.WireguardPeerID, &r.Tags, &r.CreatedAt, &r.UpdatedAt, &r.DeletedAt, &r.Version, &r.ConnectionMode, &r.ManagementAddress)
 	if err != nil {
 		return nil, notFound(err)
 	}
@@ -381,10 +381,21 @@ func routerErr(err error) error {
 		return app.ErrPrimaryExists
 	case code == pgdb.SQLStateUniqueViolation && constraint == "ux_router__tenant_hostname":
 		return app.ErrHostnameTaken
+	case code == pgdb.SQLStateUniqueViolation && constraint == "ux_router__management_address":
+		return app.ErrManagementAddressTaken
 	case code == pgdb.SQLStateForeignKey:
 		return app.ErrRefNotFound
 	}
 	return err
+}
+
+// connectionMode: la columna es NOT NULL; un router sin modo es MikroTik
+// (wireguard), el comportamiento anterior.
+func connectionMode(r *domain.Router) string {
+	if r.ConnectionMode == "" {
+		return domain.ConnectionModeFor(r.Vendor)
+	}
+	return r.ConnectionMode
 }
 
 // CreateRouter implementa app.Store.
@@ -394,10 +405,11 @@ func (s *Store) CreateRouter(ctx context.Context, t pgdb.TenantID, r *domain.Rou
 			return err
 		}
 		_, err := tx.Exec(ctx, `INSERT INTO devices.router (id, tenant_id, site_id, hostname, display_name, vendor, model, is_primary,
-				admin_state, onboarding_state, routeros_version, routeros_version_supported, tags, created_at, updated_at, version)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14, 1)`,
+				admin_state, onboarding_state, routeros_version, routeros_version_supported, tags, created_at, updated_at, version,
+				connection_mode, management_address)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14, 1, $15, $16::inet)`,
 			r.ID, t.UUID(), r.SiteID, r.Hostname, r.DisplayName, r.Vendor, r.Model, r.IsPrimary, r.AdminState, r.OnboardingState,
-			r.RouterOSVersion, r.RouterOSVersionOK, r.Tags, r.CreatedAt)
+			r.RouterOSVersion, r.RouterOSVersionOK, r.Tags, r.CreatedAt, connectionMode(r), r.ManagementAddress)
 		if err != nil {
 			return routerErr(err)
 		}
@@ -409,9 +421,11 @@ func (s *Store) CreateRouter(ctx context.Context, t pgdb.TenantID, r *domain.Rou
 func (s *Store) UpdateRouter(ctx context.Context, t pgdb.TenantID, r *domain.Router, expect int, ev app.Events[domain.Router]) error {
 	return s.db.TenantTx(ctx, t, func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx, `UPDATE devices.router SET hostname = $4, display_name = $5, model = $6, routeros_version = $7,
-				routeros_version_supported = $8, admin_state = $9, tags = $10, updated_at = $11, version = version + 1
+				routeros_version_supported = $8, admin_state = $9, tags = $10, updated_at = $11, management_address = $12::inet,
+				onboarding_state = $13, version = version + 1
 			WHERE tenant_id = $1 AND id = $2 AND version = $3 AND deleted_at IS NULL RETURNING version`,
-			t.UUID(), r.ID, expect, r.Hostname, r.DisplayName, r.Model, r.RouterOSVersion, r.RouterOSVersionOK, r.AdminState, r.Tags, r.UpdatedAt).Scan(&r.Version)
+			t.UUID(), r.ID, expect, r.Hostname, r.DisplayName, r.Model, r.RouterOSVersion, r.RouterOSVersionOK, r.AdminState, r.Tags, r.UpdatedAt,
+			r.ManagementAddress, r.OnboardingState).Scan(&r.Version)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return app.ErrVersionChanged
 		}
