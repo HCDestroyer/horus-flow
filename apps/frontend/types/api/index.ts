@@ -223,3 +223,13 @@ export type InfraSchedulerHealth = Schemas['InfraSchedulerHealth']
 export type InfraRouterSnippet = Schemas['InfraRouterSnippet']
 export type InfraServiceList =
   operations['listInfraServices']['responses'][200]['content']['application/json']
+
+// Reportes (rol reporting, I3): ejecuciones, archivos y programación semanal.
+export type ReportRun = Schemas['ReportRun']
+export type ReportFile = Schemas['ReportFile']
+export type ReportKind = Schemas['ReportKind']
+export type ReportFormat = Schemas['ReportFormat']
+export type ReportStatus = Schemas['ReportStatus']
+export type ReportCreate = Schemas['ReportCreate']
+export type ReportDefinition = Schemas['ReportDefinition']
+export type ReportDefinitionPatch = Schemas['ReportDefinitionPatch']

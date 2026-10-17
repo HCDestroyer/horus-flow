@@ -54,6 +54,7 @@ import {
   rangeMs,
 } from './analytics-meta'
 import { infraServiceRoutes } from './infra-services'
+import { reportRoutes } from './reports'
 import { snmpRoutes } from './snmp'
 
 /**
@@ -1154,6 +1155,7 @@ export function tenantRoute(ctx: TenantRouteContext): Response | undefined {
     playlistRoutes(ctx) ??
     detectionSettingsRoute(ctx) ??
     asnRulesRoute(ctx) ??
+    reportRoutes(ctx) ??
     assistRoute(ctx)
   )
 }

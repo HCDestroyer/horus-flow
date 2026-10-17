@@ -52,7 +52,7 @@ export const NAV_SECTIONS: NavSection[] = [
   { id: 'findings', group: 'security', labelKey: 'nav.items.findings', icon: 'i-lucide-shield-alert', path: 'security/findings', scope: 'tenant', increment: 'I1', permission: 'security.findings.read' },
   { id: 'investigate', group: 'security', labelKey: 'nav.items.investigate', icon: 'i-lucide-search-check', path: 'security/investigate', scope: 'tenant', increment: 'I2', permission: 'security.findings.read' },
   { id: 'alerts', group: 'management', labelKey: 'nav.items.alerts', icon: 'i-lucide-bell', path: 'alerts', scope: 'tenant', increment: 'I3', permission: 'alerts.read' },
-  { id: 'reports', group: 'management', labelKey: 'nav.items.reports', icon: 'i-lucide-file-chart-column', path: 'reports', scope: 'tenant', increment: 'I3', permission: 'reports.read' },
+  { id: 'reports', group: 'management', labelKey: 'nav.items.reports', icon: 'i-lucide-file-chart-column', path: 'reports', scope: 'tenant', increment: 'I1', permission: 'reports.read' },
   { id: 'users', group: 'admin', labelKey: 'nav.items.users', icon: 'i-lucide-user-cog', path: 'admin/users', scope: 'tenant', increment: 'I0', permission: 'users.read' },
   { id: 'roles', group: 'admin', labelKey: 'nav.items.roles', icon: 'i-lucide-key-round', path: 'admin/roles', scope: 'tenant', increment: 'I1', permission: 'roles.read' },
   { id: 'kiosks', group: 'admin', labelKey: 'nav.items.kiosks', icon: 'i-lucide-monitor', path: 'admin/kiosks', scope: 'tenant', increment: 'I1', permission: 'kiosks.manage' },

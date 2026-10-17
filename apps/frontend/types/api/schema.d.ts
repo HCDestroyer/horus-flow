@@ -2531,6 +2531,125 @@ export interface paths {
         patch: operations["updatePlaylist"];
         trace?: never;
     };
+    "/report-definitions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Programación de los reportes del ISP (se crea con los valores por defecto si falta)
+         * @description Por defecto el reporte semanal de seguridad está habilitado los lunes a las 07:00 (zona del ISP), en PDF y CSV.
+         */
+        get: operations["listReportDefinitions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/report-definitions/{definition_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                definition_id: components["parameters"]["ReportDefinitionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Cambia la programación (habilitado, día y hora, zona, formatos, destinatarios del aviso)
+         * @description JSON Merge Patch con `If-Match`. `recipients`: hasta 20 correos que reciben un aviso con el enlace a la
+         *     página de reportes de la consola (sin adjunto) si la instalación tiene SMTP (`email_available`).
+         */
+        patch: operations["updateReportDefinition"];
+        trace?: never;
+    };
+    "/reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ejecuciones de reportes del ISP (programadas y a petición), más recientes primero
+         * @description Reporte semanal de seguridad por ISP (I3, rol `reporting`). Los reportes cubren todo el ISP: el permiso
+         *     debe tener alcance de todo el ISP (un permiso limitado a nodos → 403).
+         */
+        get: operations["listReports"];
+        put?: never;
+        /**
+         * Genera un reporte a petición (asíncrono → 202 + Location de la ejecución)
+         * @description Sin `from`/`to`: la última semana ISO completa (lunes 00:00 → lunes 00:00) en la zona horaria del ISP.
+         *     Con rango: como mucho 31 días, sin empezar en el futuro (`to` se recorta a ahora). Idempotency-Key
+         *     obligatorio: la misma clave del mismo usuario devuelve la misma ejecución (`Idempotency-Replayed: true`).
+         *     Máximo 10 por usuario y hora (`429 RATE_LIMITED` con `Retry-After`). El aviso de "reporte listo" llega
+         *     por WebSocket (topic `me`, `horus.reporting.report.completed|failed`).
+         */
+        post: operations["createReport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reports/{report_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                report_id: components["parameters"]["ReportId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Estado de una ejecución (queued, running, completed, failed) y sus archivos
+         * @description Otro ISP o inexistente → `404 REPORT_NOT_FOUND`.
+         */
+        get: operations["getReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reports/{report_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                report_id: components["parameters"]["ReportId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Descarga el archivo de un reporte (PDF o zip de CSV), autenticada y auditada
+         * @description Solo por la API (docs/api.md §2.10 bis; sin URLs firmadas): `Content-Disposition: attachment`,
+         *     `Cache-Control: no-store`, `Repr-Digest` con el SHA-256. Cada descarga queda en la auditoría
+         *     (`reports.download`). Otro ISP → `404`; aún no generado → `409 REPORT_NOT_READY`; archivos borrados por
+         *     la retención → `409 REPORT_EXPIRED`. CSV: zip con un archivo por sección, UTF-8 con BOM, separador `;`.
+         */
+        get: operations["downloadReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/reputation/allowlist": {
         parameters: {
             query?: never;
@@ -3678,7 +3797,7 @@ export interface components {
          * @description Código estable UPPER_SNAKE_CASE (= `ErrorInfo.reason` de gRPC). **Enum abierto**: se listan los
          *     conocidos en v0; el cliente trata un código desconocido según el `status` HTTP.
          */
-        ErrorCode: ("VALIDATION_FAILED" | "UNAUTHENTICATED" | "TOKEN_EXPIRED" | "SESSION_REVOKED" | "PERMISSION_DENIED" | "ORIGIN_NOT_ALLOWED" | "MFA_REQUIRED" | "MFA_ENROLLMENT_REQUIRED" | "REAUTH_REQUIRED" | "NOT_FOUND" | "ALREADY_EXISTS" | "CONFLICT" | "PRECONDITION_FAILED" | "PRECONDITION_REQUIRED" | "IDEMPOTENCY_KEY_REUSED" | "IDEMPOTENCY_IN_PROGRESS" | "RATE_LIMITED" | "TENANT_RATE_LIMITED" | "INTERNAL" | "SERVICE_UNAVAILABLE" | "ANALYTICS_UNAVAILABLE" | "TIMEOUT" | "INVALID_CREDENTIALS" | "INVALID_CURSOR" | "INVALID_FILTER" | "INVALID_SORT_FIELD" | "TIME_RANGE_TOO_LARGE" | "TENANT_NOT_FOUND" | "TENANT_MISMATCH" | "TENANT_SUSPENDED" | "TOKEN_SCOPE_INVALID" | "KIOSK_FORBIDDEN" | "ROUTER_NOT_FOUND" | "ROUTER_PRIMARY_EXISTS" | "ROUTEROS_VERSION_UNSUPPORTED" | "ROUTER_UNREACHABLE" | "ROUTER_TLS_FINGERPRINT_CHANGED" | "SITE_NOT_FOUND" | "SITE_NOT_EMPTY" | "PEER_ALREADY_REVOKED" | "WIREGUARD_IP_POOL_EXHAUSTED" | "WIREGUARD_PUBLIC_KEY_IN_USE" | "ENROLLMENT_TOKEN_INVALID" | "CUSTOMER_NOT_FOUND" | "CUSTOMER_KIND_LOCKED" | "CLIENT_PREFIX_OVERLAP" | "CLIENT_PREFIX_NOT_FOUND" | "ASN_RULE_NOT_FOUND" | "FINDING_NOT_FOUND" | "FINDING_STATE_INVALID" | "DASHBOARD_NOT_FOUND" | "DASHBOARD_READ_ONLY" | "WIDGET_TYPE_NOT_ALLOWED" | "WIDGET_TYPE_UNKNOWN" | "WIDGET_CONFIG_INVALID" | "KIOSK_ENROLLMENT_CODE_INVALID" | "NOTIFICATION_CHANNEL_NOT_FOUND" | "NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE" | "NOTIFICATION_CHANNEL_UNREACHABLE" | "NOTIFICATION_CHANNEL_AUTH_FAILED" | "NOTIFICATION_CHANNEL_CREDENTIALS_MISSING" | "LIBRENMS_CHANNEL_REQUIRED" | "LIBRENMS_NOT_PROVISIONED" | "LIBRENMS_DEVICE_NOT_OWNED" | "NOTIFICATION_TELEGRAM_WEBHOOK_ACTIVE" | "NOTIFICATION_TELEGRAM_LINK_CODE_INVALID" | "NOTIFICATION_TELEGRAM_BOT_NOT_CONFIGURED" | "STORAGE_TARGET_UNREACHABLE" | "REPUTATION_SOURCE_NOT_FOUND" | "REPUTATION_SOURCE_READ_ONLY" | "REPUTATION_SOURCE_URL_NOT_ALLOWED" | "ROLE_NOT_FOUND" | "ROLE_READ_ONLY" | "ROLE_IN_USE" | "LAST_PLATFORM_ADMIN" | "WIREGUARD_HUB_NOT_FOUND" | "WIREGUARD_POOL_NOT_FOUND" | "WIREGUARD_POOL_OVERLAP" | "WIREGUARD_POOL_INVALID" | "WIREGUARD_POOL_IN_USE" | "REMOTE_DESTINATION_NOT_FOUND" | "REMOTE_DESTINATION_NOT_READY" | "REMOTE_DESTINATION_SYNC_RUNNING") | string;
+        ErrorCode: ("VALIDATION_FAILED" | "UNAUTHENTICATED" | "TOKEN_EXPIRED" | "SESSION_REVOKED" | "PERMISSION_DENIED" | "ORIGIN_NOT_ALLOWED" | "MFA_REQUIRED" | "MFA_ENROLLMENT_REQUIRED" | "REAUTH_REQUIRED" | "NOT_FOUND" | "ALREADY_EXISTS" | "CONFLICT" | "PRECONDITION_FAILED" | "PRECONDITION_REQUIRED" | "IDEMPOTENCY_KEY_REUSED" | "IDEMPOTENCY_IN_PROGRESS" | "RATE_LIMITED" | "TENANT_RATE_LIMITED" | "INTERNAL" | "SERVICE_UNAVAILABLE" | "ANALYTICS_UNAVAILABLE" | "TIMEOUT" | "INVALID_CREDENTIALS" | "INVALID_CURSOR" | "INVALID_FILTER" | "INVALID_SORT_FIELD" | "TIME_RANGE_TOO_LARGE" | "TENANT_NOT_FOUND" | "TENANT_MISMATCH" | "TENANT_SUSPENDED" | "TOKEN_SCOPE_INVALID" | "KIOSK_FORBIDDEN" | "ROUTER_NOT_FOUND" | "ROUTER_PRIMARY_EXISTS" | "ROUTEROS_VERSION_UNSUPPORTED" | "ROUTER_UNREACHABLE" | "ROUTER_TLS_FINGERPRINT_CHANGED" | "SITE_NOT_FOUND" | "SITE_NOT_EMPTY" | "PEER_ALREADY_REVOKED" | "WIREGUARD_IP_POOL_EXHAUSTED" | "WIREGUARD_PUBLIC_KEY_IN_USE" | "ENROLLMENT_TOKEN_INVALID" | "CUSTOMER_NOT_FOUND" | "CUSTOMER_KIND_LOCKED" | "CLIENT_PREFIX_OVERLAP" | "CLIENT_PREFIX_NOT_FOUND" | "ASN_RULE_NOT_FOUND" | "FINDING_NOT_FOUND" | "FINDING_STATE_INVALID" | "REPORT_NOT_FOUND" | "REPORT_NOT_READY" | "REPORT_EXPIRED" | "REPORT_DEFINITION_NOT_FOUND" | "DASHBOARD_NOT_FOUND" | "DASHBOARD_READ_ONLY" | "WIDGET_TYPE_NOT_ALLOWED" | "WIDGET_TYPE_UNKNOWN" | "WIDGET_CONFIG_INVALID" | "KIOSK_ENROLLMENT_CODE_INVALID" | "NOTIFICATION_CHANNEL_NOT_FOUND" | "NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE" | "NOTIFICATION_CHANNEL_UNREACHABLE" | "NOTIFICATION_CHANNEL_AUTH_FAILED" | "NOTIFICATION_CHANNEL_CREDENTIALS_MISSING" | "LIBRENMS_CHANNEL_REQUIRED" | "LIBRENMS_NOT_PROVISIONED" | "LIBRENMS_DEVICE_NOT_OWNED" | "NOTIFICATION_TELEGRAM_WEBHOOK_ACTIVE" | "NOTIFICATION_TELEGRAM_LINK_CODE_INVALID" | "NOTIFICATION_TELEGRAM_BOT_NOT_CONFIGURED" | "STORAGE_TARGET_UNREACHABLE" | "REPUTATION_SOURCE_NOT_FOUND" | "REPUTATION_SOURCE_READ_ONLY" | "REPUTATION_SOURCE_URL_NOT_ALLOWED" | "ROLE_NOT_FOUND" | "ROLE_READ_ONLY" | "ROLE_IN_USE" | "LAST_PLATFORM_ADMIN" | "WIREGUARD_HUB_NOT_FOUND" | "WIREGUARD_POOL_NOT_FOUND" | "WIREGUARD_POOL_OVERLAP" | "WIREGUARD_POOL_INVALID" | "WIREGUARD_POOL_IN_USE" | "REMOTE_DESTINATION_NOT_FOUND" | "REMOTE_DESTINATION_NOT_READY" | "REMOTE_DESTINATION_SYNC_RUNNING") | string;
         /** @description Evidencia agregada según kind (nunca payloads; nunca la IP del cliente). Campos conocidos; otros permitidos. */
         Evidence: {
             bps_peak?: number;
@@ -4805,6 +4924,110 @@ export interface components {
              */
             stage: "connect" | "host_key" | "auth" | "write" | "done";
         };
+        ReportCreate: {
+            /** @description Por defecto PDF y CSV. */
+            formats?: components["schemas"]["ReportFormat"][];
+            /**
+             * Format: date-time
+             * @description Inicio (con `to`); omitidos = última semana ISO completa.
+             */
+            from?: string;
+            kind?: components["schemas"]["ReportKind"];
+            /** Format: date-time */
+            to?: string;
+        };
+        ReportDefinition: {
+            created_at: components["schemas"]["Timestamp"];
+            /** @description La instalación tiene SMTP para el aviso a los destinatarios. */
+            email_available: boolean;
+            enabled: boolean;
+            formats: components["schemas"]["ReportFormat"][];
+            hour: number;
+            id: components["schemas"]["Uuid"];
+            kind: components["schemas"]["ReportKind"];
+            minute: number;
+            /**
+             * Format: date-time
+             * @description Próxima ejecución (null si está deshabilitada).
+             */
+            next_run_at: string | null;
+            recipients: string[];
+            tenant_id: components["schemas"]["Uuid"];
+            /** @description Zona IANA (por defecto la del ISP). */
+            timezone: string;
+            updated_at: components["schemas"]["Timestamp"];
+            version: components["schemas"]["Version"];
+            /** @description Día ISO de la ejecución: 1 = lunes … 7 = domingo. */
+            weekday: number;
+        };
+        ReportDefinitionPatch: {
+            enabled?: boolean;
+            formats?: components["schemas"]["ReportFormat"][];
+            hour?: number;
+            minute?: number;
+            recipients?: string[];
+            timezone?: string;
+            weekday?: number;
+        };
+        ReportFile: {
+            /** @description Ruta de descarga (`/api/v1/reports/{id}/download?format=pdf`), autenticada. */
+            download_path: string;
+            format: components["schemas"]["ReportFormat"];
+            sha256: string;
+            /** Format: int64 */
+            size_bytes: number;
+        };
+        /** @enum {string} */
+        ReportFormat: "pdf" | "csv";
+        /**
+         * @description Tipo de reporte (enum abierto; I3 trae el semanal de seguridad).
+         * @enum {string}
+         */
+        ReportKind: "security_weekly";
+        ReportRun: {
+            /** Format: date-time */
+            completed_at: string | null;
+            created_at: components["schemas"]["Timestamp"];
+            /**
+             * Format: uuid
+             * @description Usuario que lo pidió; null = programado.
+             */
+            created_by: string | null;
+            /**
+             * Format: uuid
+             * @description Definición que la programó; null = a petición.
+             */
+            definition_id: string | null;
+            /** @description Motivo legible del fallo (sin detalles internos). */
+            error: string | null;
+            /** @description Los archivos ya se borraron por la retención. */
+            expired: boolean;
+            /**
+             * Format: date-time
+             * @description Cuándo se borran los archivos (retención, 365 días por defecto).
+             */
+            expires_at: string | null;
+            files: components["schemas"]["ReportFile"][];
+            formats: components["schemas"]["ReportFormat"][];
+            id: components["schemas"]["Uuid"];
+            /** @description Semana ISO del inicio del periodo. */
+            iso_week: string;
+            kind: components["schemas"]["ReportKind"];
+            period_from: components["schemas"]["Timestamp"];
+            /** @description Fin excluyente del periodo `[period_from, period_to)`. */
+            period_to: components["schemas"]["Timestamp"];
+            scheduled: boolean;
+            /** Format: int64 */
+            size_bytes: number;
+            /** Format: date-time */
+            started_at: string | null;
+            status: components["schemas"]["ReportStatus"];
+            tenant_id: components["schemas"]["Uuid"];
+            /** @description Zona IANA con la que se calculó y se muestra el periodo. */
+            timezone: string;
+        };
+        /** @enum {string} */
+        ReportStatus: "queued" | "running" | "completed" | "failed";
         /**
          * @description Igual que `reputation_category` de ClickHouse (C3).
          * @enum {string}
@@ -5758,6 +5981,8 @@ export interface components {
         Q: string;
         /** @description Atajo relativo; el servidor lo resuelve y lo devuelve en `meta`. */
         Range: components["schemas"]["RelativeRange"];
+        ReportDefinitionId: components["schemas"]["Uuid"];
+        ReportId: components["schemas"]["Uuid"];
         ReputationSourceId: components["schemas"]["Uuid"];
         RouterId: components["schemas"]["Uuid"];
         SiteId: components["schemas"]["Uuid"];
@@ -10313,6 +10538,191 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
             412: components["responses"]["PreconditionFailed"];
+        };
+    };
+    listReportDefinitions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Definiciones. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ReportDefinition"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    updateReportDefinition: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description ETag (`"<version>"`) del recurso; falta → 428, no coincide → 412 con `current`. */
+                "If-Match": components["parameters"]["IfMatch"];
+            };
+            path: {
+                definition_id: components["parameters"]["ReportDefinitionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportDefinitionPatch"];
+                "application/merge-patch+json": components["schemas"]["ReportDefinitionPatch"];
+            };
+        };
+        responses: {
+            /** @description Actualizada. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportDefinition"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["UnprocessableEntity"];
+            428: components["responses"]["PreconditionRequired"];
+        };
+    };
+    listReports: {
+        parameters: {
+            query?: {
+                /** @description Cursor opaco (`page.next_cursor`); ligado a filtros, orden y `tid`. Ajeno → `400 INVALID_CURSOR`. */
+                cursor?: components["parameters"]["Cursor"];
+                kind?: components["schemas"]["ReportKind"];
+                /** @description Tamaño de página (1–200, por defecto 50). Fuera de rango → 400. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Página de ejecuciones. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ReportRun"][];
+                        page: components["schemas"]["PageInfo"];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createReport: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUID generado por el cliente; obligatorio en acciones con efecto externo (falta → 428). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKeyRequired"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportCreate"];
+            };
+        };
+        responses: {
+            /** @description Encolado (o ya existente con la misma Idempotency-Key). */
+            202: {
+                headers: {
+                    Location: components["headers"]["Location"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportRun"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["UnprocessableEntity"];
+            428: components["responses"]["PreconditionRequired"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getReport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                report_id: components["parameters"]["ReportId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ejecución. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportRun"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    downloadReport: {
+        parameters: {
+            query?: {
+                format?: components["schemas"]["ReportFormat"];
+            };
+            header?: never;
+            path: {
+                report_id: components["parameters"]["ReportId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Archivo. */
+            200: {
+                headers: {
+                    /** @description `attachment; filename="horus-seguridad-2026-W41-0192f0c4.pdf"` */
+                    "Content-Disposition"?: string;
+                    /** @description SHA-256 del archivo (RFC 9530). */
+                    "Repr-Digest"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/pdf": string;
+                    "application/zip": string;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     listAllowlist: {

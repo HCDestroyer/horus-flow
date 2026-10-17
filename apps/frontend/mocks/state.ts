@@ -13,6 +13,7 @@ import type {
   Role,
 } from '~~/types/api'
 import type { LibreNmsTenantState } from './librenms'
+import type { ReportsState } from './reports'
 import type { StoredDestination } from './remote-destinations'
 import type { WireguardHubState } from './wireguard'
 
@@ -178,6 +179,8 @@ export const mockState = {
   snmpPolls: new Map<string, number>(),
   /** Servicios de infraestructura por ISP (`mocks/infra-services.ts`). */
   infraServices: new Map<string, InfraService[]>(),
+  /** Reportes y su programación por ISP (`mocks/reports.ts`). */
+  reports: new Map<string, ReportsState>(),
 }
 
 export function resetMockState() {
@@ -204,6 +207,7 @@ export function resetMockState() {
   mockState.remoteDestinations = null
   mockState.snmpPolls.clear()
   mockState.infraServices.clear()
+  mockState.reports.clear()
 }
 
 /** Hallazgo cerrado por una acción del usuario: sale de los agregados de "abiertos". */

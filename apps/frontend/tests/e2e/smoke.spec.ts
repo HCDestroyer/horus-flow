@@ -109,10 +109,10 @@ test.describe('layout @i0', () => {
     await loginAsAdmin(page)
     const nav = page.getByTestId('main-nav')
     await expect(nav.getByRole('link', { name: 'Hallazgos' })).toBeVisible()
-    for (const name of ['Investigar IP', 'Alertas', 'Reportes', 'Auditoría']) {
+    for (const name of ['Investigar IP', 'Alertas', 'Auditoría']) {
       await expect(nav.getByRole('link', { name })).toHaveCount(0)
     }
-    for (const path of ['security/investigate', 'alerts', 'reports', 'admin/audit']) {
+    for (const path of ['security/investigate', 'alerts', 'admin/audit']) {
       await page.goto(`/t/fibra-norte/${path}`)
       await expect(page.getByTestId('error-page')).toContainText('No encontrado')
     }
