@@ -34,6 +34,7 @@ const ICON = {
   email: 'i-lucide-mail',
   telegram: 'i-lucide-send',
   librenms: 'i-lucide-server-cog',
+  webhook: 'i-lucide-webhook',
 } as const
 
 function subscriptionSummary(c: NotificationChannel) {
@@ -89,6 +90,7 @@ function destination(c: NotificationChannel) {
   const cfg = c.config as Record<string, unknown>
   if (c.kind === 'email') return ((cfg.recipients as string[]) ?? []).join(', ')
   if (c.kind === 'telegram') return t('channels.chat', { id: String(cfg.chat_id ?? '') })
+  if (c.kind === 'webhook') return String(cfg.url ?? '')
   return `${cfg.base_url} · ${cfg.username}`
 }
 

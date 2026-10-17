@@ -2,7 +2,21 @@
 
 Decisión en [ADR-0030](../adr/0030-integracion-de-ecosistema-sin-dependencias.md).
 
-Versión del contrato: **1.0.0-propuesta** · Estado: pendiente de implementación en ambos lados.
+Versión del contrato: **1.1.0-propuesta** · Estado: lado Horus implementado (H1–H6, §5.2); lado ArgosISP pendiente.
+
+Cambios de 1.1.0 (menor, aditivos salvo la URL del receptor, que aún no usaba nadie):
+
+- §2.3: la URL del receptor de Horus lleva el id opaco del conector,
+  `POST /api/v1/integrations/argosisp/webhook/{connector_id}` (Horus es multi-ISP: el id identifica qué secreto
+  verifica la firma; no es el id del ISP). Horus muestra la URL completa junto con el secreto.
+- §3.1: `external` añade `display_name` y `plan`; la respuesta añade `meta.omitted` (bloques no devueltos y motivo:
+  `permission`, `unavailable`, `not_requested`, `not_configured`) y `meta.at`; `customer` añade `alias_source`.
+- §3.2: cada elemento puede traer `error` (`not_found`) y, por servicio, `addresses` (IPs sumadas); la respuesta
+  añade `meta`. Límite del periodo: 400 días.
+- §3.4: `data.finding` incluye `id`, `state`, `opened_at` y `reopened`; `data.router` y `data.service` incluyen
+  `previous_status`. Los ids de `external` solo si el cliente tiene identidad vigente; `customer.address` y
+  `customer.alias` solo si el canal tiene `include_personal_data`. Prueba de conexión: `event: "ping"`; envío de
+  prueba: `event: "test"`.
 
 ## Gobierno: fuente de verdad compartida
 
@@ -90,7 +104,8 @@ Compatibilidad: si el anterior no existe (404), Horus usa los endpoints actuales
 
 ### 2.3 Webhooks Argos → Horus
 
-`POST https://<horus>/api/v1/integrations/argosisp/webhook` (firmado, §1.3). Eventos:
+`POST https://<horus>/api/v1/integrations/argosisp/webhook/{connector_id}` (firmado, §1.3; la URL completa la muestra
+Horus junto con el secreto). Eventos:
 
 | `evento` | Payload mínimo | Efecto en Horus |
 | --- | --- | --- |
@@ -190,9 +205,9 @@ a Horus; Horus no decide cortes (solo `evaluarEstadoServicio` decide el estado d
 
 | # | Solicitud | Contrato | Estado |
 | --- | --- | --- | --- |
-| H1 | Tokens de integración `hf_pat_` con plantilla "ArgosISP" (código de conexión) | §1.1 | solicitado |
-| H2 | `POST /api/v1/integrations/ip-lookup` (consulta 360) | §3.1 | solicitado |
-| H3 | `POST /api/v1/integrations/consumption` por IP y por servicio de Argos | §3.2 | solicitado |
-| H4 | `GET /routers/status` e `/infra-services` aceptan `hf_pat_` | §3.3 | solicitado |
-| H5 | Canal `webhook` firmado con los eventos de §3.4 | §3.4 | solicitado |
-| H6 | Receptor `POST /api/v1/integrations/argosisp/webhook` y conector de identidad con vigencia | §2.2–§2.4 | solicitado |
+| H1 | Tokens de integración `hf_pat_` con plantilla "ArgosISP" (código de conexión) | §1.1 | hecho (rama `claude/ecosistema-argos`) |
+| H2 | `POST /api/v1/integrations/ip-lookup` (consulta 360) | §3.1 | hecho (rama `claude/ecosistema-argos`) |
+| H3 | `POST /api/v1/integrations/consumption` por IP y por servicio de Argos | §3.2 | hecho (rama `claude/ecosistema-argos`) |
+| H4 | `GET /routers/status` e `/infra-services` aceptan `hf_pat_` | §3.3 | hecho (rama `claude/ecosistema-argos`) |
+| H5 | Canal `webhook` firmado con los eventos de §3.4 | §3.4 | hecho (rama `claude/ecosistema-argos`) |
+| H6 | Receptor `POST /api/v1/integrations/argosisp/webhook/{connector_id}` y conector de identidad con vigencia | §2.2–§2.4 | hecho (rama `claude/ecosistema-argos`) |

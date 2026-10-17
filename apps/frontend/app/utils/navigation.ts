@@ -60,6 +60,7 @@ export const NAV_SECTIONS: NavSection[] = [
   { id: 'librenms', group: 'admin', labelKey: 'nav.items.librenms', icon: 'i-lucide-server-cog', path: 'admin/librenms', scope: 'tenant', increment: 'I1', permission: 'alerts.read' },
   { id: 'detection', group: 'admin', labelKey: 'nav.items.detection', icon: 'i-lucide-scan-search', path: 'admin/detection', scope: 'tenant', increment: 'I1', permission: 'settings.read' },
   { id: 'asn', group: 'admin', labelKey: 'nav.items.asn', icon: 'i-lucide-network', path: 'admin/asn', scope: 'tenant', increment: 'I1', permission: 'settings.read' },
+  { id: 'integrations', group: 'admin', labelKey: 'nav.items.integrations', icon: 'i-lucide-plug-zap', path: 'admin/integrations', scope: 'tenant', increment: 'I1', permission: 'settings.read' },
   { id: 'ai', group: 'admin', labelKey: 'nav.items.ai', icon: 'i-lucide-sparkles', path: 'admin/ai', scope: 'tenant', increment: 'I1', permission: 'settings.read' },
   { id: 'audit', group: 'admin', labelKey: 'nav.items.audit', icon: 'i-lucide-scroll-text', path: 'admin/audit', scope: 'tenant', increment: 'I2', permission: 'audit.read' },
   { id: 'platform-isps', group: 'platform', labelKey: 'nav.items.platformIsps', icon: 'i-lucide-building-2', path: '/platform/isps', scope: 'platform', increment: 'I0', permission: 'platform.tenants.read' },

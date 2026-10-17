@@ -9,6 +9,22 @@
 Esqueleto creado en I0-01: todavía sin código. Este README se ampliará con variables de entorno,
 métricas y eventos publicados/consumidos cuando el módulo tenga implementación.
 
+## Integraciones de ecosistema (ADR-0030; contrato `docs/integrations/argosisp.md`)
+
+- **Conector ArgosISP** (`internal/app/integrations.go`, `internal/adapters/argos`): URL base y token `atk_…`
+  cifrado con la KEK de devices; resolución por lotes `POST /integraciones/horus/resolver` con respaldo
+  `GET /ip/:ip` + `/clientes/:id` + `/servicios/:id` si Argos responde 404; ≤ 10 req/s por ISP. Identidad con
+  vigencia en `devices.customer_external_identity`; alias `argosisp` que nunca pisa uno `manual`. Disparadores:
+  cliente descubierto (cola en proceso), webhook firmado de Argos (`argosisp_webhook_inbox`, deduplicado), barrido
+  de identidades de más de 6 h (lotes de 500) y "Actualizar desde ArgosISP". Argos caído: identidad `stale`,
+  espera exponencial hasta 15 min; nunca bloquea la ingesta ni la detección.
+- **Consulta 360** (`POST /integrations/ip-lookup`) y **consumo por lotes** (`POST /integrations/consumption`)
+  sobre los contratos en proceso `analytics.Consumption`, `detection.CustomerFindings` y `snmp.RouterStatus`.
+- Provee `devices.CustomerDirectory` (cliente e ids de ArgosISP para el canal webhook de alerts).
+- Variables: `HORUS_INTEGRATIONS_SWEEP_EVERY` (10 min), `HORUS_INTEGRATIONS_ARGOS_RPS` (10),
+  `HORUS_INTEGRATIONS_ALLOW_PRIVATE` (`false`; solo laboratorios: http, privadas y loopback), `HORUS_PUBLIC_BASE_URL`
+  (URL del webhook que se copia en Argos).
+
 ## ASN propios (Administración › ASN propios)
 
 - `GET/POST /asn-rules`, `PATCH/DELETE /asn-rules/{id}` (If-Match) y `GET /asn-rules/catalog`: reglas ASN → nombre,

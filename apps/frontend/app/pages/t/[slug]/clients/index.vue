@@ -161,6 +161,11 @@ const securityOptions = computed(() => [
   { label: t('clients.filters.withFindings'), value: 'with_findings' },
   { label: t('securityState.infected'), value: 'infected' },
 ])
+// Consulta 360 por IP (ADR-0030): la IP queda en el estado de la página y en el cuerpo.
+const ip360Open = ref(false)
+const ip360Address = computed(() =>
+  /^[0-9a-fA-F:.]+$/.test(searchInput.value.trim()) ? searchInput.value.trim() : null,
+)
 </script>
 
 <template>
@@ -225,12 +230,17 @@ const securityOptions = computed(() => [
           <USelect v-model="security" :items="securityOptions" class="w-full lg:w-44" />
         </UFormField>
       </div>
-      <UButton
-        type="submit"
-        icon="i-lucide-search"
-        :label="t('clients.searchSubmit')"
-        class="self-start lg:self-end"
-      />
+      <div class="flex flex-wrap gap-2 self-start lg:self-end">
+        <UButton type="submit" icon="i-lucide-search" :label="t('clients.searchSubmit')" />
+        <UButton
+          color="neutral"
+          variant="outline"
+          icon="i-lucide-radar"
+          :label="t('clients.ip360.open')"
+          data-testid="open-ip360"
+          @click="ip360Open = true"
+        />
+      </div>
     </form>
 
     <UAlert
@@ -397,5 +407,6 @@ const securityOptions = computed(() => [
       <UIcon name="i-lucide-shield-check" class="size-4 shrink-0" aria-hidden="true" />
       {{ t('clients.privacy') }}
     </p>
+    <Ip360Modal v-model:open="ip360Open" :address="ip360Address" />
   </AppPage>
 </template>

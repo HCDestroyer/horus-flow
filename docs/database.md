@@ -187,6 +187,8 @@ erDiagram
 | `totp_secret`, `recovery_code`, `password_reset` | igual que en Sprint 0 | — | físico |
 | `audit_log` | `id`, `tenant_id NULL` (NULL = acción de plataforma), `occurred_at`, `actor_type`, `actor_id`, `acting_as_platform_admin bool`, `action`, `resource_type`, `resource_id`, `result`, `ip`, `trace_id`, `changes jsonb`, `prev_hash`, `hash` | particionada por mes; solo `INSERT`; RLS: un usuario de tenant ve solo su tenant, el superadmin todo | nunca se modifica; particiones fuera de retención se exportan al almacenamiento local de archivo ([`storage.md`](storage.md)) y se hace `DETACH`+`DROP` |
 
+| `api_token` | API tokens de integración `hf_pat_` (ADR-0030, H1): `id`, `tenant_id`, `user_id` (creador), `name`, `prefix`, `token_hash bytea` (SHA-256), `permissions text[]` (claves; los alcances salen de las asignaciones del creador en cada canje), `template` (`argosisp`), `created_at`, `expires_at` (≤ 1 año), `last_used_at`, `last_used_ip`, `revoked_at`, `revoked_by` | `ux(token_hash)`; `ix(tenant_id, created_at desc)`; CHECK de caducidad; RLS por tenant; la búsqueda por hash del canje usa `auth_platform` | lógico (revocado se conserva); se borra con el tenant |
+
 Notas:
 
 - **Superadmin** (`is_platform_admin`): gestiona tenants, ve todos, asigna miembros. Sus lecturas
@@ -333,6 +335,25 @@ Eventos que publica `devices` sobre clientes (subjects `horus.devices.customer.<
 contrato a cargo del Agente C): `discovered`, `updated` (alias/notas), `kind_changed`, `inactive`,
 `reactivated`, `reset`, `purged`. **Se eliminan** `customer.assigned` / `customer.unassigned`.
 
+#### 2.3.4 bis Identidad externa con vigencia (ADR-0030, contrato [`integrations/argosisp.md`](integrations/argosisp.md) §2.4)
+
+La identidad de Horus sigue siendo `(tenant, realm, ip)`; la de ArgosISP es una anotación **con vigencia**,
+porque en PPPoE la misma IP cambia de dueño (un hallazgo de ayer se atribuye a quien tenía la IP ayer).
+Migración `20261017170000_devices_external_identity.sql`; RLS fail-closed; todo se purga con el cliente
+(`ON DELETE CASCADE`).
+
+| Tabla | Campos clave | Constraints / índices |
+|-------|--------------|-----------------------|
+| `customer_external_identity` | `id`, `tenant_id`, `customer_id`, `system` (`argosisp`), `external_customer_id`, `external_service_id`, `display_name` (dato personal), `code`, `service_state`, `plan`, `valid_from`, `valid_to` (NULL = vigente), `synced_at`, `stale` | `ux(tenant_id, customer_id, system) WHERE valid_to IS NULL` (una vigente); `ix(tenant_id, customer_id, valid_from desc)`; `ix(tenant_id, system, external_service_id, valid_from)` (consumo por servicio); CHECK `valid_to ≥ valid_from` |
+| `customer_external_sync` | `tenant_id`, `customer_id`, `system`, `checked_at`, `status` (`found`/`not_found`/`error`) | PK compuesta; `ix(tenant_id, system, checked_at)` (barrido de identidades de más de 6 h) |
+| `integration_argosisp` | Conector por ISP: `id` (opaco, en la URL del webhook), `tenant_id` único, `base_url`, `enabled`, `token_ciphertext`/`token_dek` (token `atk_` cifrado), `secret_ciphertext`/`secret_dek` y el anterior con `prev_secret_until` (secreto del webhook, 24 h de gracia al rotar), `kek_id`, `resolver` (`batch`/`fallback`), `last_sync_at`, `last_sync_status` (`ok`/`degraded`/`failing`), `last_error`, `failures`, `backoff_until` (espera exponencial ≤ 15 min), `version` | `ux(tenant_id)`; el receptor de webhooks lo busca por `id` con `devices_platform` |
+| `argosisp_webhook_inbox` | `tenant_id`, `webhook_id` (`X-Webhook-Id`), `event`, `payload jsonb`, `received_at`, `processed_at`, `attempts` | PK `(tenant_id, webhook_id)` = deduplicación; pendientes por `received_at`; se purga a los 7 días |
+
+`customer.alias_source` admite `argosisp`: con identidad vigente y `alias_source <> 'manual'` el alias toma
+`display_name`; sin identidad vigente se quita un alias que vino de ArgosISP. Un alias `manual` nunca se toca.
+El cambio de alias emite `horus.devices.customer.updated` (`changed_fields = ["alias"]`, actor
+`system:devices-argosisp`).
+
 #### 2.3.5 Qué desaparece respecto del Sprint 0
 
 - `client_ip_assignment`, `customer_service_link`, `cpe`, `external_ref`, plan contratado, datos
@@ -367,7 +388,10 @@ Igual que en Sprint 0 con `tenant_id` en todas las tablas y RLS. Cambios:
   (cambios de tipo, si el tenant quiere notificarlos).
 - `alert.resource_type` incluye `customer`; el `fingerprint` incluye `tenant_id`.
 - `notification_channel` es por tenant (cada ISP sus destinatarios); el superadmin tiene canales de
-  plataforma (`tenant_id NULL`) para alertas de salud de Horus.
+  plataforma (`tenant_id NULL`) para alertas de salud de Horus. `kind` admite `webhook` (ADR-0030,
+  migración `20261017180000_alerts_webhook_channel.sql`): `config = {url, timeout_seconds}` y el
+  secreto HMAC en `secret_ciphertext` como las demás credenciales; el cuerpo firmado de cada entrega
+  se guarda en `notification_delivery.message.webhook` (sin IP ni alias salvo `include_personal_data`).
 
 ### 2.6 `traffic` (catálogo de clasificación)
 

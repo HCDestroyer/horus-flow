@@ -55,6 +55,7 @@ import {
   rangeMs,
 } from './analytics-meta'
 import { infraServiceRoutes } from './infra-services'
+import { integrationsRoute } from './integrations'
 import { reportRoutes } from './reports'
 import { snmpRoutes } from './snmp'
 
@@ -1154,6 +1155,7 @@ function classificationRoute(ctx: TenantRouteContext): Response | undefined {
 
 export function tenantRoute(ctx: TenantRouteContext): Response | undefined {
   return (
+    integrationsRoute(ctx) ??
     customerRoutes(ctx) ??
     findingRoutes(ctx) ??
     deviceRoutes(ctx) ??

@@ -121,6 +121,68 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api-token-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Plantillas de permisos para API tokens (p. ej. ArgosISP) */
+        get: operations["listApiTokenTemplates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api-tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** API tokens de integración del ISP (sin su valor) */
+        get: operations["listApiTokens"];
+        put?: never;
+        /**
+         * Crea un API token `hf_pat_…` (el valor se muestra una sola vez)
+         * @description Token opaco `hf_pat_<32 B base62>` ligado a este ISP y a quien lo crea (docs/security.md §5.4). Lleva un
+         *     subconjunto de los permisos **actuales** del creador (por `template` o `permissions`); en cada uso el
+         *     gateway lo canjea por un access token de 2 min con la intersección entre esos permisos y los que el creador
+         *     tenga en ese momento (con sus alcances por nodo). Caducidad por defecto 1 año (máximo 1 año). Solo se guarda
+         *     su SHA-256. Plantilla `argosisp` = código de conexión para ArgosISP (docs/integrations/argosisp.md §1.1).
+         *     Un API token no puede crear ni gestionar API tokens.
+         */
+        post: operations["createApiToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api-tokens/{api_token_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                api_token_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoca un API token (deja de servir de inmediato) */
+        delete: operations["revokeApiToken"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/asn-rules": {
         parameters: {
             query?: never;
@@ -686,6 +748,54 @@ export interface paths {
         head?: never;
         /** Alias y notas (datos personales; auditado sin el valor) */
         patch: operations["updateCustomer"];
+        trace?: never;
+    };
+    "/customers/{customer_id}/external-identity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                customer_id: components["parameters"]["CustomerId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Identidad del cliente en sistemas externos (ArgosISP) con sus periodos de vigencia
+         * @description La identidad de Horus sigue siendo `(tenant, realm, ip)` (ADR-0018); la externa es una anotación con vigencia
+         *     (`valid_from`/`valid_to`), porque en PPPoE una IP cambia de dueño (ADR-0030). `current` es la vigente;
+         *     `stale = true` si ArgosISP no respondió en la última resolución (se conserva el último dato). Dato personal.
+         */
+        get: operations["getCustomerExternalIdentity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/customers/{customer_id}/external-identity/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                customer_id: components["parameters"]["CustomerId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Actualiza ahora la identidad del cliente desde ArgosISP ("Actualizar desde ArgosISP")
+         * @description Resuelve la IP del cliente en ArgosISP (síncrono, timeout 10 s). Si ArgosISP no responde, conserva el último
+         *     dato marcado `stale` y responde 200 igualmente con `stale = true`. Un alias puesto a mano nunca se sobrescribe.
+         *     409 `INTEGRATION_NOT_CONFIGURED` si el conector no está activo.
+         */
+        post: operations["refreshCustomerExternalIdentity"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/customers/{customer_id}/findings": {
@@ -1285,6 +1395,142 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/integrations/argosisp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Conector ArgosISP del ISP (sin credenciales) */
+        get: operations["getArgosIntegration"];
+        /**
+         * Configura el conector ArgosISP (URL, token `atk_…` de solo escritura, activo)
+         * @description `token` es de solo escritura: se guarda cifrado con la KEK de devices y nunca se devuelve (`has_token`).
+         *     Omitirlo conserva el guardado. La URL base incluye `/api/v1` de ArgosISP; https obligatorio (destinos
+         *     privados o http solo con HORUS_INTEGRATIONS_ALLOW_PRIVATE=true, laboratorios). La primera configuración genera
+         *     el secreto del webhook (mostrarlo con `POST …/webhook-secret`).
+         */
+        put: operations["putArgosIntegration"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/argosisp/connection-test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Prueba la conexión con ArgosISP (síncrona, timeout 10 s, no cambia nada) */
+        post: operations["testArgosIntegration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/argosisp/webhook-secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Genera un secreto nuevo para el webhook de ArgosISP y lo muestra una vez (con la URL a copiar en Argos)
+         * @description El secreto lo genera Horus (receptor) y se copia en ArgosISP junto con `webhook_url` (contrato §1.3). El
+         *     anterior sigue valiendo 24 h para que dé tiempo a cambiarlo en Argos.
+         */
+        post: operations["rotateArgosWebhookSecret"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/argosisp/webhook/{connector_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Identificador opaco del conector (no es el ISP); forma parte de la URL que se copia en ArgosISP. */
+                connector_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Receptor de webhooks firmados de ArgosISP
+         * @description Contrato docs/integrations/argosisp.md §1.3 y §2.3. Firma obligatoria (`X-Webhook-Signature: v1=…` con el
+         *     secreto del conector), marca de tiempo con ≤ 5 min de desfase y deduplicación por `X-Webhook-Id`. Responde
+         *     202 rápido y procesa en segundo plano (re-resolución de las IPs o servicios afectados). Firma inválida → 401;
+         *     conector desconocido o apagado → 404 (sin distinguir). Eventos desconocidos se aceptan y se ignoran.
+         */
+        post: operations["receiveArgosWebhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/consumption": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Consumo por lotes (≤ 500) por IP o por servicio de ArgosISP
+         * @description Contrato docs/integrations/argosisp.md §3.2. `external_service_id` usa las vigencias de la identidad externa:
+         *     suma todas las IPs que tuvo el servicio en el periodo, cada una solo dentro de su vigencia (precisión de 1 h en
+         *     los bordes). Sin conector ArgosISP activo solo se acepta `address`. Días en UTC. Un elemento sin datos o sin
+         *     cliente devuelve ceros y `error` (`not_found`); el lote no falla por un elemento. Acceso auditado.
+         */
+        post: operations["getIntegrationConsumption"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/ip-lookup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Consulta 360 de una IP de cliente (identidad, consumo, salud y seguridad) con la IP en el cuerpo
+         * @description Contrato docs/integrations/argosisp.md §3.1. La IP viaja en el cuerpo, nunca en la URL. `at` fija el instante
+         *     de la identidad externa (quién tenía la IP entonces; por defecto ahora) y el final de las ventanas de consumo.
+         *     Cada bloque exige además su permiso: `consumption` → `traffic.customer.read`, `health` → `snmp.read`,
+         *     `security` → `security.findings.read`; sin él, o si el módulo que lo calcula no está en el proceso, el bloque
+         *     es `null` y `meta.omitted` dice por qué. Si la IP coincide con clientes de varios realms, se devuelve el visto
+         *     más recientemente. Acceso auditado (dato personal). Lo usan la consola y ArgosISP con su código de conexión.
+         */
+        post: operations["lookupIpIntegration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/kiosk/config": {
         parameters: {
             query?: never;
@@ -1755,6 +2001,8 @@ export interface paths {
          *     - `librenms` (D17): `password` obligatoria salvo que se envíe `api_token`; `api_token` opcional
          *       (cabecera `X-Auth-Token` de la API de LibreNMS). Reemplaza el conjunto completo: lo no enviado se borra.
          *     - `email`: usa el SMTP de la instalación (HORUS_SMTP_*); no tiene secretos por canal (`422`).
+         *     - `webhook`: `webhook_secret` obligatorio (lo genera el receptor; sin él la entrega falla con
+         *       `missing_credentials`).
          */
         put: operations["putNotificationChannelCredentials"];
         post?: never;
@@ -3362,6 +3610,110 @@ export interface components {
             step: number | null;
             to: components["schemas"]["Timestamp"];
         };
+        ApiToken: {
+            active: boolean;
+            created_at: components["schemas"]["Timestamp"];
+            expires_at: components["schemas"]["Timestamp"];
+            id: components["schemas"]["Uuid"];
+            last_used_at: components["schemas"]["Timestamp"] | null;
+            /** @description IP del último canje (resolución ~2 min). */
+            last_used_ip: string | null;
+            name: string;
+            permissions: string[];
+            /** @description Primeros caracteres del token (hf_pat_XXXX) para reconocerlo. */
+            prefix: string;
+            revoked_at: components["schemas"]["Timestamp"] | null;
+            template: string | null;
+            /** @description Quien lo creó (el token actúa con sus permisos actuales ∩ los del token). */
+            user_id: components["schemas"]["Uuid"];
+        };
+        ApiTokenInput: {
+            /** @description Caducidad (≥ 1 h, ≤ 1 año). Por defecto, dentro de un año. */
+            expires_at?: components["schemas"]["Timestamp"] | null;
+            /** @example ArgosISP */
+            name: string;
+            /** @description Claves de permiso de tenant que el creador tiene ahora (nunca `api_tokens.manage`). */
+            permissions?: string[];
+            /**
+             * @description Plantilla de permisos. Si también llega `permissions`, mandan estos.
+             * @enum {string|null}
+             */
+            template?: "argosisp" | null;
+        };
+        ApiTokenIssued: components["schemas"]["ApiToken"] & {
+            /** @description Valor del token. Solo en esta respuesta. */
+            token: string;
+        };
+        ApiTokenTemplate: {
+            description: string;
+            /** @example argosisp */
+            key: string;
+            /** @example ArgosISP */
+            name: string;
+            permissions: string[];
+        };
+        ArgosConnectionTest: {
+            error: string | null;
+            /** @enum {string|null} */
+            error_code: "auth_failed" | "forbidden" | "timeout" | "connect_failed" | "tls_invalid" | "unexpected_response" | "not_allowed" | null;
+            latency_ms: number | null;
+            ok: boolean;
+            /** @enum {string|null} */
+            resolver: "batch" | "fallback" | null;
+            tested_at: components["schemas"]["Timestamp"];
+        };
+        ArgosIntegration: {
+            /** @example https://argos.isp.example/api/v1 */
+            base_url: string | null;
+            configured: boolean;
+            enabled: boolean;
+            has_token: boolean;
+            has_webhook_secret: boolean;
+            /** @description Id del conector (parte de webhook_url); null si nunca se configuró. */
+            id: components["schemas"]["Uuid"] | null;
+            /** @description Identidades vigentes. */
+            identities: number;
+            last_error: string | null;
+            last_sync_at: components["schemas"]["Timestamp"] | null;
+            /** @enum {string|null} */
+            last_sync_status: "ok" | "degraded" | "failing" | null;
+            /**
+             * @description batch = POST /integraciones/horus/resolver; fallback = GET /ip/:ip.
+             * @enum {string|null}
+             */
+            resolver?: "batch" | "fallback" | null;
+            stale_identities: number;
+            version: number;
+            /** @description URL a copiar en ArgosISP (con el secreto). */
+            webhook_url: string | null;
+        };
+        ArgosIntegrationInput: {
+            /** Format: uri */
+            base_url: string;
+            enabled: boolean;
+            /** @description Token atk_… de ArgosISP (solo escritura). */
+            token?: string;
+        };
+        ArgosWebhookEvent: {
+            /**
+             * @example asignacion.cambiada
+             * @example sesion.iniciada
+             * @example sesion.terminada
+             * @example cliente.actualizado
+             * @example servicio.estado_cambiado
+             */
+            evento: string;
+            id: string;
+            ocurrido_en?: string;
+            payload: {
+                [key: string]: unknown;
+            };
+        };
+        ArgosWebhookSecret: {
+            /** @description Solo en esta respuesta. */
+            webhook_secret: string;
+            webhook_url: string;
+        };
         AsnInfo: {
             /** Format: int64 */
             asn: number;
@@ -3564,6 +3916,10 @@ export interface components {
             /** @example get_finding */
             name: string;
         };
+        ByteCounters: {
+            down_bytes: number;
+            up_bytes: number;
+        };
         /** @enum {string} */
         CapabilityState: "ok" | "degraded" | "stale" | "unavailable";
         /**
@@ -3648,11 +4004,49 @@ export interface components {
              */
             error?: string | null;
             /** @description Sin valor si `ok`. Enum abierto. */
-            error_code?: ("dns_failed" | "connect_failed" | "tls_invalid" | "auth_failed" | "forbidden" | "timeout" | "unexpected_response" | "missing_credentials" | "chat_not_found" | "bot_not_member" | "bot_cannot_post") | null;
+            error_code?: ("dns_failed" | "connect_failed" | "tls_invalid" | "auth_failed" | "forbidden" | "timeout" | "unexpected_response" | "missing_credentials" | "chat_not_found" | "bot_not_member" | "bot_cannot_post" | "not_allowed") | null;
             latency_ms?: number | null;
             ok: boolean;
             /** @description librenms: versión que informa la API, si la expone. */
             remote_version?: string | null;
+        };
+        ConsumptionRequest: {
+            from: components["schemas"]["Timestamp"];
+            /**
+             * @default total
+             * @enum {string}
+             */
+            granularity?: "day" | "total";
+            items: {
+                address?: components["schemas"]["IpAddress"];
+                external_service_id?: number;
+            }[];
+            to: components["schemas"]["Timestamp"];
+        };
+        ConsumptionResponse: {
+            items: {
+                address: string | null;
+                /** @description Solo por servicio — IPs sumadas (dato personal). */
+                addresses?: string[];
+                down_bytes: number;
+                /** @enum {string} */
+                error?: "not_found" | "invalid";
+                external_service_id: number | null;
+                /** @description Solo con granularity=day (días UTC). */
+                series: {
+                    /** Format: date */
+                    day: string;
+                    down_bytes: number;
+                    up_bytes: number;
+                }[];
+                up_bytes: number;
+            }[];
+            meta: {
+                from: components["schemas"]["Timestamp"];
+                /** @enum {string} */
+                granularity: "day" | "total";
+                to: components["schemas"]["Timestamp"];
+            };
         };
         CredentialStatus: {
             configured: boolean;
@@ -3670,8 +4064,11 @@ export interface components {
             address: components["schemas"]["IpAddress"];
             /** @description Dato personal. */
             alias: string | null;
-            /** @enum {string|null} */
-            alias_source: "manual" | "routeros_ppp" | null;
+            /**
+             * @description argosisp = nombre del cliente en ArgosISP (nunca pisa uno manual).
+             * @enum {string|null}
+             */
+            alias_source: "manual" | "routeros_ppp" | "argosisp" | null;
             client_prefix_id: components["schemas"]["Uuid"] | null;
             /** @description Última probabilidad comercial del scoring (I2). */
             commercial_score?: number | null;
@@ -3714,6 +4111,15 @@ export interface components {
         CustomerDetail: components["schemas"]["Customer"] & {
             /** @description Dato personal. */
             notes?: string | null;
+        };
+        CustomerExternalIdentity: {
+            connector_enabled: boolean;
+            current: components["schemas"]["ExternalRef"] | null;
+            customer_id: components["schemas"]["Uuid"];
+            history: components["schemas"]["ExternalIdentityPeriod"][];
+            /** @enum {string|null} */
+            last_check_status: "found" | "not_found" | "error" | null;
+            last_checked_at: components["schemas"]["Timestamp"] | null;
         };
         /**
          * @description Tipo de cliente (enum abierto). Por defecto `residential` (D1).
@@ -3894,7 +4300,7 @@ export interface components {
          * @description Código estable UPPER_SNAKE_CASE (= `ErrorInfo.reason` de gRPC). **Enum abierto**: se listan los
          *     conocidos en v0; el cliente trata un código desconocido según el `status` HTTP.
          */
-        ErrorCode: ("VALIDATION_FAILED" | "UNAUTHENTICATED" | "TOKEN_EXPIRED" | "SESSION_REVOKED" | "PERMISSION_DENIED" | "ORIGIN_NOT_ALLOWED" | "MFA_REQUIRED" | "MFA_ENROLLMENT_REQUIRED" | "REAUTH_REQUIRED" | "NOT_FOUND" | "ALREADY_EXISTS" | "CONFLICT" | "PRECONDITION_FAILED" | "PRECONDITION_REQUIRED" | "IDEMPOTENCY_KEY_REUSED" | "IDEMPOTENCY_IN_PROGRESS" | "RATE_LIMITED" | "TENANT_RATE_LIMITED" | "INTERNAL" | "SERVICE_UNAVAILABLE" | "ANALYTICS_UNAVAILABLE" | "TIMEOUT" | "INVALID_CREDENTIALS" | "INVALID_CURSOR" | "INVALID_FILTER" | "INVALID_SORT_FIELD" | "TIME_RANGE_TOO_LARGE" | "TENANT_NOT_FOUND" | "TENANT_MISMATCH" | "TENANT_SUSPENDED" | "TOKEN_SCOPE_INVALID" | "KIOSK_FORBIDDEN" | "ROUTER_NOT_FOUND" | "ROUTER_PRIMARY_EXISTS" | "ROUTEROS_VERSION_UNSUPPORTED" | "ROUTER_UNREACHABLE" | "ROUTER_TLS_FINGERPRINT_CHANGED" | "SITE_NOT_FOUND" | "SITE_NOT_EMPTY" | "PEER_ALREADY_REVOKED" | "WIREGUARD_IP_POOL_EXHAUSTED" | "WIREGUARD_PUBLIC_KEY_IN_USE" | "ENROLLMENT_TOKEN_INVALID" | "CUSTOMER_NOT_FOUND" | "CUSTOMER_KIND_LOCKED" | "CLIENT_PREFIX_OVERLAP" | "CLIENT_PREFIX_NOT_FOUND" | "ASN_RULE_NOT_FOUND" | "FINDING_NOT_FOUND" | "FINDING_STATE_INVALID" | "REPORT_NOT_FOUND" | "REPORT_NOT_READY" | "REPORT_EXPIRED" | "REPORT_DEFINITION_NOT_FOUND" | "DASHBOARD_NOT_FOUND" | "DASHBOARD_READ_ONLY" | "WIDGET_TYPE_NOT_ALLOWED" | "WIDGET_TYPE_UNKNOWN" | "WIDGET_CONFIG_INVALID" | "KIOSK_ENROLLMENT_CODE_INVALID" | "NOTIFICATION_CHANNEL_NOT_FOUND" | "NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE" | "NOTIFICATION_CHANNEL_UNREACHABLE" | "NOTIFICATION_CHANNEL_AUTH_FAILED" | "NOTIFICATION_CHANNEL_CREDENTIALS_MISSING" | "LIBRENMS_CHANNEL_REQUIRED" | "LIBRENMS_NOT_PROVISIONED" | "LIBRENMS_DEVICE_NOT_OWNED" | "NOTIFICATION_TELEGRAM_WEBHOOK_ACTIVE" | "NOTIFICATION_TELEGRAM_LINK_CODE_INVALID" | "NOTIFICATION_TELEGRAM_BOT_NOT_CONFIGURED" | "STORAGE_TARGET_UNREACHABLE" | "REPUTATION_SOURCE_NOT_FOUND" | "REPUTATION_SOURCE_READ_ONLY" | "REPUTATION_SOURCE_URL_NOT_ALLOWED" | "ROLE_NOT_FOUND" | "ROLE_READ_ONLY" | "ROLE_IN_USE" | "LAST_PLATFORM_ADMIN" | "WIREGUARD_HUB_NOT_FOUND" | "WIREGUARD_POOL_NOT_FOUND" | "WIREGUARD_POOL_OVERLAP" | "WIREGUARD_POOL_INVALID" | "WIREGUARD_POOL_IN_USE" | "REMOTE_DESTINATION_NOT_FOUND" | "REMOTE_DESTINATION_NOT_READY" | "REMOTE_DESTINATION_SYNC_RUNNING") | string;
+        ErrorCode: ("VALIDATION_FAILED" | "UNAUTHENTICATED" | "TOKEN_EXPIRED" | "SESSION_REVOKED" | "PERMISSION_DENIED" | "ORIGIN_NOT_ALLOWED" | "MFA_REQUIRED" | "MFA_ENROLLMENT_REQUIRED" | "REAUTH_REQUIRED" | "NOT_FOUND" | "ALREADY_EXISTS" | "CONFLICT" | "PRECONDITION_FAILED" | "PRECONDITION_REQUIRED" | "IDEMPOTENCY_KEY_REUSED" | "IDEMPOTENCY_IN_PROGRESS" | "RATE_LIMITED" | "TENANT_RATE_LIMITED" | "INTERNAL" | "SERVICE_UNAVAILABLE" | "ANALYTICS_UNAVAILABLE" | "TIMEOUT" | "INVALID_CREDENTIALS" | "INVALID_CURSOR" | "INVALID_FILTER" | "INVALID_SORT_FIELD" | "TIME_RANGE_TOO_LARGE" | "TENANT_NOT_FOUND" | "TENANT_MISMATCH" | "TENANT_SUSPENDED" | "TOKEN_SCOPE_INVALID" | "KIOSK_FORBIDDEN" | "ROUTER_NOT_FOUND" | "ROUTER_PRIMARY_EXISTS" | "ROUTEROS_VERSION_UNSUPPORTED" | "ROUTER_UNREACHABLE" | "ROUTER_TLS_FINGERPRINT_CHANGED" | "SITE_NOT_FOUND" | "SITE_NOT_EMPTY" | "PEER_ALREADY_REVOKED" | "WIREGUARD_IP_POOL_EXHAUSTED" | "WIREGUARD_PUBLIC_KEY_IN_USE" | "ENROLLMENT_TOKEN_INVALID" | "CUSTOMER_NOT_FOUND" | "CUSTOMER_KIND_LOCKED" | "CLIENT_PREFIX_OVERLAP" | "CLIENT_PREFIX_NOT_FOUND" | "ASN_RULE_NOT_FOUND" | "FINDING_NOT_FOUND" | "FINDING_STATE_INVALID" | "REPORT_NOT_FOUND" | "REPORT_NOT_READY" | "REPORT_EXPIRED" | "REPORT_DEFINITION_NOT_FOUND" | "DASHBOARD_NOT_FOUND" | "DASHBOARD_READ_ONLY" | "WIDGET_TYPE_NOT_ALLOWED" | "WIDGET_TYPE_UNKNOWN" | "WIDGET_CONFIG_INVALID" | "KIOSK_ENROLLMENT_CODE_INVALID" | "NOTIFICATION_CHANNEL_NOT_FOUND" | "NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE" | "NOTIFICATION_CHANNEL_UNREACHABLE" | "NOTIFICATION_CHANNEL_AUTH_FAILED" | "NOTIFICATION_CHANNEL_CREDENTIALS_MISSING" | "LIBRENMS_CHANNEL_REQUIRED" | "LIBRENMS_NOT_PROVISIONED" | "LIBRENMS_DEVICE_NOT_OWNED" | "NOTIFICATION_TELEGRAM_WEBHOOK_ACTIVE" | "NOTIFICATION_TELEGRAM_LINK_CODE_INVALID" | "NOTIFICATION_TELEGRAM_BOT_NOT_CONFIGURED" | "STORAGE_TARGET_UNREACHABLE" | "REPUTATION_SOURCE_NOT_FOUND" | "REPUTATION_SOURCE_READ_ONLY" | "REPUTATION_SOURCE_URL_NOT_ALLOWED" | "ROLE_NOT_FOUND" | "ROLE_READ_ONLY" | "ROLE_IN_USE" | "LAST_PLATFORM_ADMIN" | "WIREGUARD_HUB_NOT_FOUND" | "WIREGUARD_POOL_NOT_FOUND" | "WIREGUARD_POOL_OVERLAP" | "WIREGUARD_POOL_INVALID" | "WIREGUARD_POOL_IN_USE" | "REMOTE_DESTINATION_NOT_FOUND" | "REMOTE_DESTINATION_NOT_READY" | "REMOTE_DESTINATION_SYNC_RUNNING" | "API_TOKEN_NOT_FOUND" | "INTEGRATION_NOT_CONFIGURED" | "INTEGRATION_UNAVAILABLE") | string;
         /** @description Evidencia agregada según kind (nunca payloads; nunca la IP del cliente). Campos conocidos; otros permitidos. */
         Evidence: {
             bps_peak?: number;
@@ -3930,6 +4336,41 @@ export interface components {
             upload_ratio?: number;
         } & {
             [key: string]: unknown;
+        };
+        ExternalIdentityPeriod: {
+            code: string | null;
+            display_name: string | null;
+            external_customer_id: number | null;
+            external_service_id: number | null;
+            id: components["schemas"]["Uuid"];
+            plan: string | null;
+            service_state: string | null;
+            stale: boolean;
+            synced_at: components["schemas"]["Timestamp"];
+            /** @enum {string} */
+            system: "argosisp";
+            valid_from: components["schemas"]["Timestamp"];
+            /** @description null = vigente. */
+            valid_to: components["schemas"]["Timestamp"] | null;
+        };
+        /** @description Identidad del cliente en un sistema externo vigente en el instante consultado (contrato ArgosISP §3.1). */
+        ExternalRef: {
+            /** @example C-000455 */
+            code: string | null;
+            /** @description Id del cliente en ArgosISP. */
+            customer_id: number | null;
+            /** @description Nombre en ArgosISP (dato personal). */
+            display_name: string | null;
+            plan: string | null;
+            /** @description Id del servicio en ArgosISP. */
+            service_id: number | null;
+            /** @description activo, limitado, suspendido o retirado (enum abierto de ArgosISP). */
+            service_state: string | null;
+            /** @description ArgosISP no respondió en la última resolución; se muestra el último dato conocido. */
+            stale: boolean;
+            synced_at: components["schemas"]["Timestamp"];
+            /** @enum {string} */
+            system: "argosisp";
         };
         FieldError: {
             /**
@@ -4285,6 +4726,81 @@ export interface components {
          * @example 100.64.12.34
          */
         IpAddress: string;
+        IpLookupRequest: {
+            address: components["schemas"]["IpAddress"];
+            /** @description Instante de la consulta (por defecto ahora). */
+            at?: components["schemas"]["Timestamp"];
+            /** @description Bloques opcionales (por defecto los tres). */
+            include?: ("consumption" | "health" | "security")[];
+        };
+        IpLookupResponse: {
+            consumption: {
+                last_7d: components["schemas"]["ByteCounters"];
+                last_24h: components["schemas"]["ByteCounters"];
+                last_30d: components["schemas"]["ByteCounters"];
+                /** @description Pico de bajada en buckets de 5 min. */
+                peak_down_bps_24h: number;
+                top_services_7d: {
+                    bytes: number;
+                    name: string;
+                }[];
+            } | null;
+            customer: {
+                address: components["schemas"]["IpAddress"];
+                alias: string | null;
+                /** @enum {string|null} */
+                alias_source: "manual" | "routeros_ppp" | "argosisp" | null;
+                first_seen: components["schemas"]["Timestamp"];
+                id: components["schemas"]["Uuid"];
+                kind: components["schemas"]["CustomerKind"];
+                /** @enum {string} */
+                kind_source: "default" | "scoring" | "manual";
+                last_seen: components["schemas"]["Timestamp"];
+                site: {
+                    id: components["schemas"]["Uuid"];
+                    name: string | null;
+                };
+                /** @enum {string} */
+                status: "active" | "inactive";
+            };
+            external: components["schemas"]["ExternalRef"] | null;
+            health: {
+                exporter: {
+                    last_flow_at: components["schemas"]["Timestamp"] | null;
+                    /** @description FlowExporterState del router principal del nodo. */
+                    status: string | null;
+                };
+                last_seen_minutes: number;
+                router: {
+                    id: components["schemas"]["Uuid"];
+                    name: string;
+                    since: components["schemas"]["Timestamp"] | null;
+                    /** @description online, warning, critical, degraded, offline o unknown. */
+                    status: string;
+                } | null;
+            } | null;
+            meta: {
+                at: components["schemas"]["Timestamp"];
+                omitted: {
+                    /** @enum {string} */
+                    reason: "permission" | "unavailable" | "not_requested" | "not_configured";
+                    /** @enum {string} */
+                    section: "external" | "consumption" | "health" | "security";
+                }[];
+            };
+            security: {
+                findings: {
+                    id: components["schemas"]["Uuid"];
+                    kind: string;
+                    opened_at: components["schemas"]["Timestamp"];
+                    severity: string;
+                    state?: string;
+                    summary: string;
+                }[];
+                open_findings: number;
+                state: components["schemas"]["SecurityState"];
+            } | null;
+        };
         KindChange: {
             actor_id: components["schemas"]["Uuid"] | null;
             changed_at: components["schemas"]["Timestamp"];
@@ -4615,7 +5131,7 @@ export interface components {
          * @description Grupo de tipos de evento (ver NotificationEventType). Enum abierto.
          * @enum {string}
          */
-        NotificationCategory: "security" | "routers" | "infrastructure" | "exporter_tunnel";
+        NotificationCategory: "security" | "routers" | "infrastructure" | "exporter_tunnel" | "security_updates";
         NotificationChannel: components["schemas"]["TenantScopedResource"] & components["schemas"]["NotificationChannelInput"] & {
             has_credentials: boolean;
             last_delivery_at: components["schemas"]["Timestamp"] | null;
@@ -4631,9 +5147,11 @@ export interface components {
             /** @description librenms: contraseña del usuario. */
             password?: string;
             telegram_bot_token?: string;
+            /** @description webhook: secreto HMAC que genera el receptor. */
+            webhook_secret?: string;
         };
         NotificationChannelInput: {
-            config: components["schemas"]["EmailChannelConfig"] | components["schemas"]["TelegramChannelConfig"] | components["schemas"]["LibreNmsChannelConfig"];
+            config: components["schemas"]["EmailChannelConfig"] | components["schemas"]["TelegramChannelConfig"] | components["schemas"]["LibreNmsChannelConfig"] | components["schemas"]["WebhookChannelConfig"];
             /** @default true */
             enabled?: boolean;
             /**
@@ -4646,13 +5164,14 @@ export interface components {
             subscription: components["schemas"]["ChannelSubscription"];
         };
         /**
-         * @description `email`, `telegram` y `librenms` (D17, por API) disponibles. Enum abierto (después: webhook, whatsapp,
-         *     sms); un `kind` conocido por el contrato pero aún no implementado → `422 NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE`.
+         * @description `email`, `telegram`, `librenms` (D17, por API) y `webhook` (POST JSON firmado con HMAC-SHA256, ADR-0030;
+         *     contrato docs/integrations/argosisp.md §1.3 y §3.4) disponibles. Enum abierto (después: whatsapp, sms); un
+         *     `kind` conocido por el contrato pero aún no implementado → `422 NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE`.
          * @enum {string}
          */
-        NotificationChannelKind: "email" | "telegram" | "librenms";
+        NotificationChannelKind: "email" | "telegram" | "librenms" | "webhook";
         NotificationChannelPatch: {
-            config?: components["schemas"]["EmailChannelConfig"] | components["schemas"]["TelegramChannelConfig"] | components["schemas"]["LibreNmsChannelConfig"];
+            config?: components["schemas"]["EmailChannelConfig"] | components["schemas"]["TelegramChannelConfig"] | components["schemas"]["LibreNmsChannelConfig"] | components["schemas"]["WebhookChannelConfig"];
             enabled?: boolean;
             include_personal_data?: boolean;
             name?: string;
@@ -4682,6 +5201,7 @@ export interface components {
         /**
          * @description Tipos de evento a los que se suscribe un canal (enum abierto), por categoría:
          *     - `security`: `finding_opened`, `finding_reopened`.
+         *     - `security_updates` (pensada para webhooks, ADR-0030): `finding_resolved` y `customer_security_state_changed`.
          *     - `routers` (rol snmp): `router_offline`, `router_recovered` (vuelve tras una caída o un umbral avisado),
          *       `router_cpu_high`, `router_memory_high`, `router_temperature_high` (aviso → `medium`, crítico → `high`),
          *       `router_hardware_failed` (fuente o ventilador), `router_interface_down` / `router_interface_up` (enlace de
@@ -4692,7 +5212,7 @@ export interface components {
          *     Las recuperaciones (`*_recovered`, `router_interface_up`) tienen severidad `info`.
          * @enum {string}
          */
-        NotificationEventType: "finding_opened" | "finding_reopened" | "exporter_silent" | "exporter_recovered" | "tunnel_down" | "tunnel_recovered" | "router_offline" | "router_recovered" | "router_cpu_high" | "router_memory_high" | "router_temperature_high" | "router_hardware_failed" | "router_interface_down" | "router_interface_up" | "router_rebooted" | "service_down" | "service_degraded" | "service_recovered";
+        NotificationEventType: "finding_opened" | "finding_reopened" | "exporter_silent" | "exporter_recovered" | "tunnel_down" | "tunnel_recovered" | "router_offline" | "router_recovered" | "router_cpu_high" | "router_memory_high" | "router_temperature_high" | "router_hardware_failed" | "router_interface_down" | "router_interface_up" | "router_rebooted" | "service_down" | "service_degraded" | "service_recovered" | "finding_resolved" | "customer_security_state_changed";
         PageInfo: {
             has_more: boolean;
             limit: number;
@@ -5853,6 +6373,29 @@ export interface components {
         Version: number;
         /** @enum {string} */
         Visibility: "system" | "tenant" | "private" | "platform";
+        /**
+         * WebhookChannelConfig
+         * @description Webhook firmado (ADR-0030, p. ej. el receptor de ArgosISP). Cada entrega es un `POST` con
+         *     `{id, event, occurred_at, tenant, data}` y las cabeceras `X-Webhook-Id` (= `id`, estable entre reintentos),
+         *     `X-Webhook-Timestamp` y `X-Webhook-Signature: v1=hex(HMAC-SHA256(secreto, timestamp + "." + cuerpo))`. El
+         *     secreto lo genera el receptor y va por `PUT …/credentials` (`webhook_secret`, write-only). `event` sigue el
+         *     contrato §3.4: `finding.opened` (finding_opened, finding_reopened), `finding.resolved`,
+         *     `customer.security_state_changed`, `router.status_changed` (router_*: offline, recovered, umbrales, hardware) e
+         *     `infra_service.state_changed` (service_*); los demás tipos no se envían por webhook. Con identidad ArgosISP del
+         *     cliente, `data.external` lleva sus ids. La IP y el alias del cliente solo con `include_personal_data`.
+         *     Reintentos: 1 min, 5 min, 30 min, 2 h y 12 h. Solo https y destinos públicos (privados o loopback solo con
+         *     HORUS_ALERTS_WEBHOOK_ALLOW_PRIVATE=true, laboratorios); cada redirección se valida igual.
+         */
+        WebhookChannelConfig: {
+            /** @default 10 */
+            timeout_seconds?: number;
+            /**
+             * Format: uri
+             * @description URL del receptor (sin credenciales en la URL).
+             * @example https://argos.isp.example/api/v1/integraciones/horus/webhook
+             */
+            url: string;
+        };
         Widget: {
             config: Record<string, unknown>;
             id: string;
@@ -6347,6 +6890,98 @@ export interface operations {
             422: components["responses"]["UnprocessableEntity"];
             503: components["responses"]["ServiceUnavailable"];
             504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    listApiTokenTemplates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Plantillas. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ApiTokenTemplate"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listApiTokens: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tokens (más recientes primero; incluye revocados y caducados). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ApiToken"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createApiToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApiTokenInput"];
+            };
+        };
+        responses: {
+            /** @description Token creado (incluye `token`, que no se vuelve a mostrar). */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiTokenIssued"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["UnprocessableEntity"];
+        };
+    };
+    revokeApiToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                api_token_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: components["responses"]["NoContent"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     listAsnRules: {
@@ -7347,6 +7982,55 @@ export interface operations {
             404: components["responses"]["NotFound"];
             412: components["responses"]["PreconditionFailed"];
             428: components["responses"]["PreconditionRequired"];
+        };
+    };
+    getCustomerExternalIdentity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                customer_id: components["parameters"]["CustomerId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Identidad vigente e historial (más reciente primero, máx. 50). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerExternalIdentity"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    refreshCustomerExternalIdentity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                customer_id: components["parameters"]["CustomerId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Identidad tras la resolución. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerExternalIdentity"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     listCustomerFindings: {
@@ -8505,6 +9189,198 @@ export interface operations {
             404: components["responses"]["NotFound"];
             422: components["responses"]["UnprocessableEntity"];
             503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    getArgosIntegration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Conector (`configured = false` si nunca se configuró). */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArgosIntegration"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    putArgosIntegration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArgosIntegrationInput"];
+            };
+        };
+        responses: {
+            /** @description Conector guardado. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArgosIntegration"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["UnprocessableEntity"];
+        };
+    };
+    testArgosIntegration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Resultado. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArgosConnectionTest"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    rotateArgosWebhookSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description URL y secreto (el secreto no se vuelve a mostrar). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArgosWebhookSecret"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    receiveArgosWebhook: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Webhook-Id": string;
+                "X-Webhook-Signature": string;
+                "X-Webhook-Timestamp": string;
+            };
+            path: {
+                /** @description Identificador opaco del conector (no es el ISP); forma parte de la URL que se copia en ArgosISP. */
+                connector_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArgosWebhookEvent"];
+            };
+        };
+        responses: {
+            /** @description Aceptado (o duplicado ya recibido). */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description Cuerpo de más de 1 MiB. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getIntegrationConsumption: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConsumptionRequest"];
+            };
+        };
+        responses: {
+            /** @description Consumo por elemento, en el orden pedido. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsumptionResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["UnprocessableEntity"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    lookupIpIntegration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IpLookupRequest"];
+            };
+        };
+        responses: {
+            /** @description Todo sobre la IP. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IpLookupResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["UnprocessableEntity"];
         };
     };
     getKioskConfig: {

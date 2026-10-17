@@ -476,6 +476,30 @@ Navegador ──Authorization: Bearer <access JWT>──► Traefik ──► ap
   `hf_pat_<32 B base62>`, almacenado como SHA-256, con alcance de permisos ⊆ permisos del
   creador, caducidad obligatoria (máx. 1 año), último uso visible, revocable. El gateway lo
   intercambia por un access JWT de corta vida (caché por token) antes de llamar a los servicios.
+- **Implementación (ADR-0030, H1):** `auth.api_token` (RLS por tenant; búsqueda por hash con
+  `auth_platform` porque el borde aún no conoce el ISP). Lo crea una persona con
+  `api_tokens.manage` y re-autenticación reciente; nunca `api_tokens.manage` dentro del token ni
+  tokens creados por otro token (`x-principals: [user]` en `/api-tokens`). El canje (`auth.APITokens`,
+  en proceso) comprueba en cada emisión que el creador, su membresía y el ISP siguen activos y emite un
+  JWT de **2 min** (`typ=service`, `scope=tenant`, `tid`, `via=api_token`, `api_token_id`, `sub` =
+  creador) con la intersección entre los permisos del token y los **actuales** del creador, con sus
+  alcances por nodo; se cachea hasta 30 s antes de caducar y la revocación borra la entrada (efecto
+  inmediato en el proceso). Rutas cuyo `x-principals` no incluye `api_token` → `403`. Cupo de 600
+  req/min por token. Alta y revocación auditadas (`auth.api_token.created|revoked`); las acciones
+  hechas con un token quedan en la auditoría con `via=api_token` y `api_token_id` (en `changes`) y en
+  el sobre de eventos (`actor.via`, `actor.api_token_id`). Plantilla **ArgosISP** (código de conexión):
+  `customers.read`, `traffic.customer.read`, `security.findings.read`, `snmp.read`.
+- **Credenciales de integraciones salientes (ADR-0030):** el token `atk_…` de ArgosISP y los secretos
+  de webhooks (receptor de ArgosISP en devices, canal `webhook` de alerts) son write-only, cifrados
+  con la KEK del módulo (sobre con DEK) y nunca se devuelven. Los destinos salientes configurados por un
+  ISP (URL de ArgosISP, URL de un webhook) pasan por la guardia de egreso de `packages/go/datasets`:
+  solo https y direcciones públicas que no sean de la instalación, con la dirección real del socket y
+  cada redirección comprobadas (protege de SSRF y DNS rebinding). Laboratorios:
+  `HORUS_INTEGRATIONS_ALLOW_PRIVATE` / `HORUS_ALERTS_WEBHOOK_ALLOW_PRIVATE` permiten http, privadas y
+  loopback (nunca enlace local ni metadatos de nube). Webhooks firmados con HMAC-SHA256
+  (`packages/go/webhooksig`): el receptor rechaza firmas inválidas y desfases de más de 5 min y
+  deduplica por `X-Webhook-Id`. El nombre de un cliente que llega de ArgosISP es dato personal: se
+  trata como el alias (acceso por `customers.read`, enmascarado en IA/MCP, se purga con el cliente).
 - Una futura app o CLI con login interactivo usará el mismo par access + refresh rotativo vía
   OIDC Authorization Code + PKCE (§4.1).
 

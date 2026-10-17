@@ -14,6 +14,8 @@ const can = useCan()
 const { membership } = useTenant()
 const slug = computed(() => String(route.params.slug))
 const id = computed(() => String(route.params.clientId))
+// Consulta 360 (ADR-0030): la IP nunca va en la URL; se pasa en el estado al modal.
+const ip360Open = ref(false)
 
 useSectionGuard()(findSection('tenant', 'clients'), slug.value)
 
@@ -333,7 +335,15 @@ useHead({ title: () => customer.value?.alias ?? t('clients.detailTitle') })
               />
             </div>
           </div>
-          <div v-if="canKind || canAlias" class="flex shrink-0 flex-wrap gap-2">
+          <div class="flex shrink-0 flex-wrap gap-2">
+            <UButton
+              color="neutral"
+              variant="outline"
+              icon="i-lucide-radar"
+              :label="t('clients.ip360.open')"
+              data-testid="client-ip360"
+              @click="ip360Open = true"
+            />
             <UButton
               v-if="canKind"
               icon="i-lucide-tags"
@@ -389,6 +399,9 @@ useHead({ title: () => customer.value?.alias ?? t('clients.detailTitle') })
         icon="i-lucide-rotate-ccw"
         :title="t('clients.resetAt', { date: d(new Date(customer.reset_at), 'long') })"
       />
+
+      <!-- Identidad en ArgosISP (ADR-0030): nombre, código y estado del servicio, con vigencias. -->
+      <ExternalIdentityCard :customer-id="customer.id" @refreshed="refresh()" />
 
       <!-- Estado de seguridad (D18): "Infectado" nunca sin razones y confianza. -->
       <UCard v-if="customer.security_state !== 'clean'" data-testid="client-security">
@@ -552,5 +565,6 @@ useHead({ title: () => customer.value?.alias ?? t('clients.detailTitle') })
       <UIcon name="i-lucide-shield-check" class="size-4 shrink-0" aria-hidden="true" />
       {{ t('clients.privacy') }}
     </p>
+    <Ip360Modal v-model:open="ip360Open" :address="customer?.address.split('/')[0] ?? null" />
   </AppPage>
 </template>
