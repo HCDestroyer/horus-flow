@@ -624,6 +624,10 @@ paths:
         - name: commercial_use_suspected
           in: query
           schema: { type: boolean }
+        - name: commercial_candidate
+          in: query
+          description: 'Posibles comerciales: sugerencia comercial del scoring o uso comercial sospechado, sin tipo fijado a mano (I2).'
+          schema: { type: boolean }
         - name: security_state
           in: query
           schema: { type: string, description: 'clean,suspected,infected,mitigated' }
@@ -1330,6 +1334,22 @@ components:
             - $ref: './common.yaml#/components/schemas/Timestamp'
             - type: 'null'
         commercial_use_suspected: { type: boolean }
+        commercial_score: { type: [integer, 'null'], minimum: 0, maximum: 100, description: Última probabilidad comercial del scoring (I2). }
+        suggested_kind:
+          description: Tipo sugerido por el último scoring (también con el tipo fijado a mano).
+          oneOf:
+            - $ref: '#/components/schemas/CustomerKind'
+            - type: 'null'
+        suggested_confidence: { type: [integer, 'null'], minimum: 0, maximum: 100 }
+        suggested_reasons:
+          type: array
+          description: Razones del último scoring (código estable + detalle con los números reales).
+          items: { $ref: './common.yaml#/components/schemas/Reason' }
+        suggested_model_version: { type: [string, 'null'] }
+        suggested_at:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
         security_state: { $ref: '#/components/schemas/SecurityState' }
         open_findings: { type: integer, minimum: 0 }
         alias: { type: [string, 'null'], maxLength: 120, description: Dato personal. }
@@ -1355,14 +1375,6 @@ components:
         - type: object
           properties:
             notes: { type: [string, 'null'], maxLength: 2000, description: Dato personal. }
-            suggested_kind:
-              oneOf:
-                - $ref: '#/components/schemas/CustomerKind'
-                - type: 'null'
-            suggested_confidence: { type: [integer, 'null'], minimum: 0, maximum: 100 }
-            suggested_reasons:
-              type: array
-              items: { $ref: './common.yaml#/components/schemas/Reason' }
     CustomerPatch:
       type: object
       additionalProperties: false

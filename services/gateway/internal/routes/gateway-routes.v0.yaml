@@ -487,6 +487,10 @@ modules:
       scope: tenant
       methods:
         GET: security.findings.read
+    - prefix: /api/v1/customers/{customer_id}/scoring
+      scope: tenant
+      methods:
+        GET: customers.read
     - prefix: /api/v1/detection/config
       scope: tenant
       methods:

@@ -57,6 +57,14 @@ func CustomerJSON(c *domain.Customer) map[string]any {
 	if c.ResetAt != nil {
 		reset = ts(*c.ResetAt)
 	}
+	var sat any
+	if c.SuggestedAt != nil {
+		sat = ts(*c.SuggestedAt)
+	}
+	reasons := json.RawMessage("[]")
+	if len(c.SuggestedReasons) > 0 && string(c.SuggestedReasons) != "null" {
+		reasons = c.SuggestedReasons
+	}
 	return map[string]any{
 		"id": c.ID, "tenant_id": c.TenantID, "version": c.Version, "address": c.AddressString(), "realm_id": c.RealmID,
 		"site_id": c.SiteID, "client_prefix_id": c.ClientPrefixID, "status": c.Status, "inactive_reason": c.InactiveReason,
@@ -64,16 +72,16 @@ func CustomerJSON(c *domain.Customer) map[string]any {
 		"kind_changed_at": kca, "commercial_use_suspected": c.CommercialUseSuspected, "security_state": c.SecurityState,
 		"open_findings": c.OpenFindings, "alias": c.Alias, "alias_source": c.AliasSource, "first_seen": ts(c.FirstSeen),
 		"last_seen": ts(c.LastSeen), "reset_at": reset, "traffic_24h": nil,
+		// Sugerencia del último scoring residencial/comercial (detection).
+		"commercial_score": c.CommercialScore, "suggested_kind": c.SuggestedKind, "suggested_confidence": c.SuggestedConfidence,
+		"suggested_reasons": reasons, "suggested_model_version": c.SuggestedModel, "suggested_at": sat,
 	}
 }
 
-// CustomerDetailJSON añade notas y la sugerencia del scoring.
+// CustomerDetailJSON añade las notas (la sugerencia del scoring ya va en CustomerJSON).
 func CustomerDetailJSON(c *domain.Customer) map[string]any {
 	m := CustomerJSON(c)
 	m["notes"] = c.Notes
-	m["suggested_kind"] = nil
-	m["suggested_confidence"] = nil
-	m["suggested_reasons"] = []any{}
 	return m
 }
 

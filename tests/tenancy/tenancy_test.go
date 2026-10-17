@@ -126,6 +126,9 @@ func cases() map[string]tenanttest.Case {
 	// detection (I1-12, SEC)
 	c["listFindings"] = tenanttest.Case{Kind: tenanttest.List}
 	c["listCustomerFindings"] = tenanttest.Case{Kind: tenanttest.List}
+	// detection: scoring residencial/comercial (I2). Sin scoring del cliente
+	// devuelve latest = null sin eco del id: no revela si existe en otro ISP.
+	c["getCustomerScoring"] = tenanttest.Case{Kind: tenanttest.List}
 	c["getFinding"] = tenanttest.Case{Kind: tenanttest.ByID}
 	c["getFindingEvidence"] = tenanttest.Case{Kind: tenanttest.ByID}
 	c["acknowledgeFinding"] = tenanttest.Case{Kind: tenanttest.ByID}

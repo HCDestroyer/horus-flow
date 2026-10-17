@@ -19,23 +19,38 @@ var _ app.CustomerStore = (*Store)(nil)
 const customerCols = `c.id, c.tenant_id, c.realm_id, c.address, c.site_id, c.client_prefix_id, c.kind, c.kind_source, c.kind_locked,
 	c.kind_confidence, c.kind_changed_at, c.commercial_use_suspected, c.security_state, c.open_findings, c.alias, c.alias_source,
 	c.notes, c.status, c.inactive_reason, c.first_seen, c.last_seen, c.reset_at, c.created_at, c.updated_at, c.version,
+	c.commercial_score, c.suggested_kind, c.suggested_confidence, c.suggested_reasons, c.suggested_model, c.suggested_at,
 	coalesce((SELECT cp.default_kind FROM devices.client_prefix cp WHERE cp.tenant_id = c.tenant_id AND cp.id = c.client_prefix_id), 'residential')`
 
 func scanCustomer(row pgx.Row) (*domain.Customer, error) {
 	var c domain.Customer
-	var conf *int16
+	var conf, score, sconf *int16
 	err := row.Scan(&c.ID, &c.TenantID, &c.RealmID, &c.Address, &c.SiteID, &c.ClientPrefixID, &c.Kind, &c.KindSource, &c.KindLocked,
 		&conf, &c.KindChangedAt, &c.CommercialUseSuspected, &c.SecurityState, &c.OpenFindings, &c.Alias, &c.AliasSource,
 		&c.Notes, &c.Status, &c.InactiveReason, &c.FirstSeen, &c.LastSeen, &c.ResetAt, &c.CreatedAt, &c.UpdatedAt, &c.Version,
+		&score, &c.SuggestedKind, &sconf, &c.SuggestedReasons, &c.SuggestedModel, &c.SuggestedAt,
 		&c.DefaultKind)
 	if err != nil {
 		return nil, notFound(err)
 	}
-	if conf != nil {
-		v := int(*conf)
-		c.KindConfidence = &v
-	}
+	c.KindConfidence, c.CommercialScore, c.SuggestedConfidence = intPtr16(conf), intPtr16(score), intPtr16(sconf)
 	return &c, nil
+}
+
+func intPtr16(v *int16) *int {
+	if v == nil {
+		return nil
+	}
+	n := int(*v)
+	return &n
+}
+
+func int16Ptr(v *int) *int16 {
+	if v == nil {
+		return nil
+	}
+	n := int16(*v) //nolint:gosec // 0–100 (CHECK)
+	return &n
 }
 
 func collectCustomers(rows pgx.Rows) ([]domain.Customer, error) {
@@ -89,6 +104,16 @@ func customerWhere(t pgdb.TenantID, q app.CustomerQuery) *where {
 	}
 	if q.CommercialSuspected != nil {
 		w.add("c.commercial_use_suspected = ?", *q.CommercialSuspected)
+	}
+	if q.CommercialCandidate != nil {
+		// Posibles comerciales: sugerencia comercial o uso comercial sospechado,
+		// sin tipo fijado a mano (índice parcial ix_customer__commercial_candidate).
+		cand := "NOT c.kind_locked AND (c.suggested_kind = 'commercial' OR c.commercial_use_suspected)"
+		if *q.CommercialCandidate {
+			w.add(cand)
+		} else {
+			w.add("NOT (" + cand + ")")
+		}
 	}
 	if q.HasOpenFindings != nil {
 		if *q.HasOpenFindings {
@@ -220,9 +245,10 @@ func insertKindChange(ctx context.Context, tx pgx.Tx, t pgdb.TenantID, ch *domai
 		conf = &v
 	}
 	_, err := tx.Exec(ctx, `INSERT INTO devices.customer_kind_change (id, tenant_id, customer_id, from_kind, to_kind, source, reasons,
-		reason_codes, model_ref, confidence, actor_id, manual_reason, changed_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+		reason_codes, model_ref, confidence, actor_id, manual_reason, causation_event_id, changed_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
 		ch.ID, t.UUID(), ch.CustomerID, ch.FromKind, ch.ToKind, ch.Source, ch.Reasons, ch.ReasonCodes, ch.ModelRef, conf, ch.ActorID,
-		ch.ManualReason, ch.ChangedAt)
+		ch.ManualReason, ch.CausationEventID, ch.ChangedAt)
 	if err != nil {
 		return fmt.Errorf("devices: kind change: %w", err)
 	}
@@ -232,17 +258,18 @@ func insertKindChange(ctx context.Context, tx pgx.Tx, t pgdb.TenantID, ch *domai
 // UpdateCustomer implementa app.CustomerStore.
 func (s *Store) UpdateCustomer(ctx context.Context, t pgdb.TenantID, c *domain.Customer, expect int, ch *domain.KindChange, ev app.CustomerEvents) error {
 	return s.db.TenantTx(ctx, t, func(tx pgx.Tx) error {
-		var conf *int16
-		if c.KindConfidence != nil {
-			v := int16(*c.KindConfidence) //nolint:gosec // 0–100
-			conf = &v
+		var reasons []byte
+		if c.SuggestedReasons != nil {
+			reasons = c.SuggestedReasons
 		}
 		err := tx.QueryRow(ctx, `UPDATE devices.customer SET kind = $3, kind_source = $4, kind_locked = $5, kind_confidence = $6,
 			kind_changed_at = $7, commercial_use_suspected = $8, alias = $9, alias_source = $10, notes = $11, reset_at = $12,
-			updated_at = now(), version = version + 1
+			commercial_score = $14, suggested_kind = $15, suggested_confidence = $16, suggested_reasons = $17, suggested_model = $18,
+			suggested_at = $19, updated_at = now(), version = version + 1
 			WHERE tenant_id = $1 AND id = $2 AND version = $13 RETURNING version, updated_at`,
-			t.UUID(), c.ID, c.Kind, c.KindSource, c.KindLocked, conf, c.KindChangedAt, c.CommercialUseSuspected, c.Alias, c.AliasSource,
-			c.Notes, c.ResetAt, expect).Scan(&c.Version, &c.UpdatedAt)
+			t.UUID(), c.ID, c.Kind, c.KindSource, c.KindLocked, int16Ptr(c.KindConfidence), c.KindChangedAt, c.CommercialUseSuspected,
+			c.Alias, c.AliasSource, c.Notes, c.ResetAt, expect, int16Ptr(c.CommercialScore), c.SuggestedKind,
+			int16Ptr(c.SuggestedConfidence), reasons, c.SuggestedModel, c.SuggestedAt).Scan(&c.Version, &c.UpdatedAt)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return app.ErrVersionChanged
 		}
@@ -349,7 +376,8 @@ func (s *Store) DiscoverCustomers(ctx context.Context, t pgdb.TenantID, realm uu
 func customerColsFrom() string {
 	return `c.id, c.tenant_id, c.realm_id, c.address, c.site_id, c.client_prefix_id, c.kind, c.kind_source, c.kind_locked,
 	c.kind_confidence, c.kind_changed_at, c.commercial_use_suspected, c.security_state, c.open_findings, c.alias, c.alias_source,
-	c.notes, c.status, c.inactive_reason, c.first_seen, c.last_seen, c.reset_at, c.created_at, c.updated_at, c.version, c.kind`
+	c.notes, c.status, c.inactive_reason, c.first_seen, c.last_seen, c.reset_at, c.created_at, c.updated_at, c.version,
+	c.commercial_score, c.suggested_kind, c.suggested_confidence, c.suggested_reasons, c.suggested_model, c.suggested_at, c.kind`
 }
 
 // TouchCustomers implementa app.CustomerStore.

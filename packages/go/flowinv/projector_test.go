@@ -53,7 +53,8 @@ func TestProjectorFromDevicesEvents(t *testing.T) {
 	pub("horus.devices.realm.updated."+realm.String(), event(t, "horus.devices.realm.updated", tenant, 1,
 		map[string]any{"id": realm, "kind": "node_private", "site_id": site, "name": "Centro (privado)"}))
 	pub("horus.devices.client_prefix.created."+prefix.String(), event(t, "horus.devices.client_prefix.created", tenant, 1,
-		map[string]any{"id": prefix, "site_id": site, "realm_id": realm, "prefix": "10.20.0.0/24", "role": "customers", "ipv6_client_len": nil}))
+		map[string]any{"id": prefix, "site_id": site, "realm_id": realm, "prefix": "10.20.0.0/24", "role": "customers", "ipv6_client_len": nil,
+			"assignment_mode": "dynamic"}))
 
 	store := NewStore(nil)
 	p := NewProjector(store, Data{}, nil)
@@ -69,7 +70,7 @@ func TestProjectorFromDevicesEvents(t *testing.T) {
 	if !ok || e.RouterID != router || e.SiteName != "Centro" {
 		t.Fatalf("exporter %+v", e)
 	}
-	if m, ok := s.Lookup(tenant, site, netip.MustParseAddr("10.20.0.9")); !ok || m.Prefix.RealmID != realm {
+	if m, ok := s.Lookup(tenant, site, netip.MustParseAddr("10.20.0.9")); !ok || m.Prefix.RealmID != realm || m.Prefix.AssignmentMode != "dynamic" {
 		t.Fatal("prefix not projected")
 	}
 	// Reinicio del proceso: un proyector nuevo (memoria vacía) con el mismo

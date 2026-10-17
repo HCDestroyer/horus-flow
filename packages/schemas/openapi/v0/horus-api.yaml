@@ -61,6 +61,8 @@ tags:
     description: Hallazgos y su ciclo de vida.
   - name: reputation
     description: Feeds de reputación (plataforma) y allowlist (ISP).
+  - name: scoring
+    description: Scoring residencial/comercial explicable del cliente (I2).
   - name: notifications
     description: Canales de notificación del ISP y entregas.
   - name: librenms
@@ -148,6 +150,8 @@ paths:
     $ref: ./devices.yaml#/paths/~1customers~1{customer_id}~1kind-history
   /customers/{customer_id}/reset:
     $ref: ./devices.yaml#/paths/~1customers~1{customer_id}~1reset
+  /customers/{customer_id}/scoring:
+    $ref: ./detection.yaml#/paths/~1customers~1{customer_id}~1scoring
   /customers/{customer_id}/set-kind:
     $ref: ./devices.yaml#/paths/~1customers~1{customer_id}~1set-kind
   /customers/{customer_id}/unlock-kind:

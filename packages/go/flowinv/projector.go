@@ -80,7 +80,9 @@ type prefixData struct {
 	Role          string    `json:"role"`
 	DefaultKind   string    `json:"default_kind"`
 	IPv6ClientLen *int      `json:"ipv6_client_len"`
-	DeletedAt     *string   `json:"deleted_at"`
+	// AssignmentMode lo usa detection (pools dinámicos en el scoring).
+	AssignmentMode string  `json:"assignment_mode"`
+	DeletedAt      *string `json:"deleted_at"`
 }
 
 type realmData struct {
@@ -176,7 +178,7 @@ func (p *Projector) Apply(body []byte) (bool, error) {
 			return false, err
 		}
 		cp := ClientPrefix{ID: d.ID, TenantID: tenant, SiteID: d.SiteID, RealmID: d.RealmID, Prefix: pf, Role: d.Role,
-			DefaultKind: d.DefaultKind}
+			DefaultKind: d.DefaultKind, AssignmentMode: d.AssignmentMode}
 		if d.IPv6ClientLen != nil {
 			cp.IPv6ClientLen = *d.IPv6ClientLen
 		}

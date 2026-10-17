@@ -52,6 +52,9 @@ type CustomerQuery struct {
 	SecurityStates      []string
 	KindLocked          *bool
 	CommercialSuspected *bool
+	// CommercialCandidate: posibles comerciales (sugerencia comercial o uso
+	// comercial sospechado, sin tipo fijado a mano).
+	CommercialCandidate *bool
 	HasOpenFindings     *bool
 	LastSeenGTE         *time.Time
 	LastSeenLTE         *time.Time
@@ -286,6 +289,8 @@ func (s *Customers) customerQuery(p *authz.Principal, t pgdb.TenantID, qv url.Va
 	errs = append(errs, e)
 	q.HasOpenFindings, e = boolParam("has_open_findings", qv.Get("has_open_findings"))
 	errs = append(errs, e)
+	q.CommercialCandidate, e = boolParam("commercial_candidate", qv.Get("commercial_candidate"))
+	errs = append(errs, e)
 	q.LastSeenGTE, e = timeParam("last_seen_gte", qv.Get("last_seen_gte"))
 	errs = append(errs, e)
 	q.LastSeenLTE, e = timeParam("last_seen_lte", qv.Get("last_seen_lte"))
@@ -297,7 +302,7 @@ func (s *Customers) customerQuery(p *authz.Principal, t pgdb.TenantID, qv url.Va
 	}
 	parts := append([]string{q.Q, qv.Get("site_id"), qv.Get("realm_id"), qv.Get("client_prefix_id"), qv.Get("status"), qv.Get("kind"),
 		qv.Get("kind_source"), qv.Get("security_state"), qv.Get("kind_locked"), qv.Get("commercial_use_suspected"),
-		qv.Get("has_open_findings"), qv.Get("last_seen_gte"), qv.Get("last_seen_lte")}, extra...)
+		qv.Get("has_open_findings"), qv.Get("last_seen_gte"), qv.Get("last_seen_lte"), qv.Get("commercial_candidate")}, extra...)
 	fk := pagination.FilterKey(parts...)
 	if req.Cursor != "" {
 		cur, err := s.cursor.Decode(req.Cursor, so.col+fmt.Sprint(so.desc), fk, t.String())
@@ -566,7 +571,8 @@ func actorUUID(p *authz.Principal) *uuid.UUID {
 
 func changeData(ch *domain.KindChange) map[string]any {
 	return map[string]any{"from_kind": ch.FromKind, "to_kind": ch.ToKind, "source": ch.Source, "model_ref": ch.ModelRef,
-		"reasons": json.RawMessage(ch.Reasons), "manual_reason": ch.ManualReason, "causation_event_id": nil, "changed_at": fmtTS(ch.ChangedAt)}
+		"reasons": json.RawMessage(ch.Reasons), "manual_reason": ch.ManualReason, "causation_event_id": ch.CausationEventID,
+		"changed_at": fmtTS(ch.ChangedAt)}
 }
 
 // SetKind es POST /customers/{id}/set-kind (manual: kind_locked = true).

@@ -185,7 +185,7 @@ func (m *mod) Run(ctx context.Context) error {
 		go func() {
 			defer wg.Done()
 			_ = natsx.Consume(ctx, m.bus.JS, natsx.ConsumerConfig{Service: Role, Stream: "DETECTION_EVENTS", Durable: m.bus.Durable(app.DurableCustomerDetection),
-				FilterSubjects: []string{"horus.detection.customer.security_state_changed.>"}, Logger: m.logger}, m.customers.HandleSecurityState)
+				FilterSubjects: app.DetectionSubjects, Logger: m.logger}, m.customers.HandleDetection)
 		}()
 		go func() {
 			defer wg.Done()

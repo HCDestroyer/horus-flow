@@ -96,8 +96,11 @@ type Service struct {
 	registry Registry
 	kiosks   func() (authapi.KioskChecker, bool)
 	sources  SourceLister
-	now      func() time.Time
-	log      *slog.Logger
+	// scoring y pool: scoring residencial/comercial (I2; nil sin ClickHouse).
+	scoring ScoringSource
+	pool    DynamicPool
+	now     func() time.Time
+	log     *slog.Logger
 }
 
 // Options del servicio.
