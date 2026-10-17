@@ -150,7 +150,9 @@ func TestMissingOIDsAreNull(t *testing.T) {
 
 func TestClassifyAuth(t *testing.T) {
 	t.Parallel()
-	for _, e := range []error{gosnmp.ErrUnknownUsername, gosnmp.ErrWrongDigest, gosnmp.ErrDecryption} {
+	// El último es el error real de gosnmp con RouterOS 7.12/7.23.8 y la clave de autenticación mal.
+	for _, e := range []error{gosnmp.ErrUnknownUsername, gosnmp.ErrWrongDigest, gosnmp.ErrDecryption,
+		errors.New("incoming packet is not authentic, discarding")} {
 		if !IsAuth(classify(e)) {
 			t.Errorf("%v debe ser ErrAuth", e)
 		}

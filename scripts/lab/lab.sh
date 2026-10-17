@@ -220,15 +220,25 @@ wait_rest() {
 }
 
 # Sirve un .rsc al CHR por la NIC de gestión, lo importa con /import verbose y revisa errores.
+#
+# Validado contra RouterOS 7.12 y 7.23.8 reales: la salida de `/import verbose=yes` por
+# `POST /rest/execute` NO incluye "Script file loaded and executed successfully", y un error corta
+# el import con un mensaje libre ("input does not match any value of interface", "expected end of
+# command"...). Por eso se añade al final del archivo un centinela `:put` que solo se imprime si
+# TODAS las líneas anteriores se ejecutaron.
+import_sentinel() { echo "HORUS-LAB-IMPORT-OK-$1"; }
 import_rsc() { # nombre (base|onboarding)
-  local name="$1" out
+  local name="$1" out sentinel
+  sentinel="$(import_sentinel "$name")"
+  printf '\n:put "%s"\n' "$sentinel" >>"$STATE/rsc/$name.rsc"
   ros_exec "/tool fetch url=\"http://10.0.2.2:$LAB_FILE_PORT/$name.rsc\" dst-path=\"horus-$name.rsc\"" >/dev/null \
     || die "el CHR no pudo descargar $name.rsc del host"
   out="$(ros_exec "/import file-name=horus-$name.rsc verbose=yes" 300 || true)"
   printf '%s\n' "$out" >"$STATE/import-$name.log"
   ros_exec "/file remove [find name=\"horus-$name.rsc\"]" >/dev/null || true
-  if ! grep -qi "executed successfully" "$STATE/import-$name.log" \
-      || grep -qiE "failure|syntax error|bad command|expected|no such item|invalid value" "$STATE/import-$name.log"; then
+  if ! grep -qx "$sentinel" "$STATE/import-$name.log" \
+      || grep -qiE "failure|syntax error|bad command|expected|no such item|invalid value|does not match" "$STATE/import-$name.log"; then
+    tail -n 4 "$STATE/import-$name.log" | grep -v '^#line' | sed 's/^/lab:   /' >&2 || true
     die "el import de $name.rsc tuvo errores (§8.3.1): revisa $LAB_STATE_DIR/import-$name.log"
   fi
   log "import de $name.rsc sin errores"

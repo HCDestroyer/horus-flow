@@ -33,8 +33,9 @@ var catalog = []Command{
 		Command: "/system resource print"},
 	{ID: "sys_health", Topic: "diagnostics", Purpose: "Temperatura y voltaje (si el equipo lo expone)", Impact: "none",
 		Command: "/system health print"},
-	{ID: "log_recent", Topic: "diagnostics", Purpose: "Últimas 50 líneas del registro", Impact: "none",
-		Command: "/log print follow-only=no where message~\".\" limit=50"},
+	// `/log print follow-only=no … limit=50` NO es válido en RouterOS 7.12 ni 7.23.8 ("expected end of command").
+	{ID: "log_recent", Topic: "diagnostics", Purpose: "Registro reciente del router (memoria, las últimas ~1000 líneas)", Impact: "none",
+		Command: "/log print"},
 	{ID: "ip_address", Topic: "diagnostics", Purpose: "Direcciones IP de las interfaces", Impact: "none",
 		Command: "/ip address print"},
 	{ID: "ip_route_default", Topic: "diagnostics", Purpose: "Ruta por defecto activa", Impact: "none",
@@ -57,9 +58,12 @@ var catalog = []Command{
 		Command: "/ip traffic-flow ipfix print"},
 	{ID: "tf_enable", Topic: "flows", Purpose: "Habilitar Traffic Flow en todas las interfaces", Impact: "low",
 		Command: "/ip traffic-flow set enabled=yes interfaces=all", Undo: "/ip traffic-flow set enabled=no"},
+	// Sin comment: `/ip traffic-flow target add … comment=…` falla en RouterOS real ("expected end of
+	// command", CHR 7.12 y 7.23.8; I1-27). El deshacer localiza el destino por dirección y puerto.
 	{ID: "tf_target_add", Topic: "flows", Purpose: "Añadir el colector de Horus como destino IPFIX", Impact: "low",
-		Command: "/ip traffic-flow target add dst-address={collector_ip} port={collector_port} version=ipfix comment=\"horus\"",
-		Undo:    "/ip traffic-flow target remove [find comment=\"horus\"]", Params: []string{"collector_ip", "collector_port"}},
+		Command: "/ip traffic-flow target add dst-address={collector_ip} port={collector_port} version=ipfix",
+		Undo:    "/ip traffic-flow target remove [find dst-address={collector_ip} port={collector_port}]", Params: []string{"collector_ip", "collector_port"},
+		Notes: "Traffic Flow no admite comment en los destinos: se deshace por dirección y puerto del colector."},
 	{ID: "tf_timeouts", Topic: "flows", Purpose: "Timeouts activo e inactivo recomendados por Horus", Impact: "low",
 		Command: "/ip traffic-flow set active-flow-timeout=1m inactive-flow-timeout=15s",
 		Undo:    "/ip traffic-flow set active-flow-timeout=30m inactive-flow-timeout=15s"},
@@ -91,20 +95,31 @@ var catalog = []Command{
 		Undo:    "/ip firewall address-list remove [find comment=\"horus {finding_id}\"]", Params: []string{"customer_ip", "finding_id"},
 		Notes: "Caduca sola en 1 día (timeout)."},
 	{ID: "fw_drop_dst_port", Topic: "containment", Purpose: "Bloquear desde la IP del cliente un puerto de destino concreto (p. ej. 25 o 23) con registro", Impact: "medium",
-		Command: "/ip firewall filter add chain=forward src-address={customer_ip} protocol={protocol} dst-port={port} action=drop log=yes log-prefix=\"horus-{finding_id}\" comment=\"horus {finding_id}\" place-before=0",
+		Command: "/ip firewall filter add chain=forward src-address={customer_ip} protocol={protocol} dst-port={port} action=drop log=yes log-prefix=\"horus-{finding_id}\" comment=\"horus {finding_id}\"",
 		Undo:    "/ip firewall filter remove [find comment=\"horus {finding_id}\"]", Params: []string{"customer_ip", "protocol", "port", "finding_id"},
-		Notes: "Afecta solo a ese cliente y puerto. Revisar que place-before=0 no rompa reglas de aceptación previas."},
+		Notes: "Afecta solo a ese cliente y puerto. Después, súbala al principio con fw_move_top."},
 	{ID: "fw_drop_dst_ip", Topic: "containment", Purpose: "Bloquear desde la IP del cliente el acceso a un destino remoto concreto (p. ej. un C2) con registro", Impact: "medium",
-		Command: "/ip firewall filter add chain=forward src-address={customer_ip} dst-address={remote_ip} action=drop log=yes log-prefix=\"horus-{finding_id}\" comment=\"horus {finding_id}\" place-before=0",
-		Undo:    "/ip firewall filter remove [find comment=\"horus {finding_id}\"]", Params: []string{"customer_ip", "remote_ip", "finding_id"}},
+		Command: "/ip firewall filter add chain=forward src-address={customer_ip} dst-address={remote_ip} action=drop log=yes log-prefix=\"horus-{finding_id}\" comment=\"horus {finding_id}\"",
+		Undo:    "/ip firewall filter remove [find comment=\"horus {finding_id}\"]", Params: []string{"customer_ip", "remote_ip", "finding_id"},
+		Notes: "Después, súbala al principio con fw_move_top."},
+	// Sin place-before=0 (validado en CHR 7.12): falla con "no such item" si la lista está vacía y con
+	// "item referred by 'place-before' does not exist" si la numeración del último print quedó vieja.
+	{ID: "fw_move_top", Topic: "containment", Purpose: "Colocar las reglas de Horus de un hallazgo antes de la primera regla ajena", Impact: "low",
+		Command: "/ip firewall filter move [find comment=\"horus {finding_id}\"] destination=[:pick [find where comment!=\"horus {finding_id}\"] 0]",
+		Params:  []string{"finding_id"},
+		Notes:   "Si el firewall no tiene otras reglas RouterOS responde «no such item»: no hace falta moverla. Se deshace al borrar la regla."},
 	{ID: "fw_disable_rule", Topic: "containment", Purpose: "Desactivar (sin borrar) una regla añadida por Horus", Impact: "low",
 		Command: "/ip firewall filter disable [find comment=\"horus {finding_id}\"]",
 		Undo:    "/ip firewall filter enable [find comment=\"horus {finding_id}\"]", Params: []string{"finding_id"}},
 	// --- Límite temporal de un cliente -------------------------------------------------------
 	{ID: "queue_limit", Topic: "customer_limits", Purpose: "Limitar temporalmente el ancho de banda de la IP del cliente", Impact: "medium",
-		Command: "/queue simple add name=\"horus-{finding_id}\" target={customer_ip}/32 max-limit={up_limit}/{down_limit} comment=\"horus {finding_id}\" place-before=0",
+		Command: "/queue simple add name=\"horus-{finding_id}\" target={customer_ip}/32 max-limit={up_limit}/{down_limit} comment=\"horus {finding_id}\"",
 		Undo:    "/queue simple remove [find comment=\"horus {finding_id}\"]", Params: []string{"finding_id", "customer_ip", "up_limit", "down_limit"},
-		Notes: "max-limit es subida/bajada, p. ej. 2M/10M."},
+		Notes: "max-limit es subida/bajada, p. ej. 2M/10M. Después, colóquela antes de la cola del plan con queue_move_top."},
+	{ID: "queue_move_top", Topic: "customer_limits", Purpose: "Colocar la cola de Horus antes de las demás colas simples (se evalúan en orden)", Impact: "low",
+		Command: "/queue simple move [find comment=\"horus {finding_id}\"] destination=[:pick [find where comment!=\"horus {finding_id}\"] 0]",
+		Params:  []string{"finding_id"},
+		Notes:   "Si no hay otras colas RouterOS responde «no such item»: no hace falta moverla."},
 }
 
 // Catalog devuelve el catálogo completo (copia).
@@ -180,13 +195,31 @@ var writeRules = func() map[string]map[string]map[string]bool {
 					vals[v] = true
 				}
 			}
-			if strings.Contains(cmd, "[find comment=") {
-				rule["[find comment"] = map[string]bool{"": true}
+			if k := selectorKey(cmd); k != "" {
+				if rule["[find"] == nil {
+					rule["[find"] = map[string]bool{}
+				}
+				rule["[find"][k] = true
 			}
 		}
 	}
 	return out
 }()
+
+// selectorKey devuelve la clave del primer selector `[find <clave>=…]` de un comando ("" si no
+// tiene): "comment" en las plantillas etiquetadas, "dst-address" en el destino de Traffic Flow.
+func selectorKey(cmd string) string {
+	i := strings.Index(cmd, "[find ")
+	if i < 0 {
+		return ""
+	}
+	rest := strings.TrimPrefix(strings.TrimSpace(cmd[i+len("[find "):]), "where ")
+	k, _, ok := strings.Cut(rest, "=")
+	if !ok || strings.ContainsAny(k, " ]") {
+		return ""
+	}
+	return strings.TrimSpace(k)
+}
 
 // params extrae los parámetros key=value de un comando (valores sin comillas).
 func params(cmd string) map[string]string {
@@ -262,9 +295,13 @@ func CommandAllowed(line string) bool {
 	if !ok {
 		return false
 	}
-	// Comandos con selector: debe ser el de Horus.
-	if strings.Contains(line, "[find") && !strings.Contains(line, `[find comment="horus`) {
-		return false
+	// Comandos con selector: el mismo tipo de selector que la plantilla y, si es por comentario,
+	// el de Horus.
+	if strings.Contains(line, "[find") {
+		k := selectorKey(line)
+		if !rule["[find"][k] || (k == "comment" && !strings.Contains(line, `[find comment="horus`)) {
+			return false
+		}
 	}
 	if _, needsTag := rule["comment"]; needsTag {
 		if ps := params(line); !strings.HasPrefix(ps["comment"], "horus") && !strings.Contains(line, `[find comment="horus`) {

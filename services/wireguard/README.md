@@ -48,5 +48,8 @@ sudo go test -tags=wireguard ./services/wgagent/internal/adapters/kernel/  # int
 - Código Go del proto generado en `services/wgagent/api/agentv1` (no en `packages/protobuf/gen`, que es de INT): moverlo al cablear `make generate`.
 - Sin bus entre módulos: consumo de `devices.router.*` por reconciliación y contrato en proceso; `Idempotency-Key` del script se exige
   en el gateway pero no hay *replay* (la respuesta lleva secretos de un solo uso). Telemetría `peer_status.observed` y `hub.status_changed` sin publicar.
-- Plantillas `.rsc` sin fixture validado en CHR (I0-12 no grabó scripts): `/file add contents=`, `/certificate import name=`, nombres de
-  `/ip traffic-flow ipfix` y `place-before=0` con la cadena vacía, a verificar en I1-25.
+- Plantillas `.rsc` **validadas en CHR 7.12 (`onboarding-7.12`) y 7.23.8 (`onboarding-7-longterm`)**, incluido el script inverso
+  (`docs/vendors/mikrotik.md` §12): `/file add contents=`, `/certificate import name=`, los campos NAT de `/ip traffic-flow ipfix` y
+  `/tool fetch check-certificate=yes` funcionan en las dos. Corregido: los peers de WireGuard no admiten `name=` en 7.12; las reglas
+  de entrada se mueven por id (`place-before=0` falla con la lista vacía o con la numeración vieja); el inverso borraba reglas
+  ajenas con `comment~"^horus"`. Pendiente: la versión exacta en la que aparece `name` en los peers (entre 7.13 y 7.23.8).

@@ -54,6 +54,18 @@ func str(s string) *string { return &s }
 
 const commentTpl = `comment="horus finding {{finding_id}}"`
 
+// moveTop sube las reglas (o colas) del hallazgo delante de la primera ajena del menú. Validado en
+// CHR 7.12: `place-before=0` falla con "no such item" si la lista está vacía (habitual en
+// /ipv6 firewall filter y /queue simple) y con "item referred by 'place-before' does not exist"
+// si la numeración del último `print` de la sesión quedó vieja. Se añade sin place-before y se
+// mueve por id; si no hay reglas ajenas, RouterOS responde "no such item" y no hay nada que mover.
+func moveTop(menu string) string {
+	return menu + " move [find " + commentTpl + `] destination=[:pick [find where comment!="horus finding {{finding_id}}"] 0]`
+}
+
+const moveTopNote = "El segundo comando coloca la regla al principio (antes de la primera regla ajena); si el menú no tenía " +
+	"otras reglas RouterOS responde «no such item» y no hace falta moverla."
+
 // fw devuelve el prefijo de menú según la familia (D22).
 func fw(v6 bool) string {
 	if v6 {
@@ -110,9 +122,10 @@ func blockDestination(v6 bool, why string) Action {
 			"Se deshace borrando la regla con el comentario del hallazgo.",
 		Risk: "low", Audience: "network_engineer",
 		RouterOS: ros(
-			[]string{fw(v6) + " filter add chain=forward src-address={{customer_address}} dst-address={{remote_ip}} action=drop " + commentTpl + " place-before=0"},
+			[]string{fw(v6) + " filter add chain=forward src-address={{customer_address}} dst-address={{remote_ip}} action=drop " + commentTpl,
+				moveTop(fw(v6) + " filter")},
 			[]string{fw(v6) + " filter remove [find " + commentTpl + "]"},
-			"Revise el orden de reglas si usa listas de interfaces o reglas propias en forward.")}
+			moveTopNote+" Revise el orden de reglas si usa listas de interfaces o reglas propias en forward.")}
 }
 
 func blockPorts(v6 bool, proto string, ports []int, title string) Action {
@@ -126,9 +139,9 @@ func blockPorts(v6 bool, proto string, ports []int, title string) Action {
 		Risk: "low", Audience: "network_engineer",
 		RouterOS: ros(
 			[]string{fw(v6) + " filter add chain=forward src-address={{customer_address}} protocol=" + proto + " dst-port=" +
-				strings.Join(ps, ",") + " action=drop " + commentTpl + " place-before=0"},
+				strings.Join(ps, ",") + " action=drop " + commentTpl, moveTop(fw(v6) + " filter")},
 			[]string{fw(v6) + " filter remove [find " + commentTpl + "]"},
-			"Revise el orden de reglas si usa listas de interfaces o reglas propias en forward.")}
+			moveTopNote+" Revise el orden de reglas si usa listas de interfaces o reglas propias en forward.")}
 }
 
 func rateLimit(why string) Action {
@@ -137,9 +150,10 @@ func rateLimit(why string) Action {
 			"Se deshace borrando la cola con el comentario del hallazgo.",
 		Risk: "medium", Audience: "network_engineer",
 		RouterOS: ros(
-			[]string{`/queue simple add name="horus-{{finding_id}}" target={{customer_address}} max-limit={{rate_limit}} ` + commentTpl},
+			[]string{`/queue simple add name="horus-{{finding_id}}" target={{customer_address}} max-limit={{rate_limit}} ` + commentTpl,
+				moveTop("/queue simple")},
 			[]string{"/queue simple remove [find " + commentTpl + "]"},
-			"Si el cliente ya tiene una cola por su plan, colóquela antes con place-before o ajuste la existente.")}
+			moveTopNote+" Las colas simples se evalúan en orden: así la del hallazgo va antes de la cola del plan del cliente.")}
 }
 
 func inspect(what string) Action {
@@ -261,9 +275,10 @@ func Build(f *domain.Finding) []Action {
 					"sin afectar al correo normal. Se deshace borrando la regla con el comentario del hallazgo.",
 				Risk: "low", Audience: "network_engineer",
 				RouterOS: ros(
-					[]string{fw(v6) + " filter add chain=forward src-address={{customer_address}} protocol=tcp dst-port=25 action=drop " + commentTpl + " place-before=0"},
+					[]string{fw(v6) + " filter add chain=forward src-address={{customer_address}} protocol=tcp dst-port=25 action=drop " + commentTpl,
+						moveTop(fw(v6) + " filter")},
 					[]string{fw(v6) + " filter remove [find " + commentTpl + "]"},
-					"Si el cliente es una empresa con servidor de correo propio, no lo aplique: revise su tipo.")},
+					moveTopNote+" Si el cliente es una empresa con servidor de correo propio, no lo aplique: revise su tipo.")},
 		}
 		if f.CustomerKind != "commercial" {
 			out = append(out, reviewKind())

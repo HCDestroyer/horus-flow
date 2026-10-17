@@ -1,0 +1,14 @@
+[
+  {
+    ".id": "*1",
+    "name": "v6-pd",
+    "prefix": "2001:db8:100::/40",
+    "prefix-length": "56"
+  },
+  {
+    ".id": "*2",
+    "name": "v6-enlace",
+    "prefix": "2001:db8:200::/48",
+    "prefix-length": "64"
+  }
+]

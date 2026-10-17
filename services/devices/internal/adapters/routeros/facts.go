@@ -12,6 +12,12 @@ import (
 )
 
 // Paths leídos (todos GET; docs/vendors/mikrotik.md §4.1 y §11.4).
+//
+// `.proplist` solo se usa en menús cuyas propiedades existen en todas las versiones soportadas.
+// Validado contra RouterOS 7.12 real: si `.proplist` nombra una propiedad que esa versión no
+// tiene (p. ej. `remote-ipv6-prefix-reuse` en /ppp/profile o `prefix-pool` en
+// /ipv6/dhcp-server), la REST devuelve SOLO las propiedades anteriores a la desconocida (sin
+// error, sin `.id` y, con una fila, como objeto). Por eso esos menús se leen completos.
 var Paths = []string{"system/resource", "ip/pool", "ipv6/pool", "ppp/profile", "ipv6/dhcp-server", "ip/address", "ipv6/address"}
 
 func truthy(v string) bool { return v == "true" || v == "yes" }
@@ -19,7 +25,9 @@ func truthy(v string) bool { return v == "true" || v == "yes" }
 // ReadFacts lee pools, perfiles PPP, servidores DHCPv6 y direcciones.
 func (c *Client) ReadFacts(ctx context.Context) (domain.RouterFacts, error) {
 	var f domain.RouterFacts
-	res, err := c.Print(ctx, "system/resource", "version")
+	// Sin .proplist: en RouterOS 7.12 real (CHR del laboratorio), `GET /rest/system/resource?.proplist=…`
+	// no responde nunca (la REST corta a los 60 s); el menú es un único objeto pequeño.
+	res, err := c.Print(ctx, "system/resource")
 	if err != nil {
 		return f, err
 	}
@@ -45,7 +53,7 @@ func (c *Client) ReadFacts(ctx context.Context) (domain.RouterFacts, error) {
 	} else if !optional(err) {
 		return f, err
 	}
-	if prof, err := c.Print(ctx, "ppp/profile", "name", "dhcpv6-pd-pool", "remote-ipv6-prefix-pool", "remote-ipv6-prefix-reuse"); err == nil {
+	if prof, err := c.Print(ctx, "ppp/profile"); err == nil {
 		for _, r := range prof {
 			f.PPPProfiles = append(f.PPPProfiles, domain.PPPProfile{Name: r["name"], PDPool: r["dhcpv6-pd-pool"],
 				LinkPool: r["remote-ipv6-prefix-pool"], LinkReuse: truthy(r["remote-ipv6-prefix-reuse"])})
@@ -53,10 +61,9 @@ func (c *Client) ReadFacts(ctx context.Context) (domain.RouterFacts, error) {
 	} else if !optional(err) {
 		return f, err
 	}
-	if srv, err := c.Print(ctx, "ipv6/dhcp-server", "name", "interface", "prefix-pool", "address-pool"); err == nil {
+	if srv, err := c.Print(ctx, "ipv6/dhcp-server"); err == nil {
 		for _, r := range srv {
-			f.DHCPv6Servers = append(f.DHCPv6Servers, domain.DHCPv6Server{Name: r["name"], Interface: r["interface"],
-				PrefixPool: r["prefix-pool"], AddressPool: r["address-pool"]})
+			f.DHCPv6Servers = append(f.DHCPv6Servers, dhcpv6Server(r))
 		}
 	} else if !optional(err) {
 		return f, err
@@ -75,6 +82,29 @@ func (c *Client) ReadFacts(ctx context.Context) (domain.RouterFacts, error) {
 		}
 	}
 	return f, nil
+}
+
+// dhcpv6Server interpreta una fila de /ipv6/dhcp-server. Hasta la rama 7.1x (7.12 validado en
+// CHR) no existe `prefix-pool` y el pool de prefijos delegados (PD) es `address-pool`; las
+// versiones que ya tienen `prefix-pool` usan `address-pool` para direcciones (IA_NA).
+func dhcpv6Server(r Row) domain.DHCPv6Server {
+	s := domain.DHCPv6Server{Name: r["name"], Interface: r["interface"]}
+	if pd, ok := r["prefix-pool"]; ok {
+		s.PrefixPool, s.AddressPool = poolName(pd), poolName(r["address-pool"])
+	} else {
+		s.PrefixPool = poolName(r["address-pool"])
+	}
+	return s
+}
+
+// poolName descarta los valores especiales que no nombran un pool (7.23.8 devuelve
+// `prefix-pool=static-only` por defecto: solo bindings estáticos).
+func poolName(v string) string {
+	switch v {
+	case "static-only", "none":
+		return ""
+	}
+	return v
 }
 
 // optional: un menú que no existe (paquete IPv6 deshabilitado) responde

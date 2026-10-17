@@ -58,9 +58,16 @@ func TestRenderIPv4AndIPv6(t *testing.T) {
 	if block == nil {
 		t.Fatal("falta block_outbound_port")
 	}
-	want := `/ip firewall filter add chain=forward src-address=10.20.0.41 protocol=tcp dst-port=23,2323 action=drop comment="horus finding 0192f0d1-1b2c-7e44-8a10-6b9c2d1e0f40" place-before=0`
+	want := `/ip firewall filter add chain=forward src-address=10.20.0.41 protocol=tcp dst-port=23,2323 action=drop comment="horus finding 0192f0d1-1b2c-7e44-8a10-6b9c2d1e0f40"`
 	if got := (*block.RouterOS.RenderedCommands)[0]; got != want {
 		t.Fatalf("render:\n%s\n%s", got, want)
+	}
+	// Sin place-before=0 (falla con la lista vacía o con la numeración vieja en RouterOS real):
+	// segundo comando que mueve la regla por id delante de la primera ajena.
+	wantMove := `/ip firewall filter move [find comment="horus finding 0192f0d1-1b2c-7e44-8a10-6b9c2d1e0f40"] ` +
+		`destination=[:pick [find where comment!="horus finding 0192f0d1-1b2c-7e44-8a10-6b9c2d1e0f40"] 0]`
+	if cmds := *block.RouterOS.RenderedCommands; len(cmds) != 2 || cmds[1] != wantMove {
+		t.Fatalf("move:\n%v\n%s", cmds, wantMove)
 	}
 	if got := (*block.RouterOS.RenderedUndoCommands)[0]; got != `/ip firewall filter remove [find comment="horus finding 0192f0d1-1b2c-7e44-8a10-6b9c2d1e0f40"]` {
 		t.Fatalf("undo: %s", got)

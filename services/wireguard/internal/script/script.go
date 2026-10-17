@@ -26,8 +26,9 @@ var tmpl = template.Must(template.ParseFS(files, "templates/*.tmpl"))
 const (
 	Template712      = "7.12"
 	TemplateLongTerm = "7-longterm"
-	// LongTermMinor: desde 7.18 se usa la plantilla long-term (a verificar
-	// en CHR, I1-25).
+	// LongTermMinor: desde 7.18 se usa la plantilla long-term. Validado en
+	// CHR: 7.12 no admite `name=` en los peers de WireGuard y 7.23.8 sí
+	// (docs/vendors/mikrotik.md §12); la versión exacta queda por fijar.
 	LongTermMinor = 18
 	MinMinor      = 12
 )

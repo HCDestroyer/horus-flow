@@ -43,7 +43,7 @@ sha256_of() { sha256sum "$1" | cut -d' ' -f1; }
 expected="$(awk -v f="$zip_name" '!/^#/ && $2 == f { print tolower($1) }' "$pinned_file" | tail -n1)"
 source_desc="infrastructure/lab/chr/checksums.sha256"
 
-# 2) Checksum publicado por MikroTik junto a la imagen (ruta a verificar en la primera ejecución).
+# 2) Checksum junto a la imagen (hoy MikroTik no lo publica ahí: 404; el valor está en mikrotik.com/download).
 if [ -z "$expected" ]; then
   for sums in "$CHR_BASE_URL/$ROS/SHA256SUMS" "$CHR_BASE_URL/$ROS/$zip_name.sha256"; do
     if body="$(curl -fsSL --max-time 30 "$sums" 2>/dev/null)"; then
@@ -73,7 +73,16 @@ if [ -f "$zip_path" ] && [ "$(sha256_of "$zip_path")" = "$expected" ]; then
 else
   log "descargando $url"
   tmp="$zip_path.part"
-  if ! curl -fSL --retry 3 --max-time 600 -o "$tmp" "$url"; then
+  # Reanuda (-C -) si la transferencia se corta: visto en la primera descarga real a través de un
+  # proxy ("curl: (18) Transferred a partial file"). El SHA-256 se verifica igual al final.
+  rm -f "$tmp"
+  fetched=0
+  for attempt in 1 2 3 4 5 6; do
+    if curl -fSL -C - --retry 3 --max-time 600 -o "$tmp" "$url"; then fetched=1; break; fi
+    log "descarga interrumpida (intento $attempt), reanudando..."
+    sleep 2
+  done
+  if [ "$fetched" != 1 ]; then
     rm -f "$tmp"
     die "no se pudo descargar $url (¿sin acceso a download.mikrotik.com? Descárgalo a mano en
   $zip_path y vuelve a ejecutar: se verificará igual)"

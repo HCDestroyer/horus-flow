@@ -13,6 +13,7 @@
 > (help.mikrotik.com / manual.mikrotik.com) a través de buscadores; el acceso directo a esas
 > páginas estaba bloqueado desde el entorno de trabajo, así que **todo lo marcado "a verificar"
 > debe comprobarse en el laboratorio CHR (§8)** antes de darlo por cierto. Las fuentes están en §10.
+> Lo ya comprobado contra RouterOS real (CHR 7.12 y 7.23.8) está en **§12 "Validado contra RouterOS"**.
 
 ---
 
@@ -42,7 +43,7 @@
 | --- | --- | --- |
 | WireGuard nativo (`/interface wireguard`) | v7.1 | No existe en v6. |
 | API REST (`/rest`, JSON sobre HTTPS `www-ssl`) | v7.1beta4 | Sobre HTTP (`www`) solo desde v7.9; Horus **no** lo usará sin TLS. |
-| Política de grupo `rest-api` separada de `api` | v7.x (versión exacta **a verificar**) | En algunas versiones (reportado en 7.11) REST exigía la política `api`. Probar ambas. |
+| Política de grupo `rest-api` separada de `api` | ≤ 7.12 (**validado**: existe en 7.12 y 7.23.8, §12) | Con `read,api,rest-api` (sin `write`) la REST lee y rechaza escrituras. En 7.11 se reportó que REST exigía `api`: el grupo `horus-ro` lleva las dos. |
 | Traffic Flow v5 / v9 / IPFIX | v6 y v7 | IPFIX con selección de campos en `/ip traffic-flow ipfix`. |
 | Muestreo de paquetes en Traffic Flow | v7 | Horus recomienda **no** usarlo en el router de nodo (§2.6). |
 | SNMP v1/v2c/v3 | v6 y v7 | v3 con SHA1/AES; SHA2 **a verificar** en la versión elegida. |
@@ -260,9 +261,9 @@ MIKROTIK-MIB (raíz `1.3.6.1.4.1.14988.1.1`):
 | Temperatura de placa `mtxrHlTemperature` | `…1.1.3.10.0` | Décimas de °C. No existe en todos los modelos. |
 | Temperatura de CPU `mtxrHlProcessorTemperature` | `…1.1.3.11.0` | Décimas de °C. |
 | Voltaje | `…1.1.3.8.0` (reportado en foro) | Fuentes contradictorias: **a verificar**. |
-| Tabla de sensores v7 (`mtxrGaugeTable`: nombre, valor, unidad) | `…1.1.3.100.1` | En v7 la salud se expone como tabla genérica de sensores (**a verificar**). Preferible a OIDs fijos. |
+| Tabla de sensores v7 (`mtxrGaugeTable`: nombre, valor, unidad) | `…1.1.3.100.1` | En v7 la salud se expone como tabla genérica de sensores (**a verificar con un equipo físico**: el CHR no tiene sensores y la tabla no existe en CHR 7.12 ni 7.23.8). Preferible a OIDs fijos. |
 | Licencia `mtxrLicense` (nivel `mtxrLicLevel`) | `…1.1.4` (`…1.1.4.3.0`) | |
-| Sistema (nº de serie, firmware, versión) `mtxrSystem` | `…1.1.7` | Subíndices **a verificar**. La versión de RouterOS también sale de `sysDescr` o de la API. |
+| Sistema (nº de serie, firmware, versión) `mtxrSystem` | `…1.1.7` | En CHR 7.12/7.23.8: `.7.6.0` fecha de compilación, `.7.8.0` placa, `.7.9.0` "CHR"; `.7.3.0` (serie) **no existe** en CHR (sí en RouterBOARD, a verificar). La versión sale de `mtxrLicVersion` (`…1.1.4.4.0`, validado) o de la API. |
 | Colas simples `mtxrQueueSimpleTable` | `…1.1.2.1` | Nombre, destino, bytes/paquetes por cola. |
 | Árbol de colas `mtxrQueueTreeTable` | `…1.1.2.2` | |
 | Vecinos (MNDP/CDP/LLDP) `mtxrNeighbor` | `…1.1.11` | Topología opcional. |
@@ -280,6 +281,25 @@ dividen por 10). Si falta el OID fijo de temperatura/CPU/voltaje se toma de la t
 transporte o de credencial cuenta como error. Cada hora: walk de `ifName`, `ifAlias`, `ifType`,
 `ifHighSpeed`, `ifAdminStatus`, `ifOperStatus`; se sondean ethernet/sfp/wlan, `l2vlan`, `bridge` y
 `ieee8023adLag` y nunca `<pppoe-…>`, PPP, túneles ni `lo`.
+
+**Validado contra RouterOS real (CHR 7.12 y 7.23.8 por SNMPv3 authPriv a través del túnel; fixtures
+en `services/snmp/internal/adapters/snmpclient/testdata/chr-*.snmpwalk`, §12)**:
+
+- `sysDescr` es `RouterOS CHR` en 7.12 pero `RouterOS CHR 7.23.8 (long-term)` en 7.23.8: el modelo
+  sigue siendo la primera palabra tras "RouterOS "; la versión no se toma de aquí.
+- IF-MIB: todos los OIDs de la tabla existen con los tipos esperados (`Counter64` en los HC,
+  `Counter32` en errores/descartes, `Gauge32` en `ifHighSpeed`). **7.23.8 publica `lo`** (ifIndex 1,
+  `ifType` 1) y desplaza los ifIndex de las ethernet respecto a 7.12: nunca fijar ifIndex entre
+  versiones (Horus empareja por nombre en cada descubrimiento). WireGuard es `ifType` 1 (`other`).
+- `ifHighSpeed` = 0 en interfaces virtio (CHR): velocidad desconocida, no un error.
+- Un GET de 54 varbinds (6 interfaces × 9 columnas, como `ReadCounters`) funciona; un ifIndex
+  inexistente devuelve `noSuchObject` en cada varbind (no un error de la PDU).
+- HOST-RESOURCES: una fila de `hrProcessorLoad` por vCPU; RAM en la fila `hrStorageRam` (65536) con
+  unidades de 1024.
+- Credenciales SNMPv3 incorrectas: **solo la clave de autenticación errónea recibe respuesta** (Report
+  que gosnmp rechaza con "incoming packet is not authentic", ahora clasificado como `auth_failed`).
+  Con la clave de cifrado errónea o un usuario desconocido RouterOS **descarta en silencio**: el
+  resultado es un timeout, indistinguible de `snmp_unreachable`.
 
 **Regla para el adaptador MikroTik de `snmp`**: los OIDs exactos de cada modelo se obtienen en el
 propio router con `print oid` (`/system health print oid`, `/system resource print oid`,
@@ -338,7 +358,7 @@ pruebas. Ambas exigen certificado en el router (§4.3).
 | `/interface/wireguard/peers` | Estado del túnel visto desde el router | 5 min |
 | `/ip/firewall/connection` | Conteo de conexiones (§6) | Ver §6, con cautela |
 | `/queue/simple` | Plan contratado (max-limit) como pista residencial/comercial | 1 h, fuera de v1 |
-| `/tool/netwatch` | Pérdida, RTT y jitter por enlace de subida (sondas ICMP con `comment="horus-uplink;…"` que **pega el usuario**; Horus solo las lee: `status`, `sent-count`, `response-count`, `loss-percent`, `rtt-avg/min/max`, `rtt-jitter`, `rtt-stdev`, nombres a verificar en 7.12+) — [`capacity-forecast.md`](../capacity-forecast.md) | 60 s (solo con la huella TLS ya fijada) |
+| `/tool/netwatch` | Pérdida, RTT y jitter por enlace de subida (sondas ICMP con `comment="horus-uplink;…"` que **pega el usuario**; Horus solo las lee: `status`, `sent-count`, `response-count`, `loss-percent`, `rtt-avg/min/max`, `rtt-jitter`, `rtt-stdev`; nombres y formatos **validados en 7.12 y 7.23.8**, §12) — [`capacity-forecast.md`](../capacity-forecast.md) | 60 s (solo con la huella TLS ya fijada) |
 
 D1 dice que **no** hace falta CRM: estas lecturas son **enriquecimiento opcional**. El cliente
 sigue siendo la IP; usuario PPPoE, MAC y hostname se guardan como alias con retención limitada.
@@ -355,7 +375,8 @@ sigue siendo la IP; usuario PPPoE, MAC y hostname se guardan como alias con rete
 
 - `read` sin `sensitive`: Horus no ve contraseñas, claves WireGuard privadas ni secretos PPP.
 - `address=` restringe el login a la red de servicios de Horus (por el túnel).
-- Si la versión no tiene la política `rest-api`, quitarla (**a verificar** en 7.12).
+- La política `rest-api` ya existe en 7.12 (validado en CHR 7.12 y 7.23.8, §12): con este grupo la
+  REST lee por el túnel y un `POST …/system/identity/set` responde HTTP 500 (sin permiso).
 - **Horus no escribe en el router en v1** (Q9 opción i). Una futura función "aplicar Traffic Flow
   automáticamente" requeriría un segundo usuario `horus-cfg` con `write`, deshabilitado por
   defecto, que el ISP active solo durante la operación. Queda fuera del primer entregable.
@@ -452,9 +473,10 @@ Horus genera este script por router, sustituyendo los placeholders. Todo lo crea
 `comment="horus"` para poder auditarlo y desinstalarlo, **salvo el destino de Traffic Flow**:
 `/ip traffic-flow target add … comment=…` falló en el router real del PO (I1-27), así que el
 destino se crea sin `comment` y el script inverso lo quita por `dst-address`, `port` y
-`src-address`. Probado conceptualmente; **validar línea a
-línea en CHR con la versión mínima** antes de entregarlo (sintaxis de `ipfix` y de certificados en
-particular).
+`src-address`. **Validado línea a línea en CHR 7.12 y 7.23.8** (`make lab-up` lo extrae de este
+bloque y lo importa; §12): en 7.12 los peers de WireGuard **no** tienen `name` (el import falla con
+"expected end of command"), y las reglas de firewall se colocan moviéndolas por id en lugar de con
+`place-before=0` (ver notas).
 
 Placeholders:
 
@@ -478,19 +500,29 @@ Placeholders:
 # 1) Túnel WireGuard hacia Horus (la clave privada se genera aquí y no sale del router)
 /interface wireguard add name=wg-horus mtu=1420 comment="horus"
 /ip address add address=<ROUTER_WG_IP>/32 interface=wg-horus comment="horus"
-/interface wireguard peers add interface=wg-horus name=horus-hub \
+/interface wireguard peers add interface=wg-horus \
     public-key="<HORUS_WG_PUBKEY>" \
     endpoint-address=<HORUS_WG_ENDPOINT> endpoint-port=<HORUS_WG_PORT> \
     allowed-address=<HORUS_SERVICES_CIDR> persistent-keepalive=25s comment="horus"
 /ip route add dst-address=<HORUS_SERVICES_CIDR> gateway=wg-horus comment="horus"
 
-# 2) Firewall: permitir gestión solo desde Horus por el túnel (colocar antes de los drop existentes)
-/ip firewall filter add chain=input in-interface=wg-horus src-address=<HORUS_SERVICES_CIDR> \
-    protocol=udp dst-port=161 action=accept comment="horus snmp" place-before=0
-/ip firewall filter add chain=input in-interface=wg-horus src-address=<HORUS_SERVICES_CIDR> \
-    protocol=tcp dst-port=443,8729 action=accept comment="horus api" place-before=0
-/ip firewall filter add chain=input in-interface=wg-horus src-address=<HORUS_SERVICES_CIDR> \
-    protocol=icmp action=accept comment="horus icmp" place-before=0
+# 2) Firewall: gestión solo desde Horus por el túnel, delante de la primera regla de input existente
+#    (revise el orden si usa listas de interfaces o reglas propias). Se mueve por id y no con
+#    place-before=0: el número 0 depende del último `print` de la sesión y, si la numeración quedó
+#    vieja, RouterOS falla con "item referred by 'place-before' does not exist" (visto en CHR 7.12).
+{
+    :local first [:pick [/ip firewall filter find where chain=input] 0]
+    /ip firewall filter add chain=input in-interface=wg-horus src-address=<HORUS_SERVICES_CIDR> \
+        protocol=udp dst-port=161 action=accept comment="horus snmp"
+    /ip firewall filter add chain=input in-interface=wg-horus src-address=<HORUS_SERVICES_CIDR> \
+        protocol=tcp dst-port=443,8729 action=accept comment="horus api"
+    /ip firewall filter add chain=input in-interface=wg-horus src-address=<HORUS_SERVICES_CIDR> \
+        protocol=icmp action=accept comment="horus icmp"
+    :if ([:typeof $first] = "id") do={
+        /ip firewall filter move [find where comment="horus snmp" || comment="horus api" || comment="horus icmp"] \
+            destination=$first
+    }
+}
 
 # 3) Usuario de solo lectura para la API
 /user group add name=horus-ro comment="horus" \
@@ -523,7 +555,7 @@ Placeholders:
     active-flow-timeout=1m inactive-flow-timeout=15s packet-sampling=no
 /ip traffic-flow target add dst-address=<HORUS_COLLECTOR_IP> port=4739 version=ipfix \
     src-address=<ROUTER_WG_IP> v9-template-refresh=20 v9-template-timeout=1m
-# Campos IPFIX (nombres a verificar con: /ip traffic-flow ipfix print)
+# Campos IPFIX (todos existen desde 7.12, también los NAT; validado en CHR 7.12 y 7.23.8)
 /ip traffic-flow ipfix set sys-init-time=yes first-forwarded=yes last-forwarded=yes \
     src-mac-address=yes dst-mac-address=yes \
     nat-events=no nat-src-address=no nat-dst-address=no nat-src-port=no nat-dst-port=no
@@ -543,10 +575,18 @@ Notas operativas:
   sin avisar: `active-flow-timeout` y `cache-entries` son comunes a todos los targets. El asistente
   debe leer la configuración actual y mostrar el impacto.
 - `cache-entries` en equipos con poca RAM (hEX, RB750): usar `64k`.
-- `place-before=0` coloca las reglas al principio de `input`; el asistente debe advertir que el ISP
-  revise el orden si usa listas de interfaces o reglas personalizadas.
-- **Desinstalación**: Horus genera el script inverso (`remove [find comment~"horus"]` en cada menú,
-  `/ip traffic-flow target remove` del target de Horus y restaurar los valores globales anteriores).
+- **No usar `place-before=0`** (validado en CHR 7.12 y 7.23.8): el número 0 se resuelve con la
+  numeración del último `print` de la sesión, así que falla con "item referred by 'place-before' does
+  not exist" si esa numeración quedó vieja, y con "no such item" si la lista está vacía (habitual en
+  `/ipv6 firewall filter` y `/queue simple`). Los scripts de Horus añaden las reglas y las **mueven
+  por id** delante de la primera regla ajena (`move … destination=<id>`); el asistente y las acciones
+  de los hallazgos usan el mismo patrón. El ISP debe revisar el orden si usa listas de interfaces o
+  reglas personalizadas.
+- **Desinstalación**: Horus genera el script inverso (`remove [find comment="horus"]` en cada menú,
+  `/ip traffic-flow target remove` del target de Horus por dirección/puerto/origen). Las reglas de
+  firewall se borran por su comentario **exacto** (`horus snmp`, `horus api`, `horus icmp`): un
+  `comment~"^horus"` borraba también reglas ajenas cuyo comentario empieza por "horus" (en el
+  laboratorio, toda la base `horus-lab`, incluido su drop final).
 
 ---
 
@@ -809,7 +849,7 @@ solo hacen falta los pools (pocas filas); el resto es opcional.
 | `/ipv6/settings` | `disable-ipv6`, `forward` | ¿El router enruta IPv6? (si no, 0 flujos IPv6 es lo esperado) | 1 h |
 | `/ipv6/pool` | `name`, `prefix`, `prefix-length`, `from-pool` | **Importación de `client_prefix`** (`origin=ipv6_pool`) con `ipv6_client_len` sugerido = `prefix-length` | onboarding / 1 h |
 | `/ppp/profile` | `name`, `dhcpv6-pd-pool`, `remote-ipv6-prefix-pool`, `remote-ipv6-prefix-reuse` | Saber qué pool es PD y cuál es de enlace (§11.3.1) | onboarding / 1 h |
-| `/ipv6/dhcp-server` | `name`, `interface`, `prefix-pool`, `address-pool`, `dynamic` | Pools usados por DHCPv6 estático (IPoE) | onboarding / 1 h |
+| `/ipv6/dhcp-server` | `name`, `interface`, `prefix-pool`, `address-pool`, `dynamic` | Pools usados por DHCPv6 estático (IPoE). **Validado**: en 7.12 no existe `prefix-pool` y `address-pool` es el pool de **prefijos delegados**; en 7.23.8 `prefix-pool` es el de PD (por defecto `static-only`, sin pool) y `address-pool` el de direcciones IA_NA. Horus interpreta ambas formas | onboarding / 1 h |
 | `/ipv6/pool/used` | `pool`, `prefix`, `owner`, `info` | Prefijos en uso por pool (tamaño real; descubrimiento) | 1 h (solo conteo por defecto) |
 | `/ipv6/dhcp-server/binding` | `address`, `server`, `duid`, `iaid`, `status`, `last-seen`, flags | Prefijo delegado ↔ servidor dinámico `<pppoe-usuario>` ↔ usuario PPP (alias); `duid` es dato personal | 5 min, API binaria con `.proplist` (tabla grande en BNG) |
 | `/ppp/active` | `name`, `address` (IPv4), `caller-id`, `uptime` | Une IPv4 e IPv6 del mismo abonado por el nombre de la interfaz (alias dual-stack futuro). Si muestra también el prefijo IPv6 es **a verificar** | 60 s (igual que §4.1) |
@@ -941,3 +981,40 @@ perfil PPP <https://docs.onezeroart.com/zalultra/network/ipv6/mikrotik.html>; IP
 <https://mikrotikdocs.fyi/diagnostics-monitoring-troubleshooting/snmp/>. Tamaños de prefijo: BCOP
 RIPE-690 (citado de memoria, **a verificar**). Números de IE: registro IANA de IPFIX
 (<https://www.iana.org/assignments/ipfix/>, no accesible desde el entorno).
+
+---
+
+## 12. Validado contra RouterOS
+
+Comprobado contra **RouterOS real** con el laboratorio CHR (`infrastructure/lab/chr`) en QEMU **TCG**
+(sin KVM) el 2026-10-17. Imágenes oficiales `chr-7.12.img.zip` y `chr-7.23.8.img.zip` verificadas con
+el SHA-256 publicado en mikrotik.com/download (fijado en `infrastructure/lab/chr/checksums.sha256`).
+**7.12** es la mínima soportada (D15); **7.23.8** era la última *long-term* (`NEWESTa7.long-term`;
+la *stable* era 7.24.5). Las pruebas que hablan con el CHR llevan la etiqueta de compilación
+`chrlab` (no corren en CI) y graban los fixtures que sí usan los tests unitarios.
+
+| Versión | Qué se verificó | Resultado |
+| --- | --- | --- |
+| 7.12 y 7.23.8 | `make lab-selftest` completo (§8.3: import de base y de §7, handshake WG, ICMP/REST/API-SSL/SNMPv3 por el túnel, rechazo fuera del túnel, `horus` sin escritura, IPFIX con plantilla e IP privada pre-NAT) | **11/11 PASS** en ambas (salida en `infrastructure/lab/chr/README.md`) |
+| 7.12 | Script de onboarding de §7 y plantilla `onboarding-7.12` del servicio `wireguard` | **Fallaba**: `/interface wireguard peers add … name=` no existe en 7.12. Corregido (sin `name`). Resto OK, incluidos campos NAT de IPFIX, `/file add`, import de CA y `/tool fetch check-certificate=yes` contra un HTTPS con esa CA |
+| 7.23.8 | Plantilla `onboarding-7-longterm` (peer con `name=horus-hub`) y §7 | OK |
+| 7.12 y 7.23.8 | Script inverso (`deprovisioning`) | **Fallaba**: `filter remove [find comment~"^horus"]` borraba reglas ajenas. Corregido a comentarios exactos. Deja el router sin rastro de Horus |
+| 7.12 y 7.23.8 | `place-before=0` (onboarding, servicio de infraestructura, acciones de hallazgos, catálogo del asistente) | **Frágil**: falla con lista vacía o numeración vieja. Sustituido por mover por id; verificado orden resultante y reenvío HTTP real tunel→NAT→servidor privado |
+| 7.12 y 7.23.8 | `/ip traffic-flow target add … comment=` (catálogo del asistente) | **Falla** ("expected end of command" / "bad parameter comment"). Plantilla sin comment; deshacer por dirección y puerto |
+| 7.12 y 7.23.8 | `/log print follow-only=no … limit=50` (catálogo del asistente) | **Falla** ("expected end of command"). Sustituido por `/log print` |
+| 7.12 y 7.23.8 | Resto del catálogo del asistente y comandos de las acciones (address-list, filter, colas, NTP, keepalive, torch, ping…) con su deshacer | OK |
+| 7.12 y 7.23.8 | Script de sondas `GET /routers/{id}/netwatch-snippet` (`type=icmp interval=30s packet-count=10 packet-interval=50ms`) y su deshacer | OK sin cambios de sintaxis entre versiones |
+| 7.12 y 7.23.8 | `GET /rest/tool/netwatch` con el usuario `horus` | Campos `status`, `sent-count`, `response-count`, `loss-count`, `loss-percent` (entero **sin** "%"), `rtt-avg/min/max/jitter/stdev` (`1ms822us`, `762us`), `done-tests`, `failed-tests`, `since`. Las sondas caídas no traen `rtt-*`; `disabled` solo aparece si es `true`; tras arrancar el router las sondas pasan 5 min en `unknown` (`startup-delay=5m`). El lector ya lo soportaba; fixtures en `testdata/chr-*/tool_netwatch.json` |
+| 7.12 | `GET /rest/system/resource?.proplist=version` | **Se cuelga** (sin respuesta hasta el corte de 60 s). En 7.23.8 responde. El lector pide `/system/resource` sin `.proplist` |
+| 7.12 | `.proplist` con una propiedad que la versión no tiene (`remote-ipv6-prefix-reuse`, `prefix-pool`) | **Trunca la respuesta** sin error (solo vuelven las propiedades anteriores, sin `.id`). En 7.23.8 se ignora. `/ppp/profile`, `/ipv6/dhcp-server` y `/tool/netwatch` se leen sin `.proplist` |
+| 7.12 y 7.23.8 | `/ipv6/dhcp-server` | 7.12: `address-pool` = PD; 7.23.8: `prefix-pool` = PD (defecto `static-only`) y `address-pool` = IA_NA. Corregida la importación de prefijos |
+| 7.12 y 7.23.8 | REST de la importación de prefijos (`/ip/pool`, `/ipv6/pool`, `/ppp/profile`, `/ip/address`, `/ipv6/address`) | OK; fixtures reales en `services/devices/internal/adapters/routeros/testdata/chr-*` |
+| 7.12 y 7.23.8 | SNMP (IF-MIB HC, `ifHighSpeed`, errores/descartes, estado, HOST-RESOURCES, MIKROTIK-MIB versión) | OK, ver §3.2. Sin sensores en CHR (temperatura/voltaje/`mtxrGaugeTable`/serie: `null`, como debe) |
+| 7.12 y 7.23.8 | SNMPv3 con credencial errónea | Clave de auth: ahora `auth_failed` (antes salía como error genérico). Clave de cifrado o usuario desconocido: timeout (comportamiento de RouterOS) |
+| 7.12 y 7.23.8 | Script SNMP/usuario de solo lectura de la consola (`routerOsReadOnlySnippet`) | OK |
+| 7.12 | TLS de `www-ssl` | Solo TLS 1.2 (TLS 1.3 rechazado); el cliente de Horus negocia 1.2 sin cambios |
+
+No verificable en CHR (queda para un equipo físico): `mtxrGaugeTable` y OIDs fijos de salud,
+`mtxrSerialNumber`, offload por hardware (§2.7), PPPoE con interfaces dinámicas (segundo CHR, §8.2)
+y la versión exacta en la que aparece `name` en los peers de WireGuard (entre 7.13 y 7.23.8; Horus
+usa la plantilla long-term desde 7.18, `LongTermMinor`).
