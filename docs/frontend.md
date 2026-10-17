@@ -138,7 +138,7 @@ ADMINISTRACIÓN DEL ISP
 ├─ Pantallas NOC (kioscos)    /t/:slug/admin/kiosks                             I1
 ├─ Detección                  /t/:slug/admin/detection (umbrales)               I1 lectura · I2
 ├─ ASN propios                /t/:slug/admin/asn (nombre/servicio por ASN)      I1
-├─ Integraciones             /t/:slug/admin/integrations (códigos de conexión, ArgosISP) I1
+├─ Integraciones             /t/:slug/admin/integrations (enlace y códigos de conexión, ArgosISP, autologin) I1
 └─ Auditoría                  /t/:slug/admin/audit                              I2
 PLATAFORMA (solo superadmin, §3.4)
 ├─ Vista global               /global                                            I2
@@ -796,8 +796,27 @@ los comandos RouterOS en `CodeBlock` para copiar. Ver [`assist.md`](assist.md).
   `mocks/integrations.ts` y lo cubre `tests/unit/mock-integrations.test.ts`.
 - **Canal webhook** en Administración › Canales de notificación (`ChannelForm.vue`): URL https y secreto de firma
   write-only; al elegirlo se proponen todas las categorías del contrato, severidad `info` y sin agrupación.
-- Mocks (`mocks/integrations.ts`, estado en `localStorage` para las pruebas con recarga) y e2e
-  `tests/e2e/integrations.spec.ts` (`pnpm e2e --grep @integrations`).
+- **Enlace de conexión** (contrato §1.4, H10; `components/integrations/ArgosConnectionLinkPanel.vue`, con
+  `settings.manage`, `api_tokens.manage` y `alerts.manage`): "Generar enlace de conexión" lo muestra **una vez** en
+  `CodeBlock` con la cuenta atrás de 15 min (`useNow`) y lo oculta al caducar; "Canjear enlace de Argos" acepta
+  `https://…/conectar[?api=…]#…` (aviso en línea si no tiene esa forma) y, tras el canje, recuerda que el conector y
+  el canal webhook quedaron apagados; se vuelven a leer conector y tokens (`refreshNuxtData`). Ambos con
+  re-autenticación (`useReauth`). La tarjeta del conector dice cómo y cuándo se conectó. `pages/conectar.vue`
+  (pública) explica que ese enlace se pega en ArgosISP y quita el código de la barra de direcciones.
+- **Autologin desde ArgosISP** (contrato §1.5, H11): `pages/sso/entrar.vue` (pública) toma el ticket del fragmento
+  (`utils/sso.ts`, `ticketFromHash`), lo borra de la URL y lo canjea con `X-Requested-With`; según la respuesta
+  adopta la sesión (`useAuth().adoptSession`), pide el TOTP de Horus o explica que hay que vincular la cuenta (nunca
+  por correo). La vinculación pendiente vive solo en `sessionStorage` de la pestaña; `pages/sso/vincular.vue` (con
+  sesión) muestra qué cuenta de ArgosISP se vincula con qué usuario y confirma con `withReauth` (el servidor exige una
+  autenticación posterior al canje). El destino se resuelve con `useSso().targetRoute` (`/sso/resolve` con el token
+  del ISP) y la ruta la construye `ssoTargetPath` (sin open redirect; el `redirect` del login pasa por
+  `safeRedirect`). **Mi cuenta** lista y quita las vinculaciones propias (`components/account/MySsoLinks.vue`);
+  **Integraciones** lista las del ISP y un administrador revoca una o todas (`SsoLinksPanel.vue`, `users.read` /
+  `users.manage`). "Ver en ArgosISP" en la ficha del cliente (identidad vigente, `customers.read`) abre la URL que
+  devuelve el servidor en otra pestaña tras validarla (`isSafeArgosEntryUrl`, `opener` anulado).
+- Mocks (`mocks/integrations.ts` y `mocks/sso.ts`, estado en `localStorage` para las pruebas con recarga), vitest
+  (`tests/unit/mock-integrations.test.ts`, `tests/unit/sso.test.ts`) y e2e `tests/e2e/integrations.spec.ts`
+  (`pnpm e2e --grep @integrations`).
 
 ## 9. Estados
 

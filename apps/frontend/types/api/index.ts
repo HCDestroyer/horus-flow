@@ -212,6 +212,17 @@ export type ConsumptionRequest = Schemas['ConsumptionRequest']
 export type ConsumptionResponse = Schemas['ConsumptionResponse']
 export type SecurityStatesRequest = Schemas['SecurityStatesRequest']
 export type SecurityStatesResponse = Schemas['SecurityStatesResponse']
+// Enlace de conexión y autologin con ArgosISP (contrato §1.4 y §1.5, H10–H11).
+export type ArgosConnection = Schemas['ArgosConnection']
+export type ArgosConnectionLink = Schemas['ArgosConnectionLink']
+export type SsoRedeemResult = Schemas['SsoRedeemResult']
+export type SsoTarget = Schemas['SsoTarget']
+export type SsoLink = Schemas['SsoLink']
+export type SsoExternalUser = Schemas['SsoExternalUser']
+export type SsoResolved =
+  operations['resolveArgosSsoTarget']['responses']['200']['content']['application/json']
+export type SsoOpenResult =
+  operations['openArgosSso']['responses']['200']['content']['application/json']
 
 // Monitoreo de routers (EP-08, I2): estado efectivo, muestras SNMP/ICMP y series.
 export type RouterStatus = Schemas['RouterStatus']

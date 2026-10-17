@@ -115,7 +115,8 @@ func newTokenFixture(t *testing.T) *tokenFixture {
 	f.store = &fakeTokenStore{user: domain.User{ID: f.user, Status: domain.UserActive}}
 	f.store.ms = []domain.Membership{{Status: domain.MembershipActive, Tenant: domain.Tenant{ID: f.tenant, Status: domain.TenantActive},
 		Assignments: []domain.Assignment{
-			{ScopeType: "tenant", Permissions: []string{"customers.read", "snmp.read", "security.findings.read", "traffic.customer.read", "api_tokens.manage"}},
+			{ScopeType: "tenant", Permissions: []string{"customers.read", "snmp.read", "security.findings.read", "traffic.customer.read", "api_tokens.manage",
+				"sso.issue"}},
 			{ScopeType: "site", ScopeID: &site, Permissions: []string{"devices.read"}},
 		}}}
 	signer := authz.NewSigner(key, "horus-auth", APITokenTTL(), func() time.Time { return *f.now })
@@ -126,7 +127,7 @@ func newTokenFixture(t *testing.T) *tokenFixture {
 	_ = clock
 	p := &authz.Principal{Type: authz.TypeUser, Subject: f.user.String(), UserID: f.user, Scope: authz.ScopeTenant, TenantID: f.tenant,
 		Perms: map[string][]string{"customers.read": {"*"}, "snmp.read": {"*"}, "security.findings.read": {"*"},
-			"traffic.customer.read": {"*"}, "api_tokens.manage": {"*"}, "devices.read": {"site:" + site.String()}}}
+			"traffic.customer.read": {"*"}, "api_tokens.manage": {"*"}, "sso.issue": {"*"}, "devices.read": {"site:" + site.String()}}}
 	f.ctx = authz.WithPrincipal(context.Background(), p)
 	return f
 }
@@ -139,7 +140,7 @@ func TestAPITokenCreateValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !domain.LooksLikeAPIToken(res.Raw) || len(res.Token.Permissions) != 4 || *res.Token.Template != "argosisp" {
+	if !domain.LooksLikeAPIToken(res.Raw) || len(res.Token.Permissions) != 5 || *res.Token.Template != "argosisp" {
 		t.Fatalf("token = %+v", res.Token)
 	}
 	if !res.Token.ExpiresAt.Equal(f.now.Add(domain.APITokenDefaultTTL)) {

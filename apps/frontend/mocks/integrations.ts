@@ -65,13 +65,22 @@ const ARGOS_TEMPLATE: ApiTokenTemplate = {
   key: 'argosisp',
   name: 'ArgosISP',
   description:
-    'Código de conexión para ArgosISP: clientes, consumo, seguridad y salud de la red del ISP.',
-  permissions: ['customers.read', 'security.findings.read', 'snmp.read', 'traffic.customer.read'],
+    'Código de conexión para ArgosISP: clientes, consumo, seguridad, salud de la red y autologin hacia Horus.',
+  permissions: [
+    'customers.read',
+    'security.findings.read',
+    'snmp.read',
+    'sso.issue',
+    'traffic.customer.read',
+  ],
 }
 
 function state(tenant: MockTenant): TenantState {
   let s = states.get(tenant.tenant_id) ?? load()[tenant.tenant_id]
-  if (s) states.set(tenant.tenant_id, s)
+  if (s) {
+    s.argos.connection ??= null // estado guardado antes del enlace de conexión (H10)
+    states.set(tenant.tenant_id, s)
+  }
   if (!s) {
     s = {
       tokens: [
@@ -105,6 +114,7 @@ function state(tenant: MockTenant): TenantState {
         identities: 0,
         stale_identities: 0,
         version: 0,
+        connection: null,
       },
       identities: {},
     }
@@ -531,6 +541,141 @@ export function integrationsRoute(ctx: TenantRouteContext): Response | undefined
       })),
       meta: { from: body.from, to: body.to, granularity: body.granularity ?? 'total' },
     })
+  }
+
+  // --- Enlace de conexión (§1.4, H10) y autologin (§1.5, H11) --------------------------------
+  const canLink =
+    ctx.can('settings.manage') && ctx.can('api_tokens.manage') && ctx.can('alerts.manage')
+  if (method === 'POST' && path === '/integrations/argosisp/connection-links') {
+    if (!canLink) return forbidden()
+    if (ctx.reauthRequired)
+      return problem(403, 'REAUTH_REQUIRED', 'Confirma tu identidad para continuar')
+    const code = `${randomHex(42)}Q`.slice(0, 43)
+    return json(
+      {
+        url: `https://horus.example.net/conectar#${code}`,
+        expires_at: new Date(now.getTime() + 15 * 60_000).toISOString(),
+        ttl_seconds: 900,
+      },
+      201,
+      { 'Cache-Control': 'no-store' },
+    )
+  }
+  if (method === 'POST' && path === '/integrations/argosisp/connection-links/redeem') {
+    if (!canLink) return forbidden()
+    if (ctx.reauthRequired)
+      return problem(403, 'REAUTH_REQUIRED', 'Confirma tu identidad para continuar')
+    const link = String(body.link ?? '').trim()
+    const m = link.match(/^https:\/\/([^/@\s?#]+)\/conectar(?:\?api=([^#]+))?#[A-Za-z0-9_-]{43}$/)
+    if (!m) {
+      return problem(
+        422,
+        'VALIDATION_FAILED',
+        'Datos no válidos',
+        {},
+        {
+          errors: [
+            {
+              field: 'link',
+              code: 'INVALID_FORMAT',
+              message: 'Pegue el enlace completo de ArgosISP: https://…/conectar#…',
+            },
+          ],
+        },
+      )
+    }
+    if (m[1]!.includes('vencido')) {
+      return problem(
+        422,
+        'CONNECTION_LINK_EXPIRED',
+        'ArgosISP dice que el enlace venció o ya se usó. Genere otro en ArgosISP.',
+      )
+    }
+    const origin = m[2] ? decodeURIComponent(m[2]).replace(/\/+$/, '') : `https://${m[1]}`
+    const id = s.argos.id ?? mockUuid('0195c000', hash(tenant.tenant_id + 'argos'))
+    const tokenId = mockUuid('0195a000', hash(link))
+    s.tokens = [
+      {
+        id: tokenId,
+        name: 'ArgosISP (enlace de conexión)',
+        prefix: 'hf_pat_Lk9x',
+        user_id: ctx.userId,
+        permissions: ARGOS_TEMPLATE.permissions,
+        template: 'argosisp',
+        created_at: now.toISOString(),
+        expires_at: new Date(now.getTime() + 365 * 86_400_000).toISOString(),
+        last_used_at: null,
+        last_used_ip: null,
+        revoked_at: null,
+        active: true,
+      },
+      ...s.tokens,
+    ]
+    s.argos = {
+      ...s.argos,
+      id,
+      configured: true,
+      enabled: false,
+      base_url: `${origin}/api/v1`,
+      has_token: true,
+      has_webhook_secret: true,
+      webhook_url: `https://horus.example.net/api/v1/integrations/argosisp/webhook/${id}`,
+      version: s.argos.version + 1,
+      connection: {
+        linked_at: now.toISOString(),
+        method: 'link_redeemed',
+        peer_connector_id: '7',
+        api_token_id: tokenId,
+        notification_channel_id: mockUuid('0195e000', hash(tenant.tenant_id + 'argos-webhook')),
+      },
+    }
+    persist()
+    return json(s.argos)
+  }
+  if (method === 'POST' && path === '/integrations/argosisp/sso/open') {
+    if (!ctx.can('customers.read')) return forbidden()
+    const c = customersOf(tenant, now).find((x) => x.id === body.customer_id)
+    if (!c) return notFound('CUSTOMER_NOT_FOUND')
+    if (!s.argos.enabled || !s.argos.has_token) {
+      return problem(409, 'INTEGRATION_NOT_CONFIGURED', 'El conector ArgosISP no está activo.')
+    }
+    const cur = (s.identities[c.id] ?? []).find((p) => p.valid_to === null)
+    if (!cur?.external_service_id) return notFound('EXTERNAL_IDENTITY_NOT_FOUND')
+    return json(
+      {
+        url: `https://panel.argos.example/sso/entrar#${randomHex(43)}`,
+        expires_at: new Date(now.getTime() + 60_000).toISOString(),
+      },
+      200,
+      { 'Cache-Control': 'no-store' },
+    )
+  }
+  if (method === 'POST' && path === '/integrations/argosisp/sso/resolve') {
+    const type = String(body.type ?? '')
+    const ext = String(body.external_id ?? '')
+    if (type === 'servicio' || type === 'cliente') {
+      if (!ctx.can('customers.read')) return forbidden()
+      const all = customersOf(tenant, now)
+      // Demo: el servicio de una identidad vigente o, si no hay, el primer cliente del ISP.
+      const byIdentity = all.find((x) =>
+        (s.identities[x.id] ?? []).some(
+          (p) =>
+            p.valid_to === null &&
+            String(type === 'servicio' ? p.external_service_id : p.external_customer_id) === ext,
+        ),
+      )
+      const c = byIdentity ?? all[0]
+      return c ? json({ kind: 'customer', id: c.id }) : notFound('CUSTOMER_NOT_FOUND')
+    }
+    if (type === 'router') {
+      if (!ctx.can('devices.read')) return forbidden()
+      return json({ kind: 'router', id: ext })
+    }
+    if (type === 'hallazgo') {
+      if (!ctx.can('security.findings.read')) return forbidden()
+      return json({ kind: 'finding', id: ext })
+    }
+    return problem(422, 'VALIDATION_FAILED', 'Datos no válidos')
   }
   return undefined
 }

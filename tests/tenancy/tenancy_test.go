@@ -205,6 +205,19 @@ func cases() map[string]tenanttest.Case {
 	c["testArgosIntegration"] = tenanttest.Case{Kind: tenanttest.Create}
 	c["getCustomerExternalIdentity"] = tenanttest.Case{Kind: tenanttest.ByID}
 	c["refreshCustomerExternalIdentity"] = tenanttest.Case{Kind: tenanttest.ByID}
+	// H10–H11 (contrato 1.4.0): enlace de conexión y autologin. Los canjes públicos (conexion/canjear,
+	// sso/redeem) y /me/sso-links no son de ISP; su aislamiento (código y ticket ligados a su ISP, un
+	// usuario de otro ISP no vincula) lo cubren TestArgosConnectionLinkAndSSO y TestArgosRedeemLinkAndOpen.
+	c["createArgosConnectionLink"] = tenanttest.Case{Kind: tenanttest.Create}
+	c["redeemArgosConnectionLink"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{
+		"link": "https://argos.example/conectar#AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}}
+	c["issueArgosSsoTicket"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{
+		"usuario": map[string]any{"id_externo": "u-pirata"}, "destino": map[string]any{"tipo": "servicio", "id_externo": "812"}}}
+	c["resolveArgosSsoTarget"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"type": "servicio", "external_id": "812"}}
+	c["openArgosSso"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"customer_id": "0192f000-0000-7000-8000-00000000c001"}}
+	c["listArgosSsoLinks"] = tenanttest.Case{Kind: tenanttest.List}
+	c["revokeAllArgosSsoLinks"] = tenanttest.Case{Kind: tenanttest.List}
+	c["revokeArgosSsoLink"] = tenanttest.Case{Kind: tenanttest.ByID}
 	pending("EP-08 (snmp: umbrales por ISP; TestSNMPThresholdsPerTenant)",
 		"getRouterThresholds", "putRouterThresholds", "resetRouterThresholds")
 	// snmp: capacidad de enlaces (el arnés de la matriz no monta snmp). Ajustes y enlaces de otro ISP → 404, RLS de las
@@ -267,6 +280,12 @@ func (a *app) fixtureISP(x isp, cidr string) map[string]string {
 	out["definition_id"], _ = defs[0].(map[string]any)["id"].(string)
 	// API token de integración (H1) para /api-tokens/{api_token_id}.
 	out["api_token_id"] = a.must(a.post(x.token, "/api/v1/api-tokens", map[string]any{"name": "ArgosISP", "template": "argosisp"}), 201).str("id")
+	// Vinculación de autologin (H11) para /integrations/argosisp/sso/links/{link_id}.
+	out["link_id"] = uuid.Must(uuid.NewV7()).String()
+	if _, err := a.admin.Exec(context.Background(), `INSERT INTO auth.sso_link (id, tenant_id, connector_id, external_user_id, user_id)
+		VALUES ($1, $2, $3, 'u-17', $4)`, out["link_id"], x.id, uuid.New(), out["user_id"]); err != nil {
+		a.t.Fatal(err)
+	}
 	if _, err := a.admin.Exec(context.Background(), `UPDATE detection.finding SET customer_id = $1 WHERE id = $2`,
 		out["customer_id"], out["finding_id"]); err != nil {
 		a.t.Fatal(err)
@@ -335,6 +354,7 @@ func TestTenantIsolationMatrix(t *testing.T) {
 				"{playlist_id}", paramsA["playlist_id"], "{channel_id}", paramsA["channel_id"], "{user_id}", paramsA["user_id"],
 				"{kind}", paramsA["kind"], "{role_id}", paramsA["role_id"], "{asn_rule_id}", paramsA["asn_rule_id"], "{asn}", "263237",
 				"{report_id}", paramsA["report_id"], "{definition_id}", paramsA["definition_id"], "{api_token_id}", paramsA["api_token_id"],
+				"{link_id}", paramsA["link_id"],
 			).Replace(tmpl), nil)
 			return a.mux.Matches(r)
 		},

@@ -1323,6 +1323,271 @@ paths:
         '404': { $ref: './common.yaml#/components/responses/NotFound' }
         '413': { description: Cuerpo de más de 1 MiB. }
         '429': { $ref: './common.yaml#/components/responses/TooManyRequests' }
+  /integrations/argosisp/connection-links:
+    post:
+      tags: [integrations]
+      operationId: createArgosConnectionLink
+      summary: Genera un enlace de conexión para ArgosISP (un uso, 15 min, mostrado una vez)
+      description: |
+        Contrato docs/integrations/argosisp.md §1.4 (H10). Horus crea un código aleatorio de 32 bytes, guarda solo su
+        SHA-256 y devuelve una sola vez `https://<horus>/conectar#<código>` (el código va en el fragmento). Caduca a
+        los 15 min y sirve una vez (`POST /integrations/argosisp/conexion/canjear`). Generar un enlace nuevo anula el
+        anterior sin usar. Como el canje emite un API token `hf_pat_` (plantilla ArgosISP) a nombre de quien genera el
+        enlace y crea un canal de notificación webhook, exige además `api_tokens.manage` y `alerts.manage`. Requiere
+        `HORUS_PUBLIC_BASE_URL` (si no, `409 INTEGRATION_NOT_CONFIGURED`). Auditado.
+      x-module: devices
+      x-scope: tenant
+      x-permission: settings.manage
+      x-permission-all: [api_tokens.manage, alerts.manage]
+      x-principals: [user]
+      x-reauth: true
+      x-audited: true
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      responses:
+        '201':
+          description: Enlace (no se vuelve a mostrar).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ArgosConnectionLink' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+  /integrations/argosisp/connection-links/redeem:
+    post:
+      tags: [integrations]
+      operationId: redeemArgosConnectionLink
+      summary: Canjea un enlace de conexión generado en ArgosISP (Conectar con enlace)
+      description: |
+        Contrato §1.4 (H10), con Horus como sistema B. Horus emite en este momento un API token `hf_pat_` con la
+        plantilla ArgosISP a nombre de quien canjea, prepara el secreto del receptor de webhooks y llama, de servidor
+        a servidor y solo por https (guardia de egreso; http o destinos privados solo con
+        HORUS_INTEGRATIONS_ALLOW_PRIVATE=true), a `POST <API de Argos>/api/v1/integraciones/horus/conexion/canjear`.
+        Con la respuesta guarda cifrados el token `atk_…` de Argos y el secreto de su receptor, crea (o actualiza) el
+        canal de notificación webhook hacia Argos **apagado** y deja el conector **apagado** hasta que un
+        administrador lo active. Si Argos rechaza el código (`410`/`422`) o no responde, revoca el token recién
+        emitido y no cambia nada (`422 CONNECTION_LINK_EXPIRED` \| `CONNECTION_LINK_REJECTED`, `502
+        INTEGRATION_UNAVAILABLE`). El enlace es `https://<panel de Argos>/conectar#<código>`; si la API de Argos está en
+        otro origen, el enlace lo indica con `?api=<origen>` (contrato 1.5.0). Auditado.
+      x-module: devices
+      x-scope: tenant
+      x-permission: settings.manage
+      x-permission-all: [api_tokens.manage, alerts.manage]
+      x-principals: [user]
+      x-reauth: true
+      x-audited: true
+      x-rate-limit: connection_link
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [link]
+              properties:
+                link: { type: string, maxLength: 4096, writeOnly: true, examples: ['https://panel.isp.example/conectar#<código>'] }
+      responses:
+        '200':
+          description: Conector preparado y apagado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ArgosIntegration' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+        '429': { $ref: './common.yaml#/components/responses/TooManyRequests' }
+        '502':
+          description: ArgosISP no responde o respondió algo inesperado (`INTEGRATION_UNAVAILABLE`).
+          content:
+            application/problem+json:
+              schema: { $ref: './common.yaml#/components/schemas/Problem' }
+  /integrations/argosisp/conexion/canjear:
+    post:
+      tags: [integrations]
+      operationId: redeemArgosConnectionCode
+      summary: Canje del enlace de conexión de Horus por ArgosISP (servidor a servidor)
+      description: |
+        Contrato §1.4 (H10), con Horus como sistema A. Público: el código de un solo uso es la credencial (solo su
+        SHA-256 en la base, 15 min). Con un código válido, Horus guarda cifrados el token `atk_…` y el secreto del
+        receptor de Argos, crea (o actualiza) el canal webhook hacia Argos **apagado**, emite el API token `hf_pat_`
+        (plantilla ArgosISP, a nombre de quien generó el enlace) y el secreto de su propio receptor, y deja el
+        conector **apagado** hasta que un administrador lo active. `base_url` y `webhook.url` solo https y destinos
+        públicos (guardia de egreso; laboratorios: HORUS_INTEGRATIONS_ALLOW_PRIVATE=true). `base_url` es el origen de
+        Argos (Horus añade `/api/v1`, contrato 1.5.0). Repetir **la misma** petición con el mismo código mientras no
+        caduque devuelve la misma respuesta (`Idempotency-Replayed: true`); cualquier otra petición con un código ya
+        usado → `410`. Auditado en el ISP (`integrations.argosisp.connection_link.redeemed`).
+      x-module: devices
+      x-scope: public
+      x-permission: public
+      x-rate-limit: connection_link
+      x-increment: I3
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ArgosConnectionRedeemRequest' }
+      responses:
+        '200':
+          description: Conexión preparada (el token y el secreto solo viajan en esta respuesta).
+          headers:
+            Idempotency-Replayed: { schema: { type: string, enum: ['true'] } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ArgosConnectionRedeemResponse' }
+        '400': { $ref: './common.yaml#/components/responses/BadRequest' }
+        '410':
+          description: Código vencido, ya usado o desconocido (`CONNECTION_LINK_INVALID`).
+          content:
+            application/problem+json:
+              schema: { $ref: './common.yaml#/components/schemas/Problem' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+        '429': { $ref: './common.yaml#/components/responses/TooManyRequests' }
+  /integrations/argosisp/sso/tickets:
+    post:
+      tags: [integrations]
+      operationId: issueArgosSsoTicket
+      summary: Emite un ticket de autologin para entrar a Horus desde ArgosISP (un uso, 60 s)
+      description: |
+        Contrato §1.5 (H11). Lo llama el **servidor** de ArgosISP con su API token `hf_pat_` (permiso `sso.issue` de
+        la plantilla ArgosISP); nunca el navegador (solo API tokens: un token de persona → 403). Si el conector se
+        preparó con un enlace de conexión, solo vale el token emitido en ese canje. El conector ArgosISP del ISP debe
+        estar activo (`409 INTEGRATION_NOT_CONFIGURED`). El ticket (32 B aleatorios, solo su SHA-256) vive 60 s, sirve
+        una vez, queda ligado al ISP y al conector y no da ningún permiso: el destino aplica siempre el ACL del usuario
+        de Horus vinculado. Responde la URL `https://<horus>/sso/entrar#<ticket>` que el navegador abre. Auditado.
+      x-module: devices
+      x-scope: tenant
+      x-permission: sso.issue
+      x-principals: [api_token]
+      x-rate-limit: sso_issue
+      x-audited: true
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SsoTicketRequest' }
+      responses:
+        '201':
+          description: Ticket emitido.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SsoTicketIssued' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+        '429': { $ref: './common.yaml#/components/responses/TooManyRequests' }
+  /integrations/argosisp/sso/resolve:
+    post:
+      tags: [integrations]
+      operationId: resolveArgosSsoTarget
+      summary: Resuelve el destino de un autologin con el ACL del usuario (cliente, servicio, router u hallazgo)
+      description: |
+        Contrato §1.5. Tras el canje, la consola pide aquí, con el token del ISP del usuario, a qué recurso de Horus
+        lleva el destino: `cliente`/`servicio` = id de ArgosISP (identidad vigente, §2.4); `router`/`hallazgo` = id
+        de Horus (el que Argos recibió en los webhooks §3.4, contrato 1.5.0). Exige el permiso de leer ese recurso
+        (`customers.read` con su alcance por nodo, `devices.read`, `security.findings.read`); sin él → `403`; sin
+        recurso visible → `404`. La consola construye la ruta (nunca una URL recibida).
+      x-module: devices
+      x-scope: tenant
+      x-permission: authenticated
+      x-principals: [user]
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [type, external_id]
+              properties:
+                type: { type: string, enum: [cliente, servicio, router, hallazgo] }
+                external_id: { type: string, minLength: 1, maxLength: 128 }
+      responses:
+        '200':
+          description: Recurso de Horus.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [kind, id]
+                properties:
+                  kind: { type: string, enum: [customer, router, finding] }
+                  id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /integrations/argosisp/sso/open:
+    post:
+      tags: [integrations]
+      operationId: openArgosSso
+      summary: '"Ver en ArgosISP": pide a ArgosISP un ticket de autologin para el servicio o cliente de un cliente de Horus'
+      description: |
+        Contrato §1.5 (H11), con Horus como origen. El **servidor** de Horus llama a
+        `POST <API de Argos>/integraciones/horus/sso/tickets` con el token `atk_…` del conector (alcance `sso.emitir`)
+        y los datos del usuario de Horus (`id_externo` = id del usuario, correo y nombre); el navegador nunca pide el
+        ticket. El destino sale de la identidad vigente del cliente (`servicio` por defecto, o `cliente`). Exige el
+        conector activo (`409`), el cliente visible para el usuario (`404`) y su identidad vigente (`404
+        EXTERNAL_IDENTITY_NOT_FOUND`). La URL devuelta por Argos solo se acepta si es https (http solo en laboratorio),
+        sin credenciales, con la ruta `/sso/entrar` y el ticket en el fragmento. ArgosISP aplica su propio ACL.
+        Auditado.
+      x-module: devices
+      x-scope: tenant
+      x-permission: customers.read
+      x-principals: [user]
+      x-rate-limit: argosisp
+      x-audited: true
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [customer_id]
+              properties:
+                customer_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+                target: { type: string, enum: [servicio, cliente], default: servicio }
+      responses:
+        '200':
+          description: URL de un uso para abrir en el navegador.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url, expires_at]
+                properties:
+                  url: { type: string, description: 'https://<panel de Argos>/sso/entrar#<ticket> (60 s, un uso).' }
+                  expires_at:
+                    oneOf:
+                      - $ref: './common.yaml#/components/schemas/Timestamp'
+                      - type: 'null'
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+        '429': { $ref: './common.yaml#/components/responses/TooManyRequests' }
+        '502':
+          description: ArgosISP no respondió, rechazó el token o devolvió una URL no válida (`INTEGRATION_UNAVAILABLE`).
+          content:
+            application/problem+json:
+              schema: { $ref: './common.yaml#/components/schemas/Problem' }
 components:
   securitySchemes:
     tenantBearer: { $ref: './common.yaml#/components/securitySchemes/tenantBearer' }
@@ -2026,7 +2291,7 @@ components:
     ArgosIntegration:
       type: object
       required: [id, configured, enabled, base_url, has_token, webhook_url, has_webhook_secret, last_sync_at, last_sync_status,
-        last_error, identities, stale_identities, version]
+        last_error, identities, stale_identities, version, connection]
       properties:
         id:
           description: Id del conector (parte de webhook_url); null si nunca se configuró.
@@ -2049,6 +2314,11 @@ components:
         identities: { type: integer, minimum: 0, description: Identidades vigentes. }
         stale_identities: { type: integer, minimum: 0 }
         version: { type: integer, minimum: 0 }
+        connection:
+          description: Enlace de conexión con el que se preparó el conector (contrato §1.4); null si se configuró a mano.
+          oneOf:
+            - $ref: '#/components/schemas/ArgosConnection'
+            - type: 'null'
     ArgosIntegrationInput:
       type: object
       additionalProperties: false
@@ -2081,3 +2351,78 @@ components:
         evento: { type: string, examples: [asignacion.cambiada, sesion.iniciada, sesion.terminada, cliente.actualizado, servicio.estado_cambiado] }
         ocurrido_en: { type: string }
         payload: { type: object, additionalProperties: true }
+    ArgosConnection:
+      type: object
+      description: Cómo se preparó el conector con un enlace de conexión (contrato §1.4); null si se configuró a mano.
+      required: [linked_at, method, peer_connector_id, api_token_id, notification_channel_id]
+      properties:
+        linked_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        method: { type: string, enum: [link_generated, link_redeemed], description: 'link_generated = Argos canjeó un enlace de Horus; link_redeemed = Horus canjeó uno de Argos.' }
+        peer_connector_id: { type: [string, 'null'], maxLength: 128, description: '`conector_id` opaco del conector en ArgosISP.' }
+        api_token_id:
+          description: API token `hf_pat_` emitido para ArgosISP en el canje (revocarlo corta su acceso).
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Uuid'
+            - type: 'null'
+        notification_channel_id:
+          description: Canal de notificación webhook hacia ArgosISP (se crea apagado).
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Uuid'
+            - type: 'null'
+    ArgosConnectionLink:
+      type: object
+      required: [url, expires_at, ttl_seconds]
+      properties:
+        url: { type: string, description: 'https://<horus>/conectar#<código>. Solo en esta respuesta.' }
+        expires_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        ttl_seconds: { type: integer, const: 900 }
+    ArgosConnectionRedeemRequest:
+      type: object
+      description: Cuerpo del contrato §1.4 (claves en español).
+      required: [codigo, sistema, base_url, token, webhook]
+      properties:
+        codigo: { type: string, pattern: '^[A-Za-z0-9_-]{43}$', writeOnly: true }
+        sistema: { type: string, enum: [argosisp], description: Sistema que canjea (B). }
+        base_url: { type: string, maxLength: 2048, description: 'Origen https de la API de ArgosISP (Horus añade /api/v1).' }
+        token: { type: string, minLength: 8, maxLength: 512, writeOnly: true, description: 'Token atk_… para que Horus lea de Argos.' }
+        webhook:
+          type: object
+          required: [url, secreto]
+          properties:
+            url: { type: string, maxLength: 2048, description: Receptor de webhooks de ArgosISP (§3.4). }
+            secreto: { type: string, minLength: 16, maxLength: 256, writeOnly: true }
+    ArgosConnectionRedeemResponse:
+      type: object
+      required: [token, webhook, conector_id]
+      properties:
+        token: { type: string, pattern: '^hf_pat_[0-9A-Za-z]{43}$', description: 'API token hf_pat_ (plantilla ArgosISP) para que Argos lea de Horus.' }
+        webhook:
+          type: object
+          required: [url, secreto]
+          properties:
+            url: { type: string, description: 'Receptor de Horus: /api/v1/integrations/argosisp/webhook/{connector_id}.' }
+            secreto: { type: string }
+        conector_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+    SsoTicketRequest:
+      type: object
+      required: [usuario, destino]
+      properties:
+        usuario:
+          type: object
+          required: [id_externo]
+          properties:
+            id_externo: { type: string, minLength: 1, maxLength: 128 }
+            correo: { type: [string, 'null'], maxLength: 254 }
+            nombre: { type: [string, 'null'], maxLength: 120 }
+        destino:
+          type: object
+          required: [tipo, id_externo]
+          properties:
+            tipo: { type: string, enum: [cliente, servicio, router, hallazgo] }
+            id_externo: { type: string, minLength: 1, maxLength: 128 }
+    SsoTicketIssued:
+      type: object
+      required: [url, expira_en]
+      properties:
+        url: { type: string, description: 'https://<horus>/sso/entrar#<ticket> (un uso, 60 s).' }
+        expira_en: { $ref: './common.yaml#/components/schemas/Timestamp' }

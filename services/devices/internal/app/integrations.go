@@ -151,6 +151,8 @@ type Integrations struct {
 	logger       *slog.Logger
 	// Lectores de otros módulos (module.Services; nil = no disponible).
 	Readers Readers
+	// eco: enlace de conexión y autologin (contrato §1.4 y §1.5).
+	eco Ecosystem
 
 	queue chan resolveJob
 	kick  chan struct{}
@@ -174,6 +176,7 @@ type IntegrationsOptions struct {
 	Now          func() time.Time
 	Logger       *slog.Logger
 	Readers      Readers
+	Ecosystem    Ecosystem
 }
 
 // NewIntegrations crea el servicio.
@@ -187,8 +190,9 @@ func NewIntegrations(o IntegrationsOptions) *Integrations {
 	if o.Audit == nil {
 		o.Audit = func() (authapi.AuditRecorder, bool) { return nil, false }
 	}
+	o.Ecosystem.defaults()
 	return &Integrations{store: o.Store, sealer: o.Sealer, dial: o.Dial, audit: o.Audit, baseURL: strings.TrimRight(o.BaseURL, "/"),
-		allowPrivate: o.AllowPrivate, now: o.Now, logger: o.Logger, Readers: o.Readers,
+		allowPrivate: o.AllowPrivate, now: o.Now, logger: o.Logger, Readers: o.Readers, eco: o.Ecosystem,
 		queue: make(chan resolveJob, 256), kick: make(chan struct{}, 1)}
 }
 
@@ -930,6 +934,11 @@ func (s *Integrations) Sweep(ctx context.Context) error {
 	}
 	if _, err := s.store.PurgeArgosWebhooks(ctx, s.ts().Add(-webhookInboxRetention)); err != nil {
 		errs = append(errs, err)
+	}
+	if s.eco.Links != nil {
+		if _, err := s.eco.Links.PurgeConnectionLinks(ctx, s.ts().Add(-linkRetention)); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	return errors.Join(errs...)
 }

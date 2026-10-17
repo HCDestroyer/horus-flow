@@ -1559,6 +1559,88 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/integrations/argosisp/conexion/canjear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Canje del enlace de conexión de Horus por ArgosISP (servidor a servidor)
+         * @description Contrato §1.4 (H10), con Horus como sistema A. Público: el código de un solo uso es la credencial (solo su
+         *     SHA-256 en la base, 15 min). Con un código válido, Horus guarda cifrados el token `atk_…` y el secreto del
+         *     receptor de Argos, crea (o actualiza) el canal webhook hacia Argos **apagado**, emite el API token `hf_pat_`
+         *     (plantilla ArgosISP, a nombre de quien generó el enlace) y el secreto de su propio receptor, y deja el
+         *     conector **apagado** hasta que un administrador lo active. `base_url` y `webhook.url` solo https y destinos
+         *     públicos (guardia de egreso; laboratorios: HORUS_INTEGRATIONS_ALLOW_PRIVATE=true). `base_url` es el origen de
+         *     Argos (Horus añade `/api/v1`, contrato 1.5.0). Repetir **la misma** petición con el mismo código mientras no
+         *     caduque devuelve la misma respuesta (`Idempotency-Replayed: true`); cualquier otra petición con un código ya
+         *     usado → `410`. Auditado en el ISP (`integrations.argosisp.connection_link.redeemed`).
+         */
+        post: operations["redeemArgosConnectionCode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/argosisp/connection-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Genera un enlace de conexión para ArgosISP (un uso, 15 min, mostrado una vez)
+         * @description Contrato docs/integrations/argosisp.md §1.4 (H10). Horus crea un código aleatorio de 32 bytes, guarda solo su
+         *     SHA-256 y devuelve una sola vez `https://<horus>/conectar#<código>` (el código va en el fragmento). Caduca a
+         *     los 15 min y sirve una vez (`POST /integrations/argosisp/conexion/canjear`). Generar un enlace nuevo anula el
+         *     anterior sin usar. Como el canje emite un API token `hf_pat_` (plantilla ArgosISP) a nombre de quien genera el
+         *     enlace y crea un canal de notificación webhook, exige además `api_tokens.manage` y `alerts.manage`. Requiere
+         *     `HORUS_PUBLIC_BASE_URL` (si no, `409 INTEGRATION_NOT_CONFIGURED`). Auditado.
+         */
+        post: operations["createArgosConnectionLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/argosisp/connection-links/redeem": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Canjea un enlace de conexión generado en ArgosISP (Conectar con enlace)
+         * @description Contrato §1.4 (H10), con Horus como sistema B. Horus emite en este momento un API token `hf_pat_` con la
+         *     plantilla ArgosISP a nombre de quien canjea, prepara el secreto del receptor de webhooks y llama, de servidor
+         *     a servidor y solo por https (guardia de egreso; http o destinos privados solo con
+         *     HORUS_INTEGRATIONS_ALLOW_PRIVATE=true), a `POST <API de Argos>/api/v1/integraciones/horus/conexion/canjear`.
+         *     Con la respuesta guarda cifrados el token `atk_…` de Argos y el secreto de su receptor, crea (o actualiza) el
+         *     canal de notificación webhook hacia Argos **apagado** y deja el conector **apagado** hasta que un
+         *     administrador lo active. Si Argos rechaza el código (`410`/`422`) o no responde, revoca el token recién
+         *     emitido y no cambia nada (`422 CONNECTION_LINK_EXPIRED` \| `CONNECTION_LINK_REJECTED`, `502
+         *     INTEGRATION_UNAVAILABLE`). El enlace es `https://<panel de Argos>/conectar#<código>`; si la API de Argos está en
+         *     otro origen, el enlace lo indica con `?api=<origen>` (contrato 1.5.0). Auditado.
+         */
+        post: operations["redeemArgosConnectionLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/integrations/argosisp/connection-test": {
         parameters: {
             query?: never;
@@ -1570,6 +1652,152 @@ export interface paths {
         put?: never;
         /** Prueba la conexión con ArgosISP (síncrona, timeout 10 s, no cambia nada) */
         post: operations["testArgosIntegration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/argosisp/sso/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Cuentas de ArgosISP vinculadas a usuarios del ISP (autologin) */
+        get: operations["listArgosSsoLinks"];
+        put?: never;
+        post?: never;
+        /** Revoca todas las vinculaciones de autologin del ISP */
+        delete: operations["revokeAllArgosSsoLinks"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/argosisp/sso/links/{link_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                link_id: components["parameters"]["SsoLinkId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoca una vinculación de autologin del ISP */
+        delete: operations["revokeArgosSsoLink"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/argosisp/sso/open": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * "Ver en ArgosISP": pide a ArgosISP un ticket de autologin para el servicio o cliente de un cliente de Horus
+         * @description Contrato §1.5 (H11), con Horus como origen. El **servidor** de Horus llama a
+         *     `POST <API de Argos>/integraciones/horus/sso/tickets` con el token `atk_…` del conector (alcance `sso.emitir`)
+         *     y los datos del usuario de Horus (`id_externo` = id del usuario, correo y nombre); el navegador nunca pide el
+         *     ticket. El destino sale de la identidad vigente del cliente (`servicio` por defecto, o `cliente`). Exige el
+         *     conector activo (`409`), el cliente visible para el usuario (`404`) y su identidad vigente (`404
+         *     EXTERNAL_IDENTITY_NOT_FOUND`). La URL devuelta por Argos solo se acepta si es https (http solo en laboratorio),
+         *     sin credenciales, con la ruta `/sso/entrar` y el ticket en el fragmento. ArgosISP aplica su propio ACL.
+         *     Auditado.
+         */
+        post: operations["openArgosSso"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/argosisp/sso/redeem": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Canjea un ticket de autologin de ArgosISP (un uso, 60 s)
+         * @description Contrato docs/integrations/argosisp.md §1.5 (H11). La página `/sso/entrar` de la consola lee el ticket del
+         *     fragmento de la URL (no viaja en la URL ni queda en registros) y lo canjea aquí, en el servidor de Horus. El
+         *     ticket es de un solo uso, vive 60 s y está ligado al ISP y al conector que lo emitió, que debe seguir activo.
+         *
+         *     - Con la cuenta de ArgosISP vinculada a un usuario de Horus: abre una sesión normal de ese usuario (cookie de
+         *       refresh, como el login) con **sus** permisos; si tiene 2FA responde `mfa_required` y la sesión se completa
+         *       con `POST /auth/mfa/verify` (la política de 2FA de Horus no cambia).
+         *     - Sin vinculación: `link_required` con un `link_token` (10 min, un uso). La persona inicia sesión en Horus con
+         *       su contraseña (y 2FA) y confirma la vinculación con `POST /me/sso-links`. Nunca se crean usuarios ni se
+         *       vincula por coincidir el correo.
+         *
+         *     Ticket desconocido, caducado, usado o de un conector apagado → `410 SSO_TICKET_INVALID` (sin distinguir).
+         *     Usuario vinculado inactivo o sin membresía activa en el ISP → `403 SSO_ACCOUNT_UNAVAILABLE`. Defensa CSRF de las
+         *     rutas que fijan cookie: `X-Requested-With: horus` y `Origin` permitido. Auditado (`auth.sso.redeemed`).
+         */
+        post: operations["redeemSsoTicket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/argosisp/sso/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resuelve el destino de un autologin con el ACL del usuario (cliente, servicio, router u hallazgo)
+         * @description Contrato §1.5. Tras el canje, la consola pide aquí, con el token del ISP del usuario, a qué recurso de Horus
+         *     lleva el destino: `cliente`/`servicio` = id de ArgosISP (identidad vigente, §2.4); `router`/`hallazgo` = id
+         *     de Horus (el que Argos recibió en los webhooks §3.4, contrato 1.5.0). Exige el permiso de leer ese recurso
+         *     (`customers.read` con su alcance por nodo, `devices.read`, `security.findings.read`); sin él → `403`; sin
+         *     recurso visible → `404`. La consola construye la ruta (nunca una URL recibida).
+         */
+        post: operations["resolveArgosSsoTarget"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/argosisp/sso/tickets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Emite un ticket de autologin para entrar a Horus desde ArgosISP (un uso, 60 s)
+         * @description Contrato §1.5 (H11). Lo llama el **servidor** de ArgosISP con su API token `hf_pat_` (permiso `sso.issue` de
+         *     la plantilla ArgosISP); nunca el navegador (solo API tokens: un token de persona → 403). Si el conector se
+         *     preparó con un enlace de conexión, solo vale el token emitido en ese canje. El conector ArgosISP del ISP debe
+         *     estar activo (`409 INTEGRATION_NOT_CONFIGURED`). El ticket (32 B aleatorios, solo su SHA-256) vive 60 s, sirve
+         *     una vez, queda ligado al ISP y al conector y no da ningún permiso: el destino aplica siempre el ACL del usuario
+         *     de Horus vinculado. Responde la URL `https://<horus>/sso/entrar#<ticket>` que el navegador abre. Auditado.
+         */
+        post: operations["issueArgosSsoTicket"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1935,6 +2163,50 @@ export interface paths {
         /** Cambio de contraseña (revoca las demás sesiones) */
         post: operations["changeMyPassword"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/sso-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Mis cuentas de otros sistemas vinculadas para el autologin */
+        get: operations["listMySsoLinks"];
+        put?: never;
+        /**
+         * Vincula la cuenta de ArgosISP del ticket canjeado con mi usuario
+         * @description Contrato §1.5 (H11). `link_token` sale de `POST /integrations/argosisp/sso/redeem` (`link_required`): vale
+         *     10 min y un solo uso. Exige haber iniciado sesión (o re-autenticado) **después** de canjear el ticket: una
+         *     sesión anterior abierta en el navegador no basta (así un enlace ajeno no vincula una cuenta sin que su dueño
+         *     escriba su contraseña). El usuario debe ser miembro activo del ISP del conector (el acceso de soporte de
+         *     plataforma no vincula). Devuelve la vinculación y el destino a abrir. Auditado (`auth.sso.linked`).
+         */
+        post: operations["createMySsoLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/sso-links/{link_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                link_id: components["parameters"]["SsoLinkId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Quita una vinculación propia (el siguiente autologin vuelve a pedir el inicio de sesión) */
+        delete: operations["deleteMySsoLink"];
         options?: never;
         head?: never;
         patch?: never;
@@ -3852,6 +4124,56 @@ export interface components {
             name: string;
             permissions: string[];
         };
+        /** @description Cómo se preparó el conector con un enlace de conexión (contrato §1.4); null si se configuró a mano. */
+        ArgosConnection: {
+            /** @description API token `hf_pat_` emitido para ArgosISP en el canje (revocarlo corta su acceso). */
+            api_token_id: components["schemas"]["Uuid"] | null;
+            linked_at: components["schemas"]["Timestamp"];
+            /**
+             * @description link_generated = Argos canjeó un enlace de Horus; link_redeemed = Horus canjeó uno de Argos.
+             * @enum {string}
+             */
+            method: "link_generated" | "link_redeemed";
+            /** @description Canal de notificación webhook hacia ArgosISP (se crea apagado). */
+            notification_channel_id: components["schemas"]["Uuid"] | null;
+            /** @description `conector_id` opaco del conector en ArgosISP. */
+            peer_connector_id: string | null;
+        };
+        ArgosConnectionLink: {
+            expires_at: components["schemas"]["Timestamp"];
+            /** @constant */
+            ttl_seconds: 900;
+            /** @description https://<horus>/conectar#<código>. Solo en esta respuesta. */
+            url: string;
+        };
+        /** @description Cuerpo del contrato §1.4 (claves en español). */
+        ArgosConnectionRedeemRequest: {
+            /** @description Origen https de la API de ArgosISP (Horus añade /api/v1). */
+            base_url: string;
+            codigo: string;
+            /**
+             * @description Sistema que canjea (B).
+             * @enum {string}
+             */
+            sistema: "argosisp";
+            /** @description Token atk_… para que Horus lea de Argos. */
+            token: string;
+            webhook: {
+                secreto: string;
+                /** @description Receptor de webhooks de ArgosISP (§3.4). */
+                url: string;
+            };
+        };
+        ArgosConnectionRedeemResponse: {
+            conector_id: components["schemas"]["Uuid"];
+            /** @description API token hf_pat_ (plantilla ArgosISP) para que Argos lea de Horus. */
+            token: string;
+            webhook: {
+                secreto: string;
+                /** @description Receptor de Horus: /api/v1/integrations/argosisp/webhook/{connector_id}. */
+                url: string;
+            };
+        };
         ArgosConnectionTest: {
             error: string | null;
             /** @enum {string|null} */
@@ -3866,6 +4188,8 @@ export interface components {
             /** @example https://argos.isp.example/api/v1 */
             base_url: string | null;
             configured: boolean;
+            /** @description Enlace de conexión con el que se preparó el conector (contrato §1.4); null si se configuró a mano. */
+            connection: components["schemas"]["ArgosConnection"] | null;
             enabled: boolean;
             has_token: boolean;
             has_webhook_secret: boolean;
@@ -6615,6 +6939,70 @@ export interface components {
             h: number;
             w: number;
         };
+        SsoExternalUser: {
+            email: string | null;
+            /** @description `usuario.id_externo` del origen. */
+            id: string;
+            name: string | null;
+        };
+        SsoLink: {
+            connector_id: components["schemas"]["Uuid"];
+            created_at: components["schemas"]["Timestamp"];
+            external_user: components["schemas"]["SsoExternalUser"];
+            id: components["schemas"]["Uuid"];
+            last_used_at: components["schemas"]["Timestamp"] | null;
+            /** @enum {string} */
+            system: "argosisp";
+            tenant_id: components["schemas"]["Uuid"];
+            tenant_name: string;
+            user_email: string;
+            user_id: components["schemas"]["Uuid"];
+        };
+        SsoRedeemResult: {
+            /** @description Solo con `authenticated`: token de sesión (como el login). */
+            access_token?: string;
+            expires_at?: components["schemas"]["Timestamp"];
+            external_user?: components["schemas"]["SsoExternalUser"];
+            link_expires_at?: components["schemas"]["Timestamp"];
+            /** @description Solo con `link_required`: para `POST /me/sso-links` (10 min, un uso). */
+            link_token?: string;
+            /** @description Solo con `mfa_required`: para `POST /auth/mfa/verify` (5 min, un uso). */
+            mfa_token?: string;
+            /** @enum {string} */
+            scope?: "session";
+            /** @enum {string} */
+            status: "authenticated" | "mfa_required" | "link_required";
+            /** @enum {string} */
+            system: "argosisp";
+            target: components["schemas"]["SsoTarget"];
+            /** @constant */
+            token_type?: "Bearer";
+        };
+        /** @description Destino pedido por el origen (contrato §1.5). La consola lo resuelve con `POST /integrations/argosisp/sso/resolve` y el ACL del usuario. */
+        SsoTarget: {
+            external_id: string;
+            tenant_id: components["schemas"]["Uuid"];
+            tenant_slug: string;
+            /** @enum {string} */
+            type: "cliente" | "servicio" | "router" | "hallazgo";
+        };
+        SsoTicketIssued: {
+            expira_en: components["schemas"]["Timestamp"];
+            /** @description https://<horus>/sso/entrar#<ticket> (un uso, 60 s). */
+            url: string;
+        };
+        SsoTicketRequest: {
+            destino: {
+                id_externo: string;
+                /** @enum {string} */
+                tipo: "cliente" | "servicio" | "router" | "hallazgo";
+            };
+            usuario: {
+                correo?: string | null;
+                id_externo: string;
+                nombre?: string | null;
+            };
+        };
         StateData: {
             /** @constant */
             kind: "state";
@@ -7288,6 +7676,7 @@ export interface components {
         SiteId: components["schemas"]["Uuid"];
         /** @description Filtro por nodo (multivalor por comas). */
         SiteIdFilter: string;
+        SsoLinkId: components["schemas"]["Uuid"];
         /** @description Segundos por bucket; omitido → el servidor elige (≤ ~500 puntos/serie). */
         Step: number;
         TenantId: components["schemas"]["Uuid"];
@@ -10133,6 +10522,107 @@ export interface operations {
             422: components["responses"]["UnprocessableEntity"];
         };
     };
+    redeemArgosConnectionCode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArgosConnectionRedeemRequest"];
+            };
+        };
+        responses: {
+            /** @description Conexión preparada (el token y el secreto solo viajan en esta respuesta). */
+            200: {
+                headers: {
+                    "Idempotency-Replayed"?: "true";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArgosConnectionRedeemResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            /** @description Código vencido, ya usado o desconocido (`CONNECTION_LINK_INVALID`). */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    createArgosConnectionLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Enlace (no se vuelve a mostrar). */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArgosConnectionLink"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    redeemArgosConnectionLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @example https://panel.isp.example/conectar#<código> */
+                    link: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Conector preparado y apagado. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArgosIntegration"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
+            /** @description ArgosISP no responde o respondió algo inesperado (`INTEGRATION_UNAVAILABLE`). */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     testArgosIntegration: {
         parameters: {
             query?: never;
@@ -10154,6 +10644,228 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             409: components["responses"]["Conflict"];
+        };
+    };
+    listArgosSsoLinks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Vinculaciones del ISP. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["SsoLink"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    revokeAllArgosSsoLinks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Vinculaciones revocadas. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        revoked: number;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    revokeArgosSsoLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                link_id: components["parameters"]["SsoLinkId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: components["responses"]["NoContent"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    openArgosSso: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    customer_id: components["schemas"]["Uuid"];
+                    /**
+                     * @default servicio
+                     * @enum {string}
+                     */
+                    target?: "servicio" | "cliente";
+                };
+            };
+        };
+        responses: {
+            /** @description URL de un uso para abrir en el navegador. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        expires_at: components["schemas"]["Timestamp"] | null;
+                        /** @description https://<panel de Argos>/sso/entrar#<ticket> (60 s, un uso). */
+                        url: string;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+            /** @description ArgosISP no respondió, rechazó el token o devolvió una URL no válida (`INTEGRATION_UNAVAILABLE`). */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    redeemSsoTicket: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Defensa CSRF en rutas autenticadas por cookie; valor fijo `horus`. */
+                "X-Requested-With": components["parameters"]["XRequestedWith"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    ticket: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Sesión abierta, segundo factor requerido o vinculación requerida. */
+            200: {
+                headers: {
+                    /** @description `__Secure-hf_rt` (solo con `status = authenticated`). */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SsoRedeemResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            403: components["responses"]["Forbidden"];
+            /** @description Ticket desconocido, caducado, ya usado o de un conector apagado (`SSO_TICKET_INVALID`). */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    resolveArgosSsoTarget: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    external_id: string;
+                    /** @enum {string} */
+                    type: "cliente" | "servicio" | "router" | "hallazgo";
+                };
+            };
+        };
+        responses: {
+            /** @description Recurso de Horus. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: components["schemas"]["Uuid"];
+                        /** @enum {string} */
+                        kind: "customer" | "router" | "finding";
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["UnprocessableEntity"];
+        };
+    };
+    issueArgosSsoTicket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SsoTicketRequest"];
+            };
+        };
+        responses: {
+            /** @description Ticket emitido. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SsoTicketIssued"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     rotateArgosWebhookSecret: {
@@ -10726,6 +11438,86 @@ export interface operations {
         responses: {
             204: components["responses"]["NoContent"];
             422: components["responses"]["UnprocessableEntity"];
+        };
+    };
+    listMySsoLinks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Vinculaciones del usuario en todos sus ISP. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["SsoLink"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createMySsoLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    link_token: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Cuenta vinculada. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        link: components["schemas"]["SsoLink"];
+                        target: components["schemas"]["SsoTarget"];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            /** @description `link_token` caducado, usado o de un conector apagado (`SSO_LINK_INVALID`). */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteMySsoLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                link_id: components["parameters"]["SsoLinkId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: components["responses"]["NoContent"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
         };
     };
     confirmMyTotp: {

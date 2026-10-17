@@ -379,6 +379,30 @@ modules:
       scope: session
       methods:
         POST: authenticated
+    - prefix: /api/v1/integrations/argosisp/sso/links
+      scope: tenant
+      methods:
+        GET: users.read
+        DELETE: users.manage
+      principals:
+        - user
+      reauth:
+        - DELETE
+      audited:
+        - DELETE
+    - prefix: /api/v1/integrations/argosisp/sso/links/{link_id}
+      scope: tenant
+      methods:
+        DELETE: users.manage
+      principals:
+        - user
+      audited:
+        - DELETE
+    - prefix: /api/v1/integrations/argosisp/sso/redeem
+      scope: public
+      methods:
+        POST: public
+      rate_limit: sso
     - prefix: /api/v1/kiosk/enroll
       scope: public
       methods:
@@ -419,6 +443,19 @@ modules:
       scope: session
       methods:
         POST: authenticated
+    - prefix: /api/v1/me/sso-links
+      scope: session
+      methods:
+        GET: authenticated
+        POST: authenticated
+      audited:
+        - POST
+    - prefix: /api/v1/me/sso-links/{link_id}
+      scope: session
+      methods:
+        DELETE: authenticated
+      audited:
+        - DELETE
     - prefix: /api/v1/me/totp/confirm
       scope: session
       methods:
@@ -717,6 +754,32 @@ modules:
         - PUT
       audited:
         - PUT
+    - prefix: /api/v1/integrations/argosisp/conexion/canjear
+      scope: public
+      methods:
+        POST: public
+      rate_limit: connection_link
+    - prefix: /api/v1/integrations/argosisp/connection-links
+      scope: tenant
+      methods:
+        POST: settings.manage
+      principals:
+        - user
+      reauth:
+        - POST
+      audited:
+        - POST
+    - prefix: /api/v1/integrations/argosisp/connection-links/redeem
+      scope: tenant
+      methods:
+        POST: settings.manage
+      principals:
+        - user
+      rate_limit: connection_link
+      reauth:
+        - POST
+      audited:
+        - POST
     - prefix: /api/v1/integrations/argosisp/connection-test
       scope: tenant
       methods:
@@ -724,6 +787,30 @@ modules:
       principals:
         - user
       rate_limit: argosisp
+    - prefix: /api/v1/integrations/argosisp/sso/open
+      scope: tenant
+      methods:
+        POST: customers.read
+      principals:
+        - user
+      rate_limit: argosisp
+      audited:
+        - POST
+    - prefix: /api/v1/integrations/argosisp/sso/resolve
+      scope: tenant
+      methods:
+        POST: authenticated
+      principals:
+        - user
+    - prefix: /api/v1/integrations/argosisp/sso/tickets
+      scope: tenant
+      methods:
+        POST: sso.issue
+      principals:
+        - api_token
+      rate_limit: sso_issue
+      audited:
+        - POST
     - prefix: /api/v1/integrations/argosisp/webhook-secret
       scope: tenant
       methods:

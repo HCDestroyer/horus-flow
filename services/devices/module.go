@@ -30,6 +30,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/natsx"
 	"github.com/hcdestroyer/horus-flow/packages/go/pagination"
 	"github.com/hcdestroyer/horus-flow/packages/go/pgdb"
+	alertsapi "github.com/hcdestroyer/horus-flow/services/alerts/api"
 	consumptionapi "github.com/hcdestroyer/horus-flow/services/analytics/api/consumption"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
 	findingsapi "github.com/hcdestroyer/horus-flow/services/detection/api/customerfindings"
@@ -180,10 +181,33 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 				return &rs[0], nil
 			},
 		},
+		// Enlace de conexión (§1.4) y autologin (§1.5): tokens y tickets de auth, canal webhook de alerts.
+		Ecosystem: app.Ecosystem{
+			Links: store,
+			Peer:  &argos.Peer{HTTP: &http.Client{}, Guard: egress, Limiter: limiter, Timeout: 10 * time.Second},
+			Tokens: func() (authapi.IntegrationTokens, bool) {
+				return module.Lookup[authapi.IntegrationTokens](deps.Services, authapi.ServiceIntegrationTokens)
+			},
+			Webhooks: func() (alertsapi.IntegrationWebhooks, bool) {
+				return module.Lookup[alertsapi.IntegrationWebhooks](deps.Services, alertsapi.ServiceIntegrationWebhooks)
+			},
+			Tickets: func() (authapi.SSOTickets, bool) {
+				return module.Lookup[authapi.SSOTickets](deps.Services, authapi.ServiceSSOTickets)
+			},
+			Profiles: func() (authapi.UserProfiles, bool) {
+				return module.Lookup[authapi.UserProfiles](deps.Services, authapi.ServiceUserProfiles)
+			},
+			Router: store.GetRouter,
+		},
 	})
 	customers.Discovered = integrations.EnqueueDiscovered
 	if deps.Services != nil {
 		if err := deps.Services.Provide(devapi.ServiceCustomerDirectory, devapi.CustomerDirectory(app.CustomerDirectory{Store: store})); err != nil {
+			db.Close()
+			return nil, err
+		}
+		// auth pregunta al canjear un ticket de autologin si el conector sigue activo (contrato §1.5).
+		if err := deps.Services.Provide(authapi.ServiceSSOConnectors, authapi.SSOConnectors(integrations)); err != nil {
 			db.Close()
 			return nil, err
 		}

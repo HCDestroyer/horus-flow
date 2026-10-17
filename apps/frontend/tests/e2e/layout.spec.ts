@@ -133,12 +133,18 @@ test.describe('pantallas de I1 sin desbordamiento @layout', () => {
   }
 })
 
-/** Páginas públicas (sin sesión): login, recuperar contraseña y nueva contraseña. */
+/**
+ * Páginas públicas (sin sesión): login, recuperar contraseña, nueva contraseña, entrada por
+ * autologin desde ArgosISP y destino del enlace de conexión.
+ */
 const PUBLIC_SCREENS = [
   '/login',
   '/forgot-password',
   // Token fijo de la API simulada (`mocks/password-reset.ts`); solo se inspecciona, no se usa.
   '/reset-password#token=reset-demo-token-0000000000000000',
+  // Ticket caducado de la API simulada (`mocks/sso.ts`): muestra el aviso sin consumir nada.
+  '/sso/entrar#vencido-ticket-de-prueba-layout',
+  '/conectar',
 ]
 
 test.describe('páginas públicas sin desbordamiento @layout', () => {

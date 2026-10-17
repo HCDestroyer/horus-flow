@@ -44,6 +44,13 @@ func (h *Integrations) Mount(r *httpx.ServiceMux) {
 	r.Handle("POST /api/v1/integrations/argosisp/webhook-secret", h.guard.Tenant(app.PermSettingsManage, h.rotateSecret))
 	r.Handle("POST /api/v1/integrations/argosisp/connection-test", h.guard.Tenant(app.PermSettingsManage, h.test))
 	r.HandleFunc("POST /api/v1/integrations/argosisp/webhook/{connector_id}", h.webhook)
+	// Enlace de conexión (§1.4) y autologin (§1.5).
+	r.Handle("POST /api/v1/integrations/argosisp/connection-links", h.guard.Tenant(app.PermSettingsManage, h.createLink))
+	r.Handle("POST /api/v1/integrations/argosisp/connection-links/redeem", h.guard.Tenant(app.PermSettingsManage, h.redeemLink))
+	r.HandleFunc("POST /api/v1/integrations/argosisp/conexion/canjear", h.redeemCode)
+	r.Handle("POST /api/v1/integrations/argosisp/sso/tickets", h.guard.Tenant(app.PermSSOIssue, h.issueTicket))
+	r.Handle("POST /api/v1/integrations/argosisp/sso/resolve", h.guard.Wrap(authz.Requirement{Scope: authz.ScopeTenant}, http.HandlerFunc(h.resolveTarget)))
+	r.Handle("POST /api/v1/integrations/argosisp/sso/open", h.guard.Tenant(app.PermCustomersRead, h.openArgos))
 	r.Handle("GET /api/v1/customers/{customer_id}/external-identity", h.guard.Tenant(app.PermCustomersRead, h.identity))
 	r.Handle("POST /api/v1/customers/{customer_id}/external-identity/refresh", h.guard.Tenant(app.PermCustomersUpdate, h.refresh))
 }
@@ -83,12 +90,17 @@ func (h *Integrations) connectorJSON(v *app.ConnectorView) map[string]any {
 	if c == nil {
 		return map[string]any{"id": nil, "configured": false, "enabled": false, "base_url": nil, "has_token": false, "webhook_url": nil,
 			"has_webhook_secret": false, "last_sync_at": nil, "last_sync_status": nil, "last_error": nil, "resolver": nil,
-			"identities": 0, "stale_identities": 0, "version": 0}
+			"identities": 0, "stale_identities": 0, "version": 0, "connection": nil}
+	}
+	var connection any
+	if c.LinkedAt != nil && c.LinkMethod != nil {
+		connection = map[string]any{"linked_at": ts(*c.LinkedAt), "method": *c.LinkMethod, "peer_connector_id": c.PeerConnectorID,
+			"api_token_id": c.PeerAPITokenID, "notification_channel_id": c.WebhookChannelID}
 	}
 	return map[string]any{"id": c.ID, "configured": true, "enabled": c.Enabled, "base_url": c.BaseURL, "has_token": c.HasToken(),
 		"webhook_url": h.svc.WebhookURL(c), "has_webhook_secret": c.HasSecret(), "last_sync_at": tsPtr(c.LastSyncAt),
 		"last_sync_status": c.LastSyncStatus, "last_error": c.LastError, "resolver": c.Resolver, "identities": v.Identities,
-		"stale_identities": v.Stale, "version": c.Version}
+		"stale_identities": v.Stale, "version": c.Version, "connection": connection}
 }
 
 func (h *Integrations) getConnector(w http.ResponseWriter, r *http.Request) {

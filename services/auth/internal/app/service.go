@@ -315,7 +315,11 @@ func (s *Service) VerifyMFA(ctx context.Context, mfaToken, code string, in Login
 	if err != nil {
 		return nil, err
 	}
+	// Primer factor de la sesión pendiente (contraseña o ticket de autologin) + OTP.
 	amr := []string{domain.AMRPassword, domain.AMROTP}
+	if slices.Contains(sess.AMR, domain.AMRSSO) {
+		amr = []string{domain.AMRSSO, domain.AMROTP}
+	}
 	ok, err = s.store.SetSessionMFA(ctx, sid, now, amr, rt)
 	if err != nil {
 		return nil, err

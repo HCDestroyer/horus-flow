@@ -1,10 +1,17 @@
 import { expect, test } from '@playwright/test'
-import { loginAsAdmin, seriousViolations } from './helpers'
+import {
+  ADMIN as ADMIN_EMAIL,
+  fillCredentials,
+  loginAsAdmin,
+  seriousViolations,
+  TOTP,
+} from './helpers'
 
 /**
  * Integraciones de ecosistema (ADR-0030) contra la API simulada: código de conexión para
  * ArgosISP (se muestra una vez), conector ArgosISP con token de solo escritura, identidad
- * externa en la ficha del cliente y consulta 360 por IP sin la IP en la URL.
+ * externa en la ficha del cliente y consulta 360 por IP sin la IP en la URL; enlace de conexión
+ * (contrato §1.4) y autologin desde ArgosISP con vinculación de cuentas (§1.5).
  * `pnpm e2e --grep @integrations`.
  */
 const ADMIN = '/t/fibra-norte/admin/integrations'
@@ -67,5 +74,86 @@ test.describe('integraciones @integrations', () => {
     await expect(modal.getByTestId('ip360-company')).toContainText(/Fibra (Sur|Norte)/)
     const { pathname, search, hash } = new URL(page.url())
     expect(pathname + search + hash).not.toMatch(/\d+\.\d+\.\d+\.\d+/)
+
+    // Ver en ArgosISP: Horus pide el ticket de servidor a servidor y abre la URL de un uso.
+    await page.keyboard.press('Escape')
+    await page
+      .context()
+      .route('https://panel.argos.example/**', (route) =>
+        route.fulfill({ status: 200, contentType: 'text/html', body: '<title>ArgosISP</title>' }),
+      )
+    const popup = page.waitForEvent('popup')
+    await page.getByTestId('client-external-open').click()
+    const argos = await popup
+    await argos.waitForURL(/panel\.argos\.example\/sso\/entrar#/)
+  })
+
+  test('enlace de conexión: generar con cuenta atrás y canjear el de Argos', async ({ page }) => {
+    await page.goto(ADMIN)
+    const panel = page.getByTestId('argos-link')
+    await expect(panel).toBeVisible()
+    await page.getByTestId('argos-link-generate').click()
+    await expect(page.getByTestId('argos-link-countdown')).toContainText(/Caduca en 1[45]:\d\d/)
+    await expect(page.getByTestId('argos-link-url')).toContainText('/conectar#')
+    // Un enlace que no es de ArgosISP se señala antes de enviarlo.
+    await page.getByTestId('argos-link-peer').fill('https://panel.argos.example/otra')
+    await expect(panel).toContainText('No parece un enlace de conexión')
+    await page
+      .getByTestId('argos-link-peer')
+      .fill(`https://panel.argos.example/conectar#${'Q'.repeat(43)}`)
+    await page.getByTestId('argos-link-redeem').click()
+    await expect(page.getByTestId('argos-link-redeemed')).toContainText('apagados')
+    await expect(page.getByTestId('argos-connection')).toContainText(
+      'Conectado con un enlace de ArgosISP',
+    )
+    await expect(page.getByTestId('argos-enabled')).not.toBeChecked()
+    expect(await seriousViolations(page)).toEqual([])
+  })
+})
+
+test.describe('autologin desde ArgosISP @integrations', () => {
+  test('primer uso: vincular iniciando sesión; después entra con su 2FA', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await page.goto('/sso/entrar#demo-ticket-de-prueba-e2e1')
+    await expect(page.getByTestId('sso-link-required')).toContainText('Ana López')
+    // El ticket sale de la barra de direcciones.
+    expect(new URL(page.url()).hash).toBe('')
+    expect(await seriousViolations(page)).toEqual([])
+    await page.getByTestId('sso-link-login').click()
+    await fillCredentials(page, ADMIN_EMAIL)
+    await page.getByLabel('Código de verificación').fill(TOTP)
+    await page.getByTestId('mfa-submit').click()
+    await expect(page).toHaveURL(/\/sso\/vincular$/)
+    await expect(page.getByTestId('sso-link-external')).toContainText('Ana López')
+    await page.getByTestId('sso-link-confirm').click()
+    await expect(page).toHaveURL(/\/t\/fibra-norte\/clients\/[0-9a-f-]+$/)
+
+    // El mismo ticket no sirve dos veces.
+    await page.goto('/sso/entrar#demo-ticket-de-prueba-e2e1')
+    await expect(page.getByTestId('sso-invalid')).toBeVisible()
+
+    // Con la cuenta vinculada: segundo factor de Horus y directo al recurso (ArgosISP abre la
+    // URL en una pestaña nueva: carga completa, no solo un cambio de fragmento).
+    await page.goto('/account')
+    await page.goto('/sso/entrar#demo-ticket-de-prueba-e2e2')
+    await page.getByTestId('sso-mfa-code').fill(TOTP)
+    await page.getByTestId('sso-mfa-submit').click()
+    await expect(page).toHaveURL(/\/t\/fibra-norte\/clients\/[0-9a-f-]+$/)
+
+    // Mi cuenta: ver y quitar la vinculación.
+    await page.goto('/account')
+    await expect(page.getByTestId('sso-card-row')).toContainText('Ana López')
+    await page.getByTestId('sso-card-remove').click()
+    await expect(page.getByTestId('sso-card-empty')).toBeVisible()
+  })
+
+  test('ticket caducado o mal formado', async ({ page }) => {
+    await page.goto('/sso/entrar#vencido-ticket-de-prueba-01')
+    await expect(page.getByTestId('sso-invalid')).toBeVisible()
+    await page.goto('/sso/entrar')
+    await expect(page.getByTestId('sso-invalid')).toBeVisible()
+    await page.goto('/conectar#' + 'A'.repeat(43))
+    await expect(page.getByTestId('connect-page')).toContainText('pégalo en ArgosISP')
+    expect(new URL(page.url()).hash).toBe('')
   })
 })

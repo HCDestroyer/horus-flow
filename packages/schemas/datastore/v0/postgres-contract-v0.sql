@@ -208,6 +208,39 @@ CREATE TABLE auth.api_token (              -- API tokens de integración hf_pat_
   CONSTRAINT ck_api_token__expiry CHECK (expires_at > created_at AND expires_at <= created_at + interval '366 days')
 );
 
+CREATE TABLE auth.sso_ticket (             -- autologin: ticket de un uso, 60 s (contrato ArgosISP §1.5)
+  id               uuid PRIMARY KEY,
+  tenant_id        uuid NOT NULL REFERENCES auth.tenant (id) ON DELETE CASCADE,
+  system           text NOT NULL DEFAULT 'argosisp',
+  connector_id     uuid NOT NULL,              -- conector de devices que lo emitió
+  api_token_id     uuid,                       -- hf_pat_ con sso.issue que lo pidió
+  ticket_hash      bytea NOT NULL UNIQUE,      -- SHA-256
+  external_user_id text NOT NULL,
+  external_email   text,
+  external_name    text,
+  target_type      text NOT NULL CHECK (target_type IN ('cliente', 'servicio', 'router', 'hallazgo')),
+  target_id        text NOT NULL,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  expires_at       timestamptz NOT NULL,       -- 60 s
+  redeemed_at      timestamptz,                -- un uso
+  redeemed_ip      inet,
+  link_consumed_at timestamptz                 -- link_token de la primera vinculación (un uso)
+);
+
+CREATE TABLE auth.sso_link (               -- vinculación (conector, usuario externo) → usuario de Horus
+  id               uuid PRIMARY KEY,
+  tenant_id        uuid NOT NULL REFERENCES auth.tenant (id) ON DELETE CASCADE,
+  system           text NOT NULL DEFAULT 'argosisp',
+  connector_id     uuid NOT NULL,
+  external_user_id text NOT NULL,
+  external_email   text,                       -- instantánea informativa: nunca decide la vinculación
+  external_name    text,
+  user_id          uuid NOT NULL,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  last_used_at     timestamptz,
+  UNIQUE (tenant_id, connector_id, external_user_id)
+);
+
 CREATE TABLE auth.audit_log (              -- append-only, cadena de hashes; solo INSERT
   id           uuid NOT NULL,
   tenant_id    uuid,                         -- NULL = acción de plataforma
@@ -471,7 +504,28 @@ CREATE TABLE devices.integration_argosisp (    -- conector por ISP; token y secr
   last_sync_status  text CHECK (last_sync_status IN ('ok', 'degraded', 'failing')),
   failures          integer NOT NULL DEFAULT 0,
   backoff_until     timestamptz,
-  version           integer NOT NULL DEFAULT 1
+  version           integer NOT NULL DEFAULT 1,
+  linked_at         timestamptz,                -- enlace de conexión (contrato ArgosISP §1.4)
+  link_method       text CHECK (link_method IN ('link_generated', 'link_redeemed')),
+  peer_connector_id text,
+  peer_api_token_id uuid,                       -- hf_pat_ emitido para Argos en el canje
+  webhook_channel_id uuid                       -- canal webhook de alerts hacia Argos
+);
+
+CREATE TABLE devices.argosisp_connection_link ( -- enlace de conexión: un uso, 15 min, solo SHA-256
+  id                  uuid NOT NULL PRIMARY KEY,
+  tenant_id           uuid NOT NULL,
+  code_hash           bytea NOT NULL UNIQUE,
+  created_by          uuid NOT NULL,
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  expires_at          timestamptz NOT NULL,
+  used_at             timestamptz,
+  used_ip             inet,
+  request_hash        bytea,                    -- idempotencia: misma petición → misma respuesta (cifrada)
+  response_ciphertext bytea,
+  response_dek        bytea,
+  kek_id              text,
+  revoked_at          timestamptz
 );
 
 -- Outbox estándar (una por esquema; sin RLS: solo la lee el relay del módulo).
@@ -490,7 +544,8 @@ BEGIN
   FOREACH t IN ARRAY ARRAY[
     'auth.tenant_membership', 'auth.role_assignment', 'auth.kiosk', 'auth.kiosk_enrollment_code',
     'devices.site', 'devices.router', 'devices.interface', 'devices.credential', 'devices.ip_realm',
-    'devices.client_prefix', 'devices.customer', 'devices.customer_kind_change'
+    'devices.client_prefix', 'devices.customer', 'devices.customer_kind_change',
+    'auth.sso_ticket', 'auth.sso_link', 'devices.argosisp_connection_link'
   ] LOOP
     EXECUTE format('ALTER TABLE %s ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('ALTER TABLE %s FORCE ROW LEVEL SECURITY', t);

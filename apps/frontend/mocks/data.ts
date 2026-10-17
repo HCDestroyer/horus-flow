@@ -57,6 +57,7 @@ export const TENANT_ADMIN = [
   'settings.read',
   'settings.manage',
   'api_tokens.manage',
+  'sso.issue',
 ]
 
 /** Rol `noc` (C7): sin `customers.read`, `kiosks.manage` ni administración. */

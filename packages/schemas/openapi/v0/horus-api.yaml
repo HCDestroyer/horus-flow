@@ -27,6 +27,8 @@ tags:
     description: Kioscos (pantallas NOC) como dispositivos registrados.
   - name: api-tokens
     description: API tokens de integración (hf_pat_) del ISP, p. ej. el código de conexión para ArgosISP.
+  - name: sso
+    description: Autologin entre sistemas con tickets de un solo uso y vinculación de cuentas (ArgosISP, contrato §1.5).
   - name: realtime
     description: Tiempo real (WebSocket `wss://<dominio>/api/v1/ws`, subprotocolo `horus.ws.v1`).
   - name: system
@@ -231,8 +233,26 @@ paths:
     $ref: ./snmp.yaml#/paths/~1infra-services~1{service_id}~1router-snippet
   /integrations/argosisp:
     $ref: ./devices.yaml#/paths/~1integrations~1argosisp
+  /integrations/argosisp/conexion/canjear:
+    $ref: ./devices.yaml#/paths/~1integrations~1argosisp~1conexion~1canjear
+  /integrations/argosisp/connection-links:
+    $ref: ./devices.yaml#/paths/~1integrations~1argosisp~1connection-links
+  /integrations/argosisp/connection-links/redeem:
+    $ref: ./devices.yaml#/paths/~1integrations~1argosisp~1connection-links~1redeem
   /integrations/argosisp/connection-test:
     $ref: ./devices.yaml#/paths/~1integrations~1argosisp~1connection-test
+  /integrations/argosisp/sso/links:
+    $ref: ./auth.yaml#/paths/~1integrations~1argosisp~1sso~1links
+  /integrations/argosisp/sso/links/{link_id}:
+    $ref: ./auth.yaml#/paths/~1integrations~1argosisp~1sso~1links~1{link_id}
+  /integrations/argosisp/sso/open:
+    $ref: ./devices.yaml#/paths/~1integrations~1argosisp~1sso~1open
+  /integrations/argosisp/sso/redeem:
+    $ref: ./auth.yaml#/paths/~1integrations~1argosisp~1sso~1redeem
+  /integrations/argosisp/sso/resolve:
+    $ref: ./devices.yaml#/paths/~1integrations~1argosisp~1sso~1resolve
+  /integrations/argosisp/sso/tickets:
+    $ref: ./devices.yaml#/paths/~1integrations~1argosisp~1sso~1tickets
   /integrations/argosisp/webhook-secret:
     $ref: ./devices.yaml#/paths/~1integrations~1argosisp~1webhook-secret
   /integrations/argosisp/webhook/{connector_id}:
@@ -267,6 +287,10 @@ paths:
     $ref: ./auth.yaml#/paths/~1me
   /me/password:
     $ref: ./auth.yaml#/paths/~1me~1password
+  /me/sso-links:
+    $ref: ./auth.yaml#/paths/~1me~1sso-links
+  /me/sso-links/{link_id}:
+    $ref: ./auth.yaml#/paths/~1me~1sso-links~1{link_id}
   /me/totp/confirm:
     $ref: ./auth.yaml#/paths/~1me~1totp~1confirm
   /me/totp/enroll:

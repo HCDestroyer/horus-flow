@@ -24,6 +24,16 @@ métricas y eventos publicados/consumidos cuando el módulo tenga implementació
   `snmp.RouterStatus`.
 - **Multiempresa** (contrato 1.2.0): la identidad guarda la empresa del servicio (`external_company_id`,
   `company_name`, `company_nit`); un webhook de servicio con `empresa_id` la refresca.
+- **Enlace de conexión** (contrato §1.4, H10; `internal/app/connection.go`, `internal/adapters/argos/peer.go`):
+  `POST /integrations/argosisp/connection-links` (código de un uso, 15 min, solo SHA-256 en
+  `devices.argosisp_connection_link`), canje público `POST /integrations/argosisp/conexion/canjear` (idempotente
+  con la respuesta cifrada; cualquier otra petición → 410) y canje del enlace de Argos
+  `POST /integrations/argosisp/connection-links/redeem`. Emite el `hf_pat_` con `auth.IntegrationTokens`, crea el
+  canal webhook hacia Argos con `alerts.IntegrationWebhooks` y deja el conector y el canal **apagados**.
+- **Autologin** (contrato §1.5, H11; `internal/app/sso.go`): `POST /integrations/argosisp/sso/tickets` (solo el
+  API token del conector, `sso.issue`; ticket de `auth.SSOTickets`), `POST /integrations/argosisp/sso/resolve`
+  (destino con el ACL del usuario) y "Ver en ArgosISP" `POST /integrations/argosisp/sso/open` (ticket pedido a Argos
+  con el `atk_…`, URL validada). Provee `auth.SSOConnectors` (auth pregunta al canjear si el conector sigue activo).
 - Provee `devices.CustomerDirectory` (cliente e ids de ArgosISP para el canal webhook de alerts).
 - Variables: `HORUS_INTEGRATIONS_SWEEP_EVERY` (10 min), `HORUS_INTEGRATIONS_ARGOS_RPS` (10),
   `HORUS_INTEGRATIONS_ALLOW_PRIVATE` (`false`; solo laboratorios: http, privadas y loopback), `HORUS_PUBLIC_BASE_URL`
