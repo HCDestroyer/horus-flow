@@ -6,10 +6,10 @@ IPFIX por ese túnel. Sirve para validar contra RouterOS real lo que
 [`docs/vendors/mikrotik.md`](../../../docs/vendors/mikrotik.md) marca como "a verificar" (I0-12) y el
 script de onboarding de la §7, sin depender del router de la persona.
 
-> **Estado:** preparado y probado **por partes** en el entorno del agente, que no tiene
-> `/dev/kvm` ni acceso a `download.mikrotik.com`. El primer `make lab-selftest` en verde tiene que
-> correr en una máquina con KVM (la de la persona) y su salida se adjunta al PR (§ "Hecho cuando").
-> Qué se ejecutó y qué no: ver [Estado de la validación](#estado-de-la-validación).
+> **Estado:** `make lab-selftest` **en verde con RouterOS 7.12 y 7.23.8** (última long-term) en el
+> entorno del agente, sin `/dev/kvm`, con `LAB_ACCEL=tcg` (2026-10-17). Salida y lo que queda
+> pendiente: ver [Estado de la validación](#estado-de-la-validación). Lo validado contra RouterOS real
+> está en [`vendors/mikrotik.md` §12](../../../docs/vendors/mikrotik.md#12-validado-contra-routeros).
 
 ## Topología
 
@@ -47,7 +47,8 @@ script de onboarding de la §7, sin depender del router de la persona.
 
 ```bash
 # 1. Checksum de la imagen: cópialo de https://mikrotik.com/download → Cloud Hosted Router →
-#    "Raw disk image" (botón SHA256) y fíjalo en infrastructure/lab/chr/checksums.sha256:
+#    "Raw disk image" (botón SHA256) y fíjalo en infrastructure/lab/chr/checksums.sha256
+#    (7.12 y 7.23.8 ya están fijados):
 #      <sha256>  chr-7.12.img.zip
 #    (o pásalo una vez como CHR_SHA256=<sha256>). Sin checksum la descarga se niega.
 make lab-up ROS=7.12              # red + hub WG + CHR limpio + base + onboarding (§7)
@@ -73,7 +74,9 @@ Sin KVM, `make lab-up` falla con un mensaje que sugiere los fixtures (`make sim-
 1. **Descarga verificada** (`scripts/lab/fetch-chr.sh`): solo RouterOS 7.x ≥ 7.12 (D15). La imagen
    va a `~/.cache/horus-lab/chr/`, nunca al repo. SHA-256 contra, por orden: la línea fijada en
    [`checksums.sha256`](checksums.sha256), el checksum que MikroTik publique junto a la imagen
-   (la ruta `<versión>/SHA256SUMS` está **a verificar**) o `CHR_SHA256`. Si no coincide, se borra.
+   (comprobado: MikroTik **no** publica `<versión>/SHA256SUMS` ni `.sha256` junto a la imagen, 404;
+   el valor está solo en mikrotik.com/download) o `CHR_SHA256`. Si no coincide, se borra. La
+   descarga se reanuda si el proxy corta la transferencia (`curl -C -`).
 2. **Red**: bridges `hlab-wan`/`hlab-lan`, netns de clientes e `internet-sim`
    ([`internet-sim.py`](../../../scripts/lab/internet-sim.py)). Con Docker instalado añade reglas
    `FORWARD … -m comment horus-lab` para que `br_netfilter` no descarte el tráfico de los bridges;
@@ -119,18 +122,58 @@ fixtures (§8.3.9).
 
 ## Estado de la validación
 
-| Pieza | Probado en el entorno del agente (sin KVM) | Pendiente en máquina con KVM |
+Probado en el entorno del agente: contenedor Linux **sin `/dev/kvm`**, root, QEMU 8 en **TCG**
+(`LAB_ACCEL=tcg LAB_BOOT_TIMEOUT=900`), WireGuard con `wireguard-go`, salida a internet por un proxy.
+
+| Pieza | Probado en el entorno del agente (sin KVM, TCG) | Pendiente |
 | --- | --- | --- |
 | Fallo claro sin `/dev/kvm` (criterio 3) | Sí: `make lab-up` sale con 2 y sugiere fixtures / `LAB_ACCEL=tcg` | — |
-| Descarga + checksum (criterio 4) | Lógica probada con un zip de prueba: acepta con hash correcto, rechaza sin checksum, con hash erróneo y versiones < 7.12 o 6.x. `download.mikrotik.com` **bloqueado** (403 del proxy) | Primera descarga real y ruta del checksum publicado |
-| Red, netns, internet-sim, NAT | Sí, con `LAB_ROUTER=netns` (router Linux de sustitución): los 5 perfiles de tráfico llegan y internet-sim ve la IP NAT `198.18.0.2` | Con el CHR real |
-| QEMU | Arranca con la línea de órdenes del laboratorio en TCG (disco de prueba, sin RouterOS); taps en los bridges; `lab-down` limpia todo | Arranque real del CHR y REST por `ether1` |
-| Hub WireGuard | Creado (con `wireguard-go`, sin módulo en el kernel) | Handshake con el CHR |
-| Onboarding §7 | Extracción y sustitución de placeholders | Import en 7.12 y última LTS sin errores |
-| `ipfix-probe.py` | Probado con `tools/flowsim` (IPFIX y v9) | Con Traffic Flow real |
-| `lab-selftest` | — | Todo |
+| Descarga + checksum (criterio 4) | **Descarga real** de `chr-7.12.img.zip` y `chr-7.23.8.img.zip` verificada contra el SHA-256 de mikrotik.com/download (fijado en `checksums.sha256`). El proxy cortó una descarga ("partial file"): ahora se reanuda | — |
+| Red, netns, internet-sim, NAT | Sí, con el CHR real (los clientes salen por el NAT del CHR) | — |
+| QEMU | CHR real en TCG: REST por `ether1` a los **32 s** (7.12) y **172 s** (7.23.8) | Con KVM (más rápido, mismo resultado esperado) |
+| Hub WireGuard | Handshake con el CHR en 2–6 s (`wireguard-go`) | — |
+| Onboarding §7 | Import sin errores en 7.12 y 7.23.8 **tras corregir** el `name=` de los peers (no existe en 7.12) y `place-before=0` | — |
+| `ipfix-probe.py` | Con Traffic Flow real: plantilla, 21 registros e IP privada pre-NAT del cliente | — |
+| `lab-selftest` | **11 PASS · 0 FAIL · 0 SKIP en 7.12 y en 7.23.8** (abajo) | IPv6, ±2 s NTP, §8.3.5, PPPoE (§8.3.7) |
 
-Supuestos a confirmar en la primera ejecución real (si fallan, el error lo dice y la consola
-permite entrar a mano): el CHR limpio tiene `dhcp-client` en `ether1` y el servicio `www` activo;
-`admin` sin contraseña acepta REST por HTTP; `POST /rest/execute` con `as-string` devuelve la
-salida de `/import verbose=yes`.
+Resumen de `make lab-selftest ROS=7.12` y `ROS=7.23.8` (`LAB_ACCEL=tcg`), idéntico en las dos versiones
+salvo los tiempos:
+
+```text
+== Horus Flow · selftest del laboratorio CHR · RouterOS 7.12 · 2026-10-17T16:36:01Z · Linux 6.18.44-fc-v139 x86_64
+PASS  lab-up: CHR arrancado, configuración base y onboarding importados sin errores (§8.3.1)
+PASS  RouterOS 7.12 >= 7.12 (D15)
+PASS  handshake WireGuard en 2s (< 30 s)
+PASS  ICMP al router por el túnel (10.255.3.17)
+PASS  REST (www-ssl) por el túnel con el usuario horus: 200
+PASS  API-SSL :8729 abierto por el túnel
+PASS  SNMPv3 authPriv por el túnel (sysName = horus-lab-chr)
+PASS  REST por la WAN (198.18.0.2) fuera del túnel rechazada (HTTP 000)
+PASS  REST con horus desde fuera de 10.255.0.0/24 rechazada (HTTP 401)
+PASS  el usuario horus no puede escribir (POST identity/set: HTTP 500)
+PASS  IPFIX por el túnel con plantilla, registros e IP privada del cliente pre-NAT: {"packets":4,"templates":2,"records":21,"client_addresses_seen":["10.20.0.11"]}
+== 11 PASS · 0 FAIL · 0 SKIP — salida en .lab/selftest-7.12.log
+== RESULTADO: OK
+== Horus Flow · selftest del laboratorio CHR · RouterOS 7.23.8 · 2026-10-17T16:56:32Z · Linux 6.18.44-fc-v139 x86_64
+(… mismas 11 comprobaciones; handshake WireGuard en 6s …)
+== 11 PASS · 0 FAIL · 0 SKIP — salida en .lab/selftest-7.23.8.log
+== RESULTADO: OK
+```
+
+Supuestos de la primera ejecución, ya comprobados: el CHR limpio tiene `dhcp-client` en `ether1` y
+`www` activo, y `admin` sin contraseña acepta REST por HTTP (7.12 y 7.23.8). `POST /rest/execute`
+con `as-string` devuelve la salida de `/import verbose=yes` **sin** la línea "Script file loaded and
+executed successfully" y con los errores en texto libre ("expected end of command", "input does not
+match any value of interface"…): `lab.sh` añade un `:put` centinela al final de cada `.rsc` y exige
+verlo en la salida.
+
+Pruebas contra el CHR en marcha (`make lab-up`, etiqueta `chrlab`, no corren en CI; leen la
+contraseña de `.lab/secrets.env` y graban fixtures):
+
+```bash
+HORUS_CHR_URL=https://10.255.3.17 HORUS_CHR_SECRETS=$PWD/.lab/secrets.env \
+  HORUS_CHR_CAPTURE=$PWD/services/devices/internal/adapters/routeros/testdata/chr-$ROS \
+  go test -tags chrlab -run TestCHRLab -v ./services/devices/internal/adapters/routeros/
+HORUS_CHR_SNMP=10.255.3.17 HORUS_CHR_SECRETS=$PWD/.lab/secrets.env \
+  go test -tags chrlab -run TestCHRLab -v ./services/snmp/internal/adapters/snmpclient/
+```
