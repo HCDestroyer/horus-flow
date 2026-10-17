@@ -148,7 +148,9 @@ func (m *ssoMemStore) CreateSSOLink(_ context.Context, l *domain.SSOLink) error 
 	return nil
 }
 
-func (m *ssoMemStore) TouchSSOLink(context.Context, uuid.UUID, uuid.UUID, time.Time) error { return nil }
+func (m *ssoMemStore) TouchSSOLink(context.Context, uuid.UUID, uuid.UUID, time.Time) error {
+	return nil
+}
 
 func (m *ssoMemStore) ListSSOLinksByUser(_ context.Context, user uuid.UUID) ([]domain.SSOLink, error) {
 	var out []domain.SSOLink

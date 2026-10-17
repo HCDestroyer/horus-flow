@@ -488,7 +488,8 @@ Navegador ──Authorization: Bearer <access JWT>──► Traefik ──► ap
   req/min por token. Alta y revocación auditadas (`auth.api_token.created|revoked`); las acciones
   hechas con un token quedan en la auditoría con `via=api_token` y `api_token_id` (en `changes`) y en
   el sobre de eventos (`actor.via`, `actor.api_token_id`). Plantilla **ArgosISP** (código de conexión):
-  `customers.read`, `traffic.customer.read`, `security.findings.read`, `snmp.read`.
+  `customers.read`, `traffic.customer.read`, `security.findings.read`, `snmp.read` y `sso.issue`
+  (tickets de autologin, §5.4 bis).
 - **Credenciales de integraciones salientes (ADR-0030):** el token `atk_…` de ArgosISP y los secretos
   de webhooks (receptor de ArgosISP en devices, canal `webhook` de alerts) son write-only, cifrados
   con la KEK del módulo (sobre con DEK) y nunca se devuelven. Los destinos salientes configurados por un
@@ -503,6 +504,38 @@ Navegador ──Authorization: Bearer <access JWT>──► Traefik ──► ap
   La empresa del servicio (ArgosISP multiempresa: id, nombre y NIT) se enmascara igual en IA/MCP.
 - Una futura app o CLI con login interactivo usará el mismo par access + refresh rotativo vía
   OIDC Authorization Code + PKCE (§4.1).
+
+### 5.4 bis Enlace de conexión y autologin con ArgosISP (ADR-0030, H10–H11)
+
+Contrato en [`integrations/argosisp.md`](integrations/argosisp.md) §1.4 y §1.5; rutas en [`api.md`](api.md) §2.10 quinquies.
+
+**Enlace de conexión (H10).** Sustituye el copiado manual de URL, token y secreto:
+
+| Control | Implementación |
+| --- | --- |
+| Quién genera o canjea | Persona miembro del ISP con `settings.manage` **y** `api_tokens.manage` y `alerts.manage` (el canje emite un `hf_pat_` a su nombre y crea un canal webhook), con re-autenticación reciente (gateway y módulo). Debe tener todos los permisos de la plantilla ArgosISP: un token nunca lleva más que su creador. |
+| Código | 32 B aleatorios en base64url, **solo su SHA-256** en `devices.argosisp_connection_link` (RLS), un uso, 15 min. Viaja en el **fragmento** (`/conectar#…`), que el navegador no envía ni queda en registros. Generar otro anula el anterior sin usar. |
+| Canje público | `POST /integrations/argosisp/conexion/canjear` (cupo `connection_link`, 10/min por IP). CAS bajo `FOR UPDATE`: un uso. **Idempotencia**: solo la misma petición (hash del cuerpo) con el mismo código antes de caducar recibe la misma respuesta, guardada **cifrada** con la KEK de devices; cualquier otra → `410` sin distinguir usado, vencido o desconocido (sin oráculo). |
+| Destinos | `base_url` y `webhook.url` de Argos, y el origen del enlace de Argos, pasan por la guardia de egreso (https, direcciones públicas, sin las de la instalación, redirecciones y dirección real del socket comprobadas). Laboratorio: `HORUS_INTEGRATIONS_ALLOW_PRIVATE` / `HORUS_ALERTS_WEBHOOK_ALLOW_PRIVATE`. |
+| Secretos | Token `atk_…` de Argos y secreto de su receptor: write-only, cifrados (KEK de devices y de alerts). El `hf_pat_` y el secreto del receptor de Horus solo viajan en la respuesta del canje. Un canje nuevo revoca el `hf_pat_` del anterior; un canje fallido revoca el emitido. |
+| Estado tras el canje | Conector **y** canal webhook hacia Argos **apagados** hasta que un administrador los active. |
+| Auditoría | `integrations.argosisp.connection_link.created` y `…redeemed` (éxito o fallo, con el host del par), `auth.api_token.created` con `via=connection_link`, `alerts.channel.created`. |
+
+**Autologin (H11).** Abrir el mismo cliente en el otro sistema sin dar privilegios en él:
+
+| Control | Implementación |
+| --- | --- |
+| Emisión | Solo de servidor a servidor: `POST /integrations/argosisp/sso/tickets` exige un **API token** (`x-principals: [api_token]`; un token de persona → `403`) con `sso.issue`; si el conector se preparó con un enlace, solo el `hf_pat_` de ese canje. Conector activo obligatorio. El navegador nunca pide tickets. |
+| Ticket | 32 B, solo su SHA-256 (`auth.sso_ticket`, RLS), **60 s**, un uso (CAS), ligado al ISP **y** al conector; al canjear se comprueba que el conector sigue siendo el del ISP y está activo (si devices no está en el proceso, se rechaza: fail-closed). En el fragmento de `/sso/entrar#…`. |
+| Canje | `POST /integrations/argosisp/sso/redeem`: fija la cookie de refresh, así que exige `X-Requested-With: horus` y `Origin` permitido (CSRF). Cupo `sso` (30/min por IP). |
+| Vinculación | `(ISP, conector, usuario externo) → usuario de Horus` en `auth.sso_link`. **Nunca** se crean usuarios ni se vincula por coincidir el correo (correo y nombre externos son informativos). La primera vez se pide iniciar sesión: `POST /me/sso-links` con el `link_token` (MAC de auth, 10 min, un uso) exige una autenticación **posterior** al canje (login o re-autenticación con 2FA; una sesión vieja → `403 REAUTH_REQUIRED`) y membresía activa en el ISP (no vale el acceso de soporte de plataforma). La consola muestra qué cuenta externa se vincula antes de confirmar. |
+| ACL | El ticket no da permisos: abre una sesión normal del usuario local (`amr = [sso]`, misma duración máxima) con **sus** permisos y alcance; con TOTP confirmado responde `mfa_required` y la sesión se completa con `/auth/mfa/verify` (`amr = [sso, otp]`). El destino se resuelve con su ACL (`/sso/resolve`); la consola construye la ruta (sin open redirect; los `redirect` del login solo admiten rutas relativas). |
+| Revocación | Cada usuario ve y quita las suyas (`/me/sso-links`); un administrador (`users.manage`) revoca una o todas. |
+| Ver en ArgosISP | El servidor de Horus pide el ticket a Argos con el `atk_…` (alcance `sso.emitir`) y la identidad del usuario (id, correo, nombre); la URL devuelta solo se acepta si es https, sin credenciales, con ruta `/sso/entrar` y el ticket en el fragmento (validada también en la consola antes de abrirla, con `opener` anulado). Argos aplica su propio ACL. |
+| Auditoría | `auth.sso.ticket_issued` (actor = API token), `auth.sso.redeemed` (éxito o denegado, con motivo), `auth.login.sso`, `auth.sso.linked`, `auth.sso.unlinked`, `auth.sso.links_revoked`, `integrations.argosisp.sso.opened`. |
+
+Riesgo residual aceptado: un enlace de autologin ajeno abierto por una víctima con sesión en Horus solo llega a
+`link_required`; vincular exige que la víctima escriba su contraseña (y 2FA) tras ver qué cuenta externa se vincula.
 
 ### 5.5 Modo kiosco para pantallas NOC (D8)
 

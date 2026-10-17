@@ -2,7 +2,27 @@
 
 Decisión en [ADR-0030](../adr/0030-integracion-de-ecosistema-sin-dependencias.md).
 
-Versión del contrato: **1.4.0-propuesta** · Estado: lado Horus implementado H1–H9 (§5.2), H10–H11 solicitados; lado ArgosISP en curso (A1–A9, §5.1).
+Versión del contrato: **1.5.0-propuesta** · Estado: lado Horus implementado H1–H11 (§5.2); lado ArgosISP en curso (A1–A9, §5.1).
+
+Cambios de 1.5.0 (menor, solo precisiones; ningún campo cambia). Motivo: al implementar H10–H11 en Horus aparecieron
+huecos que obligaban a adivinar; se elige lo más seguro y se escribe:
+
+- §1.4: `base_url` es el **origen** del sistema que canjea (`https://host[:puerto]`, sin ruta); cada lado añade
+  `/api/v1` (se tolera que venga con `/api/v1`). Si el panel y la API de un sistema están en orígenes distintos (Argos
+  publica `panel.` y `api.`), el enlace lleva el origen de la API en `?api=`: `https://<panel>/conectar?api=<origen>#<código>`;
+  sin `api`, la API está en el origen del enlace.
+- §1.4: repetir **la misma** petición de canje con el mismo código antes de que caduque devuelve la misma respuesta
+  (idempotencia ante cortes de red); cualquier otra petición con un código usado, vencido o desconocido → `410`.
+  Generar un enlace nuevo anula el anterior sin usar. Además del conector, el canal de webhooks hacia el otro sistema
+  también queda apagado. El token del canje se emite a nombre de quien generó (o canjeó) el enlace y con la plantilla
+  de §1.1/§1.2; un canje nuevo revoca el token del anterior.
+- §1.5: `destino.id_externo` es siempre un id que el destino reconoce: para `cliente` y `servicio`, el id de ArgosISP;
+  para `router` y `hallazgo`, el id de Horus (el que Argos recibe en los webhooks de §3.4).
+- §1.5: la `url` del ticket es `https://<panel del destino>/sso/entrar#<ticket>` (su origen puede no ser el de la API);
+  el origen solo la abre si es https, sin credenciales, con esa ruta y el ticket en el fragmento (nunca en la consulta).
+- §1.5: si el conector se preparó con un enlace, el destino solo acepta tickets pedidos con el token de ese canje. La
+  primera vinculación exige iniciar sesión (o re-autenticarse) en el destino **después** del canje; una sesión ya
+  abierta en el navegador no basta.
 
 Cambios de 1.4.0 (menor, solo aditivos). Reúne en una sola versión dos cambios que se hicieron en paralelo sobre
 1.2.0: el enlace de conexión y el autologin (§1.4, §1.5, A8–A9, H10–H11), agregados a la rama de la PR de 1.2.0
@@ -110,9 +130,10 @@ Sustituye el copiado manual de URL, token y secreto (§1.1–§1.3), que se mant
 2. En el sistema **B**, un administrador pega el enlace en *Conectar con enlace*. B (servidor a servidor):
    ```
    POST https://<A>/api/v1/<prefijo>/conexion/canjear          # Argos: /integraciones/horus · Horus: /integrations/argosisp
+   # <A> = origen de la API de A: el del enlace o, si viene, el de ?api= (1.5.0)
    { "codigo": "<codigo>",
      "sistema": "horus" | "argosisp",
-     "base_url": "https://<B>",
+     "base_url": "https://<B>",                                # origen de la API de B; A añade /api/v1 (1.5.0)
      "token": "<token de B para que A lea de B>",              # B lo emite en este momento con la plantilla de §1.1/§1.2
      "webhook": { "url": "<receptor de B>", "secreto": "<secreto que B generó>" } }
    → 200 { "token": "<token de A para que B lea de A>",
@@ -123,6 +144,10 @@ Sustituye el copiado manual de URL, token y secreto (§1.1–§1.3), que se mant
 3. Cada lado guarda lo recibido cifrado (de solo escritura) y deja el conector **apagado** hasta que un
    administrador lo active. Solo `https` (salvo el flag de laboratorio de cada sistema). El canje queda
    auditado en ambos lados; generar y canjear piden el permiso de configurar la integración.
+4. (1.5.0) La misma petición repetida con el mismo código antes de que caduque recibe la misma respuesta; cualquier
+   otra → `410`. Un enlace nuevo anula el anterior sin usar. El canal de webhooks hacia el otro sistema también queda
+   apagado. En Horus, generar y canjear piden además `api_tokens.manage` y `alerts.manage` (el canje emite un
+   `hf_pat_` y crea un canal webhook) y re-autenticación reciente.
 
 ### 1.5 Autologin entre sistemas (ticket de un solo uso)
 
@@ -138,11 +163,15 @@ iniciar sesión, **sin** que un sistema dé privilegios en el otro:
      "destino": { "tipo": "cliente"|"servicio"|"router"|"hallazgo", "id_externo": "812" } }
    → 201 { "url": "https://<destino>/sso/entrar#<ticket>", "expira_en": "…" }   # 60 s, un solo uso
    ```
-   El navegador nunca pide el ticket: solo recibe la URL y la abre.
+   El navegador nunca pide el ticket: solo recibe la URL y la abre. (1.5.0) `destino.id_externo`: para `cliente` y
+   `servicio`, el id de ArgosISP; para `router` y `hallazgo`, el id de Horus. La `url` apunta al panel del destino; el
+   origen solo la abre si es https, sin credenciales, con la ruta `/sso/entrar` y el ticket en el fragmento. Si el
+   conector se preparó con un enlace (§1.4), solo vale el token de ese canje.
 2. El destino canjea el ticket en su propio servidor (un uso, 60 s, ligado al conector) y busca la
    **vinculación** `(conector, usuario.id_externo) → usuario local`:
    - Sin vinculación: muestra su inicio de sesión normal (con su MFA si lo exige); al entrar, guarda la
-     vinculación. Nunca crea usuarios ni vincula solo por coincidir el correo.
+     vinculación. Nunca crea usuarios ni vincula solo por coincidir el correo. (1.5.0) La autenticación debe ser
+     posterior al canje: una sesión ya abierta en el navegador pide re-autenticarse antes de vincular.
    - Con vinculación: abre una sesión normal del usuario local, con **sus** permisos y alcance (ISP,
      empresa, router), y lo lleva al destino resuelto (`id_externo` → recurso local). Si no tiene permiso
      para ese recurso, ve el error de acceso de siempre.
@@ -325,5 +354,5 @@ a Horus; Horus no decide cortes (solo `evaluarEstadoServicio` decide el estado d
 | H7 | Multiempresa: guardar y mostrar la empresa del servicio (`empresa` del resolver → `external_company_id`, `company_name`) y devolverla en `external` (consulta 360 y webhooks) | §2.1, §2.4, §3.1, §3.4 | hecho (rama `claude/sleepy-lovelace-yz0o32`) |
 | H8 | Consulta 360 por `external_service_id` (sin IP), con la identidad vigente del servicio | §3.1 | hecho (rama `claude/sleepy-lovelace-yz0o32`) |
 | H9 | `POST /api/v1/integrations/security-states`: estado de seguridad por lotes (máx. 500) | §3.5 | hecho (rama `claude/sleepy-lovelace-yz0o32`) |
-| H10 | Enlace de conexión: generar en Horus y canjear el de Argos (`/integrations/argosisp/conexion/canjear`) | §1.4 | solicitado |
-| H11 | Autologin: emitir tickets para Argos (`sso.issue` en la plantilla ArgosISP) y canjear los de Argos con vinculación de cuentas | §1.5 | solicitado |
+| H10 | Enlace de conexión: generar en Horus y canjear el de Argos (`/integrations/argosisp/conexion/canjear`) | §1.4 | hecho (rama `claude/sleepy-lovelace-yz0o32`) |
+| H11 | Autologin: emitir tickets para Argos (`sso.issue` en la plantilla ArgosISP) y canjear los de Argos con vinculación de cuentas | §1.5 | hecho (rama `claude/sleepy-lovelace-yz0o32`) |

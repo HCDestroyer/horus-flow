@@ -43,11 +43,11 @@ func TestParseConnectionLink(t *testing.T) {
 		}
 	}
 	bad := []string{
-		"http://panel.isp.example/conectar#" + code,              // http sin laboratorio
-		"https://user:pw@panel.isp.example/conectar#" + code,     // credenciales
-		"https://panel.isp.example/otra#" + code,                 // otra ruta
-		"https://panel.isp.example/conectar?codigo=" + code,      // código en la consulta
-		"https://panel.isp.example/conectar?x=1#" + code,         // parámetros desconocidos
+		"http://panel.isp.example/conectar#" + code,          // http sin laboratorio
+		"https://user:pw@panel.isp.example/conectar#" + code, // credenciales
+		"https://panel.isp.example/otra#" + code,             // otra ruta
+		"https://panel.isp.example/conectar?codigo=" + code,  // código en la consulta
+		"https://panel.isp.example/conectar?x=1#" + code,     // parámetros desconocidos
 		"https://panel.isp.example/conectar?api=http://api.x#" + code,
 		"https://panel.isp.example/conectar?api=https://api.x/otra#" + code,
 		"https://panel.isp.example/conectar#corto",

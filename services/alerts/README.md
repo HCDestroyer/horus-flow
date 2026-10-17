@@ -56,6 +56,9 @@ write-only (`webhook_secret`, cifrado con la KEK de alerts). Eventos del contrat
 identidad ArgosISP del cliente, `data.external` lleva sus ids (de `devices.CustomerDirectory`). Reintentos 1 min,
 5 min, 30 min, 2 h y 12 h; sin agrupación. Solo https y destinos públicos (guardia de egreso);
 `HORUS_ALERTS_WEBHOOK_ALLOW_PRIVATE=true` permite http, privadas y loopback en laboratorios.
+`alerts.IntegrationWebhooks` (contrato ArgosISP §1.4): el enlace de conexión crea o actualiza el canal webhook hacia
+Argos con su URL y su secreto, **apagado**, con las categorías del contrato (seguridad, resoluciones, routers e
+infraestructura, severidad `info`, sin agrupar); auditado con `via=connection_link`.
 
 ## Telegram
 
