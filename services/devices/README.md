@@ -69,5 +69,16 @@ métricas y eventos publicados/consumidos cuando el módulo tenga implementació
   segundo plano nunca se acepta una huella nueva); sin túnel, credencial o huella → `ErrRouterAPIUnavailable`.
 - Variables: `HORUS_DEVICES_KEK_FILE`, `HORUS_WG_TUNNEL_CIDRS` (nunca se proponen), `HORUS_DEVICES_ROUTEROS_BASE_URL`
   (`https://{ip}`), `HORUS_DEVICES_ROUTEROS_TIMEOUT` (20 s).
+- **Huawei VRP en modo directo** ([`docs/vendors/huawei.md`](../../docs/vendors/huawei.md)): `vendor` `mikrotik|huawei`,
+  `connection_mode` `wireguard|direct` (Huawei siempre `direct`) y `management_address` (IP de origen vista por Horus).
+  `POST /routers/{id}/direct-onboarding` (`devices.credentials.write`, re-autenticación, auditado
+  `devices.direct_onboarding.created`) fija la dirección, emite una credencial SNMPv3 nueva (SHA-256/AES-128, sin usuario
+  de la API) y devuelve la configuración VRP que pega el operador (`internal/domain/vrp.go`, pendiente de validación en
+  equipo real). `devices.DirectVerifier` (rol `snmp`): primera respuesta SNMPv3 authPriv en esa dirección →
+  `onboarding_state = snmp_verified` (prueba de control; solo entonces el colector acepta sus flujos; dirección verificada
+  única en la plataforma, `MANAGEMENT_ADDRESS_IN_USE`). La API REST de RouterOS (importación, huella TLS, credencial
+  `routeros_api`) responde `422 ROUTER_VENDOR_NOT_SUPPORTED` con un Huawei. Variables: `HORUS_DEVICES_DIRECT_COLLECTOR_ADDRESS`,
+  `HORUS_DEVICES_DIRECT_COLLECTOR_PORT` (2055), `HORUS_DEVICES_DIRECT_POLLER_ADDRESS`, `HORUS_DEVICES_DIRECT_NTP_SERVER`
+  (vacías = marcadores en la configuración).
 - Suite `routeros-import`: `go test ./services/devices/internal/adapters/routeros/` (fixtures REST 7.12 y 7.20 en `testdata/`,
   sintéticos con el formato de RouterOS hasta grabarlos en CHR en I1-25; `-update` regenera los golden).

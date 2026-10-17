@@ -99,6 +99,24 @@ func TestHuaweiNE40EV8Synthetic(t *testing.T) {
 	}
 }
 
+// Tras una conmutación de MPU (la 10 pasa a activa y la 9 a reserva) la CPU, la memoria y la salud del
+// sistema son las de la MPU activa (hwEntityStandbyStatus = providingService), como indica Huawei.
+func TestHuaweiActiveMPUSwitchover(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	f := loadWalk(t, "huawei-ne40e-v8-synthetic.snmpwalk")
+	f.vars[OIDHwEntityStateTable+".3.16842753"] = int64(2) // MPU 9: hotStandby
+	f.vars[OIDHwEntityStateTable+".3.16842754"] = int64(4) // MPU 10: providingService
+	res, err := Huawei{}.ReadResources(ctx, f)
+	if err != nil || len(res.CPULoads) != 4 || res.CPULoads[0] != 5 || *res.MemoryUsedBytes != 8192<<20*30/100 {
+		t.Fatalf("MPU activa tras la conmutación: %+v %v", res, err)
+	}
+	h, err := Huawei{}.ReadHealth(ctx, f)
+	if err != nil || *h.TemperatureCelsius != 40 || *h.Voltage != 12.01 {
+		t.Fatalf("salud de la MPU activa: %+v %v", h, err)
+	}
+}
+
 func TestHuaweiAR651V5SyntheticNQAMIB(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

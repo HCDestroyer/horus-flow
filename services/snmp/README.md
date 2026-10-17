@@ -8,7 +8,13 @@
 
 ## Qué hace (I2)
 
+0. **Adaptadores por fabricante** (`internal/adapters/snmpclient`): `router.vendor` elige el adaptador (`ForVendor`).
+   Núcleo estándar común (`standard.go`: MIB-II, IF-MIB HC, ENTITY-MIB); `mikrotik.go` (HOST-RESOURCES-MIB +
+   MIKROTIK-MIB, sin cambios) y `huawei.go` (HUAWEI-ENTITY-EXTENT-MIB por tarjeta, MPU activa, interfaces VRP),
+   más `ping.go` (pruebas NQA por DISMAN-PING-MIB / NQA-MIB). Ver [`docs/vendors/huawei.md`](../../docs/vendors/huawei.md).
 1. **Objetivos:** routers de todos los ISP con `tunnel_address` y `onboarding_state ∈ {tunnel_up, exporting}`
+   (o, en **modo directo** —Huawei—, con `management_address`: se sondea esa IP y la primera respuesta authPriv
+   verifica el router en devices, `devices.DirectVerifier`)
    (`devices.Onboarding.ListRouters` del proceso; se refresca cada minuto y al llegar `horus.devices.router.*`).
    Nombres de router y nodo del snapshot de inventario (`flowinv`). La credencial SNMPv3 se revela con
    `devices.SNMPCredentialReader` (kind `snmp_v3`, descifrada con la KEK de devices), se memoriza y se
@@ -116,7 +122,9 @@ Análisis de enlaces de subida, salud del nodo y pronóstico de capacidad para e
   **leídas** cada `HORUS_SNMP_PROBE_INTERVAL` por `devices.RouterProbes` (REST de solo lectura, huella TLS ya fijada).
   El script lo genera `GET /routers/{id}/netwatch-snippet` con marcadores `{GATEWAY_n}` que el usuario completa en el
   navegador y **pega**; Horus nunca escribe en el router. Sin sondas en el router: ICMP desde Horus etiquetado
-  «ruta Horus → destino». Muestras en `snmp.probe_metrics` / `probe_5m` / `probe_1h` (ClickHouse).
+  «ruta Horus → destino». Muestras en `snmp.probe_metrics` / `probe_5m` / `probe_1h` (ClickHouse). En routers Huawei
+  las sondas son pruebas **NQA ICMP** (admin-name `horus`, test-name `gw-<interfaz>` / `intl-<ip>`) leídas por SNMP
+  (`source = router_nqa`); `netwatch-snippet` devuelve entonces la configuración VRP (`language: vrp`).
 - **Saturación**: p95 diario de las medias de 5 min, horas ≥ 70/85 %, diagnóstico lleno vs averiado (errores y
   descartes por paquete). Trabajo diario por ISP (00:20 locales) → `snmp.uplink_daily`; primera vez rellena 89 días.
 - **Local vs internacional**: `flows.site_1d` por ASN remoto → país de la organización o lista local.

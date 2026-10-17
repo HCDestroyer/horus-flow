@@ -18,6 +18,7 @@ import (
 // que hay que elegir las entidades correctas con entPhysicalClass.
 const (
 	OIDHwEntityStateTable = ".1.3.6.1.4.1.2011.5.25.31.1.1.1.1"
+	hwColumnStandby       = "3"  // hwEntityStandbyStatus: notSupported(1) hotStandby(2) coldStandby(3) providingService(4)
 	hwColumnCPUUsage      = "5"  // hwEntityCpuUsage, Integer32 0..100 (%)
 	hwColumnMemUsage      = "7"  // hwEntityMemUsage, Integer32 0..100 (%)
 	hwColumnMemSize       = "9"  // hwEntityMemSize, Integer32 (bytes; desborda > 2 GiB)
@@ -25,6 +26,8 @@ const (
 	hwColumnVoltage       = "13" // hwEntityVoltage, Integer32 (mV)
 	hwColumnMemSizeMega   = "19" // hwEntityMemSizeMega, Integer32 (MiB)
 
+	hwStandbyHot    = 2
+	hwStandbyCold   = 3
 	entClassChassis = 3 // PhysicalClass chassis(3) (RFC 6933)
 	entClassModule  = 9 // PhysicalClass module(9): tarjetas (MPU, LPU, SFU, SRU…)
 	mebibyte        = 1 << 20
@@ -97,6 +100,7 @@ type hwEntity struct {
 	name        string
 	software    string
 	serial      string
+	standby     int64
 	cpu         *int64
 	memUsage    *int64
 	memSize     *int64
@@ -187,6 +191,8 @@ func readEntities(ctx context.Context, t Transport, entCols, hwCols []string) (m
 				continue
 			}
 			switch col {
+			case hwColumnStandby:
+				e.standby = n
 			case hwColumnCPUUsage:
 				e.cpu = &n
 			case hwColumnMemUsage:
@@ -227,13 +233,26 @@ func boards(ents map[int]*hwEntity) []*hwEntity {
 	return list
 }
 
-// mainBoard elige la tarjeta de control principal: la primera cuyo nombre
-// la delata (MPU, SRU, MCU…); si no, la de más memoria.
+// mainBoard elige la tarjeta de control principal: según la documentación
+// de Huawei, la CPU del sistema es la de la MPU activa (hwEntityStandbyStatus
+// distinto de hotStandby/coldStandby). Primero la tarjeta cuyo nombre la
+// delata (MPU, SRU, MCU…) y que no esté de reserva; si no, la de más memoria
+// que no esté de reserva; si todas lo están, la de más memoria.
 func mainBoard(list []*hwEntity) *hwEntity {
+	standby := func(e *hwEntity) bool { return e.standby == hwStandbyHot || e.standby == hwStandbyCold }
 	for _, e := range list {
-		if hwMainBoardRe.MatchString(e.name) {
+		if hwMainBoardRe.MatchString(e.name) && !standby(e) {
 			return e
 		}
+	}
+	var active []*hwEntity
+	for _, e := range list {
+		if !standby(e) {
+			active = append(active, e)
+		}
+	}
+	if len(active) > 0 {
+		list = active
 	}
 	var best *hwEntity
 	for _, e := range list {
@@ -251,7 +270,7 @@ func mainBoard(list []*hwEntity) *hwEntity {
 func (Huawei) ReadResources(ctx context.Context, t Transport) (Resources, error) {
 	var r Resources
 	ents, err := readEntities(ctx, t, []string{entColumnClass, entColumnName},
-		[]string{hwColumnCPUUsage, hwColumnMemUsage, hwColumnMemSize, hwColumnMemSizeMega})
+		[]string{hwColumnStandby, hwColumnCPUUsage, hwColumnMemUsage, hwColumnMemSize, hwColumnMemSizeMega})
 	if err != nil {
 		return r, err
 	}
@@ -290,7 +309,7 @@ func (Huawei) ReadHealth(ctx context.Context, t Transport) (Health, error) {
 		}
 	}
 	ents, err := readEntities(ctx, t, []string{entColumnClass, entColumnName, entColumnSoftware, entColumnSerial},
-		[]string{hwColumnCPUUsage, hwColumnMemSize, hwColumnMemSizeMega, hwColumnTemperature, hwColumnVoltage})
+		[]string{hwColumnStandby, hwColumnCPUUsage, hwColumnMemSize, hwColumnMemSizeMega, hwColumnTemperature, hwColumnVoltage})
 	if err != nil {
 		return h, err
 	}

@@ -375,6 +375,13 @@ Convención: **Dep.** son dependencias duras. Los riesgos se puntúan Probabilid
 
 - Adaptadores Cisco, Huawei, Juniper (SNMP, flujos, API si aplica) y sFlow, cada uno con
   simulador o capturas reales y equipo de laboratorio aportado por la persona.
+- **Avance (Huawei VRP y sFlow):** estructura de adaptadores por `router.vendor` (núcleo estándar
+  IF-MIB/HOST-RESOURCES/ENTITY-MIB + adaptador por fabricante; MikroTik sin cambios), adaptador Huawei
+  (HUAWEI-ENTITY-EXTENT-MIB, NQA por DISMAN-PING-MIB/NQA-MIB, NetStream v9/IPFIX), decodificador sFlow v5 y
+  alta en **modo directo** sin túnel (VRP no tiene WireGuard). Construido contra la documentación oficial con
+  fixtures sintéticos: **falta validarlo con un equipo de laboratorio** (lista en
+  [`vendors/huawei.md`](vendors/huawei.md) §9). La tecnología de túnel para Huawei queda como decisión
+  abierta del PO ([`vendors/huawei.md`](vendors/huawei.md) §5.4, [Q22](open-questions/architecture.md#q22)).
 
 ## 4. Contratos que se congelan antes de paralelizar
 

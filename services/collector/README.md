@@ -1,6 +1,7 @@
 # `mod:collector` — services/collector
 
-- **Propósito:** Receptor UDP IPFIX/NetFlow/sFlow; identifica el exportador por IP de túnel.
+- **Propósito:** Receptor UDP IPFIX/NetFlow v9/sFlow v5; identifica el exportador por IP de túnel (o, en modo
+  directo —Huawei VRP sin WireGuard—, por su dirección de gestión verificada; [`docs/vendors/huawei.md`](../../docs/vendors/huawei.md)).
 - **Rol(es) de `horus`:** `collector`
 - **Agente dueño:** FLOW ([`docs/backlog/team.md`](../../docs/backlog/team.md) §2, [`.github/CODEOWNERS`](../../.github/CODEOWNERS))
 - **Ficha del módulo:** [`docs/services.md`](../../docs/services.md) §3 · Roles y fronteras: [ADR-0025](../../docs/adr/0025-binario-modular-con-roles.md)
@@ -12,7 +13,11 @@
    (IP de túnel /32 del inventario); el resto se descarta (`reason="unknown_exporter"`) y se
    emite `horus.flows.exporter.unregistered` (plataforma, cada 10 min por IP).
 2. Decodifica leyendo las plantillas de cada exportador (`internal/decode`, independiente de
-   flowsim y de goflow2); los datos que llegan antes que su plantilla se retienen 30 s.
+   flowsim y de goflow2); los datos que llegan antes que su plantilla se retienen 30 s. NetStream de Huawei
+   (v9/IPFIX) incluido: tasa de muestreo por IE 34/50 y 305/306/309/310, IE de empresa ignorados. **sFlow v5**
+   (`decode/sflow.go`): se reconoce por su cabecera en cualquier puerto (añadir `:6343` a
+   `HORUS_COLLECTOR_LISTEN` para el puerto estándar); cada flow sample con cabecera es un flujo de un paquete con
+   `sampling_rate` de la muestra y `flow_source = sflow_v5`; las counter samples no generan flujos.
 3. Mide **saltos de secuencia** (IPFIX: registros; v9: datagramas) y el desfase de `exportTime`.
 4. Descarta flujos del túnel (origen o destino = IP de túnel) y de prefijos `excluded`.
 5. Publica lotes `FlowBatch` (≤ 500 registros o 1 s) en `horus.telemetry.flows.batch.<router_id>`
