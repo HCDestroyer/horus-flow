@@ -562,6 +562,35 @@ func Trend(ctx context.Context, tx pgx.Tx, sites []uuid.UUID, from time.Time, by
 	return out, rows.Err()
 }
 
+// SecurityDetail es el estado de seguridad guardado de un cliente.
+type SecurityDetail struct {
+	CustomerID   uuid.UUID
+	State        string
+	OpenFindings int
+	MaxSeverity  *string
+	Since        time.Time
+}
+
+// SecurityDetails devuelve el estado de seguridad de los clientes dados;
+// allowed limita a esos nodos (nil = todo el ISP; vacío = ninguno).
+func SecurityDetails(ctx context.Context, tx pgx.Tx, customers, allowed []uuid.UUID) ([]SecurityDetail, error) {
+	rows, err := tx.Query(ctx, `SELECT customer_id, state, open_findings, max_severity, since FROM detection.customer_security
+		WHERE customer_id = ANY($1) AND ($2::uuid[] IS NULL OR site_id = ANY($2))`, customers, allowed)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SecurityDetail
+	for rows.Next() {
+		var d SecurityDetail
+		if err := rows.Scan(&d.CustomerID, &d.State, &d.OpenFindings, &d.MaxSeverity, &d.Since); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
 // SecurityStates devuelve el estado de seguridad de los clientes dados.
 func SecurityStates(ctx context.Context, tx pgx.Tx, customers []uuid.UUID) (map[uuid.UUID]string, error) {
 	out := map[uuid.UUID]string{}

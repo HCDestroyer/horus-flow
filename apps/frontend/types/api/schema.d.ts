@@ -1516,8 +1516,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Consulta 360 de una IP de cliente (identidad, consumo, salud y seguridad) con la IP en el cuerpo
-         * @description Contrato docs/integrations/argosisp.md §3.1. La IP viaja en el cuerpo, nunca en la URL. `at` fija el instante
+         * Consulta 360 de una IP de cliente o de un servicio de ArgosISP (identidad, consumo, salud y seguridad)
+         * @description Contrato docs/integrations/argosisp.md §3.1. La IP viaja en el cuerpo, nunca en la URL. Desde 1.2.0 acepta
+         *     `external_service_id` en lugar de `address` (uno de los dos): usa la identidad vigente del servicio (o la vigente
+         *     en `at`) y 404 si no la tiene. `at` fija el instante
          *     de la identidad externa (quién tenía la IP entonces; por defecto ahora) y el final de las ventanas de consumo.
          *     Cada bloque exige además su permiso: `consumption` → `traffic.customer.read`, `health` → `snmp.read`,
          *     `security` → `security.findings.read`; sin él, o si el módulo que lo calcula no está en el proceso, el bloque
@@ -1525,6 +1527,31 @@ export interface paths {
          *     más recientemente. Acceso auditado (dato personal). Lo usan la consola y ArgosISP con su código de conexión.
          */
         post: operations["lookupIpIntegration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/security-states": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Estado de seguridad por lotes (≤ 500) por IP o por servicio de ArgosISP
+         * @description Contrato docs/integrations/argosisp.md §3.5. Estado de seguridad actual (el de detection) para la columna
+         *     "Seguridad" de las listas de servicios de ArgosISP sin una consulta por fila. `external_service_id` usa la
+         *     identidad vigente del servicio; si tiene varias IPs (IPv4 y prefijo IPv6), devuelve la de peor estado. Sin
+         *     conector ArgosISP activo solo se acepta `address`. Un elemento sin cliente (o fuera del alcance del token) o un
+         *     servicio sin identidad vigente devuelve `error: not_found`; el lote no falla por un elemento. Un cliente que
+         *     nunca tuvo hallazgos está `clean` desde que se vio. Acceso auditado.
+         */
+        post: operations["getIntegrationSecurityStates"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4345,7 +4372,12 @@ export interface components {
         };
         ExternalIdentityPeriod: {
             code: string | null;
+            company_name: string | null;
+            /** @description NIT de la empresa del ISP (no es un dato del cliente). */
+            company_nit: string | null;
             display_name: string | null;
+            /** @description Empresa del servicio en ArgosISP (multiempresa). */
+            external_company_id: number | null;
             external_customer_id: number | null;
             external_service_id: number | null;
             id: components["schemas"]["Uuid"];
@@ -4363,6 +4395,13 @@ export interface components {
         ExternalRef: {
             /** @example C-000455 */
             code: string | null;
+            /**
+             * @description Empresa del servicio en ArgosISP (multiempresa, contrato 1.2.0 §2.4). null si ArgosISP no la informó (respaldo
+             *     GET /ip/:ip o versión anterior a 1.2.0).
+             */
+            company_id: number | null;
+            /** @description Nombre de la empresa (puede ser null aunque haya company_id). */
+            company_name: string | null;
             /** @description Id del cliente en ArgosISP. */
             customer_id: number | null;
             /** @description Nombre en ArgosISP (dato personal). */
@@ -4732,10 +4771,16 @@ export interface components {
          * @example 100.64.12.34
          */
         IpAddress: string;
+        /** @description `address` o, desde el contrato 1.2.0, `external_service_id` (exactamente uno de los dos; con ambos o ninguno → 422). */
         IpLookupRequest: {
-            address: components["schemas"]["IpAddress"];
+            address?: components["schemas"]["IpAddress"];
             /** @description Instante de la consulta (por defecto ahora). */
             at?: components["schemas"]["Timestamp"];
+            /**
+             * @description Servicio de ArgosISP: se usa su identidad vigente (o la vigente en `at`) y se responde con su IP de entonces.
+             *     Si el servicio tiene varias IPs (IPv4 y prefijo IPv6), la del cliente visto más recientemente.
+             */
+            external_service_id?: number;
             /** @description Bloques opcionales (por defecto los tres). */
             include?: ("consumption" | "health" | "security")[];
         };
@@ -6019,6 +6064,34 @@ export interface components {
          * @enum {string}
          */
         SecurityState: "clean" | "suspected" | "infected" | "mitigated";
+        SecurityStatesRequest: {
+            items: {
+                address?: components["schemas"]["IpAddress"];
+                external_service_id?: number;
+            }[];
+        };
+        SecurityStatesResponse: {
+            items: {
+                /** @description La pedida o, por servicio, la IP (o prefijo) elegida (dato personal). */
+                address: string | null;
+                /**
+                 * @description Sin cliente o sin identidad vigente; sin el resto de campos.
+                 * @enum {string}
+                 */
+                error?: "not_found";
+                /** @description El pedido o, por IP, el servicio de la identidad vigente (null sin identidad). */
+                external_service_id: number | null;
+                /** @description Severidad del hallazgo activo más grave (null sin hallazgos activos). */
+                max_severity?: string | null;
+                open_findings?: number;
+                /** @description Desde cuándo el cliente está en `state`. */
+                since?: components["schemas"]["Timestamp"];
+                state?: components["schemas"]["SecurityState"];
+            }[];
+            meta: {
+                at: components["schemas"]["Timestamp"];
+            };
+        };
         SecuritySummary: {
             affected_customers: number;
             by_kind: {
@@ -9403,6 +9476,34 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             422: components["responses"]["UnprocessableEntity"];
+        };
+    };
+    getIntegrationSecurityStates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SecurityStatesRequest"];
+            };
+        };
+        responses: {
+            /** @description Estado por elemento, en el orden pedido. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecurityStatesResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["UnprocessableEntity"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     getKioskConfig: {

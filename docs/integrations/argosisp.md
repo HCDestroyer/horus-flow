@@ -2,7 +2,15 @@
 
 Decisión en [ADR-0030](../adr/0030-integracion-de-ecosistema-sin-dependencias.md).
 
-Versión del contrato: **1.2.0-propuesta** · Estado: lado Horus 1.1.0 implementado (H1–H6, §5.2); lado ArgosISP en curso (A1–A7, §5.1); pedidos nuevos H7–H9 solicitados.
+Versión del contrato: **1.3.0-propuesta** · Estado: lado Horus 1.3.0 implementado (H1–H9, §5.2); lado ArgosISP en curso (A1–A7, §5.1).
+
+Cambios de 1.3.0 (menor). Motivo: al implementar H9 en Horus, el ejemplo de §3.5 usaba un estado
+(`compromised`) que no existe; el estado de seguridad es el mismo de §3.1 y de `customer.security_state_changed`
+(§3.4). Nadie lo consumía aún. Además se precisan, sin cambiar campos, los casos de un servicio con varias IPs:
+
+- §3.5: `state` es `clean` | `suspected` | `infected` | `mitigated` (como §3.1); por servicio con varias IPs (IPv4
+  y prefijo IPv6) se devuelve la de peor estado; por IP se añade el `external_service_id` de la identidad vigente.
+- §3.1: con `external_service_id`, si el servicio tiene varias IPs, la del cliente visto más recientemente.
 
 Cambios de 1.2.0 (menor, solo aditivos). Motivo: ArgosISP es multiempresa (un ISP puede operar varios NIT, cada servicio pertenece a una empresa) y sus pantallas parten del servicio, no de la IP:
 
@@ -164,7 +172,9 @@ POST /api/v1/integrations/ip-lookup
 
 Con `external_service_id`, Horus usa la identidad vigente de ese servicio (§2.4) y responde con su IP
 actual; 404 si el servicio no tiene identidad vigente. Así Argos consulta desde la ficha del servicio o
-el portal sin conocer la IP del momento.
+el portal sin conocer la IP del momento. Con `at`, la identidad del servicio vigente en ese instante. Si el
+servicio tiene varias IPs (IPv4 y prefijo IPv6 son clientes distintos en Horus), responde con la del cliente
+visto más recientemente (1.3.0).
 
 ### 3.2 Consumo por lotes (validar consumo de servicios)
 
@@ -204,13 +214,18 @@ Para mostrar una columna "Seguridad" en las listas de servicios de Argos sin una
 ```
 POST /api/v1/integrations/security-states
 { "items": [ { "external_service_id": 812 }, { "address": "100.64.1.20" } ] }   # máx. 500
-→ 200 { "items": [ { "external_service_id": 812, "address": "100.64.1.20", "state": "clean"|"suspected"|"compromised",
+→ 200 { "items": [ { "external_service_id": 812, "address": "100.64.1.20",
+                     "state": "clean"|"suspected"|"infected"|"mitigated",
                      "open_findings": 0, "max_severity": "high"?, "since": "…" },
-                   { "external_service_id": 999, "error": "not_found" } ],
+                   { "external_service_id": 999, "address": null, "error": "not_found" } ],
         "meta": { "at": "…" } }
 ```
 
-Mismo permiso que §3.1 (`security.findings.read`). Sin conector Argos activo, solo se acepta `address`.
+Mismo permiso que el bloque `security` de §3.1 (`security.findings.read`; la plantilla ArgosISP ya lo trae). Sin
+conector Argos activo, solo se acepta `address`. `state` es el mismo estado de §3.1 y §3.4 (1.3.0). Por servicio
+con varias IPs se devuelve la de peor estado y su `address`; por IP, el `external_service_id` de la identidad
+vigente (o null). `not_found`: la IP no es de un cliente del ISP o el servicio no tiene identidad vigente. Un
+cliente que nunca tuvo hallazgos está `clean` desde que se vio.
 
 ## 4. Versionado
 
@@ -245,6 +260,6 @@ a Horus; Horus no decide cortes (solo `evaluarEstadoServicio` decide el estado d
 | H4 | `GET /routers/status` e `/infra-services` aceptan `hf_pat_` | §3.3 | hecho (rama `claude/ecosistema-argos`) |
 | H5 | Canal `webhook` firmado con los eventos de §3.4 | §3.4 | hecho (rama `claude/ecosistema-argos`) |
 | H6 | Receptor `POST /api/v1/integrations/argosisp/webhook/{connector_id}` y conector de identidad con vigencia | §2.2–§2.4 | hecho (rama `claude/ecosistema-argos`) |
-| H7 | Multiempresa: guardar y mostrar la empresa del servicio (`empresa` del resolver → `external_company_id`, `company_name`) y devolverla en `external` (consulta 360 y webhooks) | §2.1, §2.4, §3.1, §3.4 | solicitado |
-| H8 | Consulta 360 por `external_service_id` (sin IP), con la identidad vigente del servicio | §3.1 | solicitado |
-| H9 | `POST /api/v1/integrations/security-states`: estado de seguridad por lotes (máx. 500) | §3.5 | solicitado |
+| H7 | Multiempresa: guardar y mostrar la empresa del servicio (`empresa` del resolver → `external_company_id`, `company_name`) y devolverla en `external` (consulta 360 y webhooks) | §2.1, §2.4, §3.1, §3.4 | hecho (rama `claude/sleepy-lovelace-yz0o32`) |
+| H8 | Consulta 360 por `external_service_id` (sin IP), con la identidad vigente del servicio | §3.1 | hecho (rama `claude/sleepy-lovelace-yz0o32`) |
+| H9 | `POST /api/v1/integrations/security-states`: estado de seguridad por lotes (máx. 500) | §3.5 | hecho (rama `claude/sleepy-lovelace-yz0o32`) |

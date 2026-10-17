@@ -42,6 +42,7 @@ import (
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
 	"github.com/hcdestroyer/horus-flow/services/detection/api/customerfindings"
 	"github.com/hcdestroyer/horus-flow/services/detection/api/securityreport"
+	"github.com/hcdestroyer/horus-flow/services/detection/api/securitystates"
 	"github.com/hcdestroyer/horus-flow/services/detection/api/securitywidgets"
 	chreader "github.com/hcdestroyer/horus-flow/services/detection/internal/adapters/clickhouse"
 	"github.com/hcdestroyer/horus-flow/services/detection/internal/adapters/feeds"
@@ -180,6 +181,11 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		}
 		// Hallazgos activos de un cliente para la consulta 360 por IP de devices (ADR-0030).
 		if err := deps.Services.Provide(customerfindings.ServiceCustomerFindings, customerfindings.Reader(svc)); err != nil {
+			db.Close()
+			return nil, err
+		}
+		// Estado de seguridad por lotes para POST /integrations/security-states de devices (ADR-0030, §3.5).
+		if err := deps.Services.Provide(securitystates.ServiceSecurityStates, securitystates.Reader(svc)); err != nil {
 			db.Close()
 			return nil, err
 		}

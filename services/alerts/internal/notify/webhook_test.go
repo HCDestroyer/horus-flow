@@ -59,12 +59,12 @@ func TestContractEvents(t *testing.T) {
 
 func TestWebhookDataWithExternalIDs(t *testing.T) {
 	t.Parallel()
-	svc, sid := int64(812), int64(455)
+	svc, sid, company := int64(812), int64(455), int64(2)
 	alias := "Ferretería López"
 	s := &Service{}
 	s.SetWebhook(func() (devapi.CustomerDirectory, bool) {
 		return fakeDirectory{ref: &devapi.CustomerRef{ID: uuid.New(), Address: "100.64.1.20", Alias: &alias,
-			External: &devapi.ExternalIDs{System: "argosisp", CustomerID: &sid, ServiceID: &svc}}}, true
+			External: &devapi.ExternalIDs{System: "argosisp", CustomerID: &sid, ServiceID: &svc, CompanyID: &company}}}, true
 	}, false)
 	data := map[string]any{"id": "f1", "kind": "outbound_scanning", "severity": "high", "state": "open", "customer_id": uuid.NewString(),
 		"summary": map[string]any{"text": "Escaneo"}, "window_from": "2026-10-17T10:00:00.000Z", "window_to": "2026-10-17T10:05:00.000Z"}
@@ -75,8 +75,8 @@ func TestWebhookDataWithExternalIDs(t *testing.T) {
 		t.Fatalf("sin include_personal_data no van IP ni alias: %s", b)
 	}
 	ext := d["external"].(map[string]any)
-	if *ext["service_id"].(*int64) != 812 || *ext["customer_id"].(*int64) != 455 {
-		t.Fatalf("external = %v", ext)
+	if *ext["service_id"].(*int64) != 812 || *ext["customer_id"].(*int64) != 455 || *ext["company_id"].(*int64) != 2 {
+		t.Fatalf("external (con company_id, contrato 1.2.0 §3.4) = %v", ext)
 	}
 	d = s.webhookData(context.Background(), tenant, eventFindingOpened, data, renderCtx{}, true)
 	if d["customer"].(map[string]any)["address"] != "100.64.1.20" {

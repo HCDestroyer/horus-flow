@@ -87,6 +87,13 @@ type ServiceWindow struct {
 	To         *time.Time
 }
 
+// ServiceIdentity es una identidad de un servicio de ArgosISP con su cliente
+// de Horus (un servicio puede tener varias: IPv4 y prefijo IPv6).
+type ServiceIdentity struct {
+	Identity domain.ExternalIdentity
+	Customer domain.Customer
+}
+
 // ArgosWebhook es un webhook recibido pendiente de procesar.
 type ArgosWebhook struct {
 	TenantID uuid.UUID
@@ -113,6 +120,12 @@ type IntegrationStore interface {
 	SweepCandidates(ctx context.Context, t pgdb.TenantID, before time.Time, limit int) ([]domain.Customer, error)
 	ServiceWindows(ctx context.Context, t pgdb.TenantID, serviceIDs []int64, from, to time.Time) ([]ServiceWindow, error)
 	CustomersByExternal(ctx context.Context, t pgdb.TenantID, serviceID, customerID *int64) ([]domain.Customer, error)
+	// ServiceIdentities devuelve las identidades de los servicios vigentes en
+	// at (nil = ahora) con su cliente, el visto más recientemente primero.
+	ServiceIdentities(ctx context.Context, t pgdb.TenantID, serviceIDs []int64, at *time.Time, sites []uuid.UUID) ([]ServiceIdentity, error)
+	// SetServiceCompany cambia la empresa de las identidades vigentes de un
+	// servicio (webhook con empresa_id); devuelve cuántas cambiaron.
+	SetServiceCompany(ctx context.Context, t pgdb.TenantID, serviceID, companyID int64) (int, error)
 	CountIdentities(ctx context.Context, t pgdb.TenantID) (current, stale int, err error)
 	InsertArgosWebhook(ctx context.Context, t pgdb.TenantID, id, event string, payload []byte) (bool, error)
 	PendingArgosWebhooks(ctx context.Context, limit int) ([]ArgosWebhook, error)
@@ -736,6 +749,7 @@ type argosEvent struct {
 	Payload struct {
 		ServicioID        *int64          `json:"servicio_id"`
 		ClienteID         *int64          `json:"cliente_id"`
+		EmpresaID         *int64          `json:"empresa_id"`
 		IPv4              json.RawMessage `json:"ipv4"`
 		PrefijoV6         *string         `json:"prefijo_v6"`
 		PrefijoEnlaceV6   *string         `json:"prefijo_enlace_v6"`
@@ -832,6 +846,31 @@ func (s *Integrations) affected(ctx context.Context, t pgdb.TenantID, ev argosEv
 	return out, nil
 }
 
+// refreshCompany aplica la empresa que trae un webhook de un servicio
+// (empresa_id, contrato 1.2.0 §2.3) a sus identidades vigentes antes de
+// re-resolver: si ArgosISP no responde o el respaldo no informa la empresa,
+// la identidad ya muestra la empresa correcta (el nombre llega con la
+// próxima resolución por lotes).
+func (s *Integrations) refreshCompany(ctx context.Context, t pgdb.TenantID, ev argosEvent) error {
+	p := ev.Payload
+	if p.ServicioID == nil || p.EmpresaID == nil || *p.EmpresaID < 1 {
+		return nil
+	}
+	switch ev.Evento {
+	case "asignacion.cambiada", "sesion.iniciada", "sesion.terminada", "servicio.estado_cambiado":
+	default:
+		return nil
+	}
+	n, err := s.store.SetServiceCompany(ctx, t, *p.ServicioID, *p.EmpresaID)
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		s.logger.DebugContext(ctx, "argos: service company refreshed from webhook", slog.Int("identities", n))
+	}
+	return nil
+}
+
 // ProcessWebhooks procesa los webhooks pendientes (re-resolución de las IPs o
 // servicios afectados). Si ArgosISP no responde, el webhook queda pendiente
 // y se reintenta en la siguiente pasada (máx. 10 intentos).
@@ -845,6 +884,9 @@ func (s *Integrations) ProcessWebhooks(ctx context.Context) error {
 		var ev argosEvent
 		done := true
 		if json.Unmarshal(w.Payload, &ev) == nil {
+			if err := s.refreshCompany(ctx, t, ev); err != nil {
+				return err
+			}
 			cs, err := s.affected(ctx, t, ev)
 			if err != nil {
 				return err
@@ -989,7 +1031,8 @@ func (d CustomerDirectory) CustomerRef(ctx context.Context, tenant, id uuid.UUID
 		return nil, err
 	}
 	if i, ok := cur[id]; ok {
-		ref.External = &devapi.ExternalIDs{System: i.System, CustomerID: i.ExternalCustomerID, ServiceID: i.ExternalServiceID}
+		ref.External = &devapi.ExternalIDs{System: i.System, CustomerID: i.ExternalCustomerID, ServiceID: i.ExternalServiceID,
+			CompanyID: i.ExternalCompanyID}
 	}
 	return ref, nil
 }

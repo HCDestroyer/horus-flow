@@ -90,6 +90,13 @@ el estado de cada fuente.
 `apps/frontend/app/widgets/shapes.ts`; sin `ShowPersonalData` la IP sale enmascarada y sin alias.
 `GET /security/summary` acepta el JWT de kiosco (kiosco activo, comprobado con auth en proceso).
 
+### Contratos en proceso para las integraciones (ADR-0030)
+
+`api/customerfindings` (`detection.CustomerFindings`: hallazgos activos de un cliente, consulta 360) y
+`api/securitystates` (`detection.SecurityStates`: estado de seguridad actual de hasta 1000 clientes con
+`state`, `open_findings`, `max_severity` y `since`, para `POST /integrations/security-states` de devices). Ambos
+aplican el principal del contexto (`security.findings.read` y sus alcances por nodo).
+
 ### Pruebas
 
 ```sh

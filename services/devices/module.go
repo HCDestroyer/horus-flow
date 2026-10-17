@@ -33,6 +33,7 @@ import (
 	consumptionapi "github.com/hcdestroyer/horus-flow/services/analytics/api/consumption"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
 	findingsapi "github.com/hcdestroyer/horus-flow/services/detection/api/customerfindings"
+	secstatesapi "github.com/hcdestroyer/horus-flow/services/detection/api/securitystates"
 	devapi "github.com/hcdestroyer/horus-flow/services/devices/api"
 	"github.com/hcdestroyer/horus-flow/services/devices/internal/adapters/argos"
 	"github.com/hcdestroyer/horus-flow/services/devices/internal/adapters/httpapi"
@@ -155,6 +156,9 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 			},
 			Findings: func() (findingsapi.Reader, bool) {
 				return module.Lookup[findingsapi.Reader](deps.Services, findingsapi.ServiceCustomerFindings)
+			},
+			SecurityStates: func() (secstatesapi.Reader, bool) {
+				return module.Lookup[secstatesapi.Reader](deps.Services, secstatesapi.ServiceSecurityStates)
 			},
 			Routers: func() (snmpapi.RouterStatusReader, bool) {
 				return module.Lookup[snmpapi.RouterStatusReader](deps.Services, snmpapi.ServiceRouterStatus)

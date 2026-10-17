@@ -109,7 +109,7 @@ func (s *Service) webhookData(ctx context.Context, tenant string, eventType stri
 					}
 					if ref.External != nil {
 						external = map[string]any{"system": ref.External.System, "customer_id": ref.External.CustomerID,
-							"service_id": ref.External.ServiceID}
+							"service_id": ref.External.ServiceID, "company_id": ref.External.CompanyID}
 					}
 				}
 			}

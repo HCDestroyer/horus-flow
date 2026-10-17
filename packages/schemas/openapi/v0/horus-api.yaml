@@ -226,6 +226,8 @@ paths:
     $ref: ./devices.yaml#/paths/~1integrations~1consumption
   /integrations/ip-lookup:
     $ref: ./devices.yaml#/paths/~1integrations~1ip-lookup
+  /integrations/security-states:
+    $ref: ./devices.yaml#/paths/~1integrations~1security-states
   /kiosk/config:
     $ref: ./analytics.yaml#/paths/~1kiosk~1config
   /kiosk/enroll:

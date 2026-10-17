@@ -38,6 +38,7 @@ func NewIntegrations(svc *app.Integrations, guard *authz.Guard, logger *slog.Log
 func (h *Integrations) Mount(r *httpx.ServiceMux) {
 	r.Handle("POST /api/v1/integrations/ip-lookup", h.guard.Tenant(app.PermCustomersRead, h.ipLookup))
 	r.Handle("POST /api/v1/integrations/consumption", h.guard.Tenant(app.PermTrafficCustomerRead, h.consumption))
+	r.Handle("POST /api/v1/integrations/security-states", h.guard.Tenant(app.PermFindingsRead, h.securityStates))
 	r.Handle("GET /api/v1/integrations/argosisp", h.guard.Tenant(app.PermSettingsRead, h.getConnector))
 	r.Handle("PUT /api/v1/integrations/argosisp", h.guard.Tenant(app.PermSettingsManage, h.putConnector))
 	r.Handle("POST /api/v1/integrations/argosisp/webhook-secret", h.guard.Tenant(app.PermSettingsManage, h.rotateSecret))
@@ -57,13 +58,15 @@ func ExternalRefJSON(i *domain.ExternalIdentity) any {
 		return nil
 	}
 	return map[string]any{"system": i.System, "customer_id": i.ExternalCustomerID, "service_id": i.ExternalServiceID, "code": i.Code,
-		"display_name": i.DisplayName, "service_state": i.ServiceState, "plan": i.Plan, "synced_at": ts(i.SyncedAt), "stale": i.Stale}
+		"display_name": i.DisplayName, "service_state": i.ServiceState, "plan": i.Plan, "company_id": i.ExternalCompanyID,
+		"company_name": i.CompanyName, "synced_at": ts(i.SyncedAt), "stale": i.Stale}
 }
 
 func periodJSON(i *domain.ExternalIdentity) map[string]any {
 	return map[string]any{"id": i.ID, "system": i.System, "external_customer_id": i.ExternalCustomerID,
 		"external_service_id": i.ExternalServiceID, "display_name": i.DisplayName, "code": i.Code, "service_state": i.ServiceState,
-		"plan": i.Plan, "valid_from": ts(i.ValidFrom), "valid_to": tsPtr(i.ValidTo), "synced_at": ts(i.SyncedAt), "stale": i.Stale}
+		"plan": i.Plan, "external_company_id": i.ExternalCompanyID, "company_name": i.CompanyName, "company_nit": i.CompanyNIT,
+		"valid_from": ts(i.ValidFrom), "valid_to": tsPtr(i.ValidTo), "synced_at": ts(i.SyncedAt), "stale": i.Stale}
 }
 
 func identityJSON(v *app.IdentityView) map[string]any {
@@ -271,4 +274,28 @@ func (h *Integrations) consumption(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	jsonapi.Write(w, http.StatusOK, map[string]any{"items": items,
 		"meta": map[string]any{"from": ts(res.From), "to": ts(res.To), "granularity": res.Granularity}})
+}
+
+func (h *Integrations) securityStates(w http.ResponseWriter, r *http.Request) {
+	var in app.SecurityStatesInput
+	if !jsonapi.Decode(w, r, &in, true) {
+		return
+	}
+	res, err := h.svc.SecurityStates(r.Context(), in)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	items := make([]map[string]any, 0, len(res.Items))
+	for _, it := range res.Items {
+		row := map[string]any{"address": it.Address, "external_service_id": it.ExternalServiceID}
+		if it.Error != nil {
+			row["error"] = *it.Error
+		} else {
+			row["state"], row["open_findings"], row["max_severity"], row["since"] = it.State, it.OpenFindings, it.MaxSeverity, tsPtr(it.Since)
+		}
+		items = append(items, row)
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	jsonapi.Write(w, http.StatusOK, map[string]any{"items": items, "meta": map[string]any{"at": ts(res.At)}})
 }

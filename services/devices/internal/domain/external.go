@@ -38,14 +38,18 @@ type ExternalIdentity struct {
 	System             string
 	ExternalCustomerID *int64
 	ExternalServiceID  *int64
-	DisplayName        *string
-	Code               *string
-	ServiceState       *string
-	Plan               *string
-	ValidFrom          time.Time
-	ValidTo            *time.Time // nil = vigente
-	SyncedAt           time.Time
-	Stale              bool
+	// Empresa del servicio en ArgosISP (multiempresa, contrato 1.2.0 §2.4).
+	ExternalCompanyID *int64
+	CompanyName       *string
+	CompanyNIT        *string
+	DisplayName       *string
+	Code              *string
+	ServiceState      *string
+	Plan              *string
+	ValidFrom         time.Time
+	ValidTo           *time.Time // nil = vigente
+	SyncedAt          time.Time
+	Stale             bool
 }
 
 // Current indica si el periodo sigue vigente.
@@ -65,6 +69,12 @@ type Resolution struct {
 	Code               *string
 	ServiceState       *string
 	Plan               *string
+	// CompanyKnown: la respuesta informó la empresa (resolutor por lotes, 1.2.0).
+	// El respaldo GET /ip/:ip no la trae: entonces no se toca la que ya hubiera.
+	CompanyKnown bool
+	CompanyID    *int64
+	CompanyName  *string
+	CompanyNIT   *string
 	// Since: desde cuándo el servicio tiene la IP según ArgosISP (si lo informa).
 	Since *time.Time
 }
@@ -106,13 +116,14 @@ type IdentityPlan struct {
 	// Open abre un periodo nuevo.
 	Open *ExternalIdentity
 	// Refresh actualiza en sitio el periodo vigente (mismo dueño: nombre,
-	// código, estado, plan; quita stale).
+	// código, estado, plan, empresa; quita stale).
 	Refresh *ExternalIdentity
 }
 
 // PlanResolution decide qué hacer con la identidad vigente cur (o nil) ante
 // la resolución r en now:
-//   - mismo dueño → refrescar datos y quitar stale;
+//   - mismo dueño → refrescar datos y quitar stale (la empresa solo si la
+//     resolución la informa: el respaldo no la trae y se conserva la anterior);
 //   - otro dueño → cerrar la vigente y abrir una nueva (desde r.Since si es
 //     posterior al inicio de la vigente; si no, desde now);
 //   - no encontrada → cerrar la vigente (la IP ya no es de nadie en ArgosISP).
@@ -128,6 +139,9 @@ func PlanResolution(cur *ExternalIdentity, r Resolution, now time.Time, tenant, 
 		i.ExternalCustomerID, i.ExternalServiceID = r.ExternalCustomerID, r.ExternalServiceID
 		i.DisplayName, i.Code = CleanText(r.DisplayName), CleanText(r.Code)
 		i.ServiceState, i.Plan = CleanText(r.ServiceState), CleanText(r.Plan)
+		if r.CompanyKnown {
+			i.ExternalCompanyID, i.CompanyName, i.CompanyNIT = r.CompanyID, CleanText(r.CompanyName), CleanText(r.CompanyNIT)
+		}
 		i.SyncedAt, i.Stale = now, false
 	}
 	if cur != nil && cur.SameOwner(r) {

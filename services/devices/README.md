@@ -18,8 +18,12 @@ métricas y eventos publicados/consumidos cuando el módulo tenga implementació
   cliente descubierto (cola en proceso), webhook firmado de Argos (`argosisp_webhook_inbox`, deduplicado), barrido
   de identidades de más de 6 h (lotes de 500) y "Actualizar desde ArgosISP". Argos caído: identidad `stale`,
   espera exponencial hasta 15 min; nunca bloquea la ingesta ni la detección.
-- **Consulta 360** (`POST /integrations/ip-lookup`) y **consumo por lotes** (`POST /integrations/consumption`)
-  sobre los contratos en proceso `analytics.Consumption`, `detection.CustomerFindings` y `snmp.RouterStatus`.
+- **Consulta 360** (`POST /integrations/ip-lookup`, por IP o por `external_service_id`), **consumo por lotes**
+  (`POST /integrations/consumption`) y **estado de seguridad por lotes** (`POST /integrations/security-states`)
+  sobre los contratos en proceso `analytics.Consumption`, `detection.CustomerFindings`, `detection.SecurityStates` y
+  `snmp.RouterStatus`.
+- **Multiempresa** (contrato 1.2.0): la identidad guarda la empresa del servicio (`external_company_id`,
+  `company_name`, `company_nit`); un webhook de servicio con `empresa_id` la refresca.
 - Provee `devices.CustomerDirectory` (cliente e ids de ArgosISP para el canal webhook de alerts).
 - Variables: `HORUS_INTEGRATIONS_SWEEP_EVERY` (10 min), `HORUS_INTEGRATIONS_ARGOS_RPS` (10),
   `HORUS_INTEGRATIONS_ALLOW_PRIVATE` (`false`; solo laboratorios: http, privadas y loopback), `HORUS_PUBLIC_BASE_URL`

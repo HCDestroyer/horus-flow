@@ -155,12 +155,14 @@ func TestMaskExternalIdentity(t *testing.T) {
 	in := map[string]any{
 		"customer": map[string]any{"id": "c1", "address": "100.64.1.20", "alias": "Ferretería López", "alias_source": "argosisp"},
 		"external": map[string]any{"system": "argosisp", "customer_id": 455.0, "service_id": 812.0, "code": "C-000455",
-			"display_name": "Ferretería López", "service_state": "activo"},
+			"display_name": "Ferretería López", "service_state": "activo", "company_id": 2.0, "company_name": "Fibra Sur"},
 		"external_service_id": 812.0,
+		"history": []any{map[string]any{"external_company_id": 2.0, "company_name": "Fibra Sur", "company_nit": "1234567K",
+			"service_state": "activo"}},
 	}
 	out := m.Value(in, Mixed).(map[string]any)
 	ext := out["external"].(map[string]any)
-	for _, k := range []string{"customer_id", "service_id", "code", "display_name"} {
+	for _, k := range []string{"customer_id", "service_id", "code", "display_name", "company_id", "company_name"} {
 		if _, ok := ext[k]; ok {
 			t.Errorf("external.%s no debe salir hacia la IA", k)
 		}
@@ -170,6 +172,16 @@ func TestMaskExternalIdentity(t *testing.T) {
 	}
 	if _, ok := out["external_service_id"]; ok {
 		t.Error("external_service_id fuera")
+	}
+	// La empresa del servicio (multiempresa, 1.2.0) se enmascara como el nombre.
+	h := out["history"].([]any)[0].(map[string]any)
+	for _, k := range []string{"external_company_id", "company_name", "company_nit"} {
+		if _, ok := h[k]; ok {
+			t.Errorf("history.%s no debe salir hacia la IA", k)
+		}
+	}
+	if h["service_state"] != "activo" {
+		t.Errorf("history = %v", h)
 	}
 	c := out["customer"].(map[string]any)
 	if _, ok := c["alias"]; ok || c["address"] == "100.64.1.20" {

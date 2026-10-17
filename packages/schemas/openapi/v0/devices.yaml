@@ -1085,9 +1085,11 @@ paths:
     post:
       tags: [integrations]
       operationId: lookupIpIntegration
-      summary: Consulta 360 de una IP de cliente (identidad, consumo, salud y seguridad) con la IP en el cuerpo
+      summary: Consulta 360 de una IP de cliente o de un servicio de ArgosISP (identidad, consumo, salud y seguridad)
       description: |
-        Contrato docs/integrations/argosisp.md §3.1. La IP viaja en el cuerpo, nunca en la URL. `at` fija el instante
+        Contrato docs/integrations/argosisp.md §3.1. La IP viaja en el cuerpo, nunca en la URL. Desde 1.2.0 acepta
+        `external_service_id` en lugar de `address` (uno de los dos): usa la identidad vigente del servicio (o la vigente
+        en `at`) y 404 si no la tiene. `at` fija el instante
         de la identidad externa (quién tenía la IP entonces; por defecto ahora) y el final de las ventanas de consumo.
         Cada bloque exige además su permiso: `consumption` → `traffic.customer.read`, `health` → `snmp.read`,
         `security` → `security.findings.read`; sin él, o si el módulo que lo calcula no está en el proceso, el bloque
@@ -1143,6 +1145,40 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ConsumptionResponse' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+        '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
+  /integrations/security-states:
+    post:
+      tags: [integrations]
+      operationId: getIntegrationSecurityStates
+      summary: Estado de seguridad por lotes (≤ 500) por IP o por servicio de ArgosISP
+      description: |
+        Contrato docs/integrations/argosisp.md §3.5. Estado de seguridad actual (el de detection) para la columna
+        "Seguridad" de las listas de servicios de ArgosISP sin una consulta por fila. `external_service_id` usa la
+        identidad vigente del servicio; si tiene varias IPs (IPv4 y prefijo IPv6), devuelve la de peor estado. Sin
+        conector ArgosISP activo solo se acepta `address`. Un elemento sin cliente (o fuera del alcance del token) o un
+        servicio sin identidad vigente devuelve `error: not_found`; el lote no falla por un elemento. Un cliente que
+        nunca tuvo hallazgos está `clean` desde que se vio. Acceso auditado.
+      x-module: devices
+      x-scope: tenant
+      x-permission: security.findings.read
+      x-audited: true
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SecurityStatesRequest' }
+      responses:
+        '200':
+          description: Estado por elemento, en el orden pedido.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SecurityStatesResponse' }
         '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
         '403': { $ref: './common.yaml#/components/responses/Forbidden' }
         '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
@@ -1695,7 +1731,7 @@ components:
     ExternalRef:
       type: object
       description: Identidad del cliente en un sistema externo vigente en el instante consultado (contrato ArgosISP §3.1).
-      required: [system, customer_id, service_id, code, display_name, service_state, plan, synced_at, stale]
+      required: [system, customer_id, service_id, code, display_name, service_state, plan, company_id, company_name, synced_at, stale]
       properties:
         system: { type: string, enum: [argosisp] }
         customer_id: { type: [integer, 'null'], description: Id del cliente en ArgosISP. }
@@ -1704,11 +1740,18 @@ components:
         display_name: { type: [string, 'null'], description: Nombre en ArgosISP (dato personal). }
         service_state: { type: [string, 'null'], description: 'activo, limitado, suspendido o retirado (enum abierto de ArgosISP).' }
         plan: { type: [string, 'null'] }
+        company_id:
+          type: [integer, 'null']
+          description: |
+            Empresa del servicio en ArgosISP (multiempresa, contrato 1.2.0 §2.4). null si ArgosISP no la informó (respaldo
+            GET /ip/:ip o versión anterior a 1.2.0).
+        company_name: { type: [string, 'null'], description: Nombre de la empresa (puede ser null aunque haya company_id). }
         synced_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
         stale: { type: boolean, description: ArgosISP no respondió en la última resolución; se muestra el último dato conocido. }
     ExternalIdentityPeriod:
       type: object
-      required: [id, system, external_customer_id, external_service_id, display_name, code, service_state, plan, valid_from, valid_to, synced_at, stale]
+      required: [id, system, external_customer_id, external_service_id, display_name, code, service_state, plan, external_company_id,
+        company_name, company_nit, valid_from, valid_to, synced_at, stale]
       properties:
         id: { $ref: './common.yaml#/components/schemas/Uuid' }
         system: { type: string, enum: [argosisp] }
@@ -1718,6 +1761,9 @@ components:
         code: { type: [string, 'null'] }
         service_state: { type: [string, 'null'] }
         plan: { type: [string, 'null'] }
+        external_company_id: { type: [integer, 'null'], description: Empresa del servicio en ArgosISP (multiempresa). }
+        company_name: { type: [string, 'null'] }
+        company_nit: { type: [string, 'null'], description: NIT de la empresa del ISP (no es un dato del cliente). }
         valid_from: { $ref: './common.yaml#/components/schemas/Timestamp' }
         valid_to:
           description: null = vigente.
@@ -1745,9 +1791,16 @@ components:
     IpLookupRequest:
       type: object
       additionalProperties: false
-      required: [address]
+      description: |
+        `address` o, desde el contrato 1.2.0, `external_service_id` (exactamente uno de los dos; con ambos o ninguno → 422).
       properties:
         address: { $ref: './common.yaml#/components/schemas/IpAddress' }
+        external_service_id:
+          type: integer
+          minimum: 1
+          description: |
+            Servicio de ArgosISP: se usa su identidad vigente (o la vigente en `at`) y se responde con su IP de entonces.
+            Si el servicio tiene varias IPs (IPv4 y prefijo IPv6), la del cliente visto más recientemente.
         at:
           description: Instante de la consulta (por defecto ahora).
           $ref: './common.yaml#/components/schemas/Timestamp'
@@ -1924,6 +1977,52 @@ components:
             from: { $ref: './common.yaml#/components/schemas/Timestamp' }
             to: { $ref: './common.yaml#/components/schemas/Timestamp' }
             granularity: { type: string, enum: [day, total] }
+    SecurityStatesRequest:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            type: object
+            additionalProperties: false
+            description: '`address` o `external_service_id` (exactamente uno).'
+            properties:
+              address: { $ref: './common.yaml#/components/schemas/IpAddress' }
+              external_service_id: { type: integer, minimum: 1 }
+    SecurityStatesResponse:
+      type: object
+      required: [items, meta]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [address, external_service_id]
+            properties:
+              address:
+                type: [string, 'null']
+                description: La pedida o, por servicio, la IP (o prefijo) elegida (dato personal).
+              external_service_id:
+                type: [integer, 'null']
+                description: El pedido o, por IP, el servicio de la identidad vigente (null sin identidad).
+              state: { $ref: '#/components/schemas/SecurityState' }
+              open_findings: { type: integer, minimum: 0 }
+              max_severity:
+                type: [string, 'null']
+                description: Severidad del hallazgo activo más grave (null sin hallazgos activos).
+              since:
+                description: Desde cuándo el cliente está en `state`.
+                $ref: './common.yaml#/components/schemas/Timestamp'
+              error: { type: string, enum: [not_found], description: Sin cliente o sin identidad vigente; sin el resto de campos. }
+        meta:
+          type: object
+          required: [at]
+          properties:
+            at: { $ref: './common.yaml#/components/schemas/Timestamp' }
     ArgosIntegration:
       type: object
       required: [id, configured, enabled, base_url, has_token, webhook_url, has_webhook_secret, last_sync_at, last_sync_status,

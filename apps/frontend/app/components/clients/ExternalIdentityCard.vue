@@ -2,8 +2,9 @@
 import type { CustomerExternalIdentity } from '~~/types/api'
 
 /**
- * Identidad del cliente en ArgosISP (ADR-0030): nombre, código, estado del servicio y plan
- * vigentes, con su fecha de sincronización; "desactualizado" si ArgosISP no respondió (se
+ * Identidad del cliente en ArgosISP (ADR-0030): nombre, código, estado del servicio, plan y
+ * empresa del servicio (ArgosISP multiempresa, contrato 1.2.0) vigentes, con su fecha de
+ * sincronización; "desactualizado" si ArgosISP no respondió (se
  * conserva el último dato). "Actualizar desde ArgosISP" resuelve ahora (customers.update).
  * Las vigencias anteriores explican a quién pertenecía la IP en cada periodo.
  */
@@ -47,6 +48,16 @@ async function update() {
     updating.value = false
   }
 }
+// Empresa del servicio: nombre e id de la identidad vigente; el NIT viene en su periodo.
+const company = computed(() => {
+  const cur = data.value?.current
+  if (!cur || (cur.company_id == null && !cur.company_name)) return null
+  const period = data.value?.history.find((p) => p.valid_to === null)
+  return {
+    name: cur.company_name ?? `#${cur.company_id}`,
+    nit: period?.company_nit ?? null,
+  }
+})
 const STATE_COLOR: Record<string, 'success' | 'warning' | 'error' | 'neutral'> = {
   activo: 'success',
   limitado: 'warning',
@@ -84,7 +95,11 @@ const STATE_COLOR: Record<string, 'success' | 'warning' | 'error' | 'neutral'> =
           @click="update"
         />
       </div>
-      <dl v-if="data.current" class="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
+      <dl
+        v-if="data.current"
+        class="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2"
+        :class="company ? 'lg:grid-cols-5' : 'lg:grid-cols-4'"
+      >
         <div>
           <dt class="text-muted text-xs">{{ t('clients.external.name') }}</dt>
           <dd class="text-highlighted" data-testid="client-external-name">
@@ -107,6 +122,15 @@ const STATE_COLOR: Record<string, 'success' | 'warning' | 'error' | 'neutral'> =
             <span v-if="data.current.plan" class="text-muted">{{ data.current.plan }}</span>
             <span v-if="data.current.service_id" class="text-muted font-mono text-xs"
               >#{{ data.current.service_id }}</span
+            >
+          </dd>
+        </div>
+        <div v-if="company">
+          <dt class="text-muted text-xs">{{ t('clients.external.company') }}</dt>
+          <dd class="text-highlighted" data-testid="client-external-company">
+            {{ company.name }}
+            <span v-if="company.nit" class="text-muted font-mono text-xs">
+              · {{ t('clients.external.nit') }} {{ company.nit }}</span
             >
           </dd>
         </div>
