@@ -25,6 +25,8 @@ func TestTopicsForType(t *testing.T) {
 		"horus.auth.session.revoked":                      "me",
 		"horus.snmp.router.state_changed":                 "routers.status",
 		"horus.snmp.router.rebooted":                      "routers.status",
+		"horus.reporting.report.completed":                "me",
+		"horus.reporting.report.failed":                   "me",
 	} {
 		if got := TopicsForType(typ, id); !slices.Contains(got, want) {
 			t.Errorf("%s → %v, quiero %s", typ, got, want)

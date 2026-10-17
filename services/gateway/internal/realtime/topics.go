@@ -94,6 +94,8 @@ var Subjects = []string{
 	"horus.auth.session.>", "horus.auth.membership.>", "horus.auth.kiosk.>", "horus.auth.tenant.>",
 	"horus.telemetry.flows.summary.>",
 	"horus.snmp.>", "horus.telemetry.snmp.>",
+	// I3: reporte listo o fallido (topic me).
+	"horus.reporting.report.>",
 }
 
 // TopicsForType devuelve los topics de un tipo de evento (subject sin la
@@ -124,6 +126,8 @@ func TopicsForType(typ, entity string) []string {
 	case domain == "analytics" && ent == "playlist":
 		return []string{"dashboard.*"}
 	case domain == "alerts" && ent == "notification":
+		return []string{"me"}
+	case domain == "reporting" && ent == "report" && (ev == "completed" || ev == "failed"):
 		return []string{"me"}
 	case domain == "auth" && ent == "session" && ev == "revoked":
 		return []string{"me"}

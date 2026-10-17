@@ -1,0 +1,46 @@
+# Catálogo de eventos v0 del dominio lógico `reporting` (C4; docs/events.md §5.6, §8.10). Lo produce el rol
+# reporting del módulo analytics (regla E3: el dominio es el lógico, no el proceso) por el outbox de analytics.
+# Un archivo por dominio para que dos agentes no editen el mismo. Cada tipo: mensaje Protobuf en
+# packages/protobuf/horus/events/<dominio>/v1/ y golden file en packages/events/examples/<type>.json.
+# Cambios de pii / tenant_scope requieren a la persona.
+domain: reporting
+version: v0
+events:
+- type: horus.reporting.report.completed
+  subject: horus.reporting.report.completed.{report_id}
+  tenant_scope: tenant
+  stream: REPORTING_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.reporting.v1.ReportRun
+  schema_version: 1
+  producer: analytics
+  consumers:
+  - gateway
+  websocket_topics:
+  - me
+  pii: false
+  pii_fields: []
+  status: stable
+  since: I3
+  example: examples/horus.reporting.report.completed.json
+  notes: Reporte generado (archivos con sha256 y tamaño). El archivo con datos de clientes nunca viaja en el evento; se descarga por la API.
+- type: horus.reporting.report.failed
+  subject: horus.reporting.report.failed.{report_id}
+  tenant_scope: tenant
+  stream: REPORTING_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.reporting.v1.ReportRun
+  schema_version: 1
+  producer: analytics
+  consumers:
+  - gateway
+  websocket_topics:
+  - me
+  pii: false
+  pii_fields: []
+  status: stable
+  since: I3
+  example: examples/horus.reporting.report.failed.json
+  notes: La generación falló (error legible sin detalles internos) o se interrumpió repetidamente.

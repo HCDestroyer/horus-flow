@@ -75,9 +75,11 @@ type Options struct {
 	RateLimits map[string]int
 }
 
-// DefaultRateLimits son los límites por IP de docs/api.md §1.10.
+// DefaultRateLimits son los límites por IP de docs/api.md §1.10. "reports"
+// es el freno por IP de la generación de reportes; el cupo de 10/h por
+// usuario lo aplica el rol reporting sobre analytics.report_run.
 var DefaultRateLimits = map[string]int{"login": 20, "kiosk_enroll": 5, "enroll": 10, "connection_test": 10,
-	"librenms": 10, "telegram_setup": 20}
+	"librenms": 10, "telegram_setup": 20, "reports": 10}
 
 // Edge es el middleware.
 type Edge struct {

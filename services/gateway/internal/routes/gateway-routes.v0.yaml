@@ -209,6 +209,34 @@ modules:
       methods:
         PATCH: dashboards.manage
         DELETE: dashboards.manage
+    - prefix: /api/v1/report-definitions
+      scope: tenant
+      methods:
+        GET: reports.read
+    - prefix: /api/v1/report-definitions/{definition_id}
+      scope: tenant
+      methods:
+        PATCH: settings.manage
+      audited:
+        - PATCH
+    - prefix: /api/v1/reports
+      scope: tenant
+      methods:
+        GET: reports.read
+        POST: reports.export
+      rate_limit: reports
+      idempotency_key_required:
+        - POST
+    - prefix: /api/v1/reports/{report_id}
+      scope: tenant
+      methods:
+        GET: reports.read
+    - prefix: /api/v1/reports/{report_id}/download
+      scope: tenant
+      methods:
+        GET: reports.read
+      audited:
+        - GET
     - prefix: /api/v1/sites/{site_id}/prefix-proposals
       scope: tenant
       methods:

@@ -1,0 +1,32 @@
+{
+  "id": "0192f0d2-0000-7000-8000-000000000802",
+  "type": "horus.reporting.report.failed",
+  "source": "horus/analytics",
+  "subject": "0192f7a0-0000-7000-8000-00000000a002",
+  "time": "2026-10-14T16:20:03.004Z",
+  "schema_version": 1,
+  "tenant_id": "0192e000-0000-7000-8000-000000000001",
+  "aggregate_type": "report",
+  "aggregate_version": 1,
+  "actor": {
+    "type": "system",
+    "id": "system:horus"
+  },
+  "trace_parent": null,
+  "correlation_id": null,
+  "causation_id": null,
+  "data": {
+    "id": "0192f7a0-0000-7000-8000-00000000a002",
+    "report_definition_id": null,
+    "kind": "security_weekly",
+    "status": "failed",
+    "formats": ["pdf"],
+    "period_from": "2026-10-01T00:00:00.000Z",
+    "period_to": "2026-10-08T00:00:00.000Z",
+    "timezone": "America/Mexico_City",
+    "files": [],
+    "size_bytes": 0,
+    "requested_by": "0192aaaa-0000-7000-8000-0000000000a1",
+    "error": "No se pudo generar el archivo PDF (error interno o de escritura en el almacén local)."
+  }
+}

@@ -174,6 +174,7 @@ func systemStatus(local edge.Matcher) http.HandlerFunc {
 			"detection":      probe(http.MethodGet, "/api/v1/security/summary"),
 			"notifications":  probe(http.MethodGet, "/api/v1/notification-channels"),
 			"monitoring":     probe(http.MethodGet, "/api/v1/routers/status"),
+			"reports":        probe(http.MethodGet, "/api/v1/reports"),
 		}
 		status := "ok"
 		if caps["auth"] != "ok" || caps["inventory"] != "ok" {

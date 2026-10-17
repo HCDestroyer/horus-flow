@@ -57,6 +57,8 @@ tags:
     description: Dashboards, widgets y playlists (D8).
   - name: kiosk
     description: Configuración del kiosco.
+  - name: reports
+    description: Reportes programados y a petición (rol reporting; I3 — seguridad semanal en PDF y CSV).
   - name: findings
     description: Hallazgos y su ciclo de vida.
   - name: reputation
@@ -314,6 +316,16 @@ paths:
     $ref: ./analytics.yaml#/paths/~1playlists
   /playlists/{playlist_id}:
     $ref: ./analytics.yaml#/paths/~1playlists~1{playlist_id}
+  /report-definitions:
+    $ref: ./analytics.yaml#/paths/~1report-definitions
+  /report-definitions/{definition_id}:
+    $ref: ./analytics.yaml#/paths/~1report-definitions~1{definition_id}
+  /reports:
+    $ref: ./analytics.yaml#/paths/~1reports
+  /reports/{report_id}:
+    $ref: ./analytics.yaml#/paths/~1reports~1{report_id}
+  /reports/{report_id}/download:
+    $ref: ./analytics.yaml#/paths/~1reports~1{report_id}~1download
   /reputation/allowlist:
     $ref: ./detection.yaml#/paths/~1reputation~1allowlist
   /reputation/allowlist/{entry_id}:

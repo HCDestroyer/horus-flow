@@ -87,6 +87,8 @@ func startAppWith(t *testing.T, more []roleFactory, extra ...string) *app {
 		// Reconciliación periódica desactivada en la práctica: el túnel se asigna
 		// al pedir el script (síncrono) y las versiones de los routers no cambian solas.
 		"HORUS_WIREGUARD_RECONCILE_EVERY=1h", "HORUS_WGAGENT_REPORT_EVERY=200ms",
+		// Almacén local de reportes (rol reporting) y datos de los demás roles.
+		"HORUS_DATA_DIR=" + t.TempDir(),
 	}
 	environ = append(environ, extra...)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -95,7 +97,8 @@ func startAppWith(t *testing.T, more []roleFactory, extra ...string) *app {
 	hreg := health.NewRegistry(health.Options{Service: "test"})
 	var mods []module.Module
 	roles := []roleFactory{{auth.Role, auth.Register}, {devices.Role, devices.Register}, {wireguard.Role, wireguard.Register},
-		{wgagent.Role, wgagent.Register}, {detection.Role, detection.Register}, {alerts.Role, alerts.Register}, {analytics.Role, registerDashboards}}
+		{wgagent.Role, wgagent.Register}, {detection.Role, detection.Register}, {alerts.Role, alerts.Register}, {analytics.Role, registerDashboards},
+		{analytics.RoleReporting, analytics.RegisterReporting}}
 	roles = append(roles, more...)
 	roles = append(roles, roleFactory{gateway.Role, gateway.Register})
 	for _, r := range roles {

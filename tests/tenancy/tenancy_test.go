@@ -173,6 +173,13 @@ func cases() map[string]tenanttest.Case {
 	c["validateTelegramBot"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"bot_token": "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef0123"}}
 	c["createTelegramLinkCode"] = tenanttest.Case{Kind: tenanttest.Create}
 	c["detectTelegramChats"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"code": "hfabcdefghij"}}
+	// analytics (rol reporting, I3): reportes y su programación.
+	c["listReports"] = tenanttest.Case{Kind: tenanttest.List}
+	c["createReport"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"kind": "security_weekly"}}
+	c["getReport"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["downloadReport"] = tenanttest.Case{Kind: tenanttest.ByID}
+	c["listReportDefinitions"] = tenanttest.Case{Kind: tenanttest.List}
+	c["updateReportDefinition"] = tenanttest.Case{Kind: tenanttest.ByID, Body: map[string]any{"enabled": false}}
 	// Umbrales de routers por ISP (B no ve ni cambia los de A; RLS de snmp.router_thresholds) los cubre
 	// TestSNMPThresholdsPerTenant.
 	pending("EP-08 (snmp: umbrales por ISP; TestSNMPThresholdsPerTenant)",
@@ -221,6 +228,15 @@ func (a *app) fixtureISP(x isp, cidr string) map[string]string {
 	// Regla ASN propia del ISP para /asn-rules/{asn_rule_id}.
 	out["asn_rule_id"] = a.must(a.post(x.token, "/api/v1/asn-rules", map[string]any{"asn": 263237, "name": "Tránsito local",
 		"category": "cdn_infra"}), 201).str("id")
+	// Reporte a petición y programación semanal (rol reporting) para /reports/{report_id} y
+	// /report-definitions/{definition_id}.
+	out["report_id"] = a.must(a.do(req{Method: "POST", Path: "/api/v1/reports", Token: x.token, Body: map[string]any{"kind": "security_weekly"},
+		Header: map[string]string{"Idempotency-Key": uuid.NewString()}}), 202).str("id")
+	defs, _ := a.must(a.do(req{Method: "GET", Path: "/api/v1/report-definitions", Token: x.token}), 200).Body["data"].([]any)
+	if len(defs) != 1 {
+		a.t.Fatalf("definiciones de reportes = %v", defs)
+	}
+	out["definition_id"], _ = defs[0].(map[string]any)["id"].(string)
 	if _, err := a.admin.Exec(context.Background(), `UPDATE detection.finding SET customer_id = $1 WHERE id = $2`,
 		out["customer_id"], out["finding_id"]); err != nil {
 		a.t.Fatal(err)
@@ -288,6 +304,7 @@ func TestTenantIsolationMatrix(t *testing.T) {
 				"{kiosk_id}", paramsA["kiosk_id"], "{dashboard_id}", paramsA["dashboard_id"], "{widget_id}", paramsA["widget_id"],
 				"{playlist_id}", paramsA["playlist_id"], "{channel_id}", paramsA["channel_id"], "{user_id}", paramsA["user_id"],
 				"{kind}", paramsA["kind"], "{role_id}", paramsA["role_id"], "{asn_rule_id}", paramsA["asn_rule_id"], "{asn}", "263237",
+				"{report_id}", paramsA["report_id"], "{definition_id}", paramsA["definition_id"],
 			).Replace(tmpl), nil)
 			return a.mux.Matches(r)
 		},
