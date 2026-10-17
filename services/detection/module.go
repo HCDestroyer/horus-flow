@@ -7,7 +7,9 @@
 // HORUS_JWT_PUBLIC_KEYS. Con HORUS_CLICKHOUSE_DSN el motor evalúa cada
 // HORUS_DETECTION_INTERVAL a los tenants con algún router en el inventario de
 // flujos (proyección de DEVICES_EVENTS), a los registrados por la API y a
-// HORUS_DETECTION_TENANTS.
+// HORUS_DETECTION_TENANTS. En el mismo planificador, una vez al día por
+// tenant, el scoring residencial/comercial explicable (I2; HORUS_DETECTION_SCORING)
+// publica horus.detection.customer.kind_suggested tras la histéresis.
 // Sin HORUS_POSTGRES_DSN, en desarrollo el rol queda inactivo con un aviso.
 package detection
 
@@ -16,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"slices"
 	"sync/atomic"
 	"time"
@@ -61,6 +64,7 @@ type mod struct {
 	ch      *chreader.Reader
 	store   *postgres.Store
 	engine  *engine.Engine
+	svc     *app.Service
 	tenants []uuid.UUID
 	logger  *slog.Logger
 	// inv es el inventario de exportadores (flowinv): un ISP con routers se
@@ -130,6 +134,10 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		opts.Flows = m.ch
 	}
 	svc := app.NewService(db, opts)
+	m.svc = svc
+	if m.ch != nil && cfg.Scoring {
+		svc.SetScoring(m.ch, m.dynamicPool)
+	}
 	m.feeds = newFeeds(cfg, logger)
 	svc.SetSources(m.feeds)
 	// Fuentes de reputación de plataforma (D20): el catálogo y las listas
@@ -373,7 +381,32 @@ func (m *mod) tick(ctx context.Context) {
 			m.logger.InfoContext(tctx, "detection: findings", "tenant", id.String(), "opened", rep.Applied.Opened,
 				"updated", rep.Applied.Updated, "expired", rep.Expired, "silenced", rep.Applied.Silenced)
 		}
+		m.score(tctx, id)
 	}
+}
+
+// score ejecuta el scoring residencial/comercial del tenant si aún no se ha
+// hecho hoy (RunScoring lo anota en engine_state; repetir es barato).
+func (m *mod) score(ctx context.Context, tenant uuid.UUID) {
+	if !m.cfg.Scoring || m.ch == nil {
+		return
+	}
+	rep, err := m.svc.RunScoring(ctx, tenant, time.Now(), false)
+	if err != nil {
+		m.logger.WarnContext(ctx, "detection: customer scoring", "tenant", tenant.String(), "err", err)
+		return
+	}
+	if !rep.Skipped {
+		m.logger.InfoContext(ctx, "detection: customer scoring", "tenant", tenant.String(), "scored", rep.Scored,
+			"insufficient", rep.Insufficient, "suggested", rep.Published)
+	}
+}
+
+// dynamicPool indica si la IP del cliente cae en un prefijo de clientes
+// dinámico del nodo (inventario de flowinv; assignment_mode = dynamic).
+func (m *mod) dynamicPool(tenant, site uuid.UUID, ip netip.Addr) bool {
+	match, ok := m.inv.Load().Lookup(tenant, site, ip)
+	return ok && match.Prefix != nil && match.Prefix.AssignmentMode == "dynamic"
 }
 
 func (m *mod) Stop(context.Context) error {
@@ -390,6 +423,19 @@ type EvaluateReport struct {
 	Opened, Updated, Unchanged, Silenced int
 	Expired                              int
 	Skipped                              map[string]int
+}
+
+// ScoringReport resume una pasada del scoring residencial/comercial.
+type ScoringReport = app.ScoringReport
+
+// RunScoring ejecuta el scoring del módulo m (de Register) para tenant en
+// now aunque ya se haya hecho ese día. Lo usan las pruebas de integración.
+func RunScoring(ctx context.Context, m module.Module, tenant uuid.UUID, now time.Time) (ScoringReport, error) {
+	md, ok := m.(*mod)
+	if !ok || md.svc == nil {
+		return ScoringReport{}, app.ErrNoScoring
+	}
+	return md.svc.RunScoring(ctx, tenant, now, true)
 }
 
 // ErrNoEngine indica un módulo sin motor (sin ClickHouse o con

@@ -543,6 +543,21 @@ Fibra Norte › Nodo Centro › 10.20.0.41  "Panadería Sol"
   nunca pisa un tipo manual (`kind_locked`, candado visible); "Desbloquear" lo devuelve al scoring
   (I2). Si el scoring cambió el tipo mientras el operador miraba, el guardado devuelve `412` y la UI
   muestra el valor nuevo antes de volver a intentarlo.
+- **Tipo sugerido (I2, implementado).** La ficha muestra la tarjeta "Tipo sugerido por el scoring"
+  (`GET /customers/{id}/scoring`): nivel (*Comercial* `info` + `building-2`, *Residencial con indicios
+  comerciales* `warning` + `building`, *Residencial* `neutral` + `house`), puntuación comercial
+  0–100, confianza, umbrales del ISP, razones con los números reales y la **tabla de
+  características** (valor, peso y aporte de cada una). Avisa si el tipo está fijado a mano (el
+  scoring sugiere pero no cambia), si la sugerencia aún espera la histéresis de 7 días y si la IP es
+  de un pool dinámico (confianza reducida). Con `customers.kind.write` y el tipo sin bloquear:
+  **Confirmar comercial** / **Descartar** (reutilizan `set-kind`, que bloquea el tipo; el motivo se
+  compone con la puntuación y los códigos de las razones).
+- **Posibles comerciales (I2, implementado)** (`/t/:slug/clients/commercial`, botón en la cabecera de
+  la lista): `GET /customers?commercial_candidate=true` (sugerencia comercial o uso comercial
+  sospechado, sin tipo fijado a mano), ordenados por puntuación; cada fila con nodo, puntuación,
+  sugerencia, tipo actual con su origen y las tres razones con más peso, y las acciones
+  Confirmar/Descartar (`customers.kind.write`). Tras decidir, el cliente sale de la lista; ante `412`
+  la lista se recarga con el valor actual.
 - En prefijos dinámicos (pool PPPoE/DHCP) la ficha advierte: "En este rango la IP puede cambiar de
   persona; el cliente es la IP".
 - **Cambiar tipo** abre un formulario corto con motivo obligatorio; el cambio aparece en Historial.

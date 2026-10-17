@@ -53,6 +53,9 @@ type Config struct {
 	Interval time.Duration `env:"HORUS_DETECTION_INTERVAL" envDefault:"1m"`
 	Lag      time.Duration `env:"HORUS_DETECTION_LAG" envDefault:"2m"`
 	Tenants  []string      `env:"HORUS_DETECTION_TENANTS" envSeparator:","`
+	// Scoring residencial/comercial (I2): una pasada diaria por tenant
+	// dentro del planificador del motor (los umbrales son por ISP).
+	Scoring bool `env:"HORUS_DETECTION_SCORING" envDefault:"true"`
 
 	// Feeds de reputación (I0-17, D20) dentro del rol: almacén, declaración,
 	// listas personalizadas y sincronización periódica (descarga de Internet:

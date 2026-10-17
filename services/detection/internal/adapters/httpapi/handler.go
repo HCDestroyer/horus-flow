@@ -46,6 +46,7 @@ func (h *Handler) Mount(r *httpx.ServiceMux) {
 	r.Handle("POST /api/v1/findings/{finding_id}/resolve", h.guard.Tenant(app.PermManage, h.transition("resolve")))
 	r.Handle("POST /api/v1/findings/{finding_id}/mark-false-positive", h.guard.Tenant(app.PermManage, h.transition("false_positive")))
 	r.Handle("GET /api/v1/customers/{customer_id}/findings", h.guard.Tenant(app.PermRead, h.customerFindings))
+	r.Handle("GET /api/v1/customers/{customer_id}/scoring", h.guard.Tenant(app.PermCustomers, h.customerScoring))
 	r.Handle("GET /api/v1/security/summary", h.guard.Wrap(authz.Requirement{Scope: authz.ScopeTenant, AllowKiosk: true},
 		http.HandlerFunc(h.summary)))
 	r.Handle("GET /api/v1/reputation/sources", h.guard.Tenant(app.PermRead, h.sources))
@@ -88,6 +89,21 @@ func (h *Handler) customerFindings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonapi.Write(w, http.StatusOK, map[string]any{"data": page.Data, "page": page.Page})
+}
+
+// customerScoring es GET /customers/{id}/scoring: último scoring
+// residencial/comercial con su explicación y, con ?range=90d, la serie diaria.
+func (h *Handler) customerScoring(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r, "customer_id", "CUSTOMER_NOT_FOUND")
+	if !ok {
+		return
+	}
+	out, err := h.svc.CustomerScoring(r.Context(), id, r.URL.Query())
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	jsonapi.Write(w, http.StatusOK, out)
 }
 
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {

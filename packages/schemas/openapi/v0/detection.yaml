@@ -22,6 +22,8 @@ tags:
     description: Hallazgos y su ciclo de vida.
   - name: reputation
     description: Feeds de reputación (plataforma) y allowlist (ISP).
+  - name: scoring
+    description: Scoring residencial/comercial explicable del cliente (I2).
 paths:
   /findings:
     get:
@@ -317,6 +319,42 @@ paths:
                   page: { $ref: './common.yaml#/components/schemas/PageInfo' }
         '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
         '404': { $ref: './common.yaml#/components/responses/NotFound' }
+  /customers/{customer_id}/scoring:
+    parameters:
+      - name: customer_id
+        in: path
+        required: true
+        schema: { $ref: './common.yaml#/components/schemas/Uuid' }
+    get:
+      tags: [scoring]
+      operationId: getCustomerScoring
+      summary: Último scoring residencial/comercial del cliente con su explicación y, con range, la serie diaria
+      description: |
+        Modelo `commercial-v1` (heurística ponderada y explicable): `features` con valor bruto, valor normalizado 0..1,
+        peso y aportación; `reasons[]` ordenadas por aportación; probabilidades por clase; umbrales del ISP; estado de la
+        histéresis (nivel publicado en `horus.detection.customer.kind_suggested` y candidato pendiente). Sin scoring
+        todavía (menos horas activas que el mínimo, scoring desactivado o fuera del alcance de nodos) → `latest: null`.
+        La IP del cliente no aparece en la respuesta ni en la URL.
+      x-module: detection
+      x-scope: tenant
+      x-permission: customers.read
+      x-increment: I2
+      security:
+        - tenantBearer: []
+      parameters:
+        - name: range
+          in: query
+          description: Serie diaria hacia atrás (`90d`, `12w`, `48h`; máximo 400d). Sin range no hay serie.
+          schema: { type: string, pattern: '^[1-9][0-9]{0,3}[hdw]$' }
+      responses:
+        '200':
+          description: Último scoring (o null) y serie diaria.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerScoringResponse' }
+        '400': { $ref: './common.yaml#/components/responses/BadRequest' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
   /security/summary:
     get:
       tags: [findings]
@@ -363,7 +401,7 @@ paths:
                 properties:
                   detectors:
                     type: object
-                    description: 'Un objeto por detector (c2_contact, scanning, watched_ports, fanout, smtp, ddos, beaconing, sustained_upload) con enabled, window y sus umbrales; más auto_expire.'
+                    description: 'Un objeto por detector (c2_contact, scanning, watched_ports, fanout, smtp, ddos, beaconing, sustained_upload) con enabled, window y sus umbrales; customer_scoring (scoring residencial/comercial: umbrales, histéresis, pesos); más auto_expire.'
                     additionalProperties: true
                   customized:
                     type: array
@@ -495,6 +533,94 @@ components:
       required: true
       schema: { $ref: './common.yaml#/components/schemas/Uuid' }
   schemas:
+    ScoringFeature:
+      type: object
+      required: [code, value, unit, normalized, weight, contribution, available, detail]
+      properties:
+        code:
+          type: string
+          description: inbound_services | upload_ratio_high | upload_vs_residential_median | business_hours_pattern | always_on | many_remote_asns (enum abierto).
+        value: { type: number, description: Valor bruto en `unit`. }
+        unit: { type: string, description: 'ports | ratio | x | share | asns' }
+        normalized: { type: number, minimum: 0, maximum: 1 }
+        weight: { type: number, minimum: 0, maximum: 1, description: Peso configurado por el ISP. }
+        contribution: { type: number, minimum: 0, maximum: 1, description: Puntos (0..1) que aporta a la probabilidad comercial. }
+        available: { type: boolean, description: false si no hay datos (p. ej. sin mediana residencial). }
+        detail: { type: string, description: Texto humano con los números reales. }
+    CustomerScoring:
+      type: object
+      required: [customer_id, model_version, computed_at, window_from, window_to, level, suggested_kind, commercial_score, raw_score,
+        confidence, scores, commercial_use_suspected, dynamic_pool, customer_kind, kind_locked, published_level, published_at,
+        pending_level, pending_since, features, reasons, thresholds]
+      properties:
+        customer_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        model_version: { type: string, examples: [commercial-v1] }
+        computed_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        window_from: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        window_to: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        level: { type: string, enum: [residential, suspected, commercial], description: suspected = residencial con indicios comerciales. }
+        suggested_kind: { type: string, enum: [residential, commercial] }
+        commercial_score: { type: integer, minimum: 0, maximum: 100, description: Probabilidad comercial tras el ajuste por pool dinámico. }
+        raw_score: { type: integer, minimum: 0, maximum: 100, description: Probabilidad comercial antes del ajuste. }
+        confidence: { type: number, minimum: 0, maximum: 1, description: Probabilidad de la clase sugerida. }
+        scores:
+          type: object
+          required: [residential, commercial]
+          properties:
+            residential: { type: number, minimum: 0, maximum: 1 }
+            commercial: { type: number, minimum: 0, maximum: 1 }
+        commercial_use_suspected: { type: boolean }
+        dynamic_pool: { type: boolean, description: La IP está en un prefijo dinámico (confianza comercial reducida). }
+        customer_kind: { type: string, description: Tipo del cliente al puntuar. }
+        kind_locked: { type: boolean, description: Tipo fijado a mano (el scoring sugiere pero devices no lo cambia). }
+        published_level: { type: [string, 'null'], enum: [residential, suspected, commercial, null] }
+        published_at:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
+        pending_level:
+          type: [string, 'null']
+          enum: [residential, suspected, commercial, null]
+          description: Nivel nuevo que aún no ha sostenido la histéresis.
+        pending_since:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
+        features:
+          type: array
+          items: { $ref: '#/components/schemas/ScoringFeature' }
+        reasons:
+          type: array
+          items: { $ref: './common.yaml#/components/schemas/Reason' }
+        thresholds:
+          type: object
+          required: [commercial, suspected, hysteresis_days]
+          properties:
+            commercial: { type: integer, minimum: 1, maximum: 100 }
+            suspected: { type: integer, minimum: 1, maximum: 100 }
+            hysteresis_days: { type: integer, minimum: 0 }
+    CustomerScoringPoint:
+      type: object
+      required: [day, commercial_score, confidence, level, suggested_kind, kind]
+      properties:
+        day: { type: string, format: date }
+        commercial_score: { type: integer, minimum: 0, maximum: 100 }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        level: { type: string, enum: [residential, suspected, commercial] }
+        suggested_kind: { type: string }
+        kind: { type: string, description: Tipo vigente del cliente ese día. }
+    CustomerScoringResponse:
+      type: object
+      required: [latest, series]
+      properties:
+        latest:
+          oneOf:
+            - $ref: '#/components/schemas/CustomerScoring'
+            - type: 'null'
+        series:
+          type: array
+          items: { $ref: '#/components/schemas/CustomerScoringPoint' }
+        series_unavailable: { type: boolean, description: ClickHouse no respondió; la serie va vacía. }
     FindingTransition:
       type: object
       properties:

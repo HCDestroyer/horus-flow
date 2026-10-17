@@ -70,7 +70,9 @@ detector propio con allowlist de hosts de gestión (I2). Lo verifica `TestRealCa
 `HORUS_DETECTION_CH_USER` (`horus_detection`), `HORUS_CLICKHOUSE_DETECTION_PASSWORD`,
 `HORUS_DETECTION_CH_TIMEOUT` (30s), `HORUS_REPUTATION_SNAPSHOT_DIR`, `HORUS_DETECTION_ENGINE` (true),
 `HORUS_DETECTION_INTERVAL` (1m), `HORUS_DETECTION_LAG` (2m), `HORUS_DETECTION_TENANTS` (lista fija; el
-resto se registra en `detection.tenant_registry` al usar la API). Feeds en el rol: `HORUS_DATA_DIR`
+resto se registra en `detection.tenant_registry` al usar la API), `HORUS_DETECTION_SCORING` (true: scoring
+residencial/comercial `commercial-v1` una vez al día por tenant dentro del planificador del motor; umbrales,
+pesos, ventana e histéresis por ISP en `detection.detector_config`, clave `customer_scoring`). Feeds en el rol: `HORUS_DATA_DIR`
 (`/var/lib/horus/store`), `HORUS_FEEDS_CONFIG`, `HORUS_FEEDS_CUSTOM`, `HORUS_FEEDS_FIXTURES`,
 `HORUS_DETECTION_FEEDS_SYNC` (false: activar en despliegue para descargar de Internet),
 `HORUS_DETECTION_FEEDS_INTERVAL` (15m; cada fuente se descarga según su `frequency`),

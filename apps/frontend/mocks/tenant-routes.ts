@@ -46,6 +46,7 @@ import {
 } from './inventory'
 import { contains, parseCidr, parseIp } from './net'
 import { hash, iso, mockUuid, rng } from './random'
+import { mockScoring, mockScoringDetail, mockScoringSeries } from './scoring'
 import { mockState } from './state'
 import { widgetData } from './widget-data'
 import {
@@ -145,6 +146,8 @@ function filterCustomers(ctx: TenantRouteContext, list: CustomerDetail[]) {
       (!q.get('security_state') || c.security_state === q.get('security_state')) &&
       (q.get('has_open_findings') !== 'true' || c.open_findings > 0) &&
       (!q.get('client_prefix_id') || c.client_prefix_id === q.get('client_prefix_id')) &&
+      (q.get('commercial_candidate') !== 'true' ||
+        (!c.kind_locked && (c.suggested_kind === 'commercial' || c.commercial_use_suspected))) &&
       (!alias || (c.alias ?? '').toLowerCase().includes(alias)),
   )
 }
@@ -155,15 +158,9 @@ function sortCustomers(list: CustomerDetail[], sort: string | null) {
   return [...list].sort((a, b) => dir * String(a[key] ?? '').localeCompare(String(b[key] ?? '')))
 }
 
-/** Vista de lista: sin notas ni sugerencias (solo en la ficha). */
+/** Vista de lista: sin notas (solo en la ficha). */
 function listItem(c: CustomerDetail) {
-  const {
-    notes: _n,
-    suggested_kind: _k,
-    suggested_confidence: _c,
-    suggested_reasons: _r,
-    ...rest
-  } = c
+  const { notes: _n, ...rest } = c
   return rest
 }
 
@@ -264,6 +261,19 @@ function customerRoutes(ctx: TenantRouteContext): Response | undefined {
     return json(paginate(list, ctx.url))
   }
 
+  if (match(ctx, 'GET', '/customers/{id}/scoring')) {
+    // Scoring residencial/comercial (detection, I2): latest null sin scoring todavía.
+    const c = customer()
+    const s = mockScoring(index, c.status === 'inactive')
+    const range = ctx.url.searchParams.get('range')
+    const days = range?.match(/^(\d+)d$/) ? Number(range.slice(0, -1)) : 0
+    if (!s) return json({ latest: null, series: [] })
+    return json({
+      latest: mockScoringDetail(c.id, index, s, c.kind, c.kind_locked, now),
+      series: days ? mockScoringSeries(index, s, now, days) : [],
+    })
+  }
+
   if (match(ctx, 'GET', '/customers/{id}/kind-history')) {
     return json(paginate(kindHistory(tenant, index, now), ctx.url))
   }
@@ -287,7 +297,7 @@ function customerRoutes(ctx: TenantRouteContext): Response | undefined {
         ...(mockState.customers.get(c.id) ?? {}),
         version: c.version + 1,
         kind: 'residential',
-        kind_confidence: 0.58,
+        kind_confidence: 58,
         kind_changed_at: now.toISOString(),
       })
       return preconditionFailed(customer())

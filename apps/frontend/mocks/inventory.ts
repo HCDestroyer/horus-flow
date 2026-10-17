@@ -25,6 +25,7 @@ import {
 import { ALL_TENANTS, type MockTenant } from './data'
 import { contains, parseCidr, parseIp } from './net'
 import { hash, iso, mockUuid, rng } from './random'
+import { mockReasons, mockScoring } from './scoring'
 import {
   emptyDeviceState,
   mockState,
@@ -872,13 +873,12 @@ export function buildCustomer(
     alias: baseAlias(i) ?? (pppAlias ? `ppp-${1000 + i}` : null),
     alias_source: commercial ? 'manual' : pppAlias ? 'routeros_ppp' : null,
     client_prefix_id: prefix?.id ?? null,
-    commercial_use_suspected: false,
     first_seen: iso(firstSeen),
     last_seen: iso(lastSeen),
     kind: commercial || scoring ? 'commercial' : 'residential',
     kind_source: commercial ? 'manual' : scoring ? 'scoring' : 'default',
     kind_locked: commercial,
-    kind_confidence: scoring ? 0.85 : null,
+    kind_confidence: scoring ? 85 : null,
     kind_changed_at: commercial || scoring ? iso(firstSeen + 3 * DAY) : null,
     status: inactive ? 'inactive' : 'active',
     inactive_reason: inactive ? 'no_traffic' : null,
@@ -896,9 +896,7 @@ export function buildCustomer(
             top_category: CATEGORIES[(i * 3) % 5]!,
           },
     notes: commercial ? 'Contacto: administración del local.' : null,
-    suggested_kind: null,
-    suggested_confidence: null,
-    suggested_reasons: [],
+    ...suggestionOf(i, inactive, commercial || scoring ? 'commercial' : 'residential', now),
   }
   const o = mockState.customers.get(id)
   if (!o) return base
@@ -916,7 +914,51 @@ export function buildCustomer(
     if (o[key] !== undefined) (merged as Record<string, unknown>)[key] = o[key]
   }
   if (o.alias !== undefined) merged.alias_source = o.alias ? 'manual' : null
+  // Tipo fijado a mano o comercial: deja de ser "residencial con indicios" (devices).
+  if (merged.kind_locked || merged.kind !== 'residential') merged.commercial_use_suspected = false
+  // Reinicio: la IP es de otra persona, la sugerencia anterior ya no vale.
+  if (o.reset_at) {
+    Object.assign(merged, {
+      commercial_use_suspected: false,
+      commercial_score: null,
+      suggested_kind: null,
+      suggested_confidence: null,
+      suggested_reasons: [],
+      suggested_model_version: null,
+      suggested_at: null,
+    })
+  }
   return merged
+}
+
+/**
+ * Sugerencia del scoring proyectada por devices (solo si ya se publicó tras la histéresis).
+ * El mock no cambia el tipo base del cliente: los comerciales sugeridos quedan como
+ * "posibles comerciales" pendientes de confirmar.
+ */
+function suggestionOf(i: number, inactive: boolean, kind: string, now: Date) {
+  const s = mockScoring(i, inactive)
+  if (!s || !s.published || s.level === 'residential') {
+    return {
+      commercial_use_suspected: false,
+      commercial_score: null,
+      suggested_kind: null,
+      suggested_confidence: null,
+      suggested_reasons: [],
+      suggested_model_version: null,
+      suggested_at: null,
+    }
+  }
+  const commercial = s.level === 'commercial'
+  return {
+    commercial_use_suspected: !commercial && kind === 'residential',
+    commercial_score: s.score,
+    suggested_kind: commercial ? ('commercial' as const) : ('residential' as const),
+    suggested_confidence: commercial ? s.score : 100 - s.score,
+    suggested_reasons: mockReasons(i, s),
+    suggested_model_version: 'commercial-v1',
+    suggested_at: iso(now.getTime() - (1 + (i % 5)) * DAY),
+  }
 }
 
 /** Hallazgos activos y estado de seguridad por índice de cliente. */
@@ -951,10 +993,10 @@ export function kindHistory(tenant: MockTenant, i: number, now: Date): KindChang
       to_kind: 'commercial',
       source: i === 11 ? 'scoring' : 'manual',
       actor_id: i === 11 ? null : '01926b3e-1111-7000-8000-000000000001',
-      confidence: i === 11 ? 0.85 : null,
+      confidence: i === 11 ? 85 : null,
       manual_reason: i === 11 ? null : 'Local con TPV y horario comercial',
-      model_ref: i === 11 ? 'kind-scoring@1' : null,
-      reasons: [],
+      model_ref: i === 11 ? 'commercial-v1@' + iso(firstSeen + 3 * DAY).slice(0, 10) : null,
+      reasons: i === 11 ? mockReasons(11, mockScoring(11, false)!) : [],
     })
   }
   base.push({

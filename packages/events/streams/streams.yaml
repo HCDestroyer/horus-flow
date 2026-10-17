@@ -51,7 +51,7 @@ consumers_i1:
   - { durable: devices-client-activity, stream: TLM_FLOWS, filter: ['horus.telemetry.flows.client_activity.>'], module: devices }
   - { durable: flows-snapshots, streams: [TRAFFIC_EVENTS, DETECTION_EVENTS], filter: ['horus.traffic.catalog.published.>', 'horus.detection.reputation.snapshot_published.>'], module: flows }
   - { durable: detection-customers, stream: DEVICES_EVENTS, filter: ['horus.devices.customer.>'], module: detection }
-  - { durable: devices-customer-detection, stream: DETECTION_EVENTS, filter: ['horus.detection.customer.security_state_changed.>'], module: devices }
+  - { durable: devices-customer-detection, stream: DETECTION_EVENTS, filter: ['horus.detection.customer.security_state_changed.>', 'horus.detection.customer.kind_suggested.>'], module: devices }
   - { durable: alerts-notify, streams: [DETECTION_EVENTS, FLOWS_EVENTS, WIREGUARD_EVENTS, SNMP_EVENTS], filter: ['horus.detection.finding.opened.>', 'horus.detection.finding.updated.>', 'horus.flows.exporter.silent.>', 'horus.flows.exporter.recovered.>', 'horus.wireguard.peer.handshake_stale.>', 'horus.wireguard.peer.handshake_recovered.>', 'horus.snmp.router.state_changed.>', 'horus.snmp.router.rebooted.>', 'horus.snmp.interface.oper_status_changed.>', 'horus.snmp.service.state_changed.>'], module: alerts, note: 'canal mínimo D13; un durable por stream (alerts-notify-detection|flows|wireguard|snmp), deliver new' }
   - { durable: analytics-names, stream: DEVICES_EVENTS, filter: ['horus.devices.router.>', 'horus.devices.site.>', 'horus.devices.customer.>'], module: analytics }
   - { durable: auth-tenant-lifecycle, stream: AUTH_EVENTS, filter: ['horus.auth.tenant.>'], module: 'todos los dueños de datos' }

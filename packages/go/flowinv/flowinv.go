@@ -91,6 +91,9 @@ type ClientPrefix struct {
 	Role          string       `yaml:"role" json:"role"`
 	DefaultKind   string       `yaml:"default_kind" json:"default_kind"`
 	IPv6ClientLen int          `yaml:"ipv6_client_len" json:"ipv6_client_len"`
+	// AssignmentMode: static | dynamic | unknown. En un pool dinámico la IP
+	// puede cambiar de persona y el scoring baja la confianza comercial.
+	AssignmentMode string `yaml:"assignment_mode,omitempty" json:"assignment_mode,omitempty"`
 }
 
 // Tenant guarda los datos del ISP que usa flows.

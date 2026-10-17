@@ -1,0 +1,63 @@
+{
+  "id": "0192f0d2-0000-7000-8000-000000000506",
+  "type": "horus.detection.customer.kind_suggested",
+  "source": "horus/detection",
+  "subject": "0192f0c4-7a1e-7c3a-9b1d-2f6e8a4c1d55",
+  "time": "2026-10-08T03:00:12.123Z",
+  "schema_version": 1,
+  "tenant_id": "0192e000-0000-7000-8000-000000000001",
+  "aggregate_type": "customer_scoring",
+  "aggregate_version": 2,
+  "actor": {
+    "type": "service",
+    "id": "svc:detection",
+    "via_platform": false
+  },
+  "trace_parent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+  "correlation_id": null,
+  "causation_id": null,
+  "data": {
+    "customer_id": "0192f0c4-7a1e-7c3a-9b1d-2f6e8a4c1d55",
+    "version": 2,
+    "model_version": "commercial-v1",
+    "previous_kind": "residential",
+    "kind": "commercial",
+    "level": "commercial",
+    "confidence": 0.87,
+    "scores": { "residential": 0.13, "commercial": 0.87 },
+    "commercial_score": 87,
+    "commercial_use_suspected": false,
+    "apply_threshold": 80,
+    "reasons": [
+      {
+        "code": "inbound_services",
+        "detail": "3 puertos de servicio con conexiones entrantes de 240 IPs distintas",
+        "weight": 0.3,
+        "data": { "value": 3, "normalized": 1 }
+      },
+      {
+        "code": "upload_vs_residential_median",
+        "detail": "Subida 5,2× la mediana residencial (41,6 GB en la ventana)",
+        "weight": 0.2,
+        "data": { "value": 5.2, "normalized": 1 }
+      },
+      {
+        "code": "business_hours_pattern",
+        "detail": "68 % del tráfico en horario laboral (L–S 08:00–19:00, hora local)",
+        "weight": 0.11,
+        "data": { "value": 0.68, "normalized": 0.77 }
+      },
+      {
+        "code": "always_on",
+        "detail": "Actividad en el 97 % de las horas de la ventana (163 de 168 h)",
+        "weight": 0.1,
+        "data": { "value": 0.97, "normalized": 1 }
+      }
+    ],
+    "dynamic_pool": false,
+    "window_from": "2026-10-01T03:00:00.000Z",
+    "window_to": "2026-10-08T03:00:00.000Z",
+    "score_ref": "commercial-v1@2026-10-08",
+    "site_id": "0192e222-0000-7000-8000-000000000022"
+  }
+}

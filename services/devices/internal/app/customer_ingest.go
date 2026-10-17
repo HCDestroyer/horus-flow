@@ -244,3 +244,129 @@ func (s *Customers) HandleSecurityState(ctx context.Context, m *natsx.Message) e
 	}
 	return nil
 }
+
+// Tipos de evento de detection que consume devices-customer-detection.
+const (
+	eventSecurityState = "horus.detection.customer.security_state_changed"
+	eventKindSuggested = "horus.detection.customer.kind_suggested"
+)
+
+// DetectionSubjects son los filtros del durable devices-customer-detection.
+var DetectionSubjects = []string{eventSecurityState + ".>", eventKindSuggested + ".>"}
+
+// HandleDetection despacha los eventos de detection del durable
+// devices-customer-detection (estado de seguridad y sugerencia de tipo).
+func (s *Customers) HandleDetection(ctx context.Context, m *natsx.Message) error {
+	if m.Envelope == nil {
+		return nil
+	}
+	switch m.Envelope.Type {
+	case eventSecurityState:
+		return s.HandleSecurityState(ctx, m)
+	case eventKindSuggested:
+		return s.HandleKindSuggested(ctx, m)
+	}
+	return nil
+}
+
+// kindSuggestedData es el payload de horus.detection.customer.kind_suggested.
+type kindSuggestedData struct {
+	CustomerID             uuid.UUID       `json:"customer_id"`
+	ModelVersion           string          `json:"model_version"`
+	Kind                   string          `json:"kind"`
+	Confidence             float64         `json:"confidence"`
+	CommercialScore        *int            `json:"commercial_score"`
+	CommercialUseSuspected bool            `json:"commercial_use_suspected"`
+	ApplyThreshold         *int            `json:"apply_threshold"`
+	Reasons                json.RawMessage `json:"reasons"`
+	ScoreRef               string          `json:"score_ref"`
+}
+
+// HandleKindSuggested proyecta la sugerencia del scoring en la ficha del
+// cliente y aplica el tipo sugerido si kind_locked = false y la confianza
+// alcanza el umbral del ISP (events.md §8.8: consumidor
+// devices-customer-detection): customer.kind_changed con source = scoring y
+// una entrada en el historial con las razones copiadas. Un cliente con el
+// tipo fijado a mano guarda la sugerencia sin cambiar de tipo. Idempotente:
+// una sugerencia igual o más antigua que la guardada se ignora.
+func (s *Customers) HandleKindSuggested(ctx context.Context, m *natsx.Message) error {
+	if m.Envelope == nil || m.Envelope.Type != eventKindSuggested {
+		return nil
+	}
+	var d kindSuggestedData
+	if err := json.Unmarshal(m.Envelope.Data, &d); err != nil {
+		return natsx.Permanent(fmt.Errorf("kind_suggested: %w", err))
+	}
+	if d.CustomerID == uuid.Nil || !slices.Contains(domain.CustomerKinds, d.Kind) || d.Confidence < 0 || d.Confidence > 1 {
+		return natsx.Permanent(fmt.Errorf("kind_suggested: payload inválido (customer %s, kind %q)", d.CustomerID, d.Kind))
+	}
+	sug := domain.KindSuggestion{Kind: d.Kind, Confidence: int(d.Confidence*100 + 0.5), ApplyThreshold: domain.DefaultScoringThreshold,
+		Suspected: d.CommercialUseSuspected, Model: d.ModelVersion, ScoreRef: d.ScoreRef, At: m.Envelope.Time.UTC()}
+	if d.ApplyThreshold != nil && *d.ApplyThreshold >= 1 && *d.ApplyThreshold <= 100 {
+		sug.ApplyThreshold = *d.ApplyThreshold
+	}
+	if d.CommercialScore != nil {
+		sug.CommercialScore = min(max(*d.CommercialScore, 0), 100)
+	}
+	var reasons []struct {
+		Code string `json:"code"`
+	}
+	sug.Reasons = json.RawMessage("[]")
+	if len(d.Reasons) > 0 && string(d.Reasons) != "null" {
+		if err := json.Unmarshal(d.Reasons, &reasons); err != nil {
+			return natsx.Permanent(fmt.Errorf("kind_suggested: reasons: %w", err))
+		}
+		sug.Reasons = d.Reasons
+	}
+	sug.ReasonCodes = make([]string, 0, len(reasons))
+	for _, r := range reasons {
+		sug.ReasonCodes = append(sug.ReasonCodes, r.Code)
+	}
+	if sug.ScoreRef == "" {
+		sug.ScoreRef = d.ModelVersion
+	}
+	if id := m.Envelope.ID; id != uuid.Nil {
+		sug.CausationID = &id
+	}
+	t := pgdb.TenantID(m.Tenant)
+	for range 3 {
+		c, err := s.store.GetCustomer(ctx, t, d.CustomerID)
+		if errors.Is(err, domain.ErrNotFound) {
+			return nil // purgado o de otro tenant: nada que proyectar
+		}
+		if err != nil {
+			return err
+		}
+		if c.SuggestedAt != nil && !sug.At.After(*c.SuggestedAt) {
+			return nil // reentrega o fuera de orden
+		}
+		expect := c.Version
+		now := s.ts()
+		ch, changed := c.ApplySuggestion(sug, now)
+		err = s.store.UpdateCustomer(ctx, t, c, expect, ch, func(c *domain.Customer) []outbox.Event {
+			if ch != nil {
+				data := CustomerData(c)
+				data["change"] = changeData(ch)
+				return []outbox.Event{customerEvent(nil, t, "kind_changed", c, now, data)}
+			}
+			if len(changed) == 0 {
+				return nil
+			}
+			data := CustomerData(c)
+			data["changed_fields"] = changed
+			return []outbox.Event{customerEvent(nil, t, "updated", c, now, data)}
+		})
+		if errors.Is(err, ErrVersionChanged) {
+			continue // otro cambio a la vez: se relee y se reaplica
+		}
+		if err != nil {
+			return err
+		}
+		if ch != nil {
+			s.logger.InfoContext(ctx, "customer kind changed by scoring", slog.String("customer_id", c.ID.String()),
+				slog.String("kind", c.Kind), slog.Int("confidence", sug.Confidence))
+		}
+		return nil
+	}
+	return fmt.Errorf("kind_suggested: cliente %s modificado concurrentemente", d.CustomerID)
+}

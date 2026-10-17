@@ -305,6 +305,12 @@ Convención: **Dep.** son dependencias duras. Los riesgos se puntúan Probabilid
   dashboard guardado por un usuario no aparece a otro salvo que se comparta con el ISP; router
   apagado → *Offline* con razón en < 2 ciclos de sondeo.
 - **Dep.:** I1 con ≥ 7 días de datos agregados del router real (para calibrar el scoring).
+- **Estado del scoring (implementado):** modelo `commercial-v1` en `detection` (pasada diaria por ISP,
+  umbrales/pesos/ventana/histéresis configurables en `detector_config.customer_scoring`, pools dinámicos
+  con confianza reducida), eventos `customer.kind_suggested` y `score.changed`, consumidor de `devices`
+  que respeta el tipo manual, `GET /customers/{id}/scoring`, filtro `commercial_candidate` y vista
+  "Posibles comerciales" con confirmar/descartar. Pendiente: calibrar pesos y umbrales con la muestra
+  etiquetada de la persona (criterio ≥ 80 % de acuerdo) y editar los parámetros desde la consola.
 - **Riesgos:** (A/M) sin etiquetas de verdad no se calibra → heurística ponderada, transparente y
   ajustable; la persona etiqueta una muestra. (M/M) cardinalidad SNMP → solo interfaces
   físicas/VLAN y uplinks, nunca interfaces dinámicas por cliente.
@@ -409,7 +415,7 @@ versión. Detalle de productor/consumidor y regla de cambio en
 | S7 Clasificación | ASN, organizaciones, servicios, categorías, editor | **I1** (datasets + catálogo semilla) · **I4** (editor) | |
 | S8 Reputation + Security | Feeds, detectores, hallazgos | **I1** (feeds abiertos + señales de `traffic-model.md` §8) · **I4** (madurez) | Sube de prioridad por D5 |
 | S9 Analytics | Dashboards ISP, Cliente, Router | **I1** (NOC, clientes, tops) · **I2** (editor, vista global) | Dashboard modular por D8 |
-| S10 Residencial/comercial | Scoring explicable | **I2** | En I1 solo cambio manual de tipo |
+| S10 Residencial/comercial | Scoring explicable | **I2** (implementado: `commercial-v1`, pendiente de calibrar) | En I1 solo cambio manual de tipo |
 | S11 Alertas | Reglas, ciclo de vida, canales | **I3** | En I1 la notificación es en vivo en UI/kiosco |
 | S12 Reportes | PDF, CSV, Excel | **I3** (seguridad semanal, CSV/PDF) | Excel aplazado |
 | S13 Storage / histórico | Retención, archivado | **I1** (TTL, backup local) · **I3** (SFTP, D2) | Sin MinIO |

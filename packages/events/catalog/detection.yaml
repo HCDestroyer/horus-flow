@@ -108,6 +108,42 @@ events:
   status: stable
   since: I1
   example: examples/horus.detection.customer.security_state_changed.json
+- type: horus.detection.customer.kind_suggested
+  subject: horus.detection.customer.kind_suggested.{customer_id}
+  tenant_scope: tenant
+  stream: DETECTION_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.detection.v1.KindSuggested
+  schema_version: 1
+  producer: detection
+  consumers:
+  - devices
+  websocket_topics: []
+  pii: false
+  pii_fields: []
+  status: stable
+  since: I2
+  example: examples/horus.detection.customer.kind_suggested.json
+  notes: 'Scoring residencial/comercial (commercial-v1): solo al cambiar la sugerencia y tras la histéresis del ISP (7 días). devices aplica el tipo si kind_locked = false y confidence × 100 ≥ apply_threshold (customer.kind_changed con source=scoring); siempre guarda la sugerencia. Sin IP del cliente.'
+- type: horus.detection.score.changed
+  subject: horus.detection.score.changed.{customer_id}
+  tenant_scope: tenant
+  stream: DETECTION_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.detection.v1.ScoreChanged
+  schema_version: 1
+  producer: detection
+  consumers:
+  - analytics
+  websocket_topics: []
+  pii: false
+  pii_fields: []
+  status: stable
+  since: I2
+  example: examples/horus.detection.score.changed.json
+  notes: 'Puntuación comercial diaria que se mueve al menos score_change_delta puntos (5), la primera de un cliente o un cambio de nivel. La serie completa vive en detection.customer_scores_1d (ClickHouse).'
 - type: horus.detection.reputation.snapshot_published
   subject: horus.detection.reputation.snapshot_published.{snapshot_id}
   tenant_scope: platform

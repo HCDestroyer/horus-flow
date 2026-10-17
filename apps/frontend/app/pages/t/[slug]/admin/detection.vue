@@ -38,6 +38,7 @@ const ORDER = [
   'ddos',
   'beaconing',
   'sustained_upload',
+  'customer_scoring',
 ]
 type Params = Record<string, unknown>
 const detectors = computed(() => {
@@ -59,9 +60,20 @@ function duration(v: string) {
   if (h >= 24 && h % 24 === 0 && !min && !s) return t('detection.units.days', { n: h / 24 }, h / 24)
   return [h && `${h} h`, min && `${min} min`, s && `${s} s`].filter(Boolean).join(' ') || '0 s'
 }
-const RATIO = /ratio|share|_cv$/
-function format(field: string, v: unknown) {
+const RATIO = /ratio|share|_cv$|^always_on_|_factor$/
+function format(field: string, v: unknown): string {
   if (typeof v === 'boolean') return v ? t('common.yes') : t('common.no')
+  // Pesos del scoring (I2): "Servicios con conexiones entrantes 30 %, …".
+  if (v && typeof v === 'object' && !Array.isArray(v)) {
+    return Object.entries(v as Record<string, unknown>)
+      .map(([k, w]) => {
+        const name = te(`clients.scoring.featureNames.${k}`)
+          ? t(`clients.scoring.featureNames.${k}`)
+          : k
+        return `${name} ${typeof w === 'number' ? `${Math.round(w * 100)} %` : String(w)}`
+      })
+      .join(', ')
+  }
   if (Array.isArray(v)) return v.length ? v.join(', ') : '—'
   if (typeof v === 'string') return duration(v)
   if (typeof v === 'number' && RATIO.test(field)) return `${Math.round(v * 100)} %`

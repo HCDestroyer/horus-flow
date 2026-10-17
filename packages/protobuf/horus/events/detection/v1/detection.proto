@@ -121,6 +121,58 @@ message SecurityStateChanged {
   optional string site_id = 10;
 }
 
+// KindScores son las probabilidades por clase del scoring residencial/comercial (0..1).
+message KindScores {
+  double residential = 1;
+  double commercial = 2;
+}
+
+// KindSuggested: horus.detection.customer.kind_suggested (entity = customer_id). Solo se publica cuando
+// cambia la sugerencia y tras sostenerse la histéresis del ISP (7 días por defecto). devices aplica el tipo
+// si kind_locked = false y confidence × 100 ≥ apply_threshold; siempre guarda la sugerencia.
+message KindSuggested {
+  string customer_id = 1;
+  int32 version = 2;
+  // commercial-v1
+  string model_version = 3;
+  // residential | commercial
+  string previous_kind = 4;
+  string kind = 5;
+  // residential | suspected | commercial (suspected = residencial con indicios comerciales)
+  string level = 6;
+  // Probabilidad de la clase sugerida (0..1).
+  double confidence = 7;
+  KindScores scores = 8;
+  // Probabilidad comercial 0..100 (tras el ajuste por pool dinámico).
+  int32 commercial_score = 9;
+  bool commercial_use_suspected = 10;
+  // Umbral de confianza del ISP (0..100) desde el que devices aplica el tipo.
+  int32 apply_threshold = 11;
+  repeated horus.common.v1.Reason reasons = 12;
+  bool dynamic_pool = 13;
+  google.protobuf.Timestamp window_from = 14;
+  google.protobuf.Timestamp window_to = 15;
+  // Modelo + día de detection.customer_scores_1d (model_ref del historial de tipo).
+  string score_ref = 16;
+  optional string site_id = 17;
+}
+
+// ScoreChanged: horus.detection.score.changed (entity = customer_id). La puntuación comercial diaria se movió
+// al menos score_change_delta puntos (o es la primera, o cambió el nivel); sin histéresis.
+message ScoreChanged {
+  string customer_id = 1;
+  string model_version = 2;
+  int32 commercial_score = 3;
+  optional int32 previous_score = 4;
+  string level = 5;
+  double confidence = 6;
+  // Día del scoring (AAAA-MM-DD, UTC).
+  string day = 7;
+  google.protobuf.Timestamp window_from = 8;
+  google.protobuf.Timestamp window_to = 9;
+  optional string site_id = 10;
+}
+
 // ReputationSnapshotPublished: horus.detection.reputation.snapshot_published (plataforma).
 message ReputationSnapshotPublished {
   string snapshot_id = 1;

@@ -25,6 +25,9 @@ var (
 const (
 	DefaultInactivityDays  = 30
 	DefaultRetentionMonths = 25
+	// DefaultScoringThreshold es el umbral de confianza (0–100) con el que se
+	// aplica una sugerencia del scoring si el evento no trae el del ISP.
+	DefaultScoringThreshold = 80
 )
 
 // Customer es un cliente = IP observada (ADR-0018).
@@ -41,19 +44,28 @@ type Customer struct {
 	KindConfidence         *int
 	KindChangedAt          *time.Time
 	CommercialUseSuspected bool
-	SecurityState          string
-	OpenFindings           int
-	Alias                  *string
-	AliasSource            *string
-	Notes                  *string
-	Status                 string
-	InactiveReason         *string
-	FirstSeen              time.Time
-	LastSeen               time.Time
-	ResetAt                *time.Time
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
-	Version                int
+	// CommercialScore (0–100) es la última probabilidad comercial del scoring.
+	CommercialScore *int
+	// Sugerencia del último scoring (horus.detection.customer.kind_suggested):
+	// se guarda aunque el tipo esté fijado a mano.
+	SuggestedKind       *string
+	SuggestedConfidence *int
+	SuggestedReasons    json.RawMessage
+	SuggestedModel      *string
+	SuggestedAt         *time.Time
+	SecurityState       string
+	OpenFindings        int
+	Alias               *string
+	AliasSource         *string
+	Notes               *string
+	Status              string
+	InactiveReason      *string
+	FirstSeen           time.Time
+	LastSeen            time.Time
+	ResetAt             *time.Time
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	Version             int
 	// DefaultKind es el tipo por defecto de su prefijo (reset).
 	DefaultKind string
 }
@@ -108,7 +120,9 @@ type KindChange struct {
 	Confidence   *int
 	ActorID      *uuid.UUID
 	ManualReason *string
-	ChangedAt    time.Time
+	// CausationEventID es el evento que provocó el cambio (kind_suggested).
+	CausationEventID *uuid.UUID
+	ChangedAt        time.Time
 }
 
 // SetKind aplica un cambio manual y devuelve la entrada del historial (nil si
@@ -135,9 +149,78 @@ func (c *Customer) Reset(reason string, actor *uuid.UUID, now time.Time) *KindCh
 	c.KindChangedAt = &now
 	c.Alias, c.AliasSource, c.Notes = nil, nil, nil
 	c.CommercialUseSuspected = false
+	// La IP es de otra persona: la sugerencia anterior ya no vale.
+	c.CommercialScore, c.SuggestedKind, c.SuggestedConfidence, c.SuggestedReasons = nil, nil, nil, nil
+	c.SuggestedModel, c.SuggestedAt = nil, nil
 	c.ResetAt = &now
 	return &KindChange{ID: uuid.Must(uuid.NewV7()), CustomerID: c.ID, FromKind: &from, ToKind: def, Source: "reset",
 		Reasons: json.RawMessage("[]"), ReasonCodes: []string{}, ActorID: actor, ManualReason: &reason, ChangedAt: now}
+}
+
+// KindSuggestion es la sugerencia del scoring de detection
+// (horus.detection.customer.kind_suggested, docs/events.md §8.8).
+type KindSuggestion struct {
+	Kind string
+	// Confidence (0–100) de la clase sugerida; ApplyThreshold es el umbral del
+	// ISP desde el que se aplica sin intervención.
+	Confidence      int
+	ApplyThreshold  int
+	CommercialScore int
+	// Suspected: residencial con indicios comerciales por debajo del umbral.
+	Suspected   bool
+	Reasons     json.RawMessage
+	ReasonCodes []string
+	Model       string
+	// ScoreRef es el modelo + día del scoring (historial: model_ref).
+	ScoreRef    string
+	At          time.Time
+	CausationID *uuid.UUID
+}
+
+// ApplySuggestion proyecta la sugerencia del scoring: la guarda siempre y
+// cambia el tipo (kind_source = scoring) solo si no está fijado a mano, es
+// distinto y la confianza alcanza el umbral del ISP. commercial_use_suspected
+// solo marca a clientes residenciales. Devuelve la entrada del historial (si
+// cambió el tipo) y los campos del estado publicado que cambiaron.
+func (c *Customer) ApplySuggestion(s KindSuggestion, now time.Time) (*KindChange, []string) {
+	var changed []string
+	mark := func(f string, diff bool) {
+		if diff {
+			changed = append(changed, f)
+		}
+	}
+	prevKind, prevSusp, prevConf := c.Kind, c.CommercialUseSuspected, c.KindConfidence
+	var ch *KindChange
+	conf := s.Confidence
+	if !c.KindLocked && s.Kind != c.Kind && conf >= s.ApplyThreshold {
+		from := c.Kind
+		c.Kind, c.KindSource, c.KindConfidence, c.KindChangedAt = s.Kind, "scoring", &conf, &now
+		ref := s.ScoreRef
+		ch = &KindChange{ID: uuid.Must(uuid.NewV7()), CustomerID: c.ID, FromKind: &from, ToKind: s.Kind, Source: "scoring",
+			Reasons: s.Reasons, ReasonCodes: s.ReasonCodes, ModelRef: &ref, Confidence: &conf, CausationEventID: s.CausationID,
+			ChangedAt: now}
+	} else if !c.KindLocked && s.Kind == c.Kind && c.KindSource == "scoring" {
+		c.KindConfidence = &conf
+	}
+	c.CommercialUseSuspected = s.Suspected && c.Kind == "residential"
+	score, kind := s.CommercialScore, s.Kind
+	c.CommercialScore, c.SuggestedKind, c.SuggestedConfidence = &score, &kind, &conf
+	c.SuggestedReasons, c.SuggestedAt = s.Reasons, &s.At
+	if s.Model != "" {
+		model := s.Model
+		c.SuggestedModel = &model
+	}
+	mark("kind", c.Kind != prevKind)
+	mark("kind_confidence", !sameInt(prevConf, c.KindConfidence))
+	mark("commercial_use_suspected", c.CommercialUseSuspected != prevSusp)
+	return ch, changed
+}
+
+func sameInt(a, b *int) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
 
 // InactiveBefore devuelve el corte de inactividad.

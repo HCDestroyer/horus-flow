@@ -182,4 +182,36 @@ test.describe('clientes @clients', () => {
     await expect(page.getByTestId('set-kind')).toHaveCount(0)
     await expect(page.getByTestId('client-more')).toHaveCount(0)
   })
+
+  test('posibles comerciales: razones, puntuación y confirmar saca al cliente de la lista (I2)', async ({
+    page,
+  }) => {
+    await page.goto(LIST)
+    await page.getByTestId('open-candidates').click()
+    await expect(page).toHaveURL(/\/clients\/commercial$/)
+    const table = page.getByTestId('candidates-table')
+    await expect(table).toBeVisible()
+    await expect(table.getByTestId('candidate-reasons').first()).toContainText(
+      /IPs distintas|subida|horario/i,
+    )
+    const count = await table.getByTestId('candidate-link').count()
+    expect(count).toBeGreaterThan(0)
+    await table.getByTestId('candidate-confirm').first().click()
+    await expect(page.getByText('Marcado como comercial').first()).toBeVisible()
+    await expect(table.getByTestId('candidate-link')).toHaveCount(count - 1)
+    expect(await seriousViolations(page)).toEqual([])
+  })
+
+  test('la ficha explica el tipo sugerido con razones y características', async ({ page }) => {
+    await page.goto(`${LIST}/commercial`)
+    await page.getByTestId('candidate-link').first().click()
+    const card = page.getByTestId('kind-suggestion')
+    await expect(card).toBeVisible()
+    await expect(card.getByTestId('suggestion-score')).toContainText('/100')
+    await expect(card.getByTestId('suggestion-features')).toContainText('Actividad 24/7')
+    await expect(card.getByTestId('suggestion-reasons')).not.toBeEmpty()
+    await card.getByTestId('suggestion-discard').click()
+    await expect(page.getByText('Marcado como residencial').first()).toBeVisible()
+    await expect(page.getByTestId('client-header').getByTestId('kind-lock')).toBeVisible()
+  })
 })

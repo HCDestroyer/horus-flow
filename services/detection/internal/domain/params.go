@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -171,6 +172,9 @@ type Params struct {
 	DDoS       DDoSParams       `json:"ddos"`
 	Beacon     BeaconParams     `json:"beaconing"`
 	Sustained  SustainedParams  `json:"sustained_upload"`
+	// Scoring residencial/comercial (I2): no es un detector de hallazgos, pero
+	// sus parámetros por ISP viven en la misma tabla (clave customer_scoring).
+	Scoring ScoringParams `json:"customer_scoring"`
 	// AutoExpire cierra (auto_expired) un hallazgo sin ocurrencias en este plazo.
 	AutoExpire Duration `json:"auto_expire"`
 }
@@ -198,6 +202,7 @@ func DefaultParams() Params {
 			// AWS, Google, Microsoft, Apple, Dropbox, Backblaze, Wasabi.
 			CloudASNs:  []uint32{16509, 14618, 15169, 396982, 8075, 714, 6185, 19679, 40401, 395747},
 			CloudShare: 0.8, BackupFrom: 22, BackupTo: 7},
+		Scoring:    DefaultScoringParams(),
 		AutoExpire: Duration(7 * 24 * time.Hour),
 	}
 }
@@ -223,6 +228,8 @@ func (p *Params) Merge(detector string, raw json.RawMessage) error {
 		dst = &p.Beacon
 	case DetSustained:
 		dst = &p.Sustained
+	case DetScoring:
+		return p.mergeScoring(raw)
 	default:
 		return fmt.Errorf("detector desconocido %q", detector)
 	}
@@ -256,5 +263,31 @@ func (p *Params) SetEnabled(detector string, on bool) {
 		p.Beacon.Enabled = on
 	case DetSustained:
 		p.Sustained.Enabled = on
+	case DetScoring:
+		p.Scoring.Enabled = on
 	}
+}
+
+// mergeScoring aplica los overrides del scoring sobre una copia y solo los
+// acepta si el resultado es válido (pesos y umbrales coherentes).
+func (p *Params) mergeScoring(raw json.RawMessage) error {
+	if len(raw) == 0 {
+		return nil
+	}
+	sc := p.Scoring
+	sc.Weights = make(map[string]float64, len(p.Scoring.Weights))
+	for k, v := range p.Scoring.Weights {
+		sc.Weights[k] = v
+	}
+	sc.BusinessDays = slices.Clone(p.Scoring.BusinessDays)
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&sc); err != nil {
+		return fmt.Errorf("parámetros de %s: %w", DetScoring, err)
+	}
+	if err := sc.Validate(); err != nil {
+		return fmt.Errorf("parámetros de %s: %w", DetScoring, err)
+	}
+	p.Scoring = sc
+	return nil
 }

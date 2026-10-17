@@ -665,15 +665,15 @@ los **prefijos de clientes** del realm. Identidad: `(tenant_id, realm_id, addres
 
 | Método y ruta | Servicio | Descripción | Permiso |
 | --- | --- | --- | --- |
-| `GET /customers` | devices | Lista (filtros `site_id`, `realm_id`, `client_prefix_id`, `status`, `kind`, `kind_source`, `kind_locked`, `commercial_use_suspected`, `security_state`, `last_seen_gte/lte`, `q` sobre `alias`; orden `last_seen`, `first_seen`, `kind_changed_at`). **Sin** filtro por IP en la URL. | `customers.read` |
+| `GET /customers` | devices | Lista (filtros `site_id`, `realm_id`, `client_prefix_id`, `status`, `kind`, `kind_source`, `kind_locked`, `commercial_use_suspected`, `commercial_candidate` (I2: "posibles comerciales" = sugerencia comercial del scoring o uso comercial sospechado, sin tipo fijado a mano), `security_state`, `last_seen_gte/lte`, `q` sobre `alias`; orden `last_seen`, `first_seen`, `kind_changed_at`). **Sin** filtro por IP en la URL. | `customers.read` |
 | `POST /customers/lookup` | devices | Búsqueda por IP o prefijo en el **cuerpo**: `{"address": "100.64.12.34"}` o `{"prefix": "100.64.12.0/24", "realm_id": "..."}` → misma forma que la colección, con cursor. `200`; no crea nada (`POST` sólo para sacar la IP de URLs y logs). | `customers.read` |
-| `GET /customers/{id}` | devices | Detalle + `suggested_kind`, `suggested_confidence` y razones del último scoring. | `customers.read` |
+| `GET /customers/{id}` | devices | Detalle + `suggested_kind`, `suggested_confidence` (0–100), `suggested_reasons`, `suggested_model_version`, `suggested_at` y `commercial_score` del último scoring publicado (también en la lista; se guardan aunque el tipo esté fijado a mano). | `customers.read` |
 | `PATCH /customers/{id}` | devices | `alias`, `notes`. Auditado sin el valor. `If-Match`. | `customers.update` |
 | `POST /customers/{id}/set-kind` | devices | Cambio **manual**: `{"kind": "commercial", "reason": "Contrato empresarial verificado"}` → `kind_source = manual`, `kind_locked = true`. `reason` obligatorio. `If-Match`. Evento `horus.devices.customer.kind_changed`. | `customers.kind.write` |
 | `POST /customers/{id}/unlock-kind` | devices | `kind_locked = false`: el siguiente scoring puede cambiarlo. `If-Match`. | `customers.kind.write` |
 | `POST /customers/{id}/reset` 🔒 | devices | Reinicio del cliente (arriba). `reason` obligatorio. `If-Match`. Evento `horus.devices.customer.reset`. | `customers.kind.write` + `customers.update` |
 | `GET /customers/{id}/kind-history` | devices | Historial inmutable: `[{changed_at, from_kind, to_kind, source, reason_codes, reasons, confidence, model_ref, actor_id, reason}]`. Las razones se copian al historial en el momento del cambio. | `customers.read` |
-| `GET /customers/{id}/scoring` | detection | Último scoring y su explicación (`model_version`, scores por clase, `features` con valor y peso, `reasons[]`, ventana); `?range=90d` para la serie. | `customers.read` |
+| `GET /customers/{id}/scoring` | detection | Último scoring y su explicación (`model_version`, `level` residential/suspected/commercial, `commercial_score`, scores por clase, `features` con valor, normalizado, peso y aporte, `reasons[]`, ventana, umbrales del ISP y estado de la histéresis: `published_level`, `pending_level`/`pending_since`); `?range=90d` (máx. 400d) para la serie diaria de `detection.customer_scores_1d`. Cliente conocido sin scoring → `{"latest": null, "series": []}`; desconocido → `404 CUSTOMER_NOT_FOUND`. | `customers.read` |
 | `GET /customers/{id}/findings` | detection | Hallazgos del cliente (§2.10). | `security.findings.read` |
 | `GET /analytics/customers/{id}/traffic` | analytics | Series de tráfico del cliente (§1.7) por servicio/categoría/ASN. Acceso auditado. | `traffic.customer.read` |
 | `GET /customers/stats` | devices | Conteos por `kind`, `kind_source`, `status`, `security_state` y `site_id` (widgets). | `customers.read` |
@@ -682,6 +682,14 @@ los **prefijos de clientes** del realm. Identidad: `(tenant_id, realm_id, addres
 | `GET /asn-rules` · `POST` · `PATCH /asn-rules/{id}` · `DELETE /asn-rules/{id}` · `GET /asn-rules/catalog` | devices | **ASN propios** del ISP: `asn`, `name`, `category` y `service` (slugs del catálogo de plataforma; sin servicio, el nombre hace de servicio; con servicio, la categoría es la del servicio). Una regla viva por ASN (repetido → `422` en `asn`); `If-Match` al editar/borrar. Se aplican al tráfico **nuevo** (`local_override`, [`traffic-model.md` §6](traffic-model.md)); el nombre también etiqueta los tops por ASN/organización del histórico. Eventos `horus.devices.asn_rule.*`. | `settings.read` / `settings.manage` |
 | `GET /asn/{asn}` | analytics | Cómo se llama hoy un ASN: nombre y país del dataset público, organización del catálogo y regla propia del ISP (proyección, puede tardar segundos). | `traffic.read` |
 | `PATCH /client-prefixes/{id}` · `DELETE /client-prefixes/{id}` · `POST /client-prefixes/{id}/confirm` | devices | Editar/borrar/confirmar. Borrar o reducir pasa a `inactive` los clientes fuera de todo prefijo (razón `prefix_removed`). Eventos `horus.devices.client_prefix.*`. | `sites.update` |
+
+**Scoring residencial/comercial (I2, implementado).** Modelo `commercial-v1` en `detection`: heurística
+ponderada y explicable sobre 7 días de `flows.client_security_1h` (servicios con conexiones entrantes y
+sus IPs remotas, ratio subida/bajada, subida frente a la mediana residencial del ISP, tráfico en horario
+laboral local L–S 08–19, horas con actividad, ASN remotos), con umbrales, pesos, ventana, histéresis y
+activación por ISP (`detection.detector_config`, clave `customer_scoring`, visibles en
+`GET /detection/config`). "Confirmar" y "descartar" desde la lista de posibles comerciales reutilizan
+`set-kind` (`commercial` / `residential`, manual y bloqueado).
 
 Notas: `set-kind`/`unlock-kind`/`reset` exigen `If-Match` (si un scoring cambió el tipo mientras el operador miraba →
 `412` con `current`). `set-kind` con el mismo tipo y ya bloqueado → `200` sin cambio. El borrado de clientes sólo
