@@ -10,6 +10,7 @@ const props = defineProps<{
   kind: Customer['kind']
   source: Customer['kind_source']
   locked?: boolean
+  /** Confianza del scoring, 0–100 (`kind_confidence`). */
   confidence?: number | null
 }>()
 const { t } = useI18n()
@@ -23,7 +24,7 @@ const icon = computed(() =>
 )
 const origin = computed(() =>
   props.source === 'scoring' && props.confidence !== null && props.confidence !== undefined
-    ? t('clients.kindSource.scoringWith', { n: Math.round(props.confidence * 100) })
+    ? t('clients.kindSource.scoringWith', { n: Math.round(props.confidence) })
     : t(`clients.kindSource.${props.source}`),
 )
 </script>

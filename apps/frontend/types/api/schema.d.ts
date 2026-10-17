@@ -745,6 +745,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/customers/{customer_id}/scoring": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                customer_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Último scoring residencial/comercial del cliente con su explicación y, con range, la serie diaria
+         * @description Modelo `commercial-v1` (heurística ponderada y explicable): `features` con valor bruto, valor normalizado 0..1,
+         *     peso y aportación; `reasons[]` ordenadas por aportación; probabilidades por clase; umbrales del ISP; estado de la
+         *     histéresis (nivel publicado en `horus.detection.customer.kind_suggested` y candidato pendiente). Sin scoring
+         *     todavía (menos horas activas que el mínimo, scoring desactivado o fuera del alcance de nodos) → `latest: null`.
+         *     La IP del cliente no aparece en la respuesta ni en la URL.
+         */
+        get: operations["getCustomerScoring"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/customers/{customer_id}/set-kind": {
         parameters: {
             query?: never;
@@ -3528,6 +3554,8 @@ export interface components {
             /** @enum {string|null} */
             alias_source: "manual" | "routeros_ppp" | null;
             client_prefix_id: components["schemas"]["Uuid"] | null;
+            /** @description Última probabilidad comercial del scoring (I2). */
+            commercial_score?: number | null;
             commercial_use_suspected: boolean;
             first_seen: components["schemas"]["Timestamp"];
             id: components["schemas"]["Uuid"];
@@ -3548,6 +3576,13 @@ export interface components {
             site_id: components["schemas"]["Uuid"];
             /** @enum {string} */
             status: "active" | "inactive";
+            suggested_at?: components["schemas"]["Timestamp"] | null;
+            suggested_confidence?: number | null;
+            /** @description Tipo sugerido por el último scoring (también con el tipo fijado a mano). */
+            suggested_kind?: components["schemas"]["CustomerKind"] | null;
+            suggested_model_version?: string | null;
+            /** @description Razones del último scoring (código estable + detalle con los números reales). */
+            suggested_reasons?: components["schemas"]["Reason"][];
             tenant_id: components["schemas"]["Uuid"];
             /** @description Resumen opcional (lo rellena analytics si está disponible; null si ClickHouse no responde). */
             traffic_24h?: {
@@ -3560,9 +3595,6 @@ export interface components {
         CustomerDetail: components["schemas"]["Customer"] & {
             /** @description Dato personal. */
             notes?: string | null;
-            suggested_confidence?: number | null;
-            suggested_kind?: components["schemas"]["CustomerKind"] | null;
-            suggested_reasons?: components["schemas"]["Reason"][];
         };
         /**
          * @description Tipo de cliente (enum abierto). Por defecto `residential` (D1).
@@ -3576,6 +3608,71 @@ export interface components {
         CustomerPatch: {
             alias?: string | null;
             notes?: string | null;
+        };
+        CustomerScoring: {
+            /** @description Probabilidad comercial tras el ajuste por pool dinámico. */
+            commercial_score: number;
+            commercial_use_suspected: boolean;
+            computed_at: components["schemas"]["Timestamp"];
+            /** @description Probabilidad de la clase sugerida. */
+            confidence: number;
+            customer_id: components["schemas"]["Uuid"];
+            /** @description Tipo del cliente al puntuar. */
+            customer_kind: string;
+            /** @description La IP está en un prefijo dinámico (confianza comercial reducida). */
+            dynamic_pool: boolean;
+            features: components["schemas"]["ScoringFeature"][];
+            /** @description Tipo fijado a mano (el scoring sugiere pero devices no lo cambia). */
+            kind_locked: boolean;
+            /**
+             * @description suspected = residencial con indicios comerciales.
+             * @enum {string}
+             */
+            level: "residential" | "suspected" | "commercial";
+            /** @example commercial-v1 */
+            model_version: string;
+            /**
+             * @description Nivel nuevo que aún no ha sostenido la histéresis.
+             * @enum {string|null}
+             */
+            pending_level: "residential" | "suspected" | "commercial" | null;
+            pending_since: components["schemas"]["Timestamp"] | null;
+            published_at: components["schemas"]["Timestamp"] | null;
+            /** @enum {string|null} */
+            published_level: "residential" | "suspected" | "commercial" | null;
+            /** @description Probabilidad comercial antes del ajuste. */
+            raw_score: number;
+            reasons: components["schemas"]["Reason"][];
+            scores: {
+                commercial: number;
+                residential: number;
+            };
+            /** @enum {string} */
+            suggested_kind: "residential" | "commercial";
+            thresholds: {
+                commercial: number;
+                hysteresis_days: number;
+                suspected: number;
+            };
+            window_from: components["schemas"]["Timestamp"];
+            window_to: components["schemas"]["Timestamp"];
+        };
+        CustomerScoringPoint: {
+            commercial_score: number;
+            confidence: number;
+            /** Format: date */
+            day: string;
+            /** @description Tipo vigente del cliente ese día. */
+            kind: string;
+            /** @enum {string} */
+            level: "residential" | "suspected" | "commercial";
+            suggested_kind: string;
+        };
+        CustomerScoringResponse: {
+            latest: components["schemas"]["CustomerScoring"] | null;
+            series: components["schemas"]["CustomerScoringPoint"][];
+            /** @description ClickHouse no respondió; la serie va vacía. */
+            series_unavailable?: boolean;
         };
         CustomerStats: {
             active: number;
@@ -5132,6 +5229,23 @@ export interface components {
             tx_bps?: number | null;
             /** @description max(rx, tx) / velocidad. */
             utilization?: number | null;
+        };
+        ScoringFeature: {
+            /** @description false si no hay datos (p. ej. sin mediana residencial). */
+            available: boolean;
+            /** @description inbound_services | upload_ratio_high | upload_vs_residential_median | business_hours_pattern | always_on | many_remote_asns (enum abierto). */
+            code: string;
+            /** @description Puntos (0..1) que aporta a la probabilidad comercial. */
+            contribution: number;
+            /** @description Texto humano con los números reales. */
+            detail: string;
+            normalized: number;
+            /** @description ports | ratio | x | share | asns */
+            unit: string;
+            /** @description Valor bruto en `unit`. */
+            value: number;
+            /** @description Peso configurado por el ISP. */
+            weight: number;
         };
         /**
          * @description Proyectado desde detection. Etiquetas de presentación (D18; `dashboard/v0/widget-data.schema.json#/$defs/SecurityState`):
@@ -6909,6 +7023,8 @@ export interface operations {
         parameters: {
             query?: {
                 client_prefix_id?: string;
+                /** @description Posibles comerciales: sugerencia comercial del scoring o uso comercial sospechado, sin tipo fijado a mano (I2). */
+                commercial_candidate?: boolean;
                 commercial_use_suspected?: boolean;
                 /** @description Cursor opaco (`page.next_cursor`); ligado a filtros, orden y `tid`. Ajeno → `400 INVALID_CURSOR`. */
                 cursor?: components["parameters"]["Cursor"];
@@ -7106,6 +7222,34 @@ export interface operations {
             404: components["responses"]["NotFound"];
             412: components["responses"]["PreconditionFailed"];
             422: components["responses"]["UnprocessableEntity"];
+        };
+    };
+    getCustomerScoring: {
+        parameters: {
+            query?: {
+                /** @description Serie diaria hacia atrás (`90d`, `12w`, `48h`; máximo 400d). Sin range no hay serie. */
+                range?: string;
+            };
+            header?: never;
+            path: {
+                customer_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Último scoring (o null) y serie diaria. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerScoringResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     setCustomerKind: {
@@ -7606,7 +7750,7 @@ export interface operations {
                     "application/json": {
                         /** @description Detectores con ajustes propios del ISP. */
                         customized: string[];
-                        /** @description Un objeto por detector (c2_contact, scanning, watched_ports, fanout, smtp, ddos, beaconing, sustained_upload) con enabled, window y sus umbrales; más auto_expire. */
+                        /** @description Un objeto por detector (c2_contact, scanning, watched_ports, fanout, smtp, ddos, beaconing, sustained_upload) con enabled, window y sus umbrales; customer_scoring (scoring residencial/comercial: umbrales, histéresis, pesos); más auto_expire. */
                         detectors: {
                             [key: string]: unknown;
                         };

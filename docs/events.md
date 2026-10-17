@@ -306,7 +306,7 @@ mensaje DLQ a su subject original (seguro por idempotencia).
 | `flows-inventory` | `DEVICES_EVENTS` | `router.>`, `interface.>`, `site.>`, `realm.>`, `client_prefix.>`, `asn_rule.>` | flows (collector e ingester) | Mapas exportador→(tenant, router) e ifIndex→interfaz/`flow_role` (ClickHouse no guarda `customer_id`: [ADR-0018](./adr/0018-la-ip-es-el-cliente.md) §1) | 6 |
 | `devices-client-first-seen` | `FLOWS_EVENTS` | `horus.flows.client.first_seen.>` | devices | Alta idempotente por `(tenant, realm, address)` → `customer.discovered` (queue group) | 6 |
 | `devices-client-activity` | `TLM_FLOWS` | `horus.telemetry.flows.client_activity.>` | devices | `last_seen` (resolución 1 h) y `inactive → active` (`customer.reactivated`) | 6 |
-| `devices-customer-detection` | `DETECTION_EVENTS` | `horus.detection.customer.security_state_changed.>` (I1); `horus.detection.customer.kind_suggested.>` (pendiente) | devices | Proyecta `security_state` y `open_findings` en la ficha del cliente (el evento se publica al cambiar el estado **o** el conteo). Pendiente: aplicar el tipo sugerido si `kind_locked = false` y la confianza ≥ umbral del tenant → `customer.kind_changed` (`source=scoring`) | 10 |
+| `devices-customer-detection` | `DETECTION_EVENTS` | `horus.detection.customer.security_state_changed.>` (I1); `horus.detection.customer.kind_suggested.>` (I2) | devices | Proyecta `security_state` y `open_findings` en la ficha del cliente (el evento se publica al cambiar el estado **o** el conteo). Guarda la sugerencia del scoring (`suggested_*`, `commercial_score`, `commercial_use_suspected` solo en residenciales) y aplica el tipo sugerido si `kind_locked = false` y `confidence × 100 ≥ apply_threshold` → `customer.kind_changed` (`source=scoring`, razones copiadas, `model_ref = score_ref`, `causation_event_id`); idempotente por la hora del evento | 10 |
 | `ingester-known-clients` | `DEVICES_EVENTS` | `horus.devices.customer.>`, `horus.devices.client_prefix.>`, `horus.devices.realm.>` | flows (ingester) | Conjunto de IPs conocidas por realm y prefijos de clientes | 6 |
 | `detection-customers` | `DEVICES_EVENTS` | `horus.devices.customer.>` | detection | Universo de clientes a puntuar; respeta `kind_locked` para no proponer cambios ya decididos a mano | 8–10 |
 | `alerts-notify-<stream>` (detection, flows, wireguard, snmp; deliver new) | `DETECTION_`, `FLOWS_`, `WIREGUARD_`, `SNMP_EVENTS` | `finding.opened/updated`, `exporter.silent/recovered`, `peer.handshake_stale/recovered`, `snmp.router.state_changed/rebooted`, `snmp.interface.oper_status_changed`, `snmp.service.state_changed` | alerts | Canal mínimo (D13): encola notificaciones por categoría (security, routers, infrastructure, exporter_tunnel) | I1–I2 |
@@ -1068,19 +1068,32 @@ de seguridad del cliente** (resumen que consume el NOC) y el **scoring de tipo**
 //        mitigated (marcado por un operador tras actuar; vuelve a clean si no hay hallazgos en N días)
 
 // horus.detection.customer.kind_suggested   (sólo al cambiar la sugerencia; histéresis de 7 días para no oscilar)
-{ "customer_id": "0192...", "model_version": "scoring-v3", "previous_kind": "residential", "kind": "commercial",
-  "confidence": 0.87, "scores": { "residential": 0.13, "commercial": 0.87 },
-  "reasons": [ { "code": "many_devices_behind_cpe", "detail": "31 dispositivos distintos detrás del CPE", "weight": 0.35 },
-               { "code": "business_hours_pattern", "detail": "uso sostenido 08:00–19:00 L–S", "weight": 0.30 },
-               { "code": "upload_ratio_high", "detail": "ratio subida/bajada 0,62", "weight": 0.22 } ],
-  "window_from": "2026-09-30T00:00:00Z", "window_to": "2026-10-07T00:00:00Z" }
+{ "customer_id": "0192...", "version": 2, "model_version": "commercial-v1", "previous_kind": "residential",
+  "kind": "commercial", "level": "commercial", "confidence": 0.87, "scores": { "residential": 0.13, "commercial": 0.87 },
+  "commercial_score": 87, "commercial_use_suspected": false, "apply_threshold": 80, "dynamic_pool": false,
+  "reasons": [ { "code": "inbound_services", "detail": "3 puertos de servicio con conexiones entrantes de 240 IPs distintas", "weight": 0.30 },
+               { "code": "upload_vs_residential_median", "detail": "Subida 5,2× la mediana residencial (41,6 GB en la ventana)", "weight": 0.20 },
+               { "code": "business_hours_pattern", "detail": "68 % del tráfico en horario laboral (L–S 08:00–19:00, hora local)", "weight": 0.11 } ],
+  "window_from": "2026-10-01T03:00:00.000Z", "window_to": "2026-10-08T03:00:00.000Z",
+  "score_ref": "commercial-v1@2026-10-08", "site_id": "0192..." }
+// level: residential | suspected (residencial con indicios: commercial_score ≥ umbral de sospecha, 50) | commercial
+// (≥ umbral comercial del ISP, 80). Pools dinámicos: probabilidad comercial × dynamic_pool_factor (0,6) y razón
+// dynamic_pool. Un cliente nunca publicado parte de residencial sin evento.
+
+// horus.detection.score.changed   (la puntuación diaria se mueve ≥ score_change_delta puntos, es la primera o cambia el nivel)
+{ "customer_id": "0192...", "model_version": "commercial-v1", "commercial_score": 87, "previous_score": 79,
+  "level": "commercial", "confidence": 0.87, "day": "2026-10-08",
+  "window_from": "2026-10-01T03:00:00.000Z", "window_to": "2026-10-08T03:00:00.000Z", "site_id": "0192..." }
 ```
 
 > `reasons` pasa de lista de textos a objetos `{code, detail, weight}` (igual que en los hallazgos): `code` es estable y
 > traducible, `detail` es texto humano. Es un cambio de forma antes de que exista ningún consumidor, así que se hace en
 > `v1` sin `v2`. `devices` **copia** las razones en `customer.kind_changed` para que el historial de tipo no dependa
 > de la retención de `detection`. La regla de aplicación (umbral de confianza, persistencia mínima antes de cambiar el
-> tipo) vive en `devices` y es configurable por tenant (C-20).
+> tipo) vive en `devices` y es configurable por tenant (C-20). **Implementación I2:** el umbral y la
+histéresis son parámetros del ISP en `detection` (`detector_config.customer_scoring`); la histéresis se
+aplica antes de publicar y el evento lleva `apply_threshold`, que `devices` compara con la confianza
+(así hay una sola configuración y `devices` sigue siendo quien decide y nunca pisa un tipo manual).
 
 ### 8.9 `alerts` → `ALERTS_EVENTS` (productor `alerts`)
 

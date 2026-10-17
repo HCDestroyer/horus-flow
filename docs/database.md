@@ -277,7 +277,7 @@ id            = UUIDv7 asignado por devices al descubrirlo (para API y referenci
 
 | Tabla | Campos clave | Constraints / índices | Borrado |
 |-------|--------------|-----------------------|---------|
-| `customer` | `id` (UUIDv7), `tenant_id`, `realm_id`, `address inet` (canónica), `site_id` (nodo donde se vio por última vez), `client_prefix_id`, `kind` (`residential`/`commercial`/`unknown`), `commercial_use_suspected bool` + `commercial_score smallint` (residencial con indicios comerciales que aún no alcanzan el umbral), `kind_source` (`default`/`scoring`/`manual`), `kind_locked bool` (true si `manual`: el scoring no lo sobrescribe), `kind_changed_at`, `kind_confidence smallint NULL` (0–100, del scoring), `alias text NULL` (nombre opcional puesto por el operador o importado del usuario PPPoE vía API de RouterOS; dato personal), `alias_source` (`manual`/`routeros_ppp`), `notes text NULL`, `status` (`active`/`inactive`), `first_seen timestamptz`, `last_seen timestamptz` (resolución ≤ 1 h, §2.3.3), `reset_at timestamptz NULL` (último "reinicio" manual, §2.3.4), `version` | PK `id`; `ux(tenant_id, realm_id, address)`; `ix(tenant_id, site_id, status)`; `ix(tenant_id, kind)`; `ix(tenant_id, last_seen)`; GiST `(address inet_ops)`; GIN trigram en `alias` | ciclo de vida §2.3.4 |
+| `customer` | `id` (UUIDv7), `tenant_id`, `realm_id`, `address inet` (canónica), `site_id` (nodo donde se vio por última vez), `client_prefix_id`, `kind` (`residential`/`commercial`/`unknown`), `commercial_use_suspected bool` + `commercial_score smallint` (residencial con indicios comerciales que aún no alcanzan el umbral), `suggested_kind`, `suggested_confidence smallint`, `suggested_reasons jsonb`, `suggested_model`, `suggested_at` (última sugerencia publicada por el scoring, I2; también con el tipo bloqueado; índice parcial `ix_customer__commercial_candidate` para la lista de posibles comerciales), `kind_source` (`default`/`scoring`/`manual`), `kind_locked bool` (true si `manual`: el scoring no lo sobrescribe), `kind_changed_at`, `kind_confidence smallint NULL` (0–100, del scoring), `alias text NULL` (nombre opcional puesto por el operador o importado del usuario PPPoE vía API de RouterOS; dato personal), `alias_source` (`manual`/`routeros_ppp`), `notes text NULL`, `status` (`active`/`inactive`), `first_seen timestamptz`, `last_seen timestamptz` (resolución ≤ 1 h, §2.3.3), `reset_at timestamptz NULL` (último "reinicio" manual, §2.3.4), `version` | PK `id`; `ux(tenant_id, realm_id, address)`; `ix(tenant_id, site_id, status)`; `ix(tenant_id, kind)`; `ix(tenant_id, last_seen)`; GiST `(address inet_ops)`; GIN trigram en `alias` | ciclo de vida §2.3.4 |
 | `customer_kind_change` | Historial **inmutable**: `id` (UUIDv7), `tenant_id`, `customer_id`, `from_kind`, `to_kind`, `source` (`default`/`scoring`/`manual`/`reset`), `reason_codes text[]` (claves de razón del scoring, p. ej. `many_inbound_services`, `business_hours_pattern`), `score_ref` (modelo + día en `detection.customer_scores_1d`), `confidence`, `actor_id NULL` (usuario si manual), `changed_at` | `ix(tenant_id, customer_id, changed_at DESC)`; solo `INSERT` | se purga con el cliente |
 
 - **Sin PII de contacto**: no hay nombre, dirección ni teléfono (no existe CRM, D1). El `alias` lo
@@ -327,7 +327,7 @@ sequenceDiagram
 | IP sin tráfico más allá de la **mayor retención de datos por cliente** (defecto 25 meses, §7) | **Purga física** del cliente y su historial de tipo, evento `customer.purged` (ClickHouse ya no tiene filas por cliente de esa clave). Si reaparece más tarde, se redescubre como cliente nuevo, sin historia. |
 | El ISP borra o reduce un `client_prefix` | Los clientes fuera de todo prefijo pasan a `inactive` con razón `prefix_removed`; se purgan por la regla anterior. |
 | Cambio manual de tipo | `kind_source = manual`, `kind_locked = true`, historial con `actor_id`; evento `customer.kind_changed`. Desbloquear (`kind_locked = false`) devuelve el control al scoring. |
-| Propuesta del scoring | `detection` publica `horus.detection.customer.kind_suggested` con tipo, confianza y razones; `devices` aplica si `kind_locked = false` y la confianza ≥ umbral del tenant (defecto 80, con histéresis de 7 días en `detection`); evento `customer.kind_changed`. |
+| Propuesta del scoring | `detection` publica `horus.detection.customer.kind_suggested` con tipo, confianza y razones; `devices` aplica si `kind_locked = false` y la confianza ≥ umbral del tenant (defecto 80, con histéresis de 7 días en `detection`); evento `customer.kind_changed`. **Implementado en I2**: estado por cliente en `detection.customer_scoring` (último scoring, características, razones, nivel publicado y pendiente), parámetros por ISP en `detection.detector_config` (`customer_scoring`), serie en `detection.customer_scores_1d`; el historial guarda `reason_codes`, `reasons`, `confidence`, `model_ref` (= `score_ref`, modelo + día) y `causation_event_id`. |
 
 Eventos que publica `devices` sobre clientes (subjects `horus.devices.customer.<evento>.<customer_id>`,
 contrato a cargo del Agente C): `discovered`, `updated` (alias/notas), `kind_changed`, `inactive`,
@@ -416,6 +416,10 @@ incluidas): crece con cada alta, edición o baja. `tenant_rule_set`/`tenant_rule
     `first_seen`, `last_seen`, `status` (`open`/`acknowledged`/`resolved`/`false_positive`)),
     `finding_evidence` (referencias a ventanas y contadores en ClickHouse, nunca payload),
     `scoring_model`, `verdict_feedback` (confirmación humana para recalibrar).
+  - `customer_scoring` (I2, por tenant, RLS): último scoring residencial/comercial por cliente
+    (`model_version`, `commercial_score`, `raw_score`, `level`, `confidence`, `dynamic_pool`,
+    `features`/`reasons` jsonb, ventana, `address` como dato personal) y la histéresis
+    (`published_level`/`published_at`, `pending_level`/`pending_since`, `version` del agregado).
 - **`analytics`**: `dashboard` y `dashboard_widget` (layout guardado, tipo de widget, consulta
   parametrizada, intervalo de refresco; `dashboard.kiosk_enabled`, `rotation_seconds` para modo NOC,
   D8), `report_definition`, `report_run` (`object_key` en almacenamiento local, `sha256`,
@@ -750,6 +754,10 @@ Interfaces dinámicas PPPoE del MikroTik no se sondean (el consumo por cliente s
 - `detection.customer_scores_1d` — `ReplacingMergeTree(computed_at)` ORDER BY
   `(tenant_id, realm_id, client_ip, day, model_version)`: `commercial_score`, `security_score`,
   `anomaly_score`, `kind_on_day`, `reasons Array(LowCardinality(String))`; TTL 25 meses.
+  **Implementada en I2** (migración `services/ingester/migrations/clickhouse/20261017120000_detection_customer_scores.sql`):
+  además `customer_id`, `site_id`, `raw_score`, `confidence`, `suggested_kind`, `level`, `dynamic_pool`;
+  `security_score`/`anomaly_score` quedan `NULL` hasta tener modelo. Escritor único `horus_detection_role`
+  (INSERT); lectores con `p_tenant`/`p_platform`; `horus_jobs_role` con `ALTER DELETE` para purgas.
 
 ### 6.5 Engines
 

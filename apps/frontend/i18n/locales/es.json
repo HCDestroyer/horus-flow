@@ -694,6 +694,67 @@
       "aliasPlaceholder": "Por ejemplo: Panadería Sol",
       "notes": "Notas",
       "done": "Alias y notas guardados"
+    },
+    "candidatesLink": "Posibles comerciales",
+    "candidates": {
+      "title": "Posibles comerciales",
+      "intro": "Clientes residenciales con patrón de uso comercial según el scoring de Horus. Revisa las razones y confirma o descarta: tu decisión fija el tipo a mano y el scoring ya no lo cambia.",
+      "empty": "No hay posibles comerciales pendientes de revisar.",
+      "emptyHint": "El scoring se calcula una vez al día con los últimos 7 días de tráfico; una sugerencia nueva se mantiene 7 días antes de aparecer aquí.",
+      "back": "Volver a clientes",
+      "col": {
+        "client": "Cliente",
+        "site": "Nodo",
+        "score": "Puntuación",
+        "suggestion": "Sugerencia",
+        "reasons": "Razones principales",
+        "actions": "Acciones"
+      },
+      "confirm": "Confirmar comercial",
+      "discard": "Descartar",
+      "confirmed": "Marcado como comercial",
+      "discarded": "Marcado como residencial",
+      "confirmReason": "Confirmado como comercial desde Posibles comerciales",
+      "discardReason": "Descartado como comercial desde Posibles comerciales",
+      "conflict": "El cliente cambió mientras lo revisabas; la lista se ha actualizado.",
+      "count": "1 posible comercial | {n} posibles comerciales",
+      "appliedNote": "Tipo ya aplicado por el scoring"
+    },
+    "scoring": {
+      "title": "Tipo sugerido por el scoring",
+      "none": "Aún no hay scoring para este cliente: hacen falta al menos 48 horas con actividad en los últimos 7 días.",
+      "level": {
+        "commercial": "Comercial",
+        "suspected": "Residencial con indicios comerciales",
+        "residential": "Residencial"
+      },
+      "score": "Puntuación comercial {n}/100",
+      "confidence": "confianza {pct}",
+      "thresholds": "Umbral comercial {commercial} · indicios desde {suspected}",
+      "locked": "El tipo está fijado a mano: el scoring sugiere pero no lo cambia.",
+      "pending": "Pendiente de confirmar por la histéresis: {level} desde {date} ({days} días sostenido).",
+      "dynamicPool": "Pool dinámico: la IP puede cambiar de persona y la confianza comercial se reduce.",
+      "window": "Ventana del {from} al {to} · modelo {model}",
+      "why": "Por qué",
+      "features": "Características",
+      "feature": "Característica",
+      "value": "Valor",
+      "weight": "Peso",
+      "contribution": "Aporte",
+      "unavailable": "sin datos",
+      "confirm": "Confirmar comercial",
+      "discard": "Descartar",
+      "featureNames": {
+        "inbound_services": "Servicios con conexiones entrantes",
+        "upload_ratio_high": "Ratio subida/bajada",
+        "upload_vs_residential_median": "Subida frente a la mediana residencial",
+        "business_hours_pattern": "Tráfico en horario laboral",
+        "always_on": "Actividad 24/7",
+        "many_remote_asns": "ASN remotos distintos",
+        "dynamic_pool": "Pool dinámico"
+      },
+      "series": "Puntuación de los últimos 90 días",
+      "seriesSummary": "Puntuación actual {now}/100; máxima {max}/100 en el periodo."
     }
   },
   "findings": {
@@ -2759,6 +2820,10 @@
       "sustained_upload": {
         "name": "Subida sostenida",
         "body": "Tráfico de subida alto y continuo que no corresponde a copias de seguridad conocidas."
+      },
+      "customer_scoring": {
+        "name": "Scoring residencial/comercial",
+        "body": "Sugiere el tipo de cliente con una puntuación explicable (servicios entrantes, subida, horario laboral, actividad 24/7). Nunca cambia un tipo fijado a mano."
       }
     },
     "fields": {
@@ -2802,6 +2867,32 @@
       "backup_to_hour": "Franja de copias: hasta (hora)",
       "watched_ports": {
         "min_destinations": "Destinos distintos por puerto vigilado (mínimo)"
+      },
+      "customer_scoring": {
+        "window": "Ventana de características",
+        "min_active_hours": "Horas con actividad (mínimo)",
+        "active_hour_bytes": "Bytes de una hora activa (mínimo)",
+        "commercial_threshold": "Umbral comercial (0–100)",
+        "suspected_threshold": "Umbral de indicios comerciales (0–100)",
+        "hysteresis": "Histéresis antes de publicar un cambio",
+        "dynamic_pool_factor": "Factor de confianza en pools dinámicos",
+        "business_from_hour": "Horario laboral: desde (hora)",
+        "business_to_hour": "Horario laboral: hasta (hora)",
+        "business_days": "Días laborables (1 = lunes)",
+        "inbound_ports_full": "Puertos de servicio para el máximo",
+        "inbound_peers_full": "IPs entrantes distintas para el máximo",
+        "residential_upload_ratio": "Ratio subida/bajada residencial típico",
+        "commercial_upload_ratio": "Ratio subida/bajada comercial",
+        "upload_median_full": "Veces la mediana residencial para el máximo",
+        "min_residential_peers": "Residenciales para calcular la mediana (mínimo)",
+        "business_share_low": "Tráfico laboral: desde",
+        "business_share_high": "Tráfico laboral: máximo",
+        "always_on_low": "Horas activas: desde",
+        "always_on_high": "Horas activas: máximo",
+        "remote_asns_low": "ASN remotos: desde",
+        "remote_asns_high": "ASN remotos: máximo",
+        "score_change_delta": "Cambio de puntuación que se publica (puntos)",
+        "weights": "Pesos"
       }
     },
     "allow": {

@@ -165,6 +165,16 @@ const securityOptions = computed(() => [
 
 <template>
   <AppPage :title="t('nav.items.clients')" panel-id="clients">
+    <template #navbar-right>
+      <UButton
+        color="neutral"
+        variant="outline"
+        icon="i-lucide-building-2"
+        :label="t('clients.candidatesLink')"
+        :to="`/t/${slug}/clients/commercial`"
+        data-testid="open-candidates"
+      />
+    </template>
     <form
       class="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end"
       role="search"

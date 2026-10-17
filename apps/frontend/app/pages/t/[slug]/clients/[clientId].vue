@@ -427,6 +427,14 @@ useHead({ title: () => customer.value?.alias ?? t('clients.detailTitle') })
         </div>
       </UCard>
 
+      <!-- Tipo sugerido por el scoring (I2): razones y características, confirmar o descartar. -->
+      <KindSuggestionCard
+        :key="`${customer.id}:${customer.version}`"
+        :customer="customer"
+        @saved="applied"
+        @stale="refresh()"
+      />
+
       <UTabs v-model="tab" :items="tabs" :content="false" class="w-full" variant="link" />
 
       <section
@@ -523,7 +531,7 @@ useHead({ title: () => customer.value?.alias ?? t('clients.detailTitle') })
                 <template v-if="h.confidence">
                   ·
                   {{
-                    t('clients.history.confidence', { pct: formatPercent(h.confidence) })
+                    t('clients.history.confidence', { pct: formatPercent(h.confidence / 100) })
                   }}</template
                 >
               </p>
