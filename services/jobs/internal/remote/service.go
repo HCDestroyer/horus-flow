@@ -198,6 +198,7 @@ type View struct {
 	HasCredentials     bool      `json:"has_credentials"`
 	HostKeyFingerprint *string   `json:"host_key_fingerprint"`
 	RetentionDays      int       `json:"retention_days"`
+	Paths              []string  `json:"paths"`
 	LastSuccessAt      *string   `json:"last_success_at"`
 	LastAttemptAt      *string   `json:"last_attempt_at"`
 	LastError          *string   `json:"last_error"`
@@ -221,10 +222,10 @@ func (s *Service) view(ctx context.Context, d *Destination, sc *Scan) View {
 	status, lag := ComputeStatus(d, s.o.Now(), s.o.LagAfter)
 	v := View{ID: d.ID, Kind: d.Kind, Name: d.Name, Status: status, Host: d.Host, Port: d.Port, Username: d.Username, Path: d.Path,
 		Enabled: d.Enabled, HasCredentials: d.HasCredentials(), HostKeyFingerprint: d.HostKeyFingerprint, RetentionDays: d.RetentionDays,
-		LastSuccessAt: ts(d.LastSuccessAt), LastAttemptAt: ts(d.LastAttemptAt), LastError: d.LastError, LagSeconds: lag, Version: d.Version}
+		Paths: d.Paths, LastSuccessAt: ts(d.LastSuccessAt), LastAttemptAt: ts(d.LastAttemptAt), LastError: d.LastError, LagSeconds: lag, Version: d.Version}
 	if sc != nil {
 		if ledger, err := s.o.Repo.Ledger(ctx, d.ID); err == nil {
-			p := Diff(sc, ledger, s.o.Now(), time.Duration(d.RetentionDays)*24*time.Hour)
+			p := Diff(sc, ledger, s.o.Now(), time.Duration(d.RetentionDays)*24*time.Hour, d.Paths)
 			n, b := int64(len(p.Upload)), p.BytesPending
 			v.FilesPending, v.BytesPending = &n, &b
 		}
@@ -294,7 +295,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput, meta AuditMeta) (*
 		return nil, err
 	}
 	s.audit(ctx, p, meta, AuditCreated, out.ID.String(), "success", map[string]any{"kind": out.Kind, "name": out.Name,
-		"host": out.Host, "port": out.Port, "username": out.Username, "path": out.Path, "retention_days": out.RetentionDays})
+		"host": out.Host, "port": out.Port, "username": out.Username, "path": out.Path, "retention_days": out.RetentionDays, "paths": out.Paths})
 	v := s.view(ctx, out, nil)
 	return &v, nil
 }

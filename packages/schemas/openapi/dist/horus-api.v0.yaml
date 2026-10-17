@@ -6919,8 +6919,14 @@ paths:
       description: |
         Solo por la API (docs/api.md §2.10 bis; sin URLs firmadas): `Content-Disposition: attachment`,
         `Cache-Control: no-store`, `Repr-Digest` con el SHA-256. Cada descarga queda en la auditoría
-        (`reports.download`). Otro ISP → `404`; aún no generado → `409 REPORT_NOT_READY`; archivos borrados por
-        la retención → `409 REPORT_EXPIRED`. CSV: zip con un archivo por sección, UTF-8 con BOM, separador `;`.
+        (`reports.download`, con la variante servida en `changes.variant`). Otro ISP → `404`; aún no generado →
+        `409 REPORT_NOT_READY`; archivos borrados por la retención → `409 REPORT_EXPIRED`. CSV: zip con un archivo
+        por sección, UTF-8 con BOM, separador `;`.
+
+        Datos personales: sin `customers.read` con alcance de todo el ISP (usuario o API token), se sirve la
+        variante enmascarada (IPv4 `100.64.1.x`, IPv6 el /48 y `…`, alias → `Cliente N`, estable dentro del
+        archivo). Una ejecución generada antes de existir esa variante no se sirve a quien no tiene
+        `customers.read` (`409 REPORT_NOT_READY`).
       x-module: analytics
       x-scope: tenant
       x-permission: reports.read
@@ -6945,6 +6951,13 @@ paths:
               description: SHA-256 del archivo (RFC 9530).
               schema:
                 type: string
+            X-Horus-Report-Variant:
+              description: '`full` (con datos personales) o `masked` (enmascarados por permisos).'
+              schema:
+                type: string
+                enum:
+                  - full
+                  - masked
           content:
             application/pdf:
               schema:
@@ -15086,6 +15099,20 @@ components:
           type:
             - number
             - 'null'
+    RemoteDestinationPaths:
+      type: array
+      minItems: 1
+      uniqueItems: true
+      items:
+        type: string
+        enum:
+          - backups
+          - reports
+      description: |
+        Rutas del almacén que replica el destino (ADR-0019): `backups` = `backups/postgres` y `backups/clickhouse`;
+        `reports` = `reports/<tenant_id>/` (PDF y CSV de los reportes, con datos personales). Todo se cifra con age
+        en Horus antes de salir. Por defecto las dos. Quitar una ruta no borra nada del destino: sus copias solo
+        las retira la retención remota cuando el original ya no existe en local.
     RemoteDestination:
       type: object
       required:
@@ -15097,6 +15124,7 @@ components:
         - port
         - username
         - path
+        - paths
         - enabled
         - has_credentials
         - version
@@ -15144,6 +15172,8 @@ components:
           minimum: 1
           maximum: 3650
           description: Días que se conservan las copias en el destino.
+        paths:
+          $ref: '#/components/schemas/RemoteDestinationPaths'
         last_success_at:
           oneOf:
             - $ref: '#/components/schemas/Timestamp'
@@ -15210,6 +15240,8 @@ components:
           minimum: 1
           maximum: 3650
           default: 30
+        paths:
+          $ref: '#/components/schemas/RemoteDestinationPaths'
     RemoteDestinationPatch:
       type: object
       additionalProperties: false
@@ -15239,6 +15271,8 @@ components:
           type: integer
           minimum: 1
           maximum: 3650
+        paths:
+          $ref: '#/components/schemas/RemoteDestinationPaths'
         enabled:
           type: boolean
           description: Solo se habilita con credenciales y huella confirmada.
@@ -16174,6 +16208,7 @@ components:
         - formats
         - files
         - size_bytes
+        - personal_data_masked
         - error
         - created_by
         - created_at
@@ -16218,10 +16253,16 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ReportFile'
+          description: Archivos de la variante que descargaría quien pregunta (ver `personal_data_masked`).
         size_bytes:
           type: integer
           format: int64
           minimum: 0
+        personal_data_masked:
+          type: boolean
+          description: |
+            `true` si quien pregunta no tiene `customers.read` con alcance de todo el ISP: `files` (tamaño y SHA-256)
+            son los de la variante con las IPs y los alias de clientes enmascarados.
         error:
           type:
             - string

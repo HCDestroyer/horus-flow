@@ -29,7 +29,25 @@ const (
 	PermRead     = "reports.read"
 	PermExport   = "reports.export"
 	PermSettings = "settings.manage"
+	// PermCustomers decide la variante: sin customers.read con alcance de
+	// todo el ISP, los archivos se sirven con los datos personales enmascarados.
+	PermCustomers = "customers.read"
 )
+
+// Variantes de archivo (auditoría y cabecera X-Horus-Report-Variant).
+const (
+	VariantFull   = "full"
+	VariantMasked = "masked"
+)
+
+// MaskedFor indica si p debe recibir la variante enmascarada: le falta
+// customers.read con alcance de todo el ISP (el reporte cubre a todos los
+// clientes; un permiso limitado a nodos no basta). Vale igual para usuarios
+// y API tokens (sus permisos ya son la intersección token ∩ usuario).
+func MaskedFor(p *authz.Principal) bool { return !p.TenantWide(PermCustomers) }
+
+// MaskedCtx es MaskedFor del principal de la petición.
+func MaskedCtx(ctx context.Context) bool { return MaskedFor(authz.FromContext(ctx)) }
 
 // Códigos de error propios (ErrorCode de common.yaml).
 const (
@@ -215,9 +233,10 @@ func (s *Service) CreateRun(ctx context.Context, in CreateInput, idem uuid.UUID)
 	return out, replayed, nil
 }
 
-// Download es GET /reports/{id}/download: abre el archivo del formato
-// (otro tenant o inexistente → 404; no generado → 409; caducado → 409) y
-// audita la descarga.
+// Download es GET /reports/{id}/download: abre el archivo del formato en la
+// variante que corresponde al principal (MaskedFor) (otro tenant o
+// inexistente → 404; no generado → 409; caducado → 409) y audita la
+// descarga con la variante servida.
 func (s *Service) Download(ctx context.Context, id uuid.UUID, format, ip, userAgent string) (*Run, File, *os.File, error) {
 	p, t, err := principal(ctx, PermRead)
 	if err != nil {
@@ -240,10 +259,16 @@ func (s *Service) Download(ctx context.Context, id uuid.UUID, format, ip, userAg
 		return nil, File{}, nil, &apperr.Error{Kind: apperr.KindConflict, Code: CodeReportExpired, Title: "Reporte caducado",
 			Detail: "Los archivos se borraron al cumplirse la retención. Genere el reporte de nuevo."}
 	}
-	f, ok := r.File(format)
+	masked := MaskedFor(p)
+	f, ok := r.File(format, masked)
 	if r.Status != StatusCompleted || !ok {
 		detail := "El reporte aún no está listo."
-		if r.Status == StatusCompleted || r.Status == StatusFailed {
+		switch {
+		case r.Status == StatusCompleted && masked && slices.Contains(r.Formats, format):
+			// Generado antes de existir la variante enmascarada: nunca se
+			// sirve la completa a quien no tiene customers.read.
+			detail = "Este reporte no tiene versión con los datos personales enmascarados (se generó antes de existir). Genérelo de nuevo."
+		case r.Status == StatusCompleted || r.Status == StatusFailed:
 			detail = "El reporte no tiene archivo en formato " + format + "."
 		}
 		return nil, File{}, nil, &apperr.Error{Kind: apperr.KindConflict, Code: CodeReportNotReady, Title: "Reporte no disponible", Detail: detail}
@@ -252,7 +277,11 @@ func (s *Service) Download(ctx context.Context, id uuid.UUID, format, ip, userAg
 	if err != nil {
 		return nil, File{}, nil, fmt.Errorf("reporting: download %s: %w", r.ID, err)
 	}
-	s.audit(ctx, p, t, "reports.download", r.ID, ip, userAgent, map[string]any{"format": format, "kind": r.Kind,
+	variant := VariantFull
+	if masked {
+		variant = VariantMasked
+	}
+	s.audit(ctx, p, t, "reports.download", r.ID, ip, userAgent, map[string]any{"format": format, "variant": variant, "kind": r.Kind,
 		"period_from": r.PeriodFrom.UTC().Format(outbox.TimeFormat), "period_to": r.PeriodTo.UTC().Format(outbox.TimeFormat), "sha256": f.SHA256})
 	return r, f, fh, nil
 }

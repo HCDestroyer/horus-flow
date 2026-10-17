@@ -72,6 +72,11 @@ function memoryStorage() {
 }
 
 async function adminClient(clock: { now: Date }) {
+  return clientFor(clock, 'ana.ruiz@fibranorte.example')
+}
+
+/** Cliente con sesión y token del ISP para `username` (2FA si el usuario lo pide). */
+async function clientFor(clock: { now: Date }, username: string) {
   let session: string | null = null
   let scoped: { token: string } | null = null
   const api = createHorusClient(
@@ -84,14 +89,17 @@ async function adminClient(clock: { now: Date }) {
   )
   const login = await unwrap(
     api.POST('/auth/login', {
-      body: { username: 'ana.ruiz@fibranorte.example', password: MOCK_PASSWORD },
+      body: { username, password: MOCK_PASSWORD },
     }),
   )
-  if (!('mfa_token' in login)) throw new Error('se esperaba 2FA')
-  const verified = await unwrap(
-    api.POST('/auth/mfa/verify', { body: { mfa_token: login.mfa_token, code: MOCK_TOTP_CODE } }),
-  )
-  session = verified.access_token
+  if ('mfa_token' in login) {
+    const verified = await unwrap(
+      api.POST('/auth/mfa/verify', { body: { mfa_token: login.mfa_token, code: MOCK_TOTP_CODE } }),
+    )
+    session = verified.access_token
+  } else {
+    session = login.access_token
+  }
   scoped = {
     token: (await unwrap(api.POST('/auth/token', { body: { tenant_id: fn.tenant_id } })))
       .access_token,
@@ -155,6 +163,23 @@ describe('API simulada de reportes', () => {
       body: { from: '2026-08-01T00:00:00Z', to: '2026-10-01T00:00:00Z' },
     })
     await expect(unwrap(bad)).rejects.toBeInstanceOf(ApiError)
+  })
+
+  it('sin customers.read (NOC) los reportes llegan con los datos personales enmascarados', async () => {
+    const clock = { now: new Date('2026-10-14T15:00:00Z') }
+    const admin = await unwrap((await adminClient(clock)).GET('/reports'))
+    expect(admin.data.every((r) => !r.personal_data_masked)).toBe(true)
+    const api = await clientFor(clock, 'noc@fibranorte.example')
+    const list = await unwrap(api.GET('/reports'))
+    expect(list.data.length).toBeGreaterThan(0)
+    expect(list.data.every((r) => r.personal_data_masked)).toBe(true)
+    const done = list.data.find((r) => r.status === 'completed')!
+    const file = await api.GET('/reports/{report_id}/download', {
+      params: { path: { report_id: done.id }, query: { format: 'csv' } },
+      parseAs: 'blob',
+    })
+    expect(file.response.headers.get('X-Horus-Report-Variant')).toBe('masked')
+    expect(file.response.headers.get('Content-Disposition')).toMatch(/-enmascarado-csv\.zip"/)
   })
 
   it('programación semanal con If-Match y validación de correos', async () => {

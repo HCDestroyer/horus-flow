@@ -121,7 +121,8 @@ Convenciones:
 > **Implementado (2026-10-12, [nota de ADR-0019](adr/0019-almacenamiento-local-y-destino-remoto.md#nota-2026-10-12-sftp-nativo-en-go-y-cifrado-age-en-lugar-de-rclone)).**
 > El primer destino (SFTP) no usa rclone: el rol `jobs` habla SFTP en Go y cifra cada archivo con
 > **age** antes de subirlo (horus-app solo tiene la clave pública; la identidad está en el paquete
-> offline). Copia `backups/postgres` y `backups/clickhouse` cada `HORUS_REMOTE_SYNC_INTERVAL`
+> offline). Copia `backups/postgres` y `backups/clickhouse` (ruta `backups`) y `reports/` (ruta `reports`, desde
+> 2026-10-17; cada destino elige sus rutas en `paths`, las dos por defecto) cada `HORUS_REMOTE_SYNC_INTERVAL`
 > (10 min) y bajo demanda (`POST /platform/remote-destinations/{id}/sync`), a
 > `<ruta>/horus-<id de instalación>/backups/…/<archivo>.age`, omitiendo lo que aún se escribe
 > (mtime < 2 min, backup de pgBackRest sin `backup.manifest`, BACKUP de ClickHouse sin `.backup`).

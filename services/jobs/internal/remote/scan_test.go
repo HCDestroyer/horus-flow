@@ -3,6 +3,7 @@ package remote
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -41,6 +42,8 @@ func fakeBackups(t *testing.T, root string, old time.Time) {
 		"backups/postgres/archive/horus/18-1/0000000100000000/x.pgbackrest.tmp": "tmp",
 		"backups/state/postgres.last_success":                                   "1",
 		"reports/t/r.pdf":                                                       "pdf",
+		// Temporal del render de reportes (antes del rename atómico).
+		"reports/t/.tmp-123456": "tmp",
 	}
 	for rel, c := range files {
 		// Contenido largo y reconocible: la comprobación "no está en claro" no da falsos positivos.
@@ -75,6 +78,7 @@ func TestScanStore(t *testing.T) {
 		"backups/postgres/backup/horus/20261011-020000F/backup.manifest",
 		"backups/postgres/backup/horus/20261011-020000F/pg_data/base/1/1259.zst",
 		"backups/postgres/backup/horus/backup.info",
+		"reports/t/r.pdf",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("archivos = %v", got)
@@ -93,8 +97,11 @@ func TestScanStore(t *testing.T) {
 			t.Errorf("%s debería estar presente", rel)
 		}
 	}
-	if sc.Present["reports/t/r.pdf"] || sc.Present["backups/state/postgres.last_success"] {
-		t.Error("se recorrió fuera de backups/postgres y backups/clickhouse")
+	if !sc.Present["reports/t/.tmp-123456"] {
+		t.Error("el temporal de reportes no se copia pero está presente")
+	}
+	if sc.Present["backups/state/postgres.last_success"] {
+		t.Error("se recorrió fuera de backups/postgres, backups/clickhouse y reports")
 	}
 	// Almacén sin backups: vacío, sin error.
 	if sc, err := ScanStore(t.TempDir(), now, 0); err != nil || len(sc.Files) != 0 {
@@ -108,29 +115,63 @@ func TestDiffAndRetention(t *testing.T) {
 	mt := now.Add(-time.Hour)
 	sc := &Scan{
 		Files: []LocalFile{
-			{Rel: "a", Size: 10, MTime: mt},  // igual que en el ledger
-			{Rel: "b", Size: 20, MTime: mt},  // nuevo
-			{Rel: "c", Size: 31, MTime: mt},  // cambió de tamaño
-			{Rel: "d", Size: 40, MTime: now}, // cambió de mtime
+			{Rel: "backups/a", Size: 10, MTime: mt},  // igual que en el ledger
+			{Rel: "backups/b", Size: 20, MTime: mt},  // nuevo
+			{Rel: "backups/c", Size: 31, MTime: mt},  // cambió de tamaño
+			{Rel: "backups/d", Size: 40, MTime: now}, // cambió de mtime
 		},
-		Present: map[string]bool{"a": true, "b": true, "c": true, "d": true, "busy": true},
+		Present: map[string]bool{"backups/a": true, "backups/b": true, "backups/c": true, "backups/d": true, "backups/busy": true},
 	}
 	ledger := map[string]LedgerEntry{
-		"a":      {Rel: "a", Size: 10, MTime: mt, UploadedAt: now.Add(-100 * 24 * time.Hour)},
-		"c":      {Rel: "c", Size: 30, MTime: mt, UploadedAt: now},
-		"d":      {Rel: "d", Size: 40, MTime: mt, UploadedAt: now},
-		"gone":   {Rel: "gone", UploadedAt: now.Add(-31 * 24 * time.Hour), RemoteName: "r/gone.age"},
-		"recent": {Rel: "recent", UploadedAt: now.Add(-29 * 24 * time.Hour)},
-		"busy":   {Rel: "busy", UploadedAt: now.Add(-90 * 24 * time.Hour)},
+		"backups/a":      {Rel: "backups/a", Size: 10, MTime: mt, UploadedAt: now.Add(-100 * 24 * time.Hour)},
+		"backups/c":      {Rel: "backups/c", Size: 30, MTime: mt, UploadedAt: now},
+		"backups/d":      {Rel: "backups/d", Size: 40, MTime: mt, UploadedAt: now},
+		"backups/gone":   {Rel: "backups/gone", UploadedAt: now.Add(-31 * 24 * time.Hour), RemoteName: "r/gone.age"},
+		"backups/recent": {Rel: "backups/recent", UploadedAt: now.Add(-29 * 24 * time.Hour)},
+		"backups/busy":   {Rel: "backups/busy", UploadedAt: now.Add(-90 * 24 * time.Hour)},
 	}
-	p := Diff(sc, ledger, now, 30*24*time.Hour)
-	if len(p.Upload) != 3 || p.Upload[0].Rel != "b" || p.Upload[1].Rel != "c" || p.Upload[2].Rel != "d" || p.BytesPending != 91 {
+	p := Diff(sc, ledger, now, 30*24*time.Hour, AllPaths)
+	if len(p.Upload) != 3 || p.Upload[0].Rel != "backups/b" || p.Upload[1].Rel != "backups/c" || p.Upload[2].Rel != "backups/d" || p.BytesPending != 91 {
 		t.Fatalf("upload = %+v (%d B)", p.Upload, p.BytesPending)
 	}
-	// Solo se borra lo vencido que ya no está en local: nunca "a" (local,
-	// aunque vencido) ni "busy" (presente aunque no copiable) ni "recent".
-	if len(p.Delete) != 1 || p.Delete[0].Rel != "gone" {
+	// Solo se borra lo vencido que ya no está en local: nunca "backups/a" (local,
+	// aunque vencido) ni "backups/busy" (presente aunque no copiable) ni "backups/recent".
+	if len(p.Delete) != 1 || p.Delete[0].Rel != "backups/gone" {
 		t.Fatalf("delete = %+v", p.Delete)
+	}
+}
+
+func TestDiffSelectedPaths(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+	mt := now.Add(-time.Hour)
+	sc := &Scan{
+		Files:   []LocalFile{{Rel: "backups/postgres/x", Size: 1, MTime: mt}, {Rel: "reports/t/r.pdf", Size: 2, MTime: mt}},
+		Present: map[string]bool{"backups/postgres/x": true, "reports/t/r.pdf": true},
+	}
+	// Ya copiado antes de quitar reports de la selección y vencido: sigue en
+	// local, así que no se borra del destino.
+	ledger := map[string]LedgerEntry{"reports/t/old.pdf": {Rel: "reports/t/old.pdf", UploadedAt: now.Add(-60 * 24 * time.Hour)}}
+	sc.Present["reports/t/old.pdf"] = true
+	for _, c := range []struct {
+		paths []string
+		want  []string
+	}{
+		{[]string{PathBackups}, []string{"backups/postgres/x"}},
+		{[]string{PathReports}, []string{"reports/t/r.pdf"}},
+		{AllPaths, []string{"backups/postgres/x", "reports/t/r.pdf"}},
+	} {
+		p := Diff(sc, ledger, now, 30*24*time.Hour, c.paths)
+		var got []string
+		for _, f := range p.Upload {
+			got = append(got, f.Rel)
+		}
+		if strings.Join(got, ",") != strings.Join(c.want, ",") || len(p.Delete) != 0 {
+			t.Errorf("paths %v: upload %v delete %v", c.paths, got, p.Delete)
+		}
+	}
+	if PathOf("archive/t/x") != "" || PathOf("reports/t/x") != PathReports || PathOf("backups/clickhouse/y") != PathBackups {
+		t.Error("PathOf")
 	}
 }
 

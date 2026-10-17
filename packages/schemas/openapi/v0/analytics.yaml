@@ -1002,8 +1002,14 @@ paths:
       description: |
         Solo por la API (docs/api.md §2.10 bis; sin URLs firmadas): `Content-Disposition: attachment`,
         `Cache-Control: no-store`, `Repr-Digest` con el SHA-256. Cada descarga queda en la auditoría
-        (`reports.download`). Otro ISP → `404`; aún no generado → `409 REPORT_NOT_READY`; archivos borrados por
-        la retención → `409 REPORT_EXPIRED`. CSV: zip con un archivo por sección, UTF-8 con BOM, separador `;`.
+        (`reports.download`, con la variante servida en `changes.variant`). Otro ISP → `404`; aún no generado →
+        `409 REPORT_NOT_READY`; archivos borrados por la retención → `409 REPORT_EXPIRED`. CSV: zip con un archivo
+        por sección, UTF-8 con BOM, separador `;`.
+
+        Datos personales: sin `customers.read` con alcance de todo el ISP (usuario o API token), se sirve la
+        variante enmascarada (IPv4 `100.64.1.x`, IPv6 el /48 y `…`, alias → `Cliente N`, estable dentro del
+        archivo). Una ejecución generada antes de existir esa variante no se sirve a quien no tiene
+        `customers.read` (`409 REPORT_NOT_READY`).
       x-module: analytics
       x-scope: tenant
       x-permission: reports.read
@@ -1025,6 +1031,9 @@ paths:
             Repr-Digest:
               description: SHA-256 del archivo (RFC 9530).
               schema: { type: string }
+            X-Horus-Report-Variant:
+              description: '`full` (con datos personales) o `masked` (enmascarados por permisos).'
+              schema: { type: string, enum: [full, masked] }
           content:
             application/pdf:
               schema: { type: string, format: binary }
@@ -1149,7 +1158,7 @@ components:
     ReportRun:
       type: object
       required: [id, tenant_id, kind, status, definition_id, scheduled, period_from, period_to, timezone, iso_week, formats, files,
-        size_bytes, error, created_by, created_at, started_at, completed_at, expires_at, expired]
+        size_bytes, personal_data_masked, error, created_by, created_at, started_at, completed_at, expires_at, expired]
       properties:
         id: { $ref: './common.yaml#/components/schemas/Uuid' }
         tenant_id: { $ref: './common.yaml#/components/schemas/Uuid' }
@@ -1172,7 +1181,13 @@ components:
         files:
           type: array
           items: { $ref: '#/components/schemas/ReportFile' }
+          description: Archivos de la variante que descargaría quien pregunta (ver `personal_data_masked`).
         size_bytes: { type: integer, format: int64, minimum: 0 }
+        personal_data_masked:
+          type: boolean
+          description: |
+            `true` si quien pregunta no tiene `customers.read` con alcance de todo el ISP: `files` (tamaño y SHA-256)
+            son los de la variante con las IPs y los alias de clientes enmascarados.
         error: { type: [string, 'null'], description: Motivo legible del fallo (sin detalles internos). }
         created_by:
           type: [string, 'null']

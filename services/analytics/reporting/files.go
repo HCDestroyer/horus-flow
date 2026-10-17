@@ -18,11 +18,16 @@ import (
 // Los archivos solo se sirven por la API (GET /reports/{id}/download).
 type Files struct{ Root string }
 
-// objectKey es la clave relativa a Root de un archivo de una ejecución.
-func objectKey(tenant, run uuid.UUID, format string) string {
-	name := run.String() + ".pdf"
+// objectKey es la clave relativa a Root de un archivo de una ejecución
+// (variante enmascarada: <run_id>-masked.pdf, <run_id>-masked-csv.zip).
+func objectKey(tenant, run uuid.UUID, format string, masked bool) string {
+	base := run.String()
+	if masked {
+		base += "-masked"
+	}
+	name := base + ".pdf"
 	if format == FormatCSV {
-		name = run.String() + "-csv.zip"
+		name = base + "-csv.zip"
 	}
 	return "reports/" + tenant.String() + "/" + name
 }
@@ -41,10 +46,10 @@ func (f Files) path(key string) (string, error) {
 	return filepath.Join(f.Root, filepath.FromSlash(key)), nil
 }
 
-// Write genera el archivo de format con render (a un temporal y rename
-// atómico) y devuelve su clave, sha256 y tamaño.
-func (f Files) Write(tenant, run uuid.UUID, format string, render func(io.Writer) error) (File, error) {
-	key := objectKey(tenant, run, format)
+// Write genera el archivo de format (y variante) con render (a un temporal
+// y rename atómico) y devuelve su clave, sha256 y tamaño.
+func (f Files) Write(tenant, run uuid.UUID, format string, masked bool, render func(io.Writer) error) (File, error) {
+	key := objectKey(tenant, run, format, masked)
 	dst, err := f.path(key)
 	if err != nil {
 		return File{}, err
@@ -76,7 +81,7 @@ func (f Files) Write(tenant, run uuid.UUID, format string, render func(io.Writer
 	if err := os.Rename(tmp.Name(), dst); err != nil {
 		return File{}, fmt.Errorf("reporting: rename: %w", err)
 	}
-	return File{Format: format, ObjectKey: key, SHA256: hex.EncodeToString(h.Sum(nil)), SizeBytes: cw.n}, nil
+	return File{Format: format, ObjectKey: key, SHA256: hex.EncodeToString(h.Sum(nil)), SizeBytes: cw.n, Masked: masked}, nil
 }
 
 // Open abre un archivo por su clave.

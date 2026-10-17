@@ -3484,6 +3484,7 @@
   "reports": {
     "title": "Reportes",
     "intro": "Reporte semanal de seguridad del ISP: hallazgos, clientes afectados, disponibilidad de routers, tráfico y avisos de la semana. Se genera solo cada semana y puedes pedirlo cuando quieras. Los archivos contienen IPs de clientes: solo se descargan desde aquí.",
+    "maskedNote": "Datos personales enmascarados por permisos",
     "generate": "Generar ahora",
     "generateTitle": "Generar reporte de seguridad",
     "generateBody": "Sin fechas se genera la última semana completa (lunes a domingo, zona horaria del ISP). Puedes elegir otro rango de hasta 31 días.",

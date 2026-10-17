@@ -84,6 +84,7 @@ func (m *memRepo) Update(_ context.Context, d *Destination, version int, reset b
 	}
 	c := *cur
 	c.Name, c.Host, c.Port, c.Username, c.Path, c.RetentionDays = d.Name, d.Host, d.Port, d.Username, d.Path, d.RetentionDays
+	c.Paths = d.Paths
 	c.Enabled, c.HostKeyFingerprint, c.VerifiedAt = d.Enabled, d.HostKeyFingerprint, d.VerifiedAt
 	c.Version++
 	m.dests[d.ID] = &c

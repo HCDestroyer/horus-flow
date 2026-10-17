@@ -162,9 +162,10 @@ func TestFullSyncIdempotentAndRetention(t *testing.T) {
 	id := readyDest(t, svc, srv, keyPEM, "frase", remoteDir)
 	ctx := platformCtx()
 
-	// Antes de copiar: pendientes calculados con el ledger vacío.
+	// Antes de copiar: pendientes calculados con el ledger vacío (7 de
+	// backups y 1 reporte: un destino nuevo replica backups y reports).
 	list, err := svc.List(ctx)
-	if err != nil || len(list) != 1 || list[0].Status != StatusPending || list[0].FilesPending == nil || *list[0].FilesPending != 7 {
+	if err != nil || len(list) != 1 || list[0].Status != StatusPending || list[0].FilesPending == nil || *list[0].FilesPending != 8 {
 		t.Fatalf("listado previo = %+v %v", list, err)
 	}
 
@@ -176,8 +177,11 @@ func TestFullSyncIdempotentAndRetention(t *testing.T) {
 	}
 	prefix := "horus-" + repo.inst.String()
 	ledger, _ := repo.Ledger(ctx, id)
-	if len(ledger) != 7 {
+	if len(ledger) != 8 {
 		t.Fatalf("ledger = %d entradas", len(ledger))
+	}
+	if _, ok := ledger["reports/t/r.pdf"]; !ok {
+		t.Fatal("el reporte no se replicó")
 	}
 	for rel, e := range ledger {
 		local, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
@@ -266,11 +270,84 @@ func TestFullSyncIdempotentAndRetention(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(remoteDir, prefix, "backups/postgres/backup/horus/backup.info.age")); err != nil {
 		t.Fatal("se borró del destino algo que sigue en local")
 	}
-	if ledger, _ = repo.Ledger(ctx, id); len(ledger) != 8 {
+	if ledger, _ = repo.Ledger(ctx, id); len(ledger) != 9 {
 		t.Fatalf("ledger tras retención = %d", len(ledger))
 	}
 	if d, _ = repo.Get(ctx, id); d.LastError != nil {
 		t.Fatalf("error tras retención: %s", *d.LastError)
+	}
+}
+
+// La selección de rutas del destino manda: sin reports no se suben los
+// reportes; al añadirla se suben cifrados con age y con su SHA-256 en el
+// ledger, igual que los backups (y su temporal de render nunca).
+func TestSyncRespectsSelectedPaths(t *testing.T) {
+	t.Parallel()
+	keyPEM, pub := clientKeyPEM(t, "")
+	srv := startSFTP(t, newHostSigner(t), "backup", "", pub)
+	idn, identity := testIdentity(t)
+	root := t.TempDir()
+	fakeBackups(t, root, time.Now().Add(-time.Hour))
+	svc, repo, audit := newTestService(t, root, idn.Recipient())
+	remoteDir := filepath.Join(t.TempDir(), "r")
+	id := readyDest(t, svc, srv, keyPEM, "", remoteDir)
+	ctx := platformCtx()
+	prefix := "horus-" + repo.inst.String()
+
+	d, _ := repo.Get(ctx, id)
+	v, err := svc.Update(ctx, id, d.Version, Patch{Paths: &[]string{PathBackups}}, AuditMeta{})
+	if err != nil || len(v.Paths) != 1 || v.Paths[0] != PathBackups || !v.Enabled {
+		t.Fatalf("solo backups: %+v %v", v, err)
+	}
+	audit.mu.Lock()
+	last := audit.entries[len(audit.entries)-1]
+	audit.mu.Unlock()
+	if last.Action != AuditUpdated || last.Changes["paths"] == nil {
+		t.Fatalf("el cambio de rutas no se auditó: %+v", last)
+	}
+	d, _ = repo.Get(ctx, id)
+	svc.SyncDestination(ctx, d)
+	reportRemote := filepath.Join(remoteDir, prefix, "reports/t/r.pdf.age")
+	if _, err := os.Stat(reportRemote); !os.IsNotExist(err) {
+		t.Fatalf("se subió un reporte sin tener reports seleccionado: %v", err)
+	}
+	if ledger, _ := repo.Ledger(ctx, id); len(ledger) != 7 {
+		t.Fatalf("ledger solo backups = %d", len(ledger))
+	}
+
+	v, err = svc.Update(ctx, id, v.Version, Patch{Paths: &[]string{PathReports, PathBackups}}, AuditMeta{})
+	if err != nil || len(v.Paths) != 2 || v.Paths[0] != PathBackups || v.Paths[1] != PathReports {
+		t.Fatalf("backups y reports: %+v %v", v, err)
+	}
+	d, _ = repo.Get(ctx, id)
+	svc.SyncDestination(ctx, d)
+	if d, _ = repo.Get(ctx, id); d.LastError != nil {
+		t.Fatalf("error: %s", *d.LastError)
+	}
+	ct, err := os.ReadFile(reportRemote)
+	if err != nil {
+		t.Fatal("el reporte no llegó al destino")
+	}
+	local, _ := os.ReadFile(filepath.Join(root, "reports/t/r.pdf"))
+	if bytes.Contains(ct, local) {
+		t.Fatal("el reporte está en claro en el destino")
+	}
+	if plain, err := DecryptAll(ct, identity); err != nil || !bytes.Equal(plain, local) {
+		t.Fatalf("el reporte no descifra igual: %v", err)
+	}
+	ledger, _ := repo.Ledger(ctx, id)
+	sum := sha256.Sum256(local)
+	if e, ok := ledger["reports/t/r.pdf"]; !ok || !bytes.Equal(e.SHA256, sum[:]) {
+		t.Fatalf("ledger del reporte = %+v", e)
+	}
+	if _, err := os.Stat(filepath.Join(remoteDir, prefix, "reports/t/.tmp-123456.age")); !os.IsNotExist(err) {
+		t.Fatal("se subió el temporal del render de reportes")
+	}
+	// Ruta desconocida o selección vacía → 422.
+	for _, bad := range [][]string{{}, {"archive"}} {
+		if _, err := svc.Update(ctx, id, v.Version, Patch{Paths: &bad}, AuditMeta{}); err == nil {
+			t.Fatalf("paths %v aceptado", bad)
+		}
 	}
 }
 

@@ -119,6 +119,9 @@ func csvSection(name string, d *Data, loc *time.Location) [][]string {
 			{"zona_horaria", loc.String()},
 			{"generado", FmtDateTime(d.GeneratedAt, loc)},
 		}
+		if d.Masked {
+			rows = append(rows, []string{"datos_personales", "enmascarados"}, []string{"nota_datos_personales", MaskedNote})
+		}
 		if sec != nil {
 			mttr := ""
 			if sec.MTTRSeconds != nil {

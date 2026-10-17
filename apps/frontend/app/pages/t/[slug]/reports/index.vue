@@ -30,6 +30,10 @@ const { data, error, status, refresh } = useTenantQuery('reports', async () => {
 })
 const runs = computed(() => [...(data.value?.data ?? []), ...extra.value])
 const pending = computed(() => runs.value.some(isReportPending))
+// Sin customers.read (de todo el ISP) la API sirve los archivos con IPs y alias enmascarados.
+const masked = computed(
+  () => !can('customers.read') || runs.value.some((r) => r.personal_data_masked),
+)
 useAutoRefresh(() => pending.value && refresh(), 5_000)
 useAutoRefresh(() => refresh(), 60_000)
 useRealtime('me', (m) => {
@@ -291,6 +295,14 @@ useHead({ title: () => t('reports.title') })
     <p class="text-muted mb-4 max-w-3xl text-sm">
       {{ t('reports.intro') }}
       <span v-if="definition" class="text-dimmed">{{ t('reports.zone', { zone: tz }) }}.</span>
+    </p>
+    <p
+      v-if="masked"
+      class="text-muted -mt-2 mb-4 flex items-center gap-1.5 text-xs"
+      data-testid="reports-masked-note"
+    >
+      <UIcon name="i-lucide-eye-off" class="size-3.5 shrink-0" aria-hidden="true" />
+      {{ t('reports.maskedNote') }}
     </p>
 
     <div class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">

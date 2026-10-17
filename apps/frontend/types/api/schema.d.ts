@@ -2912,8 +2912,14 @@ export interface paths {
          * Descarga el archivo de un reporte (PDF o zip de CSV), autenticada y auditada
          * @description Solo por la API (docs/api.md §2.10 bis; sin URLs firmadas): `Content-Disposition: attachment`,
          *     `Cache-Control: no-store`, `Repr-Digest` con el SHA-256. Cada descarga queda en la auditoría
-         *     (`reports.download`). Otro ISP → `404`; aún no generado → `409 REPORT_NOT_READY`; archivos borrados por
-         *     la retención → `409 REPORT_EXPIRED`. CSV: zip con un archivo por sección, UTF-8 con BOM, separador `;`.
+         *     (`reports.download`, con la variante servida en `changes.variant`). Otro ISP → `404`; aún no generado →
+         *     `409 REPORT_NOT_READY`; archivos borrados por la retención → `409 REPORT_EXPIRED`. CSV: zip con un archivo
+         *     por sección, UTF-8 con BOM, separador `;`.
+         *
+         *     Datos personales: sin `customers.read` con alcance de todo el ISP (usuario o API token), se sirve la
+         *     variante enmascarada (IPv4 `100.64.1.x`, IPv6 el /48 y `…`, alias → `Cliente N`, estable dentro del
+         *     archivo). Una ejecución generada antes de existir esa variante no se sirve a quien no tiene
+         *     `customers.read` (`409 REPORT_NOT_READY`).
          */
         get: operations["downloadReport"];
         put?: never;
@@ -5496,6 +5502,7 @@ export interface components {
             name: string;
             /** @description Directorio remoto donde se dejan las copias cifradas. */
             path: string;
+            paths: components["schemas"]["RemoteDestinationPaths"];
             port: number;
             /** @description Días que se conservan las copias en el destino. */
             retention_days?: number;
@@ -5513,6 +5520,7 @@ export interface components {
             kind: "sftp";
             name: string;
             path: string;
+            paths?: components["schemas"]["RemoteDestinationPaths"];
             /** @default 22 */
             port?: number;
             /** @default 30 */
@@ -5525,10 +5533,18 @@ export interface components {
             host?: string;
             name?: string;
             path?: string;
+            paths?: components["schemas"]["RemoteDestinationPaths"];
             port?: number;
             retention_days?: number;
             username?: string;
         };
+        /**
+         * @description Rutas del almacén que replica el destino (ADR-0019): `backups` = `backups/postgres` y `backups/clickhouse`;
+         *     `reports` = `reports/<tenant_id>/` (PDF y CSV de los reportes, con datos personales). Todo se cifra con age
+         *     en Horus antes de salir. Por defecto las dos. Quitar una ruta no borra nada del destino: sus copias solo
+         *     las retira la retención remota cuando el original ya no existe en local.
+         */
+        RemoteDestinationPaths: ("backups" | "reports")[];
         RemoteDestinationTestResult: {
             destination?: components["schemas"]["RemoteDestination"];
             error?: string | null;
@@ -5624,6 +5640,7 @@ export interface components {
              * @description Cuándo se borran los archivos (retención, 365 días por defecto).
              */
             expires_at: string | null;
+            /** @description Archivos de la variante que descargaría quien pregunta (ver `personal_data_masked`). */
             files: components["schemas"]["ReportFile"][];
             formats: components["schemas"]["ReportFormat"][];
             id: components["schemas"]["Uuid"];
@@ -5633,6 +5650,11 @@ export interface components {
             period_from: components["schemas"]["Timestamp"];
             /** @description Fin excluyente del periodo `[period_from, period_to)`. */
             period_to: components["schemas"]["Timestamp"];
+            /**
+             * @description `true` si quien pregunta no tiene `customers.read` con alcance de todo el ISP: `files` (tamaño y SHA-256)
+             *     son los de la variante con las IPs y los alias de clientes enmascarados.
+             */
+            personal_data_masked: boolean;
             scheduled: boolean;
             /** Format: int64 */
             size_bytes: number;
@@ -11731,6 +11753,8 @@ export interface operations {
                     "Content-Disposition"?: string;
                     /** @description SHA-256 del archivo (RFC 9530). */
                     "Repr-Digest"?: string;
+                    /** @description `full` (con datos personales) o `masked` (enmascarados por permisos). */
+                    "X-Horus-Report-Variant"?: "full" | "masked";
                     [name: string]: unknown;
                 };
                 content: {

@@ -44,11 +44,13 @@ puerto borra la huella y deshabilita; cambiar host, puerto, usuario o ruta reini
 5. `POST .../sync` (Idempotency-Key) encola una copia inmediata (`409 REMOTE_DESTINATION_NOT_READY`
 o `REMOTE_DESTINATION_SYNC_RUNNING`).
 
-El motor recorre `backups/postgres` y `backups/clickhouse` del almacén cada 10 min, sube cada
-archivo nuevo o cambiado cifrado con age a `<ruta>/horus-<id de instalación>/<relativa>.age`
+El motor recorre `backups/postgres`, `backups/clickhouse` y `reports/` del almacén cada 10 min
+y, de lo que el destino tiene seleccionado (`paths`: `backups` y/o `reports`, las dos por defecto),
+sube cada archivo nuevo o cambiado cifrado con age a `<ruta>/horus-<id de instalación>/<relativa>.age`
 (temporal `.partial` + renombrado), en serie y un destino cada vez, y apunta en el ledger su
 tamaño, mtime y SHA-256 en claro. La retención remota borra lo subido hace más de
-`retention_days` que ya no existe en local. Estado: `disabled`, `failing` (último intento
+`retention_days` que ya no existe en local (quitar una ruta de `paths` no borra nada del destino).
+Se omiten los temporales (`*.tmp`, `.tmp-*` del render de reportes). Estado: `disabled`, `failing` (último intento
 fallido), `pending` (sin copia aún), `lagging` (última copia correcta > 26 h), `ok`. Un fallo
 nunca afecta al resto de Horus.
 

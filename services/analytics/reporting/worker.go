@@ -213,21 +213,28 @@ func (w *Worker) Process(ctx context.Context, r *Run) {
 	def := w.definition(ctx, r)
 	name := w.tenantName(ctx, r.TenantID, def)
 	started := time.Now()
-	data := w.Collector.Collect(gctx, r.TenantID, name, r.Period())
+	full := w.Collector.Collect(gctx, r.TenantID, name, r.Period())
+	// Cada formato en dos variantes: completa (customers.read) y sin datos
+	// personales (el resto de quienes tienen reports.read). Se generan aquí,
+	// también en las programadas, para que la descarga solo elija archivo.
+	variants := []*Data{full, MaskData(full)}
 	var files []File
 	var failure string
-	for _, format := range r.Formats {
-		render := func(out io.Writer) error { return RenderPDF(out, data) }
-		if format == FormatCSV {
-			render = func(out io.Writer) error { return RenderCSV(out, data) }
+render:
+	for _, data := range variants {
+		for _, format := range r.Formats {
+			render := func(out io.Writer) error { return RenderPDF(out, data) }
+			if format == FormatCSV {
+				render = func(out io.Writer) error { return RenderCSV(out, data) }
+			}
+			f, err := w.Files.Write(r.TenantID, r.ID, format, data.Masked, render)
+			if err != nil {
+				log.ErrorContext(ctx, "reporting: render failed", slog.String("format", format), slog.Bool("masked", data.Masked), slog.Any("error", err))
+				failure = "No se pudo generar el archivo " + strings.ToUpper(format) + " (error interno o de escritura en el almacén local)."
+				break render
+			}
+			files = append(files, f)
 		}
-		f, err := w.Files.Write(r.TenantID, r.ID, format, render)
-		if err != nil {
-			log.ErrorContext(ctx, "reporting: render failed", slog.String("format", format), slog.Any("error", err))
-			failure = "No se pudo generar el archivo " + strings.ToUpper(format) + " (error interno o de escritura en el almacén local)."
-			break
-		}
-		files = append(files, f)
 	}
 	if ctx.Err() != nil {
 		return // apagado: la ejecución vuelve a la cola al vencer su plazo
@@ -294,10 +301,12 @@ func (w *Worker) tenantName(ctx context.Context, t uuid.UUID, d *Definition) str
 	return "ISP " + t.String()[:8]
 }
 
-// runEvent es el evento de dominio de una ejecución cerrada (ReportRun, events.md §8.10).
+// runEvent es el evento de dominio de una ejecución cerrada (ReportRun,
+// events.md §8.10). Lleva los archivos de la variante completa; los
+// enmascarados viven al lado (<id>-masked.*) y solo los elige la descarga.
 func runEvent(typ string, r *Run, at time.Time) outbox.Event {
 	files := make([]map[string]any, 0, len(r.Files))
-	for _, f := range r.Files {
+	for _, f := range r.VariantFiles(false) {
 		files = append(files, map[string]any{"format": f.Format, "object_key": f.ObjectKey, "sha256": f.SHA256, "size_bytes": f.SizeBytes})
 	}
 	var def, by any
@@ -352,7 +361,7 @@ func NoticeMessage(d *Definition, r *Run, name, baseURL string) mailer.Message {
 	} else {
 		b.WriteString("Descárguelo desde la consola de Horus Flow, sección Reportes (requiere iniciar sesión y el permiso de reportes).\n\n")
 	}
-	b.WriteString("Por seguridad, el reporte no va adjunto: contiene direcciones IP y alias de clientes.\n\n— Horus Flow\n")
+	b.WriteString("Por seguridad, el reporte no va adjunto: contiene direcciones IP y alias de clientes (quien no tenga el permiso de clientes lo descarga con esos datos enmascarados).\n\n— Horus Flow\n")
 	return mailer.Message{To: d.Recipients, Subject: subject, Text: b.String()}
 }
 

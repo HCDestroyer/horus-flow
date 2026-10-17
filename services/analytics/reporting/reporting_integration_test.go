@@ -66,7 +66,7 @@ func as(tenant uuid.UUID, perms ...string) context.Context {
 	return authz.WithPrincipal(context.Background(), p)
 }
 
-var allPerms = []string{PermRead, PermExport, PermSettings}
+var allPerms = []string{PermRead, PermExport, PermSettings, PermCustomers}
 
 func code(err error) string {
 	if e, ok := apperr.As(err); ok {
@@ -105,7 +105,7 @@ func TestReportsEndToEnd(t *testing.T) {
 		t.Fatalf("drain = %d", n)
 	}
 	got, err := e.svc.GetRun(ctxA, run.ID)
-	if err != nil || got.Status != StatusCompleted || len(got.Files) != 2 || got.ExpiresAt == nil {
+	if err != nil || got.Status != StatusCompleted || len(got.Files) != 4 || got.ExpiresAt == nil {
 		t.Fatalf("tras generar: %+v %v", got, err)
 	}
 	r, f, fh, err := e.svc.Download(ctxA, run.ID, "pdf", "198.51.100.4", "test")
@@ -121,11 +121,38 @@ func TestReportsEndToEnd(t *testing.T) {
 	if _, _, _, err := e.svc.Download(ctxB, run.ID, "pdf", "", ""); code(err) != CodeReportNotFound {
 		t.Fatalf("B descarga a A: %v", err)
 	}
-	// Auditoría por el outbox (auth no está en el proceso) y evento completed.
+	if f.Masked {
+		t.Fatal("con customers.read se sirve la variante completa")
+	}
+	// NOC (reports.read sin customers.read): variante enmascarada, distinta.
+	_, fm, fh, err := e.svc.Download(as(A, PermRead), run.ID, "csv", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = fh.Close()
+	if fc, _ := got.File(FormatCSV, false); !fm.Masked || fm.SHA256 == fc.SHA256 || fm.ObjectKey != "reports/"+A.String()+"/"+run.ID.String()+"-masked-csv.zip" {
+		t.Fatalf("descarga NOC = %+v", fm)
+	}
+	// Auditoría por el outbox (auth no está en el proceso) con la variante servida, y evento completed.
+	var variants []string
+	rows, err := e.db.Pool.Query(context.Background(), `SELECT payload->'data'->'changes'->>'variant' FROM analytics.outbox
+		WHERE subject LIKE 'horus.analytics.audit.recorded.%' ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var v string
+		_ = rows.Scan(&v)
+		variants = append(variants, v)
+	}
+	rows.Close()
+	if len(variants) != 2 || variants[0] != VariantFull || variants[1] != VariantMasked {
+		t.Fatalf("variantes auditadas = %v", variants)
+	}
 	var audits, completed int
 	_ = e.db.Pool.QueryRow(context.Background(), `SELECT count(*) FILTER (WHERE subject LIKE 'horus.analytics.audit.recorded.%'),
 		count(*) FILTER (WHERE subject = 'horus.reporting.report.completed.' || $1) FROM analytics.outbox`, run.ID.String()).Scan(&audits, &completed)
-	if audits != 1 || completed != 1 {
+	if audits != 2 || completed != 1 {
 		t.Fatalf("outbox: auditorías %d, completed %d", audits, completed)
 	}
 	// Archivos en reports/<tenant_id>/.

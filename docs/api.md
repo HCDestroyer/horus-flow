@@ -622,7 +622,7 @@ auditoría, [ADR-0017](./adr/0017-multi-tenant-desde-v1.md) §2).
 | `PUT /platform/users/{id}/platform-roles` 🔒 | auth | Sustituye los roles de plataforma (`[]` los quita; quitar alguno revoca sus sesiones). Nadie cambia los suyos (`403`). Ni este cambio ni un bloqueo dejan la instalación sin un `platform_admin` activo (`409 LAST_PLATFORM_ADMIN`). Quien los recibe debe activar TOTP antes de obtener un token de plataforma. | `platform.users.manage` |
 | `GET /platform/sessions` · `DELETE /platform/sessions/{id}` | auth | Sesiones de cualquier usuario. | `platform.users.manage` |
 | `GET /platform/audit-events` | auth | Auditoría de plataforma. | `platform.audit.read` |
-| `GET /platform/remote-destinations` · `POST` · `PATCH /platform/remote-destinations/{id}` · `DELETE` | jobs | Destinos remotos de copias (D2, [ADR-0019](./adr/0019-almacenamiento-local-y-destino-remoto.md)): `kind` `sftp` \| `gdrive` \| `dropbox` \| `mega`, parámetros no secretos, rutas a replicar (`backups/`, `archive/`, `audit/`, `reports/`), calendario, retención remota, `encryption: rclone_crypt` (obligatorio en nube de consumo). Estado: `last_success_at`, `lag_seconds`, `pending_bytes`, `last_error`. Cero destinos es válido. | `platform.storage.manage` |
+| `GET /platform/remote-destinations` · `POST` · `PATCH /platform/remote-destinations/{id}` · `DELETE` | jobs | Destinos remotos de copias (D2, [ADR-0019](./adr/0019-almacenamiento-local-y-destino-remoto.md)): `kind` `sftp` \| `gdrive` \| `dropbox` \| `mega`, parámetros no secretos, rutas a replicar (`paths`: hoy `backups` y `reports`, las dos por defecto; `archive/` y `audit/` llegarán con sus productores; quitar una ruta no borra nada del destino), calendario, retención remota, `encryption: rclone_crypt` (obligatorio en nube de consumo; el destino SFTP implementado cifra todo con age en Horus). Estado: `last_success_at`, `lag_seconds`, `pending_bytes`, `last_error`. Cero destinos es válido. | `platform.storage.manage` |
 | `PUT /platform/remote-destinations/{id}/credentials` 🔒 | jobs | Secretos write-only (llave SFTP, token OAuth, contraseña MEGA); nunca se devuelven. | `platform.storage.manage` |
 | `POST /platform/remote-destinations/{id}/test` | jobs | Escribe, lee, verifica y borra un objeto de prueba (`202`). | `platform.storage.manage` |
 | `POST /platform/remote-destinations/{id}/sync` | jobs | Fuerza una copia ahora (`202`). `Idempotency-Key` obligatorio. | `platform.storage.manage` |
@@ -787,10 +787,19 @@ todo el ISP: los permisos se exigen con alcance de tenant completo (un permiso l
 | --- | --- | --- |
 | `GET /reports` | Ejecuciones (programadas y a petición), más recientes primero, paginadas; filtro `kind`. | `reports.read` |
 | `POST /reports` | Genera a petición → `202` + `Location: /api/v1/reports/{id}`. Sin `from`/`to`: la última semana ISO completa (lunes 00:00 → lunes 00:00) en la zona del ISP; con rango, ≤ 31 días. `Idempotency-Key` **obligatoria** (misma clave del mismo usuario → misma ejecución, `Idempotency-Replayed: true`). 10 por usuario y hora (`429 RATE_LIMITED` + `Retry-After`; lo aplica el rol sobre `report_run`) y cubo por IP `reports` en el gateway. | `reports.export` |
-| `GET /reports/{id}` | Estado (`queued`, `running`, `completed`, `failed` con `error` legible), periodo, archivos (`format`, `size_bytes`, `sha256`), `expires_at`/`expired`. | `reports.read` |
-| `GET /reports/{id}/download?format=pdf\|csv` | Archivo (PDF o zip de CSV) con `Repr-Digest` (SHA-256). Auditado (`reports.download`). No generado → `409 REPORT_NOT_READY`; borrado por la retención → `409 REPORT_EXPIRED`. | `reports.read` |
+| `GET /reports/{id}` | Estado (`queued`, `running`, `completed`, `failed` con `error` legible), periodo, archivos (`format`, `size_bytes`, `sha256`) de la variante de quien pregunta, `personal_data_masked`, `expires_at`/`expired`. | `reports.read` |
+| `GET /reports/{id}/download?format=pdf\|csv` | Archivo (PDF o zip de CSV) con `Repr-Digest` (SHA-256) y `X-Horus-Report-Variant: full\|masked`. Auditado (`reports.download`, con `changes.variant`). No generado → `409 REPORT_NOT_READY`; borrado por la retención → `409 REPORT_EXPIRED`. | `reports.read` |
 | `GET /report-definitions` | Programación por tipo (se crea con los valores por defecto: habilitada, lunes 07:00 en la zona del ISP, PDF y CSV); `next_run_at`, `email_available`. | `reports.read` |
 | `PATCH /report-definitions/{id}` | Merge Patch con `If-Match`: `enabled`, `weekday` (ISO 1–7), `hour`, `minute`, `timezone`, `formats`, `recipients` (≤ 20; aviso por correo con el enlace a la consola, sin adjunto, si hay SMTP). Auditado. | `settings.manage` |
+
+**Datos personales en los reportes.** Los archivos llevan IPs y alias de clientes (clientes con más hallazgos,
+hallazgos críticos/altos). Quien tiene `reports.read` pero no `customers.read` con alcance de todo el ISP (p. ej. el rol
+`noc`, o un API token sin ese permiso) recibe la **variante enmascarada**: IPv4 `100.64.1.x`, IPv6 el /48 seguido de `…`,
+alias → `Cliente N` (estable dentro de un archivo, sin relación entre archivos), y las IPs del resumen de cada hallazgo
+también enmascaradas. El rol `reporting` genera las dos variantes de cada formato en cada ejecución (programada o a
+petición): la descarga solo elige archivo. `GET /reports*` describe la variante que esa persona descargaría
+(`personal_data_masked`, `files`, `size_bytes`). Una ejecución anterior a la variante no se sirve a quien no tiene
+`customers.read` (`409 REPORT_NOT_READY`: generarla de nuevo). El aviso por correo no lleva datos personales.
 
 El aviso "reporte listo/fallido" llega por WebSocket (topic `me`, `horus.reporting.report.completed|failed`). La
 capacidad `reports` de `GET /system/status` vale `ok` si el proceso sirve `/api/v1/reports`.

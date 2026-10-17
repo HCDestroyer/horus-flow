@@ -2,7 +2,8 @@
 // con la nota de 2026-10-12, docs/storage.md §4): destinos SFTP de plataforma
 // con credenciales write-only cifradas (KEK de jobs), confirmación TOFU de la
 // clave del servidor, y un motor que sube los archivos nuevos o cambiados de
-// backups/postgres y backups/clickhouse cifrados con age en Horus (el destino
+// backups/postgres, backups/clickhouse y reports/ (según las rutas
+// seleccionadas en cada destino) cifrados con age en Horus (el destino
 // nunca ve datos en claro), con ledger en PostgreSQL y retención remota.
 //
 // Regla de ADR-0019 §3: nada de Horus depende del destino. Un fallo solo
@@ -12,6 +13,7 @@ package remote
 import (
 	"fmt"
 	"net/netip"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -65,17 +67,56 @@ const (
 	MaxPrivateKeyLen = 16384
 )
 
+// Rutas del almacén que un destino puede replicar (RemoteDestination.paths,
+// ADR-0019 §2 "qué rutas replicar"): backups = backups/postgres y
+// backups/clickhouse; reports = reports/<tenant_id>/ (PDF y CSV del rol
+// reporting). Todas viajan cifradas con age igual que los backups.
+const (
+	PathBackups = "backups"
+	PathReports = "reports"
+)
+
+// AllPaths son las rutas admitidas, en orden canónico; también el valor por
+// defecto de un destino nuevo.
+var AllPaths = []string{PathBackups, PathReports}
+
+// NormalizePaths valida y ordena una selección de rutas (sin duplicados, al
+// menos una). ok=false si trae algo desconocido o está vacía.
+func NormalizePaths(in []string) ([]string, bool) {
+	if len(in) == 0 {
+		return nil, false
+	}
+	for _, p := range in {
+		if !slices.Contains(AllPaths, p) {
+			return nil, false
+		}
+	}
+	var out []string
+	for _, p := range AllPaths {
+		if slices.Contains(in, p) {
+			out = append(out, p)
+		}
+	}
+	return out, true
+}
+
+func pathsError() problem.FieldError {
+	return fieldErr("paths", "INVALID_VALUE", "Una o más de: "+strings.Join(AllPaths, ", ")+".")
+}
+
 // Destination es un destino remoto (fila de jobs.remote_destination, sin el
 // secreto en claro).
 type Destination struct {
-	ID                 uuid.UUID
-	Kind               string
-	Name               string
-	Host               string
-	Port               int
-	Username           string
-	Path               string
-	RetentionDays      int
+	ID            uuid.UUID
+	Kind          string
+	Name          string
+	Host          string
+	Port          int
+	Username      string
+	Path          string
+	RetentionDays int
+	// Paths: rutas del almacén que replica (AllPaths).
+	Paths              []string
 	Enabled            bool
 	HostKeyFingerprint *string
 	// Credencial sellada (envelope); nil = sin credenciales.
@@ -103,30 +144,32 @@ func (d *Destination) Ready() bool {
 
 // CreateInput es RemoteDestinationCreate.
 type CreateInput struct {
-	Kind          *string `json:"kind"`
-	Name          *string `json:"name"`
-	Host          *string `json:"host"`
-	Port          *int    `json:"port"`
-	Username      *string `json:"username"`
-	Path          *string `json:"path"`
-	RetentionDays *int    `json:"retention_days"`
+	Kind          *string   `json:"kind"`
+	Name          *string   `json:"name"`
+	Host          *string   `json:"host"`
+	Port          *int      `json:"port"`
+	Username      *string   `json:"username"`
+	Path          *string   `json:"path"`
+	RetentionDays *int      `json:"retention_days"`
+	Paths         *[]string `json:"paths"`
 }
 
 // Patch es RemoteDestinationPatch.
 type Patch struct {
-	Name          *string `json:"name"`
-	Host          *string `json:"host"`
-	Port          *int    `json:"port"`
-	Username      *string `json:"username"`
-	Path          *string `json:"path"`
-	RetentionDays *int    `json:"retention_days"`
-	Enabled       *bool   `json:"enabled"`
+	Name          *string   `json:"name"`
+	Host          *string   `json:"host"`
+	Port          *int      `json:"port"`
+	Username      *string   `json:"username"`
+	Path          *string   `json:"path"`
+	RetentionDays *int      `json:"retention_days"`
+	Paths         *[]string `json:"paths"`
+	Enabled       *bool     `json:"enabled"`
 }
 
 // Empty indica que el PATCH no trae ningún campo.
 func (p *Patch) Empty() bool {
 	return p.Name == nil && p.Host == nil && p.Port == nil && p.Username == nil && p.Path == nil &&
-		p.RetentionDays == nil && p.Enabled == nil
+		p.RetentionDays == nil && p.Paths == nil && p.Enabled == nil
 }
 
 // Credentials es el cuerpo de PUT .../credentials (write-only).
@@ -233,7 +276,7 @@ func fieldErr(field, code, msg string) problem.FieldError { return apperr.Field(
 // ValidateCreate valida el alta y devuelve el destino (sin id ni fechas).
 func ValidateCreate(in CreateInput) (*Destination, error) {
 	var fields []problem.FieldError
-	d := &Destination{Kind: "sftp", Port: DefaultPort, RetentionDays: DefaultRetention}
+	d := &Destination{Kind: "sftp", Port: DefaultPort, RetentionDays: DefaultRetention, Paths: slices.Clone(AllPaths)}
 	switch {
 	case in.Kind == nil:
 		fields = append(fields, fieldErr("kind", "REQUIRED", "Obligatorio."))
@@ -280,6 +323,13 @@ func ValidateCreate(in CreateInput) (*Destination, error) {
 			fields = append(fields, retentionError())
 		} else {
 			d.RetentionDays = *in.RetentionDays
+		}
+	}
+	if in.Paths != nil {
+		if ps, ok := NormalizePaths(*in.Paths); !ok {
+			fields = append(fields, pathsError())
+		} else {
+			d.Paths = ps
 		}
 	}
 	if len(fields) > 0 {
@@ -374,6 +424,13 @@ func ApplyPatch(cur *Destination, p Patch) (*Destination, Changes, error) {
 			next.RetentionDays = *p.RetentionDays
 		}
 	}
+	if p.Paths != nil {
+		if ps, ok := NormalizePaths(*p.Paths); !ok {
+			fields = append(fields, pathsError())
+		} else {
+			next.Paths = ps
+		}
+	}
 	if len(fields) > 0 {
 		return nil, ch, apperr.Validation(fields...)
 	}
@@ -383,6 +440,12 @@ func ApplyPatch(cur *Destination, p Patch) (*Destination, Changes, error) {
 	diff("username", cur.Username, next.Username)
 	diff("path", cur.Path, next.Path)
 	diff("retention_days", cur.RetentionDays, next.RetentionDays)
+	// Quitar una ruta no borra nada del destino: sus copias siguen en el
+	// ledger y solo las retira la retención remota cuando el original ya no
+	// existe en local (como cualquier otra copia).
+	if !slices.Equal(cur.Paths, next.Paths) {
+		ch.Fields["paths"] = map[string]any{"from": cur.Paths, "to": next.Paths}
+	}
 	if next.Host != cur.Host || next.Port != cur.Port {
 		ch.ResetHostKey, ch.ResetLedger, ch.Unverify = true, true, true
 		next.HostKeyFingerprint = nil

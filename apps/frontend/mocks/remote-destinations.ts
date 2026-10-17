@@ -36,6 +36,8 @@ export interface StoredDestination {
   username: string
   path: string
   retention_days: number
+  /** Rutas que replica (por defecto backups y reports, como la API). */
+  paths?: RemoteDestination['paths']
   enabled: boolean
   /** Tipo de credencial guardada (el secreto nunca se guarda ni se devuelve). */
   credentials: 'password' | 'private_key' | null
@@ -216,6 +218,7 @@ function present(d: StoredDestination, now: Date): RemoteDestination {
     has_credentials: d.credentials !== null,
     host_key_fingerprint: d.host_key_fingerprint,
     retention_days: d.retention_days,
+    paths: d.paths ?? ['backups', 'reports'],
     last_success_at: d.last_success_at,
     last_attempt_at: d.last_attempt_at,
     last_error: d.last_error,
@@ -331,6 +334,7 @@ function create(ctx: RemoteDestinationRouteContext) {
     username: String(trimmed(body.username)),
     path: String(trimmed(body.path)),
     retention_days: (body.retention_days as number | undefined) ?? 30,
+    paths: (body.paths as RemoteDestination['paths'] | undefined) ?? ['backups', 'reports'],
     enabled: false,
     credentials: null,
     host_key_fingerprint: null,
@@ -413,6 +417,7 @@ function update(ctx: RemoteDestinationRouteContext, d: StoredDestination) {
   }
   if ('port' in body) next.port = body.port as number
   if ('retention_days' in body) next.retention_days = body.retention_days as number
+  if ('paths' in body) next.paths = body.paths as RemoteDestination['paths']
   // Otro servidor: la huella confirmada ya no vale y se deshabilita hasta volver a probarlo.
   const serverMoved = next.host.toLowerCase() !== d.host.toLowerCase() || next.port !== d.port
   if (serverMoved) {
