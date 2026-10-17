@@ -60,6 +60,8 @@ type Data struct {
 	TenantName  string
 	Period      Period
 	GeneratedAt time.Time
+	// Masked: variante sin datos personales de clientes (MaskData).
+	Masked bool
 
 	Security     *secapi.Report
 	SecurityNote string

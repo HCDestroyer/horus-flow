@@ -113,6 +113,7 @@ function seed(tenant: MockTenant, now: Date): ReportsState {
       formats: ['pdf', 'csv'],
       files: files(id, ['pdf', 'csv'], hash(id)),
       size_bytes: 0,
+      personal_data_masked: false,
       error: null,
       created_by: null,
       created_at: iso(to + 7 * 3_600_000),
@@ -138,6 +139,7 @@ function seed(tenant: MockTenant, now: Date): ReportsState {
     formats: ['pdf'],
     files: [],
     size_bytes: 0,
+    personal_data_masked: false,
     error: 'No se pudo generar el archivo PDF (error interno o de escritura en el almacén local).',
     created_by: mockUuid('0192aaaa', 1),
     created_at: iso(thisWeek.getTime() - 2 * 86_400_000),
@@ -208,6 +210,9 @@ export function reportRoutes(ctx: TenantRouteContext): Response | undefined {
     return undefined
   }
   if (!ctx.can('reports.read')) return forbidden()
+  // Como la API: sin customers.read, la variante con datos personales enmascarados.
+  const masked = !ctx.can('customers.read')
+  const view = (r: ReportRun): ReportRun => ({ ...r, personal_data_masked: masked })
   const st = reportsOf(ctx.tenant, ctx.now)
   advance(st, ctx.now)
 
@@ -267,7 +272,7 @@ export function reportRoutes(ctx: TenantRouteContext): Response | undefined {
       const list = [...st.runs]
         .filter((r) => !kind || r.kind === kind)
         .sort((a, b) => b.created_at.localeCompare(a.created_at))
-      return json(paginate(ctx.empty ? [] : list, ctx.url, 20))
+      return json(paginate(ctx.empty ? [] : list.map(view), ctx.url, 20))
     }
     if (ctx.method === 'POST') {
       if (!ctx.can('reports.export')) return forbidden()
@@ -301,7 +306,7 @@ export function reportRoutes(ctx: TenantRouteContext): Response | undefined {
       const id = mockUuid('0196a2a0', hash(key))
       const existing = st.runs.find((r) => r.id === id)
       if (existing)
-        return json(existing, 202, {
+        return json(view(existing), 202, {
           Location: `/api/v1/reports/${id}`,
           'Idempotency-Replayed': 'true',
         })
@@ -319,6 +324,7 @@ export function reportRoutes(ctx: TenantRouteContext): Response | undefined {
         formats: b.formats?.length ? b.formats : ['pdf', 'csv'],
         files: [],
         size_bytes: 0,
+        personal_data_masked: false,
         error: null,
         created_by: ctx.userId,
         created_at: ctx.now.toISOString(),
@@ -328,7 +334,7 @@ export function reportRoutes(ctx: TenantRouteContext): Response | undefined {
         expired: false,
       }
       st.runs.unshift(run)
-      return json(run, 202, { Location: `/api/v1/reports/${id}` })
+      return json(view(run), 202, { Location: `/api/v1/reports/${id}` })
     }
   }
 
@@ -336,19 +342,21 @@ export function reportRoutes(ctx: TenantRouteContext): Response | undefined {
   if (m && ctx.method === 'GET') {
     const run = st.runs.find((r) => r.id === m[1])
     if (!run) return notFound('REPORT_NOT_FOUND')
-    if (!m[2]) return json(run)
+    if (!m[2]) return json(view(run))
     const format = (ctx.url.searchParams.get('format') ?? 'pdf') as ReportFormat
     if (run.status !== 'completed' || !run.files.some((f) => f.format === format)) {
       return problem(409, 'REPORT_NOT_READY', 'Reporte no disponible')
     }
     const body = format === 'pdf' ? PDF_BYTES : EMPTY_ZIP
-    const name = `horus-seguridad-${run.iso_week}-${run.id.slice(0, 8)}${format === 'pdf' ? '.pdf' : '-csv.zip'}`
+    const suffix = (masked ? '-enmascarado' : '') + (format === 'pdf' ? '.pdf' : '-csv.zip')
+    const name = `horus-seguridad-${run.iso_week}-${run.id.slice(0, 8)}${suffix}`
     return new Response(body, {
       status: 200,
       headers: {
         'Content-Type': format === 'pdf' ? 'application/pdf' : 'application/zip',
         'Content-Disposition': `attachment; filename="${name}"`,
         'Cache-Control': 'no-store',
+        'X-Horus-Report-Variant': masked ? 'masked' : 'full',
       },
     })
   }

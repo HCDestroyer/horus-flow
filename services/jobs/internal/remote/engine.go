@@ -137,7 +137,7 @@ func (s *Service) syncDestination(ctx context.Context, d *Destination) *syncFail
 	if err != nil {
 		return &syncFailure{"local", err}
 	}
-	plan := Diff(sc, ledger, s.o.Now(), time.Duration(d.RetentionDays)*24*time.Hour)
+	plan := Diff(sc, ledger, s.o.Now(), time.Duration(d.RetentionDays)*24*time.Hour, d.Paths)
 	if len(plan.Upload) == 0 && len(plan.Delete) == 0 {
 		// Todo lo local ya está en el destino según el ledger.
 		return nil

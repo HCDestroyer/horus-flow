@@ -25,13 +25,13 @@ type Store struct{ db *pgdb.DB }
 // NewStore crea el almacén.
 func NewStore(db *pgdb.DB) *Store { return &Store{db: db} }
 
-const destCols = `id, kind, name, host, port, username, path, retention_days, enabled, host_key_fingerprint,
+const destCols = `id, kind, name, host, port, username, path, retention_days, paths, enabled, host_key_fingerprint,
   credential_ciphertext, credential_dek_wrapped, coalesce(credential_kek_id, ''), coalesce(credential_kind, ''), verified_at,
   last_success_at, last_attempt_at, last_error, created_at, updated_at, version`
 
 func scanDest(row pgx.Row) (*Destination, error) {
 	var d Destination
-	err := row.Scan(&d.ID, &d.Kind, &d.Name, &d.Host, &d.Port, &d.Username, &d.Path, &d.RetentionDays, &d.Enabled,
+	err := row.Scan(&d.ID, &d.Kind, &d.Name, &d.Host, &d.Port, &d.Username, &d.Path, &d.RetentionDays, &d.Paths, &d.Enabled,
 		&d.HostKeyFingerprint, &d.CredentialCiphertext, &d.CredentialDEK, &d.CredentialKEKID, &d.CredentialKind, &d.VerifiedAt,
 		&d.LastSuccessAt, &d.LastAttemptAt, &d.LastError, &d.CreatedAt, &d.UpdatedAt, &d.Version)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -96,15 +96,23 @@ func mapWriteErr(err error) error {
 	return err
 }
 
+// pathsOrDefault: sin selección explícita, todas las rutas (valor por defecto de la columna).
+func pathsOrDefault(p []string) []string {
+	if len(p) == 0 {
+		return AllPaths
+	}
+	return p
+}
+
 // Create inserta un destino.
 func (s *Store) Create(ctx context.Context, d *Destination) (*Destination, error) {
 	var out *Destination
 	err := s.db.PlatformTx(ctx, func(tx pgx.Tx) error {
 		var err error
 		out, err = scanDest(tx.QueryRow(ctx, `INSERT INTO jobs.remote_destination
-			(id, kind, name, host, port, username, path, retention_days, enabled)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false) RETURNING `+destCols,
-			d.ID, d.Kind, d.Name, d.Host, d.Port, d.Username, d.Path, d.RetentionDays))
+			(id, kind, name, host, port, username, path, retention_days, paths, enabled)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false) RETURNING `+destCols,
+			d.ID, d.Kind, d.Name, d.Host, d.Port, d.Username, d.Path, d.RetentionDays, pathsOrDefault(d.Paths)))
 		return err
 	})
 	if err != nil {
@@ -122,9 +130,10 @@ func (s *Store) Update(ctx context.Context, d *Destination, version int, resetLe
 		var err error
 		out, err = scanDest(tx.QueryRow(ctx, `UPDATE jobs.remote_destination SET name = $3, host = $4, port = $5,
 			username = $6, path = $7, retention_days = $8, enabled = $9, host_key_fingerprint = $10, verified_at = $11,
-			updated_at = now(), version = version + 1
+			paths = $12, updated_at = now(), version = version + 1
 			WHERE id = $1 AND version = $2 RETURNING `+destCols,
-			d.ID, version, d.Name, d.Host, d.Port, d.Username, d.Path, d.RetentionDays, d.Enabled, d.HostKeyFingerprint, d.VerifiedAt))
+			d.ID, version, d.Name, d.Host, d.Port, d.Username, d.Path, d.RetentionDays, d.Enabled, d.HostKeyFingerprint, d.VerifiedAt,
+			pathsOrDefault(d.Paths)))
 		if errors.Is(err, ErrNotFound) {
 			return s.versionOrMissing(ctx, tx, d.ID)
 		}

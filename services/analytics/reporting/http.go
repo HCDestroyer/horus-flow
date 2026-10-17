@@ -63,10 +63,13 @@ func tsPtr(t *time.Time) any {
 	return fmtTS(*t)
 }
 
-// RunJSON es la representación ReportRun del contrato.
-func RunJSON(r *Run) map[string]any {
-	files := make([]map[string]any, 0, len(r.Files))
-	for _, f := range r.Files {
+// RunJSON es la representación ReportRun del contrato para quien la pide:
+// files, size_bytes y personal_data_masked describen la variante que esa
+// persona descargaría (MaskedFor).
+func RunJSON(r *Run, masked bool) map[string]any {
+	variant := r.VariantFiles(masked)
+	files := make([]map[string]any, 0, len(variant))
+	for _, f := range variant {
 		files = append(files, map[string]any{"format": f.Format, "size_bytes": f.SizeBytes, "sha256": f.SHA256,
 			"download_path": "/api/v1/reports/" + r.ID.String() + "/download?format=" + f.Format})
 	}
@@ -81,7 +84,7 @@ func RunJSON(r *Run) map[string]any {
 	return map[string]any{
 		"id": r.ID, "tenant_id": r.TenantID, "kind": r.Kind, "status": r.Status, "definition_id": def, "scheduled": r.DefinitionID != nil,
 		"period_from": fmtTS(r.PeriodFrom), "period_to": fmtTS(r.PeriodTo), "timezone": r.Timezone, "iso_week": fmt.Sprintf("%d-W%02d", y, wk),
-		"formats": r.Formats, "files": files, "size_bytes": r.SizeBytes(), "error": r.Error, "created_by": by,
+		"formats": r.Formats, "files": files, "size_bytes": sumSize(variant), "personal_data_masked": masked, "error": r.Error, "created_by": by,
 		"created_at": fmtTS(r.CreatedAt), "started_at": tsPtr(r.StartedAt), "completed_at": tsPtr(r.CompletedAt),
 		"expires_at": tsPtr(r.ExpiresAt), "expired": r.PurgedAt != nil,
 	}
@@ -127,9 +130,10 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
+	masked := MaskedCtx(r.Context())
 	data := make([]map[string]any, 0, len(rows))
 	for i := range rows {
-		data = append(data, RunJSON(&rows[i]))
+		data = append(data, RunJSON(&rows[i], masked))
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	jsonapi.Write(w, http.StatusOK, map[string]any{"data": data, "page": pg})
@@ -154,7 +158,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	if replayed {
 		w.Header().Set("Idempotency-Replayed", "true")
 	}
-	jsonapi.Write(w, http.StatusAccepted, RunJSON(run))
+	jsonapi.Write(w, http.StatusAccepted, RunJSON(run, MaskedCtx(r.Context())))
 }
 
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
@@ -168,7 +172,7 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	jsonapi.Write(w, http.StatusOK, RunJSON(run))
+	jsonapi.Write(w, http.StatusOK, RunJSON(run, MaskedCtx(r.Context())))
 }
 
 // download sirve el archivo: attachment, no-store, nosniff y el sha256 en
@@ -188,6 +192,9 @@ func (h *Handler) download(w http.ResponseWriter, r *http.Request) {
 	if f.Format == FormatCSV {
 		ctype, ext = "application/zip", "-csv.zip"
 	}
+	if f.Masked {
+		ext = "-enmascarado" + ext
+	}
 	y, wk := run.Period().ISOWeek()
 	name := fmt.Sprintf("horus-seguridad-%d-W%02d-%s%s", y, wk, run.ID.String()[:8], ext)
 	if run.DefinitionID == nil {
@@ -198,6 +205,11 @@ func (h *Handler) download(w http.ResponseWriter, r *http.Request) {
 	hd.Set("Content-Disposition", `attachment; filename="`+name+`"`)
 	hd.Set("Cache-Control", "no-store")
 	hd.Set("X-Content-Type-Options", "nosniff")
+	variant := VariantFull
+	if f.Masked {
+		variant = VariantMasked
+	}
+	hd.Set("X-Horus-Report-Variant", variant)
 	hd.Set("Content-Length", strconv.FormatInt(f.SizeBytes, 10))
 	if sum, err := hex.DecodeString(f.SHA256); err == nil {
 		hd.Set("Repr-Digest", "sha-256=:"+base64.StdEncoding.EncodeToString(sum)+":")

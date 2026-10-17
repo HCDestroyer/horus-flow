@@ -74,6 +74,11 @@ Paquete `services/analytics/reporting` (el rol vive en este módulo: mismo esque
 - **Formatos:** PDF A4 imprimible (go-pdf/fpdf, Helvetica estándar en cp1252, identidad Horus en
   claro, salida reproducible) y zip de CSV (uno por sección, UTF-8 con BOM, `;`, decimales con coma,
   fórmulas neutralizadas). Archivos en `$HORUS_DATA_DIR/reports/<tenant_id>/<run_id>.pdf|-csv.zip`.
+- **Datos personales:** cada formato se genera también enmascarado (`<run_id>-masked.pdf|-masked-csv.zip`,
+  `mask.go`: IPv4 `a.b.c.x`, IPv6 /48 + `…`, alias → `Cliente N` estable en el archivo, IPs del resumen
+  de los hallazgos enmascaradas). La descarga sirve esa variante a quien no tiene `customers.read` de
+  todo el ISP (usuarios y API tokens), la anota en la auditoría (`changes.variant`) y en la cabecera
+  `X-Horus-Report-Variant`; `GET /reports*` devuelve `personal_data_masked` y los archivos de esa variante.
 - **Cola y programación:** `analytics.report_definition` (una por ISP y tipo; por defecto habilitada,
   lunes 07:00 en la zona del ISP, PDF y CSV) y `analytics.report_run` (verdad de la cola; el worker
   reclama con `FOR UPDATE SKIP LOCKED`, plazo de 15 min y 3 intentos). El planificador encola una

@@ -472,6 +472,10 @@ func cover(p *pdfDoc, d *Data, week, year int) {
 	f.SetX(margin)
 	p.color(colMuted)
 	p.cell(contentW, 6, fmt.Sprintf("Zona horaria: %s · Generado el %s", loc.String(), FmtDateTime(d.GeneratedAt, loc)), "", 1, "L", false)
+	if d.Masked {
+		f.SetX(margin)
+		p.cell(contentW, 6, p.fit(MaskedNote, contentW), "", 1, "L", false)
+	}
 	f.Ln(8)
 
 	// Indicadores principales.
@@ -589,7 +593,11 @@ func sections(p *pdfDoc, d *Data) {
 	if s == nil {
 		p.notice(d.SecurityNote)
 	} else {
-		p.paragraph("Hasta 10 clientes con más hallazgos activos al generar el reporte. Se muestra el alias del cliente o, si no tiene, su dirección IP.")
+		if d.Masked {
+			p.paragraph("Hasta 10 clientes con más hallazgos activos al generar el reporte. " + MaskedNote)
+		} else {
+			p.paragraph("Hasta 10 clientes con más hallazgos activos al generar el reporte. Se muestra el alias del cliente o, si no tiene, su dirección IP.")
+		}
 		var rows [][]cellv
 		for _, c := range s.TopCustomers {
 			name := c.Address

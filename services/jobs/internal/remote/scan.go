@@ -8,16 +8,31 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 )
 
-// Roots son las carpetas del almacén que se copian (relativas a
+// Roots son las carpetas del almacén que se recorren (relativas a
 // HORUS_DATA_DIR): repositorio pgBackRest y BACKUP nativos de ClickHouse
-// (docs/storage.md §2.2). El resto del almacén (archive/, audit/…) llega con
-// sus productores.
-var Roots = []string{"backups/postgres", "backups/clickhouse"}
+// (docs/storage.md §2.2) y los reportes del rol reporting. Cada destino sube
+// solo las de su selección (Destination.Paths, [PathOf]). El resto del
+// almacén (archive/, audit/…) llega con sus productores.
+var Roots = []string{"backups/postgres", "backups/clickhouse", "reports"}
+
+// PathOf devuelve la ruta seleccionable (PathBackups, PathReports) a la que
+// pertenece un archivo del almacén ("" si ninguna).
+func PathOf(rel string) string {
+	top, _, _ := strings.Cut(rel, "/")
+	switch top {
+	case "backups":
+		return PathBackups
+	case "reports":
+		return PathReports
+	}
+	return ""
+}
 
 // LocalFile es un archivo del almacén candidato a copiarse.
 type LocalFile struct {
@@ -45,8 +60,9 @@ var chNameRe = regexp.MustCompile(`^(full|incr)_\d{8}T\d{6}Z$`)
 
 // ScanStore recorre las carpetas de [Roots] bajo root. settle es el tiempo
 // sin cambios que se exige a un archivo (se está escribiendo si su mtime es
-// más reciente). Se omiten enlaces simbólicos, temporales (*.tmp) y los
-// backups aún incompletos.
+// más reciente). Se omiten enlaces simbólicos, temporales (*.tmp y .tmp-*,
+// los del render de reportes antes del rename atómico) y los backups aún
+// incompletos.
 func ScanStore(root string, now time.Time, settle time.Duration) (*Scan, error) {
 	sc := &Scan{Present: map[string]bool{}, At: now}
 	for _, top := range Roots {
@@ -73,7 +89,7 @@ func ScanStore(root string, now time.Time, settle time.Duration) (*Scan, error) 
 				return nil
 			}
 			sc.Present[rel] = true
-			if strings.HasSuffix(de.Name(), ".tmp") {
+			if strings.HasSuffix(de.Name(), ".tmp") || strings.HasPrefix(de.Name(), ".tmp") {
 				return nil
 			}
 			info, err := de.Info()
@@ -152,12 +168,16 @@ type Plan struct {
 }
 
 // Diff compara el almacén con el ledger de un destino: sube lo que no está
-// o cambió (tamaño o mtime) y borra del destino lo que venció su retención
-// (subido hace más de retention) y ya no existe en local. Nunca borra algo
-// que sigue en local.
-func Diff(sc *Scan, ledger map[string]LedgerEntry, now time.Time, retention time.Duration) Plan {
+// o cambió (tamaño o mtime) de las rutas seleccionadas (paths) y borra del
+// destino lo que venció su retención (subido hace más de retention) y ya no
+// existe en local. Nunca borra algo que sigue en local, aunque su ruta ya no
+// esté seleccionada.
+func Diff(sc *Scan, ledger map[string]LedgerEntry, now time.Time, retention time.Duration, paths []string) Plan {
 	var p Plan
 	for _, f := range sc.Files {
+		if !slices.Contains(paths, PathOf(f.Rel)) {
+			continue
+		}
 		e, ok := ledger[f.Rel]
 		if ok && e.Size == f.Size && e.MTime.Equal(f.MTime) {
 			continue

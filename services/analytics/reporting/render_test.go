@@ -287,7 +287,7 @@ func TestFilesStore(t *testing.T) {
 	t.Parallel()
 	fs := Files{Root: t.TempDir()}
 	tenant, run := uuid.New(), uuid.New()
-	f, err := fs.Write(tenant, run, FormatCSV, func(w io.Writer) error { _, err := io.WriteString(w, "hola"); return err })
+	f, err := fs.Write(tenant, run, FormatCSV, false, func(w io.Writer) error { _, err := io.WriteString(w, "hola"); return err })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -310,10 +310,10 @@ func TestFilesStore(t *testing.T) {
 		}
 	}
 	// Un render que falla no deja archivo.
-	if _, err := fs.Write(tenant, run, FormatPDF, func(io.Writer) error { return errors.New("boom") }); err == nil {
+	if _, err := fs.Write(tenant, run, FormatPDF, false, func(io.Writer) error { return errors.New("boom") }); err == nil {
 		t.Fatal("quiero error")
 	}
-	if _, err := fs.Open(objectKey(tenant, run, FormatPDF)); err == nil {
+	if _, err := fs.Open(objectKey(tenant, run, FormatPDF, false)); err == nil {
 		t.Fatal("quedó un archivo de un render fallido")
 	}
 	if err := fs.Remove(f.ObjectKey); err != nil || fs.Remove(f.ObjectKey) != nil {

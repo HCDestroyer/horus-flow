@@ -270,7 +270,10 @@ tráfico (`flows.site_1h`) leídos de ClickHouse, y avisos enviados por `alerts/
 el proceso, perfil estándar, esa sección sale con una nota). La cola es la tabla `report_run`, no el stream `WORK`:
 la verdad ya estaba en PostgreSQL y así una réplica sin NATS sigue generando; el planificador encola una ejecución
 por definición y periodo (índice único parcial), seguro con varias réplicas. Retención de archivos
-`HORUS_REPORTS_RETENTION_DAYS` (365). Detalle en [`services/analytics/README.md`](../services/analytics/README.md).
+`HORUS_REPORTS_RETENTION_DAYS` (365). Cada formato se genera en dos variantes: completa (`<id>.pdf`, `<id>-csv.zip`)
+y con los datos personales enmascarados (`<id>-masked.pdf`, `<id>-masked-csv.zip`) para quien no tiene
+`customers.read` ([api.md §2.10 bis](api.md)). El rol `jobs` replica `reports/` a los destinos remotos que lo tengan
+seleccionado, cifrado con age. Detalle en [`services/analytics/README.md`](../services/analytics/README.md).
 
 ### jobs (rol)
 

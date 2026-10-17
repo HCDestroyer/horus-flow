@@ -1204,7 +1204,7 @@ components:
           items: { $ref: '#/components/schemas/WireguardPool' }
     RemoteDestination:
       type: object
-      required: [id, kind, name, status, host, port, username, path, enabled, has_credentials, version]
+      required: [id, kind, name, status, host, port, username, path, paths, enabled, has_credentials, version]
       properties:
         id: { $ref: './common.yaml#/components/schemas/Uuid' }
         kind: { type: string, enum: [sftp, gdrive, dropbox, mega] }
@@ -1218,6 +1218,7 @@ components:
         has_credentials: { type: boolean }
         host_key_fingerprint: { type: [string, 'null'], description: 'Huella SHA256:… confirmada de la clave del servidor.' }
         retention_days: { type: integer, minimum: 1, maximum: 3650, description: Días que se conservan las copias en el destino. }
+        paths: { $ref: '#/components/schemas/RemoteDestinationPaths' }
         last_success_at:
           oneOf:
             - $ref: './common.yaml#/components/schemas/Timestamp'
@@ -1231,6 +1232,16 @@ components:
         files_pending: { type: [integer, 'null'] }
         bytes_pending: { type: [integer, 'null'] }
         version: { $ref: './common.yaml#/components/schemas/Version' }
+    RemoteDestinationPaths:
+      type: array
+      minItems: 1
+      uniqueItems: true
+      items: { type: string, enum: [backups, reports] }
+      description: |
+        Rutas del almacén que replica el destino (ADR-0019): `backups` = `backups/postgres` y `backups/clickhouse`;
+        `reports` = `reports/<tenant_id>/` (PDF y CSV de los reportes, con datos personales). Todo se cifra con age
+        en Horus antes de salir. Por defecto las dos. Quitar una ruta no borra nada del destino: sus copias solo
+        las retira la retención remota cuando el original ya no existe en local.
     RemoteDestinationCreate:
       type: object
       required: [kind, name, host, username, path]
@@ -1243,6 +1254,7 @@ components:
         username: { type: string, minLength: 1, maxLength: 128 }
         path: { type: string, minLength: 1, maxLength: 1024 }
         retention_days: { type: integer, minimum: 1, maximum: 3650, default: 30 }
+        paths: { $ref: '#/components/schemas/RemoteDestinationPaths' }
     RemoteDestinationPatch:
       type: object
       additionalProperties: false
@@ -1254,6 +1266,7 @@ components:
         username: { type: string, minLength: 1, maxLength: 128 }
         path: { type: string, minLength: 1, maxLength: 1024 }
         retention_days: { type: integer, minimum: 1, maximum: 3650 }
+        paths: { $ref: '#/components/schemas/RemoteDestinationPaths' }
         enabled: { type: boolean, description: Solo se habilita con credenciales y huella confirmada. }
     RemoteDestinationTestResult:
       type: object

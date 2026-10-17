@@ -89,6 +89,9 @@ type File struct {
 	ObjectKey string `json:"object_key"` // relativo a HORUS_DATA_DIR: reports/<tenant_id>/<run_id>.<ext>
 	SHA256    string `json:"sha256"`
 	SizeBytes int64  `json:"size_bytes"`
+	// Masked: variante sin datos personales (para quien no tiene customers.read).
+	// Las ejecuciones anteriores a la variante solo tienen la completa.
+	Masked bool `json:"masked,omitempty"`
 }
 
 // Run es una ejecución (analytics.report_run).
@@ -118,20 +121,33 @@ func (r *Run) Period() Period {
 	return Period{From: r.PeriodFrom, To: r.PeriodTo, Loc: LoadLocation(r.Timezone)}
 }
 
-// File devuelve el archivo de un formato.
-func (r *Run) File(format string) (File, bool) {
+// File devuelve el archivo de un formato en la variante pedida.
+func (r *Run) File(format string, masked bool) (File, bool) {
 	for _, f := range r.Files {
-		if f.Format == format {
+		if f.Format == format && f.Masked == masked {
 			return f, true
 		}
 	}
 	return File{}, false
 }
 
-// SizeBytes es la suma de los archivos.
-func (r *Run) SizeBytes() int64 {
-	var n int64
+// VariantFiles son los archivos de una variante, en el orden de los formatos.
+func (r *Run) VariantFiles(masked bool) []File {
+	out := []File{}
 	for _, f := range r.Files {
+		if f.Masked == masked {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// SizeBytes es la suma de los archivos de la variante completa.
+func (r *Run) SizeBytes() int64 { return sumSize(r.VariantFiles(false)) }
+
+func sumSize(files []File) int64 {
+	var n int64
+	for _, f := range files {
 		n += f.SizeBytes
 	}
 	return n

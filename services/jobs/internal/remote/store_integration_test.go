@@ -68,7 +68,7 @@ func TestStorePostgres(t *testing.T) {
 	d := &Destination{ID: uuid.Must(uuid.NewV7()), Kind: "sftp", Name: "NAS", Host: "nas.example", Port: 22, Username: "u",
 		Path: "/copias", RetentionDays: 30}
 	got, err := st.Create(ctx, d)
-	if err != nil || got.Version != 1 || got.Enabled || got.HasCredentials() {
+	if err != nil || got.Version != 1 || got.Enabled || got.HasCredentials() || strings.Join(got.Paths, ",") != "backups,reports" {
 		t.Fatalf("create = %+v %v", got, err)
 	}
 	dup := *d
@@ -82,9 +82,15 @@ func TestStorePostgres(t *testing.T) {
 	if _, err := st.Update(ctx, &bad, 1, false); err == nil {
 		t.Fatal("la base aceptó un destino habilitado sin credenciales")
 	}
+	// Ruta desconocida: la rechaza también la base (CHECK).
+	bad = *got
+	bad.Paths = []string{"archive"}
+	if _, err := st.Update(ctx, &bad, 1, false); err == nil {
+		t.Fatal("la base aceptó una ruta desconocida")
+	}
 	next := *got
-	next.Name = "NAS 2"
-	if got, err = st.Update(ctx, &next, 1, false); err != nil || got.Version != 2 || got.Name != "NAS 2" {
+	next.Name, next.Paths = "NAS 2", []string{PathReports}
+	if got, err = st.Update(ctx, &next, 1, false); err != nil || got.Version != 2 || got.Name != "NAS 2" || strings.Join(got.Paths, ",") != "reports" {
 		t.Fatalf("update = %+v %v", got, err)
 	}
 	if _, err := st.Update(ctx, &next, 1, false); !errors.Is(err, ErrVersionChanged) {
@@ -207,8 +213,8 @@ func TestSyncWithPostgres(t *testing.T) {
 		t.Fatalf("copia = %v", deref(d.LastError))
 	}
 	l, _ := st.Ledger(ctx, id)
-	if len(l) != 7 {
-		t.Fatalf("ledger = %d", len(l))
+	if _, ok := l["reports/t/r.pdf"]; len(l) != 8 || !ok {
+		t.Fatalf("ledger = %d (7 de backups y el reporte)", len(l))
 	}
 	inst, _ := st.InstallationID(ctx)
 	ct, err := os.ReadFile(filepath.Join(remoteDir, "horus-"+inst.String(), "backups/postgres/backup/horus/backup.info.age"))
