@@ -25,7 +25,7 @@ func (a *APITokens) Mount(r *httpx.ServiceMux) {
 	g := a.h.guard
 	r.Handle("GET /api/v1/api-tokens", g.Tenant(app.PermAPITokensManage, a.list))
 	r.Handle("POST /api/v1/api-tokens", g.Tenant(app.PermAPITokensManage, a.create))
-	r.Handle("DELETE /api/v1/api-tokens/{token_id}", g.Tenant(app.PermAPITokensManage, a.revoke))
+	r.Handle("DELETE /api/v1/api-tokens/{api_token_id}", g.Tenant(app.PermAPITokensManage, a.revoke))
 	r.Handle("GET /api/v1/api-token-templates", g.Tenant(app.PermAPITokensManage, a.templates))
 }
 
@@ -85,7 +85,7 @@ func (a *APITokens) create(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *APITokens) revoke(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathUUID(w, r, "token_id", app.CodeAPITokenNotFound)
+	id, ok := pathUUID(w, r, "api_token_id", app.CodeAPITokenNotFound)
 	if !ok {
 		return
 	}

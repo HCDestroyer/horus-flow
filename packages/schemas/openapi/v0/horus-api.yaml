@@ -94,8 +94,8 @@ paths:
     $ref: ./auth.yaml#/paths/~1api-token-templates
   /api-tokens:
     $ref: ./auth.yaml#/paths/~1api-tokens
-  /api-tokens/{token_id}:
-    $ref: ./auth.yaml#/paths/~1api-tokens~1{token_id}
+  /api-tokens/{api_token_id}:
+    $ref: ./auth.yaml#/paths/~1api-tokens~1{api_token_id}
   /asn-rules:
     $ref: ./devices.yaml#/paths/~1asn-rules
   /asn-rules/catalog:

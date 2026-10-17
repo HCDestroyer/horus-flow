@@ -86,7 +86,7 @@ type Options struct {
 // es el freno por IP de la generación de reportes; el cupo de 10/h por
 // usuario lo aplica el rol reporting sobre analytics.report_run.
 var DefaultRateLimits = map[string]int{"login": 20, "kiosk_enroll": 5, "enroll": 10, "connection_test": 10,
-	"librenms": 10, "telegram_setup": 20, "reports": 10, "webhook_in": 600, RateLimitAPIToken: 600}
+	"librenms": 10, "telegram_setup": 20, "reports": 10, "webhook_in": 600, "argosisp": 20, RateLimitAPIToken: 600}
 
 // RateLimitAPIToken es el cupo por minuto de cada API token hf_pat_ (todas
 // sus rutas), además del límite propio de cada ruta.

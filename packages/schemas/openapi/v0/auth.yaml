@@ -1121,9 +1121,9 @@ paths:
         '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
         '403': { $ref: './common.yaml#/components/responses/Forbidden' }
         '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
-  /api-tokens/{token_id}:
+  /api-tokens/{api_token_id}:
     parameters:
-      - name: token_id
+      - name: api_token_id
         in: path
         required: true
         schema: { $ref: './common.yaml#/components/schemas/Uuid' }

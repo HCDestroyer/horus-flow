@@ -1067,7 +1067,7 @@ paths:
       x-scope: tenant
       x-permission: customers.update
       x-principals: [user]
-      x-rate-limit: connection_test
+      x-rate-limit: argosisp
       x-audited: true
       x-increment: I3
       security:
@@ -1236,7 +1236,7 @@ paths:
       x-scope: tenant
       x-permission: settings.manage
       x-principals: [user]
-      x-rate-limit: connection_test
+      x-rate-limit: argosisp
       x-increment: I3
       security:
         - tenantBearer: []

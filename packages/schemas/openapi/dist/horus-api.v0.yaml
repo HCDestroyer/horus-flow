@@ -498,9 +498,9 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
-  /api-tokens/{token_id}:
+  /api-tokens/{api_token_id}:
     parameters:
-      - name: token_id
+      - name: api_token_id
         in: path
         required: true
         schema:
@@ -2050,7 +2050,7 @@ paths:
       x-permission: customers.update
       x-principals:
         - user
-      x-rate-limit: connection_test
+      x-rate-limit: argosisp
       x-audited: true
       x-increment: I3
       security:
@@ -3598,7 +3598,7 @@ paths:
       x-permission: settings.manage
       x-principals:
         - user
-      x-rate-limit: connection_test
+      x-rate-limit: argosisp
       x-increment: I3
       security:
         - tenantBearer: []

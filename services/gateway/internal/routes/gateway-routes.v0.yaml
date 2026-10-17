@@ -320,7 +320,7 @@ modules:
         - POST
       audited:
         - POST
-    - prefix: /api/v1/api-tokens/{token_id}
+    - prefix: /api/v1/api-tokens/{api_token_id}
       scope: tenant
       methods:
         DELETE: api_tokens.manage
@@ -685,7 +685,7 @@ modules:
         POST: customers.update
       principals:
         - user
-      rate_limit: connection_test
+      rate_limit: argosisp
       audited:
         - POST
     - prefix: /api/v1/customers/{customer_id}/kind-history
@@ -723,7 +723,7 @@ modules:
         POST: settings.manage
       principals:
         - user
-      rate_limit: connection_test
+      rate_limit: argosisp
     - prefix: /api/v1/integrations/argosisp/webhook-secret
       scope: tenant
       methods:

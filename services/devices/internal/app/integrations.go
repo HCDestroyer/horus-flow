@@ -179,7 +179,9 @@ func NewIntegrations(o IntegrationsOptions) *Integrations {
 		queue: make(chan resolveJob, 256), kick: make(chan struct{}, 1)}
 }
 
-func (s *Integrations) ts() time.Time { return s.now().UTC() }
+// ts es el instante actual en UTC truncado a milisegundos (la precisión de
+// la API): una vigencia leída y devuelta como `at` cae dentro de sí misma.
+func (s *Integrations) ts() time.Time { return s.now().UTC().Truncate(time.Millisecond) }
 
 func (s *Integrations) record(ctx context.Context, t pgdb.TenantID, action, resType, resID string, changes map[string]any) {
 	p := authz.FromContext(ctx)
