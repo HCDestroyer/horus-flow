@@ -753,12 +753,16 @@ los comandos RouterOS en `CodeBlock` para copiar. Ver [`assist.md`](assist.md).
   respaldo `GET /ip/:ip`, sin respuesta), identidades vigentes y desactualizadas, y URL del webhook + "Generar
   secreto" (secreto mostrado una vez). Guardar y crear tokens piden re-autenticación (`useReauth`).
 - **Ficha del cliente**: bloque ArgosISP (`components/clients/ExternalIdentityCard.vue`) con nombre, código, estado
-  del servicio, plan y sincronización; insignia "Desactualizado" si ArgosISP no respondió (nunca se inventa un dato:
+  del servicio, plan, empresa del servicio con su NIT (ArgosISP multiempresa, contrato 1.2.0; solo si Argos la
+  informó) y sincronización; insignia "Desactualizado" si ArgosISP no respondió (nunca se inventa un dato:
   se muestra el último conocido con su fecha); "Actualizar desde ArgosISP" (`customers.update`) y vigencias
   anteriores. Oculto si el ISP no tiene conector ni identidad.
 - **Consulta 360 por IP** (`components/clients/Ip360Modal.vue`) desde la lista de clientes y desde la ficha: la IP vive
   en el estado del componente y en el cuerpo de `POST /integrations/ip-lookup`, nunca en la URL; cada bloque sin
-  permiso o no disponible lo dice (`meta.omitted`) en lugar de mostrar ceros.
+  permiso o no disponible lo dice (`meta.omitted`) en lugar de mostrar ceros. El bloque ArgosISP muestra la empresa
+  del servicio.
+- `POST /integrations/security-states` (estado de seguridad por lotes para ArgosISP) no tiene pantalla: lo simula
+  `mocks/integrations.ts` y lo cubre `tests/unit/mock-integrations.test.ts`.
 - **Canal webhook** en Administración › Canales de notificación (`ChannelForm.vue`): URL https y secreto de firma
   write-only; al elegirlo se proponen todas las categorías del contrato, severidad `info` y sin agrupación.
 - Mocks (`mocks/integrations.ts`, estado en `localStorage` para las pruebas con recarga) y e2e

@@ -114,6 +114,11 @@ function state(tenant: MockTenant): TenantState {
 }
 
 const NAMES = ['Ferretería López', 'Ana Pérez', 'Café del Centro', 'Clínica San José', 'Luis Gómez']
+/** Empresas del ISP en ArgosISP (multiempresa, contrato 1.2.0). */
+const COMPANIES = [
+  { id: 2, name: 'Fibra Sur', nit: '1234567K' },
+  { id: 3, name: 'Fibra Norte', nit: '7654321' },
+]
 
 /** Identidad de ArgosISP simulada de un cliente (determinista por id). */
 function resolveArgos(c: CustomerDetail, now: Date): ExternalIdentityPeriod {
@@ -128,6 +133,9 @@ function resolveArgos(c: CustomerDetail, now: Date): ExternalIdentityPeriod {
     code: `C-${String(400 + (h % 100)).padStart(6, '0')}`,
     service_state: h % 7 === 0 ? 'suspendido' : 'activo',
     plan: h % 2 ? 'Fibra 100' : 'Fibra 300',
+    external_company_id: COMPANIES[h % COMPANIES.length]?.id ?? null,
+    company_name: COMPANIES[h % COMPANIES.length]?.name ?? null,
+    company_nit: COMPANIES[h % COMPANIES.length]?.nit ?? null,
     valid_from: new Date(now.getTime() - 3 * 86_400_000).toISOString(),
     valid_to: null,
     synced_at: now.toISOString(),
@@ -149,6 +157,9 @@ function identityView(s: TenantState, c: CustomerDetail): CustomerExternalIdenti
       display_name: cur.display_name,
       service_state: cur.service_state,
       plan: cur.plan,
+      // Estados guardados antes de 1.2.0 no tienen empresa.
+      company_id: cur.external_company_id ?? null,
+      company_name: cur.company_name ?? null,
       synced_at: cur.synced_at,
       stale: cur.stale,
     },
@@ -359,25 +370,45 @@ export function integrationsRoute(ctx: TenantRouteContext): Response | undefined
   // --- Consulta 360 y consumo ----------------------------------------------------------------
   if (method === 'POST' && path === '/integrations/ip-lookup') {
     if (!ctx.can('customers.read')) return forbidden()
-    const target = parseCidr(String(body.address ?? ''))
-    if (!target || target.length !== (target.family === 4 ? 32 : 128)) {
-      return problem(
+    const invalid = (field: string, code: string, message: string) =>
+      problem(
         422,
         'VALIDATION_FAILED',
         'Datos no válidos',
         {},
-        {
-          errors: [{ field: 'address', code: 'INVALID_FORMAT', message: 'IP no válida.' }],
-        },
+        { errors: [{ field, code, message }] },
+      )
+    // address o, desde 1.2.0, external_service_id (exactamente uno de los dos).
+    if ((body.address == null) === (body.external_service_id == null)) {
+      return invalid(
+        'address',
+        'INVALID_VALUE',
+        'Indique address o external_service_id (uno de los dos).',
       )
     }
-    const c = customersOf(tenant, now).find((x) => {
-      const ip = parseIp(x.address)
-      if (!ip) return false
-      const own = { family: ip.family, network: ip.value, length: ip.family === 6 ? 56 : 32 }
-      // IPv6: una IP dentro del prefijo delegado encuentra al cliente (D22).
-      return contains(own, target)
-    })
+    let c: CustomerDetail | undefined
+    if (body.external_service_id != null) {
+      const svc = Number(body.external_service_id)
+      if (!Number.isInteger(svc) || svc < 1)
+        return invalid('external_service_id', 'OUT_OF_RANGE', 'Id positivo.')
+      c = customersOf(tenant, now).find((x) =>
+        (s.identities[x.id] ?? []).some(
+          (p) => p.valid_to === null && p.external_service_id === svc,
+        ),
+      )
+    } else {
+      const target = parseCidr(String(body.address ?? ''))
+      if (!target || target.length !== (target.family === 4 ? 32 : 128)) {
+        return invalid('address', 'INVALID_FORMAT', 'IP no válida.')
+      }
+      c = customersOf(tenant, now).find((x) => {
+        const ip = parseIp(x.address)
+        if (!ip) return false
+        const own = { family: ip.family, network: ip.value, length: ip.family === 6 ? 56 : 32 }
+        // IPv6: una IP dentro del prefijo delegado encuentra al cliente (D22).
+        return contains(own, target)
+      })
+    }
     if (!c) return notFound('CUSTOMER_NOT_FOUND')
     const site = sitesOf(tenant).find((x) => x.id === c.site_id)
     const view = identityView(s, c)
@@ -439,6 +470,53 @@ export function integrationsRoute(ctx: TenantRouteContext): Response | undefined
     if (!s.argos.configured && !res.external)
       omitted.push({ section: 'external', reason: 'not_configured' })
     return json(res, 200, { 'Cache-Control': 'no-store' })
+  }
+  if (method === 'POST' && path === '/integrations/security-states') {
+    if (!ctx.can('security.findings.read')) return forbidden()
+    const items = (body.items as { address?: string; external_service_id?: number }[]) ?? []
+    if (items.length < 1 || items.length > 500) {
+      return problem(
+        422,
+        'VALIDATION_FAILED',
+        'Datos no válidos',
+        {},
+        { errors: [{ field: 'items', code: 'OUT_OF_RANGE', message: 'Entre 1 y 500 elementos.' }] },
+      )
+    }
+    const all = customersOf(tenant, now)
+    return json(
+      {
+        items: items.map((it) => {
+          const c =
+            it.external_service_id != null
+              ? all.find((x) =>
+                  (s.identities[x.id] ?? []).some(
+                    (p) => p.valid_to === null && p.external_service_id === it.external_service_id,
+                  ),
+                )
+              : all.find((x) => x.address === it.address)
+          if (!c) {
+            return {
+              address: it.address ?? null,
+              external_service_id: it.external_service_id ?? null,
+              error: 'not_found' as const,
+            }
+          }
+          const cur = (s.identities[c.id] ?? []).find((p) => p.valid_to === null)
+          return {
+            address: it.address ?? c.address,
+            external_service_id: it.external_service_id ?? cur?.external_service_id ?? null,
+            state: c.security_state,
+            open_findings: c.open_findings,
+            max_severity: c.open_findings ? 'high' : null,
+            since: c.first_seen,
+          }
+        }),
+        meta: { at: now.toISOString() },
+      },
+      200,
+      { 'Cache-Control': 'no-store' },
+    )
   }
   if (method === 'POST' && path === '/integrations/consumption') {
     if (!ctx.can('traffic.customer.read')) return forbidden()

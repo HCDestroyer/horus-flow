@@ -55,12 +55,16 @@ test.describe('integraciones @integrations', () => {
     await expect(page.getByTestId('client-external')).toBeVisible()
     await page.getByTestId('client-external-refresh').click()
     await expect(page.getByTestId('client-external-name')).not.toHaveText('—')
+    // Multiempresa (contrato 1.2.0): la empresa del servicio con su NIT.
+    await expect(page.getByTestId('client-external-company')).toContainText(/Fibra (Sur|Norte)/)
+    await expect(page.getByTestId('client-external-company')).toContainText('NIT')
 
     await page.getByTestId('client-ip360').click()
     const modal = page.getByTestId('ip360')
     await expect(modal.getByTestId('ip360-customer')).toBeVisible()
     await expect(modal.getByTestId('ip360-consumption')).toContainText('30 días')
     await expect(modal.getByTestId('ip360-external')).not.toContainText('no está conectado')
+    await expect(modal.getByTestId('ip360-company')).toContainText(/Fibra (Sur|Norte)/)
     const { pathname, search, hash } = new URL(page.url())
     expect(pathname + search + hash).not.toMatch(/\d+\.\d+\.\d+\.\d+/)
   })

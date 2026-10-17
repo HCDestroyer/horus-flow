@@ -765,6 +765,8 @@
       "name": "Nombre",
       "code": "Código",
       "service": "Servicio",
+      "company": "Empresa",
+      "nit": "NIT",
       "synced": "Sincronizado",
       "stale": "Desactualizado",
       "staleToast": "ArgosISP no respondió: se muestra el último dato conocido.",

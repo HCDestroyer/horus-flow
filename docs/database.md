@@ -339,12 +339,13 @@ contrato a cargo del Agente C): `discovered`, `updated` (alias/notas), `kind_cha
 
 La identidad de Horus sigue siendo `(tenant, realm, ip)`; la de ArgosISP es una anotación **con vigencia**,
 porque en PPPoE la misma IP cambia de dueño (un hallazgo de ayer se atribuye a quien tenía la IP ayer).
-Migración `20261017170000_devices_external_identity.sql`; RLS fail-closed; todo se purga con el cliente
+Migraciones `20261017170000_devices_external_identity.sql` y `20261017210000_devices_external_identity_company.sql`
+(empresa del servicio, contrato 1.2.0); RLS fail-closed; todo se purga con el cliente
 (`ON DELETE CASCADE`).
 
 | Tabla | Campos clave | Constraints / índices |
 |-------|--------------|-----------------------|
-| `customer_external_identity` | `id`, `tenant_id`, `customer_id`, `system` (`argosisp`), `external_customer_id`, `external_service_id`, `display_name` (dato personal), `code`, `service_state`, `plan`, `valid_from`, `valid_to` (NULL = vigente), `synced_at`, `stale` | `ux(tenant_id, customer_id, system) WHERE valid_to IS NULL` (una vigente); `ix(tenant_id, customer_id, valid_from desc)`; `ix(tenant_id, system, external_service_id, valid_from)` (consumo por servicio); CHECK `valid_to ≥ valid_from` |
+| `customer_external_identity` | `id`, `tenant_id`, `customer_id`, `system` (`argosisp`), `external_customer_id`, `external_service_id`, `external_company_id`, `company_name` y `company_nit` (empresa del servicio en ArgosISP multiempresa; datos del ISP, no del cliente; NULL si Argos no la informó), `display_name` (dato personal), `code`, `service_state`, `plan`, `valid_from`, `valid_to` (NULL = vigente), `synced_at`, `stale` | `ux(tenant_id, customer_id, system) WHERE valid_to IS NULL` (una vigente); `ix(tenant_id, customer_id, valid_from desc)`; `ix(tenant_id, system, external_service_id, valid_from)` (consumo, consulta 360 y estado de seguridad por servicio); CHECK `valid_to ≥ valid_from` |
 | `customer_external_sync` | `tenant_id`, `customer_id`, `system`, `checked_at`, `status` (`found`/`not_found`/`error`) | PK compuesta; `ix(tenant_id, system, checked_at)` (barrido de identidades de más de 6 h) |
 | `integration_argosisp` | Conector por ISP: `id` (opaco, en la URL del webhook), `tenant_id` único, `base_url`, `enabled`, `token_ciphertext`/`token_dek` (token `atk_` cifrado), `secret_ciphertext`/`secret_dek` y el anterior con `prev_secret_until` (secreto del webhook, 24 h de gracia al rotar), `kek_id`, `resolver` (`batch`/`fallback`), `last_sync_at`, `last_sync_status` (`ok`/`degraded`/`failing`), `last_error`, `failures`, `backoff_until` (espera exponencial ≤ 15 min), `version` | `ux(tenant_id)`; el receptor de webhooks lo busca por `id` con `devices_platform` |
 | `argosisp_webhook_inbox` | `tenant_id`, `webhook_id` (`X-Webhook-Id`), `event`, `payload jsonb`, `received_at`, `processed_at`, `attempts` | PK `(tenant_id, webhook_id)` = deduplicación; pendientes por `received_at`; se purga a los 7 días |

@@ -761,7 +761,8 @@ v1=hex(HMAC-SHA256(secreto, timestamp + "." + cuerpo))`); reintentos 1 min, 5 mi
 `notification.failed`; sin agrupación (`throttle` 0). `event` del contrato §3.4: `finding.opened` (finding_opened y
 finding_reopened), `finding.resolved`, `customer.security_state_changed`, `router.status_changed` (router_* de estado,
 umbrales y hardware) e `infra_service.state_changed` (service_*); los demás tipos no se envían por webhook. Con identidad
-ArgosISP vigente del cliente, `data.external = {system, customer_id, service_id}`; la IP y el alias solo con
+ArgosISP vigente del cliente, `data.external = {system, customer_id, service_id, company_id}` (`company_id`: empresa
+del servicio, contrato 1.2.0); la IP y el alias solo con
 `include_personal_data`. Prueba de conexión = `POST` firmado con `event: "ping"`; envío de prueba = `event: "test"`.
 Suscripción por `event_types` (`finding_opened`, `finding_reopened`, `exporter_silent`, `exporter_recovered`,
 `tunnel_down`, `tunnel_recovered`; categoría `security_updates`: `finding_resolved`,
@@ -803,17 +804,22 @@ el cuerpo**.
 
 | Método y ruta | Descripción | Permiso |
 | --- | --- | --- |
-| `POST /integrations/ip-lookup` | Consulta 360: `{address, at?, include?}` → `customer`, `external` (identidad ArgosISP vigente en `at`), `consumption` (24 h/7 d/30 d, pico de bajada de 24 h, 5 servicios de 7 d), `health` (router principal del nodo, exportador, minutos desde la última vez) y `security` (estado, hallazgos activos). Cada bloque exige además su permiso (`traffic.customer.read`, `snmp.read`, `security.findings.read`); sin él, o sin el módulo en el proceso, es `null` y `meta.omitted` dice por qué (`permission`, `unavailable`, `not_requested`, `not_configured`). `404 CUSTOMER_NOT_FOUND` si la IP no es de un cliente del ISP. Auditado (`integrations.ip_lookup`). | `customers.read` |
+| `POST /integrations/ip-lookup` | Consulta 360: `{address, at?, include?}` o, desde el contrato 1.2.0, `{external_service_id, at?, include?}` (exactamente uno de los dos; con ambos o ninguno → `422`): por servicio usa su identidad vigente (o la vigente en `at`) y responde con su IP de entonces (si tiene varias, IPv4 y prefijo IPv6, la del cliente visto más recientemente); `404` si no la tiene. → `customer`, `external` (identidad ArgosISP vigente en `at`, con `company_id` y `company_name` de la empresa del servicio), `consumption` (24 h/7 d/30 d, pico de bajada de 24 h, 5 servicios de 7 d), `health` (router principal del nodo, exportador, minutos desde la última vez) y `security` (estado, hallazgos activos). Cada bloque exige además su permiso (`traffic.customer.read`, `snmp.read`, `security.findings.read`); sin él, o sin el módulo en el proceso, es `null` y `meta.omitted` dice por qué (`permission`, `unavailable`, `not_requested`, `not_configured`). `404 CUSTOMER_NOT_FOUND` si la IP no es de un cliente del ISP. Auditado (`integrations.ip_lookup`). | `customers.read` |
 | `POST /integrations/consumption` | Lote ≤ 500 por `address` o `external_service_id` (`from`, `to` ≤ 400 días, `granularity` `day`\|`total`). Por servicio suma las IPs que tuvo en el periodo, cada una dentro de su vigencia (bordes con precisión de 1 h; 1 día si el rango supera 35 días). Sin conector activo, `external_service_id` → `422`. Sin analytics/ClickHouse → `503 ANALYTICS_UNAVAILABLE`. Auditado. | `traffic.customer.read` |
+| `POST /integrations/security-states` | Estado de seguridad por lotes (contrato §3.5, H9): `items` ≤ 500 por `address` o `external_service_id` (uno por elemento; IP mal formada → `422`). Devuelve por elemento `address`, `external_service_id`, `state` (`clean`\|`suspected`\|`infected`\|`mitigated`, el de detection), `open_findings`, `max_severity` y `since`, o `error: not_found` (sin cliente, fuera del alcance o servicio sin identidad vigente), más `meta.at`. Por servicio con varias IPs, la de peor estado; un cliente que nunca tuvo hallazgos está `clean` desde que se vio. Sin conector activo, `external_service_id` → `422`. Sin detection en el proceso → `503 SECURITY_UNAVAILABLE`. Admite `api_token` (plantilla ArgosISP). Auditado (`integrations.security_states`). | `security.findings.read` |
 | `GET` · `PUT /integrations/argosisp` 🔒 | Conector: `base_url` (con `/api/v1` de Argos), `enabled`, `token` `atk_…` write-only cifrado con la KEK de devices (`has_token`); devuelve `webhook_url`, estado de la última sincronización (`ok`\|`degraded` = respaldo `GET /ip/:ip`\|`failing`), `resolver`, identidades vigentes y desactualizadas. Solo personas. | `settings.read` / `settings.manage` |
 | `POST /integrations/argosisp/webhook-secret` 🔒 | Secreto nuevo del webhook (mostrado una vez; el anterior vale 24 h). | `settings.manage` |
 | `POST /integrations/argosisp/connection-test` | Resuelve `192.0.2.1` en ArgosISP sin cambiar nada (`resolver`, `error_code`). Cupo `argosisp`. | `settings.manage` |
 | `POST /integrations/argosisp/webhook/{connector_id}` | Receptor público: firma obligatoria, ≤ 5 min de desfase, deduplicación por `X-Webhook-Id`, `202` inmediato y proceso en segundo plano; firma inválida `401`, conector desconocido o apagado `404`. | firma HMAC |
-| `GET /customers/{id}/external-identity` | Identidad vigente (`ExternalRef`) e historial de vigencias. | `customers.read` |
+| `GET /customers/{id}/external-identity` | Identidad vigente (`ExternalRef`, con la empresa del servicio) e historial de vigencias (con `external_company_id`, `company_name` y `company_nit`). | `customers.read` |
 | `POST /customers/{id}/external-identity/refresh` | "Actualizar desde ArgosISP" (síncrono, 10 s); ArgosISP caído → `200` con `stale = true`. `409 INTEGRATION_NOT_CONFIGURED` sin conector activo. | `customers.update` |
 
 Con identidad vigente y `alias_source <> 'manual'`, el alias del cliente toma el nombre de ArgosISP
 (`alias_source = argosisp`); sin identidad vigente se quita un alias que vino de ArgosISP. Un alias manual nunca se toca.
+Multiempresa (contrato 1.2.0, H7): la empresa (`empresa` del resolutor por lotes) se guarda en la identidad; el respaldo
+`GET /ip/:ip` no la trae (una identidad nueva queda sin empresa; una existente conserva la suya) y un webhook de un
+servicio con `empresa_id` la refresca antes de re-resolver. En el asistente de IA y el MCP la empresa se enmascara como el
+nombre.
 `GET /routers/status` y `GET /infra-services` ya admitían `api_token` (H4).
 
 ### 2.10 quater Asistente de IA (`assist`)

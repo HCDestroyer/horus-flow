@@ -210,6 +210,8 @@ export type IpLookupRequest = Schemas['IpLookupRequest']
 export type IpLookupResponse = Schemas['IpLookupResponse']
 export type ConsumptionRequest = Schemas['ConsumptionRequest']
 export type ConsumptionResponse = Schemas['ConsumptionResponse']
+export type SecurityStatesRequest = Schemas['SecurityStatesRequest']
+export type SecurityStatesResponse = Schemas['SecurityStatesResponse']
 
 // Monitoreo de routers (EP-08, I2): estado efectivo, muestras SNMP/ICMP y series.
 export type RouterStatus = Schemas['RouterStatus']

@@ -3,7 +3,7 @@ import type { IpLookupResponse } from '~~/types/api'
 
 /**
  * Consulta 360 de una IP de cliente (POST /integrations/ip-lookup, ADR-0030): identidad en
- * ArgosISP, consumo, salud del servicio y seguridad. La IP vive solo en el estado de la página
+ * ArgosISP (con la empresa del servicio), consumo, salud del servicio y seguridad. La IP vive solo en el estado de la página
  * y en el cuerpo de la petición: nunca en la URL ni en el historial.
  */
 const props = defineProps<{ address?: string | null }>()
@@ -114,6 +114,14 @@ function omittedReason(section: string) {
               {{ result.external.display_name ?? '—' }}
               <span class="text-muted font-mono text-xs">{{ result.external.code }}</span>
               · {{ result.external.service_state ?? '—' }}
+              <span
+                v-if="result.external.company_name || result.external.company_id != null"
+                class="text-muted"
+                data-testid="ip360-company"
+              >
+                · {{ t('clients.external.company') }}:
+                {{ result.external.company_name ?? `#${result.external.company_id}` }}</span
+              >
               <UBadge
                 v-if="result.external.stale"
                 color="warning"

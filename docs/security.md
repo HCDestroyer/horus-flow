@@ -500,6 +500,7 @@ Navegador ──Authorization: Bearer <access JWT>──► Traefik ──► ap
   (`packages/go/webhooksig`): el receptor rechaza firmas inválidas y desfases de más de 5 min y
   deduplica por `X-Webhook-Id`. El nombre de un cliente que llega de ArgosISP es dato personal: se
   trata como el alias (acceso por `customers.read`, enmascarado en IA/MCP, se purga con el cliente).
+  La empresa del servicio (ArgosISP multiempresa: id, nombre y NIT) se enmascara igual en IA/MCP.
 - Una futura app o CLI con login interactivo usará el mismo par access + refresh rotativo vía
   OIDC Authorization Code + PKCE (§4.1).
 

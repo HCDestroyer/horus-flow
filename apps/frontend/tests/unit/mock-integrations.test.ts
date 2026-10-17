@@ -4,6 +4,7 @@ import type {
   ArgosIntegration,
   CustomerExternalIdentity,
   IpLookupResponse,
+  SecurityStatesResponse,
 } from '~~/types/api'
 import { TENANTS } from '~~/mocks/data'
 import { customersOf } from '~~/mocks/inventory'
@@ -95,5 +96,57 @@ describe('mock de integraciones', () => {
     expect(
       (await call('POST', '/integrations/ip-lookup', { address: '198.51.100.250' })).status,
     ).toBe(404)
+  })
+
+  it('multiempresa, consulta 360 por servicio y estado de seguridad por lotes (1.2.0)', async () => {
+    const c = customersOf(tenant, NOW)[0]!
+    await call('PUT', '/integrations/argosisp', {
+      base_url: 'https://argos.example/api/v1',
+      enabled: true,
+      token: 'atk_prueba_123456',
+    })
+    const id = await call<CustomerExternalIdentity>(
+      'POST',
+      `/customers/${c.id}/external-identity/refresh`,
+    )
+    // H7: empresa del servicio en la identidad vigente y su NIT en el periodo.
+    expect(id.body.current?.company_id).toBeTypeOf('number')
+    expect(id.body.current?.company_name).toBeTruthy()
+    expect(id.body.history[0]?.company_nit).toBeTruthy()
+    // H8: por external_service_id, sin IP.
+    const svc = id.body.current!.service_id!
+    const look = await call<IpLookupResponse>('POST', '/integrations/ip-lookup', {
+      external_service_id: svc,
+    })
+    expect(look.status).toBe(200)
+    expect(look.body.customer.id).toBe(c.id)
+    expect(look.body.external?.company_id).toBe(id.body.current?.company_id)
+    const both = await call('POST', '/integrations/ip-lookup', {
+      address: c.address.split('/')[0],
+      external_service_id: svc,
+    })
+    expect(both.status).toBe(422)
+    expect((await call('POST', '/integrations/ip-lookup', {})).status).toBe(422)
+    expect(
+      (await call('POST', '/integrations/ip-lookup', { external_service_id: 99_999 })).status,
+    ).toBe(404)
+    // H9: estado de seguridad por lotes con not_found por elemento.
+    const states = await call<SecurityStatesResponse>('POST', '/integrations/security-states', {
+      items: [{ external_service_id: svc }, { external_service_id: 99_999 }],
+    })
+    expect(states.status).toBe(200)
+    expect(states.body.items[0]?.state).toBe(c.security_state)
+    expect(states.body.items[1]?.error).toBe('not_found')
+    expect((await call('POST', '/integrations/security-states', { items: [] })).status).toBe(422)
+    expect(
+      (
+        await call(
+          'POST',
+          '/integrations/security-states',
+          { items: [{ external_service_id: svc }] },
+          ['customers.read'],
+        )
+      ).status,
+    ).toBe(403)
   })
 })
