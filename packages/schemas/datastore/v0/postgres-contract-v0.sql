@@ -441,6 +441,9 @@ CREATE TABLE devices.customer_external_identity (
   system               text NOT NULL DEFAULT 'argosisp' CHECK (system IN ('argosisp')),
   external_customer_id bigint,
   external_service_id  bigint,
+  external_company_id  bigint,               -- empresa del servicio en ArgosISP (multiempresa, contrato 1.2.0)
+  company_name         text,
+  company_nit          text,
   display_name         text,                 -- dato personal
   code                 text,
   service_state        text,

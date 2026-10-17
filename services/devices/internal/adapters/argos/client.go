@@ -95,13 +95,22 @@ func (p *planJSON) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// empresaJSON es la empresa del servicio (ArgosISP multiempresa, contrato 1.2.0 §2.1).
+type empresaJSON struct {
+	ID     *int64  `json:"id"`
+	Nombre *string `json:"nombre"`
+	NIT    *string `json:"nit"`
+}
+
 type servicioJSON struct {
-	ID         *int64    `json:"id"`
-	UserPPP    *string   `json:"user_ppp"`
-	Plan       *planJSON `json:"plan"`
-	PlanNombre *string   `json:"plan_nombre"`
-	Estado     *string   `json:"estado"`
-	RouterID   *int64    `json:"router_id"`
+	ID         *int64       `json:"id"`
+	UserPPP    *string      `json:"user_ppp"`
+	Plan       *planJSON    `json:"plan"`
+	PlanNombre *string      `json:"plan_nombre"`
+	Estado     *string      `json:"estado"`
+	RouterID   *int64       `json:"router_id"`
+	Empresa    *empresaJSON `json:"empresa"`
+	EmpresaID  *int64       `json:"empresa_id"`
 }
 
 func (s *servicioJSON) plan() *string {
@@ -122,6 +131,32 @@ type resultadoJSON struct {
 	Servicio   *servicioJSON `json:"servicio"`
 	Desde      *time.Time    `json:"desde"`
 	Error      *string       `json:"error"`
+	// Empresa: presente desde 1.2.0 en el resolutor por lotes (null = sin
+	// empresa); ausente en versiones anteriores y en el respaldo.
+	Empresa json.RawMessage `json:"empresa"`
+}
+
+// company aplica a out la empresa informada (en el resultado o, en el
+// respaldo, si GET /servicios/:id la trae). Sin el campo, CompanyKnown queda
+// en false y se conserva la empresa ya guardada.
+func (r resultadoJSON) company(out *domain.Resolution) {
+	if len(r.Empresa) > 0 {
+		out.CompanyKnown = true
+		var e *empresaJSON
+		if json.Unmarshal(r.Empresa, &e) == nil && e != nil {
+			out.CompanyID, out.CompanyName, out.CompanyNIT = e.ID, e.Nombre, e.NIT
+		}
+		return
+	}
+	if s := r.Servicio; s != nil && (s.Empresa != nil || s.EmpresaID != nil) {
+		out.CompanyKnown, out.CompanyID = true, s.EmpresaID
+		if e := s.Empresa; e != nil {
+			out.CompanyName, out.CompanyNIT = e.Nombre, e.NIT
+			if e.ID != nil {
+				out.CompanyID = e.ID
+			}
+		}
+	}
 }
 
 func (r resultadoJSON) resolution() domain.Resolution {
@@ -138,6 +173,7 @@ func (r resultadoJSON) resolution() domain.Resolution {
 	if r.Servicio != nil {
 		out.ServiceState, out.Plan = r.Servicio.Estado, r.Servicio.plan()
 	}
+	r.company(&out)
 	return out
 }
 

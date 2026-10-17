@@ -31,6 +31,7 @@ type fakeIntStore struct {
 	stale     []uuid.UUID
 	sync      []ArgosSyncState
 	windows   []ServiceWindow
+	pending   []ArgosWebhook
 }
 
 func (f *fakeIntStore) GetArgosConnector(context.Context, pgdb.TenantID) (*domain.ArgosConnector, error) {

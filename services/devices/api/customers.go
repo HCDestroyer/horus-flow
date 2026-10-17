@@ -15,10 +15,12 @@ const ServiceCustomerDirectory = "devices.CustomerDirectory"
 var ErrCustomerNotFound = errors.New("devices: customer not found")
 
 // ExternalIDs son los ids del cliente en ArgosISP (identidad vigente).
+// CompanyID es la empresa del servicio (ArgosISP multiempresa, contrato 1.2.0).
 type ExternalIDs struct {
 	System     string
 	CustomerID *int64
 	ServiceID  *int64
+	CompanyID  *int64
 }
 
 // CustomerRef es lo que otro módulo necesita para nombrar a un cliente. Alias

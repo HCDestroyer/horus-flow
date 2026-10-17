@@ -15,6 +15,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/pgdb"
 	consumptionapi "github.com/hcdestroyer/horus-flow/services/analytics/api/consumption"
 	findingsapi "github.com/hcdestroyer/horus-flow/services/detection/api/customerfindings"
+	secstatesapi "github.com/hcdestroyer/horus-flow/services/detection/api/securitystates"
 	"github.com/hcdestroyer/horus-flow/services/devices/internal/domain"
 	snmpapi "github.com/hcdestroyer/horus-flow/services/snmp/api"
 )
@@ -34,7 +35,9 @@ const (
 type Readers struct {
 	Consumption func() (consumptionapi.Reader, bool)
 	Findings    func() (findingsapi.Reader, bool)
-	Routers     func() (snmpapi.RouterStatusReader, bool)
+	// SecurityStates: estado de seguridad por lotes (POST /integrations/security-states).
+	SecurityStates func() (secstatesapi.Reader, bool)
+	Routers        func() (snmpapi.RouterStatusReader, bool)
 	// Site y PrimaryRouter leen el inventario propio (nombre del nodo y su router principal).
 	Site          func(ctx context.Context, t pgdb.TenantID, id uuid.UUID) (*domain.Site, error)
 	PrimaryRouter func(ctx context.Context, t pgdb.TenantID, site uuid.UUID) (*domain.Router, error)
@@ -56,11 +59,13 @@ const (
 	OmitNotConfigured = "not_configured"
 )
 
-// IPLookupInput es IpLookupRequest.
+// IPLookupInput es IpLookupRequest: address o, desde el contrato 1.2.0,
+// external_service_id (exactamente uno de los dos).
 type IPLookupInput struct {
-	Address string     `json:"address"`
-	At      *time.Time `json:"at"`
-	Include []string   `json:"include"`
+	Address           *string    `json:"address"`
+	ExternalServiceID *int64     `json:"external_service_id"`
+	At                *time.Time `json:"at"`
+	Include           []string   `json:"include"`
 }
 
 // Omitted es un bloque que no se devuelve y su motivo.
@@ -119,9 +124,18 @@ func (s *Integrations) IPLookup(ctx context.Context, in IPLookupInput) (*IPLooku
 		return nil, err
 	}
 	var fe fieldErrs
-	addr, ok := parseIP(in.Address)
-	if !ok {
-		fe.add("address", "INVALID_FORMAT", "IP no válida.")
+	var addr netip.Addr
+	switch {
+	case (in.Address == nil) == (in.ExternalServiceID == nil):
+		fe.add("address", "INVALID_VALUE", "Indique address o external_service_id (uno de los dos).")
+	case in.Address != nil:
+		a, ok := parseIP(*in.Address)
+		if !ok {
+			fe.add("address", "INVALID_FORMAT", "IP no válida.")
+		}
+		addr = a
+	case *in.ExternalServiceID < 1:
+		fe.add("external_service_id", "OUT_OF_RANGE", "Id positivo.")
 	}
 	now := s.ts()
 	at := now
@@ -148,13 +162,30 @@ func (s *Integrations) IPLookup(ctx context.Context, in IPLookupInput) (*IPLooku
 	if err := fe.err(); err != nil {
 		return nil, err
 	}
-	found, err := s.store.CustomersContaining(ctx, t, []netip.Addr{addr}, sitesFor(p, PermCustomersRead))
-	if err != nil {
-		return nil, err
-	}
-	c, ok := found[addr]
-	if !ok {
-		return nil, apperr.NotFound(domain.CodeCustomerNotFound)
+	var c domain.Customer
+	if in.ExternalServiceID != nil {
+		// Por servicio de ArgosISP: la identidad del servicio vigente en at (o ahora).
+		var atp *time.Time
+		if in.At != nil {
+			atp = &at
+		}
+		list, err := s.store.ServiceIdentities(ctx, t, []int64{*in.ExternalServiceID}, atp, sitesFor(p, PermCustomersRead))
+		if err != nil {
+			return nil, err
+		}
+		if len(list) == 0 {
+			return nil, apperr.NotFound(domain.CodeCustomerNotFound)
+		}
+		c = primaryOf(list).Customer
+	} else {
+		found, err := s.store.CustomersContaining(ctx, t, []netip.Addr{addr}, sitesFor(p, PermCustomersRead))
+		if err != nil {
+			return nil, err
+		}
+		var ok bool
+		if c, ok = found[addr]; !ok {
+			return nil, apperr.NotFound(domain.CodeCustomerNotFound)
+		}
 	}
 	res := &IPLookupResult{Customer: c, At: at, Omitted: []Omitted{}}
 	omit := func(section, reason string) {
@@ -253,8 +284,26 @@ func (s *Integrations) IPLookup(ctx context.Context, in IPLookupInput) (*IPLooku
 			sections = append(sections, x)
 		}
 	}
-	s.record(ctx, t, "integrations.ip_lookup", "customer", c.ID.String(), map[string]any{"sections": sections, "at": at.Format(time.RFC3339)})
+	audit := map[string]any{"sections": sections, "at": at.Format(time.RFC3339)}
+	if in.ExternalServiceID != nil {
+		audit["by"] = "external_service_id"
+	}
+	s.record(ctx, t, "integrations.ip_lookup", "customer", c.ID.String(), audit)
 	return res, nil
+}
+
+// primaryOf elige, entre las identidades de un mismo servicio (IPv4 y
+// prefijo IPv6 son clientes distintos en Horus), la del cliente visto más
+// recientemente; con el mismo instante, la IPv4. list viene ordenada por
+// last_seen descendente.
+func primaryOf(list []ServiceIdentity) ServiceIdentity {
+	best := list[0]
+	for _, x := range list[1:] {
+		if x.Customer.LastSeen.Equal(best.Customer.LastSeen) && x.Customer.Address.Addr().Is4() && !best.Customer.Address.Addr().Is4() {
+			best = x
+		}
+	}
+	return best
 }
 
 func lookupReader[T any](f func() (T, bool)) (T, bool) {

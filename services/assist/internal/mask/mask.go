@@ -29,6 +29,8 @@ var dropAlways = map[string]bool{
 	"user_id": true, "public_key": true, "customer_message_rendered": true, "username": true, "password": true,
 	// Identidad en ArgosISP (ADR-0030): ids y usuario PPPoE identifican a la persona.
 	"external_customer_id": true, "external_service_id": true, "user_ppp": true,
+	// Empresa del servicio en ArgosISP (multiempresa): se trata como el nombre.
+	"external_company_id": true, "company_name": true, "company_nit": true,
 }
 
 // Claves que, dentro de un contexto de cliente, identifican a la persona.
@@ -40,6 +42,7 @@ var dropInCustomer = map[string]bool{
 // identifican a la persona: se quitan como el alias.
 var dropInExternal = map[string]bool{
 	"customer_id": true, "service_id": true, "code": true, "display_name": true, "plan": true, "name": true,
+	"company_id": true, "company_name": true, "company_nit": true,
 }
 
 // Claves que contienen la IP del cliente (en cualquier contexto).

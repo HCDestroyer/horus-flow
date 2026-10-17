@@ -41,12 +41,18 @@ func (f *fakeArgos) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&in)
 		var out []map[string]any
 		for _, ip := range in.IPs {
-			if ip == "100.64.1.20" {
+			switch ip {
+			case "100.64.1.20":
 				out = append(out, map[string]any{"ip": ip, "servicio_id": 812, "cliente_id": 455, "prefijo": "100.64.1.20/32",
 					"cliente":  map[string]any{"nombre": "Ferretería López", "codigo": "C-000455", "tipo": "empresa"},
 					"servicio": map[string]any{"user_ppp": "flopez", "plan": "Fibra 100", "estado": "activo", "router_id": 3},
+					"empresa":  map[string]any{"id": 2, "nombre": "Fibra Sur", "nit": "1234567K"},
 					"desde":    "2026-10-17T08:12:00Z", "campo_nuevo": true})
-			} else {
+			case "100.64.1.21": // ArgosISP < 1.2.0: sin el campo empresa
+				out = append(out, map[string]any{"ip": ip, "servicio_id": 813, "cliente_id": 456})
+			case "100.64.1.22": // servicio sin empresa
+				out = append(out, map[string]any{"ip": ip, "servicio_id": 814, "cliente_id": 457, "empresa": nil})
+			default:
 				out = append(out, map[string]any{"ip": ip, "error": "no_encontrada"})
 			}
 		}
@@ -83,11 +89,33 @@ func TestResolveBatch(t *testing.T) {
 		*r.Code != "C-000455" || *r.ServiceState != "activo" || *r.Plan != "Fibra 100" || r.Since == nil {
 		t.Fatalf("resolución = %+v", r)
 	}
+	if !r.CompanyKnown || *r.CompanyID != 2 || *r.CompanyName != "Fibra Sur" || *r.CompanyNIT != "1234567K" {
+		t.Fatalf("empresa (H7) = %+v", r)
+	}
 	if res[1].Resolution.Found {
 		t.Fatal("no_encontrada")
 	}
 	if len(f.paths) != 1 {
 		t.Fatalf("una sola petición por lote: %v", f.paths)
+	}
+}
+
+// H7: sin el campo empresa (ArgosISP < 1.2.0) la empresa es desconocida (se
+// conserva la guardada); con empresa null, el servicio no tiene empresa.
+func TestResolveBatchCompanyVariants(t *testing.T) {
+	t.Parallel()
+	f := &fakeArgos{batch: true, token: "atk_ok"}
+	srv := httptest.NewServer(f)
+	defer srv.Close()
+	res, _, err := client(srv, "atk_ok").Resolve(context.Background(), []string{"100.64.1.21", "100.64.1.22"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := res[0].Resolution; !r.Found || r.CompanyKnown || r.CompanyID != nil {
+		t.Fatalf("sin campo empresa = %+v", r)
+	}
+	if r := res[1].Resolution; !r.Found || !r.CompanyKnown || r.CompanyID != nil || r.CompanyName != nil {
+		t.Fatalf("empresa null = %+v", r)
 	}
 }
 
@@ -104,6 +132,9 @@ func TestResolveFallbackOn404(t *testing.T) {
 	r := res[0].Resolution
 	if !r.Found || *r.ExternalServiceID != 812 || *r.DisplayName != "Ferretería López" || r.Code != nil || *r.ServiceState != "suspendido" {
 		t.Fatalf("resolución = %+v", r)
+	}
+	if r.CompanyKnown || r.CompanyID != nil {
+		t.Fatalf("el respaldo no trae empresa: queda null = %+v", r)
 	}
 	if res[1].Resolution.Found {
 		t.Fatal("la segunda IP no existe")

@@ -108,13 +108,13 @@ func (s *Store) ActiveArgosTenants(ctx context.Context) ([]uuid.UUID, error) {
 	return out, err
 }
 
-const identityCols = `id, tenant_id, customer_id, system, external_customer_id, external_service_id, display_name, code, service_state,
-	plan, valid_from, valid_to, synced_at, stale`
+const identityCols = `id, tenant_id, customer_id, system, external_customer_id, external_service_id, external_company_id, company_name,
+	company_nit, display_name, code, service_state, plan, valid_from, valid_to, synced_at, stale`
 
 func scanIdentity(row pgx.Row) (*domain.ExternalIdentity, error) {
 	var i domain.ExternalIdentity
-	err := row.Scan(&i.ID, &i.TenantID, &i.CustomerID, &i.System, &i.ExternalCustomerID, &i.ExternalServiceID, &i.DisplayName, &i.Code,
-		&i.ServiceState, &i.Plan, &i.ValidFrom, &i.ValidTo, &i.SyncedAt, &i.Stale)
+	err := row.Scan(&i.ID, &i.TenantID, &i.CustomerID, &i.System, &i.ExternalCustomerID, &i.ExternalServiceID, &i.ExternalCompanyID,
+		&i.CompanyName, &i.CompanyNIT, &i.DisplayName, &i.Code, &i.ServiceState, &i.Plan, &i.ValidFrom, &i.ValidTo, &i.SyncedAt, &i.Stale)
 	if err != nil {
 		return nil, notFound(err)
 	}
@@ -229,18 +229,20 @@ func (s *Store) ApplyIdentityPlan(ctx context.Context, t pgdb.TenantID, customer
 		}
 		if r := plan.Refresh; r != nil {
 			if _, err := tx.Exec(ctx, `UPDATE devices.customer_external_identity SET external_customer_id = $3, external_service_id = $4,
-				display_name = $5, code = $6, service_state = $7, plan = $8, synced_at = $9, stale = false
+				display_name = $5, code = $6, service_state = $7, plan = $8, synced_at = $9, stale = false,
+				external_company_id = $10, company_name = $11, company_nit = $12
 				WHERE tenant_id = $1 AND id = $2`, t.UUID(), r.ID, r.ExternalCustomerID, r.ExternalServiceID, r.DisplayName, r.Code,
-				r.ServiceState, r.Plan, r.SyncedAt); err != nil {
+				r.ServiceState, r.Plan, r.SyncedAt, r.ExternalCompanyID, r.CompanyName, r.CompanyNIT); err != nil {
 				return fmt.Errorf("devices: refresh identity: %w", err)
 			}
 		}
 		if o := plan.Open; o != nil {
 			if _, err := tx.Exec(ctx, `INSERT INTO devices.customer_external_identity (id, tenant_id, customer_id, system, external_customer_id,
-				external_service_id, display_name, code, service_state, plan, valid_from, synced_at, stale)
-				VALUES ($1, $2, $3, 'argosisp', $4, $5, $6, $7, $8, $9, $10, $11, false)`,
+				external_service_id, display_name, code, service_state, plan, valid_from, synced_at, stale, external_company_id, company_name,
+				company_nit)
+				VALUES ($1, $2, $3, 'argosisp', $4, $5, $6, $7, $8, $9, $10, $11, false, $12, $13, $14)`,
 				o.ID, t.UUID(), customerID, o.ExternalCustomerID, o.ExternalServiceID, o.DisplayName, o.Code, o.ServiceState, o.Plan,
-				o.ValidFrom, o.SyncedAt); err != nil {
+				o.ValidFrom, o.SyncedAt, o.ExternalCompanyID, o.CompanyName, o.CompanyNIT); err != nil {
 				return fmt.Errorf("devices: open identity: %w", err)
 			}
 		}
@@ -354,6 +356,82 @@ func (s *Store) CustomersByExternal(ctx context.Context, t pgdb.TenantID, servic
 			return err
 		}
 		out, err = collectCustomers(rows)
+		return err
+	})
+	return out, err
+}
+
+// SetServiceCompany implementa app.IntegrationStore: un webhook de ArgosISP
+// trae la empresa del servicio (empresa_id, contrato 1.2.0 §2.3). Las
+// identidades vigentes del servicio con otra empresa toman la nueva; el
+// nombre y el NIT quedan en NULL hasta la próxima resolución (no se conocen).
+func (s *Store) SetServiceCompany(ctx context.Context, t pgdb.TenantID, serviceID, companyID int64) (int, error) {
+	var n int64
+	err := s.db.TenantTx(ctx, t, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `UPDATE devices.customer_external_identity SET external_company_id = $3, company_name = NULL, company_nit = NULL
+			WHERE tenant_id = $1 AND system = 'argosisp' AND valid_to IS NULL AND external_service_id = $2
+			  AND external_company_id IS DISTINCT FROM $3`, t.UUID(), serviceID, companyID)
+		n = tag.RowsAffected()
+		return err
+	})
+	return int(n), err
+}
+
+// ServiceIdentities implementa app.IntegrationStore: identidades de los
+// servicios de ArgosISP vigentes en at (at = nil: las vigentes ahora) con su
+// cliente; sites limita al alcance (nil = todo el ISP). Orden: por servicio,
+// el cliente visto más recientemente primero.
+func (s *Store) ServiceIdentities(ctx context.Context, t pgdb.TenantID, serviceIDs []int64, at *time.Time, sites []uuid.UUID) ([]app.ServiceIdentity, error) {
+	var out []app.ServiceIdentity
+	if len(serviceIDs) == 0 {
+		return out, nil
+	}
+	err := s.db.TenantTx(ctx, t, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `SELECT i.id, `+customerCols+` FROM devices.customer_external_identity i
+			JOIN devices.customer c ON c.tenant_id = i.tenant_id AND c.id = i.customer_id
+			WHERE i.tenant_id = $1 AND i.system = 'argosisp' AND i.external_service_id = ANY($2)
+			  AND (($3::timestamptz IS NULL AND i.valid_to IS NULL)
+			    OR ($3::timestamptz IS NOT NULL AND i.valid_from <= $3 AND (i.valid_to IS NULL OR i.valid_to > $3)))
+			  AND ($4::uuid[] IS NULL OR c.site_id = ANY($4))
+			ORDER BY i.external_service_id, c.last_seen DESC, c.id`, t.UUID(), serviceIDs, at, sites)
+		if err != nil {
+			return fmt.Errorf("devices: service identities: %w", err)
+		}
+		defer rows.Close()
+		ids := map[uuid.UUID]int{}
+		for rows.Next() {
+			var id uuid.UUID
+			var c domain.Customer
+			var conf, score, sconf *int16
+			if err := rows.Scan(&id, &c.ID, &c.TenantID, &c.RealmID, &c.Address, &c.SiteID, &c.ClientPrefixID, &c.Kind, &c.KindSource,
+				&c.KindLocked, &conf, &c.KindChangedAt, &c.CommercialUseSuspected, &c.SecurityState, &c.OpenFindings, &c.Alias,
+				&c.AliasSource, &c.Notes, &c.Status, &c.InactiveReason, &c.FirstSeen, &c.LastSeen, &c.ResetAt, &c.CreatedAt, &c.UpdatedAt,
+				&c.Version, &score, &c.SuggestedKind, &sconf, &c.SuggestedReasons, &c.SuggestedModel, &c.SuggestedAt, &c.DefaultKind); err != nil {
+				return err
+			}
+			c.KindConfidence, c.CommercialScore, c.SuggestedConfidence = intPtr16(conf), intPtr16(score), intPtr16(sconf)
+			ids[id] = len(out)
+			out = append(out, app.ServiceIdentity{Customer: c})
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		if len(out) == 0 {
+			return nil
+		}
+		list := make([]uuid.UUID, 0, len(ids))
+		for id := range ids {
+			list = append(list, id)
+		}
+		irows, err := tx.Query(ctx, `SELECT `+identityCols+` FROM devices.customer_external_identity WHERE tenant_id = $1 AND id = ANY($2)`,
+			t.UUID(), list)
+		if err != nil {
+			return err
+		}
+		idents, err := collectIdentities(irows)
+		for _, i := range idents {
+			out[ids[i.ID]].Identity = i
+		}
 		return err
 	})
 	return out, err

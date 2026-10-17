@@ -751,6 +751,12 @@ modules:
         POST: customers.read
       audited:
         - POST
+    - prefix: /api/v1/integrations/security-states
+      scope: tenant
+      methods:
+        POST: security.findings.read
+      audited:
+        - POST
     - prefix: /api/v1/routers
       scope: tenant
       methods:

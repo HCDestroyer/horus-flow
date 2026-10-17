@@ -195,6 +195,10 @@ func cases() map[string]tenanttest.Case {
 	c["lookupIpIntegration"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"address": "10.10.0.41"}}
 	c["getIntegrationConsumption"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"from": "2026-10-01T00:00:00Z",
 		"to": "2026-10-02T00:00:00Z", "items": []any{map[string]any{"address": "10.10.0.41"}}}}
+	// H9 (contrato 1.2.0): estado de seguridad por lotes; el cruce con un hf_pat_ de otro ISP lo cubre
+	// TestAPITokenTenantIsolation.
+	c["getIntegrationSecurityStates"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{
+		"items": []any{map[string]any{"address": "10.10.0.41"}}}}
 	c["getArgosIntegration"] = tenanttest.Case{Kind: tenanttest.List}
 	c["putArgosIntegration"] = tenanttest.Case{Kind: tenanttest.Create, Body: map[string]any{"base_url": "https://argos.example/api/v1", "enabled": false}}
 	c["rotateArgosWebhookSecret"] = tenanttest.Case{Kind: tenanttest.Create}
