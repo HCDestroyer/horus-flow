@@ -1,0 +1,68 @@
+# Horus Flow — stack para Portainer, Proxmox (LXC/VM con Docker), TrueNAS SCALE u otro panel de
+# docker compose (docs/install-docker.md). Variables: stack.env.example.
+#
+# Un único contenedor de primer arranque (horus-init, imagen horus-installer) que ejecuta el MISMO
+# instalador que en un servidor (scripts/install.sh --runtime docker --yes):
+#   - genera los secretos en HORUS_ETC_DIR/secrets (0700) — nunca van en el texto del stack —, el
+#     certificado autogenerado (modo ip) y el paquete de secretos offline cifrado;
+#   - crea el proyecto de compose "horus" (HORUS_PROJECT) con todos los servicios de compose.prod.yaml
+#     y el contenedor horus-host (túnel WireGuard, cortafuegos y backups programados);
+#   - espera a que todo esté healthy, crea el superadministrador, hace el primer backup e imprime en
+#     sus logs la URL, la huella SHA-256 del certificado (modo ip), la contraseña inicial del
+#     superadmin (si la generó) y cómo guardar el paquete de secretos offline.
+# Después termina (restart: "no"). Volver a desplegar el stack (otra versión de la imagen o variables
+# nuevas) aplica los cambios sin regenerar secretos. Los servicios de Horus aparecen en Portainer como
+# el stack "horus" (creado fuera de Portainer); no le pongas a ESTE stack el mismo nombre.
+#
+# AVISO: el contenedor monta el socket de Docker (equivale a root en el anfitrión) y usa la red del
+# anfitrión. Los directorios se montan en la MISMA ruta del anfitrión: compose y los backups
+# interpretan esas rutas en el anfitrión. Imagen fijada por digest (la release publica este archivo
+# con el digest de horus-installer de images.lock); nunca "latest".
+
+name: horus-installer
+
+services:
+  horus-init:
+    image: ${HORUS_INSTALLER_IMAGE:?falta HORUS_INSTALLER_IMAGE (ghcr.io/hcdestroyer/horus-installer:X.Y.Z@sha256:…)}
+    command: ["stack"]
+    network_mode: host
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      HORUS_OPT_MODE: ${HORUS_MODE:-ip}
+      HORUS_OPT_PUBLIC_IP: ${HORUS_PUBLIC_IP:-}
+      HORUS_OPT_DOMAIN: ${HORUS_DOMAIN:-}
+      HORUS_OPT_ACME_EMAIL: ${HORUS_ACME_EMAIL:-}
+      HORUS_OPT_TLS: ${HORUS_TLS:-}
+      HORUS_OPT_PUBLIC_URL: ${HORUS_PUBLIC_URL:-}
+      HORUS_OPT_TRUSTED_PROXIES: ${HORUS_TRUSTED_PROXIES:-}
+      HORUS_OPT_HTTP_BIND: ${HORUS_HTTP_BIND:-}
+      HORUS_OPT_ADMIN_EMAIL: ${HORUS_ADMIN_EMAIL:?falta HORUS_ADMIN_EMAIL}
+      HORUS_OPT_TUNNEL_CIDR: ${HORUS_TUNNEL_CIDR:-10.255.0.0/16}
+      HORUS_OPT_WG_ENDPOINT: ${HORUS_WG_ENDPOINT:-}
+      HORUS_OPT_WG_PORT: ${HORUS_WG_PORT:-}
+      HORUS_OPT_HTTP_PORT: ${HORUS_HTTP_PORT:-}
+      HORUS_OPT_HTTPS_PORT: ${HORUS_HTTPS_PORT:-}
+      HORUS_OPT_SIZE: ${HORUS_SIZE:-}
+      HORUS_OPT_PROJECT: ${HORUS_PROJECT:-horus}
+      HORUS_OPT_CHANNEL: ${HORUS_CHANNEL:-}
+      HORUS_OPT_NO_UPDATE_CHECK: ${HORUS_NO_UPDATE_CHECK:-}
+      HORUS_OPT_IMAGE_SOURCE: ${HORUS_IMAGE_SOURCE:-}
+      HORUS_OPT_BUNDLE_RECIPIENT: ${HORUS_BUNDLE_RECIPIENT:-}
+      HORUS_OPT_SMTP_HOST: ${HORUS_SMTP_HOST:-}
+      HORUS_OPT_SMTP_PORT: ${HORUS_SMTP_PORT:-}
+      HORUS_OPT_SMTP_FROM: ${HORUS_SMTP_FROM:-}
+      HORUS_OPT_SMTP_USER: ${HORUS_SMTP_USER:-}
+      HORUS_OPT_SMTP_TLS: ${HORUS_SMTP_TLS:-}
+      HORUS_OPT_INSTALL_DIR: ${HORUS_INSTALL_DIR:-/opt/horus}
+      HORUS_OPT_ETC_DIR: ${HORUS_ETC_DIR:-/etc/horus}
+      HORUS_OPT_DATA_DIR: ${HORUS_DATA_DIR:-/var/lib/horus}
+      HORUS_OPT_STORE_DIR: ${HORUS_STORE_DIR:-/var/lib/horus/store}
+      HORUS_OPT_FORCE: ${HORUS_FORCE:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${HORUS_INSTALL_DIR:-/opt/horus}:${HORUS_INSTALL_DIR:-/opt/horus}
+      - ${HORUS_ETC_DIR:-/etc/horus}:${HORUS_ETC_DIR:-/etc/horus}
+      - ${HORUS_DATA_DIR:-/var/lib/horus}:${HORUS_DATA_DIR:-/var/lib/horus}
+      - ${HORUS_STORE_DIR:-/var/lib/horus/store}:${HORUS_STORE_DIR:-/var/lib/horus/store}

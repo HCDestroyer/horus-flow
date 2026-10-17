@@ -49,6 +49,17 @@ BASE_IMAGES = [
     ("Distroless (base de horus y horus-web)", "Apache-2.0 (imagen); paquetes Debian con sus licencias",
      "https://github.com/GoogleContainerTools/distroless"),
     ("Node.js (runtime de horus-web)", "MIT y otras", "https://github.com/nodejs/node/blob/main/LICENSE"),
+    # horus-installer (instalación solo con Docker, deployments/images/installer/Dockerfile): paquetes de
+    # Alpine sin modificar, ejecutados como programas independientes por scripts de shell.
+    ("Alpine Linux (base de horus-installer)", "MIT (imagen); paquetes con sus licencias",
+     "https://gitlab.alpinelinux.org/alpine/aports"),
+    ("Docker CLI y Docker Compose (en horus-installer)", "Apache-2.0", "https://github.com/docker/cli"),
+    ("wireguard-tools (en horus-installer)", "GPL-2.0-only", "https://git.zx2c4.com/wireguard-tools/"),
+    ("wireguard-go (en horus-installer)", "MIT", "https://git.zx2c4.com/wireguard-go/"),
+    ("iptables (en horus-installer)", "GPL-2.0-or-later", "https://git.netfilter.org/iptables/"),
+    ("supercronic (en horus-installer)", "MIT", "https://github.com/aptible/supercronic"),
+    ("cosign (en horus-installer)", "Apache-2.0", "https://github.com/sigstore/cosign"),
+    ("age (en horus-installer)", "BSD-3-Clause", "https://github.com/FiloSottile/age"),
 ]
 
 
@@ -160,7 +171,9 @@ def render(gomods, npm, imgs):
         "",
         "BusyBox (GPL-2.0) se usa como imagen auxiliar independiente, sin enlazarse con Horus Flow. Si",
         "se distribuye en el paquete offline, se ofrece su código fuente correspondiente a petición o en",
-        "el enlace indicado, como exige la GPL.",
+        "el enlace indicado, como exige la GPL. Lo mismo vale para los paquetes GPL de Alpine incluidos sin",
+        "modificar en la imagen horus-installer (wireguard-tools, iptables, bash, coreutils…), que los",
+        "scripts del instalador ejecutan como programas independientes.",
         "",
         f"## Módulos Go enlazados en el binario `horus` ({len(gomods)})",
         "",

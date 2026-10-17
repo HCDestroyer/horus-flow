@@ -252,6 +252,16 @@ backup-status: ## Estado de backups, restauraciones de prueba y disco
 test-backup: ## Prueba de I1-23: instala en un raíz temporal, backups, restauración verificada y alertas (sudo)
 	@GO='$(GO)' bash scripts/backup/test-backup.sh
 
+# Instalación solo con Docker (docs/install-docker.md): imagen horus-installer y prueba de punta a
+# punta en este anfitrión (sudo; imágenes INSTALLER_IMAGE, HORUS_IMAGE, HORUS_WEB_IMAGE ya construidas).
+.PHONY: installer-image
+installer-image: ## Construye la imagen horus-installer (INSTALLER_IMAGE=horus-installer:local)
+	@bash scripts/release/build-installer-image.sh --tag "$${INSTALLER_IMAGE:-horus-installer:local}"
+
+.PHONY: test-install-docker
+test-install-docker: ## Prueba la instalación solo con Docker de punta a punta (sudo; borra /opt/horus, /etc/horus, /var/lib/horus al final)
+	@bash tests/install/docker/run.sh
+
 # Instalación de punta a punta en Debian con systemd y Docker dentro (I1-22, docs/install-debian.md):
 # bootstrap-debian.sh, paquete offline, reinicio, upgrade con vuelta atrás y desinstalación.
 #   make test-install-debian DEBIAN_VERSION=13 TEST_MODE=sandbox

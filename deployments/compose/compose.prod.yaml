@@ -541,6 +541,46 @@ services:
       retries: 3
       start_period: 5s
 
+  # ------------------------------------------------------------------------------------------
+  # horus-host — SOLO en la instalación sin scripts en el anfitrión (install.sh --runtime docker,
+  # imagen horus-installer, docs/install-docker.md; perfil "docker", que activa el .env). Hace lo que
+  # en un servidor hacen systemd y el propio sistema: crea el hub WireGuard (wg0 del kernel o
+  # wireguard-go dentro de este contenedor), pone las reglas de iptables que dejan entrar IPFIX/NetFlow
+  # solo por wg0, vuelve a arrancar horus-collector y horus-wg-agent cuando recrea wg0 (tras un
+  # reinicio del anfitrión) y ejecuta los backups programados (supercronic, config/horus-host.crontab).
+  # Red del anfitrión + NET_ADMIN + /dev/net/tun + socket de Docker: equivale a root en el anfitrión
+  # (igual que horus-tunnel.service y los timers en el modo host). Las rutas se montan en la MISMA
+  # ruta porque horus-backup lanza contenedores con ellas.
+  # ------------------------------------------------------------------------------------------
+  horus-host:
+    profiles: [docker]
+    image: ${HORUS_INSTALLER_IMAGE:-horus-installer:local}
+    command: ["host-agent"]
+    network_mode: host
+    cap_add: [NET_ADMIN]
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    security_opt:
+      - no-new-privileges:true
+    logging: *logging
+    restart: unless-stopped
+    environment:
+      HORUS_INSTALL_DIR: ${HORUS_INSTALL_DIR:-/opt/horus}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/run/wireguard:/var/run/wireguard
+      - ${HORUS_INSTALL_DIR:-/opt/horus}:${HORUS_INSTALL_DIR:-/opt/horus}
+      - ${HORUS_ETC_DIR:-/etc/horus}:${HORUS_ETC_DIR:-/etc/horus}:ro
+      - ${HORUS_DATA_ROOT}:${HORUS_DATA_ROOT}
+      - ${HORUS_STORE_DIR}:${HORUS_STORE_DIR}
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD", "horus-installer", "host-health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
 networks:
   horus:
     driver: bridge

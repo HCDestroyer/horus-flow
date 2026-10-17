@@ -114,6 +114,10 @@ arrancando con el sistema. Se puede repetir sin romper nada. Sin Internet, usa e
 
 Guía completa, paso a paso: [`docs/install-debian.md`](docs/install-debian.md).
 
+**Solo con Docker** (sin scripts en el servidor; Portainer, Proxmox, TrueNAS): la imagen
+`horus-installer` ejecuta el mismo instalador con un `docker run` o como stack
+(`compose.stack.yaml`). Guía: [`docs/install-docker.md`](docs/install-docker.md).
+
 > **Repositorio privado:** si las imágenes de GHCR son privadas, el servidor necesita un token de
 > solo lectura (`read:packages`). Ver [`docs/install-debian.md`](docs/install-debian.md) §8.
 
@@ -222,6 +226,7 @@ Convenciones de código, flujo de trabajo y Definición de Terminado:
 | Documento | Contenido |
 | --- | --- |
 | [`docs/install-debian.md`](docs/install-debian.md) | Instalación, actualizaciones, copias, proxy inverso |
+| [`docs/install-docker.md`](docs/install-docker.md) | Instalación solo con Docker: `docker run`, Portainer, Proxmox, TrueNAS |
 | [`docs/guides/i1-mikrotik-real.md`](docs/guides/i1-mikrotik-real.md) | Conectar tu MikroTik paso a paso |
 | [`docs/architecture.md`](docs/architecture.md) | Arquitectura, modos de fallo y límites medidos |
 | [`docs/observability.md`](docs/observability.md) | Métricas, logs, trazas y cómo investigar un fallo |

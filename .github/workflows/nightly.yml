@@ -18,6 +18,12 @@
 #                 real de MikroTik, clientes, tops, hallazgos, exportadores, aislamiento, WebSocket y
 #                 kiosco. "Hecho cuando": verde dos noches seguidas. lab-chr se omite (sin KVM).
 #
+#   install-docker  instalación SOLO con Docker (docs/install-docker.md): imagen horus-installer con
+#                 `docker run`, modo ip; check, horus-host (wg0, reglas DOCKER-USER/INPUT, crontab),
+#                 colector publicado solo en la IP del hub, segunda ejecución idempotente, huella
+#                 del certificado servido, reinicio de horus-host, backup + restauración de prueba
+#                 y uninstall --purge (tests/install/docker/run.sh).
+#
 #   install-debian  I1-22: `make test-install-debian` en matriz Debian 12/13 con TEST_MODE=apt:
 #                 contenedor Debian con systemd, bootstrap-debian.sh instala por apt Docker oficial,
 #                 WireGuard, age, jq, iptables y NTP; paquete offline, reinicio, upgrade con vuelta
@@ -140,6 +146,35 @@ jobs:
       - name: Desinstalación (--purge)
         if: always()
         run: sudo bash scripts/install.sh --uninstall --purge --yes
+
+  # -------------------------------------------------------------------------------------------
+  install-docker:
+    name: install-docker (solo Docker)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Imágenes horus, horus-web y horus-installer
+        run: |
+          docker build -t horus:local --build-arg "VERSION=nightly-${GITHUB_SHA::12}" \
+            --build-arg "REVISION=${GITHUB_SHA}" .
+          docker build -t horus-web:local -f apps/frontend/Dockerfile .
+          bash scripts/release/build-installer-image.sh --tag horus-installer:local --version "nightly-${GITHUB_SHA::12}"
+      - name: make test-install-docker
+        run: sudo make test-install-docker
+      - name: Logs legibles por el runner
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" bin/test-install-docker 2>/dev/null || true
+      - name: Logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: install-docker-logs
+          path: bin/test-install-docker/
+          retention-days: 14
+          if-no-files-found: ignore
 
   # -------------------------------------------------------------------------------------------
   install-debian:

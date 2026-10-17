@@ -8,6 +8,9 @@ compila en el servidor y no hace falta git ni Go.
 > Historia I1-22. Detalles técnicos: [`scripts/install.sh --help`](../scripts/install.sh),
 > [`scripts/bootstrap-debian.sh`](../scripts/bootstrap-debian.sh),
 > [`deployments/README.md`](../deployments/README.md) y [`disaster-recovery.md`](disaster-recovery.md).
+>
+> ¿El servidor ya tiene Docker y no quieres ejecutar scripts en él (Portainer, Proxmox, TrueNAS)?
+> Mismo instalador dentro de una imagen: [`install-docker.md`](install-docker.md).
 
 ## Índice
 

@@ -3,6 +3,7 @@
 #
 #   scripts/release/build-release.sh --version 1.2.3 --out dist [--arch amd64,arm64] \
 #       [--registry ghcr.io/hcdestroyer] [--source registry|local] [--no-bundle] [--notes-url URL]
+#       [--no-installer]
 #
 # Produce en --out:
 #   horus-<v>-installer.tar.gz       árbol de la versión (compose, configuración, scripts, docs,
@@ -10,23 +11,29 @@
 #   horus-<v>-linux-<arch>.tar.gz    lo mismo + images/horus-images.tar (docker save de TODAS las
 #                                    imágenes del compose, fijadas por digest) para servidores sin
 #                                    salida a GHCR (--image-source bundle:…)
-#   --own-images-only                paquete de ACTUALIZACIÓN ligero: solo horus, horus-web y
-#                                    horus-postgres (las de terceros deben estar ya cargadas)
+#   --own-images-only                paquete de ACTUALIZACIÓN ligero: solo horus, horus-web,
+#                                    horus-postgres y horus-installer (las de terceros deben estar ya cargadas)
 #   bootstrap-debian.sh              el comando único de docs/install-debian.md
+#   compose.stack.yaml               stack de Portainer/Proxmox/TrueNAS (docs/install-docker.md) con la
+#   stack.env.example                imagen horus-installer fijada por digest (la de images.lock)
 #   latest.json                      manifiesto de versiones (canal stable o beta) para espejos
 #   SHA256SUMS                       sumas de todo lo anterior (el workflow lo firma con cosign)
 #
 # --source registry (CI): las imágenes propias ya están en el registro (<registry>/horus,
-#   horus-web, horus-postgres con la etiqueta <v>); se fijan por el digest del índice multiarch.
-# --source local (pruebas): imágenes locales HORUS_IMAGE, HORUS_WEB_IMAGE, HORUS_POSTGRES_IMAGE
-#   (variables de entorno) y las de terceros ya presentes; el digest es el ID local.
+#   horus-web, horus-postgres y horus-installer con la etiqueta <v>); se fijan por el digest del
+#   índice multiarch.
+# --source local (pruebas): imágenes locales HORUS_IMAGE, HORUS_WEB_IMAGE, HORUS_POSTGRES_IMAGE y,
+#   si está definida, HORUS_INSTALLER_IMAGE (variables de entorno) y las de terceros ya presentes;
+#   el digest es el ID local.
+# --no-installer: sin horus-installer en images.lock (release.yml, para el images.lock que lleva
+#   dentro la propia imagen horus-installer, que aún no existe).
 #
 # Las imágenes de terceros salen de compose.prod.yaml (${HORUS_X_IMAGE:-ref@sha256:…}).
 
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "$(readlink -f "$0")")/../.." && pwd)"
-version="" out="" archs="amd64,arm64" registry="ghcr.io/hcdestroyer" source=registry bundle=1 notes_url="" own_only=0
+version="" out="" archs="amd64,arm64" registry="ghcr.io/hcdestroyer" source=registry bundle=1 notes_url="" own_only=0 with_installer=1
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --version) version="${2#v}"; shift 2 ;;
@@ -36,8 +43,9 @@ while [ "$#" -gt 0 ]; do
     --source) source="$2"; shift 2 ;;
     --no-bundle) bundle=0; shift ;;
     --own-images-only) own_only=1; shift ;;
+    --no-installer) with_installer=0; shift ;;
     --notes-url) notes_url="$2"; shift 2 ;;
-    -h | --help) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h | --help) sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "build-release.sh: opción desconocida $1" >&2; exit 2 ;;
   esac
 done
@@ -59,7 +67,11 @@ third_party() { # VARIABLE ref@digest de las imágenes de terceros del compose
 lock="$out/images.lock"
 {
   echo "# images.lock de Horus Flow $version: VARIABLE ETIQUETA DIGEST (install.sh --image-source ghcr|bundle)."
-  for pair in "HORUS_IMAGE horus" "HORUS_WEB_IMAGE horus-web" "HORUS_POSTGRES_IMAGE horus-postgres"; do
+  pairs=("HORUS_IMAGE horus" "HORUS_WEB_IMAGE horus-web" "HORUS_POSTGRES_IMAGE horus-postgres")
+  if [ "$with_installer" = 1 ] && { [ "$source" = registry ] || [ -n "${HORUS_INSTALLER_IMAGE:-}" ]; }; then
+    pairs+=("HORUS_INSTALLER_IMAGE horus-installer")
+  fi
+  for pair in "${pairs[@]}"; do
     read -r var name <<<"$pair"; set -- "$var" "$name"
     if [ "$source" = registry ]; then
       ref="$registry/$2:$version"
@@ -94,6 +106,7 @@ targz "$out/horus-$version-installer.tar.gz"
 log "horus-$version-installer.tar.gz"
 
 # --- Paquetes offline por arquitectura -------------------------------------------------------------
+own_image() { case "$1" in HORUS_IMAGE | HORUS_WEB_IMAGE | HORUS_POSTGRES_IMAGE | HORUS_INSTALLER_IMAGE) return 0 ;; esac; return 1; }
 if [ "$bundle" = 1 ]; then
   save_platform=()
   # Con el almacén de imágenes de containerd, save necesita --platform (guarda solo esa arquitectura).
@@ -104,8 +117,8 @@ if [ "$bundle" = 1 ]; then
     tags=()
     while read -r var ref dig; do
       [[ "$var" =~ ^HORUS ]] || continue
-      if [ "$own_only" = 1 ] && [[ "$var" != HORUS_IMAGE && "$var" != HORUS_WEB_IMAGE && "$var" != HORUS_POSTGRES_IMAGE ]]; then continue; fi
-      if [ "$source" = registry ] || [[ "$var" != HORUS_IMAGE && "$var" != HORUS_WEB_IMAGE && "$var" != HORUS_POSTGRES_IMAGE ]]; then
+      if [ "$own_only" = 1 ] && ! own_image "$var"; then continue; fi
+      if [ "$source" = registry ] || ! own_image "$var"; then
         if [ "$source" = local ] && docker image inspect "$ref" >/dev/null 2>&1; then
           :
         else
@@ -133,8 +146,18 @@ if [ "$bundle" = 1 ]; then
   done
 fi
 
-# --- bootstrap, latest.json y SHA256SUMS -----------------------------------------------------------
+# --- bootstrap, stack, latest.json y SHA256SUMS ----------------------------------------------------
 install -m 0755 "$repo_root/scripts/bootstrap-debian.sh" "$out/bootstrap-debian.sh"
+# Stack de Portainer/TrueNAS con horus-installer fijada por digest (nunca latest).
+inst_ref="$(awk '$1 == "HORUS_INSTALLER_IMAGE" { print $2 "@" $3 }' "$lock")"
+if [ -n "$inst_ref" ]; then
+  sed "s|\${HORUS_INSTALLER_IMAGE:?[^}]*}|\${HORUS_INSTALLER_IMAGE:-$inst_ref}|" \
+    "$repo_root/deployments/compose/compose.stack.yaml" >"$out/compose.stack.yaml"
+  grep -qF "$inst_ref" "$out/compose.stack.yaml" || { echo "build-release.sh: no pude fijar horus-installer en compose.stack.yaml" >&2; exit 1; }
+  sed "s|^HORUS_INSTALLER_IMAGE=.*|HORUS_INSTALLER_IMAGE=$inst_ref|" \
+    "$repo_root/deployments/compose/stack.env.example" >"$out/stack.env.example"
+  log "compose.stack.yaml y stack.env.example con $inst_ref"
+fi
 channel=stable; [ "$version" = "${version%%-*}" ] || channel=beta
 jq -n --arg v "$version" --arg ch "$channel" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --arg notes "${notes_url:-https://github.com/hcdestroyer/horus-flow/releases/tag/v$version}" \
