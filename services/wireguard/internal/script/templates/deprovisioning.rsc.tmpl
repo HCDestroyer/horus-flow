@@ -18,7 +18,7 @@
 /certificate remove [find where name="horus-api" || name~"^horus-ca"]
 
 # 4) Firewall, ruta, dirección y túnel WireGuard
-/ip firewall filter remove [find where comment~"^horus"]
+/ip firewall filter remove [find where comment="horus snmp" || comment="horus api" || comment="horus icmp"]
 /ip route remove [find where comment="horus"]
 /ip address remove [find where comment="horus"]
 /interface wireguard peers remove [find where comment="horus"]

@@ -18,14 +18,23 @@
     allowed-address=10.255.0.0/24 persistent-keepalive=25s comment="horus"
 /ip route add dst-address=10.255.0.0/24 gateway=wg-horus comment="horus"
 
-# 2) Firewall: gestión solo desde Horus por el túnel (al principio de input; revise el orden si usa
-#    listas de interfaces o reglas propias)
-/ip firewall filter add chain=input in-interface=wg-horus src-address=10.255.0.0/24 \
-    protocol=udp dst-port=161 action=accept comment="horus snmp" place-before=0
-/ip firewall filter add chain=input in-interface=wg-horus src-address=10.255.0.0/24 \
-    protocol=tcp dst-port=443,8729 action=accept comment="horus api" place-before=0
-/ip firewall filter add chain=input in-interface=wg-horus src-address=10.255.0.0/24 \
-    protocol=icmp action=accept comment="horus icmp" place-before=0
+# 2) Firewall: gestión solo desde Horus por el túnel, delante de la primera regla de input existente
+#    (revise el orden si usa listas de interfaces o reglas propias). Se mueve por id y no con
+#    place-before=0: el número 0 depende del último `print` de la sesión y, si la numeración quedó
+#    vieja, RouterOS falla con "item referred by 'place-before' does not exist" (visto en CHR 7.12).
+{
+    :local first [:pick [/ip firewall filter find where chain=input] 0]
+    /ip firewall filter add chain=input in-interface=wg-horus src-address=10.255.0.0/24 \
+        protocol=udp dst-port=161 action=accept comment="horus snmp"
+    /ip firewall filter add chain=input in-interface=wg-horus src-address=10.255.0.0/24 \
+        protocol=tcp dst-port=443,8729 action=accept comment="horus api"
+    /ip firewall filter add chain=input in-interface=wg-horus src-address=10.255.0.0/24 \
+        protocol=icmp action=accept comment="horus icmp"
+    :if ([:typeof $first] = "id") do={
+        /ip firewall filter move [find where comment="horus snmp" || comment="horus api" || comment="horus icmp"] \
+            destination=$first
+    }
+}
 
 # 3) Usuario de solo lectura para la API (sin write, policy ni sensitive)
 /user group add name=horus-ro comment="horus" \
