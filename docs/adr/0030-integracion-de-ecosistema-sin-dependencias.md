@@ -65,8 +65,10 @@ de clientes nunca van en URLs). La usa la interfaz de Horus y la usa Argos con s
   (identidad con vigencia), canal de webhook firmado (alertas) y receptor de webhooks de Argos.
 - Nuevas piezas en Argos (su fase 2): conector Horus (consumo, salud y seguridad por servicio),
   emisión de webhooks firmados de cambios de asignación y sesión, y resolución de IP por cuerpo.
-- El contrato vive en [`docs/integrations/argosisp.md`](../integrations/argosisp.md) en Horus y su
-  espejo en `.claude/integration/contratos/horus.md` en Argos; se cambian con PRs enlazadas en los
-  dos repositorios.
+- **Fuente de verdad compartida:** el contrato vive con el mismo texto y versión en
+  [`docs/integrations/argosisp.md`](../integrations/argosisp.md) (Horus) y
+  `.claude/integration/contratos/horus.md` (Argos). Cada sistema solo toca su propio código: lo que
+  necesita del otro lo **solicita** en el contrato y el otro lo implementa. Un cambio de contrato son
+  dos PRs enlazadas (una por repositorio) que se mergean cuando ambos lados aprueban.
 - Riesgo: dato personal (nombre del cliente) entra a Horus. Se trata como el alias actual: acceso
   por rol, enmascarado en IA/MCP, no se exporta sin cifrar, se purga con el cliente.

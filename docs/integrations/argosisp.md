@@ -1,10 +1,22 @@
 # Contrato de integración Horus Flow ↔ ArgosISP
 
-Decisión en [ADR-0030](../adr/0030-integracion-de-ecosistema-sin-dependencias.md). Espejo en ArgosISP:
-`.claude/integration/contratos/horus.md`. Cualquier cambio se hace con una PR en cada repositorio,
-enlazadas entre sí.
+Decisión en [ADR-0030](../adr/0030-integracion-de-ecosistema-sin-dependencias.md).
 
-Estado: **v1 propuesta** (pendiente de implementación en ambos lados).
+Versión del contrato: **1.0.0-propuesta** · Estado: pendiente de implementación en ambos lados.
+
+## Gobierno: fuente de verdad compartida
+
+- Este texto es **la fuente de verdad compartida**. Existe con el mismo contenido en los dos
+  repositorios: aquí y en ArgosISP como `.claude/integration/contratos/horus.md`. La línea de
+  versión de arriba identifica qué copia está al día.
+- **Cada sistema solo toca su propio código.** Horus no escribe código de Argos ni Argos de Horus.
+  Lo que uno necesita del otro se **solicita** en la sección de solicitudes (§5) y el otro lo
+  implementa en su repositorio.
+- **Cambiar el contrato** = dos PRs enlazadas, una por repositorio, que solo cambian este archivo
+  (y su espejo) más el código del lado de quien la abre. Se mergean cuando ambos lados la aprueban;
+  la versión sube (semver: menor para campos o eventos nuevos, mayor para cambios incompatibles).
+- Cada lado marca en §5 el estado de lo que le pidieron: `solicitado` → `en curso` → `hecho`
+  (con el enlace a su PR).
 
 ## 0. Principios
 
@@ -156,3 +168,31 @@ Cuerpo: `{ "id": "…", "event": "…", "occurred_at": "ISO-8601", "tenant": "<s
 - Rutas de Horus bajo `/api/v1`; campos nuevos son aditivos. Un cambio incompatible crea `/v2` y
   convive 6 meses.
 - Los receptores ignoran campos y eventos desconocidos.
+
+## 5. Solicitudes
+
+### 5.1 Horus solicita a ArgosISP
+
+| # | Solicitud | Contrato | Estado |
+| --- | --- | --- | --- |
+| A1 | `POST /integraciones/horus/resolver` por cuerpo y por lotes (máx. 500), con cliente (`nombre`, `codigo`, `tipo`), servicio (`user_ppp`, `plan`, `estado`, `router_id`) y `desde` | §2.1 | solicitado |
+| A2 | Evento `cliente.actualizado` en el catálogo (cambio de nombre, tipo o código) | §2.3 | solicitado |
+| A3 | Código de cliente estable (`codigo`; p. ej. `C-000455` derivado del id o un campo propio) | §2.1 | solicitado |
+| A4 | Worker de webhooks firmados hacia Horus (grupo `horus` en `argos:eventos`) con reintentos | §1.3, §2.3 | solicitado |
+| A5 | Usuario técnico "Horus" y token `atk_` con `ip.resolver`, `clientes.ver`, `servicios.ver` | §1.2 | solicitado |
+| A6 | Conector Horus: guardar URL y `hf_pat_` cifrado; ficha de servicio con consumo, salud y seguridad (§3.1); consumo mensual por servicio (§3.2) | §3 | solicitado |
+| A7 | Receptor `POST /integraciones/horus/webhook` firmado; eventos internos para `notify` y la línea de tiempo | §3.4 | solicitado |
+
+Reglas para Argos: el conector viene apagado; nada crítico (AAA, facturación, corte, portal) espera
+a Horus; Horus no decide cortes (solo `evaluarEstadoServicio` decide el estado del servicio).
+
+### 5.2 ArgosISP solicita a Horus
+
+| # | Solicitud | Contrato | Estado |
+| --- | --- | --- | --- |
+| H1 | Tokens de integración `hf_pat_` con plantilla "ArgosISP" (código de conexión) | §1.1 | solicitado |
+| H2 | `POST /api/v1/integrations/ip-lookup` (consulta 360) | §3.1 | solicitado |
+| H3 | `POST /api/v1/integrations/consumption` por IP y por servicio de Argos | §3.2 | solicitado |
+| H4 | `GET /routers/status` e `/infra-services` aceptan `hf_pat_` | §3.3 | solicitado |
+| H5 | Canal `webhook` firmado con los eventos de §3.4 | §3.4 | solicitado |
+| H6 | Receptor `POST /api/v1/integrations/argosisp/webhook` y conector de identidad con vigencia | §2.2–§2.4 | solicitado |
