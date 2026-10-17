@@ -67,6 +67,10 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		r, _ := module.Lookup[snmpapi.RouterStatusReader](deps.Services, snmpapi.ServiceRouterStatus)
 		return r
 	}
+	m.svc.Capacity = func() snmpapi.CapacityReader {
+		r, _ := module.Lookup[snmpapi.CapacityReader](deps.Services, snmpapi.ServiceCapacity)
+		return r
+	}
 	m.widgets = app.NewWidgets(m.svc, cfg.CacheTTL)
 	if deps.Services != nil {
 		_ = deps.Services.Provide(analyticsapi.ServiceWidgetData, analyticsapi.WidgetDataProvider(m.widgets))

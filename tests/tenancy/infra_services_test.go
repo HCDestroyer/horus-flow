@@ -22,7 +22,7 @@ func TestInfraServicesAPI(t *testing.T) {
 	pt := a.superadmin().platformToken()
 	A, B := a.newISP(pt, "isp-a"), a.newISP(pt, "isp-b")
 	// Esquema snmp: RLS fail-closed en las tablas de negocio (el outbox solo lo lee el relay).
-	if tables := tenanttest.AssertRLS(t, a.admin, []string{"snmp"}, []string{"snmp.outbox"}, []string{"snmp.outbox"}); len(tables) != 4 {
+	if tables := tenanttest.AssertRLS(t, a.admin, []string{"snmp"}, []string{"snmp.outbox"}, []string{"snmp.outbox"}); len(tables) != 8 {
 		t.Fatalf("tablas con tenant_id en snmp: %v", tables)
 	}
 

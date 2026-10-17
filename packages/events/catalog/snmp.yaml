@@ -24,3 +24,39 @@ events:
   since: I2
   example: examples/horus.snmp.service.state_changed.json
   notes: 'Servicios de infraestructura del ISP (IPTV, HTTP, DNS…): estado = peor de sus chequeos; check_type es el chequeo que causó el cambio. target es la IP de un servidor del ISP, no de un cliente. Sale por el outbox snmp.outbox.'
+- type: horus.snmp.uplink.condition_changed
+  subject: horus.snmp.uplink.condition_changed.{interface_id}
+  tenant_scope: tenant
+  stream: SNMP_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.snmp.v1.UplinkConditionChanged
+  schema_version: 1
+  producer: snmp
+  consumers:
+  - alerts
+  websocket_topics: []
+  pii: false
+  pii_fields: []
+  status: stable
+  since: I3
+  example: examples/horus.snmp.uplink.condition_changed.json
+  notes: 'Condición sostenida de un enlace de subida (saturation | loss | latency) que cambia de nivel (ok | warning | critical) tras sustained_minutes de los ajustes de capacidad (empeora) o la mitad, mínimo 5 min (mejora), con histéresis; un evento por cambio, deduplicado en origen (snmp.uplink_condition). Sale por el outbox snmp.outbox. Sin datos personales.'
+- type: horus.snmp.capacity.forecast_changed
+  subject: horus.snmp.capacity.forecast_changed.{subject_id}
+  tenant_scope: tenant
+  stream: SNMP_EVENTS
+  family: domain
+  encoding: json
+  schema: horus.events.snmp.v1.CapacityForecastChanged
+  schema_version: 1
+  producer: snmp
+  consumers:
+  - alerts
+  websocket_topics: []
+  pii: false
+  pii_fields: []
+  status: stable
+  since: I3
+  example: examples/horus.snmp.capacity.forecast_changed.json
+  notes: 'Pronóstico diario de capacidad de un enlace o de la salida internacional agregada que cambia de nivel (ok | planning | urgent | insufficient_data | no_capacity) cuando entra o sale de planning/urgent. Lo emite el trabajo diario por el outbox snmp.outbox.'

@@ -125,6 +125,13 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 	reader := routeros.Reader{Timeout: cfg.RouterOSTimeout, BaseURL: func(ip string) string {
 		return strings.ReplaceAll(cfg.RouterOSBaseURL, "{ip}", ip)
 	}}
+	// Sondas netwatch del router (pérdida, latencia y jitter por enlace) para el rol snmp: solo GET y huella fijada.
+	if deps.Services != nil {
+		if err := deps.Services.Provide(devapi.ServiceRouterProbes, devapi.RouterProbeReader(app.NewRouterProbes(store, onboarding, reader))); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
 	importer := app.NewImporter(store, onboarding, reader, exclude,
 		func() (authapi.AuditRecorder, bool) {
 			return module.Lookup[authapi.AuditRecorder](deps.Services, authapi.ServiceAudit)

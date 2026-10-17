@@ -55,6 +55,11 @@ tags:
     description: Estado observado y métricas en vivo de los routers (SNMP + ICMP por el túnel).
   - name: infra-services
     description: Servicios de infraestructura del ISP (IPTV, HTTP, DNS, RADIUS…) y sus chequeos activos y pasivos.
+  - name: capacity
+    description: |
+      Capacidad de enlaces de subida y salud de los nodos (NOC): utilización y saturación, pérdida/latencia/jitter por
+      enlace (sondas netwatch del router, leídas en solo lectura), tráfico local vs internacional y pronóstico de
+      crecimiento con fecha estimada de upgrade.
   - name: traffic
     description: Tops y series de tráfico.
   - name: dashboards
@@ -142,6 +147,16 @@ paths:
     $ref: ./auth.yaml#/paths/~1auth~1refresh
   /auth/token:
     $ref: ./auth.yaml#/paths/~1auth~1token
+  /capacity/egress:
+    $ref: ./snmp.yaml#/paths/~1capacity~1egress
+  /capacity/overview:
+    $ref: ./snmp.yaml#/paths/~1capacity~1overview
+  /capacity/settings:
+    $ref: ./snmp.yaml#/paths/~1capacity~1settings
+  /capacity/traffic-split:
+    $ref: ./snmp.yaml#/paths/~1capacity~1traffic-split
+  /capacity/uplinks/{interface_id}:
+    $ref: ./snmp.yaml#/paths/~1capacity~1uplinks~1{interface_id}
   /classification/status:
     $ref: ./flows.yaml#/paths/~1classification~1status
   /client-prefixes/{client_prefix_id}:
@@ -384,6 +399,8 @@ paths:
     $ref: ./snmp.yaml#/paths/~1routers~1{router_id}~1interfaces
   /routers/{router_id}/metrics/live:
     $ref: ./snmp.yaml#/paths/~1routers~1{router_id}~1metrics~1live
+  /routers/{router_id}/netwatch-snippet:
+    $ref: ./snmp.yaml#/paths/~1routers~1{router_id}~1netwatch-snippet
   /routers/{router_id}/poll:
     $ref: ./snmp.yaml#/paths/~1routers~1{router_id}~1poll
   /routers/{router_id}/prefix-import-preview:

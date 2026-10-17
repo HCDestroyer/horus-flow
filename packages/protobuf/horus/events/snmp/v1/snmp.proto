@@ -26,3 +26,58 @@ message ServiceStateChanged {
   string reason = 9;
   google.protobuf.Timestamp observed_at = 10;
 }
+
+// UplinkConditionChanged: horus.snmp.uplink.condition_changed (entity = interface_id). Una condición sostenida de un
+// enlace de subida cambió de nivel (con histéresis y tiempo sostenido). Deduplicado en origen.
+message UplinkConditionChanged {
+  string tenant_id = 1;
+  string interface_id = 2;
+  string router_id = 3;
+  optional string site_id = 4;
+  string router_name = 5;
+  string site_name = 6;
+  string interface_name = 7;
+  // Nombre visible del enlace (configuración de capacidad o nombre de la interfaz).
+  string label = 8;
+  // saturation | loss | latency
+  string condition = 9;
+  // ok | warning | critical
+  string previous_level = 10;
+  // ok | warning | critical
+  string level = 11;
+  double value = 12;
+  double threshold = 13;
+  // ratio (saturation) | percent (loss) | ms (latency)
+  string unit = 14;
+  google.protobuf.Timestamp since = 15;
+  google.protobuf.Timestamp observed_at = 16;
+}
+
+// CapacityForecastChanged: horus.snmp.capacity.forecast_changed (entity = subject_id). El pronóstico diario de un
+// enlace o de la salida internacional agregada entró o salió de planning/urgent.
+message CapacityForecastChanged {
+  string tenant_id = 1;
+  string subject_id = 2;
+  // uplink | international_egress
+  string subject_kind = 3;
+  optional string site_id = 4;
+  string label = 5;
+  // ok | planning | urgent | insufficient_data | no_capacity ("" = primer pronóstico)
+  string previous_level = 6;
+  string level = 7;
+  int64 capacity_bps = 8;
+  optional double current_peak_bps = 9;
+  optional double monthly_growth = 10;
+  // low | medium | high
+  string confidence = 11;
+  double planning_threshold = 12;
+  // Fecha (aaaa-mm-dd) estimada de cruce; ausente = no cruza en 36 meses.
+  optional string planning_date = 13;
+  optional int32 days_until_planning = 14;
+  double urgent_threshold = 15;
+  optional string urgent_date = 16;
+  optional int32 days_until_urgent = 17;
+  int32 lead_days = 18;
+  string recommendation = 19;
+  google.protobuf.Timestamp computed_at = 20;
+}

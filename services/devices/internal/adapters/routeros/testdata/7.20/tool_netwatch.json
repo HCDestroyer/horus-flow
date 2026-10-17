@@ -1,0 +1,37 @@
+[
+  {
+    ".id": "*1",
+    "comment": "horus-uplink;if=sfp-sfpplus1;ref=gw",
+    "disabled": "false",
+    "host": "198.51.100.1",
+    "type": "icmp",
+    "status": "up",
+    "sent-count": "10",
+    "response-count": "9",
+    "loss-percent": "10%",
+    "rtt-avg": "4ms210us",
+    "rtt-min": "3ms900us",
+    "rtt-max": "6ms",
+    "rtt-jitter": "1ms100us",
+    "rtt-stdev": "620us"
+  },
+  {
+    ".id": "*2",
+    "comment": "horus-uplink;ref=intl-1.1.1.1",
+    "disabled": "false",
+    "host": "1.1.1.1",
+    "type": "icmp",
+    "status": "up",
+    "sent-count": "10",
+    "response-count": "10",
+    "rtt-avg": "00:00:00.052",
+    "rtt-jitter": "2ms"
+  },
+  {
+    ".id": "*3",
+    "comment": "monitoreo propio del ISP",
+    "disabled": "true",
+    "host": "192.0.2.10",
+    "status": "unknown"
+  }
+]

@@ -5,12 +5,14 @@ import type {
   Finding,
   KindChange,
   InfraService,
+  CapacitySettingsValues,
   NotificationChannel,
   NotificationDelivery,
   ReputationSource,
   PlatformRoleKey,
   PlatformUserStatus,
   Role,
+  UplinkConfig,
 } from '~~/types/api'
 import type { LibreNmsTenantState } from './librenms'
 import type { ReportsState } from './reports'
@@ -181,6 +183,13 @@ export const mockState = {
   infraServices: new Map<string, InfraService[]>(),
   /** Reportes y su programación por ISP (`mocks/reports.ts`). */
   reports: new Map<string, ReportsState>(),
+  /** Enlaces de subida configurados por ISP (`mocks/capacity.ts`; sin entrada = semilla). */
+  capacityUplinks: new Map<string, UplinkConfig[]>(),
+  /** Ajustes de capacidad por ISP (`mocks/capacity.ts`). */
+  capacitySettings: new Map<
+    string,
+    { values: CapacitySettingsValues; version: number; updated_at: string }
+  >(),
 }
 
 export function resetMockState() {
@@ -208,6 +217,8 @@ export function resetMockState() {
   mockState.snmpPolls.clear()
   mockState.infraServices.clear()
   mockState.reports.clear()
+  mockState.capacityUplinks.clear()
+  mockState.capacitySettings.clear()
 }
 
 /** Hallazgo cerrado por una acción del usuario: sale de los agregados de "abiertos". */

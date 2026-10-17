@@ -650,7 +650,12 @@ components:
         - `infrastructure` (servicios vigilados, `horus.snmp.service.state_changed`): `service_down`,
           `service_degraded`, `service_recovered`.
         - `exporter_tunnel`: `exporter_silent`, `exporter_recovered`, `tunnel_down`, `tunnel_recovered`.
-        Las recuperaciones (`*_recovered`, `router_interface_up`) tienen severidad `info`.
+        - `capacity` (enlaces de subida y pronósticos, `horus.snmp.uplink.condition_changed` y
+          `horus.snmp.capacity.forecast_changed`): `uplink_saturated` (saturación sostenida; aviso → `medium`, crítico →
+          `high`), `uplink_degraded` (pérdida o latencia sostenidas, mismas severidades), `uplink_recovered`,
+          `capacity_forecast_planning` (cruza el umbral de planificación dentro de la antelación → `low`),
+          `capacity_forecast_urgent` (cruza el urgente o ya lo supera → `high`) y `capacity_forecast_cleared`.
+        Las recuperaciones (`*_recovered`, `router_interface_up`, `capacity_forecast_cleared`) tienen severidad `info`.
       enum:
         - finding_opened
         - finding_reopened
@@ -672,10 +677,16 @@ components:
         - service_recovered
         - finding_resolved
         - customer_security_state_changed
+        - uplink_saturated
+        - uplink_degraded
+        - uplink_recovered
+        - capacity_forecast_planning
+        - capacity_forecast_urgent
+        - capacity_forecast_cleared
     NotificationCategory:
       type: string
       description: Grupo de tipos de evento (ver NotificationEventType). Enum abierto.
-      enum: [security, routers, infrastructure, exporter_tunnel, security_updates]
+      enum: [security, routers, infrastructure, exporter_tunnel, security_updates, capacity]
     EmailChannelConfig:
       type: object
       title: EmailChannelConfig
