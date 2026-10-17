@@ -34,6 +34,7 @@ Durables `alerts-notify-<stream>` (deliver new) sobre `DETECTION_EVENTS`, `FLOWS
 | `routers` | `router_offline`, `router_recovered`, `router_cpu_high`, `router_memory_high`, `router_temperature_high`, `router_hardware_failed`, `router_interface_down`, `router_interface_up`, `router_rebooted` | `horus.snmp.router.state_changed`, `…router.rebooted`, `…interface.oper_status_changed` |
 | `infrastructure` | `service_down`, `service_degraded`, `service_recovered` | `horus.snmp.service.state_changed` (servicios vigilados) |
 | `exporter_tunnel` | `exporter_silent`, `exporter_recovered`, `tunnel_down`, `tunnel_recovered` | `horus.flows.exporter.*`, `horus.wireguard.peer.handshake_*` |
+| `capacity` | `uplink_saturated`, `uplink_degraded`, `uplink_recovered`, `capacity_forecast_planning`, `capacity_forecast_urgent`, `capacity_forecast_cleared` | `horus.snmp.uplink.condition_changed` (recurso = enlace + condición), `horus.snmp.capacity.forecast_changed` (recurso = sujeto); el rol snmp ya deduplica en origen |
 
 La suscripción del canal acepta `categories` (incluye los tipos que se añadan a la categoría) y/o `event_types`
 (las suscripciones antiguas, solo con `event_types`, siguen valiendo). Los nombres de router y el enlace a la

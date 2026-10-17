@@ -103,6 +103,32 @@ PostgreSQL del rol (el estado de los routers sigue en NATS KV).
    pega (dst-nat + masquerade + accept en forward, limitadas a `HORUS_WG_SERVICES_CIDR`, `comment="horus-infra <id>"`).
    El ping no se puede reenviar (`unknown/not_forwardable`). Horus nunca escribe en routers.
 
+## Capacidad de enlaces (I3)
+
+Análisis de enlaces de subida, salud del nodo y pronóstico de capacidad para el NOC. Método completo en
+[`docs/capacity-forecast.md`](../../docs/capacity-forecast.md).
+
+- **Configuración por enlace** (`snmp.uplink_config`, RLS): proveedor/etiqueta, tipo (`international_transit`,
+  `local_ix`, `cache`, `other`), capacidad contratada y si suma a la salida internacional. Umbrales por ISP en
+  `snmp.capacity_settings` (lista de ASN locales, planificación 80 % / urgente 90 %, antelación 90 días, saturación
+  70/85 %, pérdida 1/5 %, latencia 80/200 ms, sostenido 15 min).
+- **Pérdida, latencia y jitter**: sondas `/tool netwatch` del propio router (`comment="horus-uplink;if=…;ref=gw"`),
+  **leídas** cada `HORUS_SNMP_PROBE_INTERVAL` por `devices.RouterProbes` (REST de solo lectura, huella TLS ya fijada).
+  El script lo genera `GET /routers/{id}/netwatch-snippet` con marcadores `{GATEWAY_n}` que el usuario completa en el
+  navegador y **pega**; Horus nunca escribe en el router. Sin sondas en el router: ICMP desde Horus etiquetado
+  «ruta Horus → destino». Muestras en `snmp.probe_metrics` / `probe_5m` / `probe_1h` (ClickHouse).
+- **Saturación**: p95 diario de las medias de 5 min, horas ≥ 70/85 %, diagnóstico lleno vs averiado (errores y
+  descartes por paquete). Trabajo diario por ISP (00:20 locales) → `snmp.uplink_daily`; primera vez rellena 89 días.
+- **Local vs internacional**: `flows.site_1d` por ASN remoto → país de la organización o lista local.
+- **Pronóstico**: Theil–Sen sobre `ln(pico diario)` con estacionalidad semanal; fechas de cruce y recomendación.
+  Nivel guardado en `snmp.capacity_forecast`.
+- **Condiciones sostenidas** con histéresis en `snmp.uplink_condition`; solo un cambio de nivel emite, por outbox,
+  `horus.snmp.uplink.condition_changed`; el trabajo diario emite `horus.snmp.capacity.forecast_changed` al entrar o
+  salir de `planning`/`urgent`. `alerts` los publica en la categoría `capacity`.
+- API (`snmp.read`; escritura `snmp.write`): `/capacity/overview`, `/capacity/egress`,
+  `/capacity/uplinks/{interface_id}` (GET/PUT con If-Match/DELETE), `/capacity/settings`, `/capacity/traffic-split`,
+  `/routers/{router_id}/netwatch-snippet`. Expone `api.ServiceCapacity` (salud por nodo) al widget `site_health`.
+
 ## Variables de entorno
 
 | Variable | Defecto | Qué hace |
@@ -131,6 +157,9 @@ PostgreSQL del rol (el estado de los routers sigue en NATS KV).
 | `HORUS_SNMP_PG_MIGRATE` | `true` | Aplica el esquema `snmp` de PostgreSQL al arrancar. |
 | `HORUS_SNMP_INFRA_CONCURRENCY` | `32` | Servicios de infraestructura sondeados a la vez. |
 | `HORUS_SNMP_INFRA_TIMEOUT` | `5s` | Plazo de cada chequeo activo (≤ la mitad del intervalo). |
+| `HORUS_SNMP_CAPACITY_ENABLED` | `true` | `false`: sin sondas, monitor ni trabajo diario de capacidad (la API sigue sirviendo lo guardado). |
+| `HORUS_SNMP_PROBE_INTERVAL` | `60s` | Lectura de netwatch y sondas de respaldo; también el ciclo del monitor. |
+| `HORUS_SNMP_PROBE_CONCURRENCY` | `8` | Routers leídos a la vez. |
 | `HORUS_WG_SERVICES_CIDR` | `10.255.0.0/24` | Red de servicios de Horus (origen de los sondeos en el script de router). |
 | `HORUS_PUBLIC_BASE_URL` | — | Base de `Location` en el alta. |
 
@@ -150,4 +179,6 @@ Logs `snmp: …` sin usuarios, contraseñas ni comunidades.
 falso, engine con dobles, HTTP). Integración: `go test -tags integration ./services/snmp/internal/adapters/clickhouse/`
 (migración real contra ClickHouse con `chtest`, escritura y lectura por tenant);
 `go test -tags integration ./services/snmp/internal/adapters/postgres/` (almacén de servicios: RLS, outbox) y
-`go test -tags integration ./tests/tenancy/ -run TestInfraServicesAPI` (API y aislamiento entre ISP).
+`go test -tags integration ./tests/tenancy/ -run 'TestInfraServicesAPI|TestCapacityAPI'` (API y aislamiento entre ISP);
+capacidad: `go test -tags integration ./services/snmp/internal/adapters/pgstore/ -run TestCapacityStore` y
+`./services/snmp/internal/adapters/clickhouse/ -run TestCapacitySeries`.

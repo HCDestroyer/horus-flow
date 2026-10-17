@@ -426,6 +426,15 @@ incluidas): crece con cada alta, edición o baja. `tenant_rule_set`/`tenant_rule
   contadores, `had_traffic`, `recent jsonb` con los últimos 30 resultados; FK en cascada) y `outbox`. RLS forzada con
   `p_tenant` en las dos tablas; roles `snmp_app` / `snmp_platform` (carga del planificador y relay). Perfiles por fabricante (MikroTik primero) como archivos versionados
   en el repositorio. Series a ClickHouse (§6.3) desde el primer incremento con SNMP (D4).
+  **Capacidad de enlaces** (I3, migración `20261017150000_snmp_capacity.sql`, RLS forzada `p_tenant`):
+  `uplink_config` (PK `tenant_id, interface_id`; `router_id`, `label`, `provider`, `kind` ∈ international_transit |
+  local_ix | cache | other, `contracted_bps` 1 Mb/s–1,6 Tb/s o NULL = velocidad del puerto, `international_egress`,
+  `version`), `capacity_settings` (PK `tenant_id`; umbrales de planificación/urgente, antelación, saturación,
+  pérdida y latencia con CHECK de orden, `country`, `local_asns bigint[]` ≤ 200, `probe_targets jsonb`),
+  `uplink_condition` (PK `tenant_id, interface_id, condition`; nivel sostenido que deduplica
+  `horus.snmp.uplink.condition_changed`) y `capacity_forecast` (PK `tenant_id, subject_id`; último pronóstico en
+  `jsonb` y su `level`, que deduplica `horus.snmp.capacity.forecast_changed`). Los eventos salen por `snmp.outbox`
+  en la misma transacción.
 - **`flows`**: `exporter` (`tenant_id`, `router_id`, `source_ip` tal como llega por el túnel
   WireGuard, `observation_domain_id`, `protocol`, `declared_sampling_rate`, `last_packet_at`),
   `template_cache`. **Identificación del exportador**: por `(IP origen del túnel WireGuard,
@@ -778,6 +787,20 @@ tabla de control propia `snmp.goose_db_version`; escritor único el rol `snmp` c
   (sumas de deltas), `utilization_rx_max`, `utilization_tx_max`.
 
 No hay agregado diario ni cuantiles en I2 (13 meses de 1 h bastan para las series de `analytics`).
+
+**Capacidad de enlaces (I3**, `20261017150000_snmp_capacity.sql`; mismo escritor y mismas políticas
+`p_tenant`/`p_platform`; método en [`capacity-forecast.md`](capacity-forecast.md)):
+
+- `snmp.probe_metrics` — `MergeTree`, `PARTITION BY toYYYYMMDD(ts)`, `ORDER BY (tenant_id, probe_id, ts)`, TTL 30 d:
+  lecturas de las sondas (`source` router_netwatch | horus, `ref` gw | intl | horus, `router_id`, `interface_id`,
+  `target`, `label`, `up`, `sent`, `received`, `loss_pct`, `rtt_avg_ms`, `rtt_min_ms`, `rtt_max_ms`, `jitter_ms`).
+- `snmp.probe_5m` (90 d) y `snmp.probe_1h` (13 meses, MV en cascada): `ORDER BY (tenant_id, probe_id, bucket)`;
+  metadatos `anyLast`, `samples`, `up_total`/`up_count`, `loss_pct`, `rtt_avg_ms`, `jitter_ms` como `_sum/_count/_max`
+  y `rtt_max_ms_max`.
+- `snmp.uplink_daily` — `ReplacingMergeTree(computed_at)`, `ORDER BY (tenant_id, subject_id, day)`, TTL 25 meses:
+  pico diario (p95 de las medias de 5 min del día local) rx/tx, máximos, capacidad usada, horas sobre aviso y
+  crítico, errores, descartes y paquetes por enlace y de la salida internacional (`subject_kind`); lo escribe el
+  trabajo diario (se lee con `FINAL`).
 Interfaces dinámicas PPPoE del MikroTik no se sondean (el consumo por cliente sale de flujos).
 
 ### 6.4 Otras tablas ClickHouse

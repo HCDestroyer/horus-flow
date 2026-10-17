@@ -714,6 +714,37 @@ Google o Meta) y qué revisar; la capacidad `classification` aparece en el estad
 - "Script del router" (servidores privados): el usuario elige el router y recibe el script RouterOS para pegarlo
   (Horus nunca escribe en routers), los avisos (ICMP no reenviable) y qué cambia del lado de Horus (nada en el hub).
 
+### 8.6 Capacidad (I3, rol snmp)
+
+- Sección **Operación › Capacidad** (`/t/:slug/capacity`, `snmp.read`), tras "Servicios de infraestructura".
+  Filtros de nodo y ventana (hoy, 7 o 30 días) en la URL; `GET /capacity/overview` cada 60 s. Método en
+  [`capacity-forecast.md`](capacity-forecast.md).
+- Por nodo (peor salud primero): encabezado con la salud (`SiteHealthBadge`: Sano, Aviso, Degradado, Crítico, Fuera
+  de servicio, Sin datos; icono + texto + color del vocabulario de equipos, §13.2) y su razón en español; tabla de
+  enlaces (`UplinksTable`): ahora y p95 sobre la capacidad (aviso/crítico con peso y color, nunca solo color), horas
+  sobre 70 / 85 %, pérdida · RTT · jitter de la sonda de su puerta de enlace, capacidad contratada o del puerto,
+  diagnóstico (Holgado, Cerca del límite, Lleno, Posible avería…) y pronóstico (`ForecastLevelBadge`: Urgente
+  `error`, Planificar `warning`, Sin acción `success`, Datos insuficientes / Sin capacidad `neutral`) con crecimiento
+  mensual y mes de cruce; columnas secundarias ocultas en pantallas estrechas. Routers del nodo con sus referencias
+  internacionales o el motivo por el que no se leen sus sondas, y "Sondas netwatch" (`snmp.manage`).
+- Tarjeta de **salida internacional** (capacidad agregada, ahora, p95, pronóstico y recomendación) y **tráfico local vs
+  internacional** (proporciones y volúmenes, barras apiladas por día con la paleta categórica, tabla por nodo; sin
+  proporciones sobre datos vacíos). Sondas «ruta Horus → destino» aparte y rotuladas como tales.
+- Detalle de enlace (`/capacity/uplinks/:id`) y de salida internacional (`/capacity/egress`): KPI, recomendación con
+  sus entradas (crecimiento e intervalo, pico de tendencia → 6 meses, fechas de cruce dd/mm/aaaa, días de historia,
+  confianza, método), `CapacityForecastChart` (picos p95 de entrada y salida, proyección discontinua con banda, línea
+  neutra de capacidad y umbrales de planificación/urgente con su etiqueta; tabla alternativa de la historia y de la
+  proyección) y series horarias de pérdida y de latencia/jitter de la sonda. Periodo (30 d–12 meses) en la URL.
+- Configuración de enlace (`UplinkConfigModal`, `snmp.manage`): nombre, proveedor, tipo, capacidad contratada en
+  Mbit/s o Gbit/s (vacía = puerto) y salida internacional; "Quitar configuración" vuelve a solo detección. Ajustes
+  (`CapacitySettingsModal`): umbrales en %, antelación, saturación sostenida, pérdida, latencia, país, ASN locales y
+  destinos de las sondas de respaldo.
+- Script netwatch (`NetwatchSnippetModal`): el usuario escribe la IP de la puerta de enlace de cada enlace y el
+  script se completa **en el navegador** (la IP no viaja a la API); estado de la lectura de sondas del router.
+- Widget **`site_health`** «Salud de sitios / capacidad» (tabla, `snmp.read`, apto para kiosco): una línea por nodo
+  con la insignia de salud, la razón, el peor p95, enlaces caídos y el mes de upgrade si hay planificación; en mural
+  una sola línea por nodo y las que no caben se ocultan enteras (`v-fit-rows`).
+
 ### 8.6 Reportes (I3, rol reporting)
 
 - Sección **Gestión › Reportes** (`/t/:slug/reports`, `reports.read` con alcance de todo el ISP; `pages/t/[slug]/reports/index.vue`).

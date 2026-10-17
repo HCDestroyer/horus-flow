@@ -536,6 +536,20 @@ de cualquiera es de plataforma (§2.8).
 > de MikroTik salen de SNMP (MIKROTIK-MIB incluida); la API de RouterOS se usa para datos del alta y del realm, no como
 > fuente de series ([ADR-0022](./adr/0022-mikrotik-routeros-v7-primer-fabricante.md)).
 
+### 2.5 bis Capacidad de enlaces y salud de nodos (rol `snmp`, I3)
+
+Método y fuentes en [`capacity-forecast.md`](./capacity-forecast.md). Sin datos personales; razones y recomendaciones
+en español. Horus no escribe en routers.
+
+| Método y ruta | Servicio | Descripción | Permiso |
+| --- | --- | --- | --- |
+| `GET /capacity/overview` | `snmp` | Un bloque por nodo (peor salud primero): `health` (`status` del vocabulario de equipos, `summary`, `reasons[]`), sus enlaces de subida (detectado + configurados) con utilización ahora, `window` (p95 rx/tx y sobre capacidad, horas sobre 70/85 %, errores, descartes), `diagnosis` (`full`, `faulty`, `full_and_faulty`, `busy`, `ok`…), `probe` (pérdida/RTT/jitter de 24 h de la sonda de su puerta de enlace), `conditions` vigentes y `forecast`; referencias internacionales de sus routers y `probes_error` por router. `egress` (salida internacional agregada, solo alcance completo), `horus_probes` («ruta Horus → destino»), `settings`. `site_id`, `days` (1–30, 7). | `snmp.read` |
+| `GET /capacity/uplinks/{interface_id}` · `GET /capacity/egress` | `snmp` | Serie diaria (`days` 7–365, 90) de picos p95, horas sobre umbral, errores y descartes; `forecast` completo con proyección semanal a 12 meses y banda; `recommendation`; serie horaria de la sonda. Fuera del alcance → 404 `UPLINK_NOT_FOUND`. | `snmp.read` |
+| `PUT /capacity/uplinks/{interface_id}` · `DELETE` | `snmp` | Configuración del enlace: `router_id`, `label`, `provider`, `kind` (`international_transit`, `local_ix`, `cache`, `other`), `contracted_bps` (bits/s; vacío = velocidad del puerto), `international_egress` (por defecto solo tránsito internacional). La interfaz debe ser de un router sondeado del ISP. `If-Match` (412), 500 por ISP (409 `UPLINK_LIMIT_REACHED`), sin PostgreSQL 503. Auditado (`snmp.uplink_config.updated|deleted`). | `snmp.manage` |
+| `GET` · `PUT` · `DELETE /capacity/settings` | `snmp` | Umbrales de planificación/urgente (80/90 %) y antelación (90 d), saturación 70/85 % sostenida 15 min, pérdida 1/5 %, latencia 80/200 ms, `country` (por defecto el del ISP), `local_asns` (≤ 200), `probe_targets` (≤ 10 IPv4 públicas). Auditado (`snmp.capacity_settings.updated|reset`). | lectura `snmp.read`, escritura `snmp.manage` |
+| `GET /capacity/traffic-split` | `snmp` | Volumen remoto local / internacional / sin clasificar por nodo y por día (`flows.site_1d`, días UTC), con el país y su origen (`settings`, `tenant`, `none`). `site_id`, `days` (1–90, 30). | `snmp.read` |
+| `GET /routers/{id}/netwatch-snippet` | `snmp` | Script RouterOS de sondas `/tool netwatch` (ICMP, sin scripts, `comment="horus-uplink;…"`) a la puerta de enlace de cada enlace (`{GATEWAY_n}`: el usuario la completa en la consola; nunca viaja en la URL) y a 1.1.1.1 / 8.8.8.8; `probes_found` y `probes_error` de la última lectura. | `snmp.manage` |
+
 ### 2.6 Estado del router: un solo conjunto de valores
 
 Se unifican los estados de [`architecture.md`](./architecture.md) §10.2–§10.4 (`online/degraded/offline/stale`) y los del
@@ -765,7 +779,8 @@ ArgosISP vigente del cliente, `data.external = {system, customer_id, service_id}
 `include_personal_data`. Prueba de conexión = `POST` firmado con `event: "ping"`; envío de prueba = `event: "test"`.
 Suscripción por `event_types` (`finding_opened`, `finding_reopened`, `exporter_silent`, `exporter_recovered`,
 `tunnel_down`, `tunnel_recovered`; categoría `security_updates`: `finding_resolved`,
-`customer_security_state_changed`), `min_severity`, `site_ids` y `throttle_minutes`. Los mensajes no llevan la IP del
+`customer_security_state_changed`; categoría `capacity`: `uplink_saturated`, `uplink_degraded`, `uplink_recovered`,
+`capacity_forecast_planning`, `capacity_forecast_urgent`, `capacity_forecast_cleared`), `min_severity`, `site_ids` y `throttle_minutes`. Los mensajes no llevan la IP del
 cliente salvo `include_personal_data=true` (auditado). Permisos `alerts.read` / `alerts.manage`. Reglas, silencios y
 escalado siguen en el incremento de alertas completo.
 

@@ -338,6 +338,7 @@ pruebas. Ambas exigen certificado en el router (§4.3).
 | `/interface/wireguard/peers` | Estado del túnel visto desde el router | 5 min |
 | `/ip/firewall/connection` | Conteo de conexiones (§6) | Ver §6, con cautela |
 | `/queue/simple` | Plan contratado (max-limit) como pista residencial/comercial | 1 h, fuera de v1 |
+| `/tool/netwatch` | Pérdida, RTT y jitter por enlace de subida (sondas ICMP con `comment="horus-uplink;…"` que **pega el usuario**; Horus solo las lee: `status`, `sent-count`, `response-count`, `loss-percent`, `rtt-avg/min/max`, `rtt-jitter`, `rtt-stdev`, nombres a verificar en 7.12+) — [`capacity-forecast.md`](../capacity-forecast.md) | 60 s (solo con la huella TLS ya fijada) |
 
 D1 dice que **no** hace falta CRM: estas lecturas son **enriquecimiento opcional**. El cliente
 sigue siendo la IP; usuario PPPoE, MAC y hostname se guardan como alias con retención limitada.

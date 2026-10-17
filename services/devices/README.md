@@ -43,6 +43,9 @@ métricas y eventos publicados/consumidos cuando el módulo tenga implementació
   primer contacto (auditado); huella distinta → `409 ROUTER_TLS_FINGERPRINT_CHANGED` salvo confirmación explícita
   (`accept_new_tls_fingerprint`, auditada); router caído → `502 ROUTER_UNREACHABLE`. Propone rol, modo y campos IPv6 de la
   enmienda E-IPv6-1 sin aplicar nada. `POST /sites/{id}/client-prefixes/batch` crea la selección todo o nada.
+- Sondas netwatch para el rol `snmp` (capacidad de enlaces): `devapi.RouterProbeReader` (`devices.RouterProbes`, en
+  proceso) lee `/tool/netwatch` con el mismo usuario de solo lectura, solo GET y **solo con la huella TLS ya fijada** (en
+  segundo plano nunca se acepta una huella nueva); sin túnel, credencial o huella → `ErrRouterAPIUnavailable`.
 - Variables: `HORUS_DEVICES_KEK_FILE`, `HORUS_WG_TUNNEL_CIDRS` (nunca se proponen), `HORUS_DEVICES_ROUTEROS_BASE_URL`
   (`https://{ip}`), `HORUS_DEVICES_ROUTEROS_TIMEOUT` (20 s).
 - Suite `routeros-import`: `go test ./services/devices/internal/adapters/routeros/` (fixtures REST 7.12 y 7.20 en `testdata/`,

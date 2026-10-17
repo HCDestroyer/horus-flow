@@ -332,6 +332,15 @@ Convención: **Dep.** son dependencias duras. Los riesgos se puntúan Probabilid
 - **Avance:** reporte semanal de seguridad por ISP en PDF/CSV, programado (lunes 07:00 hora del ISP) y a
   petición, con descarga autenticada y auditada y aviso por correo opcional: rol `reporting`
   ([`services/analytics/README.md`](../services/analytics/README.md), [`api.md`](api.md) §2.10 bis).
+- **Avance (capacidad de enlaces, NOC):** análisis de enlaces de subida en el rol `snmp`
+  ([`capacity-forecast.md`](capacity-forecast.md)): pérdida/latencia/jitter por enlace con las sondas netwatch del
+  router leídas en solo lectura (script que pega el usuario) y respaldo «ruta Horus → destino»; saturación con p95
+  diario y horas sobre 70/85 % frente a la capacidad contratada; lleno vs averiado con errores y descartes; tráfico
+  local vs internacional por ASN; salud explicable por nodo; pronóstico de crecimiento (Theil–Sen sobre ln del pico
+  con estacionalidad semanal) con fecha estimada de upgrade por enlace y de la salida internacional; alertas de la
+  categoría `capacity` deduplicadas y con recuperación; página **Capacidad** y widget `site_health`. Pendiente: la
+  sección del reporte semanal (se hace en `analytics/reporting` cuando termine el trabajo en curso allí) y prefijos
+  en la lista local.
 - **Criterios:** ninguna alerta duplicada en la prueba de caída de nodo; aviso en < 1 min desde
   el hallazgo; restauración desde la copia SFTP probada.
 - **Riesgos:** (M/A) fatiga de alertas → solo severidad alta por defecto y agrupación por IP/nodo.

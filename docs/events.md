@@ -796,6 +796,19 @@ Dominio → `SNMP_EVENTS` (publicación §6.3):
 | `horus.snmp.poller.heartbeat` (tenant `platform`; entity_id = UUIDv5 de la instancia) | alerts, api-gateway (topic `system`) | 5 |
 | `horus.snmp.audit.recorded` | auth | 5 |
 | `horus.snmp.service.state_changed` (entity = `service_id`) | alerts | I2 |
+| `horus.snmp.uplink.condition_changed` (entity = `interface_id`; outbox) | alerts (`uplink_saturated` / `uplink_degraded` / `uplink_recovered`, categoría `capacity`) | I3 |
+| `horus.snmp.capacity.forecast_changed` (entity = `subject_id`: enlace o salida internacional; outbox) | alerts (`capacity_forecast_planning` / `_urgent` / `_cleared`) | I3 |
+
+> Capacidad de enlaces ([`capacity-forecast.md`](./capacity-forecast.md)): `uplink.condition_changed` se emite solo
+> cuando una condición sostenida (`saturation` | `loss` | `latency`) cambia de nivel (`ok` | `warning` | `critical`),
+> con histéresis y tiempo sostenido; payload `{tenant_id, interface_id, router_id, site_id, router_name, site_name,
+> interface_name, label, condition, previous_level, level, value, threshold, unit (ratio|percent|ms), since,
+> observed_at}`. `capacity.forecast_changed` lo emite el trabajo diario cuando el pronóstico entra o sale de
+> `planning`/`urgent`: `{subject_id, subject_kind, site_id, label, previous_level, level, capacity_bps,
+> current_peak_bps, monthly_growth, confidence, planning_threshold, planning_date, days_until_planning,
+> urgent_threshold, urgent_date, days_until_urgent, lead_days, recommendation, computed_at}`. Ambos en
+> `SNMP_EVENTS` (durable `alerts-notify-snmp`); Protobuf `horus.events.snmp.v1.UplinkConditionChanged` y
+> `CapacityForecastChanged`; golden files en `packages/events/examples/`.
 
 > `interfaces_discovered` corrige el orden de `discovered_interfaces` de [`services.md`](./services.md) (verbo al final).
 > El **estado observado** es de `snmp` ([`services.md`](./services.md)); `devices` sólo lo proyecta y calcula el `status`
