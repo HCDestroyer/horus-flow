@@ -12,6 +12,9 @@ import { CPU_THRESHOLDS, TEMP_THRESHOLDS } from '~/utils/router-health'
  * CPU / memoria / temperatura / uptime en vivo (`router.{id}.metrics`), "Sondear ahora"
  * (`POST /routers/{id}/poll`, `devices.update`), pestañas Métricas e Interfaces y el modo
  * mural de un solo router (`?scale=wall`, `RouterWall`).
+ * Huawei VRP (`connection_mode = direct`, docs/vendors/huawei.md): sin túnel WireGuard, la
+ * pestaña Conexión es el alta directa (`DirectOnboardingWizard`) y no hay huella TLS, script de
+ * desinstalación RouterOS ni importación de prefijos por la API REST.
  */
 const { t, te } = useI18n()
 const route = useRoute()
@@ -153,6 +156,10 @@ onBeforeUnmount(() => {
   clearTimeout(hideTimer)
 })
 
+// MikroTik (túnel WireGuard + API REST) frente a Huawei en modo directo (solo SNMP y NetStream).
+const direct = computed(() => rt.value?.connection_mode === 'direct')
+const routerOS = computed(() => (rt.value?.vendor ?? 'mikrotik') === 'mikrotik')
+
 const activeCustomers = computed(
   () => stats.value?.by_site.find((s) => s.site_id === rt.value?.site_id)?.active ?? 0,
 )
@@ -251,7 +258,7 @@ function showUninstallFromDelete() {
 }
 
 const more = computed<DropdownMenuItem[]>(() => [
-  ...(can('wireguard.write')
+  ...(can('wireguard.write') && routerOS.value
     ? [{ label: t('router.uninstall'), icon: 'i-lucide-file-x-2', onSelect: openUninstall }]
     : []),
   ...(can('devices.delete')
@@ -431,7 +438,16 @@ useHead({ title: () => rt.value?.name ?? t('router.title') })
             >
               <RelativeTime :at="exporter.state_since" :prefix="t('router.since')" />
             </span>
-            <span class="text-muted text-sm">
+            <UBadge
+              v-if="direct"
+              color="neutral"
+              variant="subtle"
+              icon="i-lucide-shield-alert"
+              :label="t('devices.vendor.directBadge')"
+              :title="t('devices.vendor.directHint')"
+              data-testid="router-direct-badge"
+            />
+            <span v-else class="text-muted text-sm">
               {{ peer?.last_handshake_at ? t('router.handshake') : t('router.noHandshake') }}
               <RelativeTime v-if="peer?.last_handshake_at" :at="peer.last_handshake_at" />
             </span>
@@ -449,14 +465,15 @@ useHead({ title: () => rt.value?.name ?? t('router.title') })
               {{ t('router.fps', { n: formatNumber(exporter.flows_per_second) }) }}
             </span>
           </p>
-          <p class="text-muted text-sm">
-            {{ rt.display_name }} · {{ rt.model ?? '—' }} · {{ site?.name ?? '' }}
+          <p class="text-muted text-sm" data-testid="router-vendor-line">
+            {{ t(`devices.vendor.${rt.vendor}`) }} · {{ rt.display_name }} · {{ rt.model ?? '—' }} ·
+            {{ site?.name ?? '' }}
           </p>
         </div>
       </UCard>
 
       <RouterTlsFingerprint
-        v-if="can('devices.read')"
+        v-if="can('devices.read') && routerOS"
         :key="`tls-banner-${rt.id}`"
         :router="rt"
         compact
@@ -494,7 +511,16 @@ useHead({ title: () => rt.value?.name ?? t('router.title') })
           :description="t('devices.router.unsupportedBody')"
           data-testid="router-unsupported-banner"
         />
+        <DirectOnboardingWizard
+          v-if="direct"
+          :router="rt"
+          :exporter="exporter ?? null"
+          :active-customers="activeCustomers"
+          :discovery="site?.discovery_mode ?? false"
+          @refresh="refreshAll"
+        />
         <OnboardingWizard
+          v-else
           :router="rt"
           :peer="peer ?? null"
           :exporter="exporter ?? null"
@@ -502,7 +528,10 @@ useHead({ title: () => rt.value?.name ?? t('router.title') })
           :discovery="site?.discovery_mode ?? false"
           @refresh="refreshAll"
         />
-        <RouterTlsFingerprint v-if="rt.onboarding_state !== 'pending_configuration'" :router="rt" />
+        <RouterTlsFingerprint
+          v-if="routerOS && rt.onboarding_state !== 'pending_configuration'"
+          :router="rt"
+        />
         <UCard data-testid="next-steps">
           <div class="flex flex-col gap-3">
             <h2 class="text-highlighted font-semibold">{{ t('devices.steps.next') }}</h2>
@@ -519,14 +548,14 @@ useHead({ title: () => rt.value?.name ?? t('router.title') })
       </template>
       <template v-else-if="tab === 'credentials'">
         <!-- La huella se comparte con el aviso de la cabecera (misma clave de useTenantQuery). -->
-        <RouterTlsFingerprint :router="rt" />
+        <RouterTlsFingerprint v-if="routerOS" :router="rt" />
         <RouterCredentials :router="rt" @refresh="refreshRouter()" />
       </template>
       <PrefixesPanel
         v-else-if="tab === 'prefixes'"
         :site-id="rt.site_id"
         :router-id="rt.id"
-        :router-ready="rt.onboarding_state !== 'pending_configuration'"
+        :router-ready="routerOS && rt.onboarding_state !== 'pending_configuration'"
       />
       <template v-else-if="tab === 'metrics'">
         <RouterMetricsPanel v-if="canSnmp" :router-id="rt.id" :range="range as RelativeRange" />
@@ -587,7 +616,7 @@ useHead({ title: () => rt.value?.name ?? t('router.title') })
         @confirm="remove"
       >
         <UAlert
-          v-if="rt.onboarding_state !== 'pending_configuration'"
+          v-if="routerOS && rt.onboarding_state !== 'pending_configuration'"
           color="warning"
           variant="subtle"
           icon="i-lucide-file-x-2"

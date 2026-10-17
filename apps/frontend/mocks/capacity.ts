@@ -931,6 +931,7 @@ function snippetOf(sr: SnmpRouter, seeds: UplinkSeed[]): NetwatchSnippet {
   return {
     router_id: sr.item.router.id,
     router_name: sr.item.router.name,
+    language: 'routeros',
     script: lines.join('\n') + '\n',
     placeholders: ups.map((u, i) => ({
       key: `{GATEWAY_${i + 1}}`,

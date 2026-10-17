@@ -3545,6 +3545,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/routers/{router_id}/direct-onboarding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Alta en modo directo (Huawei VRP, sin túnel) — configuración VRP con credencial SNMPv3 nueva
+         * @description Para routers con `connection_mode=direct` (Huawei VRP no tiene WireGuard; docs/vendors/huawei.md §5). Fija la
+         *     dirección de gestión (`management_address`: la IP de origen del router tal y como la ve Horus por el camino que
+         *     asegura el operador — VRF de gestión, VPN de sitio o relé), emite una credencial SNMPv3 authPriv nueva de solo
+         *     lectura (SHA-256 + AES-128; la anterior deja de valer; cifrada en reposo y **solo en esta respuesta** en claro) y
+         *     devuelve la configuración VRP que **pega el operador** (ACL de SNMP, vista mínima, NetStream v9 hacia el colector).
+         *     Horus nunca escribe en el router. El colector solo acepta flujos de esa IP después de que el sondeador verifique
+         *     la credencial en ella (`onboarding_state=snmp_verified`). Un MikroTik → `422 ROUTER_VENDOR_NOT_SUPPORTED`.
+         *     Sintaxis VRP **pendiente de validación en equipo real** (`notes`).
+         */
+        post: operations["createDirectOnboarding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/routers/{router_id}/interfaces": {
         parameters: {
             query?: never;
@@ -4636,10 +4665,12 @@ export interface components {
             /** @description Media de 24 h. */
             rtt_avg_ms: number | null;
             /**
-             * @description `router_netwatch` = sonda del router (por enlace); `horus` = ruta Horus → destino (no mide un enlace).
+             * @description `router_netwatch` = sonda netwatch del router MikroTik (por enlace, API REST); `router_nqa` = prueba NQA ICMP de
+             *     un router Huawei VRP leída por SNMP (DISMAN-PING-MIB / NQA-MIB; jitter = desviación típica del RTT);
+             *     `horus` = ruta Horus → destino (no mide un enlace).
              * @enum {string}
              */
-            source: "router_netwatch" | "horus";
+            source: "router_netwatch" | "router_nqa" | "horus";
             /** @enum {string} */
             status: "up" | "down" | "unknown";
             /** @description IP sondeada (infraestructura o referencia pública; nunca un cliente). */
@@ -5117,6 +5148,38 @@ export interface components {
             /** @example 2026-10-13T00:00:00Z */
             version?: string;
         };
+        DirectOnboarding: {
+            /** @description IP del colector de Horus para el modo directo (HORUS_DEVICES_DIRECT_COLLECTOR_ADDRESS); null = marcador en la configuración. */
+            collector_address: string | null;
+            /** @description Puerto UDP de NetStream v9 (2055 por defecto). */
+            collector_port: number;
+            /**
+             * @description Configuración VRP para pegar en la CLI (solo comandos, sin comentarios). Contiene las contraseñas SNMPv3:
+             *     se muestra una sola vez.
+             */
+            config: string;
+            /**
+             * @description Lenguaje de la configuración (CLI de Huawei VRP).
+             * @enum {string}
+             */
+            language: "vrp";
+            /** @description IP de origen del router vista por Horus. */
+            management_address: string;
+            /** @description Explicaciones (validación pendiente en equipo real, camino seguro, ACL, prompts de contraseña). */
+            notes: string[];
+            placeholders: {
+                description: string;
+                /** @example {INTERFAZ_NETSTREAM} */
+                key: string;
+            }[];
+            router_id: components["schemas"]["Uuid"];
+            sampling_rate: number;
+            /** @description Usuario SNMPv3 de solo lectura (la contraseña solo va en `config`). */
+            snmp_user: string;
+            /** @enum {string} */
+            vendor: "mikrotik" | "huawei";
+            warnings: string[];
+        };
         /** EmailChannelConfig */
         EmailChannelConfig: {
             /**
@@ -5132,7 +5195,7 @@ export interface components {
          * @description Código estable UPPER_SNAKE_CASE (= `ErrorInfo.reason` de gRPC). **Enum abierto**: se listan los
          *     conocidos en v0; el cliente trata un código desconocido según el `status` HTTP.
          */
-        ErrorCode: ("VALIDATION_FAILED" | "UNAUTHENTICATED" | "TOKEN_EXPIRED" | "SESSION_REVOKED" | "PERMISSION_DENIED" | "ORIGIN_NOT_ALLOWED" | "MFA_REQUIRED" | "MFA_ENROLLMENT_REQUIRED" | "REAUTH_REQUIRED" | "NOT_FOUND" | "ALREADY_EXISTS" | "CONFLICT" | "PRECONDITION_FAILED" | "PRECONDITION_REQUIRED" | "IDEMPOTENCY_KEY_REUSED" | "IDEMPOTENCY_IN_PROGRESS" | "RATE_LIMITED" | "TENANT_RATE_LIMITED" | "INTERNAL" | "SERVICE_UNAVAILABLE" | "ANALYTICS_UNAVAILABLE" | "TIMEOUT" | "INVALID_CREDENTIALS" | "INVALID_CURSOR" | "INVALID_FILTER" | "INVALID_SORT_FIELD" | "TIME_RANGE_TOO_LARGE" | "TENANT_NOT_FOUND" | "TENANT_MISMATCH" | "TENANT_SUSPENDED" | "TOKEN_SCOPE_INVALID" | "KIOSK_FORBIDDEN" | "ROUTER_NOT_FOUND" | "ROUTER_PRIMARY_EXISTS" | "ROUTEROS_VERSION_UNSUPPORTED" | "ROUTER_UNREACHABLE" | "ROUTER_TLS_FINGERPRINT_CHANGED" | "ROUTER_TLS_FINGERPRINT_UNCONFIRMED" | "ROUTER_TLS_FINGERPRINT_MISMATCH" | "SITE_NOT_FOUND" | "SITE_NOT_EMPTY" | "PEER_ALREADY_REVOKED" | "WIREGUARD_IP_POOL_EXHAUSTED" | "WIREGUARD_PUBLIC_KEY_IN_USE" | "ENROLLMENT_TOKEN_INVALID" | "CUSTOMER_NOT_FOUND" | "CUSTOMER_KIND_LOCKED" | "CLIENT_PREFIX_OVERLAP" | "CLIENT_PREFIX_NOT_FOUND" | "ASN_RULE_NOT_FOUND" | "FINDING_NOT_FOUND" | "FINDING_STATE_INVALID" | "REPORT_NOT_FOUND" | "REPORT_NOT_READY" | "REPORT_EXPIRED" | "REPORT_DEFINITION_NOT_FOUND" | "DASHBOARD_NOT_FOUND" | "DASHBOARD_READ_ONLY" | "WIDGET_TYPE_NOT_ALLOWED" | "WIDGET_TYPE_UNKNOWN" | "WIDGET_CONFIG_INVALID" | "KIOSK_ENROLLMENT_CODE_INVALID" | "NOTIFICATION_CHANNEL_NOT_FOUND" | "NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE" | "NOTIFICATION_CHANNEL_UNREACHABLE" | "NOTIFICATION_CHANNEL_AUTH_FAILED" | "NOTIFICATION_CHANNEL_CREDENTIALS_MISSING" | "LIBRENMS_CHANNEL_REQUIRED" | "LIBRENMS_NOT_PROVISIONED" | "LIBRENMS_DEVICE_NOT_OWNED" | "NOTIFICATION_TELEGRAM_WEBHOOK_ACTIVE" | "NOTIFICATION_TELEGRAM_LINK_CODE_INVALID" | "NOTIFICATION_TELEGRAM_BOT_NOT_CONFIGURED" | "STORAGE_TARGET_UNREACHABLE" | "REPUTATION_SOURCE_NOT_FOUND" | "REPUTATION_SOURCE_READ_ONLY" | "REPUTATION_SOURCE_URL_NOT_ALLOWED" | "ROLE_NOT_FOUND" | "ROLE_READ_ONLY" | "ROLE_IN_USE" | "LAST_PLATFORM_ADMIN" | "WIREGUARD_HUB_NOT_FOUND" | "WIREGUARD_POOL_NOT_FOUND" | "WIREGUARD_POOL_OVERLAP" | "WIREGUARD_POOL_INVALID" | "WIREGUARD_POOL_IN_USE" | "REMOTE_DESTINATION_NOT_FOUND" | "REMOTE_DESTINATION_NOT_READY" | "REMOTE_DESTINATION_SYNC_RUNNING" | "API_TOKEN_NOT_FOUND" | "INTEGRATION_NOT_CONFIGURED" | "INTEGRATION_UNAVAILABLE") | string;
+        ErrorCode: ("VALIDATION_FAILED" | "UNAUTHENTICATED" | "TOKEN_EXPIRED" | "SESSION_REVOKED" | "PERMISSION_DENIED" | "ORIGIN_NOT_ALLOWED" | "MFA_REQUIRED" | "MFA_ENROLLMENT_REQUIRED" | "REAUTH_REQUIRED" | "NOT_FOUND" | "ALREADY_EXISTS" | "CONFLICT" | "PRECONDITION_FAILED" | "PRECONDITION_REQUIRED" | "IDEMPOTENCY_KEY_REUSED" | "IDEMPOTENCY_IN_PROGRESS" | "RATE_LIMITED" | "TENANT_RATE_LIMITED" | "INTERNAL" | "SERVICE_UNAVAILABLE" | "ANALYTICS_UNAVAILABLE" | "TIMEOUT" | "INVALID_CREDENTIALS" | "INVALID_CURSOR" | "INVALID_FILTER" | "INVALID_SORT_FIELD" | "TIME_RANGE_TOO_LARGE" | "TENANT_NOT_FOUND" | "TENANT_MISMATCH" | "TENANT_SUSPENDED" | "TOKEN_SCOPE_INVALID" | "KIOSK_FORBIDDEN" | "ROUTER_NOT_FOUND" | "ROUTER_PRIMARY_EXISTS" | "ROUTEROS_VERSION_UNSUPPORTED" | "ROUTER_UNREACHABLE" | "ROUTER_TLS_FINGERPRINT_CHANGED" | "ROUTER_TLS_FINGERPRINT_UNCONFIRMED" | "ROUTER_TLS_FINGERPRINT_MISMATCH" | "ROUTER_VENDOR_NOT_SUPPORTED" | "MANAGEMENT_ADDRESS_IN_USE" | "SITE_NOT_FOUND" | "SITE_NOT_EMPTY" | "PEER_ALREADY_REVOKED" | "WIREGUARD_IP_POOL_EXHAUSTED" | "WIREGUARD_PUBLIC_KEY_IN_USE" | "ENROLLMENT_TOKEN_INVALID" | "CUSTOMER_NOT_FOUND" | "CUSTOMER_KIND_LOCKED" | "CLIENT_PREFIX_OVERLAP" | "CLIENT_PREFIX_NOT_FOUND" | "ASN_RULE_NOT_FOUND" | "FINDING_NOT_FOUND" | "FINDING_STATE_INVALID" | "REPORT_NOT_FOUND" | "REPORT_NOT_READY" | "REPORT_EXPIRED" | "REPORT_DEFINITION_NOT_FOUND" | "DASHBOARD_NOT_FOUND" | "DASHBOARD_READ_ONLY" | "WIDGET_TYPE_NOT_ALLOWED" | "WIDGET_TYPE_UNKNOWN" | "WIDGET_CONFIG_INVALID" | "KIOSK_ENROLLMENT_CODE_INVALID" | "NOTIFICATION_CHANNEL_NOT_FOUND" | "NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE" | "NOTIFICATION_CHANNEL_UNREACHABLE" | "NOTIFICATION_CHANNEL_AUTH_FAILED" | "NOTIFICATION_CHANNEL_CREDENTIALS_MISSING" | "LIBRENMS_CHANNEL_REQUIRED" | "LIBRENMS_NOT_PROVISIONED" | "LIBRENMS_DEVICE_NOT_OWNED" | "NOTIFICATION_TELEGRAM_WEBHOOK_ACTIVE" | "NOTIFICATION_TELEGRAM_LINK_CODE_INVALID" | "NOTIFICATION_TELEGRAM_BOT_NOT_CONFIGURED" | "STORAGE_TARGET_UNREACHABLE" | "REPUTATION_SOURCE_NOT_FOUND" | "REPUTATION_SOURCE_READ_ONLY" | "REPUTATION_SOURCE_URL_NOT_ALLOWED" | "ROLE_NOT_FOUND" | "ROLE_READ_ONLY" | "ROLE_IN_USE" | "LAST_PLATFORM_ADMIN" | "WIREGUARD_HUB_NOT_FOUND" | "WIREGUARD_POOL_NOT_FOUND" | "WIREGUARD_POOL_OVERLAP" | "WIREGUARD_POOL_INVALID" | "WIREGUARD_POOL_IN_USE" | "REMOTE_DESTINATION_NOT_FOUND" | "REMOTE_DESTINATION_NOT_READY" | "REMOTE_DESTINATION_SYNC_RUNNING" | "API_TOKEN_NOT_FOUND" | "INTEGRATION_NOT_CONFIGURED" | "INTEGRATION_UNAVAILABLE") | string;
         /** @description Evidencia agregada según kind (nunca payloads; nunca la IP del cliente). Campos conocidos; otros permitidos. */
         Evidence: {
             bps_peak?: number;
@@ -5325,7 +5388,7 @@ export interface components {
             /** @description IP de túnel del router (identidad del exportador). */
             exporter_ip: string | null;
             /** @enum {string|null} */
-            flow_source: "ipfix" | "netflow_v9" | "netflow_v5" | null;
+            flow_source: "ipfix" | "netflow_v9" | "netflow_v5" | "sflow_v5" | null;
             flows_per_second: number | null;
             /** @description Qué revisar (códigos traducibles), p. ej. firewall, ruta al hub, Traffic Flow, offload por hardware. */
             hints?: ("check_tunnel" | "check_traffic_flow_target" | "check_firewall" | "hardware_offload_suspected" | "check_ntp")[];
@@ -5991,6 +6054,13 @@ export interface components {
             mfa_token: string;
         };
         NetwatchSnippet: {
+            /**
+             * @description `routeros`: script RouterOS (.rsc) con sondas netwatch (MikroTik). `vrp`: configuración Huawei VRP con pruebas
+             *     NQA ICMP (admin-name `horus`, test-name `gw-<interfaz>` / `intl-<ip>`), sin comentarios, pendiente de
+             *     validación en equipo real (docs/vendors/huawei.md §4).
+             * @enum {string}
+             */
+            language: "routeros" | "vrp";
             placeholders: {
                 description: string;
                 interface: string;
@@ -6002,7 +6072,7 @@ export interface components {
             probes_found: number;
             router_id: components["schemas"]["Uuid"];
             router_name: string;
-            /** @description Script RouterOS (.rsc) con marcadores {GATEWAY_n}. */
+            /** @description Script RouterOS (.rsc) o configuración VRP con marcadores {GATEWAY_n}. */
             script: string;
             warnings: string[];
         };
@@ -6697,17 +6767,27 @@ export interface components {
         Router: components["schemas"]["TenantScopedResource"] & components["schemas"]["RouterInput"] & {
             /** @enum {string} */
             admin_state: "active" | "maintenance" | "decommissioned";
+            /**
+             * @description `wireguard`: túnel router → hub de Horus (MikroTik). `direct`: sin túnel; el camino lo asegura el operador
+             *     (VRF de gestión, VPN de sitio existente o relé MikroTik/Linux) y el colector filtra por IP de origen
+             *     (docs/vendors/huawei.md §5). Lo fija `vendor`.
+             * @enum {string}
+             */
+            connection_mode: "wireguard" | "direct";
             credentials?: components["schemas"]["CredentialStatus"][];
             /**
              * @description Pasos del asistente (I1-19): `pending_configuration` → `key_received` (clave pública enrolada)
-             *     → `tunnel_up` (primer handshake) → `exporting` (primer flujo). Enum abierto.
+             *     → `tunnel_up` (primer handshake) → `exporting` (primer flujo). En modo directo (Huawei):
+             *     `pending_configuration` → `snmp_verified` (el sondeador respondió con la credencial SNMPv3 de ese router en
+             *     su dirección de gestión: prueba de control; solo entonces el colector acepta sus flujos) → `exporting`.
+             *     Enum abierto.
              * @enum {string}
              */
-            onboarding_state: "pending_configuration" | "key_received" | "tunnel_up" | "exporting";
+            onboarding_state: "pending_configuration" | "key_received" | "tunnel_up" | "snmp_verified" | "exporting";
             routeros_version_detected?: string | null;
             /** @description false si la versión (detectada o declarada) es < 7.12 (D15); null si se desconoce. */
             routeros_version_supported: boolean | null;
-            /** @description IP /32 de túnel WireGuard asignada por la IPAM de plataforma = identidad del exportador. */
+            /** @description IP /32 de túnel WireGuard asignada por la IPAM de plataforma = identidad del exportador (null en modo directo). */
             tunnel_address: string | null;
             warnings: ("routeros_version_unsupported" | "traffic_flow_target_drift" | "hardware_offload_suspected")[];
             wireguard_peer_id?: components["schemas"]["Uuid"] | null;
@@ -6752,19 +6832,31 @@ export interface components {
             display_name?: string | null;
             /** @default true */
             is_primary?: boolean;
-            /** @example CCR2116-12G-4S+ */
+            /**
+             * @description Solo `connection_mode=direct`: IP de origen del router vista por Horus (destino del sondeo SNMP e identidad del
+             *     exportador de flujos). Cambiarla devuelve el router a `pending_configuration` hasta verificarla de nuevo.
+             * @example 198.51.100.20
+             */
+            management_address?: string | null;
+            /**
+             * @example CCR2116-12G-4S+
+             * @example NE40E-X8A
+             */
             model?: string | null;
             /** @description Hostname / identidad del router. */
             name: string;
-            /** @description Declarada por el admin (D15: solo RouterOS 7.x). Se sobrescribe con la detectada. */
+            /** @description Declarada por el admin (D15: solo RouterOS 7.x; solo `vendor=mikrotik`). Se sobrescribe con la detectada. */
             routeros_version?: string | null;
             site_id: components["schemas"]["Uuid"];
             tags?: string[];
             /**
+             * @description Fabricante (roadmap I6, adaptadores por fabricante). `mikrotik`: RouterOS 7 con túnel WireGuard
+             *     (`connection_mode=wireguard`). `huawei`: VRP V5/V8 en modo directo sin túnel (`connection_mode=direct`,
+             *     docs/vendors/huawei.md). No se puede cambiar después del alta.
              * @default mikrotik
              * @enum {string}
              */
-            vendor?: "mikrotik";
+            vendor?: "mikrotik" | "huawei";
         };
         RouterInterface: {
             admin_up: boolean | null;
@@ -6796,6 +6888,8 @@ export interface components {
             /** @enum {string} */
             admin_state?: "active" | "maintenance" | "decommissioned";
             display_name?: string | null;
+            /** @description Solo modo directo (ver RouterInput). */
+            management_address?: string | null;
             model?: string | null;
             name?: string;
             routeros_version?: string | null;
@@ -14047,6 +14141,45 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    createDirectOnboarding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * @description IP unicast del router vista por Horus (sin loopback, link-local ni multicast). Obligatoria si el router aún no la tiene.
+                     * @example 198.51.100.20
+                     */
+                    management_address?: string | null;
+                    /** @description Muestreo de NetStream (1 de cada N paquetes; 1000 por defecto). */
+                    sampling_rate?: number | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Configuración generada (`Cache-Control no-store`). */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirectOnboarding"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
         };
     };
     listRouterInterfaces: {

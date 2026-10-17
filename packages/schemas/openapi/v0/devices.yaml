@@ -3,7 +3,7 @@ info:
   title: Horus Flow API — módulo devices (contrato v0)
   version: 0.1.0
   description: |
-    Inventario por ISP (nodos, routers MikroTik, prefijos de clientes) y clientes = IPs descubiertas
+    Inventario por ISP (nodos, routers MikroTik y Huawei VRP, prefijos de clientes) y clientes = IPs descubiertas
     (docs/api.md §2.3, §2.9; docs/database.md §2.2–§2.3; ADR-0018). Reglas:
     - La IP de un cliente **nunca** viaja en la URL: búsqueda por `POST /customers/lookup`.
     - Un router principal por nodo; RouterOS 7.x ≥ 7.12 (D15): una versión inferior se registra con aviso
@@ -456,6 +456,54 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/RouterTlsFingerprint' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /routers/{router_id}/direct-onboarding:
+    parameters:
+      - $ref: '#/components/parameters/RouterId'
+    post:
+      tags: [routers]
+      operationId: createDirectOnboarding
+      summary: Alta en modo directo (Huawei VRP, sin túnel) — configuración VRP con credencial SNMPv3 nueva
+      description: |
+        Para routers con `connection_mode=direct` (Huawei VRP no tiene WireGuard; docs/vendors/huawei.md §5). Fija la
+        dirección de gestión (`management_address`: la IP de origen del router tal y como la ve Horus por el camino que
+        asegura el operador — VRF de gestión, VPN de sitio o relé), emite una credencial SNMPv3 authPriv nueva de solo
+        lectura (SHA-256 + AES-128; la anterior deja de valer; cifrada en reposo y **solo en esta respuesta** en claro) y
+        devuelve la configuración VRP que **pega el operador** (ACL de SNMP, vista mínima, NetStream v9 hacia el colector).
+        Horus nunca escribe en el router. El colector solo acepta flujos de esa IP después de que el sondeador verifique
+        la credencial en ella (`onboarding_state=snmp_verified`). Un MikroTik → `422 ROUTER_VENDOR_NOT_SUPPORTED`.
+        Sintaxis VRP **pendiente de validación en equipo real** (`notes`).
+      x-module: devices
+      x-scope: tenant
+      x-permission: devices.credentials.write
+      x-reauth: true
+      x-audited: true
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                management_address:
+                  type: [string, 'null']
+                  description: IP unicast del router vista por Horus (sin loopback, link-local ni multicast). Obligatoria si el router aún no la tiene.
+                  examples: ['198.51.100.20']
+                sampling_rate: { type: [integer, 'null'], minimum: 1, maximum: 65535, description: 'Muestreo de NetStream (1 de cada N paquetes; 1000 por defecto).' }
+      responses:
+        '201':
+          description: Configuración generada (`Cache-Control no-store`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DirectOnboarding' }
         '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
         '403': { $ref: './common.yaml#/components/responses/Forbidden' }
         '404': { $ref: './common.yaml#/components/responses/NotFound' }
@@ -1821,12 +1869,25 @@ components:
         name: { type: string, maxLength: 120, description: Hostname / identidad del router. }
         display_name: { type: [string, 'null'], maxLength: 120 }
         is_primary: { type: boolean, default: true }
-        vendor: { type: string, enum: [mikrotik], default: mikrotik }
-        model: { type: [string, 'null'], examples: [CCR2116-12G-4S+] }
+        vendor:
+          type: string
+          enum: [mikrotik, huawei]
+          default: mikrotik
+          description: |
+            Fabricante (roadmap I6, adaptadores por fabricante). `mikrotik`: RouterOS 7 con túnel WireGuard
+            (`connection_mode=wireguard`). `huawei`: VRP V5/V8 en modo directo sin túnel (`connection_mode=direct`,
+            docs/vendors/huawei.md). No se puede cambiar después del alta.
+        model: { type: [string, 'null'], examples: [CCR2116-12G-4S+, NE40E-X8A] }
         routeros_version:
           type: [string, 'null']
           pattern: '^7\.[0-9]+(\.[0-9]+)?$'
-          description: 'Declarada por el admin (D15: solo RouterOS 7.x). Se sobrescribe con la detectada.'
+          description: 'Declarada por el admin (D15: solo RouterOS 7.x; solo `vendor=mikrotik`). Se sobrescribe con la detectada.'
+        management_address:
+          type: [string, 'null']
+          description: |
+            Solo `connection_mode=direct`: IP de origen del router vista por Horus (destino del sondeo SNMP e identidad del
+            exportador de flujos). Cambiarla devuelve el router a `pending_configuration` hasta verificarla de nuevo.
+          examples: ['198.51.100.20']
         tags: { type: array, items: { type: string } }
     RouterPatch:
       type: object
@@ -1837,28 +1898,39 @@ components:
         model: { type: [string, 'null'] }
         routeros_version: { type: [string, 'null'], pattern: '^7\.[0-9]+(\.[0-9]+)?$' }
         admin_state: { type: string, enum: [active, maintenance, decommissioned] }
+        management_address: { type: [string, 'null'], description: 'Solo modo directo (ver RouterInput).' }
         tags: { type: array, items: { type: string } }
     Router:
       allOf:
         - $ref: './common.yaml#/components/schemas/TenantScopedResource'
         - $ref: '#/components/schemas/RouterInput'
         - type: object
-          required: [admin_state, onboarding_state, routeros_version_supported, tunnel_address, warnings]
+          required: [admin_state, onboarding_state, routeros_version_supported, tunnel_address, warnings, connection_mode, management_address]
           properties:
             admin_state: { type: string, enum: [active, maintenance, decommissioned] }
             onboarding_state:
               type: string
               description: |
                 Pasos del asistente (I1-19): `pending_configuration` → `key_received` (clave pública enrolada)
-                → `tunnel_up` (primer handshake) → `exporting` (primer flujo). Enum abierto.
-              enum: [pending_configuration, key_received, tunnel_up, exporting]
+                → `tunnel_up` (primer handshake) → `exporting` (primer flujo). En modo directo (Huawei):
+                `pending_configuration` → `snmp_verified` (el sondeador respondió con la credencial SNMPv3 de ese router en
+                su dirección de gestión: prueba de control; solo entonces el colector acepta sus flujos) → `exporting`.
+                Enum abierto.
+              enum: [pending_configuration, key_received, tunnel_up, snmp_verified, exporting]
+            connection_mode:
+              type: string
+              enum: [wireguard, direct]
+              description: |
+                `wireguard`: túnel router → hub de Horus (MikroTik). `direct`: sin túnel; el camino lo asegura el operador
+                (VRF de gestión, VPN de sitio existente o relé MikroTik/Linux) y el colector filtra por IP de origen
+                (docs/vendors/huawei.md §5). Lo fija `vendor`.
             routeros_version_detected: { type: [string, 'null'] }
             routeros_version_supported:
               type: [boolean, 'null']
               description: false si la versión (detectada o declarada) es < 7.12 (D15); null si se desconoce.
             tunnel_address:
               type: [string, 'null']
-              description: IP /32 de túnel WireGuard asignada por la IPAM de plataforma = identidad del exportador.
+              description: IP /32 de túnel WireGuard asignada por la IPAM de plataforma = identidad del exportador (null en modo directo).
             wireguard_peer_id:
               oneOf:
                 - $ref: './common.yaml#/components/schemas/Uuid'
@@ -1869,6 +1941,38 @@ components:
             credentials:
               type: array
               items: { $ref: '#/components/schemas/CredentialStatus' }
+    DirectOnboarding:
+      type: object
+      required: [router_id, vendor, language, management_address, collector_address, collector_port, snmp_user, sampling_rate, config, notes, placeholders, warnings]
+      properties:
+        router_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        vendor: { type: string, enum: [mikrotik, huawei] }
+        language: { type: string, enum: [vrp], description: 'Lenguaje de la configuración (CLI de Huawei VRP).' }
+        management_address: { type: string, description: IP de origen del router vista por Horus. }
+        collector_address:
+          type: [string, 'null']
+          description: IP del colector de Horus para el modo directo (HORUS_DEVICES_DIRECT_COLLECTOR_ADDRESS); null = marcador en la configuración.
+        collector_port: { type: integer, description: Puerto UDP de NetStream v9 (2055 por defecto). }
+        snmp_user: { type: string, description: Usuario SNMPv3 de solo lectura (la contraseña solo va en `config`). }
+        sampling_rate: { type: integer }
+        config:
+          type: string
+          description: |
+            Configuración VRP para pegar en la CLI (solo comandos, sin comentarios). Contiene las contraseñas SNMPv3:
+            se muestra una sola vez.
+        notes:
+          type: array
+          items: { type: string }
+          description: Explicaciones (validación pendiente en equipo real, camino seguro, ACL, prompts de contraseña).
+        placeholders:
+          type: array
+          items:
+            type: object
+            required: [key, description]
+            properties:
+              key: { type: string, examples: ['{INTERFAZ_NETSTREAM}'] }
+              description: { type: string }
+        warnings: { type: array, items: { type: string } }
     CredentialStatus:
       type: object
       required: [kind, configured]

@@ -861,6 +861,14 @@ modules:
         PUT: devices.credentials.write
       reauth:
         - PUT
+    - prefix: /api/v1/routers/{router_id}/direct-onboarding
+      scope: tenant
+      methods:
+        POST: devices.credentials.write
+      reauth:
+        - POST
+      audited:
+        - POST
     - prefix: /api/v1/routers/{router_id}/prefix-import-preview
       scope: tenant
       methods:

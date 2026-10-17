@@ -1309,8 +1309,11 @@ components:
         probe_id: { $ref: './common.yaml#/components/schemas/Uuid' }
         source:
           type: string
-          enum: [router_netwatch, horus]
-          description: '`router_netwatch` = sonda del router (por enlace); `horus` = ruta Horus → destino (no mide un enlace).'
+          enum: [router_netwatch, router_nqa, horus]
+          description: |
+            `router_netwatch` = sonda netwatch del router MikroTik (por enlace, API REST); `router_nqa` = prueba NQA ICMP de
+            un router Huawei VRP leída por SNMP (DISMAN-PING-MIB / NQA-MIB; jitter = desviación típica del RTT);
+            `horus` = ruta Horus → destino (no mide un enlace).
         ref: { type: string, description: 'gw (puerta de enlace del proveedor) | intl (referencia internacional) | horus.' }
         target: { type: string, description: IP sondeada (infraestructura o referencia pública; nunca un cliente). }
         label: { type: string }
@@ -1607,11 +1610,18 @@ components:
               unknown_bytes: { type: integer }
     NetwatchSnippet:
       type: object
-      required: [router_id, router_name, script, placeholders, warnings, probes_found, probes_error]
+      required: [router_id, router_name, language, script, placeholders, warnings, probes_found, probes_error]
       properties:
         router_id: { $ref: './common.yaml#/components/schemas/Uuid' }
         router_name: { type: string }
-        script: { type: string, description: 'Script RouterOS (.rsc) con marcadores {GATEWAY_n}.' }
+        language:
+          type: string
+          enum: [routeros, vrp]
+          description: |
+            `routeros`: script RouterOS (.rsc) con sondas netwatch (MikroTik). `vrp`: configuración Huawei VRP con pruebas
+            NQA ICMP (admin-name `horus`, test-name `gw-<interfaz>` / `intl-<ip>`), sin comentarios, pendiente de
+            validación en equipo real (docs/vendors/huawei.md §4).
+        script: { type: string, description: 'Script RouterOS (.rsc) o configuración VRP con marcadores {GATEWAY_n}.' }
         placeholders:
           type: array
           items:

@@ -43,15 +43,20 @@ message Router {
   optional bool routeros_version_supported = 10;
   // active | maintenance | decommissioned
   string admin_state = 11;
-  // pending_configuration | key_received | tunnel_up | exporting
+  // pending_configuration | key_received | tunnel_up | snmp_verified (modo directo) | exporting
   string onboarding_state = 12;
-  // IP /32 de túnel = identidad del exportador (la asigna wireguard).
+  // IP /32 de túnel = identidad del exportador (la asigna wireguard). Nula en modo directo.
   optional string tunnel_address = 13;
   repeated string tags = 14;
   optional google.protobuf.Timestamp created_at = 15;
   optional google.protobuf.Timestamp updated_at = 16;
   optional google.protobuf.Timestamp deleted_at = 17;
   repeated string changed_fields = 18;
+  // wireguard (MikroTik) | direct (Huawei VRP, sin túnel; docs/vendors/huawei.md §5).
+  string connection_mode = 19;
+  // Modo directo: dirección de gestión /32 (/128) vista por Horus; identidad del exportador solo con
+  // onboarding_state snmp_verified o exporting.
+  optional string management_address = 20;
 }
 
 // TrafficFlowCapabilities lo leído de /ip traffic-flow.

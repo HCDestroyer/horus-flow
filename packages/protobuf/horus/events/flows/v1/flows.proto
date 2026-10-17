@@ -36,7 +36,7 @@ message FlowRecord {
   optional string post_nat_src_ip = 21;
   optional uint32 post_nat_src_port = 22;
   optional uint32 sampling_rate = 23;
-  // netflow_v5 | netflow_v9 | ipfix
+  // netflow_v5 | netflow_v9 | ipfix | sflow_v5
   string flow_source = 24;
   string batch_id = 25;
   // Bajada con NAT en el router principal: IP/puerto privado del cliente (IE 226/228).

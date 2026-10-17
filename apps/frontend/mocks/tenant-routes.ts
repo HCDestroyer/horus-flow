@@ -12,7 +12,7 @@ import { CATEGORIES, maskIp, REMOTE_ASNS, tenantScale } from './base'
 import type { MockTenant } from './data'
 import { assistRoute } from './assist'
 import { detectionSettingsRoute } from './detection-settings'
-import { deviceRoutes } from './devices'
+import { deviceRoutes, isManagementAddress } from './devices'
 import { tlsPinOf, tlsPinRoute } from './tls-pins'
 import { evidenceFlows, findFinding, findingsOf, securitySummary, sortFindings } from './findings'
 import {
@@ -33,6 +33,8 @@ import {
   customerIndexFromId,
   customersOf,
   deprovisioningScript,
+  devicesOf,
+  directOnboarding,
   findSite,
   kindHistory,
   newPrefix,
@@ -784,6 +786,43 @@ function inventoryRoutes(ctx: TenantRouteContext): Response | undefined {
     return text(provisioningScript(tenant, item, token, 'horus.fibranorte.example'), 201, {
       'X-Horus-Enrollment-Token-Id': tokenId,
       'X-Horus-Enrollment-Token-Expires-At': iso(expiresAt),
+    })
+  }
+  if (match(ctx, 'POST', '/routers/{id}/direct-onboarding')) {
+    if (!ctx.can('devices.credentials.write')) return forbidden()
+    if (ctx.reauthRequired) {
+      return problem(403, 'REAUTH_REQUIRED', 'Vuelve a identificarte para generar la configuración')
+    }
+    if (item.router.connection_mode !== 'direct') {
+      return problem(
+        422,
+        'ROUTER_VENDOR_NOT_SUPPORTED',
+        'El alta directa es para routers sin WireGuard (Huawei VRP).',
+      )
+    }
+    const body = ctx.body as { management_address?: string | null; sampling_rate?: number | null }
+    const address = body.management_address ?? item.router.management_address
+    if (!address || !isManagementAddress(address)) {
+      return validation(
+        'management_address',
+        'IP unicast del router tal y como la ve Horus.',
+        address ? 'INVALID_VALUE' : 'REQUIRED',
+      )
+    }
+    const dev = devicesOf(tenant)
+    const edit = dev.routerEdits.get(item.router.id)
+    dev.routerEdits.set(item.router.id, {
+      version: item.router.version + 1,
+      updated_at: iso(now.getTime()),
+      fields: { ...(edit?.fields ?? { name: item.router.name }), management_address: address },
+    })
+    mockState.onboarding.set(item.router.id, {
+      scriptAt: now.getTime(),
+      tokenId: mockUuid('0193e100', hash(item.router.id + now.getTime())),
+      expiresAt: now.getTime() + 24 * 3_600_000,
+    })
+    return json(directOnboarding(item, address, body.sampling_rate ?? 1000), 201, {
+      'Cache-Control': 'no-store',
     })
   }
   if (match(ctx, 'POST', '/routers/{id}/deprovisioning-script')) {
