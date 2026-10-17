@@ -370,7 +370,9 @@ func (s *SSO) Link(ctx context.Context, p *authz.Principal, linkToken string, in
 	if err != nil {
 		return nil, nil, err
 	}
-	if p.AuthTime.IsZero() || p.AuthTime.Unix() < t.RedeemedAt.Unix() {
+	// auth_time tiene resolución de segundos: se exige un segundo posterior al
+	// del canje (una persona no inicia sesión en el mismo segundo).
+	if p.AuthTime.IsZero() || p.AuthTime.Unix() <= t.RedeemedAt.Unix() {
 		return nil, nil, apperr.Forbidden(problem.CodeReauthRequired,
 			"Confirme su contraseña (y su código 2FA) para vincular la cuenta del otro sistema.")
 	}

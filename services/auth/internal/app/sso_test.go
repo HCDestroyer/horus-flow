@@ -334,28 +334,32 @@ func TestSSOFirstUseRequiresLoginNeverAutoCreatesNorLinksByEmail(t *testing.T) {
 		t.Fatalf("vincular con una sesión vieja: %v", err)
 	}
 	// Un usuario de otro ISP (aunque su correo coincida) no puede vincular.
-	if _, _, err := e.sso.Link(context.Background(), sessionPrincipal(e.outsider, *e.now), res.LinkToken, LoginInput{}); codeOf(err) != CodeSSONotMember {
+	if _, _, err := e.sso.Link(context.Background(), sessionPrincipal(e.outsider, e.now.Add(2*time.Second)), res.LinkToken, LoginInput{}); codeOf(err) != CodeSSONotMember {
 		t.Fatalf("usuario de otro ISP: %v", err)
 	}
 	// El acceso de soporte de plataforma no vincula.
-	via := sessionPrincipal(e.user, *e.now)
+	via := sessionPrincipal(e.user, e.now.Add(2*time.Second))
 	via.ViaPlatform = true
 	if _, _, err := e.sso.Link(context.Background(), via, res.LinkToken, LoginInput{}); err == nil {
 		t.Fatal("via_platform no vincula")
 	}
-	// Login reciente del miembro: vincula una sola vez.
-	l, target, err := e.sso.Link(context.Background(), sessionPrincipal(e.user, *e.now), res.LinkToken, LoginInput{})
+	// En el mismo segundo del canje no cuenta como posterior.
+	if _, _, err := e.sso.Link(context.Background(), sessionPrincipal(e.user, *e.now), res.LinkToken, LoginInput{}); codeOf(err) != problem.CodeReauthRequired {
+		t.Fatalf("mismo segundo: %v", err)
+	}
+	// Login posterior del miembro: vincula una sola vez.
+	l, target, err := e.sso.Link(context.Background(), sessionPrincipal(e.user, e.now.Add(2*time.Second)), res.LinkToken, LoginInput{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if l.UserID != e.user.ID || l.ExternalUserID != "u-17" || target.ExternalID != "812" {
 		t.Fatalf("vinculación = %+v", l)
 	}
-	if _, _, err := e.sso.Link(context.Background(), sessionPrincipal(e.user, *e.now), res.LinkToken, LoginInput{}); codeOf(err) != CodeSSOLinkInvalid {
+	if _, _, err := e.sso.Link(context.Background(), sessionPrincipal(e.user, e.now.Add(2*time.Second)), res.LinkToken, LoginInput{}); codeOf(err) != CodeSSOLinkInvalid {
 		t.Fatalf("link_token reutilizado: %v", err)
 	}
 	// Un link_token manipulado no vale.
-	if _, _, err := e.sso.Link(context.Background(), sessionPrincipal(e.user, *e.now), res.LinkToken+"x", LoginInput{}); codeOf(err) != CodeSSOLinkInvalid {
+	if _, _, err := e.sso.Link(context.Background(), sessionPrincipal(e.user, e.now.Add(2*time.Second)), res.LinkToken+"x", LoginInput{}); codeOf(err) != CodeSSOLinkInvalid {
 		t.Fatalf("link_token manipulado: %v", err)
 	}
 	if !slices.ContainsFunc(e.st.audit, func(a api.AuditEntry) bool { return a.Action == "auth.sso.linked" && a.TenantID == e.tenant }) {
@@ -367,7 +371,7 @@ func TestSSOLinkedUserGetsOwnSessionAndMFA(t *testing.T) {
 	t.Parallel()
 	e := newSSOEnv(t)
 	res, _ := e.sso.Redeem(context.Background(), e.issue(t, "u-17"), LoginInput{})
-	if _, _, err := e.sso.Link(context.Background(), sessionPrincipal(e.user, *e.now), res.LinkToken, LoginInput{}); err != nil {
+	if _, _, err := e.sso.Link(context.Background(), sessionPrincipal(e.user, e.now.Add(2*time.Second)), res.LinkToken, LoginInput{}); err != nil {
 		t.Fatal(err)
 	}
 	// Con vinculación y sin 2FA: sesión normal del usuario local (refresh incluido).
@@ -408,19 +412,19 @@ func TestSSOLinksRevocableByUserAndAdmin(t *testing.T) {
 	e := newSSOEnv(t)
 	for _, ext := range []string{"u-1", "u-2"} {
 		res, _ := e.sso.Redeem(context.Background(), e.issue(t, ext), LoginInput{})
-		if _, _, err := e.sso.Link(context.Background(), sessionPrincipal(e.user, *e.now), res.LinkToken, LoginInput{}); err != nil {
+		if _, _, err := e.sso.Link(context.Background(), sessionPrincipal(e.user, e.now.Add(2*time.Second)), res.LinkToken, LoginInput{}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	mine, _ := e.sso.MyLinks(context.Background(), sessionPrincipal(e.user, *e.now))
+	mine, _ := e.sso.MyLinks(context.Background(), sessionPrincipal(e.user, e.now.Add(2*time.Second)))
 	if len(mine) != 2 {
 		t.Fatalf("mis vinculaciones = %d", len(mine))
 	}
 	// Otro usuario no quita las mías.
-	if err := e.sso.DeleteMyLink(context.Background(), sessionPrincipal(e.outsider, *e.now), mine[0].ID, LoginInput{}); codeOf(err) != CodeSSOLinkNotFound {
+	if err := e.sso.DeleteMyLink(context.Background(), sessionPrincipal(e.outsider, e.now.Add(2*time.Second)), mine[0].ID, LoginInput{}); codeOf(err) != CodeSSOLinkNotFound {
 		t.Fatalf("quitar la de otro: %v", err)
 	}
-	if err := e.sso.DeleteMyLink(context.Background(), sessionPrincipal(e.user, *e.now), mine[0].ID, LoginInput{}); err != nil {
+	if err := e.sso.DeleteMyLink(context.Background(), sessionPrincipal(e.user, e.now.Add(2*time.Second)), mine[0].ID, LoginInput{}); err != nil {
 		t.Fatal(err)
 	}
 	admin := &authz.Principal{Type: authz.TypeUser, Subject: uuid.NewString(), UserID: uuid.New(), Scope: authz.ScopeTenant, TenantID: e.tenant,
