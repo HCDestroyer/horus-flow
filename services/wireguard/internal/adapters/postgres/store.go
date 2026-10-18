@@ -367,7 +367,9 @@ func (s *Store) DeletePool(ctx context.Context, hubID, poolID uuid.UUID, quarant
 const peerCols = `p.id, p.tenant_id, p.server_id, p.router_id, host(p.address), p.public_key, p.status, p.handshake_state,
 	p.persistent_keepalive_seconds, p.enrolled_at, host(p.enrolled_from_ip), p.activated_at, p.revoked_at, p.revoked_reason,
 	p.last_handshake_at, p.endpoint, p.rx_bytes::text, p.tx_bytes::text, p.created_at, p.updated_at, p.version,
-	t.id, t.expires_at, t.used_at, t.revoked_at, t.failed_attempts, t.created_at`
+	t.id, t.expires_at, t.used_at, t.revoked_at, t.failed_attempts, t.created_at,
+	p.transport, p.tunnel_index, p.gre_key, host(p.remote_address), p.remote_id, p.tunnel_state, p.last_rekey_at, p.last_packet_at,
+	p.tunnel_error`
 
 // tokenJoin une el token más reciente del peer (vista Peer.enrollment).
 const tokenJoin = ` LEFT JOIN LATERAL (SELECT * FROM wireguard.enrollment_token et WHERE et.tenant_id = p.tenant_id AND et.peer_id = p.id
@@ -383,10 +385,12 @@ func scanPeer(row pgx.Row) (*domain.Peer, error) {
 		tokExp, tokCreated *time.Time
 		tokUsed, tokRev    *time.Time
 		tokFailed          *int
+		remote             *string
 	)
 	err := row.Scan(&p.ID, &p.TenantID, &p.ServerID, &p.RouterID, &addr, &p.PublicKey, &p.Status, &p.HandshakeState, &p.Keepalive,
 		&p.EnrolledAt, &from, &p.ActivatedAt, &p.RevokedAt, &p.RevokedReason, &p.LastHandshakeAt, &p.Endpoint, &rx, &tx,
-		&p.CreatedAt, &p.UpdatedAt, &p.Version, &tokID, &tokExp, &tokUsed, &tokRev, &tokFailed, &tokCreated)
+		&p.CreatedAt, &p.UpdatedAt, &p.Version, &tokID, &tokExp, &tokUsed, &tokRev, &tokFailed, &tokCreated,
+		&p.Transport, &p.TunnelIndex, &p.GREKey, &remote, &p.RemoteID, &p.TunnelState, &p.LastRekeyAt, &p.LastPacketAt, &p.TunnelError)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -399,6 +403,11 @@ func scanPeer(row pgx.Row) (*domain.Peer, error) {
 	if from != nil {
 		if a, err := netip.ParseAddr(*from); err == nil {
 			p.EnrolledFromIP = &a
+		}
+	}
+	if remote != nil {
+		if a, err := netip.ParseAddr(*remote); err == nil {
+			p.RemoteAddress = &a
 		}
 	}
 	_, _ = fmt.Sscan(rx, &p.RxBytes)
@@ -513,7 +522,10 @@ func (s *Store) AllPeers(ctx context.Context) ([]domain.Peer, error) {
 }
 
 // CreatePeer implementa app.Store: IPAM con los pools del hub bloqueados
-// (serializa las asignaciones) y unicidad global por índice.
+// (serializa las asignaciones) y unicidad global por índice. Si p.Address
+// viene fijada y esa IP la liberó el túnel anterior del MISMO router (cambio
+// de transporte), se le vuelve a asignar sin esperar la cuarentena: la
+// identidad del exportador no cambia de dueño.
 func (s *Store) CreatePeer(ctx context.Context, t pgdb.TenantID, p *domain.Peer, ev app.PeerEvents) error {
 	return s.db.PlatformTx(ctx, func(tx pgx.Tx) error {
 		var services string
@@ -530,6 +542,66 @@ func (s *Store) CreatePeer(ctx context.Context, t pgdb.TenantID, p *domain.Peer,
 		}
 		if exists {
 			return app.ErrPeerExists
+		}
+		if p.Transport == "" {
+			p.Transport = domain.TransportWireGuard
+		}
+		if p.IsTunnelAgent() {
+			var idx int64
+			if err := tx.QueryRow(ctx, `SELECT nextval('wireguard.tunnel_index_seq')`).Scan(&idx); err != nil {
+				return fmt.Errorf("tunnel index: %w", err)
+			}
+			p.TunnelIndex = &idx
+			if p.GREKey == domain.GREKeyFromIndex {
+				p.GREKey = idx
+			}
+		} else {
+			p.TunnelIndex, p.GREKey = nil, 0
+		}
+		if p.GREKey < 0 {
+			p.GREKey = 0
+		}
+		insert := func(poolID uuid.UUID, addr netip.Addr) error {
+			p.Address = addr
+			host := netip.PrefixFrom(addr, addr.BitLen()).String()
+			var remote *string
+			if p.RemoteAddress != nil {
+				r := p.RemoteAddress.String()
+				remote = &r
+			}
+			if _, err := tx.Exec(ctx, `INSERT INTO wireguard.peer (id, tenant_id, server_id, kind, router_id, address, status, handshake_state,
+					persistent_keepalive_seconds, created_at, updated_at, version, transport, tunnel_index, gre_key, remote_address, remote_id)
+				VALUES ($1, $2, $3, 'router', $4, $5::inet, $6, $7, $8, $9, $9, 1, $10, $11, $12, $13::inet, $14)`,
+				p.ID, t.UUID(), p.ServerID, p.RouterID, host, p.Status, p.HandshakeState, p.Keepalive, p.CreatedAt,
+				p.Transport, p.TunnelIndex, p.GREKey, remote, p.RemoteID); err != nil {
+				if pgdb.IsCode(err, pgdb.SQLStateUniqueViolation) {
+					return app.ErrPeerExists
+				}
+				return err
+			}
+			if _, err := tx.Exec(ctx, `INSERT INTO wireguard.ip_allocation (id, pool_id, tenant_id, address, peer_id, allocated_at)
+				VALUES ($1, $2, $3, $4::inet, $5, $6)`, uuid.Must(uuid.NewV7()), poolID, t.UUID(), host, p.ID, p.CreatedAt); err != nil {
+				return err
+			}
+			return emit(ctx, tx, ev(p))
+		}
+		if p.Address.IsValid() {
+			// Última asignación de esa IP: liberada por un túnel del mismo router.
+			var poolID uuid.UUID
+			err := tx.QueryRow(ctx, `SELECT a.pool_id FROM wireguard.ip_allocation a
+					JOIN wireguard.peer o ON o.id = a.peer_id AND o.tenant_id = a.tenant_id
+					JOIN wireguard.ip_pool pl ON pl.id = a.pool_id AND pl.server_id = $4
+				WHERE a.address = $1::inet AND a.tenant_id = $2 AND o.router_id = $3 AND a.released_at IS NOT NULL
+				  AND NOT EXISTS (SELECT 1 FROM wireguard.ip_allocation b WHERE b.address = a.address
+				                  AND (b.released_at IS NULL OR b.released_at > a.released_at))
+				ORDER BY a.released_at DESC LIMIT 1`,
+				netip.PrefixFrom(p.Address, p.Address.BitLen()).String(), t.UUID(), p.RouterID, p.ServerID).Scan(&poolID)
+			switch {
+			case err == nil:
+				return insert(poolID, p.Address)
+			case !errors.Is(err, pgx.ErrNoRows):
+				return err
+			}
 		}
 		rows, err := tx.Query(ctx, `SELECT id, cidr::text FROM wireguard.ip_pool WHERE server_id = $1 AND family = 4 ORDER BY created_at, id`, p.ServerID)
 		if err != nil {
@@ -578,23 +650,7 @@ func (s *Store) CreatePeer(ctx context.Context, t pgdb.TenantID, p *domain.Peer,
 			if err != nil {
 				return err
 			}
-			p.Address = addr
-			if _, err := tx.Exec(ctx, `INSERT INTO wireguard.peer (id, tenant_id, server_id, kind, router_id, address, status, handshake_state,
-					persistent_keepalive_seconds, created_at, updated_at, version)
-				VALUES ($1, $2, $3, 'router', $4, $5::inet, $6, $7, $8, $9, $9, 1)`,
-				p.ID, t.UUID(), p.ServerID, p.RouterID, netip.PrefixFrom(addr, addr.BitLen()).String(), p.Status, p.HandshakeState,
-				p.Keepalive, p.CreatedAt); err != nil {
-				if pgdb.IsCode(err, pgdb.SQLStateUniqueViolation) {
-					return app.ErrPeerExists
-				}
-				return err
-			}
-			if _, err := tx.Exec(ctx, `INSERT INTO wireguard.ip_allocation (id, pool_id, tenant_id, address, peer_id, allocated_at)
-				VALUES ($1, $2, $3, $4::inet, $5, $6)`, uuid.Must(uuid.NewV7()), pl.id, t.UUID(),
-				netip.PrefixFrom(addr, addr.BitLen()).String(), p.ID, p.CreatedAt); err != nil {
-				return err
-			}
-			return emit(ctx, tx, ev(p))
+			return insert(pl.id, addr)
 		}
 		return domain.ErrPoolExhausted
 	})
@@ -630,8 +686,18 @@ func (s *Store) RevokePeer(ctx context.Context, t pgdb.TenantID, id uuid.UUID, r
 				return err
 			}
 		}
+		if p.IsTunnelAgent() {
+			if err := bumpTunnels(ctx, tx, p.ServerID); err != nil {
+				return err
+			}
+		}
 		return emit(ctx, tx, ev(p))
 	})
+}
+
+func bumpTunnels(ctx context.Context, tx pgx.Tx, hubID uuid.UUID) error {
+	_, err := tx.Exec(ctx, `UPDATE wireguard.server SET tunnel_desired_version = tunnel_desired_version + 1, updated_at = now() WHERE id = $1`, hubID)
+	return err
 }
 
 // ------------------------------------------------------------------ tokens
@@ -768,7 +834,7 @@ func (s *Store) DesiredState(ctx context.Context, hubID uuid.UUID) (int64, []dom
 			return err
 		}
 		rows, err := tx.Query(ctx, `SELECT `+peerCols+` FROM wireguard.peer p`+tokenJoin+`
-			WHERE p.server_id = $1 AND p.revoked_at IS NULL AND p.public_key IS NOT NULL ORDER BY p.address`, hubID)
+			WHERE p.server_id = $1 AND p.revoked_at IS NULL AND p.transport = 'wireguard' AND p.public_key IS NOT NULL ORDER BY p.address`, hubID)
 		if err != nil {
 			return err
 		}
@@ -800,7 +866,7 @@ func (s *Store) ApplyReport(ctx context.Context, hubID uuid.UUID, applied int64,
 			return err
 		}
 		rows, err := tx.Query(ctx, `SELECT `+peerCols+` FROM wireguard.peer p`+tokenJoin+`
-			WHERE p.server_id = $1 AND p.revoked_at IS NULL AND p.public_key IS NOT NULL FOR UPDATE OF p`, hubID)
+			WHERE p.server_id = $1 AND p.revoked_at IS NULL AND p.transport = 'wireguard' AND p.public_key IS NOT NULL FOR UPDATE OF p`, hubID)
 		if err != nil {
 			return err
 		}
@@ -860,4 +926,165 @@ func (s *Store) ApplyReport(ctx context.Context, hubID uuid.UUID, applied int64,
 		return nil
 	})
 	return desired, out, err
+}
+
+// ------------------------------------------------------------------ túneles ipsec/gre (tunnel-agent)
+
+// MarkTunnelConfigured implementa app.Store: la configuración del router se
+// generó (y, en ipsec, con una PSK nueva): awaiting_enrollment →
+// pending_handshake y la versión deseada de tunnel-agent sube (la PSK nueva
+// se empuja al demonio IKE).
+func (s *Store) MarkTunnelConfigured(ctx context.Context, t pgdb.TenantID, id uuid.UUID, at time.Time, ev app.PeerEvents) (*domain.Peer, error) {
+	var out *domain.Peer
+	err := s.db.PlatformTx(ctx, func(tx pgx.Tx) error {
+		var hub uuid.UUID
+		var moved bool
+		err := tx.QueryRow(ctx, `UPDATE wireguard.peer SET
+				status = CASE WHEN status = 'awaiting_enrollment' THEN 'pending_handshake' ELSE status END,
+				enrolled_at = CASE WHEN status = 'awaiting_enrollment' THEN $3 ELSE enrolled_at END,
+				version = CASE WHEN status = 'awaiting_enrollment' THEN version + 1 ELSE version END,
+				updated_at = $3
+			WHERE tenant_id = $1 AND id = $2 AND revoked_at IS NULL AND transport IN ('ipsec', 'gre')
+			RETURNING server_id, enrolled_at = $3`, t.UUID(), id, at).Scan(&hub, &moved)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if err := bumpTunnels(ctx, tx, hub); err != nil {
+			return err
+		}
+		if out, err = getPeerTx(ctx, tx, t.UUID(), id); err != nil {
+			return err
+		}
+		if !moved {
+			return nil
+		}
+		return emit(ctx, tx, ev(out))
+	})
+	return out, err
+}
+
+// TunnelDesiredState implementa app.Store: túneles ipsec/gre configurados
+// (pending_handshake o active) del hub.
+func (s *Store) TunnelDesiredState(ctx context.Context, hubID uuid.UUID) (int64, []domain.Peer, error) {
+	var (
+		version int64
+		peers   []domain.Peer
+	)
+	err := s.db.PlatformTx(ctx, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx, `SELECT tunnel_desired_version FROM wireguard.server WHERE id = $1`, hubID).Scan(&version); err != nil {
+			return err
+		}
+		rows, err := tx.Query(ctx, `SELECT `+peerCols+` FROM wireguard.peer p`+tokenJoin+`
+			WHERE p.server_id = $1 AND p.revoked_at IS NULL AND p.transport IN ('ipsec', 'gre')
+			  AND p.status IN ('pending_handshake', 'active') ORDER BY p.tunnel_index`, hubID)
+		if err != nil {
+			return err
+		}
+		peers, err = collectPeers(rows)
+		return err
+	})
+	return version, peers, err
+}
+
+// ApplyTunnelReport implementa app.Store: guarda el estado observado de los
+// túneles ipsec/gre y devuelve las transiciones (activación y vida
+// stale/recovered con el mismo umbral que WireGuard), emitiendo sus eventos.
+func (s *Store) ApplyTunnelReport(ctx context.Context, hubID uuid.UUID, applied int64, ikeUp bool, at time.Time, obs []app.TunnelObserved,
+	ev func(tr app.Transition) []outbox.Event,
+) (int64, []app.Transition, error) {
+	var (
+		desired int64
+		out     []app.Transition
+	)
+	byID := make(map[uuid.UUID]app.TunnelObserved, len(obs))
+	for _, o := range obs {
+		byID[o.PeerID] = o
+	}
+	err := s.db.PlatformTx(ctx, func(tx pgx.Tx) error {
+		status := "up"
+		if !ikeUp {
+			status = "degraded" // GRE sigue; IPsec sin demonio IKE
+		}
+		if err := tx.QueryRow(ctx, `UPDATE wireguard.server SET tunnel_applied_version = $2, tunnel_status = $3, tunnel_last_report_at = $4,
+				updated_at = now()
+			WHERE id = $1 RETURNING tunnel_desired_version`, hubID, applied, status, at).Scan(&desired); err != nil {
+			return err
+		}
+		rows, err := tx.Query(ctx, `SELECT `+peerCols+` FROM wireguard.peer p`+tokenJoin+`
+			WHERE p.server_id = $1 AND p.revoked_at IS NULL AND p.transport IN ('ipsec', 'gre')
+			  AND p.status IN ('pending_handshake', 'active') FOR UPDATE OF p`, hubID)
+		if err != nil {
+			return err
+		}
+		peers, err := collectPeers(rows)
+		if err != nil {
+			return err
+		}
+		for i := range peers {
+			p := peers[i]
+			o, seen := byID[p.ID]
+			if !seen || (p.Transport == domain.TransportIPsec && !ikeUp) {
+				continue // el agente aún no lo tiene, o sin demonio IKE no se infiere nada
+			}
+			if o.Alive {
+				live := at
+				p.LastHandshakeAt = &live
+			}
+			p.TunnelState, p.TunnelError, p.Endpoint = strOrNil(o.State), o.Error, o.Endpoint
+			if o.LastRekeyAt != nil {
+				p.LastRekeyAt = o.LastRekeyAt
+			}
+			if o.LastPacketAt != nil {
+				p.LastPacketAt = o.LastPacketAt
+			}
+			p.RxBytes, p.TxBytes = o.RxBytes, o.TxBytes
+			var tr app.Transition
+			fresh := p.LastHandshakeAt != nil && (p.EnrolledAt == nil || !p.LastHandshakeAt.Before(p.EnrolledAt.Add(-time.Second)))
+			if p.Status == domain.StatusPendingHandshake && fresh && o.Alive {
+				p.Status, p.ActivatedAt, tr.Activated = domain.StatusActive, &at, true
+			}
+			state := domain.HandshakeStateAt(p.LastHandshakeAt, at)
+			if !fresh {
+				state = domain.HandshakeNever
+			}
+			switch {
+			case p.HandshakeState == domain.HandshakeOK && state == domain.HandshakeStale:
+				tr.Handshake = "stale"
+			case p.HandshakeState == domain.HandshakeStale && state == domain.HandshakeOK:
+				tr.Handshake = "recovered"
+			}
+			p.HandshakeState = state
+			version := p.Version
+			if tr.Activated {
+				version++
+			}
+			if _, err := tx.Exec(ctx, `UPDATE wireguard.peer SET last_handshake_at = $3, endpoint = $4, rx_bytes = $5::numeric, tx_bytes = $6::numeric,
+					status = $7, activated_at = $8, handshake_state = $9, version = $10, tunnel_state = $11, last_rekey_at = $12,
+					last_packet_at = $13, tunnel_error = $14, updated_at = CASE WHEN $10 <> version THEN $15 ELSE updated_at END
+				WHERE tenant_id = $1 AND id = $2`, p.TenantID, p.ID, p.LastHandshakeAt, p.Endpoint, fmt.Sprint(p.RxBytes), fmt.Sprint(p.TxBytes),
+				p.Status, p.ActivatedAt, p.HandshakeState, version, p.TunnelState, p.LastRekeyAt, p.LastPacketAt, p.TunnelError, at); err != nil {
+				return err
+			}
+			p.Version = version
+			if tr.Activated || tr.Handshake != "" {
+				tr.Peer = p
+				if err := emit(ctx, tx, ev(tr)); err != nil {
+					return err
+				}
+				out = append(out, tr)
+			}
+		}
+		return nil
+	})
+	return desired, out, err
+}
+
+func strOrNil(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }

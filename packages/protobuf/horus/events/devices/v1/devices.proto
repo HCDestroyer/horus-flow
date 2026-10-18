@@ -45,18 +45,26 @@ message Router {
   string admin_state = 11;
   // pending_configuration | key_received | tunnel_up | snmp_verified (modo directo) | exporting
   string onboarding_state = 12;
-  // IP /32 de túnel = identidad del exportador (la asigna wireguard). Nula en modo directo.
+  // IP /32 de túnel = identidad del exportador (la asigna wireguard, también para ipsec y gre). Nula en modo directo.
   optional string tunnel_address = 13;
   repeated string tags = 14;
   optional google.protobuf.Timestamp created_at = 15;
   optional google.protobuf.Timestamp updated_at = 16;
   optional google.protobuf.Timestamp deleted_at = 17;
   repeated string changed_fields = 18;
-  // wireguard (MikroTik) | direct (Huawei VRP, sin túnel; docs/vendors/huawei.md §5).
+  // wireguard (MikroTik) | ipsec (IKEv2 route-based, RFC 7296) | gre (RFC 2784, sin cifrado) |
+  // direct (sin túnel; docs/tunnels.md, docs/vendors/huawei.md §5).
   string connection_mode = 19;
   // Modo directo: dirección de gestión /32 (/128) vista por Horus; identidad del exportador solo con
   // onboarding_state snmp_verified o exporting.
   optional string management_address = 20;
+  // encrypted (wireguard, ipsec) | unencrypted_private (gre/direct por un camino privado declarado) |
+  // unencrypted_internet (gre/direct por Internet, confirmado por un administrador). docs/tunnels.md §2.
+  string protection_level = 21;
+  // ipsec/gre: IP pública del router (origen IKE/GRE). Sin secretos.
+  optional string tunnel_remote_address = 22;
+  // ipsec: identidad IKE del router (IP, FQDN o KeyID).
+  optional string tunnel_remote_id = 23;
 }
 
 // TrafficFlowCapabilities lo leído de /ip traffic-flow.

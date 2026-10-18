@@ -32,6 +32,9 @@
     "tunnel_address": "10.255.3.17/32",
     "connection_mode": "wireguard",
     "management_address": null,
+    "protection_level": "encrypted",
+    "tunnel_remote_address": null,
+    "tunnel_remote_id": null,
     "tags": [
       "core"
     ],

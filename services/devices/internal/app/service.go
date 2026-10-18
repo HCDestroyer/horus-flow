@@ -310,6 +310,9 @@ func mapStoreErr(err error, notFoundCode string) error {
 		return apperr.Conflict(domain.CodeClientPrefixOverlap, "El prefijo se solapa con otro del mismo realm.")
 	case errors.Is(err, ErrManagementAddressTaken):
 		return apperr.Conflict(domain.CodeManagementAddressInUse, "Otro router verificado ya usa esa dirección de gestión.")
+	case errors.Is(err, ErrTunnelRemoteTaken):
+		return apperr.Conflict(domain.CodeTunnelRemoteInUse,
+			"Otro router ya usa esa IP pública (GRE) o esa identidad IKE (IPsec): cada túnel necesita la suya.")
 	}
 	return err
 }

@@ -6,7 +6,8 @@ package horus.events.wireguard.v1;
 
 import "google/protobuf/timestamp.proto";
 
-// Peer: horus.wireguard.peer.{created,updated,deleted,enrolled,activated,revoked}.
+// Peer: horus.wireguard.peer.{created,updated,deleted,enrolled,activated,revoked}. Es el túnel de un router
+// con cualquier transporte (wireguard | ipsec | gre; docs/tunnels.md): la /32 sale de la misma IPAM.
 message Peer {
   string id = 1;
   int32 version = 2;
@@ -26,6 +27,8 @@ message Peer {
   optional string reason = 13;
   optional google.protobuf.Timestamp created_at = 14;
   repeated string changed_fields = 15;
+  // wireguard | ipsec | gre (ausente = wireguard, eventos anteriores al campo).
+  string transport = 16;
 }
 
 // PeerHandshake: horus.wireguard.peer.handshake_stale | handshake_recovered.

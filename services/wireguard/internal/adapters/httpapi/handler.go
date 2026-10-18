@@ -45,6 +45,7 @@ func New(svc *app.Service, guard *authz.Guard, cursor *pagination.Codec, logger 
 func (h *Handler) Mount(r *httpx.ServiceMux) {
 	r.Handle("POST /api/v1/routers/{router_id}/provisioning-script", h.guard.Tenant("wireguard.write", h.provisioning))
 	r.Handle("POST /api/v1/routers/{router_id}/deprovisioning-script", h.guard.Tenant("wireguard.write", h.deprovisioning))
+	r.Handle("POST /api/v1/routers/{router_id}/tunnel-config", h.guard.Tenant("wireguard.write", h.tunnelConfig))
 	r.Handle("POST /api/v1/wireguard/enrollment-tokens/{token_id}/revoke", h.guard.Tenant("wireguard.write", h.revokeToken))
 	r.Handle("GET /api/v1/wireguard/peers", h.guard.Tenant("wireguard.read", h.listPeers))
 	r.Handle("GET /api/v1/wireguard/peers/{peer_id}", h.guard.Tenant("wireguard.read", h.getPeer))
@@ -197,8 +198,75 @@ func (h *Handler) peerJSON(p *domain.Peer) map[string]any {
 		"server_id": p.ServerID, "router_id": p.RouterID, "status": p.Status, "handshake_state": hs, "address": p.AllowedIP(),
 		"public_key": p.PublicKey, "last_handshake_at": ts(p.LastHandshakeAt), "endpoint": p.Endpoint,
 		"rx_bytes": strconv.FormatUint(p.RxBytes, 10), "tx_bytes": strconv.FormatUint(p.TxBytes, 10),
-		"persistent_keepalive_seconds": p.Keepalive, "enrollment": enr,
+		"persistent_keepalive_seconds": p.Keepalive, "enrollment": enr, "transport": transport(p), "tunnel": tunnelJSON(p),
 	}
+}
+
+func transport(p *domain.Peer) string {
+	if p.Transport == "" {
+		return domain.TransportWireGuard
+	}
+	return p.Transport
+}
+
+// tunnelJSON es el estado IPsec/GRE observado por tunnel-agent (null en WireGuard).
+func tunnelJSON(p *domain.Peer) any {
+	if !p.IsTunnelAgent() {
+		return nil
+	}
+	var remote any
+	if p.RemoteAddress != nil {
+		remote = p.RemoteAddress.String()
+	}
+	return map[string]any{"state": p.TunnelState, "last_rekey_at": ts(p.LastRekeyAt), "last_packet_at": ts(p.LastPacketAt),
+		"error": p.TunnelError, "remote_address": remote, "remote_id": p.RemoteID, "gre_key": greKey(p)}
+}
+
+func greKey(p *domain.Peer) any {
+	if p.Transport != domain.TransportGRE || p.GREKey <= 0 {
+		return nil
+	}
+	return p.GREKey
+}
+
+// reauthMaxAge: la configuración lleva una PSK y credenciales de un solo uso.
+const reauthMaxAge = 5 * time.Minute
+
+// tunnelConfig es POST /routers/{id}/tunnel-config (re-autenticación ≤ 5 min;
+// la PSK y las credenciales solo aparecen en esta respuesta, sin caché).
+func (h *Handler) tunnelConfig(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r, "router_id", domain.CodeRouterNotFound)
+	if !ok {
+		return
+	}
+	if authz.FromContext(r.Context()).AuthAge(time.Now()) > reauthMaxAge {
+		problem.Std(w, r, http.StatusForbidden, problem.CodeReauthRequired)
+		return
+	}
+	var in app.TunnelConfigInput
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, jsonapi.MaxBody))
+	if err != nil {
+		problem.Std(w, r, http.StatusRequestEntityTooLarge, problem.CodePayloadTooLarge)
+		return
+	}
+	if len(bytes.TrimSpace(body)) > 0 {
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		if !jsonapi.Decode(w, r, &in, true) {
+			return
+		}
+	}
+	res, err := h.svc.CreateTunnelConfig(r.Context(), id, in)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	jsonapi.Write(w, http.StatusCreated, map[string]any{
+		"router_id": res.RouterID, "transport": res.Transport, "protection_level": res.ProtectionLevel,
+		"tunnel_address": netip.PrefixFrom(res.TunnelAddress, 32).String(), "hub_address": res.HubAddress, "hub_id": res.HubID,
+		"remote_address": res.RemoteAddress, "remote_id": res.RemoteID, "psk": res.PSK, "gre_key": res.GREKey, "snmp_user": res.SNMPUser,
+		"configs": res.Configs, "warnings": res.Warnings,
+	})
 }
 
 func (h *Handler) listPeers(w http.ResponseWriter, r *http.Request) {

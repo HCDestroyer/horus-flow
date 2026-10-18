@@ -50,11 +50,25 @@ type Config struct {
 	TLSCertFile    string        `env:"HORUS_TLS_CERT_FILE"`
 	TLSKeyFile     string        `env:"HORUS_TLS_KEY_FILE"`
 	ReconcileEvery time.Duration `env:"HORUS_WIREGUARD_RECONCILE_EVERY" envDefault:"5s"`
+
+	// Túneles IPsec IKEv2 y GRE (docs/tunnels.md, ADR-0031). Transportes
+	// habilitados en el hub (ipsec,gre; vacío = ninguno: el instalador abre
+	// UDP 500/4500, ESP y GRE solo para los que se habilitan).
+	TunnelTransports []string `env:"HORUS_TUNNEL_TRANSPORTS" envSeparator:","`
+	// TunnelHubAddress: IPv4 pública del hub (origen GRE y destino de IKE/GRE
+	// en la configuración de los routers).
+	TunnelHubAddress string `env:"HORUS_TUNNEL_HUB_ADDRESS"`
+	// IPsecLocalID: identidad IKE del hub (vacía = HORUS_TUNNEL_HUB_ADDRESS).
+	IPsecLocalID string `env:"HORUS_IPSEC_LOCAL_ID"`
+	TunnelMTU    int    `env:"HORUS_TUNNEL_MTU" envDefault:"1400"`
+	// TunnelAgentAddr es el TunnelAgentService remoto (tunnel-agent en otro contenedor).
+	TunnelAgentAddr string `env:"HORUS_TUNNELAGENT_ADDR"`
 }
 
 // LogValue implementa slog.LogValuer (sin secretos).
 func (c Config) LogValue() slog.Value {
 	return slog.GroupValue(slog.Bool("postgres", c.PostgresDSN != ""), slog.String("endpoint", c.Endpoint), slog.Int("port", c.Port),
 		slog.Any("tunnel_cidrs", c.TunnelCIDRs), slog.String("services_cidr", c.Services), slog.String("access_mode", c.AccessMode),
-		slog.String("grpc_tls", c.GRPCTLSMode))
+		slog.String("grpc_tls", c.GRPCTLSMode), slog.Any("tunnel_transports", c.TunnelTransports),
+		slog.String("tunnel_hub_address", c.TunnelHubAddress))
 }

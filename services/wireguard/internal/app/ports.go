@@ -112,6 +112,20 @@ type Observed struct {
 	TxBytes       uint64
 }
 
+// TunnelObserved es un túnel ipsec/gre observado por tunnel-agent.
+type TunnelObserved struct {
+	PeerID uuid.UUID
+	// State: established|connecting|down (ipsec) o up|down (gre).
+	State        string
+	Alive        bool
+	LastRekeyAt  *time.Time
+	LastPacketAt *time.Time
+	Endpoint     *string
+	RxBytes      uint64
+	TxBytes      uint64
+	Error        *string
+}
+
 // Transition es un cambio de estado detectado al aplicar un reporte.
 type Transition struct {
 	Peer      domain.Peer
@@ -174,5 +188,17 @@ type Store interface {
 	// ApplyReport guarda el estado observado y devuelve las transiciones
 	// (activación y handshake stale/recovered), emitiendo sus eventos.
 	ApplyReport(ctx context.Context, hubID uuid.UUID, applied int64, up bool, at time.Time, obs []Observed,
+		ev func(tr Transition) []outbox.Event) (desired int64, out []Transition, err error)
+
+	// MarkTunnelConfigured pasa un túnel ipsec/gre de awaiting_enrollment a
+	// pending_handshake (configuración generada) y sube la versión deseada
+	// de tunnel-agent (PSK nueva).
+	MarkTunnelConfigured(ctx context.Context, t pgdb.TenantID, id uuid.UUID, at time.Time, ev PeerEvents) (*domain.Peer, error)
+	// TunnelDesiredState devuelve la versión deseada de tunnel-agent y sus
+	// túneles configurados.
+	TunnelDesiredState(ctx context.Context, hubID uuid.UUID) (int64, []domain.Peer, error)
+	// ApplyTunnelReport guarda el estado observado por tunnel-agent y
+	// devuelve las transiciones, emitiendo sus eventos.
+	ApplyTunnelReport(ctx context.Context, hubID uuid.UUID, applied int64, ikeUp bool, at time.Time, obs []TunnelObserved,
 		ev func(tr Transition) []outbox.Event) (desired int64, out []Transition, err error)
 }

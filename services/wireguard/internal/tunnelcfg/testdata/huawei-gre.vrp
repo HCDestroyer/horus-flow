@@ -1,0 +1,53 @@
+system-view
+interface LoopBack10
+ description horus-tunnel-ip
+ ip address 10.255.0.17 255.255.255.255
+ quit
+interface Tunnel10
+ description horus-gre
+ ip address unnumbered interface LoopBack10
+ tunnel-protocol gre
+ source 198.51.100.7
+ destination 203.0.113.10
+ gre key 7
+ mtu 1400
+ tcp adjust-mss 1360
+ quit
+ip route-static 10.255.0.0 255.255.255.0 Tunnel10 description horus
+acl number 2990
+ description horus-snmp-ro
+ rule 5 permit source 10.255.0.0 0.0.0.255
+ rule 10 deny
+ quit
+snmp-agent
+snmp-agent sys-info version v3
+snmp-agent mib-view included horus-ro 1.3.6.1.2.1.1
+snmp-agent mib-view included horus-ro 1.3.6.1.2.1.2
+snmp-agent mib-view included horus-ro 1.3.6.1.2.1.31
+snmp-agent mib-view included horus-ro 1.3.6.1.2.1.47
+snmp-agent mib-view included horus-ro 1.3.6.1.2.1.80
+snmp-agent mib-view included horus-ro 1.3.6.1.4.1.2011.5.25.31
+snmp-agent mib-view included horus-ro 1.3.6.1.4.1.2011.5.25.111
+snmp-agent group v3 horus-ro privacy read-view horus-ro acl 2990
+snmp-agent usm-user v3 horus-00000001 group horus-ro
+snmp-agent usm-user v3 horus-00000001 authentication-mode sha2-256
+PruebaSnmp1234
+PruebaSnmp1234
+snmp-agent usm-user v3 horus-00000001 privacy-mode aes128
+PruebaSnmp1234
+PruebaSnmp1234
+snmp-agent usm-user v3 horus-00000001 acl 2990
+ip netstream export version 9
+ip netstream export template timeout-rate 1
+ip netstream export template option sampler
+ip netstream export source 10.255.0.17
+ip netstream export host 10.255.0.1 2055
+ip netstream timeout active 1
+ip netstream timeout inactive 15
+ip netstream sampler fix-packets 1000 inbound
+ip netstream sampler fix-packets 1000 outbound
+interface {INTERFAZ_NETSTREAM}
+ ip netstream inbound
+ ip netstream outbound
+ quit
+return

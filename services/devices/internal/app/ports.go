@@ -28,6 +28,9 @@ var (
 	ErrVersionChanged = errors.New("devices: version changed")
 	// ErrManagementAddressTaken: otro router verificado usa esa dirección.
 	ErrManagementAddressTaken = errors.New("devices: management address taken")
+	// ErrTunnelRemoteTaken: otro router usa esa IP pública (gre) o esa
+	// identidad IKE (ipsec).
+	ErrTunnelRemoteTaken = errors.New("devices: tunnel remote taken")
 )
 
 // ListQuery es un listado keyset.
