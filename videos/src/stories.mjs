@@ -193,7 +193,7 @@ export const stories = {
       {
         kind: 'title', eyebrow: 'Recorrido', title: 'Alta de router y pantalla NOC',
         sub: 'De un MikroTik nuevo a la sala de operación',
-        say: 'En este recorrido conectamos un router MikroTik a Horus Flow y armamos la pantalla del NOC.',
+        say: 'En este recorrido conectamos un router MikroTik a Horus Flow y armamos la pantalla de la sala de operación.',
       },
       { kind: 'chapter', n: '1', title: 'Alta de router', say: 'Primero, el alta del router.' },
       {
@@ -214,7 +214,7 @@ export const stories = {
         path: [[0.17, 0.08, 0.66], [0.17, 0.45, 0.66]],
         v: [[0.17, 0.3, 0.3], [0.17, 0.72, 0.3]],
         hi: [{ r: [0.215, 0.515, 0.765, 0.105], at: 0.15, label: 'Solo se muestra una vez' }],
-        say: 'Horus genera un script de RouterOS que crea un túnel WireGuard, un usuario de solo lectura, un certificado y la exportación de flujos. Se muestra una sola vez, y su token caduca.',
+        say: 'Horus genera un script de RouterOS que crea un túnel WireGuard, un usuario de solo lectura, un certificado y la exportación de flujos. Se muestra una sola vez, y caduca pronto.',
       },
       {
         kind: 'shot', img: 'horus/alta-2-script', label: 'Paso 2 · Pegar en el router',
@@ -234,7 +234,7 @@ export const stories = {
         path: [[0.17, 0.32, 0.45]],
         v: [[0.17, 0.36, 0.26]],
         hi: [{ r: [0.205, 0.455, 0.2, 0.03], at: 0.1, label: 'Túnel arriba' }],
-        say: 'luego el handshake del túnel,',
+        say: 'luego confirma que el túnel está arriba,',
       },
       {
         kind: 'shot', img: 'horus/alta-5-flujo', label: 'Paso 3 · Verificación',
@@ -257,7 +257,7 @@ export const stories = {
         hi: [{ r: [0.2, 0.275, 0.6, 0.27], at: 0.4, label: 'Revisas cada prefijo' }],
         say: 'Después importas los prefijos de clientes directo del MikroTik, IPv4 e IPv6, y revisas cada uno antes de confirmar.',
       },
-      { kind: 'chapter', n: '2', title: 'La pantalla NOC', say: 'Ahora, el NOC.' },
+      { kind: 'chapter', n: '2', title: 'La pantalla NOC', say: 'Ahora, la sala de operación.' },
       {
         kind: 'shot', img: 'horus/dashboard-noc', label: 'NOC del ISP',
         path: [FULL, [0.16, 0.17, 0.84]],
@@ -282,7 +282,7 @@ export const stories = {
         path: [[0.16, 0.06, 0.84], [0.17, 0.08, 0.6]],
         v: [[0.17, 0.1, 0.3], [0.58, 0.1, 0.3]],
         hi: [{ r: [0.59, 0.445, 0.07, 0.04], at: 0.35, label: 'Código de un solo uso' }],
-        say: 'Para la TV de la sala, registras una pantalla NOC con un código de un solo uso, y eliges qué dashboards rota y cada cuánto.',
+        say: 'Para la TV de la sala, registras una pantalla mural con un código de un solo uso, y eliges qué dashboards rota y cada cuánto.',
       },
       {
         kind: 'shot', img: 'horus/mural-noc', label: 'Vista mural', frame: 'tv',
@@ -298,7 +298,7 @@ export const stories = {
       },
       {
         kind: 'outro', title: 'Listo para operar', sub: 'Router conectado y NOC en pantalla',
-        say: 'Router conectado, NOC en pantalla. Eso es Horus Flow.',
+        say: 'Router conectado y sala de operación en pantalla. Eso es Horus Flow.',
       },
     ],
   },
