@@ -1160,3 +1160,25 @@ validar en el laboratorio.
 - SwOS para CRS3xx/CSS3xx (SNMP v1/v2c, MIB, *Allow From*, «LLDP is not supported») —
   <https://help.mikrotik.com/docs/spaces/SWOS/pages/76415036/CRS3xx+and+CSS3xx+series+Manual>
 - LLDP-MIB: IEEE 802.1AB-2005 (`lldpRemTable`, `lldpRemManAddrTable`, `lldpLocPortTable`).
+
+### 13.8 Switch vía router del sitio (RouterOS 7)
+
+Cuando Horus no está en la red de gestión del switch (lo habitual), el switch se alcanza por el túnel
+del router del sitio ([`tunnels.md` §10](../tunnels.md#10-switches-vía-router-del-sitio),
+[ADR-0032](../adr/0032-switches-via-router-direccion-horus-y-nat-1-1.md)). Horus genera para el
+**router** (no escribe en él):
+
+- `/ip firewall nat` `action=netmap` en `dstnat` (dirección Horus → IP privada) y `srcnat` (IP privada →
+  dirección Horus, solo hacia la red de servicios), por `wg-horus` (WireGuard), `horus-gre` (GRE) o
+  `ipsec-policy=in,ipsec` (IPsec, más una `/ip ipsec policy` para la dirección Horus: RouterOS aplica
+  `srcnat` antes de cifrar). El `srcnat` se coloca antes de cualquier `masquerade`.
+- `/ip firewall filter chain=forward`: SNMP desde la red de servicios hacia el switch, sus respuestas y
+  sFlow (si el switch lo exporta) hacia el colector; `drop` del resto entre Horus y el switch. Delante
+  de la primera regla de forward ajena.
+- Todo con `comment="horus-via <id del switch>"` (redes declaradas: `horus-via-net <id>`); cada bloque
+  quita sus reglas antes de crearlas (idempotente) y hay bloque «Deshacer».
+- El switch (CRS/SwOS/serie S) no cambia: su SNMP permite la IP de servicios del hub y su puerta de
+  enlace de gestión debe ser el router (o una ruta a la red de servicios por él).
+
+Validación: `scripts/lab/via-router.sh` contra el CHR del laboratorio (resultado en
+[`tunnels.md` §8](../tunnels.md#8-validación-realizada)).

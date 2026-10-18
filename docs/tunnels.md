@@ -15,7 +15,8 @@ gestión (SNMP, API REST) y los flujos de cada router a Horus, qué transporte e
 | `wireguard` | sí (Noise) | MikroTik | `wg0` (wg-agent) | clave pública + IP de túnel |
 | `ipsec` (IKEv2, route-based) | sí (ESP) | MikroTik, Huawei VRP | `hxfrm<n>` (tunnel-agent + charon) | PSK propia + identidad IKE + IP de túnel |
 | `gre` | **no** | MikroTik, Huawei VRP | `hgre<n>` (tunnel-agent) | IP pública fija + clave GRE + IP de túnel |
-| `direct` | depende del camino | Huawei VRP | — | dirección de gestión verificada por SNMPv3 |
+| `direct` | depende del camino | Huawei VRP, switches | — | dirección de gestión verificada por SNMPv3 |
+| `via_router` (solo switches) | el del túnel del router | switches MikroTik y Huawei | túnel del router del sitio | dirección Horus verificada por SNMP (§10) |
 
 - **Todos los transportes con túnel reciben una IP de túnel del mismo asignador** (el pool de
   `wireguard`). Esa /32 es la **identidad del exportador**: el colector, el inventario de flujos y el
@@ -201,7 +202,22 @@ módulos `xfrm_interface`, `esp4` e `ip_gre` del kernel (el instalador carga `xf
   keepalive nulo (`keepalive=0s,0` es rechazado por RouterOS: por eso `!keepalive`).
 - **strongSwan ↔ hub** (`tests/tunnels/ipsec-e2e.sh`, contenedores): IKE establecida con la suite
   preferida (GCM/ECP384) y con la de respaldo (CBC/SHA256/MODP2048).
-- **No validado aún**: VRP en equipo real o eNSP; instalación de la CHILD SA y el camino de datos
+- **Switches vía router (§10), RouterOS CHR 7.23.8 con WireGuard** (`scripts/lab/via-router.sh`, TCG, 2026-10-18):
+  con un "switch" en un netns de la LAN del CHR (IP privada 10.20.0.50) y la dirección Horus 10.255.3.40 en las
+  allowed-ips del peer del hub, la configuración generada se importa sin errores; SNMP del hub a 10.255.3.40 llega
+  al switch (que ve como origen 10.255.0.1) y vuelve con origen 10.255.3.40; otro puerto UDP se descarta; el sFlow
+  del switch llega al colector con origen 10.255.3.40; reimportar no duplica reglas; el bloque «Deshacer» deja el
+  router limpio y entonces la dirección Horus ya no alcanza al switch. Las variantes IPsec, GRE y con red declarada
+  se importan y se deshacen sin errores en el mismo CHR (solo sintaxis: sin túnel IPsec/GRE real con el hub). Nota del
+  CHR emulado: tras el import las reglas aparecen unos segundos como «I» (inválidas) antes de filtrar.
+- **Camino de datos WireGuard en netns** (`TestViaRouterDataPath`, `-tags=wireguard`, wireguard-go): hub con el
+  wg-agent real y dos "routers" de dos ISP con el **mismo** switch 192.168.88.2 detrás (NAT 1:1 con iptables /32):
+  cada dirección Horus llega a su switch, el sFlow de cada uno llega con su dirección Horus, el router de un ISP no
+  puede suplantar la dirección Horus del otro (WireGuard lo descarta) y un estado deseado con la misma IP privada en
+  dos peers se rechaza entero.
+- **No validado aún**: VRP en equipo real o eNSP (incluido el NAT estático y las ACL de §10 en la interfaz Tunnel);
+  el camino de datos de §10 por IPsec/GRE en el hub (rutas y ipset de tunnel-agent sobre `xfrm_interface`/`ip_gre`);
+  RouterOS 7.12 para §10 (solo 7.23.8); instalación de la CHILD SA y el camino de datos
   XFRM/GRE en un kernel con `xfrm_interface`/`ip_gre` (el entorno de pruebas no los tiene); reglas de
   cortafuegos ejecutadas en un host real.
 
@@ -215,3 +231,80 @@ módulos `xfrm_interface`, `esp4` e `ip_gre` del kernel (el instalador carga `xf
 | GRE sin tráfico | La IP pública real del router coincide con `tunnel_remote_address` (sin NAT); `ipset list horus-gre-peers`; clave GRE. |
 | Fragmentación | MTU 1400 en el túnel, `clamp-tcp-mss`, plantilla de flujos más pequeña. |
 | `tunnel_down` intermitente | DPD/rekey en logs de charon; CPU de la tarjeta de servicio (NE40E). |
+
+## 10. Switches vía router del sitio
+
+Decisión: [ADR-0032](adr/0032-switches-via-router-direccion-horus-y-nat-1-1.md). Un switch tiene casi
+siempre una IP de gestión **privada**; con Horus en un servidor público no hay camino directo, y su
+sFlow no debe salir a Internet sin cifrar. El switch se alcanza entonces **a través del túnel de un
+router del sitio** (WireGuard, IPsec o GRE) del mismo ISP, sin túnel propio.
+
+### 10.1 Cuándo usar cada modo
+
+| Pregunta del asistente: «¿Horus está en la misma red de gestión que el switch?» | Modo |
+| --- | --- |
+| **No** (lo habitual: Horus en la nube o en otro sitio) — opción por defecto | `via_router` |
+| **Sí** (Horus instalado dentro de la red de gestión, misma VLAN/VRF) | `direct` |
+
+### 10.2 Cómo funciona
+
+```
+ hub Horus 10.255.0.1 ──wg0 / hxfrm<n> / hgre<n>──► router del sitio ──LAN de gestión──► switch 192.168.88.2
+   SNMP a 10.255.1.40 (dirección Horus)            netmap 10.255.1.40 ⇄ 192.168.88.2     (ve SNMP desde 10.255.0.1)
+   sFlow llega desde 10.255.1.40      ◄────────────  solo con la red de servicios          sFlow → 10.255.0.1:6343
+```
+
+- **Dirección Horus**: `wireguard` asigna al switch una /32 de la misma IPAM que las IP de túnel
+  (`via_address`; única en la plataforma, cuarentena 24 h). Es su identidad: el sondeador SNMP la
+  consulta y el colector identifica el sFlow por ella. La IP privada (`management_address`) **nunca**
+  es identidad y nunca llega al hub: dos ISP con 192.168.88.2, o dos sitios del mismo ISP, no chocan.
+- **Hub**: la dirección Horus viaja con el peer del router: wg-agent la añade a las allowed-ips del
+  peer (WireGuard elige el peer por destino: sin solapes, ni entre ISP ni entre routers); tunnel-agent
+  añade la ruta por `hxfrm<n>`/`hgre<n>` y la ligadura prefijo↔interfaz en `horus-tunnel-src`
+  (antisuplantación). Nada cambia en los contenedores de aplicación.
+- **Router del sitio**: NAT 1:1 (`netmap` en RouterOS, `nat static` en VRP) entre la dirección Horus y
+  la IP privada, **solo** hacia la red de servicios del hub; cortafuegos mínimo: SNMP (UDP 161) desde
+  Horus hacia el switch y sus respuestas, sFlow (UDP 6343) del switch hacia el colector; el resto entre
+  Horus y el switch se descarta. Horus nunca escribe en el router: la configuración la pega el operador.
+- **Switch**: su configuración de siempre (SNMPv3 de solo lectura; comunidad v2c en SwOS) con el
+  sondeador = IP de servicios del hub y el colector sFlow = colector de Horus. El switch debe poder
+  volver a la red de servicios por el router (su puerta de enlace de gestión o una ruta estática).
+- **Red de gestión declarada** (opcional, `POST /routers/{id}/management-subnets`): /22–/30 privada;
+  los switches con IP dentro comparten un bloque Horus alineado del mismo tamaño y una sola regla NAT.
+  Las redes de un router no se solapan dentro del ISP.
+
+### 10.3 Alta
+
+`POST /api/v1/routers/{switch_id}/switch-onboarding` con `connection_mode=via_router`,
+`via_router_id` y `management_address` (re-autenticación): devuelve la configuración del switch, el
+camino (`path`: router, transporte, protección heredada, dirección Horus) y la del router del sitio
+(`router_config`). El switch queda `snmp_verified` cuando responde con **su** credencial en su
+dirección Horus; solo entonces su sFlow se acepta (fuente secundaria: nunca `flows_raw`, clientes ni
+atribución).
+
+Configuración del router generada (fijada por *golden files* en
+`services/wireguard/internal/tunnelcfg/testdata/via-*`):
+
+| Router | WireGuard | IPsec | GRE |
+| --- | --- | --- | --- |
+| RouterOS 7 | `netmap` con `in/out-interface=wg-horus` | `netmap` con `ipsec-policy=in,ipsec` + política IPsec para la dirección Horus (una CHILD SA por dirección o bloque) | `netmap` con `in/out-interface=horus-gre` |
+| Huawei VRP | — | `nat static global … inside …` y `traffic-filter` (ACL 3991/3992) en `Tunnel10` | igual |
+
+Cada bloque RouterOS quita primero sus reglas (`comment="horus-via <id del switch>"`, o
+`horus-via-net <id de la red>`), así que pegarlo otra vez es seguro; al final va el bloque «Deshacer».
+
+### 10.4 Estado y reglas
+
+- Túnel del router caído → el switch queda **`unreachable`** con razón `via_router_tunnel_down` (no
+  `offline`): el problema es el camino. alerts no avisa por el switch (el aviso es el del túnel).
+- Sin ICMP: el router solo deja pasar SNMP; la señal ICMP del switch queda `unknown`.
+- Un router con switches vía él no se da de baja ni pasa a modo directo (`409 ROUTER_HAS_VIA_SWITCHES`).
+- La IP de gestión de un switch vía router solo cambia con su alta (el router necesita reglas nuevas).
+- Protección: el switch hereda la del túnel del router en el tramo hub ↔ router (GRE = sin cifrar,
+  con aviso en la configuración y en la ficha).
+
+### 10.5 Validación
+
+Ver §8 y la sección «Vía router» de [`vendors/mikrotik.md`](vendors/mikrotik.md) y
+[`vendors/huawei.md`](vendors/huawei.md). `scripts/lab/via-router.sh` valida la configuración RouterOS
+contra el CHR del laboratorio (WireGuard).

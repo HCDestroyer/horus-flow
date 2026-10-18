@@ -604,3 +604,9 @@ GET /switches/{id}/flows/top (rol snmp, horus_tenant_reader) — solo la ficha d
 - Muestreo solo de entrada en cada puerto (cada paquete se cuenta una vez dentro del switch). El top por puerto filtra
   por `input_if_index`.
 - Las IP de clientes solo viajan en el cuerpo de la respuesta, nunca en la URL; retención corta (diagnóstico).
+- **Identidad del switch**: en modo directo, la dirección de gestión verificada (una dirección directa repetida entre
+  ISP queda fuera del inventario: ambigua, nunca se adivina el tenant). **Vía router**
+  ([ADR-0032](adr/0032-switches-via-router-direccion-horus-y-nat-1-1.md)), su **dirección Horus** verificada: el
+  router del sitio traduce el origen del sFlow (IP privada → dirección Horus) y el colector identifica el exportador
+  por esa /32, única en la plataforma; la IP privada (que dos ISP pueden repetir y que sigue apareciendo como agente
+  dentro del datagrama sFlow) nunca identifica a nadie. Las reglas de fuente secundaria no cambian.

@@ -40,10 +40,11 @@ sobre cualquier ADR anterior; los ADR 0017–0029 las registran o desarrollan.
 | [0029](0029-copias-locales-siempre-y-paquete-de-secretos-offline.md) | Copias locales siempre, copia remota opcional y paquete de secretos offline | Aceptada (D2) | Operación |
 | [0030](0030-integracion-de-ecosistema-sin-dependencias.md) | Integración de ecosistema: sistemas independientes, conectores opcionales | Propuesta | Integraciones |
 | [0031](0031-hub-de-tuneles-ipsec-gre.md) | Hub de túneles multitransporte: IPsec IKEv2 y GRE junto a WireGuard | Aceptada (PO) | Red / seguridad |
+| [0032](0032-switches-via-router-direccion-horus-y-nat-1-1.md) | Switches vía router del sitio: dirección Horus por equipo y NAT 1:1 en el router | Aceptada (PO) | Red / seguridad |
 
 "Aceptada" en Sprint 0 = elección ya fijada en [vision.md](../vision.md) y justificada aquí.
 "Propuesta" = decisión que cuestiona el plan y espera aprobación del PO. "Aceptada (D#)" = registra
 una decisión del product owner. Un ADR sustituido no se edita salvo su estado.
 
-Numeración: el siguiente ADR libre es el **0032**; el coordinador asigna los números para evitar
+Numeración: el siguiente ADR libre es el **0033**; el coordinador asigna los números para evitar
 colisiones entre agentes.
