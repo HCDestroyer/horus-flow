@@ -235,7 +235,7 @@ jobs:
         run: |
           go install github.com/bufbuild/buf/cmd/buf@v1.47.2
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-          python3 -m pip install --user pglast==7.2 chdb==3.1.2
+          python3 -m pip install --user pglast==7.21 chdb==3.1.2
       - name: make contracts-check
         run: make contracts-check
 

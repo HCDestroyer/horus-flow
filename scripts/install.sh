@@ -1174,6 +1174,13 @@ size_nats() {
 }
 
 # --- Imágenes ------------------------------------------------------------------------------------
+# image_needed <var>: horus-ipsec solo hace falta con --tunnels ipsec, y la etiqueta local
+# (horus-ipsec:local) se construye aquí al final de ensure_images, no se descarga ni viene en el paquete.
+image_needed() {
+  [ "$1" != HORUS_IPSEC_IMAGE ] && return 0
+  tunnel_enabled ipsec && [ "${img[HORUS_IPSEC_IMAGE]:-}" != horus-ipsec:local ]
+}
+
 ensure_images() {
   say "Imágenes ($image_source_desc)"
   local v ref
@@ -1186,6 +1193,7 @@ ensure_images() {
       # horus-host corre con el socket de Docker y NET_ADMIN: su imagen también debe estar firmada.
       ! docker_mode || verify_signature "$installer_image"
       for v in "${img_vars[@]}"; do
+        image_needed "$v" || continue
         ref="${img[$v]:-}"; [ -n "$ref" ] || continue
         if docker image inspect "$ref" >/dev/null 2>&1; then continue; fi
         docker pull -q "$ref" >/dev/null || die "no se pudo descargar $ref (¿sin salida a $registry? usa el paquete offline: --image-source bundle:RUTA)"
@@ -1195,6 +1203,7 @@ ensure_images() {
     bundle:*)
       local missing=0
       for v in "${img_vars[@]}"; do
+        image_needed "$v" || continue
         ref="${img[$v]:-}"; [ -n "$ref" ] || continue
         docker image inspect "$ref" >/dev/null 2>&1 || missing=1
       done
@@ -1206,6 +1215,7 @@ ensure_images() {
         : >"$bundle_dir/.loaded"
       fi
       for v in "${img_vars[@]}"; do
+        image_needed "$v" || continue
         ref="${img[$v]:-}"; [ -n "$ref" ] || continue
         docker image inspect "$ref" >/dev/null 2>&1 || die "el paquete offline no contiene $ref"
       done

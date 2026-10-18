@@ -75,7 +75,7 @@ jobs:
           go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}"
           go install "github.com/bufbuild/buf/cmd/buf@${BUF_VERSION}"
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-          python3 -m pip install --user pglast==7.2 chdb==3.1.2
+          python3 -m pip install --user pglast==7.21 chdb==3.1.2
       - name: Navegadores de Playwright
         working-directory: apps/frontend
         run: |
