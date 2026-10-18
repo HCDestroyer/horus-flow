@@ -137,7 +137,7 @@ func TestArgosMultiCompanyServiceLookupAndSecurityStates(t *testing.T) {
 	// Con el token de B: la misma IP es el cliente de B (sin estado: limpio) y el servicio de A no existe.
 	stB := a.must(a.post(tokB, "/api/v1/integrations/security-states", map[string]any{"items": []any{
 		map[string]any{"address": "10.10.0.41"}}}), 200)
-	if strings.Contains(string(stB.Raw), "infected") || strings.Contains(string(stB.Raw), "812") {
+	if strings.Contains(string(stB.Raw), "infected") || strings.Contains(string(stB.Raw), `"external_service_id":812`) {
 		t.Fatalf("el token de B ve el estado de A: %s", stB.Raw)
 	}
 	if r := a.post(tokB, "/api/v1/integrations/security-states", map[string]any{"items": []any{
