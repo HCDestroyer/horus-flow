@@ -93,8 +93,17 @@ const crossing = (u: CapacityUplink) => {
               {{ u.label }}
             </NuxtLink>
             <p class="text-muted flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-              <span class="font-mono">{{ u.interface_name }}</span>
+              <span class="font-mono break-all">{{ u.interface_name }}</span>
               <span>{{ u.router_name }}</span>
+              <UBadge
+                v-if="u.device_type === 'switch'"
+                color="neutral"
+                variant="outline"
+                size="sm"
+                icon="i-lucide-network"
+                :label="t('capacity.switchBadge')"
+                data-testid="uplink-switch"
+              />
               <UBadge
                 v-if="u.kind"
                 color="neutral"

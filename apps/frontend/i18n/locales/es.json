@@ -88,7 +88,8 @@
       "routers": "Salud de routers",
       "infraServices": "Servicios de infraestructura",
       "integrations": "Integraciones",
-      "capacity": "Capacidad"
+      "capacity": "Capacidad",
+      "switches": "Switches"
     },
     "search": "Buscar",
     "searchPlaceholder": "Buscar secciones…",
@@ -3365,7 +3366,8 @@
     "exporter_silent": "Exportador silencioso",
     "interface_down": "Interfaz caída",
     "psu_failed": "Fuente de alimentación fallida",
-    "fan_failed": "Ventilador fallido"
+    "fan_failed": "Ventilador fallido",
+    "interface_flapping": "Puerto de subida inestable"
   },
   "routerSignal": {
     "icmp": "ICMP",
@@ -4049,7 +4051,8 @@
       "range": "del {from} al {to}",
       "portSpeed": "Sin contratada (velocidad del puerto)",
       "empty": "Sin capacidad contratada configurada: se mide contra la velocidad del puerto."
-    }
+    },
+    "switchBadge": "Switch"
   },
   "sso": {
     "enter": {
@@ -4295,6 +4298,172 @@
           "mtu": "MTU 1400 y MSS 1360 en el túnel; con PPPoE o MPLS, menos."
         }
       }
+    }
+  },
+  "switches": {
+    "title": "Switches",
+    "subtitle": "Switches de monitoreo por nodo: puertos, enlaces de subida, vecinos LLDP y salud. Horus solo lee; nunca escribe en el switch.",
+    "add": "Agregar switch",
+    "empty": "Aún no hay switches. Agregue uno para ver el tráfico y el estado de sus puertos.",
+    "filteredEmpty": "Ningún switch coincide con el filtro.",
+    "columns": {
+      "name": "Switch",
+      "site": "Nodo",
+      "platform": "Sistema",
+      "status": "Estado",
+      "ports": "Puertos",
+      "uplinks": "Subida",
+      "flapping": "Inestables",
+      "sflow": "sFlow",
+      "health": "CPU · temp."
+    },
+    "pending": "Pendiente de verificar",
+    "uplinksDown": "{n} caído(s)",
+    "sflowOn": "sFlow activo",
+    "sflowOff": "Sin sFlow",
+    "badge": "Switch",
+    "platform": {
+      "routeros": "MikroTik RouterOS (CRS)",
+      "swos": "MikroTik SwOS",
+      "vrp": "Huawei serie S (VRP)",
+      "routerosHelp": "CRS3xx/CRS5xx con RouterOS 7: SNMPv3 cifrado y LLDP.",
+      "swosHelp": "CSS/CRS con SwOS: solo SNMP v1/v2c y sin LLDP.",
+      "vrpHelp": "S5700/S6700…: SNMPv3 cifrado, LLDP y sFlow opcional."
+    },
+    "form": {
+      "title": "Agregar switch",
+      "description": "El switch queda en modo directo por la red de gestión y es solo de monitoreo: nunca es el router principal ni crea clientes.",
+      "site": "Nodo",
+      "name": "Nombre",
+      "namePlaceholder": "sw-core-1",
+      "platform": "Sistema del switch",
+      "swosWarningTitle": "SwOS solo tiene SNMP v1/v2c",
+      "swosWarningBody": "La comunidad viaja en claro, sin cifrado ni autenticación fuerte. Úselo solo si el switch está en la red de gestión, aislada de los clientes y de Internet.",
+      "submit": "Crear y generar configuración",
+      "created": "Switch creado",
+      "nameTaken": "Ya existe un equipo con ese nombre en el ISP."
+    },
+    "onboarding": {
+      "title": "Conexión del switch",
+      "directTitle": "Modo directo por la red de gestión",
+      "directBody": "Sin túnel: Horus consulta el switch por SNMP en su dirección de gestión. Asegure ese camino (VLAN o VRF de gestión). Nunca exponga SNMP a Internet.",
+      "generate": {
+        "title": "Generar la configuración",
+        "pending": "Horus genera una credencial SNMP de solo lectura (se muestra una sola vez) y lo que hay que pegar en el switch.",
+        "address": "Dirección de gestión",
+        "addressHelp": "IP del switch tal y como la ve Horus.",
+        "addressRequired": "Indique la dirección de gestión del switch.",
+        "addressInvalid": "IP unicast del switch en la red de gestión (sin direcciones de Horus).",
+        "addressTaken": "Otro equipo verificado ya usa esa dirección.",
+        "sflow": "Activar sFlow (fuente secundaria)",
+        "sflowHelp": "Solo para el top de IP y protocolos por puerto en esta ficha: nunca se suma al tráfico de clientes ni de nodos.",
+        "sampling": "Muestreo sFlow (1 de cada N)",
+        "action": "Generar configuración",
+        "regenerate": "Regenerar (invalida la credencial anterior)",
+        "reauth": "Confirme su identidad para generar una credencial nueva.",
+        "reauthNeeded": "Hace falta volver a identificarse para generar la credencial.",
+        "onceTitle": "La credencial aparece una sola vez",
+        "onceBody": "Cópiela ahora: Horus la guarda cifrada y no la vuelve a mostrar.",
+        "notes": "Notas",
+        "placeholders": "Complete antes de pegar",
+        "configLabel": "Configuración del switch",
+        "sflowLabel": "Configuración sFlow",
+        "noPermission": "Necesita el permiso de credenciales para generar la configuración."
+      },
+      "paste": {
+        "title": "Pegar en el switch",
+        "body": "Pegue la configuración en el switch (o siga los pasos en su interfaz web). Horus nunca escribe en el switch.",
+        "waiting": "Esperando la primera respuesta SNMP con esta credencial…",
+        "verified": "SNMP verificado en {ip}."
+      },
+      "verify": {
+        "title": "Verificación",
+        "snmp": "Responde por SNMP con la credencial de Horus",
+        "ports": "Puertos descubiertos",
+        "stuck": "¿No se verifica?",
+        "checkPath": "Compruebe que Horus llega a la dirección de gestión (ruta y firewall).",
+        "checkAcl": "Compruebe que la IP del sondeador está permitida en el switch.",
+        "checkCredential": "Vuelva a pegar la configuración: cada regeneración invalida la anterior."
+      }
+    },
+    "detail": {
+      "back": "Switches",
+      "regenerate": "Configuración",
+      "health": "Salud",
+      "cpu": "CPU",
+      "memory": "Memoria",
+      "temperature": "Temperatura",
+      "uptime": "Encendido",
+      "model": "Modelo",
+      "firmware": "Firmware",
+      "limitedMibs": "SwOS no publica CPU ni memoria por SNMP: se muestran puertos, tráfico, errores y la salud de MIKROTIK-MIB.",
+      "notFound": "No existe ese switch o no tiene acceso."
+    },
+    "ports": {
+      "title": "Puertos",
+      "summary": "{monitored} de {max} puertos monitoreados",
+      "defaultSelection": "Elección por defecto: puertos con vecino conocido (subida sugerida) y puertos con descripción.",
+      "customSelection": "Elección guardada",
+      "edit": "Elegir puertos",
+      "save": "Guardar elección",
+      "cancel": "Cancelar",
+      "reset": "Volver a la elección por defecto",
+      "saved": "Elección de puertos guardada",
+      "tooMany": "Máximo {max} puertos monitoreados por switch.",
+      "conflict": "Otra persona cambió la elección. Se recargó la versión actual.",
+      "empty": "Todavía no hay puertos descubiertos (se descubren tras la verificación SNMP).",
+      "columns": {
+        "monitor": "Monitorear",
+        "uplink": "Subida",
+        "port": "Puerto",
+        "status": "Estado",
+        "traffic": "Tráfico (rx / tx)",
+        "utilization": "Utilización",
+        "trend": "Tendencia",
+        "errors": "Errores · descartes",
+        "flaps": "Cambios 1 h / 24 h",
+        "neighbor": "Vecino LLDP"
+      },
+      "uplink": "Subida",
+      "suggested": "Subida sugerida",
+      "notMonitored": "No monitoreado",
+      "adminDown": "Apagado",
+      "flapping": "Inestable",
+      "monitorLabel": "Monitorear {port}",
+      "uplinkLabel": "Marcar {port} como subida",
+      "trendLabel": "Tendencia de tráfico de {port}",
+      "knownDevice": "Equipo de Horus: {name}"
+    },
+    "neighbors": {
+      "title": "Vecinos LLDP",
+      "empty": "Sin vecinos LLDP (SwOS no tiene LLDP, o el switch aún no lo publica).",
+      "local": "Puerto local",
+      "system": "Sistema vecino",
+      "port": "Puerto vecino",
+      "address": "Gestión",
+      "source": "Origen"
+    },
+    "top": {
+      "title": "Top por puerto (sFlow)",
+      "secondary": "Fuente secundaria: muestras sFlow del switch. Nunca se suman al tráfico de clientes ni de nodos (salen de los flujos del router).",
+      "disabled": "Este switch no exporta sFlow. Actívelo al regenerar la configuración (solo serie S de Huawei).",
+      "unsupported": "RouterOS y SwOS no exportan sFlow: el top por puerto solo está disponible en la serie S de Huawei.",
+      "by": {
+        "src_ip": "Origen",
+        "dst_ip": "Destino",
+        "protocol": "Protocolo/puerto"
+      },
+      "port": "Puerto",
+      "allPorts": "Todos los puertos",
+      "empty": "Sin muestras en la ventana elegida.",
+      "key": "Clave",
+      "bytes": "Volumen",
+      "share": "Parte"
+    },
+    "nodeCard": {
+      "title": "Switches del nodo",
+      "empty": "Este nodo no tiene switches.",
+      "all": "Ver switches"
     }
   }
 }

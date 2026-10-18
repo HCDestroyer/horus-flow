@@ -13,6 +13,7 @@ import type { MockTenant } from './data'
 import { assistRoute } from './assist'
 import { detectionSettingsRoute } from './detection-settings'
 import { deviceRoutes, isManagementAddress } from './devices'
+import { switchRoutes } from './switches'
 import { tlsPinOf, tlsPinRoute } from './tls-pins'
 import { evidenceFlows, findFinding, findingsOf, securitySummary, sortFindings } from './findings'
 import {
@@ -1309,6 +1310,7 @@ export function tenantRoute(ctx: TenantRouteContext): Response | undefined {
     integrationsRoute(ctx) ??
     customerRoutes(ctx) ??
     findingRoutes(ctx) ??
+    switchRoutes(ctx) ??
     deviceRoutes(ctx) ??
     snmpRoutes(ctx) ??
     capacityRoutes(ctx) ??
