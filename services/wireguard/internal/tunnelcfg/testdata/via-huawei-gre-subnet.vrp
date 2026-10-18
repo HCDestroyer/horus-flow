@@ -1,0 +1,21 @@
+system-view
+acl number 3991
+ description horus-via-in
+ rule permit udp source 10.255.0.0 0.0.0.255 destination 10.255.1.18 0 destination-port eq 161
+ rule permit udp source 10.255.0.0 0.0.0.255 destination 192.168.88.2 0 destination-port eq 161
+ rule deny ip destination 10.255.1.18 0
+ rule deny ip destination 192.168.88.2 0
+ quit
+acl number 3992
+ description horus-via-out
+ rule permit udp source 10.255.1.18 0 source-port eq 161 destination 10.255.0.0 0.0.0.255
+ rule permit udp source 192.168.88.2 0 source-port eq 161 destination 10.255.0.0 0.0.0.255
+ rule deny ip source 10.255.1.18 0 destination 10.255.0.0 0.0.0.255
+ rule deny ip source 192.168.88.2 0 destination 10.255.0.0 0.0.0.255
+ quit
+interface Tunnel10
+ nat static global 10.255.1.16 inside 192.168.88.0 netmask 255.255.255.240
+ traffic-filter inbound acl 3991
+ traffic-filter outbound acl 3992
+ quit
+return

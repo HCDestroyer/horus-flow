@@ -139,6 +139,8 @@ type PeerEvents func(p *domain.Peer) []outbox.Event
 
 // Store es el repositorio PostgreSQL del módulo.
 type Store interface {
+	ViaStore
+
 	// EnsureHub da de alta (o actualiza) el hub y sus rangos de túneles
 	// desde la configuración. No sobrescribe los campos editados desde la
 	// consola (los devuelve si el entorno trae otro valor) ni borra rangos.
