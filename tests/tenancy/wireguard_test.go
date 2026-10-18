@@ -33,7 +33,7 @@ func TestWireguardSchemaRLS(t *testing.T) {
 		t.Fatal(err)
 	}
 	exempt := []string{"wireguard.outbox"}
-	if tables := tenanttest.AssertRLS(t, db.Pool, []string{"wireguard"}, exempt, exempt); len(tables) != 4 {
+	if tables := tenanttest.AssertRLS(t, db.Pool, []string{"wireguard"}, exempt, exempt); len(tables) != 5 { // + via_mapping (ADR-0032)
 		t.Fatalf("tablas con tenant_id = %v", tables)
 	}
 	mg, err := pgdb.NewMigrator(ctx, db, wgmig.Schema, wgmig.Postgres(), nil)
