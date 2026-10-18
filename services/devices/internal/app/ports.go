@@ -59,8 +59,8 @@ type ListQuery struct {
 	DeviceType string
 	// ViaRouterID: solo los equipos alcanzados vía ese router (ADR-0032).
 	ViaRouterID *uuid.UUID
-	Role       string
-	SiteID     uuid.UUID
+	Role        string
+	SiteID      uuid.UUID
 }
 
 // ViaStore es la parte del repositorio de los switches vía router y de las

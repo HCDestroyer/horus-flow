@@ -37,3 +37,9 @@ HORUS_TEST_WG_KERNEL=1 sudo go test -tags=wireguard ./services/wgagent/internal/
 ```
 
 Los tests unitarios (`go test ./services/wgagent/...`) usan la interfaz en memoria (`internal/adapters/memdev`).
+
+## Direcciones enrutadas (switches vía router, ADR-0032)
+
+Un peer de router admite, además de su /32 de túnel, las direcciones Horus de los equipos que se alcanzan a través
+de él (/32 o bloque IPv4 /22–/31). Ningún allowed-ip se solapa con otro de ningún peer (cryptokey routing): el hub
+nunca recibe IP privadas de los ISP.

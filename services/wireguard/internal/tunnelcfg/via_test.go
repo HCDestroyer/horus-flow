@@ -3,6 +3,8 @@ package tunnelcfg_test
 import (
 	"errors"
 	"net/netip"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -62,13 +64,19 @@ func TestViaRouterGolden(t *testing.T) {
 func TestViaRouterRejects(t *testing.T) {
 	t.Parallel()
 	bad := map[string]func(v *tunnelcfg.ViaValues){
-		"vrp sin wireguard":     func(v *tunnelcfg.ViaValues) { v.Vendor, v.Transport = "huawei", tunnelcfg.TransportWireGuard },
-		"transporte":            func(v *tunnelcfg.ViaValues) { v.Transport = "direct" },
-		"id con comillas":       func(v *tunnelcfg.ViaValues) { v.DeviceID = `x" ; /system reset` },
-		"privada en servicios":  func(v *tunnelcfg.ViaValues) { v.Target = netip.MustParseAddr("10.255.0.9") },
-		"ipv6":                  func(v *tunnelcfg.ViaValues) { v.Target = netip.MustParseAddr("fd00::2") },
-		"fuera de la red":       func(v *tunnelcfg.ViaValues) { *v = viaValues("mikrotik", "gre", true, false); v.Target = netip.MustParseAddr("192.168.89.2") },
-		"bloque de otro tamaño": func(v *tunnelcfg.ViaValues) { *v = viaValues("mikrotik", "gre", true, false); v.Block = netip.MustParsePrefix("10.255.1.0/27") },
+		"vrp sin wireguard":    func(v *tunnelcfg.ViaValues) { v.Vendor, v.Transport = "huawei", tunnelcfg.TransportWireGuard },
+		"transporte":           func(v *tunnelcfg.ViaValues) { v.Transport = "direct" },
+		"id con comillas":      func(v *tunnelcfg.ViaValues) { v.DeviceID = `x" ; /system reset` },
+		"privada en servicios": func(v *tunnelcfg.ViaValues) { v.Target = netip.MustParseAddr("10.255.0.9") },
+		"ipv6":                 func(v *tunnelcfg.ViaValues) { v.Target = netip.MustParseAddr("fd00::2") },
+		"fuera de la red": func(v *tunnelcfg.ViaValues) {
+			*v = viaValues("mikrotik", "gre", true, false)
+			v.Target = netip.MustParseAddr("192.168.89.2")
+		},
+		"bloque de otro tamaño": func(v *tunnelcfg.ViaValues) {
+			*v = viaValues("mikrotik", "gre", true, false)
+			v.Block = netip.MustParsePrefix("10.255.1.0/27")
+		},
 	}
 	for name, mut := range bad {
 		v := viaValues("mikrotik", tunnelcfg.TransportWireGuard, false, false)
@@ -84,4 +92,51 @@ func TestViaRouterRejects(t *testing.T) {
 	if err != nil || strings.Contains(c.Config, "/user add") {
 		t.Fatalf("nombre inseguro: %v\n%s", err, c.Config)
 	}
+}
+
+// TestEmitViaLab escribe la configuración del router del laboratorio CHR para
+// un switch vía router (scripts/lab/via-router.sh) en HORUS_TUNNELCFG_EMIT_DIR:
+// túnel WireGuard wg-horus, switch simulado 10.20.0.50 en la LAN del CHR,
+// dirección Horus 10.255.3.40, red de servicios 10.255.0.0/24 y colector
+// 10.255.0.1; via.rsc y su bloque «Deshacer» sin comentar (via-undo.rsc).
+func TestEmitViaLab(t *testing.T) {
+	dir := os.Getenv("HORUS_TUNNELCFG_EMIT_DIR")
+	if dir == "" {
+		t.Skip("HORUS_TUNNELCFG_EMIT_DIR sin definir (scripts/lab/via-router.sh)")
+	}
+	v := viaValues("mikrotik", envOr("HORUS_VIA_TRANSPORT", tunnelcfg.TransportWireGuard), os.Getenv("HORUS_VIA_SUBNET") != "", true)
+	v.RouterName, v.DeviceName = "horus-lab-chr", "sw-lab"
+	v.Target, v.Mapped = netip.MustParseAddr(envOr("HORUS_VIA_TARGET", "10.20.0.50")), netip.MustParseAddr(envOr("HORUS_VIA_MAPPED", "10.255.3.40"))
+	if v.Block.IsValid() {
+		v.Subnet, v.Block = netip.MustParsePrefix("10.20.0.48/28"), netip.MustParsePrefix("10.255.3.48/28")
+		v.Mapped, _ = netip.AddrFromSlice([]byte{10, 255, 3, 48 + v.Target.As4()[3] - 48})
+	}
+	c, err := tunnelcfg.ViaRouter(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "via.rsc"), []byte(c.Config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var undo []string
+	in := false
+	for _, l := range strings.Split(c.Config, "\n") {
+		if strings.HasPrefix(l, "# ----- Deshacer") {
+			in = true
+			continue
+		}
+		if in && strings.HasPrefix(l, "# /") {
+			undo = append(undo, strings.TrimPrefix(l, "# "))
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "via-undo.rsc"), []byte(strings.Join(undo, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func envOr(k, def string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return def
 }

@@ -77,12 +77,18 @@ func (m *memViaStore) Emit(_ context.Context, evs []outbox.Event) error {
 	return nil
 }
 
-func (m *memViaStore) CountViaDevices(context.Context, pgdb.TenantID, uuid.UUID) (int, error) { return 0, nil }
+func (m *memViaStore) CountViaDevices(context.Context, pgdb.TenantID, uuid.UUID) (int, error) {
+	return 0, nil
+}
 func (m *memViaStore) ListManagementSubnets(context.Context, pgdb.TenantID, uuid.UUID) ([]domain.ManagementSubnet, error) {
 	return m.subnets, nil
 }
-func (m *memViaStore) CreateManagementSubnet(context.Context, pgdb.TenantID, *domain.ManagementSubnet) error { return nil }
-func (m *memViaStore) DeleteManagementSubnet(context.Context, pgdb.TenantID, uuid.UUID, uuid.UUID) error  { return nil }
+func (m *memViaStore) CreateManagementSubnet(context.Context, pgdb.TenantID, *domain.ManagementSubnet) error {
+	return nil
+}
+func (m *memViaStore) DeleteManagementSubnet(context.Context, pgdb.TenantID, uuid.UUID, uuid.UUID) error {
+	return nil
+}
 func (m *memViaStore) ViaDevicesIn(context.Context, pgdb.TenantID, uuid.UUID, netip.Prefix) (int, error) {
 	return 0, nil
 }
@@ -203,4 +209,3 @@ func TestSwitchOnboardingViaRouter(t *testing.T) {
 		t.Fatalf("proyección obsoleta aplicada: %v %+v", err, st.routers[sw.ID])
 	}
 }
-

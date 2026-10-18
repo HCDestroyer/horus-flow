@@ -20511,6 +20511,7 @@ components:
             - ipsec
             - gre
             - direct
+            - via_router
           description: Transporte del router con Horus (docs/tunnels.md). Ausente en filas anteriores al campo.
         protection_level:
           type: string

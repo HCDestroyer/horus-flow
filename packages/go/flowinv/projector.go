@@ -190,7 +190,7 @@ func (p *Projector) Apply(body []byte) (bool, error) {
 			// verificado (directo o vía router) es secundario; si no, no es
 			// exportador.
 			rs.e.Secondary = true
-			if !d.SFlowEnabled || !(rs.e.Direct || viaOK) {
+			if !d.SFlowEnabled || (!rs.e.Direct && !viaOK) {
 				rs.e.TunnelIP, rs.e.Direct = netip.Addr{}, false
 			}
 		}
