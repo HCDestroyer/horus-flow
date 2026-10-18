@@ -211,6 +211,19 @@ FROM flows.flows_raw
 WHERE direction IN ('download', 'upload') AND remote_ip != toIPv6('::')
 GROUP BY tenant_id, site_id, bucket, remote_net, remote_asn, direction;
 
+-- Muestras sFlow de switches = fuente SECUNDARIA (I3, docs/traffic-model.md §13): tabla aparte, sin vistas
+-- materializadas dependientes (no suma a clientes ni nodos); solo el top por puerto de la ficha del switch.
+CREATE TABLE flows.switch_samples
+(
+    tenant_id UUID, site_id UUID, switch_id UUID, ts DateTime('UTC'),
+    input_if_index UInt32, output_if_index UInt32,
+    src_ip IPv6, dst_ip IPv6, protocol UInt8, src_port UInt16, dst_port UInt16,
+    bytes UInt64, packets UInt64, sampling_rate UInt32, batch_id UUID
+)
+ENGINE = MergeTree PARTITION BY toYYYYMMDD(ts)
+ORDER BY (tenant_id, switch_id, input_if_index, ts)
+TTL ts + INTERVAL 7 DAY DELETE;
+
 -- ---------------------------------------------------------------- señales de detección (D5, ADR-0024)
 CREATE TABLE flows.client_security_1m
 (

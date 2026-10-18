@@ -397,6 +397,10 @@ components:
             - UNENCRYPTED_TRANSPORT_CONFIRMATION_REQUIRED
             - TUNNEL_REMOTE_IN_USE
             - TUNNEL_TRANSPORT_DISABLED
+            - DEVICE_NOT_A_SWITCH
+            - SWITCH_NOT_SUPPORTED
+            - SWITCH_NOT_FOUND
+            - SFLOW_NOT_SUPPORTED
             - SITE_NOT_FOUND
             - SITE_NOT_EMPTY
             - PEER_ALREADY_REVOKED

@@ -65,6 +65,13 @@ message Router {
   optional string tunnel_remote_address = 22;
   // ipsec: identidad IKE del router (IP, FQDN o KeyID).
   optional string tunnel_remote_id = 23;
+  // router | switch. Un switch es solo de monitoreo (docs/vendors/mikrotik.md §13, huawei.md §11): nunca
+  // principal ni exportador primario, nunca crea clientes; siempre connection_mode direct.
+  string device_type = 24;
+  // Solo switches: routeros | swos (SNMP v2c) | vrp (Huawei serie S).
+  optional string switch_platform = 25;
+  // Switch con sFlow: exportador SECUNDARIO (sus muestras nunca suman a clientes ni nodos).
+  bool sflow_enabled = 26;
 }
 
 // TrafficFlowCapabilities lo leído de /ip traffic-flow.

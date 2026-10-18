@@ -57,6 +57,10 @@ tags:
     description: Estado observado y métricas en vivo de los routers (SNMP + ICMP por el túnel).
   - name: infra-services
     description: Servicios de infraestructura del ISP (IPTV, HTTP, DNS, RADIUS…) y sus chequeos activos y pasivos.
+  - name: switches
+    description: |
+      Switches de monitoreo (MikroTik RouterOS/SwOS y Huawei serie S) en modo directo: puertos elegidos, uplinks, vecinos
+      LLDP, flaps y top sFlow (fuente secundaria).
   - name: capacity
     description: |
       Capacidad de enlaces de subida y salud de los nodos (NOC): utilización y saturación, pérdida/latencia/jitter por
@@ -433,6 +437,8 @@ paths:
     $ref: ./devices.yaml#/paths/~1routers~1{router_id}~1prefix-import-preview
   /routers/{router_id}/provisioning-script:
     $ref: ./wireguard.yaml#/paths/~1routers~1{router_id}~1provisioning-script
+  /routers/{router_id}/switch-onboarding:
+    $ref: ./devices.yaml#/paths/~1routers~1{router_id}~1switch-onboarding
   /routers/{router_id}/tls-fingerprint:
     $ref: ./devices.yaml#/paths/~1routers~1{router_id}~1tls-fingerprint
   /routers/{router_id}/tls-fingerprint/capture:
@@ -457,6 +463,14 @@ paths:
     $ref: ./analytics.yaml#/paths/~1sites~1{site_id}~1prefix-proposals
   /sites/{site_id}/unattributed-addresses:
     $ref: ./analytics.yaml#/paths/~1sites~1{site_id}~1unattributed-addresses
+  /switches/status:
+    $ref: ./snmp.yaml#/paths/~1switches~1status
+  /switches/{router_id}/flows/top:
+    $ref: ./snmp.yaml#/paths/~1switches~1{router_id}~1flows~1top
+  /switches/{router_id}/neighbors:
+    $ref: ./snmp.yaml#/paths/~1switches~1{router_id}~1neighbors
+  /switches/{router_id}/ports:
+    $ref: ./snmp.yaml#/paths/~1switches~1{router_id}~1ports
   /system/status:
     $ref: ./gateway.yaml#/paths/~1system~1status
   /widget-data/preview:

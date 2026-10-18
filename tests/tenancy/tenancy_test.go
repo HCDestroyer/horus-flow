@@ -56,6 +56,8 @@ func cases() map[string]tenanttest.Case {
 			"fingerprint_sha256": "AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA"}},
 		// devices: alta directa de Huawei VRP (sin túnel; docs/vendors/huawei.md §5)
 		"createDirectOnboarding": {Kind: tenanttest.ByID, Body: map[string]any{"management_address": "198.51.100.20"}},
+		// devices: alta de un switch de monitoreo (docs/vendors/mikrotik.md §13, huawei.md §11)
+		"createSwitchOnboarding": {Kind: tenanttest.ByID, Body: map[string]any{"management_address": "10.20.0.5"}},
 		// devices/wireguard: transporte por router y configuración IPsec/GRE (docs/tunnels.md, ADR-0031)
 		"setRouterTransport":        {Kind: tenanttest.ByID, Body: map[string]any{"connection_mode": "ipsec", "tunnel_remote_address": "198.51.100.66"}},
 		"createTunnelConfig":        {Kind: tenanttest.ByID},
@@ -235,6 +237,10 @@ func cases() map[string]tenanttest.Case {
 	pending("FLOW I3 (snmp: capacidad de enlaces; TestCapacityAPI)",
 		"getCapacityOverview", "getCapacityEgress", "getCapacityUplink", "putCapacityUplink", "deleteCapacityUplink",
 		"getCapacitySettings", "putCapacitySettings", "resetCapacitySettings", "getCapacityTrafficSplit", "getRouterNetwatchSnippet")
+	// snmp: switches (el arnés de la matriz no monta snmp). Switch de otro ISP → 404, RLS de snmp.switch_port* y visor
+	// sin escritura: TestSwitchesAPI.
+	pending("FLOW I3 (snmp: switches; TestSwitchesAPI)",
+		"listSwitchStatus", "listSwitchPorts", "putSwitchPorts", "resetSwitchPorts", "listSwitchNeighbors", "getSwitchFlowTop")
 	return c
 }
 

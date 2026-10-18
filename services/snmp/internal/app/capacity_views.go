@@ -117,6 +117,9 @@ type UplinkView struct {
 	Conditions          []ConditionView  `json:"conditions"`
 	Forecast            *ForecastSummary `json:"forecast"`
 	Version             int              `json:"version"`
+	// DeviceType: router | switch (los uplinks de los switches los elige el
+	// operador; mismo análisis).
+	DeviceType string `json:"device_type"`
 }
 
 // RouterBrief es un router del nodo con el estado de la lectura de sondas.
@@ -125,6 +128,7 @@ type RouterBrief struct {
 	Name        string    `json:"name"`
 	Status      string    `json:"status"`
 	ProbesError *string   `json:"probes_error"`
+	DeviceType  string    `json:"device_type"`
 }
 
 // SiteView es un nodo (CapacitySite del contrato).
@@ -409,7 +413,10 @@ func (c *Capacity) buildOverview(ctx context.Context, tenant uuid.UUID, days int
 	}
 	for _, r := range routers {
 		s := siteFor(r.SiteID, r.SiteName)
-		b := RouterBrief{RouterID: r.RouterID, Name: r.Name, Status: r.Status}
+		b := RouterBrief{RouterID: r.RouterID, Name: r.Name, Status: r.Status, DeviceType: "router"}
+		if r.Switch {
+			b.DeviceType = deviceTypeSwitch
+		}
 		if f, ok := probeErr[r.RouterID]; ok {
 			reason := f.Reason
 			b.ProbesError = &reason
@@ -504,7 +511,10 @@ func sortProbes(p []ProbeView) {
 func uplinkView(u *uplinkRef, data *overviewData, days int, gw map[uuid.UUID]ProbeView, conds []ConditionView,
 	fc *domain.ForecastRow, st domain.CapacitySettings) UplinkView {
 	v := UplinkView{InterfaceID: u.InterfaceID, RouterID: u.RouterID, RouterName: u.RouterName, SiteName: u.SiteName, InterfaceName: u.Name,
-		Configured: u.Config != nil, AutoDetected: u.Auto, Label: u.label(), Conditions: conds, Forecast: summarize(fc)}
+		Configured: u.Config != nil, AutoDetected: u.Auto, Label: u.label(), Conditions: conds, Forecast: summarize(fc), DeviceType: "router"}
+	if u.Switch {
+		v.DeviceType = deviceTypeSwitch
+	}
 	if v.Conditions == nil {
 		v.Conditions = []ConditionView{}
 	}

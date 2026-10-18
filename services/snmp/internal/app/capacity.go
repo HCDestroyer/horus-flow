@@ -287,6 +287,8 @@ type uplinkRef struct {
 	Auto        bool
 	Iface       *IfaceSnapshot
 	RouterKnown bool
+	// Switch: enlace de subida de un switch (elegido por el operador).
+	Switch bool
 	// History es la capacidad contratada con vigencia (vacía sin configuración).
 	History []domain.CapacityPeriod
 }
@@ -365,7 +367,7 @@ func (c *Capacity) uplinksOf(tenant uuid.UUID, routers []RouterSnapshot) []*upli
 			}
 			seen[x.InterfaceID] = true
 			out = append(out, &uplinkRef{InterfaceID: x.InterfaceID, RouterID: r.RouterID, RouterName: r.Name, SiteID: r.SiteID,
-				SiteName: r.SiteName, Name: x.Name, Config: cfg, Auto: x.AutoUplink, Iface: x, RouterKnown: true})
+				SiteName: r.SiteName, Name: x.Name, Config: cfg, Auto: x.AutoUplink, Iface: x, RouterKnown: true, Switch: r.Switch})
 		}
 	}
 	for i := range cfgs {
@@ -377,6 +379,7 @@ func (c *Capacity) uplinksOf(tenant uuid.UUID, routers []RouterSnapshot) []*upli
 		for ri := range routers {
 			if routers[ri].RouterID == cfg.RouterID {
 				u.RouterName, u.SiteID, u.SiteName, u.RouterKnown = routers[ri].Name, routers[ri].SiteID, routers[ri].SiteName, true
+				u.Switch = routers[ri].Switch
 			}
 		}
 		out = append(out, u)

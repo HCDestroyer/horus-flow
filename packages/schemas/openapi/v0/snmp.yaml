@@ -24,6 +24,10 @@ tags:
     description: Estado observado y métricas en vivo de los routers (SNMP + ICMP por el túnel).
   - name: infra-services
     description: Servicios de infraestructura del ISP (IPTV, HTTP, DNS, RADIUS…) y sus chequeos activos y pasivos.
+  - name: switches
+    description: |
+      Switches de monitoreo (MikroTik RouterOS/SwOS y Huawei serie S) en modo directo: puertos elegidos, uplinks, vecinos
+      LLDP, flaps y top sFlow (fuente secundaria).
   - name: capacity
     description: |
       Capacidad de enlaces de subida y salud de los nodos (NOC): utilización y saturación, pérdida/latencia/jitter por
@@ -737,6 +741,208 @@ paths:
         '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
         '403': { $ref: './common.yaml#/components/responses/Forbidden' }
         '404': { $ref: './common.yaml#/components/responses/NotFound' }
+  /switches/status:
+    get:
+      tags: [switches]
+      operationId: listSwitchStatus
+      summary: Estado efectivo y resumen de puertos de cada switch (lista «Switches» por nodo)
+      description: |
+        Una fila por switch de monitoreo (`device_type=switch`) con el mismo estado efectivo que los routers (ICMP + SNMP
+        por la dirección de gestión) y el resumen de puertos: monitoreados, uplinks (caídos), puertos inestables (≥ 4
+        cambios de estado en la última hora) y vecinos LLDP. `/routers/status` no incluye switches. Apto para kioscos.
+      x-module: snmp
+      x-scope: tenant
+      x-permission: devices.read
+      x-principals: [user, api_token, kiosk]
+      x-increment: I3
+      security:
+        - tenantBearer: []
+        - kioskBearer: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/SiteIdFilter'
+      responses:
+        '200':
+          description: Switches con su estado.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/SwitchStatus' } }
+                  meta:
+                    type: object
+                    required: [poller, generated_at]
+                    properties:
+                      poller: { $ref: '#/components/schemas/PollerHealth' }
+                      generated_at: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+  /switches/{router_id}/ports:
+    parameters:
+      - $ref: '#/components/parameters/RouterId'
+    get:
+      tags: [switches]
+      operationId: listSwitchPorts
+      summary: Puertos del switch con su elección, última muestra, flaps y vecino LLDP
+      description: |
+        Puertos físicos y agregados del último descubrimiento IF-MIB (nombre, ifAlias, velocidad, estado administrativo y
+        operativo), si se sondean (`monitored`, máximo `max_ports` por switch) y si son de subida (`uplink`), el uplink
+        sugerido (`suggested_uplink`: su vecino LLDP es un router o switch de Horus), los cambios de estado de la última
+        hora y del día y la última muestra (tráfico, utilización, errores, descartes). Sin elección del operador
+        (`selection.configured=false`) rige la de por defecto: uplinks sugeridos + puertos con descripción.
+      x-module: snmp
+      x-scope: tenant
+      x-permission: devices.read
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Puertos.
+          headers:
+            ETag: { $ref: './common.yaml#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SwitchPorts' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+    put:
+      tags: [switches]
+      operationId: putSwitchPorts
+      summary: Elige los puertos a monitorear y marca los uplinks
+      description: |
+        Sustituye la elección: los puertos listados se sondean cada intervalo (máximo 64: cardinalidad de las series) y
+        `uplink=true` los marca de subida (entran en el análisis de capacidad y avisan si caen o se vuelven inestables).
+        Un puerto que no existe en el último descubrimiento → 422. Con `If-Match` (ETag de GET) una edición concurrente
+        → 412. Se aplica en caliente.
+      x-module: snmp
+      x-scope: tenant
+      x-permission: snmp.manage
+      x-audited: true
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      parameters:
+        - name: If-Match
+          in: header
+          required: false
+          schema: { type: string, examples: ['"3"'] }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SwitchPortSelectionInput' }
+      responses:
+        '200':
+          description: Elección guardada.
+          headers:
+            ETag: { $ref: './common.yaml#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SwitchPorts' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '412': { $ref: './common.yaml#/components/responses/PreconditionFailed' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+        '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
+    delete:
+      tags: [switches]
+      operationId: resetSwitchPorts
+      summary: Vuelve a la elección de puertos por defecto
+      x-module: snmp
+      x-scope: tenant
+      x-permission: snmp.manage
+      x-audited: true
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Puertos con la elección por defecto.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SwitchPorts' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
+  /switches/{router_id}/neighbors:
+    parameters:
+      - $ref: '#/components/parameters/RouterId'
+    get:
+      tags: [switches]
+      operationId: listSwitchNeighbors
+      summary: Vecinos LLDP del switch (solo lectura)
+      description: |
+        LLDP-MIB (`lldpRemTable`, `lldpRemManAddrTable`) y, si no publica filas, la tabla de vecinos de MIKROTIK-MIB
+        (`mtxrNeighborTable`, `source=mndp`). `known_device` es el router o switch de Horus reconocido por nombre de
+        sistema o dirección de gestión. SwOS no tiene LLDP (lista vacía).
+      x-module: snmp
+      x-scope: tenant
+      x-permission: devices.read
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Vecinos.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, discovered_at]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/SwitchNeighbor' } }
+                  discovered_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+  /switches/{router_id}/flows/top:
+    parameters:
+      - $ref: '#/components/parameters/RouterId'
+    get:
+      tags: [switches]
+      operationId: getSwitchFlowTop
+      summary: Top de IP y protocolos por puerto a partir del sFlow del switch (fuente secundaria)
+      description: |
+        Lee `flows.switch_samples`: las muestras sFlow del switch (`sflow_enabled`), que **nunca** se suman al tráfico de
+        clientes ni de nodos (salen de los flujos del router) ni crean clientes (docs/traffic-model.md §13). Bytes y
+        paquetes escalados por la tasa de muestreo. Las IP solo viajan en la respuesta, nunca en la URL. Sin ClickHouse
+        → 503.
+      x-module: snmp
+      x-scope: tenant
+      x-permission: snmp.read
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      parameters:
+        - name: by
+          in: query
+          schema: { type: string, enum: [src_ip, dst_ip, protocol], default: src_ip }
+        - name: if_index
+          in: query
+          description: Puerto de entrada (ifIndex); 0 o ausente = todo el switch.
+          schema: { type: integer, minimum: 0 }
+        - name: window_minutes
+          in: query
+          schema: { type: integer, minimum: 5, maximum: 10080, default: 60 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 10 }
+      responses:
+        '200':
+          description: Top.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SwitchFlowTop' }
+        '400': { $ref: './common.yaml#/components/responses/BadRequest' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '503': { $ref: './common.yaml#/components/responses/ServiceUnavailable' }
 components:
   securitySchemes:
     tenantBearer: { $ref: './common.yaml#/components/securitySchemes/tenantBearer' }
@@ -771,6 +977,111 @@ components:
       description: Días de la serie diaria (7–365).
       schema: { type: integer, minimum: 7, maximum: 365, default: 90 }
   schemas:
+    SwitchStatus:
+      allOf:
+        - $ref: '#/components/schemas/RouterStatus'
+        - type: object
+          required: [platform, sflow_enabled, ports_monitored, uplinks, uplinks_down, ports_flapping, neighbors_count]
+          properties:
+            platform: { type: string, enum: [routeros, swos, vrp] }
+            sflow_enabled: { type: boolean }
+            ports_monitored: { type: integer }
+            uplinks: { type: integer }
+            uplinks_down: { type: integer }
+            ports_flapping: { type: integer, description: Puertos con ≥ 4 cambios de estado operativo en la última hora. }
+            neighbors_count: { type: integer }
+    SwitchNeighbor:
+      type: object
+      required: [local_if_index, local_port, sys_name, port_id, port_desc, chassis_id, mgmt_address, platform, source, known_device]
+      properties:
+        local_if_index: { type: integer, description: ifIndex del puerto local (0 si no se pudo traducir). }
+        local_port: { type: string }
+        sys_name: { type: string, examples: [rt-core-1] }
+        port_id: { type: string, examples: [sfp-sfpplus1] }
+        port_desc: { type: string }
+        chassis_id: { type: string, examples: ['48:8F:5A:11:22:33'] }
+        mgmt_address: { type: [string, 'null'] }
+        platform: { type: [string, 'null'] }
+        source: { type: string, enum: [lldp, mndp] }
+        known_device: { type: [string, 'null'], description: Router o switch de Horus que es el vecino. }
+    SwitchPort:
+      type: object
+      required: [interface_id, if_index, name, alias, type, speed_bps, admin_up, oper_status, monitored, uplink, suggested_uplink, flaps_1h,
+        flaps_24h, last_change_at, sample, neighbors]
+      properties:
+        interface_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        if_index: { type: integer }
+        name: { type: string, examples: [XGigabitEthernet0/0/1, sfp-sfpplus1, Port3] }
+        alias: { type: [string, 'null'] }
+        type: { type: string }
+        speed_bps: { type: [integer, 'null'] }
+        admin_up: { type: [boolean, 'null'] }
+        oper_status: { oneOf: [{ $ref: '#/components/schemas/InterfaceOperStatus' }, { type: 'null' }] }
+        monitored: { type: boolean }
+        uplink: { type: boolean }
+        suggested_uplink: { type: boolean }
+        flaps_1h: { type: integer }
+        flaps_24h: { type: integer }
+        last_change_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        sample: { oneOf: [{ $ref: '#/components/schemas/InterfaceSample' }, { type: 'null' }] }
+        neighbors: { type: array, items: { $ref: '#/components/schemas/SwitchNeighbor' } }
+    SwitchPorts:
+      type: object
+      required: [router_id, platform, interval_seconds, max_ports, monitored_count, selection, discovered_at, neighbors_at, data]
+      properties:
+        router_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        platform: { type: string, enum: [routeros, swos, vrp] }
+        interval_seconds: { type: integer }
+        max_ports: { type: integer, examples: [64] }
+        monitored_count: { type: integer }
+        selection:
+          type: object
+          required: [configured, version, updated_at, updated_by]
+          properties:
+            configured: { type: boolean, description: false = elección por defecto. }
+            version: { type: [integer, 'null'] }
+            updated_at: { $ref: '#/components/schemas/NullableTimestamp' }
+            updated_by: { type: [string, 'null'] }
+        discovered_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        neighbors_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        data: { type: array, items: { $ref: '#/components/schemas/SwitchPort' } }
+    SwitchPortSelectionInput:
+      type: object
+      additionalProperties: false
+      required: [ports]
+      properties:
+        ports:
+          type: array
+          maxItems: 64
+          items:
+            type: object
+            additionalProperties: false
+            required: [name]
+            properties:
+              name: { type: string, maxLength: 128, description: ifName del puerto. }
+              uplink: { type: boolean, default: false }
+    SwitchFlowTop:
+      type: object
+      required: [router_id, by, if_index, from, to, total_bytes, samples, sflow_enabled, source, data]
+      properties:
+        router_id: { $ref: './common.yaml#/components/schemas/Uuid' }
+        by: { type: string, enum: [src_ip, dst_ip, protocol] }
+        if_index: { type: [integer, 'null'] }
+        from: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        to: { $ref: './common.yaml#/components/schemas/Timestamp' }
+        total_bytes: { type: string, description: Entero decimal (UInt64). }
+        samples: { type: string }
+        sflow_enabled: { type: boolean }
+        source: { type: string, enum: [secondary], description: Siempre fuente secundaria (no suma a clientes ni nodos). }
+        data:
+          type: array
+          items:
+            type: object
+            required: [key, bytes, packets]
+            properties:
+              key: { type: string, description: 'IP (src_ip/dst_ip) o «protocolo/puerto» (protocol, p. ej. 6/443).' }
+              bytes: { type: string }
+              packets: { type: string }
     RouterEffectiveStatus:
       type: string
       description: Estado efectivo (api.md §2.6). `stale` = la observación es vieja o el sondeador no late; `unknown` = nunca observado.
@@ -780,8 +1091,8 @@ components:
       enum: [online, warning, critical, degraded, offline]
     RouterStateReason:
       type: string
-      description: Enum abierto (events.md §8.4).
-      examples: [ok, cpu_high, memory_high, temperature_high, snmp_unreachable, snmp_auth_failed, tunnel_down, host_unreachable_via_tunnel, exporter_silent, interface_down, psu_failed, fan_failed]
+      description: Enum abierto (events.md §8.4). `interface_flapping` solo en switches (uplink inestable).
+      examples: [ok, cpu_high, memory_high, temperature_high, snmp_unreachable, snmp_auth_failed, tunnel_down, host_unreachable_via_tunnel, exporter_silent, interface_down, interface_flapping, psu_failed, fan_failed]
     RouterSignals:
       type: object
       description: Las señales que sostienen el estado; `unknown` mientras no haya observación.
@@ -902,6 +1213,10 @@ components:
           type: string
           enum: [encrypted, unencrypted_private, unencrypted_internet]
           description: Nivel de protección del transporte; el NOC marca los que no cifran.
+        device_type:
+          type: string
+          enum: [switch]
+          description: '`switch` en las filas de switches (GET /switches/status); ausente en los routers.'
     PollerHealth:
       type: object
       required: [healthy, last_cycle_at, interval_seconds, targets]
@@ -1377,6 +1692,10 @@ components:
         conditions: { type: array, items: { $ref: '#/components/schemas/UplinkCondition' } }
         forecast: { oneOf: [{ $ref: '#/components/schemas/CapacityForecastSummary' }, { type: 'null' }] }
         version: { type: integer, description: Versión de la configuración (0 = sin configurar). }
+        device_type:
+          type: string
+          enum: [router, switch]
+          description: '`switch`: uplink de un switch (elegido por el operador en la ficha del switch; `auto_detected=true`).'
     CapacityRouterBrief:
       type: object
       required: [router_id, name, status, probes_error]
@@ -1385,6 +1704,7 @@ components:
         name: { type: string }
         status: { $ref: '#/components/schemas/RouterEffectiveStatus' }
         probes_error: { type: [string, 'null'], description: Por qué no se leen sus sondas netwatch (null = se leen o no hay intento). }
+        device_type: { type: string, enum: [router, switch] }
     CapacitySite:
       type: object
       required: [site_id, site_name, health, uplinks, router_probes, routers]

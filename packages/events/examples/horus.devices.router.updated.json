@@ -35,6 +35,9 @@
     "protection_level": "encrypted",
     "tunnel_remote_address": null,
     "tunnel_remote_id": null,
+    "device_type": "router",
+    "switch_platform": null,
+    "sflow_enabled": false,
     "tags": [
       "core"
     ],
