@@ -2,7 +2,25 @@
 
 Decisión en [ADR-0030](../adr/0030-integracion-de-ecosistema-sin-dependencias.md).
 
-Versión del contrato: **1.6.0-propuesta** · Estado: lado Horus implementado H1–H11 (§5.2); lado ArgosISP en curso (A1–A9, §5.1).
+Versión del contrato: **1.7.0-propuesta** · Estado: lado Horus implementado H1–H13 (§5.2); lado ArgosISP implementado
+A1–A10 (§5.1). Verificado de extremo a extremo con los dos sistemas corriendo (`tests/e2e-argos` de Horus, `make e2e-argos`).
+
+Cambios de 1.7.0 (menor; aditivos y precisiones). Motivo: la prueba de extremo a extremo con los dos sistemas corriendo
+(`tests/e2e-argos`) encontró huecos que obligaban a adivinar o que dejaban datos viejos:
+
+- §1.1: la plantilla ArgosISP añade `devices.read`. `GET /api/v1/routers/status` (§3.3) lo exige y sin él respondía `403`
+  al `hf_pat_` (la "prueba de conexión" de Argos fallaba). Un `hf_pat_` emitido antes no lo lleva: se genera un enlace o
+  un código nuevo.
+- §1.4: el token del canje sale en Horus a nombre de quien generó o canjeó el enlace (plantilla §1.1) y en Argos es del
+  usuario técnico "Horus" (§1.2, A5). La idempotencia del canje y la anulación del enlace anterior (1.5.0) quedan
+  implementadas en los dos lados.
+- §1.5: Argos como destino solo abre `cliente` y `servicio` (`422` con `router` o `hallazgo`, que llevan ids de Horus y
+  solo existen con Horus como destino). Con el conector apagado el destino no emite tickets: Horus `409` y Argos `409`
+  `horus_apagado` (conector preparado con un enlace); el origen lo muestra como "conector apagado en el otro sistema".
+- §2.3: evento nuevo `servicio.config_cambiada` (`servicio_id`, `empresa_id`, `campos[]` = `plan` y/o `empresa`,
+  `empresa_anterior_id?`). Argos lo manda solo cuando cambia el plan o la empresa del servicio; Horus aplica la empresa y
+  re-resuelve. Antes, pasar un servicio a otra empresa o cambiarle el plan no llegaba a Horus hasta el barrido (6 h).
+- §3.3: cada ruta con su permiso: `routers/status` → `devices.read`, `infra-services` → `snmp.read`.
 
 Cambios de 1.6.0 (menor, solo aditivos; ningún campo cambia de forma). §3.1 `health`:
 
@@ -101,8 +119,8 @@ Cambios de 1.1.0 (menor, aditivos salvo la URL del receptor, que aún no usaba n
 
 - En Horus, *Administración → Integraciones → ArgosISP → Generar código de conexión*: token
   `hf_pat_<32B base62>` del ISP, plantilla de permisos **ArgosISP**:
-  `customers.read`, `traffic.customer.read`, `security.findings.read`, `snmp.read` y, desde 1.2.0,
-  `sso.issue` (§1.5).
+  `customers.read`, `traffic.customer.read`, `security.findings.read`, `snmp.read`, desde 1.2.0
+  `sso.issue` (§1.5) y desde 1.7.0 `devices.read` (§3.3).
   Caducidad por defecto 1 año, revocable, con "último uso". Se muestra una sola vez.
 - Argos lo guarda cifrado y lo envía como `Authorization: Bearer hf_pat_…` a
   `https://<horus>/api/v1/…`.
@@ -157,6 +175,8 @@ Sustituye el copiado manual de URL, token y secreto (§1.1–§1.3), que se mant
    otra → `410`. Un enlace nuevo anula el anterior sin usar. El canal de webhooks hacia el otro sistema también queda
    apagado. En Horus, generar y canjear piden además `api_tokens.manage` y `alerts.manage` (el canje emite un
    `hf_pat_` y crea un canal webhook) y re-autenticación reciente.
+5. (1.7.0) El token del canje sale en Horus a nombre de quien generó o canjeó el enlace (plantilla §1.1); en Argos es del
+   usuario técnico "Horus" (§1.2, A5), nunca de la persona.
 
 ### 1.5 Autologin entre sistemas (ticket de un solo uso)
 
@@ -176,6 +196,9 @@ iniciar sesión, **sin** que un sistema dé privilegios en el otro:
    `servicio`, el id de ArgosISP; para `router` y `hallazgo`, el id de Horus. La `url` apunta al panel del destino; el
    origen solo la abre si es https, sin credenciales, con la ruta `/sso/entrar` y el ticket en el fragmento. Si el
    conector se preparó con un enlace (§1.4), solo vale el token de ese canje.
+   (1.7.0) Argos como destino solo acepta `cliente` y `servicio` (`422` con `router` o `hallazgo`: llevan ids de Horus y
+   solo existen con Horus como destino). Con el conector apagado el destino no emite tickets (`409`; en Argos,
+   `horus_apagado`, si el conector se preparó con un enlace).
 2. El destino canjea el ticket en su propio servidor (un uso, 60 s, ligado al conector) y busca la
    **vinculación** `(conector, usuario.id_externo) → usuario local`:
    - Sin vinculación: muestra su inicio de sesión normal (con su MFA si lo exige); al entrar, guarda la
@@ -229,6 +252,7 @@ Horus junto con el secreto). Eventos:
 | `sesion.iniciada` / `sesion.terminada` | `servicio_id`, `ipv4?`, `prefijo_enlace_v6?`, `prefijo_delegado_v6?` | Abre/cierra vigencia de la IP |
 | `cliente.actualizado` | `cliente_id` | Refresca nombre/código en las identidades vigentes |
 | `servicio.estado_cambiado` | `servicio_id`, `estado` | Refresca el estado mostrado (activo, limitado, suspendido, retirado) |
+| `servicio.config_cambiada` (1.7.0) | `servicio_id`, `empresa_id`, `campos[]` (`plan`, `empresa`), `empresa_anterior_id?` | Aplica la empresa nueva y re-resuelve (plan y empresa). Argos solo lo manda si cambió el plan o la empresa |
 
 Cuerpo: `{ "id": "...", "evento": "...", "ocurrido_en": "ISO-8601", "payload": { ... } }`. Desde 1.2.0, el
 `payload` de los eventos de un servicio incluye `empresa_id` (empresa del servicio en ArgosISP).
@@ -290,7 +314,8 @@ periodo). Sin conector Argos activo, solo se acepta `address`.
 
 ### 3.3 Salud de la red
 
-`GET /api/v1/routers/status` y `GET /api/v1/infra-services` (ya existen) aceptan el token.
+`GET /api/v1/routers/status` (permiso `devices.read`, en la plantilla desde 1.7.0) y `GET /api/v1/infra-services`
+(`snmp.read`) aceptan el token.
 
 ### 3.4 Webhooks Horus → Argos
 
@@ -338,15 +363,16 @@ cliente que nunca tuvo hallazgos está `clean` desde que se vio.
 
 | # | Solicitud | Contrato | Estado |
 | --- | --- | --- | --- |
-| A1 | `POST /integraciones/horus/resolver` por cuerpo y por lotes (máx. 500), con cliente (`nombre`, `codigo`, `tipo`), servicio (`user_ppp`, `plan`, `estado`, `router_id`), `empresa` (1.2.0) y `desde` | §2.1 | en curso |
-| A2 | Evento `cliente.actualizado` en el catálogo (cambio de nombre, tipo o código) | §2.3 | en curso |
-| A3 | Código de cliente estable (`codigo`; p. ej. `C-000455` derivado del id o un campo propio) | §2.1 | en curso |
-| A4 | Worker de webhooks firmados hacia Horus (grupo `horus` en `argos:eventos`) con reintentos | §1.3, §2.3 | en curso |
-| A5 | Usuario técnico "Horus" y token `atk_` con `ip.resolver`, `clientes.ver`, `servicios.ver` | §1.2 | en curso |
-| A6 | Conector Horus: guardar URL y `hf_pat_` cifrado; ficha de servicio con consumo, salud y seguridad (§3.1); consumo mensual por servicio (§3.2) | §3 | en curso |
-| A7 | Receptor `POST /integraciones/horus/webhook` firmado; eventos internos para `notify` y la línea de tiempo | §3.4 | en curso |
-| A8 | Enlace de conexión: generar, mostrar una vez y canjear (`/integraciones/horus/conexion/canjear`) | §1.4 | en curso |
-| A9 | Autologin: emitir tickets para Horus (`sso.emitir`) y canjear los de Horus (`/integraciones/horus/sso/tickets`, `/sso/entrar`) con vinculación de cuentas | §1.5 | en curso |
+| A1 | `POST /integraciones/horus/resolver` por cuerpo y por lotes (máx. 500), con cliente (`nombre`, `codigo`, `tipo`), servicio (`user_ppp`, `plan`, `estado`, `router_id`), `empresa` (1.2.0) y `desde` | §2.1 | hecho (ArgosISP `main` ab8f8c1) |
+| A2 | Evento `cliente.actualizado` en el catálogo (cambio de nombre, tipo o código) | §2.3 | hecho (ArgosISP `main` ab8f8c1) |
+| A3 | Código de cliente estable (`codigo`; p. ej. `C-000455` derivado del id o un campo propio) | §2.1 | hecho (ArgosISP `main` ab8f8c1) |
+| A4 | Worker de webhooks firmados hacia Horus (grupo `horus` en `argos:eventos`) con reintentos | §1.3, §2.3 | hecho (ArgosISP `main` ab8f8c1; `servicio.config_cambiada` en `integracion/e2e-horus`) |
+| A5 | Usuario técnico "Horus" y token `atk_` con `ip.resolver`, `clientes.ver`, `servicios.ver` | §1.2 | hecho (ArgosISP `main` ab8f8c1) |
+| A6 | Conector Horus: guardar URL y `hf_pat_` cifrado; ficha de servicio con consumo, salud y seguridad (§3.1); consumo mensual por servicio (§3.2) | §3 | hecho (ArgosISP `main` ab8f8c1) |
+| A7 | Receptor `POST /integraciones/horus/webhook` firmado; eventos internos para `notify` y la línea de tiempo | §3.4 | hecho (ArgosISP `main` ab8f8c1) |
+| A8 | Enlace de conexión: generar, mostrar una vez y canjear (`/integraciones/horus/conexion/canjear`) | §1.4 | hecho (ArgosISP `main` ab8f8c1; reglas de 1.5.0 y 1.7.0 en `integracion/e2e-horus`) |
+| A9 | Autologin: emitir tickets para Horus (`sso.emitir`) y canjear los de Horus (`/integraciones/horus/sso/tickets`, `/sso/entrar`) con vinculación de cuentas | §1.5 | hecho (ArgosISP `main` ab8f8c1; reglas de 1.5.0 y 1.7.0 en `integracion/e2e-horus`) |
+| A10 | Webhook `servicio.config_cambiada` a Horus cuando cambian el plan o la empresa de un servicio (1.7.0) | §2.3 | hecho (rama `integracion/e2e-horus`) |
 
 Reglas para Argos: el conector viene apagado; nada crítico (AAA, facturación, corte, portal) espera
 a Horus; Horus no decide cortes (solo `evaluarEstadoServicio` decide el estado del servicio).
@@ -366,3 +392,5 @@ a Horus; Horus no decide cortes (solo `evaluarEstadoServicio` decide el estado d
 | H9 | `POST /api/v1/integrations/security-states`: estado de seguridad por lotes (máx. 500) | §3.5 | hecho (rama `claude/sleepy-lovelace-yz0o32`) |
 | H10 | Enlace de conexión: generar en Horus y canjear el de Argos (`/integrations/argosisp/conexion/canjear`) | §1.4 | hecho (rama `claude/sleepy-lovelace-yz0o32`) |
 | H11 | Autologin: emitir tickets para Argos (`sso.issue` en la plantilla ArgosISP) y canjear los de Argos con vinculación de cuentas | §1.5 | hecho (rama `claude/sleepy-lovelace-yz0o32`) |
+| H12 | Receptor: `servicio.config_cambiada` aplica la empresa y re-resuelve el servicio (1.7.0) | §2.3 | hecho (rama `claude/e2e-argos`) |
+| H13 | Plantilla ArgosISP con `devices.read` para `GET /routers/status` (1.7.0) | §1.1, §3.3 | hecho (rama `claude/e2e-argos`) |

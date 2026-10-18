@@ -24,7 +24,9 @@ métricas y eventos publicados/consumidos cuando el módulo tenga implementació
   `snmp.RouterStatus`, `analytics.ServingRouter` (router de los flujos más recientes del cliente; si no hay, el principal
   con `source = primary_router`) y `flows.LastFlow` (último flujo del exportador).
 - **Multiempresa** (contrato 1.2.0): la identidad guarda la empresa del servicio (`external_company_id`,
-  `company_name`, `company_nit`); un webhook de servicio con `empresa_id` la refresca.
+  `company_name`, `company_nit`); un webhook de servicio con `empresa_id` la refresca, también
+  `servicio.config_cambiada` (contrato 1.7.0: cambio de plan o de empresa del servicio, que además re-resuelve).
+  Prueba de extremo a extremo con ArgosISP real: [`tests/e2e-argos`](../../tests/e2e-argos/README.md).
 - **Enlace de conexión** (contrato §1.4, H10; `internal/app/connection.go`, `internal/adapters/argos/peer.go`):
   `POST /integrations/argosisp/connection-links` (código de un uso, 15 min, solo SHA-256 en
   `devices.argosisp_connection_link`), canje público `POST /integrations/argosisp/conexion/canjear` (idempotente

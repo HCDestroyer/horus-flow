@@ -16420,6 +16420,7 @@ components:
             - sesion.terminada
             - cliente.actualizado
             - servicio.estado_cambiado
+            - servicio.config_cambiada
         ocurrido_en:
           type: string
         payload:

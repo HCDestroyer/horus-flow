@@ -2786,7 +2786,7 @@ components:
       required: [id, evento, payload]
       properties:
         id: { type: string, maxLength: 128 }
-        evento: { type: string, examples: [asignacion.cambiada, sesion.iniciada, sesion.terminada, cliente.actualizado, servicio.estado_cambiado] }
+        evento: { type: string, examples: [asignacion.cambiada, sesion.iniciada, sesion.terminada, cliente.actualizado, servicio.estado_cambiado, servicio.config_cambiada] }
         ocurrido_en: { type: string }
         payload: { type: object, additionalProperties: true }
     ArgosConnection:
