@@ -57,3 +57,4 @@ Thumbs.db
 
 # Estado local del laboratorio CHR (claves, discos, logs; I0-11)
 /.lab/
+/.e2e-argos/
