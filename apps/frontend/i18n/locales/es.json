@@ -3352,7 +3352,8 @@
     "offline": "Fuera de línea",
     "stale": "Sin datos recientes",
     "unknown": "Nunca observado",
-    "maintenance": "En mantenimiento"
+    "maintenance": "En mantenimiento",
+    "unreachable": "Inalcanzable"
   },
   "routerReason": {
     "ok": "Dentro de umbrales",
@@ -3367,7 +3368,8 @@
     "interface_down": "Interfaz caída",
     "psu_failed": "Fuente de alimentación fallida",
     "fan_failed": "Ventilador fallido",
-    "interface_flapping": "Puerto de subida inestable"
+    "interface_flapping": "Puerto de subida inestable",
+    "via_router_tunnel_down": "Túnel del router del sitio caído"
   },
   "routerSignal": {
     "icmp": "ICMP",
@@ -4153,7 +4155,8 @@
       "wireguard": "WireGuard",
       "ipsec": "IPsec IKEv2",
       "gre": "GRE",
-      "direct": "Directo"
+      "direct": "Directo",
+      "via_router": "Vía router"
     },
     "modeHelp": {
       "wireguard": "Túnel cifrado iniciado por el router (MikroTik). La opción por defecto.",
@@ -4383,7 +4386,32 @@
         "stuck": "¿No se verifica?",
         "checkPath": "Compruebe que Horus llega a la dirección de gestión (ruta y firewall).",
         "checkAcl": "Compruebe que la IP del sondeador está permitida en el switch.",
-        "checkCredential": "Vuelva a pegar la configuración: cada regeneración invalida la anterior."
+        "checkCredential": "Vuelva a pegar la configuración: cada regeneración invalida la anterior.",
+        "checkRoute": "Compruebe que el switch responde a la red de servicios de Horus por el router (puerta de enlace o ruta estática) y que pegó la configuración del router."
+      },
+      "viaTitle": "Vía el túnel de un router del sitio",
+      "viaBody": "El switch conserva su IP privada. Horus le asigna una dirección propia y el router del sitio la traduce (NAT 1:1) por su túnel cifrado: solo pasa SNMP desde Horus y el sFlow del switch hacia Horus.",
+      "mode": {
+        "question": "¿Horus está en la misma red de gestión que el switch?",
+        "help": "Casi siempre no: Horus suele estar en un servidor público y el switch en una red privada del sitio.",
+        "via": "No — alcanzarlo vía un router del sitio (recomendado)",
+        "viaHelp": "Por el túnel WireGuard, IPsec o GRE del router: sin exponer SNMP ni sFlow a Internet.",
+        "direct": "Sí — modo directo",
+        "directHelp": "Solo si Horus está en la misma red de gestión (VLAN o VRF) que el switch.",
+        "router": "Router del sitio",
+        "routerHelp": "Router del mismo ISP con túnel activo hacia Horus. Se listan primero los del nodo del switch.",
+        "routerRequired": "Elija el router del sitio por el que Horus alcanza al switch.",
+        "routerInvalid": "Ese router no sirve de camino: debe ser del ISP y tener túnel con Horus (WireGuard, IPsec o GRE).",
+        "noRouters": "No hay routers con túnel en este ISP. Conecte primero un router del sitio (WireGuard, IPsec o GRE) o use el modo directo.",
+        "sameSite": "Mismo nodo",
+        "tunnelPending": "Túnel aún sin conectar: el switch se verificará cuando suba.",
+        "addressTakenVia": "Otro switch ya usa esa IP a través de este router."
+      },
+      "router": {
+        "title": "Pegar en el router del sitio",
+        "body": "NAT 1:1 entre la dirección Horus y la IP privada del switch y cortafuegos mínimo. Reglas comentadas y con bloque para deshacerlas. Horus nunca escribe en el router.",
+        "label": "Configuración del router {name}",
+        "notes": "Notas del router"
       }
     },
     "detail": {
@@ -4464,6 +4492,42 @@
       "title": "Switches del nodo",
       "empty": "Este nodo no tiene switches.",
       "all": "Ver switches"
+    },
+    "path": {
+      "title": "Camino",
+      "via": "Vía router {router} por {transport}",
+      "direct": "Directo por la red de gestión",
+      "horusAddress": "Dirección Horus",
+      "privateAddress": "IP privada",
+      "block": "Bloque de la red de gestión",
+      "inherited": "Protección heredada del túnel del router",
+      "unknownRouter": "router no disponible",
+      "tunnelDown": "El túnel del router del sitio está caído: el switch no se puede consultar hasta que vuelva."
+    },
+    "viaRouter": {
+      "title": "Switches vía este router",
+      "subtitle": "Horus los alcanza por el túnel de este router con NAT 1:1 (ADR-0032).",
+      "empty": "Ningún switch se alcanza a través de este router.",
+      "columns": {
+        "name": "Switch",
+        "private": "IP privada",
+        "horus": "Dirección Horus",
+        "state": "Alta"
+      },
+      "blocked": "Mientras lleve switches, este router no se puede dar de baja ni pasar a modo directo.",
+      "subnets": {
+        "title": "Redes de gestión del sitio",
+        "help": "Opcional: los switches con IP dentro de una red declarada comparten una sola regla NAT en el router.",
+        "empty": "Sin redes declaradas: cada switch usa su propia dirección Horus.",
+        "prefix": "Red (CIDR)",
+        "add": "Declarar red",
+        "remove": "Quitar red {prefix}",
+        "invalid": "Red IPv4 privada de /22 a /30 en notación canónica (p. ej. 192.168.88.0/24).",
+        "overlap": "Se solapa con otra red declarada en este router.",
+        "inUse": "Hay switches con su IP dentro de esta red: muévalos antes de quitarla."
+      },
+      "statePending": "Pendiente de verificar",
+      "stateVerified": "SNMP verificado"
     }
   }
 }

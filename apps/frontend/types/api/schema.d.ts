@@ -3495,7 +3495,10 @@ export interface paths {
         get: operations["getRouter"];
         put?: never;
         post?: never;
-        /** Baja lógica del router */
+        /**
+         * Baja lógica del router
+         * @description Un router con switches vía él (ADR-0032) no se da de baja → `409 ROUTER_HAS_VIA_SWITCHES`.
+         */
         delete: operations["deleteRouter"];
         options?: never;
         head?: never;
@@ -3594,6 +3597,59 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/routers/{router_id}/management-subnets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Redes de gestión declaradas en un router del sitio
+         * @description Redes de gestión del sitio alcanzadas por este router (ADR-0032). Un switch vía este router con su IP dentro de una
+         *     red declarada usa un bloque Horus del mismo tamaño: una sola regla NAT en el router para toda la red. Un switch no
+         *     tiene redes (`422 SWITCH_NOT_SUPPORTED`).
+         */
+        get: operations["listManagementSubnets"];
+        put?: never;
+        /**
+         * Declarar una red de gestión en un router del sitio
+         * @description IPv4 privada (RFC 1918 o 100.64.0.0/10), canónica, de /22 a /30, que no toque direcciones de Horus. No se solapa
+         *     con otra red del MISMO router del ISP (`409 MANAGEMENT_SUBNET_OVERLAP`); otros routers u otros ISP pueden repetirla.
+         *     Máximo 16 por router. Auditado.
+         */
+        post: operations["createManagementSubnet"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/routers/{router_id}/management-subnets/{subnet_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+                subnet_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Quitar una red de gestión declarada
+         * @description `409 MANAGEMENT_SUBNET_IN_USE` si algún switch vía este router tiene su IP dentro (su NAT depende de ella). Auditado.
+         */
+        delete: operations["deleteManagementSubnet"];
         options?: never;
         head?: never;
         patch?: never;
@@ -3732,9 +3788,15 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Alta de un switch (modo directo) — credencial SNMP nueva y configuración para pegar
-         * @description Solo `device_type=switch` (un router → `422 DEVICE_NOT_A_SWITCH`). Fija la dirección de gestión del switch (misma
-         *     regla que el modo directo de Huawei: única en la plataforma una vez verificada, nunca una IP de Horus), emite una
+         * Alta de un switch (modo directo o vía router del sitio) — credencial SNMP nueva y configuración para pegar
+         * @description Solo `device_type=switch` (un router → `422 DEVICE_NOT_A_SWITCH`). Dos caminos (docs/tunnels.md §10, ADR-0032):
+         *     `connection_mode=direct` cuando Horus está en la misma red de gestión que el switch, y `via_router` (lo habitual:
+         *     Horus en un servidor público) a través del túnel (WireGuard, IPsec o GRE) de un router del sitio del mismo ISP
+         *     (`via_router_id`; otro ISP, un switch o un router sin túnel → `422 VIA_ROUTER_INVALID`). Vía router el switch
+         *     conserva su IP privada y recibe una **dirección Horus** (IPAM de túneles, única en la plataforma) que el router
+         *     traduce con NAT 1:1; la respuesta trae además `path` y `router_config` (lo que se pega en el router: NAT 1:1 y
+         *     cortafuegos mínimo, RouterOS o VRP). La dirección de gestión es única por ISP (modo directo, entre verificados) y
+         *     por (ISP, router, IP) vía router (`409 MANAGEMENT_ADDRESS_IN_USE`), nunca una IP de Horus. Emite una
          *     credencial SNMP de solo lectura nueva — SNMPv3 SHA1/AES en RouterOS (lo que admite `/snmp community`), SNMPv3
          *     SHA-256/AES-128 en la serie S de Huawei o una **comunidad v2c** en SwOS (solo v1/v2c: aviso de menor seguridad) —,
          *     cifrada en reposo y **solo en esta respuesta** en claro, y devuelve lo que pega el operador: RouterOS
@@ -3849,7 +3911,8 @@ export interface paths {
          *     Cambiar el transporte, la IP pública o la identidad devuelve el router a `pending_configuration` (hay que pegar la
          *     configuración nueva: script WireGuard, `POST /routers/{router_id}/tunnel-config` o alta directa); la IP de túnel
          *     (identidad del exportador) se conserva entre transportes con túnel. IP pública (GRE) o identidad IKE (IPsec) en uso
-         *     por otro router → `409 TUNNEL_REMOTE_IN_USE`. Idempotente: el mismo cuerpo no cambia nada.
+         *     por otro router → `409 TUNNEL_REMOTE_IN_USE`. A `direct` con switches vía este router → `409 ROUTER_HAS_VIA_SWITCHES`.
+         *     Idempotente: el mismo cuerpo no cambia nada.
          */
         put: operations["setRouterTransport"];
         post?: never;
@@ -5402,7 +5465,7 @@ export interface components {
          * @description Código estable UPPER_SNAKE_CASE (= `ErrorInfo.reason` de gRPC). **Enum abierto**: se listan los
          *     conocidos en v0; el cliente trata un código desconocido según el `status` HTTP.
          */
-        ErrorCode: ("VALIDATION_FAILED" | "UNAUTHENTICATED" | "TOKEN_EXPIRED" | "SESSION_REVOKED" | "PERMISSION_DENIED" | "ORIGIN_NOT_ALLOWED" | "MFA_REQUIRED" | "MFA_ENROLLMENT_REQUIRED" | "REAUTH_REQUIRED" | "NOT_FOUND" | "ALREADY_EXISTS" | "CONFLICT" | "PRECONDITION_FAILED" | "PRECONDITION_REQUIRED" | "IDEMPOTENCY_KEY_REUSED" | "IDEMPOTENCY_IN_PROGRESS" | "RATE_LIMITED" | "TENANT_RATE_LIMITED" | "INTERNAL" | "SERVICE_UNAVAILABLE" | "ANALYTICS_UNAVAILABLE" | "TIMEOUT" | "INVALID_CREDENTIALS" | "INVALID_CURSOR" | "INVALID_FILTER" | "INVALID_SORT_FIELD" | "TIME_RANGE_TOO_LARGE" | "TENANT_NOT_FOUND" | "TENANT_MISMATCH" | "TENANT_SUSPENDED" | "TOKEN_SCOPE_INVALID" | "KIOSK_FORBIDDEN" | "ROUTER_NOT_FOUND" | "ROUTER_PRIMARY_EXISTS" | "ROUTEROS_VERSION_UNSUPPORTED" | "ROUTER_UNREACHABLE" | "ROUTER_TLS_FINGERPRINT_CHANGED" | "ROUTER_TLS_FINGERPRINT_UNCONFIRMED" | "ROUTER_TLS_FINGERPRINT_MISMATCH" | "ROUTER_VENDOR_NOT_SUPPORTED" | "MANAGEMENT_ADDRESS_IN_USE" | "CONNECTION_MODE_NOT_SUPPORTED" | "CONNECTION_MODE_MISMATCH" | "UNENCRYPTED_TRANSPORT_CONFIRMATION_REQUIRED" | "TUNNEL_REMOTE_IN_USE" | "TUNNEL_TRANSPORT_DISABLED" | "DEVICE_NOT_A_SWITCH" | "SWITCH_NOT_SUPPORTED" | "SWITCH_NOT_FOUND" | "SFLOW_NOT_SUPPORTED" | "SITE_NOT_FOUND" | "SITE_NOT_EMPTY" | "PEER_ALREADY_REVOKED" | "WIREGUARD_IP_POOL_EXHAUSTED" | "WIREGUARD_PUBLIC_KEY_IN_USE" | "ENROLLMENT_TOKEN_INVALID" | "CUSTOMER_NOT_FOUND" | "CUSTOMER_KIND_LOCKED" | "CLIENT_PREFIX_OVERLAP" | "CLIENT_PREFIX_NOT_FOUND" | "ASN_RULE_NOT_FOUND" | "FINDING_NOT_FOUND" | "FINDING_STATE_INVALID" | "REPORT_NOT_FOUND" | "REPORT_NOT_READY" | "REPORT_EXPIRED" | "REPORT_DEFINITION_NOT_FOUND" | "DASHBOARD_NOT_FOUND" | "DASHBOARD_READ_ONLY" | "WIDGET_TYPE_NOT_ALLOWED" | "WIDGET_TYPE_UNKNOWN" | "WIDGET_CONFIG_INVALID" | "KIOSK_ENROLLMENT_CODE_INVALID" | "NOTIFICATION_CHANNEL_NOT_FOUND" | "NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE" | "NOTIFICATION_CHANNEL_UNREACHABLE" | "NOTIFICATION_CHANNEL_AUTH_FAILED" | "NOTIFICATION_CHANNEL_CREDENTIALS_MISSING" | "LIBRENMS_CHANNEL_REQUIRED" | "LIBRENMS_NOT_PROVISIONED" | "LIBRENMS_DEVICE_NOT_OWNED" | "NOTIFICATION_TELEGRAM_WEBHOOK_ACTIVE" | "NOTIFICATION_TELEGRAM_LINK_CODE_INVALID" | "NOTIFICATION_TELEGRAM_BOT_NOT_CONFIGURED" | "STORAGE_TARGET_UNREACHABLE" | "REPUTATION_SOURCE_NOT_FOUND" | "REPUTATION_SOURCE_READ_ONLY" | "REPUTATION_SOURCE_URL_NOT_ALLOWED" | "ROLE_NOT_FOUND" | "ROLE_READ_ONLY" | "ROLE_IN_USE" | "LAST_PLATFORM_ADMIN" | "WIREGUARD_HUB_NOT_FOUND" | "WIREGUARD_POOL_NOT_FOUND" | "WIREGUARD_POOL_OVERLAP" | "WIREGUARD_POOL_INVALID" | "WIREGUARD_POOL_IN_USE" | "REMOTE_DESTINATION_NOT_FOUND" | "REMOTE_DESTINATION_NOT_READY" | "REMOTE_DESTINATION_SYNC_RUNNING" | "API_TOKEN_NOT_FOUND" | "INTEGRATION_NOT_CONFIGURED" | "INTEGRATION_UNAVAILABLE") | string;
+        ErrorCode: ("VALIDATION_FAILED" | "UNAUTHENTICATED" | "TOKEN_EXPIRED" | "SESSION_REVOKED" | "PERMISSION_DENIED" | "ORIGIN_NOT_ALLOWED" | "MFA_REQUIRED" | "MFA_ENROLLMENT_REQUIRED" | "REAUTH_REQUIRED" | "NOT_FOUND" | "ALREADY_EXISTS" | "CONFLICT" | "PRECONDITION_FAILED" | "PRECONDITION_REQUIRED" | "IDEMPOTENCY_KEY_REUSED" | "IDEMPOTENCY_IN_PROGRESS" | "RATE_LIMITED" | "TENANT_RATE_LIMITED" | "INTERNAL" | "SERVICE_UNAVAILABLE" | "ANALYTICS_UNAVAILABLE" | "TIMEOUT" | "INVALID_CREDENTIALS" | "INVALID_CURSOR" | "INVALID_FILTER" | "INVALID_SORT_FIELD" | "TIME_RANGE_TOO_LARGE" | "TENANT_NOT_FOUND" | "TENANT_MISMATCH" | "TENANT_SUSPENDED" | "TOKEN_SCOPE_INVALID" | "KIOSK_FORBIDDEN" | "ROUTER_NOT_FOUND" | "ROUTER_PRIMARY_EXISTS" | "ROUTEROS_VERSION_UNSUPPORTED" | "ROUTER_UNREACHABLE" | "ROUTER_TLS_FINGERPRINT_CHANGED" | "ROUTER_TLS_FINGERPRINT_UNCONFIRMED" | "ROUTER_TLS_FINGERPRINT_MISMATCH" | "ROUTER_VENDOR_NOT_SUPPORTED" | "MANAGEMENT_ADDRESS_IN_USE" | "CONNECTION_MODE_NOT_SUPPORTED" | "CONNECTION_MODE_MISMATCH" | "UNENCRYPTED_TRANSPORT_CONFIRMATION_REQUIRED" | "TUNNEL_REMOTE_IN_USE" | "TUNNEL_TRANSPORT_DISABLED" | "DEVICE_NOT_A_SWITCH" | "SWITCH_NOT_SUPPORTED" | "SWITCH_NOT_FOUND" | "SFLOW_NOT_SUPPORTED" | "VIA_ROUTER_INVALID" | "ROUTER_HAS_VIA_SWITCHES" | "MANAGEMENT_SUBNET_NOT_FOUND" | "MANAGEMENT_SUBNET_OVERLAP" | "MANAGEMENT_SUBNET_IN_USE" | "SITE_NOT_FOUND" | "SITE_NOT_EMPTY" | "PEER_ALREADY_REVOKED" | "WIREGUARD_IP_POOL_EXHAUSTED" | "WIREGUARD_PUBLIC_KEY_IN_USE" | "ENROLLMENT_TOKEN_INVALID" | "CUSTOMER_NOT_FOUND" | "CUSTOMER_KIND_LOCKED" | "CLIENT_PREFIX_OVERLAP" | "CLIENT_PREFIX_NOT_FOUND" | "ASN_RULE_NOT_FOUND" | "FINDING_NOT_FOUND" | "FINDING_STATE_INVALID" | "REPORT_NOT_FOUND" | "REPORT_NOT_READY" | "REPORT_EXPIRED" | "REPORT_DEFINITION_NOT_FOUND" | "DASHBOARD_NOT_FOUND" | "DASHBOARD_READ_ONLY" | "WIDGET_TYPE_NOT_ALLOWED" | "WIDGET_TYPE_UNKNOWN" | "WIDGET_CONFIG_INVALID" | "KIOSK_ENROLLMENT_CODE_INVALID" | "NOTIFICATION_CHANNEL_NOT_FOUND" | "NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE" | "NOTIFICATION_CHANNEL_UNREACHABLE" | "NOTIFICATION_CHANNEL_AUTH_FAILED" | "NOTIFICATION_CHANNEL_CREDENTIALS_MISSING" | "LIBRENMS_CHANNEL_REQUIRED" | "LIBRENMS_NOT_PROVISIONED" | "LIBRENMS_DEVICE_NOT_OWNED" | "NOTIFICATION_TELEGRAM_WEBHOOK_ACTIVE" | "NOTIFICATION_TELEGRAM_LINK_CODE_INVALID" | "NOTIFICATION_TELEGRAM_BOT_NOT_CONFIGURED" | "STORAGE_TARGET_UNREACHABLE" | "REPUTATION_SOURCE_NOT_FOUND" | "REPUTATION_SOURCE_READ_ONLY" | "REPUTATION_SOURCE_URL_NOT_ALLOWED" | "ROLE_NOT_FOUND" | "ROLE_READ_ONLY" | "ROLE_IN_USE" | "LAST_PLATFORM_ADMIN" | "WIREGUARD_HUB_NOT_FOUND" | "WIREGUARD_POOL_NOT_FOUND" | "WIREGUARD_POOL_OVERLAP" | "WIREGUARD_POOL_INVALID" | "WIREGUARD_POOL_IN_USE" | "REMOTE_DESTINATION_NOT_FOUND" | "REMOTE_DESTINATION_NOT_READY" | "REMOTE_DESTINATION_SYNC_RUNNING" | "API_TOKEN_NOT_FOUND" | "INTEGRATION_NOT_CONFIGURED" | "INTEGRATION_UNAVAILABLE") | string;
         /** @description Evidencia agregada según kind (nunca payloads; nunca la IP del cliente). Campos conocidos; otros permitidos. */
         Evidence: {
             bps_peak?: number;
@@ -6152,6 +6215,16 @@ export interface components {
             ok: boolean;
             /** @enum {string} */
             step: "auth" | "device" | "rule" | "syslog_send" | "syslog_stored" | "eventlog";
+        };
+        ManagementSubnet: {
+            created_at: components["schemas"]["Timestamp"];
+            id: components["schemas"]["Uuid"];
+            /**
+             * @description Red de gestión IPv4 privada (/22 a /30).
+             * @example 192.168.88.0/24
+             */
+            prefix: string;
+            router_id: components["schemas"]["Uuid"];
         };
         McpToken: {
             active: boolean;
@@ -6985,11 +7058,13 @@ export interface components {
              * @description Transporte con Horus (docs/tunnels.md, ADR-0031). `wireguard`: túnel WireGuard router → hub (MikroTik).
              *     `ipsec`: IPsec IKEv2 route-based (RFC 7296; MikroTik, Huawei y cualquier equipo con IKEv2). `gre`: GRE
              *     (RFC 2784) **sin cifrado**, respaldo universal. `direct`: sin túnel; el camino lo asegura el operador y el
-             *     colector filtra por la dirección de gestión verificada (docs/vendors/huawei.md §5). Al alta lo fija `vendor`
-             *     (MikroTik → wireguard, Huawei → direct); se cambia con `PUT /routers/{router_id}/transport`.
+             *     colector filtra por la dirección de gestión verificada (docs/vendors/huawei.md §5). `via_router` (solo
+             *     switches, ADR-0032): sin túnel propio, por el túnel del router `via_router_id` con NAT 1:1 hacia
+             *     `via_address`. Al alta lo fija `vendor` (MikroTik → wireguard, Huawei → direct; switch → direct); se cambia
+             *     con `PUT /routers/{router_id}/transport` (switches: con su alta).
              * @enum {string}
              */
-            connection_mode: "wireguard" | "ipsec" | "gre" | "direct";
+            connection_mode: "wireguard" | "ipsec" | "gre" | "direct" | "via_router";
             credentials?: components["schemas"]["CredentialStatus"][];
             /**
              * @description Pasos del asistente (I1-19): `pending_configuration` → `key_received` (clave pública enrolada)
@@ -7024,6 +7099,17 @@ export interface components {
              * @example rt-centro.isp.example
              */
             tunnel_remote_id: string | null;
+            /**
+             * @description Solo `via_router` — **dirección Horus** del switch (IPAM de túneles, única en la plataforma; el router del sitio
+             *     la traduce a `management_address`). Destino del sondeo SNMP e identidad del exportador sFlow; nunca la IP
+             *     privada. null hasta que wireguard la asigna.
+             * @example 10.255.1.40
+             */
+            via_address: string | null;
+            /** @description Solo `via_router` — resumen del router del sitio para mostrar el camino y la protección heredada de su túnel. */
+            via_router: components["schemas"]["ViaRouterRef"] | null;
+            /** @description Solo `via_router` — router del sitio (mismo ISP, con túnel) por el que Horus alcanza al switch. */
+            via_router_id: components["schemas"]["Uuid"] | null;
             warnings: ("routeros_version_unsupported" | "traffic_flow_target_drift" | "hardware_offload_suspected")[];
             wireguard_peer_id?: components["schemas"]["Uuid"] | null;
         };
@@ -7059,16 +7145,18 @@ export interface components {
             voltage?: number | null;
         };
         /**
-         * @description Estado efectivo (api.md §2.6). `stale` = la observación es vieja o el sondeador no late; `unknown` = nunca observado.
+         * @description Estado efectivo (api.md §2.6). `stale` = la observación es vieja o el sondeador no late; `unknown` = nunca observado;
+         *     `unreachable` = switch vía router con el túnel de su router del sitio caído (ADR-0032).
          * @enum {string}
          */
-        RouterEffectiveStatus: "online" | "warning" | "critical" | "degraded" | "offline" | "stale" | "unknown" | "maintenance";
+        RouterEffectiveStatus: "online" | "warning" | "critical" | "degraded" | "offline" | "unreachable" | "stale" | "unknown" | "maintenance";
         RouterInput: {
             /**
              * @description `switch`: switch de **monitoreo** (docs/vendors/mikrotik.md §13, huawei.md §11). Misma tabla que los routers
              *     (estado, credencial SNMP cifrada, modo directo y verificación) pero nunca es router principal ni exportador
-             *     primario, nunca crea clientes ni entra en la atribución. Siempre `connection_mode=direct` por la red de
-             *     gestión (`protection_level=unencrypted_private`). No se puede cambiar después del alta.
+             *     primario, nunca crea clientes ni entra en la atribución. Sin túnel propio: `connection_mode=direct` (Horus en la
+             *     red de gestión) o `via_router` (por el túnel de un router del sitio, ADR-0032), elegido en su alta;
+             *     `protection_level=unencrypted_private` (su último tramo). No se puede cambiar después del alta.
              * @default router
              * @enum {string}
              */
@@ -7078,7 +7166,9 @@ export interface components {
             is_primary?: boolean;
             /**
              * @description Solo `connection_mode=direct`: IP de origen del router vista por Horus (destino del sondeo SNMP e identidad del
-             *     exportador de flujos). Cambiarla devuelve el router a `pending_configuration` hasta verificarla de nuevo.
+             *     exportador de flujos). Cambiarla devuelve el router a `pending_configuration` hasta verificarla de nuevo. En un
+             *     switch `via_router` es su IP privada en la red de gestión (solo cambia con su alta; nunca es identidad). Única
+             *     por ISP (directo, entre verificados) y por (ISP, router del sitio, IP) vía router.
              * @example 198.51.100.20
              */
             management_address?: string | null;
@@ -7130,8 +7220,11 @@ export interface components {
             interval_seconds: number;
             status: components["schemas"]["RouterStatus"];
         };
-        /** @enum {string} */
-        RouterObservedState: "online" | "warning" | "critical" | "degraded" | "offline";
+        /**
+         * @description `unreachable` solo en switches vía router (ADR-0032) cuyo router del sitio tiene el túnel caído (razón `via_router_tunnel_down`): no es un fallo del switch.
+         * @enum {string}
+         */
+        RouterObservedState: "online" | "warning" | "critical" | "degraded" | "offline" | "unreachable";
         /** @description Línea de comando RouterOS con placeholders {{nombre}}; todo lo que crea lleva comment="horus finding {{finding_id}}" para poder deshacerlo. */
         RouterosTemplate: string;
         RouterPatch: {
@@ -7162,8 +7255,18 @@ export interface components {
             /** @enum {string} */
             wireguard: "ok" | "stale" | "never" | "unknown";
         };
+        RouterSiteConfig: {
+            /** @description Reglas para el router del sitio (NAT 1:1 y cortafuegos mínimo, comentadas y con bloque de deshacer). Sin secretos. */
+            config: string;
+            /** @enum {string} */
+            language: "routeros" | "vrp";
+            notes: string[];
+            title: string;
+            warnings: string[];
+        };
         /**
-         * @description Enum abierto (events.md §8.4). `interface_flapping` solo en switches (uplink inestable).
+         * @description Enum abierto (events.md §8.4). `interface_flapping` solo en switches (uplink inestable). `via_router_tunnel_down`:
+         *     switch vía router cuyo router del sitio tiene el túnel caído (estado `unreachable`).
          * @example ok
          * @example cpu_high
          * @example memory_high
@@ -7177,6 +7280,7 @@ export interface components {
          * @example interface_flapping
          * @example psu_failed
          * @example fan_failed
+         * @example via_router_tunnel_down
          */
         RouterStateReason: string;
         RouterStatus: {
@@ -7184,7 +7288,7 @@ export interface components {
              * @description Transporte del router con Horus (docs/tunnels.md). Ausente en filas anteriores al campo.
              * @enum {string}
              */
-            connection_mode?: "wireguard" | "ipsec" | "gre" | "direct";
+            connection_mode?: "wireguard" | "ipsec" | "gre" | "direct" | "via_router";
             device: components["schemas"]["RouterDeviceSample"];
             /**
              * @description `switch` en las filas de switches (GET /switches/status); ausente en los routers.
@@ -7580,6 +7684,8 @@ export interface components {
         SwitchOnboarding: {
             /** @description Configuración o pasos a aplicar. Contiene la credencial SNMP en claro (se muestra una sola vez). */
             config: string;
+            /** @enum {string} */
+            connection_mode: "direct" | "via_router";
             /**
              * @description `routeros` (script /snmp), `vrp` (CLI serie S) o `swos_web` (pasos de la interfaz web de SwOS).
              * @enum {string}
@@ -7587,6 +7693,8 @@ export interface components {
             language: "routeros" | "vrp" | "swos_web";
             management_address: string;
             notes: string[];
+            /** @description Solo `via_router` — camino del switch a través del router del sitio. */
+            path: components["schemas"]["SwitchPath"] | null;
             placeholders: {
                 description: string;
                 /** @example {PUERTO_SFLOW} */
@@ -7594,6 +7702,8 @@ export interface components {
             }[];
             /** @enum {string} */
             platform: "routeros" | "swos" | "vrp";
+            /** @description Solo `via_router` — lo que se pega en el router del sitio. */
+            router_config: components["schemas"]["RouterSiteConfig"] | null;
             router_id: components["schemas"]["Uuid"];
             sampling_rate: number | null;
             /** @description Configuración sFlow de la serie S (solo con `sflow=true`). */
@@ -7604,6 +7714,31 @@ export interface components {
             /** @enum {string} */
             snmp_version: "3" | "2c";
             warnings: string[];
+        };
+        SwitchPath: {
+            /** @description Bloque Horus de la red de gestión declarada que contiene al switch. */
+            block: string | null;
+            /** @description Destino de sFlow (colector de Horus por el túnel). */
+            collector_address: string;
+            collector_port: number;
+            /**
+             * @description Dirección Horus del switch (NAT 1:1 en el router).
+             * @example 10.255.1.40
+             */
+            horus_address: string;
+            /** @description Origen del sondeo SNMP (IP de servicios del hub). */
+            poller_address: string;
+            /**
+             * @description Nivel de protección del túnel del router (el switch lo hereda en el tramo hub ↔ router).
+             * @enum {string}
+             */
+            protection_level: "encrypted" | "unencrypted_private" | "unencrypted_internet";
+            router_id: components["schemas"]["Uuid"];
+            router_name: string;
+            /** @enum {string} */
+            transport: "wireguard" | "ipsec" | "gre";
+            /** @description Estado del túnel del router en el hub (awaiting_enrollment, pending_handshake, active). */
+            tunnel_status: string;
         };
         SwitchPort: {
             admin_up: boolean | null;
@@ -8116,6 +8251,14 @@ export interface components {
         };
         /** @description Versión para concurrencia optimista (= ETag, = `aggregate_version` de los eventos). */
         Version: number;
+        ViaRouterRef: {
+            /** @enum {string} */
+            connection_mode: "wireguard" | "ipsec" | "gre" | "direct";
+            id: components["schemas"]["Uuid"];
+            name: string;
+            /** @enum {string} */
+            protection_level: "encrypted" | "unencrypted_private" | "unencrypted_internet";
+        };
         /** @enum {string} */
         Visibility: "system" | "tenant" | "private" | "platform";
         /**
@@ -14423,6 +14566,11 @@ export interface operations {
                 /** @description Filtro por nodo (multivalor por comas). */
                 site_id?: components["parameters"]["SiteIdFilter"];
                 sort?: "name" | "-name" | "created_at" | "-created_at";
+                /**
+                 * @description Solo los equipos alcanzados **vía** ese router del sitio (switches con `connection_mode=via_router`, ADR-0032).
+                 *     Combínelo con `device_type=switch` para la lista de la ficha del router.
+                 */
+                via_router_id?: components["schemas"]["Uuid"];
             };
             header?: never;
             path?: never;
@@ -14521,6 +14669,7 @@ export interface operations {
             204: components["responses"]["NoContent"];
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             412: components["responses"]["PreconditionFailed"];
         };
     };
@@ -14694,6 +14843,94 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    listManagementSubnets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Redes declaradas. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ManagementSubnet"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["UnprocessableEntity"];
+        };
+    };
+    createManagementSubnet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @example 192.168.88.0/24 */
+                    prefix: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Red declarada. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ManagementSubnet"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
+        };
+    };
+    deleteManagementSubnet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+                subnet_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Red quitada. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
         };
     };
     getRouterLiveMetrics: {
@@ -14879,7 +15116,12 @@ export interface operations {
             content: {
                 "application/json": {
                     /**
-                     * @description IP de gestión del switch (obligatoria si aún no la tiene).
+                     * @description `direct` (Horus en la misma red de gestión) o `via_router` (por el túnel de un router del sitio); null = el actual.
+                     * @enum {string|null}
+                     */
+                    connection_mode?: "direct" | "via_router" | null;
+                    /**
+                     * @description IP de gestión del switch (obligatoria si aún no la tiene; IPv4 vía router).
                      * @example 10.20.0.5
                      */
                     management_address?: string | null;
@@ -14887,6 +15129,8 @@ export interface operations {
                     sampling_rate?: number | null;
                     /** @description true activa sFlow (solo vrp) y añade su configuración; false lo desactiva; null no cambia. */
                     sflow?: boolean | null;
+                    /** @description Router del sitio (con túnel) por el que Horus alcanza al switch; obligatorio la primera vez con `via_router`. */
+                    via_router_id?: components["schemas"]["Uuid"] | null;
                 };
             };
         };

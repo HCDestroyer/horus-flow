@@ -23,8 +23,9 @@ export function isEncrypted(mode: ConnectionMode): boolean {
   return mode === 'wireguard' || mode === 'ipsec'
 }
 
+/** Túnel propio con el hub (un switch `via_router` usa el de su router del sitio). */
 export function hasTunnel(mode: ConnectionMode): boolean {
-  return mode !== 'direct'
+  return mode === 'wireguard' || mode === 'ipsec' || mode === 'gre'
 }
 
 /** Nivel de protección de un transporte y el camino declarado (solo cuenta sin cifrado). */

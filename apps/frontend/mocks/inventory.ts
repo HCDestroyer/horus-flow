@@ -441,6 +441,9 @@ export function routersOf(
       device_type: 'router',
       switch_platform: null,
       sflow_enabled: false,
+      via_router_id: null,
+      via_address: null,
+      via_router: null,
       wireguard_peer_id: mockUuid('0192e888', ti * 100 + spec.index + 1),
       warnings: lossy ? ['hardware_offload_suspected'] : [],
       credentials: [
