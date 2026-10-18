@@ -53,7 +53,8 @@ message Router {
   optional google.protobuf.Timestamp deleted_at = 17;
   repeated string changed_fields = 18;
   // wireguard (MikroTik) | ipsec (IKEv2 route-based, RFC 7296) | gre (RFC 2784, sin cifrado) |
-  // direct (sin túnel; docs/tunnels.md, docs/vendors/huawei.md §5).
+  // direct (sin túnel; docs/tunnels.md, docs/vendors/huawei.md §5) | via_router (solo switches: por el túnel de un
+  // router del sitio con NAT 1:1 hacia su dirección Horus; ADR-0032).
   string connection_mode = 19;
   // Modo directo: dirección de gestión /32 (/128) vista por Horus; identidad del exportador solo con
   // onboarding_state snmp_verified o exporting.
@@ -66,12 +67,17 @@ message Router {
   // ipsec: identidad IKE del router (IP, FQDN o KeyID).
   optional string tunnel_remote_id = 23;
   // router | switch. Un switch es solo de monitoreo (docs/vendors/mikrotik.md §13, huawei.md §11): nunca
-  // principal ni exportador primario, nunca crea clientes; siempre connection_mode direct.
+  // principal ni exportador primario, nunca crea clientes; connection_mode direct o via_router.
   string device_type = 24;
   // Solo switches: routeros | swos (SNMP v2c) | vrp (Huawei serie S).
   optional string switch_platform = 25;
   // Switch con sFlow: exportador SECUNDARIO (sus muestras nunca suman a clientes ni nodos).
   bool sflow_enabled = 26;
+  // via_router: router del sitio (mismo ISP, con túnel) por el que Horus alcanza al switch.
+  optional string via_router_id = 27;
+  // via_router: dirección Horus /32 del switch (IPAM de túneles, única en la plataforma). Destino del sondeo e
+  // identidad del exportador sFlow con onboarding_state snmp_verified o exporting; nunca la IP privada.
+  optional string via_address = 28;
 }
 
 // TrafficFlowCapabilities lo leído de /ip traffic-flow.
