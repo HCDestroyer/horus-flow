@@ -286,15 +286,15 @@ Mismo permiso que §3.1 (`security.findings.read`). Sin conector Argos activo, s
 
 | # | Solicitud | Contrato | Estado |
 | --- | --- | --- | --- |
-| A1 | `POST /integraciones/horus/resolver` por cuerpo y por lotes (máx. 500), con cliente (`nombre`, `codigo`, `tipo`), servicio (`user_ppp`, `plan`, `estado`, `router_id`), `empresa` (1.2.0) y `desde` | §2.1 | en curso |
-| A2 | Evento `cliente.actualizado` en el catálogo (cambio de nombre, tipo o código) | §2.3 | en curso |
-| A3 | Código de cliente estable (`codigo`; p. ej. `C-000455` derivado del id o un campo propio) | §2.1 | en curso |
-| A4 | Worker de webhooks firmados hacia Horus (grupo `horus` en `argos:eventos`) con reintentos | §1.3, §2.3 | en curso |
-| A5 | Usuario técnico "Horus" y token `atk_` con `ip.resolver`, `clientes.ver`, `servicios.ver` | §1.2 | en curso |
-| A6 | Conector Horus: guardar URL y `hf_pat_` cifrado; ficha de servicio con consumo, salud y seguridad (§3.1); consumo mensual por servicio (§3.2) | §3 | en curso |
-| A7 | Receptor `POST /integraciones/horus/webhook` firmado; eventos internos para `notify` y la línea de tiempo | §3.4 | en curso |
-| A8 | Enlace de conexión: generar, mostrar una vez y canjear (`/integraciones/horus/conexion/canjear`) | §1.4 | en curso |
-| A9 | Autologin: emitir tickets para Horus (`sso.emitir`) y canjear los de Horus (`/integraciones/horus/sso/tickets`, `/sso/entrar`) con vinculación de cuentas | §1.5 | en curso |
+| A1 | `POST /integraciones/horus/resolver` por cuerpo y por lotes (máx. 500), con cliente (`nombre`, `codigo`, `tipo`), servicio (`user_ppp`, `plan`, `estado`, `router_id`), `empresa` (1.2.0) y `desde` | §2.1 | hecho (Argos #79) |
+| A2 | Evento `cliente.actualizado` en el catálogo (cambio de nombre, tipo o código) | §2.3 | hecho (Argos #79) |
+| A3 | Código de cliente estable (`codigo`; p. ej. `C-000455` derivado del id o un campo propio) | §2.1 | hecho (Argos #79) |
+| A4 | Worker de webhooks firmados hacia Horus (grupo `horus` en `argos:eventos`) con reintentos | §1.3, §2.3 | hecho (Argos #79) |
+| A5 | Usuario técnico "Horus" y token `atk_` con `ip.resolver`, `clientes.ver`, `servicios.ver` | §1.2 | hecho (Argos #79) |
+| A6 | Conector Horus: guardar URL y `hf_pat_` cifrado; ficha de servicio con consumo, salud y seguridad (§3.1); consumo mensual por servicio (§3.2) | §3 | hecho en la API (Argos #79); pantallas del panel por fusionar |
+| A7 | Receptor `POST /integraciones/horus/webhook` firmado; eventos internos para `notify` y la línea de tiempo | §3.4 | hecho (Argos #79) |
+| A8 | Enlace de conexión: generar, mostrar una vez y canjear (`/integraciones/horus/conexion/canjear`) | §1.4 | hecho en la API (Argos #79); pantallas del panel por fusionar |
+| A9 | Autologin: emitir tickets para Horus (`sso.emitir`) y canjear los de Horus (`/integraciones/horus/sso/tickets`, `/sso/entrar`) con vinculación de cuentas | §1.5 | hecho en la API (Argos #79); pantallas del panel por fusionar |
 
 Reglas para Argos: el conector viene apagado; nada crítico (AAA, facturación, corte, portal) espera
 a Horus; Horus no decide cortes (solo `evaluarEstadoServicio` decide el estado del servicio).
