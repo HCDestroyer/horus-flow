@@ -57,7 +57,7 @@
 | I3 | Avisar y actuar | L | Avisos por Telegram/email/webhook de botnet, router caído o exportador silencioso; gestión completa de WireGuard; reporte semanal de seguridad por ISP; copia remota cifrada (SFTP primero) | Recibe un aviso real en su teléfono |
 | I4 | Detección madura y mitigación asistida | L | Más detectores, reputación con decaimiento, línea base por IP, ciclo de retroalimentación (falsos positivos), cuarentena asistida en MikroTik (address-list) con aprobación humana — **si el PO la aprueba** (P-23) | Decide la política de mitigación |
 | I5 | Escala, robustez y release 1.0 | XL | Prueba de carga 10 → 1 000 routers, suite de fallos, actualización sin pérdida, instalador, manual, `v1.0.0` | Instala desde cero siguiendo el manual |
-| I6 | Más fabricantes | M por fabricante | Cisco/Huawei/Juniper por adaptadores; sFlow | Aporta un equipo de laboratorio de cada uno |
+| I6 | Más fabricantes | M por fabricante | Cisco/Huawei/Juniper por adaptadores; sFlow; hub IPsec IKEv2 + GRE para routers sin WireGuard ([ADR-0031](adr/0031-hub-de-tuneles-ipsec-gre.md)) | Aporta un equipo de laboratorio de cada uno |
 
 Orden **fijo** para I0 → I1 → I2. A partir de I3 el orden puede cambiar según lo que pida la
 persona tras usar I1–I2 (por ejemplo, I3 antes que I2 si los avisos urgen más que el perfil

@@ -40,7 +40,7 @@
 | [Q19](#q19) | Prefijos de clientes por nodo | Incremento 3 | Alta |
 | [Q20](#q20) | ¿Destino remoto por ISP? | Incremento 7 | Baja |
 | [Q21](#q21) | Retención y cuotas por ISP | Incremento 3 / 7 | Media |
-| [Q22](#q22) | ¿Routers que exporten sin WireGuard? | Incremento 2 | Media |
+| [Q22](#q22) | ¿Routers que exporten sin WireGuard? | **Resuelta** (ADR-0031) | — |
 | [Q23](#q23) | ¿Acciones sobre el router (bloquear, *walled garden*)? | Después de v1 | Baja |
 | [Q24](#q24) | MediaFire como destino | Incremento 7 | Baja |
 
@@ -212,6 +212,9 @@
   Huawei: opciones comparadas en [`vendors/huawei.md`](../vendors/huawei.md) §5.4 (IPsec IKEv2 a un hub
   strongSwan, GRE sobre IPsec, relé MikroTik/Linux con WireGuard, VRF de gestión); recomendación: IPsec IKEv2
   route-based, con relé como alternativa. Decide el PO.
+- **Resuelta (18/10/2026, [ADR-0031](../adr/0031-hub-de-tuneles-ipsec-gre.md)):** IPsec IKEv2 y GRE junto a
+  WireGuard, con la IP de túnel del mismo asignador como identidad del exportador y nivel de protección por
+  router. Detalle en [`tunnels.md`](../tunnels.md).
 
 <a id="q23"></a>
 ## Q23. ¿Acciones sobre el router (bloquear, limitar, *walled garden*)?

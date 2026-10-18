@@ -238,8 +238,13 @@ Los mismos que en Debian ([`install-debian.md`](install-debian.md) §5):
 | **443** (o `HORUS_HTTPS_PORT`) | TCP | web y API (HTTPS) | sí (salvo modo proxy) |
 | **80** (o `HORUS_HTTP_PORT`) | TCP | redirección y Let's Encrypt | en modos dominio/subdominio |
 | **51820** | **UDP** | túnel WireGuard de los routers | **sí, siempre** |
+| **500, 4500** | **UDP** | IPsec IKEv2 (NAT-T) | solo con `--tunnels ipsec` |
+| ESP (proto 50) / GRE (proto 47) | IP | IPsec sin NAT / GRE | solo con `--tunnels ipsec` / `--tunnels gre` |
 
 Los flujos (IPFIX/NetFlow, UDP 4739 y 2055) **nunca** se abren: solo entran por el túnel.
+Con `--tunnels` el contenedor `horus-host` aplica las mismas reglas que Debian (flujos solo por `wg0`,
+`hxfrm+`, `hgre+` o `--direct-flow-sources`) y se añaden `horus-tunnel-agent` y `horus-ipsec`
+([`tunnels.md`](tunnels.md) §7). El anfitrión necesita `ipset` y los módulos `xfrm_interface` e `ip_gre`.
 
 ## 8. Uso diario
 
