@@ -307,8 +307,9 @@ CREATE TABLE devices.router (
   routeros_version_supported boolean,          -- false si < 7.12 (aviso, no bloqueo del registro)
   tunnel_address       inet,                   -- /32 de túnel = identidad del exportador (la asigna wireguard; wireguard, ipsec y gre)
   mgmt_wireguard_peer_id uuid,                 -- sin FK: wireguard
-  connection_mode      text NOT NULL DEFAULT 'wireguard' CHECK (connection_mode IN ('wireguard', 'ipsec', 'gre', 'direct')), -- docs/tunnels.md
-  management_address   inet,                   -- modo directo: IP de origen vista por Horus (docs/vendors/huawei.md §5)
+  connection_mode      text NOT NULL DEFAULT 'wireguard'
+                        CHECK (connection_mode IN ('wireguard', 'ipsec', 'gre', 'direct', 'via_router')), -- docs/tunnels.md
+  management_address   inet,                   -- modo directo: IP de origen vista por Horus (docs/vendors/huawei.md §5); via_router: IP privada del switch
   protection_level     text NOT NULL DEFAULT 'encrypted'
                         CHECK (protection_level IN ('encrypted', 'unencrypted_private', 'unencrypted_internet')), -- ADR-0031
   tunnel_remote_address inet,                  -- ipsec/gre: IPv4 pública del router (gre obligatoria)
@@ -316,6 +317,8 @@ CREATE TABLE devices.router (
   device_type          text NOT NULL DEFAULT 'router' CHECK (device_type IN ('router', 'switch')), -- switch = solo monitoreo
   switch_platform      text,                   -- switches: routeros | swos | vrp
   sflow_enabled        boolean NOT NULL DEFAULT false, -- switch con sFlow = fuente secundaria (traffic-model.md §13)
+  via_router_id        uuid,                   -- via_router: router del sitio (mismo ISP, con túnel) — ADR-0032
+  via_address          inet,                   -- via_router: dirección Horus /32 (IPAM de túneles; NAT 1:1 en el router)
   flow_export_enabled  boolean NOT NULL DEFAULT true,
   tags                 text[] NOT NULL DEFAULT '{}',
   metadata             jsonb NOT NULL DEFAULT '{}',
@@ -325,7 +328,8 @@ CREATE TABLE devices.router (
   version              integer NOT NULL DEFAULT 1,
   UNIQUE (tenant_id, id),
   FOREIGN KEY (tenant_id, site_id) REFERENCES devices.site (tenant_id, id),
-  CONSTRAINT ck_router__vendor_connection_mode CHECK ((device_type = 'switch' AND connection_mode = 'direct')
+  FOREIGN KEY (tenant_id, via_router_id) REFERENCES devices.router (tenant_id, id),
+  CONSTRAINT ck_router__vendor_connection_mode CHECK ((device_type = 'switch' AND connection_mode IN ('direct', 'via_router'))
     OR (device_type = 'router' AND vendor = 'mikrotik' AND connection_mode IN ('wireguard', 'ipsec', 'gre'))
     OR (device_type = 'router' AND vendor = 'huawei' AND connection_mode IN ('ipsec', 'gre', 'direct'))),
   -- Un switch nunca es principal, va por la red de gestión (camino privado) y su plataforma fija el fabricante.
@@ -334,18 +338,40 @@ CREATE TABLE devices.router (
         AND tunnel_address IS NULL AND routeros_version IS NULL
         AND ((switch_platform IN ('routeros', 'swos') AND vendor = 'mikrotik' AND NOT sflow_enabled)
           OR (switch_platform = 'vrp' AND vendor = 'huawei')))),
-  CONSTRAINT ck_router__protection_level CHECK ((connection_mode IN ('wireguard', 'ipsec')) = (protection_level = 'encrypted'))
+  CONSTRAINT ck_router__protection_level CHECK ((connection_mode IN ('wireguard', 'ipsec')) = (protection_level = 'encrypted')),
+  CONSTRAINT ck_router__via CHECK ((connection_mode = 'via_router') = (via_router_id IS NOT NULL)
+    AND (via_address IS NULL OR (connection_mode = 'via_router' AND family(via_address) = 4 AND masklen(via_address) = 32))
+    AND (via_router_id IS NULL OR via_router_id <> id))
 );
 CREATE UNIQUE INDEX ux_router__primary_per_site ON devices.router (tenant_id, site_id) WHERE is_primary AND deleted_at IS NULL;
 CREATE UNIQUE INDEX ux_router__tenant_hostname ON devices.router (tenant_id, hostname) WHERE deleted_at IS NULL;
 CREATE UNIQUE INDEX ux_router__tunnel_address ON devices.router (tunnel_address) WHERE deleted_at IS NULL AND tunnel_address IS NOT NULL; -- única en la plataforma
--- La dirección de gestión es única en la plataforma solo una vez verificada (prueba de control por SNMPv3).
-CREATE UNIQUE INDEX ux_router__management_address ON devices.router (management_address)
-  WHERE deleted_at IS NULL AND management_address IS NOT NULL AND onboarding_state IN ('snmp_verified', 'exporting');
+-- La dirección de gestión es única POR ISP (ADR-0032): en modo directo entre verificados (prueba de control por SNMPv3);
+-- vía router por (ISP, router del sitio, IP privada). Dos ISP pueden repetir la misma IP privada.
+CREATE UNIQUE INDEX ux_router__management_address_direct ON devices.router (tenant_id, management_address)
+  WHERE deleted_at IS NULL AND management_address IS NOT NULL AND connection_mode = 'direct'
+    AND onboarding_state IN ('snmp_verified', 'exporting');
+CREATE UNIQUE INDEX ux_router__management_address_via ON devices.router (tenant_id, via_router_id, management_address)
+  WHERE deleted_at IS NULL AND management_address IS NOT NULL AND connection_mode = 'via_router';
+CREATE UNIQUE INDEX ux_router__via_address ON devices.router (via_address) WHERE deleted_at IS NULL AND via_address IS NOT NULL; -- única en la plataforma
+CREATE INDEX ix_router__via_router ON devices.router (tenant_id, via_router_id) WHERE deleted_at IS NULL AND via_router_id IS NOT NULL;
 -- GRE: el hub distingue los túneles por IP remota; IPsec: charon elige la conexión por identidad (únicas en la plataforma).
 CREATE UNIQUE INDEX ux_router__gre_remote_address ON devices.router (tunnel_remote_address) WHERE deleted_at IS NULL AND connection_mode = 'gre';
 CREATE UNIQUE INDEX ux_router__ipsec_remote_id ON devices.router (tunnel_remote_id) WHERE deleted_at IS NULL AND connection_mode = 'ipsec';
 CREATE INDEX ix_router__site_device_type ON devices.router (tenant_id, site_id, device_type) WHERE deleted_at IS NULL;
+
+-- Redes de gestión declaradas en un router del sitio (switches vía router: un bloque Horus y una regla NAT por red).
+CREATE TABLE devices.management_subnet (
+  id         uuid NOT NULL PRIMARY KEY,
+  tenant_id  uuid NOT NULL,
+  router_id  uuid NOT NULL,
+  prefix     cidr NOT NULL CHECK (family(prefix) = 4 AND masklen(prefix) BETWEEN 22 AND 30),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  created_by text,
+  UNIQUE (tenant_id, id),
+  FOREIGN KEY (tenant_id, router_id) REFERENCES devices.router (tenant_id, id),
+  CONSTRAINT ex_management_subnet__overlap EXCLUDE USING gist (tenant_id WITH =, router_id WITH =, (prefix::inet) inet_ops WITH &&)
+);
 
 CREATE TABLE devices.interface (
   id               uuid NOT NULL PRIMARY KEY,
@@ -570,7 +596,7 @@ BEGIN
   FOREACH t IN ARRAY ARRAY[
     'auth.tenant_membership', 'auth.role_assignment', 'auth.kiosk', 'auth.kiosk_enrollment_code',
     'devices.site', 'devices.router', 'devices.interface', 'devices.credential', 'devices.ip_realm',
-    'devices.client_prefix', 'devices.customer', 'devices.customer_kind_change',
+    'devices.client_prefix', 'devices.customer', 'devices.customer_kind_change', 'devices.management_subnet',
     'auth.sso_ticket', 'auth.sso_link', 'devices.argosisp_connection_link'
   ] LOOP
     EXECUTE format('ALTER TABLE %s ENABLE ROW LEVEL SECURITY', t);

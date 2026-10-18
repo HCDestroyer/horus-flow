@@ -95,11 +95,19 @@ type Router struct {
 	SwitchPlatform *string
 	// SFlowEnabled: el switch exporta sFlow (fuente secundaria; solo vrp).
 	SFlowEnabled bool
-	Tags         []string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	DeletedAt    *time.Time
-	Version      int
+	// ViaRouterID: con ConnectionMode via_router, el router del sitio por
+	// cuyo túnel Horus alcanza al switch (via.go).
+	ViaRouterID *uuid.UUID
+	// ViaAddress: dirección Horus del switch vía router (la asigna
+	// wireguard; el router hace NAT 1:1 con ManagementAddress).
+	ViaAddress *string
+	// ViaRouter: resumen del router del sitio (solo lectura, lo rellena la API).
+	ViaRouter *RouterRef
+	Tags      []string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	DeletedAt *time.Time
+	Version   int
 }
 
 // Warnings devuelve los avisos del router.

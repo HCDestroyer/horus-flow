@@ -13,6 +13,7 @@ export const ROUTER_STATUSES = [
   'critical',
   'degraded',
   'offline',
+  'unreachable',
   'stale',
   'unknown',
   'maintenance',
@@ -22,6 +23,7 @@ export const ROUTER_STATUSES = [
 export const ROUTER_STATUS_ORDER: Record<RouterEffectiveStatus, number> = {
   critical: 0,
   offline: 1,
+  unreachable: 2,
   degraded: 2,
   warning: 3,
   stale: 4,
@@ -46,6 +48,9 @@ export const ROUTER_STATUS_VISUAL: Record<RouterEffectiveStatus, StatusVisual> =
   critical: { cls: 'text-error', bg: 'bg-error', icon: 'i-lucide-octagon-alert', halo: true },
   degraded: { cls: 'text-warning', bg: 'bg-warning', icon: 'i-lucide-signal-low', halo: false },
   offline: { cls: 'text-error', bg: 'bg-error', icon: 'i-lucide-wifi-off', halo: true },
+  // Switch vía router con el túnel de su router caído: el problema está en el camino, no en el
+  // switch (ADR-0032) → aviso, sin halo.
+  unreachable: { cls: 'text-warning', bg: 'bg-warning', icon: 'i-lucide-unplug', halo: false },
   stale: {
     cls: 'text-muted',
     bg: 'bg-(--ui-border-accented)',
@@ -108,6 +113,7 @@ export const STATUS_BUCKETS: StatusBucket[] = [
 
 export function bucketOf(status: RouterEffectiveStatus): StatusBucket {
   if (status === 'stale' || status === 'unknown' || status === 'maintenance') return 'nodata'
+  if (status === 'unreachable') return 'degraded'
   return status
 }
 

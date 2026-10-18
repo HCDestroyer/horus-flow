@@ -585,3 +585,25 @@ return
 - `snmp-agent usm-user` — <https://support.huawei.com/enterprise/en/doc/EDOC1100096312/72d3e0f1/snmp-agent-usm-user>
 - Acceso: igual que §10, support.huawei.com se consultó a través del índice del buscador (la página es una SPA
   que no se puede leer sin navegador desde el entorno de trabajo).
+
+### 11.7 Switch vía router del sitio
+
+Con Horus fuera de la red de gestión, la serie S se alcanza por el túnel (IPsec o GRE) de un router
+Huawei o MikroTik del sitio ([`tunnels.md` §10](../tunnels.md#10-switches-vía-router-del-sitio),
+[ADR-0032](../adr/0032-switches-via-router-direccion-horus-y-nat-1-1.md)). La configuración del switch
+es la de §11.1 con el sondeador = IP de servicios del hub y el colector sFlow = colector de Horus (el
+agente sFlow sigue siendo su IP privada: el router traduce el origen a la dirección Horus, que es su
+identidad de exportador).
+
+Para un router **VRP** Horus genera, en la interfaz `Tunnel10` del túnel de Horus:
+
+- `nat static global <dirección Horus> inside <IP privada>` (o `… netmask` para una red declarada).
+- ACL avanzadas 3991 (entrada: SNMP desde la red de servicios hacia la dirección Horus o la privada;
+  `deny` del resto) y 3992 (salida: respuestas SNMP y sFlow hacia el colector; `deny` del resto hacia la
+  red de servicios), aplicadas con `traffic-filter inbound/outbound`. Se permite y deniega por las dos
+  direcciones para no depender del orden NAT/filtro del equipo.
+
+**PENDIENTE DE VALIDACIÓN EN EQUIPO REAL** (NE40E/NetEngine 8000 suelen necesitar tarjeta de servicio
+para NAT; AR admite NAT estático en interfaces Tunnel según la documentación). Las ACL se comparten
+entre los switches vía el mismo router; VRP no admite un NAT estático por switch dentro de una red con
+NAT estático de red.

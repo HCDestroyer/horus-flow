@@ -54,3 +54,15 @@ sudo go test -tags=wireguard ./services/wgagent/internal/adapters/kernel/  # int
   `/tool fetch check-certificate=yes` funcionan en las dos. Corregido: los peers de WireGuard no admiten `name=` en 7.12; las reglas
   de entrada se mueven por id (`place-before=0` falla con la lista vacía o con la numeración vieja); el inverso borraba reglas
   ajenas con `comment~"^horus"`. Pendiente: la versión exacta en la que aparece `name` en los peers (entre 7.13 y 7.23.8).
+
+## Switches vía router (ADR-0032)
+
+- `api.ViaPaths` (`wireguard.ViaPaths` en `module.Services`): `EnsureViaPath` valida el router del sitio (mismo ISP,
+  router, con túnel), asigna la **dirección Horus** del switch de la misma IPAM (`wireguard.via_mapping` +
+  `ip_allocation.via_mapping_id`; bloque alineado para una red declarada), la proyecta en devices y genera la
+  configuración del router (`tunnelcfg.ViaRouter`: RouterOS WireGuard/IPsec/GRE y VRP IPsec/GRE; golden files
+  `testdata/via-*`).
+- Estado deseado: el peer del router lleva sus direcciones Horus (allowed-ips en wg-agent, `routed_prefixes` en
+  tunnel-agent). `Reconcile` libera las de switches dados de baja o que cambiaron de router/IP (cuarentena 24 h).
+- Prueba de integración: `via_integration_test.go` (dos ISP con el mismo switch privado, IP repetida por router,
+  red declarada, baja → la dirección sale del hub, RLS).

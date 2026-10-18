@@ -63,7 +63,8 @@ func (h *Host) Ensure(_ context.Context, t domain.Tunnel) error {
 	}
 	cur, ok := h.Links[t.Interface()]
 	t.PSK = "" // la interfaz no guarda secretos
-	if ok && cur == t {
+	t.Routed = slices.Clone(t.Routed)
+	if ok && cur.Equal(t) {
 		return nil
 	}
 	h.Links[t.Interface()] = t

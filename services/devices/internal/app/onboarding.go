@@ -54,6 +54,7 @@ var (
 	_ devapi.SNMPCredentialReader = (*Onboarding)(nil)
 	_ devapi.DirectVerifier       = (*Onboarding)(nil)
 	_ devapi.TunnelSecrets        = (*Onboarding)(nil)
+	_ devapi.ViaProjector         = (*Onboarding)(nil)
 )
 
 func routerInfo(r *domain.Router) devapi.RouterInfo {
@@ -82,6 +83,15 @@ func routerInfo(r *domain.Router) devapi.RouterInfo {
 	if r.ManagementAddress != nil {
 		if a, err := netip.ParseAddr(*r.ManagementAddress); err == nil {
 			info.ManagementAddress = &a
+		}
+	}
+	if r.ViaRouterID != nil {
+		id := *r.ViaRouterID
+		info.ViaRouterID = &id
+	}
+	if r.ViaAddress != nil {
+		if a, err := netip.ParseAddr(*r.ViaAddress); err == nil {
+			info.ViaAddress = &a
 		}
 	}
 	return info
@@ -131,8 +141,8 @@ func (o *Onboarding) SetTunnel(ctx context.Context, tenant, routerID uuid.UUID, 
 	var changed []string
 	now := o.now().UTC()
 	err := o.store.SetRouterTunnel(ctx, t, routerID, func(r *domain.Router) bool {
-		if connectionModeOf(r) == domain.ConnectionDirect {
-			return false // modo directo: sin túnel WireGuard
+		if m := connectionModeOf(r); m == domain.ConnectionDirect || m == domain.ConnectionViaRouter {
+			return false // modo directo o vía router: sin túnel propio
 		}
 		addr := u.Address.String()
 		if r.TunnelAddress == nil || *r.TunnelAddress != addr {
@@ -198,12 +208,19 @@ func (o *Onboarding) HandleExporterState(ctx context.Context, m *natsx.Message) 
 		if r.OnboardingState == devapi.OnboardingExporting {
 			return false
 		}
-		if connectionModeOf(r) == domain.ConnectionDirect {
+		switch connectionModeOf(r) {
+		case domain.ConnectionDirect:
 			if r.ManagementAddress == nil || r.OnboardingState != devapi.OnboardingSNMPVerified {
 				return false
 			}
-		} else if r.TunnelAddress == nil {
-			return false
+		case domain.ConnectionViaRouter:
+			if r.ViaAddress == nil || r.OnboardingState != devapi.OnboardingSNMPVerified {
+				return false
+			}
+		default:
+			if r.TunnelAddress == nil {
+				return false
+			}
 		}
 		r.OnboardingState, r.UpdatedAt = devapi.OnboardingExporting, now
 		return true
@@ -311,19 +328,30 @@ func (o *Onboarding) issue(ctx context.Context, tenant, routerID uuid.UUID, auth
 }
 
 // VerifyDirect implementa api.DirectVerifier: el rol snmp respondió con la
-// credencial SNMPv3 de un router en modo directo en addr. Si addr es su
-// dirección de gestión vigente, el router pasa de pending_configuration a
-// snmp_verified (prueba de control: solo entonces el colector acepta sus
-// flujos) y se publica router.updated. Nunca retrocede ni toca un router
-// con túnel.
+// credencial SNMP de un equipo sin túnel propio en addr. Si addr es su
+// dirección de sondeo vigente (modo directo: la de gestión; vía router: su
+// dirección Horus, que el router traduce a la IP privada), el equipo pasa de
+// pending_configuration a snmp_verified (prueba de control: solo entonces el
+// colector acepta sus flujos) y se publica router.updated. Nunca retrocede
+// ni toca un router con túnel.
 func (o *Onboarding) VerifyDirect(ctx context.Context, tenant, routerID uuid.UUID, addr netip.Addr) error {
 	t := pgdb.TenantID(tenant)
 	now := o.now().UTC()
 	err := o.store.SetRouterTunnel(ctx, t, routerID, func(r *domain.Router) bool {
-		if connectionModeOf(r) != domain.ConnectionDirect || r.ManagementAddress == nil || r.OnboardingState != devapi.OnboardingPending {
+		if r.OnboardingState != devapi.OnboardingPending {
 			return false
 		}
-		if a, err := netip.ParseAddr(*r.ManagementAddress); err != nil || a != addr.Unmap() {
+		var want *string
+		switch connectionModeOf(r) {
+		case domain.ConnectionDirect:
+			want = r.ManagementAddress
+		case domain.ConnectionViaRouter:
+			want = r.ViaAddress
+		}
+		if want == nil {
+			return false
+		}
+		if a, err := netip.ParseAddr(*want); err != nil || a != addr.Unmap() {
 			return false
 		}
 		r.OnboardingState, r.UpdatedAt = devapi.OnboardingSNMPVerified, now
@@ -339,6 +367,45 @@ func (o *Onboarding) VerifyDirect(ctx context.Context, tenant, routerID uuid.UUI
 		return devapi.ErrRouterNotFound
 	case errors.Is(err, ErrManagementAddressTaken):
 		return devapi.ErrManagementAddressTaken
+	}
+	return err
+}
+
+// SetViaAddress implementa api.ViaProjector: proyecta la dirección Horus que
+// wireguard asignó al switch (actor svc:wireguard) si sigue yendo vía ese
+// router con esa IP privada. Una dirección nueva exige volver a verificar
+// (el sondeo por el camino nuevo es la prueba de control).
+func (o *Onboarding) SetViaAddress(ctx context.Context, tenant, deviceID, routerID uuid.UUID, target, address netip.Addr) error {
+	t := pgdb.TenantID(tenant)
+	now := o.now().UTC()
+	var changed []string
+	err := o.store.SetRouterTunnel(ctx, t, deviceID, func(r *domain.Router) bool {
+		changed = nil
+		if connectionModeOf(r) != domain.ConnectionViaRouter || r.ViaRouterID == nil || *r.ViaRouterID != routerID || r.ManagementAddress == nil {
+			return false
+		}
+		if a, err := netip.ParseAddr(*r.ManagementAddress); err != nil || a != target.Unmap() {
+			return false
+		}
+		next := address.Unmap().String()
+		if r.ViaAddress != nil && *r.ViaAddress == next {
+			return false
+		}
+		r.ViaAddress, r.UpdatedAt = &next, now
+		changed = append(changed, "via_address")
+		if r.OnboardingState != devapi.OnboardingPending {
+			r.OnboardingState = devapi.OnboardingPending
+			changed = append(changed, "onboarding_state")
+		}
+		return true
+	}, func(r *domain.Router) []outbox.Event {
+		tid := t.UUID()
+		return []outbox.Event{{Type: "horus.devices.router.updated", Source: "horus/devices", TenantID: &tid, AggregateType: "router",
+			AggregateID: r.ID, AggregateVersion: r.Version, Actor: outbox.Actor{Type: "service", ID: "svc:wireguard"}, OccurredAt: now,
+			Data: RouterEventData(r, changed)}}
+	})
+	if errors.Is(err, domain.ErrNotFound) {
+		return devapi.ErrRouterNotFound
 	}
 	return err
 }

@@ -58,6 +58,10 @@ func cases() map[string]tenanttest.Case {
 		"createDirectOnboarding": {Kind: tenanttest.ByID, Body: map[string]any{"management_address": "198.51.100.20"}},
 		// devices: alta de un switch de monitoreo (docs/vendors/mikrotik.md §13, huawei.md §11)
 		"createSwitchOnboarding": {Kind: tenanttest.ByID, Body: map[string]any{"management_address": "10.20.0.5"}},
+		// devices: redes de gestión de un router del sitio (switches vía router, ADR-0032)
+		"listManagementSubnets":  {Kind: tenanttest.ByID},
+		"createManagementSubnet": {Kind: tenanttest.ByID, Body: map[string]any{"prefix": "192.168.77.0/24"}},
+		"deleteManagementSubnet": {Kind: tenanttest.ByID},
 		// devices/wireguard: transporte por router y configuración IPsec/GRE (docs/tunnels.md, ADR-0031)
 		"setRouterTransport":        {Kind: tenanttest.ByID, Body: map[string]any{"connection_mode": "ipsec", "tunnel_remote_address": "198.51.100.66"}},
 		"createTunnelConfig":        {Kind: tenanttest.ByID},
@@ -260,6 +264,8 @@ func (a *app) fixtureISP(x isp, cidr string) map[string]string {
 	peer, _ := data[0].(map[string]any)["id"].(string)
 	out := map[string]string{"site_id": site, "router_id": router, "client_prefix_id": cp, "peer_id": peer,
 		"token_id": script.Header.Get("X-Horus-Enrollment-Token-Id")}
+	// Red de gestión del router (la MISMA en los dos ISP: válido) para /routers/{router_id}/management-subnets/{subnet_id}.
+	out["subnet_id"] = a.must(a.post(x.token, "/api/v1/routers/"+router+"/management-subnets", map[string]any{"prefix": "192.168.88.0/24"}), 201).str("id")
 	for k, v := range a.fixtureDetection(x, site, router) {
 		out[k] = v
 	}
@@ -370,7 +376,7 @@ func TestTenantIsolationMatrix(t *testing.T) {
 				"{playlist_id}", paramsA["playlist_id"], "{channel_id}", paramsA["channel_id"], "{user_id}", paramsA["user_id"],
 				"{kind}", paramsA["kind"], "{role_id}", paramsA["role_id"], "{asn_rule_id}", paramsA["asn_rule_id"], "{asn}", "263237",
 				"{report_id}", paramsA["report_id"], "{definition_id}", paramsA["definition_id"], "{api_token_id}", paramsA["api_token_id"],
-				"{link_id}", paramsA["link_id"],
+				"{link_id}", paramsA["link_id"], "{subnet_id}", paramsA["subnet_id"],
 			).Replace(tmpl), nil)
 			return a.mux.Matches(r)
 		},

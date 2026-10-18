@@ -53,10 +53,11 @@ func (s *Store) SetRouterTunnel(ctx context.Context, t pgdb.TenantID, id uuid.UU
 		}
 		err = tx.QueryRow(ctx, `UPDATE devices.router SET tunnel_address = $3::inet, mgmt_wireguard_peer_id = $4, onboarding_state = $5,
 				updated_at = $6, management_address = $7::inet, connection_mode = $8, protection_level = $9,
-				tunnel_remote_address = $10::inet, tunnel_remote_id = $11, sflow_enabled = $12, version = version + 1
+				tunnel_remote_address = $10::inet, tunnel_remote_id = $11, sflow_enabled = $12, via_router_id = $13, via_address = $14::inet,
+				version = version + 1
 			WHERE tenant_id = $1 AND id = $2 RETURNING version`,
 			t.UUID(), id, r.TunnelAddress, r.WireguardPeerID, r.OnboardingState, r.UpdatedAt, r.ManagementAddress, connectionMode(r),
-			protectionLevel(r), r.TunnelRemoteAddress, r.TunnelRemoteID, r.SFlowEnabled).Scan(&r.Version)
+			protectionLevel(r), r.TunnelRemoteAddress, r.TunnelRemoteID, r.SFlowEnabled, r.ViaRouterID, r.ViaAddress).Scan(&r.Version)
 		if err != nil {
 			return routerErr(err)
 		}

@@ -8353,6 +8353,13 @@ paths:
               - switch
               - all
             default: router
+        - name: via_router_id
+          in: query
+          description: |
+            Solo los equipos alcanzados **vía** ese router del sitio (switches con `connection_mode=via_router`, ADR-0032).
+            Combínelo con `device_type=switch` para la lista de la ficha del router.
+          schema:
+            $ref: '#/components/schemas/Uuid'
         - name: sort
           in: query
           schema:
@@ -8663,6 +8670,7 @@ paths:
         - routers
       operationId: deleteRouter
       summary: Baja lógica del router
+      description: Un router con switches vía él (ADR-0032) no se da de baja → `409 ROUTER_HAS_VIA_SWITCHES`.
       x-module: devices
       x-scope: tenant
       x-permission: devices.delete
@@ -8678,6 +8686,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '412':
           $ref: '#/components/responses/PreconditionFailed'
   /routers/{router_id}/credentials/{kind}:
@@ -8912,6 +8922,127 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /routers/{router_id}/management-subnets:
+    parameters:
+      - $ref: '#/components/parameters/RouterId'
+    get:
+      tags:
+        - routers
+      operationId: listManagementSubnets
+      summary: Redes de gestión declaradas en un router del sitio
+      description: |
+        Redes de gestión del sitio alcanzadas por este router (ADR-0032). Un switch vía este router con su IP dentro de una
+        red declarada usa un bloque Horus del mismo tamaño: una sola regla NAT en el router para toda la red. Un switch no
+        tiene redes (`422 SWITCH_NOT_SUPPORTED`).
+      x-module: devices
+      x-scope: tenant
+      x-permission: devices.read
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      responses:
+        '200':
+          description: Redes declaradas.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ManagementSubnet'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+    post:
+      tags:
+        - routers
+      operationId: createManagementSubnet
+      summary: Declarar una red de gestión en un router del sitio
+      description: |
+        IPv4 privada (RFC 1918 o 100.64.0.0/10), canónica, de /22 a /30, que no toque direcciones de Horus. No se solapa
+        con otra red del MISMO router del ISP (`409 MANAGEMENT_SUBNET_OVERLAP`); otros routers u otros ISP pueden repetirla.
+        Máximo 16 por router. Auditado.
+      x-module: devices
+      x-scope: tenant
+      x-permission: devices.update
+      x-audited: true
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - prefix
+              properties:
+                prefix:
+                  type: string
+                  examples:
+                    - 192.168.88.0/24
+      responses:
+        '201':
+          description: Red declarada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagementSubnet'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /routers/{router_id}/management-subnets/{subnet_id}:
+    parameters:
+      - $ref: '#/components/parameters/RouterId'
+      - name: subnet_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+    delete:
+      tags:
+        - routers
+      operationId: deleteManagementSubnet
+      summary: Quitar una red de gestión declarada
+      description: '`409 MANAGEMENT_SUBNET_IN_USE` si algún switch vía este router tiene su IP dentro (su NAT depende de ella). Auditado.'
+      x-module: devices
+      x-scope: tenant
+      x-permission: devices.update
+      x-audited: true
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      responses:
+        '204':
+          description: Red quitada.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
   /routers/{router_id}/metrics/live:
     parameters:
       - $ref: '#/components/parameters/RouterId'
@@ -9153,10 +9284,16 @@ paths:
       tags:
         - routers
       operationId: createSwitchOnboarding
-      summary: Alta de un switch (modo directo) — credencial SNMP nueva y configuración para pegar
+      summary: Alta de un switch (modo directo o vía router del sitio) — credencial SNMP nueva y configuración para pegar
       description: |
-        Solo `device_type=switch` (un router → `422 DEVICE_NOT_A_SWITCH`). Fija la dirección de gestión del switch (misma
-        regla que el modo directo de Huawei: única en la plataforma una vez verificada, nunca una IP de Horus), emite una
+        Solo `device_type=switch` (un router → `422 DEVICE_NOT_A_SWITCH`). Dos caminos (docs/tunnels.md §10, ADR-0032):
+        `connection_mode=direct` cuando Horus está en la misma red de gestión que el switch, y `via_router` (lo habitual:
+        Horus en un servidor público) a través del túnel (WireGuard, IPsec o GRE) de un router del sitio del mismo ISP
+        (`via_router_id`; otro ISP, un switch o un router sin túnel → `422 VIA_ROUTER_INVALID`). Vía router el switch
+        conserva su IP privada y recibe una **dirección Horus** (IPAM de túneles, única en la plataforma) que el router
+        traduce con NAT 1:1; la respuesta trae además `path` y `router_config` (lo que se pega en el router: NAT 1:1 y
+        cortafuegos mínimo, RouterOS o VRP). La dirección de gestión es única por ISP (modo directo, entre verificados) y
+        por (ISP, router, IP) vía router (`409 MANAGEMENT_ADDRESS_IN_USE`), nunca una IP de Horus. Emite una
         credencial SNMP de solo lectura nueva — SNMPv3 SHA1/AES en RouterOS (lo que admite `/snmp community`), SNMPv3
         SHA-256/AES-128 en la serie S de Huawei o una **comunidad v2c** en SwOS (solo v1/v2c: aviso de menor seguridad) —,
         cifrada en reposo y **solo en esta respuesta** en claro, y devuelve lo que pega el operador: RouterOS
@@ -9184,9 +9321,23 @@ paths:
                   type:
                     - string
                     - 'null'
-                  description: IP de gestión del switch (obligatoria si aún no la tiene).
+                  description: IP de gestión del switch (obligatoria si aún no la tiene; IPv4 vía router).
                   examples:
                     - 10.20.0.5
+                connection_mode:
+                  type:
+                    - string
+                    - 'null'
+                  enum:
+                    - direct
+                    - via_router
+                    - null
+                  description: '`direct` (Horus en la misma red de gestión) o `via_router` (por el túnel de un router del sitio); null = el actual.'
+                via_router_id:
+                  description: Router del sitio (con túnel) por el que Horus alcanza al switch; obligatorio la primera vez con `via_router`.
+                  oneOf:
+                    - $ref: '#/components/schemas/Uuid'
+                    - type: 'null'
                 sflow:
                   type:
                     - boolean
@@ -9358,7 +9509,8 @@ paths:
         Cambiar el transporte, la IP pública o la identidad devuelve el router a `pending_configuration` (hay que pegar la
         configuración nueva: script WireGuard, `POST /routers/{router_id}/tunnel-config` o alta directa); la IP de túnel
         (identidad del exportador) se conserva entre transportes con túnel. IP pública (GRE) o identidad IKE (IPsec) en uso
-        por otro router → `409 TUNNEL_REMOTE_IN_USE`. Idempotente: el mismo cuerpo no cambia nada.
+        por otro router → `409 TUNNEL_REMOTE_IN_USE`. A `direct` con switches vía este router → `409 ROUTER_HAS_VIA_SWITCHES`.
+        Idempotente: el mismo cuerpo no cambia nada.
       x-module: devices
       x-scope: tenant
       x-permission: devices.credentials.write
@@ -10707,6 +10859,11 @@ components:
             - SWITCH_NOT_SUPPORTED
             - SWITCH_NOT_FOUND
             - SFLOW_NOT_SUPPORTED
+            - VIA_ROUTER_INVALID
+            - ROUTER_HAS_VIA_SWITCHES
+            - MANAGEMENT_SUBNET_NOT_FOUND
+            - MANAGEMENT_SUBNET_OVERLAP
+            - MANAGEMENT_SUBNET_IN_USE
             - SITE_NOT_FOUND
             - SITE_NOT_EMPTY
             - PEER_ALREADY_REVOKED
@@ -12564,13 +12721,16 @@ components:
             $ref: '#/components/schemas/SiteHealthReason'
     RouterEffectiveStatus:
       type: string
-      description: Estado efectivo (api.md §2.6). `stale` = la observación es vieja o el sondeador no late; `unknown` = nunca observado.
+      description: |
+        Estado efectivo (api.md §2.6). `stale` = la observación es vieja o el sondeador no late; `unknown` = nunca observado;
+        `unreachable` = switch vía router con el túnel de su router del sitio caído (ADR-0032).
       enum:
         - online
         - warning
         - critical
         - degraded
         - offline
+        - unreachable
         - stale
         - unknown
         - maintenance
@@ -19817,7 +19977,9 @@ components:
             - 'null'
           description: |
             Solo `connection_mode=direct`: IP de origen del router vista por Horus (destino del sondeo SNMP e identidad del
-            exportador de flujos). Cambiarla devuelve el router a `pending_configuration` hasta verificarla de nuevo.
+            exportador de flujos). Cambiarla devuelve el router a `pending_configuration` hasta verificarla de nuevo. En un
+            switch `via_router` es su IP privada en la red de gestión (solo cambia con su alta; nunca es identidad). Única
+            por ISP (directo, entre verificados) y por (ISP, router del sitio, IP) vía router.
           examples:
             - 198.51.100.20
         device_type:
@@ -19829,8 +19991,9 @@ components:
           description: |
             `switch`: switch de **monitoreo** (docs/vendors/mikrotik.md §13, huawei.md §11). Misma tabla que los routers
             (estado, credencial SNMP cifrada, modo directo y verificación) pero nunca es router principal ni exportador
-            primario, nunca crea clientes ni entra en la atribución. Siempre `connection_mode=direct` por la red de
-            gestión (`protection_level=unencrypted_private`). No se puede cambiar después del alta.
+            primario, nunca crea clientes ni entra en la atribución. Sin túnel propio: `connection_mode=direct` (Horus en la
+            red de gestión) o `via_router` (por el túnel de un router del sitio, ADR-0032), elegido en su alta;
+            `protection_level=unencrypted_private` (su último tramo). No se puede cambiar después del alta.
         switch_platform:
           type:
             - string
@@ -19847,6 +20010,31 @@ components:
           type: array
           items:
             type: string
+    ViaRouterRef:
+      type: object
+      required:
+        - id
+        - name
+        - connection_mode
+        - protection_level
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        name:
+          type: string
+        connection_mode:
+          type: string
+          enum:
+            - wireguard
+            - ipsec
+            - gre
+            - direct
+        protection_level:
+          type: string
+          enum:
+            - encrypted
+            - unencrypted_private
+            - unencrypted_internet
     CredentialStatus:
       type: object
       required:
@@ -19902,6 +20090,9 @@ components:
             - device_type
             - switch_platform
             - sflow_enabled
+            - via_router_id
+            - via_address
+            - via_router
           properties:
             sflow_enabled:
               type: boolean
@@ -19933,12 +20124,35 @@ components:
                 - ipsec
                 - gre
                 - direct
+                - via_router
               description: |
                 Transporte con Horus (docs/tunnels.md, ADR-0031). `wireguard`: túnel WireGuard router → hub (MikroTik).
                 `ipsec`: IPsec IKEv2 route-based (RFC 7296; MikroTik, Huawei y cualquier equipo con IKEv2). `gre`: GRE
                 (RFC 2784) **sin cifrado**, respaldo universal. `direct`: sin túnel; el camino lo asegura el operador y el
-                colector filtra por la dirección de gestión verificada (docs/vendors/huawei.md §5). Al alta lo fija `vendor`
-                (MikroTik → wireguard, Huawei → direct); se cambia con `PUT /routers/{router_id}/transport`.
+                colector filtra por la dirección de gestión verificada (docs/vendors/huawei.md §5). `via_router` (solo
+                switches, ADR-0032): sin túnel propio, por el túnel del router `via_router_id` con NAT 1:1 hacia
+                `via_address`. Al alta lo fija `vendor` (MikroTik → wireguard, Huawei → direct; switch → direct); se cambia
+                con `PUT /routers/{router_id}/transport` (switches: con su alta).
+            via_router_id:
+              description: Solo `via_router` — router del sitio (mismo ISP, con túnel) por el que Horus alcanza al switch.
+              oneOf:
+                - $ref: '#/components/schemas/Uuid'
+                - type: 'null'
+            via_address:
+              type:
+                - string
+                - 'null'
+              description: |
+                Solo `via_router` — **dirección Horus** del switch (IPAM de túneles, única en la plataforma; el router del sitio
+                la traduce a `management_address`). Destino del sondeo SNMP e identidad del exportador sFlow; nunca la IP
+                privada. null hasta que wireguard la asigna.
+              examples:
+                - 10.255.1.40
+            via_router:
+              description: Solo `via_router` — resumen del router del sitio para mostrar el camino y la protección heredada de su túnel.
+              oneOf:
+                - $ref: '#/components/schemas/ViaRouterRef'
+                - type: 'null'
             protection_level:
               type: string
               enum:
@@ -19995,15 +20209,19 @@ components:
                 $ref: '#/components/schemas/CredentialStatus'
     RouterObservedState:
       type: string
+      description: '`unreachable` solo en switches vía router (ADR-0032) cuyo router del sitio tiene el túnel caído (razón `via_router_tunnel_down`): no es un fallo del switch.'
       enum:
         - online
         - warning
         - critical
         - degraded
         - offline
+        - unreachable
     RouterStateReason:
       type: string
-      description: Enum abierto (events.md §8.4). `interface_flapping` solo en switches (uplink inestable).
+      description: |
+        Enum abierto (events.md §8.4). `interface_flapping` solo en switches (uplink inestable). `via_router_tunnel_down`:
+        switch vía router cuyo router del sitio tiene el túnel caído (estado `unreachable`).
       examples:
         - ok
         - cpu_high
@@ -20018,6 +20236,7 @@ components:
         - interface_flapping
         - psu_failed
         - fan_failed
+        - via_router_tunnel_down
     RouterSignals:
       type: object
       description: Las señales que sostienen el estado; `unknown` mientras no haya observación.
@@ -20292,6 +20511,7 @@ components:
             - ipsec
             - gre
             - direct
+            - via_router
           description: Transporte del router con Horus (docs/tunnels.md). Ausente en filas anteriores al campo.
         protection_level:
           type: string
@@ -20560,6 +20780,25 @@ components:
           oneOf:
             - $ref: '#/components/schemas/Timestamp'
             - type: 'null'
+    ManagementSubnet:
+      type: object
+      required:
+        - id
+        - router_id
+        - prefix
+        - created_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        router_id:
+          $ref: '#/components/schemas/Uuid'
+        prefix:
+          type: string
+          description: Red de gestión IPv4 privada (/22 a /30).
+          examples:
+            - 192.168.88.0/24
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
     InterfaceSample:
       type: object
       description: Última muestra de una interfaz sondeada. Tasas null en el primer sondeo o tras una discontinuidad de contador.
@@ -20800,6 +21039,85 @@ components:
                 oneOf:
                   - $ref: '#/components/schemas/Uuid'
                   - type: 'null'
+    SwitchPath:
+      type: object
+      required:
+        - router_id
+        - router_name
+        - transport
+        - protection_level
+        - horus_address
+        - block
+        - poller_address
+        - collector_address
+        - collector_port
+        - tunnel_status
+      properties:
+        router_id:
+          $ref: '#/components/schemas/Uuid'
+        router_name:
+          type: string
+        transport:
+          type: string
+          enum:
+            - wireguard
+            - ipsec
+            - gre
+        protection_level:
+          type: string
+          enum:
+            - encrypted
+            - unencrypted_private
+            - unencrypted_internet
+          description: Nivel de protección del túnel del router (el switch lo hereda en el tramo hub ↔ router).
+        horus_address:
+          type: string
+          description: Dirección Horus del switch (NAT 1:1 en el router).
+          examples:
+            - 10.255.1.40
+        block:
+          type:
+            - string
+            - 'null'
+          description: Bloque Horus de la red de gestión declarada que contiene al switch.
+        poller_address:
+          type: string
+          description: Origen del sondeo SNMP (IP de servicios del hub).
+        collector_address:
+          type: string
+          description: Destino de sFlow (colector de Horus por el túnel).
+        collector_port:
+          type: integer
+        tunnel_status:
+          type: string
+          description: Estado del túnel del router en el hub (awaiting_enrollment, pending_handshake, active).
+    RouterSiteConfig:
+      type: object
+      required:
+        - language
+        - title
+        - config
+        - notes
+        - warnings
+      properties:
+        language:
+          type: string
+          enum:
+            - routeros
+            - vrp
+        title:
+          type: string
+        config:
+          type: string
+          description: Reglas para el router del sitio (NAT 1:1 y cortafuegos mínimo, comentadas y con bloque de deshacer). Sin secretos.
+        notes:
+          type: array
+          items:
+            type: string
+        warnings:
+          type: array
+          items:
+            type: string
     SwitchOnboarding:
       type: object
       required:
@@ -20816,9 +21134,27 @@ components:
         - notes
         - placeholders
         - warnings
+        - connection_mode
+        - path
+        - router_config
       properties:
         router_id:
           $ref: '#/components/schemas/Uuid'
+        connection_mode:
+          type: string
+          enum:
+            - direct
+            - via_router
+        path:
+          description: Solo `via_router` — camino del switch a través del router del sitio.
+          oneOf:
+            - $ref: '#/components/schemas/SwitchPath'
+            - type: 'null'
+        router_config:
+          description: Solo `via_router` — lo que se pega en el router del sitio.
+          oneOf:
+            - $ref: '#/components/schemas/RouterSiteConfig'
+            - type: 'null'
         platform:
           type: string
           enum:

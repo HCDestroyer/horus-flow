@@ -772,6 +772,17 @@ Sección **Switches** (grupo Operación, `devices.read`; `pages/t/[slug]/switche
   monitorear `UCheckbox`, subida `USwitch`, máximo 64, `If-Match` y «Volver a la elección por defecto»), vecinos LLDP
   y `SwitchFlowTop` (top por puerto del sFlow con el aviso permanente de **fuente secundaria**; sin sFlow o en una
   plataforma sin sFlow, explica por qué no hay datos).
+- **Vía router del sitio** (ADR-0032): el paso 1 del asistente pregunta «¿Horus está en la misma red de gestión que
+  el switch?» (`URadioGroup` tipo tarjeta; por defecto **No** → vía router, «Sí» → modo directo) y, vía router, el
+  router del sitio (`USelectMenu` con los routers con túnel del ISP, primero los del nodo, con transporte y
+  protección). La respuesta muestra `SwitchViaPath` («vía router X por WireGuard/IPsec/GRE», enlace al router,
+  `ProtectionBadge` heredada del túnel, dirección Horus e IP privada) y la configuración del router del sitio
+  (`CodeBlock`, notas y avisos: GRE sin cifrar). La ficha del switch muestra el mismo camino y, con el túnel del
+  router caído, el estado **Inalcanzable** (`unreachable`, aviso ámbar con `i-lucide-unplug`, razón «Túnel del
+  router del sitio caído»). La ficha del router (resumen) lista los switches vía él y sus redes de gestión
+  (`RouterViaSwitchesCard`: `GET /routers?device_type=switch&via_router_id=`, alta/baja de redes con
+  `devices.update`). Mocks: `horus.mock.viaTunnelDown = 1` simula el túnel caído; pruebas
+  `tests/unit/mock-switches-via.test.ts` y los casos «vía router» de `tests/e2e/switches.spec.ts`.
 - **Integraciones**: la ficha del nodo muestra sus switches (`NodeSwitchesCard`) y la capacidad marca los uplinks de
   switches con la insignia «Switch» (`UplinksTable`). Las alertas reutilizan las categorías de routers.
 - API simulada: `mocks/switches.ts` (dos switches de partida en el primer nodo; verificación simulada a los 3 s,

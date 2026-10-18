@@ -401,6 +401,11 @@ components:
             - SWITCH_NOT_SUPPORTED
             - SWITCH_NOT_FOUND
             - SFLOW_NOT_SUPPORTED
+            - VIA_ROUTER_INVALID
+            - ROUTER_HAS_VIA_SWITCHES
+            - MANAGEMENT_SUBNET_NOT_FOUND
+            - MANAGEMENT_SUBNET_OVERLAP
+            - MANAGEMENT_SUBNET_IN_USE
             - SITE_NOT_FOUND
             - SITE_NOT_EMPTY
             - PEER_ALREADY_REVOKED

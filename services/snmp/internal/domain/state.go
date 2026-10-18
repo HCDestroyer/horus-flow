@@ -18,6 +18,9 @@ type Observation struct {
 	UplinkDown bool
 	// NoCredentials: el router no tiene credencial SNMP (solo ICMP).
 	NoCredentials bool
+	// ViaTunnelDown: el equipo se alcanza vía un router del sitio cuyo túnel
+	// está caído o nunca subió (switch vía router, ADR-0032).
+	ViaTunnelDown bool
 }
 
 // HysteresisObservations es el número de observaciones iguales seguidas
@@ -31,6 +34,10 @@ func Candidate(o Observation) (state, reason string) {
 	snmpOK := s.SNMP == api.SignalOK
 	snmpBad := s.SNMP == api.SignalFail || s.SNMP == api.SignalAuthFailed
 	switch {
+	case o.ViaTunnelDown && !snmpOK:
+		// El camino (túnel del router del sitio) está caído: no se sabe nada
+		// del switch y no es culpa suya.
+		return api.StatusUnreachable, api.ReasonViaRouterTunnelDown
 	case s.ICMP == api.SignalFail && !snmpOK:
 		// Nada responde: la señal del túnel decide la razón.
 		if s.WireGuard == api.SignalStale || s.WireGuard == api.SignalNever {

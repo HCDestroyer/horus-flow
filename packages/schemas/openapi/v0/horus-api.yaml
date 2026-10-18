@@ -427,6 +427,10 @@ paths:
     $ref: ./devices.yaml#/paths/~1routers~1{router_id}~1direct-onboarding
   /routers/{router_id}/interfaces:
     $ref: ./snmp.yaml#/paths/~1routers~1{router_id}~1interfaces
+  /routers/{router_id}/management-subnets:
+    $ref: ./devices.yaml#/paths/~1routers~1{router_id}~1management-subnets
+  /routers/{router_id}/management-subnets/{subnet_id}:
+    $ref: ./devices.yaml#/paths/~1routers~1{router_id}~1management-subnets~1{subnet_id}
   /routers/{router_id}/metrics/live:
     $ref: ./snmp.yaml#/paths/~1routers~1{router_id}~1metrics~1live
   /routers/{router_id}/netwatch-snippet:

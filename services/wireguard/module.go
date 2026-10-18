@@ -42,6 +42,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/services/tunnelagent/api/tunnelv1"
 	wgapi "github.com/hcdestroyer/horus-flow/services/wgagent/api"
 	"github.com/hcdestroyer/horus-flow/services/wgagent/api/agentv1"
+	viaapi "github.com/hcdestroyer/horus-flow/services/wireguard/api"
 	"github.com/hcdestroyer/horus-flow/services/wireguard/internal/adapters/grpcapi"
 	"github.com/hcdestroyer/horus-flow/services/wireguard/internal/adapters/httpapi"
 	"github.com/hcdestroyer/horus-flow/services/wireguard/internal/adapters/postgres"
@@ -148,6 +149,11 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 			return nil, err
 		}
 		if err := deps.Services.Provide(tunapi.ServiceControl, tunapi.Control(m.svc)); err != nil {
+			db.Close()
+			return nil, err
+		}
+		// Switches vía router (ADR-0032): dirección Horus y configuración del router del sitio para devices.
+		if err := deps.Services.Provide(viaapi.ServiceViaPaths, viaapi.ViaPaths(m.svc)); err != nil {
 			db.Close()
 			return nil, err
 		}

@@ -82,6 +82,7 @@ function onSaved(p: SwitchPorts) {
 const showOnboarding = ref(route.query.onboard === '1')
 const onboarding = computed(() => showOnboarding.value || !verified.value)
 const platform = computed(() => router.data.value?.switch_platform ?? null)
+const viaPath = computed(() => (router.data.value ? viaPathOf(router.data.value) : null))
 const pct = (v: number | null | undefined) =>
   v === null || v === undefined ? '—' : `${formatNumber(v)} %`
 const uptime = (s: number | null | undefined) =>
@@ -140,6 +141,12 @@ useHead({ title: () => router.data.value?.name ?? t('switches.title') })
         <span v-if="router.data.value.management_address" class="text-muted font-mono"
           >· {{ router.data.value.management_address }}</span
         >
+        <span
+          v-if="router.data.value.connection_mode === 'direct'"
+          class="text-muted"
+          data-testid="switch-direct-path"
+          >· {{ t('switches.path.direct') }}</span
+        >
         <RouterStatusBadge
           v-if="status.data.value && verified"
           :status="status.data.value.status"
@@ -148,6 +155,14 @@ useHead({ title: () => router.data.value?.name ?? t('switches.title') })
           data-testid="switch-status"
         />
       </div>
+
+      <SwitchViaPath
+        v-if="viaPath"
+        data-testid="switch-detail-path"
+        :path="viaPath"
+        :private-address="router.data.value.management_address"
+        :tunnel-down="status.data.value?.reason === 'via_router_tunnel_down'"
+      />
 
       <SwitchOnboarding
         v-if="onboarding"

@@ -67,6 +67,22 @@ type Tunnel struct {
 	MTU      int
 	// GREKey: clave GRE (0 = sin clave).
 	GREKey uint32
+	// Routed son las direcciones Horus de los equipos alcanzados a través de
+	// este router (switches vía router, ADR-0032): /32 o bloques IPv4 del
+	// pool. Se enrutan por la interfaz del túnel y solo se aceptan como
+	// origen por ella. Ordenadas y sin solapes.
+	Routed []netip.Prefix
+}
+
+// MinRoutedBits es el bloque más grande admitido en Routed (como wg-agent).
+const MinRoutedBits = 22
+
+// Equal compara dos túneles campo a campo (Routed incluido).
+func (t Tunnel) Equal(o Tunnel) bool {
+	return t.PeerID == o.PeerID && t.TenantID == o.TenantID && t.Transport == o.Transport && t.Index == o.Index &&
+		t.TunnelAddress == o.TunnelAddress && t.HubAddress == o.HubAddress && t.Local == o.Local && t.Remote == o.Remote &&
+		t.LocalID == o.LocalID && t.RemoteID == o.RemoteID && t.PSK == o.PSK && t.MTU == o.MTU && t.GREKey == o.GREKey &&
+		slices.Equal(t.Routed, o.Routed)
 }
 
 // Interface es el nombre de la interfaz del túnel en el hub.
@@ -137,6 +153,7 @@ type DesiredTunnel struct {
 	LocalID, RemoteID, PSK                            string
 	MTU                                               int32
 	GREKey                                            uint32
+	RoutedPrefixes                                    []string
 }
 
 func parseAddr(s string, required bool) (netip.Addr, error) {
@@ -170,6 +187,11 @@ func Normalize(desired []DesiredTunnel) (map[uint32]Tunnel, error) {
 	seenAddr := map[netip.Addr]string{}
 	seenRemoteGRE := map[netip.Addr]string{}
 	seenRemoteID := map[string]string{}
+	type owned struct {
+		pfx  netip.Prefix
+		peer string
+	}
+	var routed []owned
 	bad := func(peer, what string, a ...any) error {
 		return fmt.Errorf("%w: tunnel %s: %s", ErrInvalidState, peer, fmt.Sprintf(what, a...))
 	}
@@ -231,9 +253,59 @@ func Normalize(desired []DesiredTunnel) (map[uint32]Tunnel, error) {
 				return nil, bad(d.PeerID, "psk")
 			}
 		}
+		for _, r := range d.RoutedPrefixes {
+			pfx, err := parseRouted(r)
+			if err != nil {
+				return nil, bad(d.PeerID, "routed prefix %q: %v", r, err)
+			}
+			for _, o := range routed {
+				if o.pfx.Overlaps(pfx) {
+					return nil, bad(d.PeerID, "routed prefix %s overlaps %s of %s", pfx, o.pfx, o.peer)
+				}
+			}
+			routed = append(routed, owned{pfx: pfx, peer: d.PeerID})
+			t.Routed = append(t.Routed, pfx)
+		}
+		slices.SortFunc(t.Routed, comparePrefix)
 		out[t.Index] = t
 	}
+	// Una dirección enrutada nunca contiene la /32 de túnel de ningún router
+	// ni la IP de servicios del hub.
+	for _, o := range routed {
+		for idx, t := range out {
+			if o.pfx.Contains(t.TunnelAddress) || o.pfx.Contains(t.HubAddress) {
+				return nil, bad(o.peer, "routed prefix %s contains an address of tunnel %d", o.pfx, idx)
+			}
+		}
+	}
 	return out, nil
+}
+
+// parseRouted acepta una /32 (o una IP suelta) o un bloque IPv4 canónico de
+// /MinRoutedBits a /31, unicast.
+func parseRouted(s string) (netip.Prefix, error) {
+	p, err := netip.ParsePrefix(s)
+	if err != nil {
+		a, aerr := parseAddr(s, true)
+		if aerr != nil {
+			return netip.Prefix{}, aerr
+		}
+		return netip.PrefixFrom(a, 32), nil
+	}
+	if !p.Addr().Is4() || p.Masked() != p || p.Bits() < MinRoutedBits {
+		return netip.Prefix{}, fmt.Errorf("must be a canonical IPv4 /%d-/32", MinRoutedBits)
+	}
+	if _, err := parseAddr(p.Addr().String(), true); err != nil {
+		return netip.Prefix{}, err
+	}
+	return p, nil
+}
+
+func comparePrefix(a, b netip.Prefix) int {
+	if c := a.Addr().Compare(b.Addr()); c != 0 {
+		return c
+	}
+	return a.Bits() - b.Bits()
 }
 
 // Observed es un túnel observado en el host (interfaz y, en ipsec, conexión).
@@ -248,8 +320,12 @@ type Observed struct {
 // Fingerprint resume los campos que obligan a reconfigurar un túnel. Incluye
 // un resumen de la PSK sin revelarla (la calcula el llamante con hash).
 func Fingerprint(t Tunnel, pskDigest string) string {
+	routed := make([]string, 0, len(t.Routed))
+	for _, r := range t.Routed {
+		routed = append(routed, r.String())
+	}
 	return strings.Join([]string{t.Transport, t.TunnelAddress.String(), t.HubAddress.String(), addrOrAny(t.Local), addrOrAny(t.Remote),
-		t.LocalID, t.RemoteID, pskDigest, strconv.Itoa(t.MTU), strconv.FormatUint(uint64(t.GREKey), 10)}, "|")
+		t.LocalID, t.RemoteID, pskDigest, strconv.Itoa(t.MTU), strconv.FormatUint(uint64(t.GREKey), 10), strings.Join(routed, ",")}, "|")
 }
 
 func addrOrAny(a netip.Addr) string {

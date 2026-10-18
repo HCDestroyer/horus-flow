@@ -546,6 +546,7 @@ useHead({ title: () => rt.value?.name ?? t('router.title') })
         <UCard>
           <ExporterSummary :router="rt" :exporter="exporter ?? null" :peer="peer ?? null" />
         </UCard>
+        <RouterViaSwitchesCard v-if="!direct" :router-id="rt.id" />
         <AiAnalysis feature="router" :context-id="rt.id" />
       </template>
       <template v-else-if="tab === 'connection'">

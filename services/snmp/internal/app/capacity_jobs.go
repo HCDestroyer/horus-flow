@@ -111,7 +111,7 @@ func (c *Capacity) collectProbes(ctx context.Context) {
 		if failed && now.Before(f.Retry) {
 			continue
 		}
-		if r.Status == api.StatusOffline {
+		if r.Status == api.StatusOffline || r.Status == api.StatusUnreachable {
 			continue
 		}
 		wg.Add(1)

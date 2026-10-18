@@ -68,6 +68,14 @@ métricas y eventos publicados/consumidos cuando el módulo tenga implementació
   configuración (`domain.BuildSwitchConfig`). `RevealSNMPCredential` devuelve `Version: "2c"` + `Community` para SwOS.
 - Eventos `horus.devices.router.*` con `device_type`, `switch_platform`, `sflow_enabled`; flowinv convierte un switch
   verificado con sFlow en exportador **secundario**.
+- **Vía router del sitio** (ADR-0032, docs/tunnels.md §10): `connection_mode = via_router` con `via_router_id`
+  (router del ISP con túnel) y `via_address` (dirección Horus que proyecta wireguard por `devapi.ViaProjector`).
+  `switch-onboarding` acepta `connection_mode`/`via_router_id`, pide a wireguard el camino (`wireguard/api.ViaPaths`,
+  en proceso; 503 si no es local) y devuelve `path` y `router_config`. La verificación (`VerifyDirect`) vale solo en la
+  dirección Horus. `management_address` es única por ISP (directo, verificados) y por (ISP, router, IP) vía router.
+  Redes de gestión por router: `GET|POST /routers/{id}/management-subnets`, `DELETE …/{subnet_id}` (`devices.update`,
+  auditado; 409 `MANAGEMENT_SUBNET_OVERLAP|IN_USE`). Un router con switches vía él no se da de baja ni pasa a
+  `direct` (409 `ROUTER_HAS_VIA_SWITCHES`).
 
 ## Alta de routers e importación del MikroTik (I1-01, I1-02, I1-28)
 

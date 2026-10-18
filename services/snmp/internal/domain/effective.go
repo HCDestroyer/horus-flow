@@ -36,7 +36,7 @@ func PollerHealthy(lastCycle *time.Time, now time.Time, interval time.Duration) 
 }
 
 // statusRank es el orden "problemas primero" de GET /routers/status.
-var statusRank = map[string]int{api.StatusCritical: 0, api.StatusOffline: 1, api.StatusDegraded: 2, api.StatusWarning: 3,
+var statusRank = map[string]int{api.StatusCritical: 0, api.StatusOffline: 1, api.StatusUnreachable: 2, api.StatusDegraded: 2, api.StatusWarning: 3,
 	api.StatusStale: 4, api.StatusUnknown: 5, api.StatusMaintenance: 6, api.StatusOnline: 7}
 
 // SortProblemsFirst ordena por estado (critical, offline, degraded, warning,

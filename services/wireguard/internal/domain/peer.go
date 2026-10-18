@@ -109,6 +109,27 @@ type Peer struct {
 	LastRekeyAt  *time.Time
 	LastPacketAt *time.Time
 	TunnelError  *string
+	// Routed: direcciones Horus de los equipos alcanzados a través de este
+	// router (switches vía router, ADR-0032), solo en el estado deseado.
+	Routed []netip.Prefix
+}
+
+// AllowedIPs es la /32 del peer más sus direcciones Horus enrutadas.
+func (p *Peer) AllowedIPs() []string {
+	out := []string{p.AllowedIP()}
+	for _, r := range p.Routed {
+		out = append(out, r.String())
+	}
+	return out
+}
+
+// RoutedPrefixes son las direcciones Horus enrutadas (sin la /32 de túnel).
+func (p *Peer) RoutedPrefixes() []string {
+	out := make([]string, 0, len(p.Routed))
+	for _, r := range p.Routed {
+		out = append(out, r.String())
+	}
+	return out
 }
 
 // GREKeyFromIndex pide al crear el túnel GRE que su clave sea su índice en

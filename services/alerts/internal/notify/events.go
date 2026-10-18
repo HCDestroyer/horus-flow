@@ -47,9 +47,12 @@ const (
 	routerCritical = "critical"
 	routerDegraded = "degraded"
 	routerOffline  = "offline"
-	serviceUp      = "up"
-	serviceDown    = "down"
-	serviceDegr    = "degraded"
+	// routerUnreachable: switch vía router con el túnel de su router caído
+	// (ADR-0032). No se notifica: el aviso es el del túnel del router.
+	routerUnreachable = "unreachable"
+	serviceUp         = "up"
+	serviceDown       = "down"
+	serviceDegr       = "degraded"
 )
 
 // RouterInfo es lo que alerts necesita para nombrar un router en un mensaje.
@@ -222,7 +225,7 @@ func mapRouterState(prev, state, reason string) string {
 			return eventRouterOffline
 		}
 	case routerOnline:
-		if prev != "" && prev != routerOnline {
+		if prev != "" && prev != routerOnline && prev != routerUnreachable {
 			return eventRouterRecovered
 		}
 	case routerDegraded:
@@ -254,6 +257,7 @@ var severityLabel = map[string]string{"info": "informativa", "low": "baja", "med
 
 var routerReasonText = map[string]string{
 	"tunnel_down":                 "Sin respuesta y sin túnel activo (WireGuard, IPsec o GRE).",
+	"via_router_tunnel_down":      "Switch inalcanzable: el túnel de su router del sitio está caído.",
 	"host_unreachable_via_tunnel": "El túnel está activo pero el router no responde a ping ni a SNMP.",
 	"snmp_unreachable":            "Responde a ping pero no a SNMP.",
 	"snmp_auth_failed":            "Responde a ping pero rechaza la credencial SNMP.",

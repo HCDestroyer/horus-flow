@@ -1,6 +1,6 @@
 // Package domain contiene las reglas puras del agente del hub WireGuard:
 // validación del estado deseado (sin claves privadas de routers: solo claves
-// públicas y /32 de túnel) y el cálculo del plan de cambios sobre los peers
+// públicas, /32 de túnel y direcciones Horus de equipos vía router) y el cálculo del plan de cambios sobre los peers
 // observados en la interfaz. Fail-static: el plan solo borra peers ausentes
 // de un estado deseado completo y válido; nunca por un error del control.
 package domain
@@ -47,12 +47,28 @@ func ValidKey(k string) bool {
 	return err == nil && len(b) == 32
 }
 
+// MinRoutedBits es el prefijo IPv4 más grande admitido como allowed-ip
+// además de las /32: el bloque Horus de una red de gestión declarada en un
+// router del sitio (switches vía router, ADR-0032). Más grande que /22 se
+// rechaza: un error del control nunca debe poder enrutar medio pool a un
+// solo router.
+const MinRoutedBits = 22
+
 // Normalize valida el estado deseado y lo convierte en peers del hub. Cada
-// allowed-ip debe ser una /32 IPv4 (o /128) única: un peer de router nunca
-// enruta más que su IP de túnel.
+// peer trae al menos una dirección única (su /32 de túnel) y, además, las
+// direcciones Horus de los equipos que se alcanzan a través de él (switches
+// vía router: /32 o un bloque IPv4 canónico de /22 a /31, ADR-0032). Ningún
+// allowed-ip puede solaparse con otro, de ningún peer: WireGuard elige el
+// peer por la dirección de destino (cryptokey routing) y un solape mandaría
+// el tráfico de un ISP al router de otro. Por eso el hub nunca recibe las
+// IP privadas de los ISP, solo direcciones de su propio pool.
 func Normalize(desired []DesiredPeer) (map[string]Peer, error) {
 	out := make(map[string]Peer, len(desired))
-	seenIP := map[netip.Prefix]string{}
+	type owned struct {
+		pfx  netip.Prefix
+		peer string
+	}
+	var all []owned
 	for _, d := range desired {
 		if !ValidKey(d.PublicKey) {
 			return nil, fmt.Errorf("%w: peer %s: public key", ErrInvalidState, d.PeerID)
@@ -64,21 +80,48 @@ func Normalize(desired []DesiredPeer) (map[string]Peer, error) {
 			return nil, fmt.Errorf("%w: peer %s: no allowed ips", ErrInvalidState, d.PeerID)
 		}
 		p := Peer{PublicKey: d.PublicKey, Keepalive: time.Duration(d.Keepalive) * time.Second}
+		single := false
 		for _, s := range d.AllowedIPs {
 			pfx, err := netip.ParsePrefix(s)
-			if err != nil || !pfx.IsSingleIP() {
-				return nil, fmt.Errorf("%w: peer %s: allowed ip %q must be a single address", ErrInvalidState, d.PeerID, s)
+			if err != nil || !validAllowed(pfx) {
+				return nil, fmt.Errorf("%w: peer %s: allowed ip %q must be a single address or a canonical IPv4 block /%d-/31",
+					ErrInvalidState, d.PeerID, s, MinRoutedBits)
 			}
-			if other, dup := seenIP[pfx]; dup {
-				return nil, fmt.Errorf("%w: allowed ip %s in peers %s and %s", ErrInvalidState, pfx, other, d.PeerID)
+			single = single || pfx.IsSingleIP()
+			for _, o := range all {
+				if o.pfx.Overlaps(pfx) {
+					return nil, fmt.Errorf("%w: allowed ip %s in peer %s overlaps %s in peer %s", ErrInvalidState, pfx, d.PeerID, o.pfx, o.peer)
+				}
 			}
-			seenIP[pfx] = d.PeerID
+			all = append(all, owned{pfx: pfx, peer: d.PeerID})
 			p.AllowedIPs = append(p.AllowedIPs, pfx)
 		}
-		slices.SortFunc(p.AllowedIPs, func(a, b netip.Prefix) int { return a.Addr().Compare(b.Addr()) })
+		if !single {
+			return nil, fmt.Errorf("%w: peer %s: no tunnel address (single ip)", ErrInvalidState, d.PeerID)
+		}
+		slices.SortFunc(p.AllowedIPs, comparePrefix)
 		out[d.PublicKey] = p
 	}
 	return out, nil
+}
+
+// validAllowed: una dirección única (IPv4 /32 o IPv6 /128) o un bloque IPv4
+// canónico entre /MinRoutedBits y /31.
+func validAllowed(p netip.Prefix) bool {
+	if !p.IsValid() || p.Masked() != p {
+		return false
+	}
+	if p.IsSingleIP() {
+		return true
+	}
+	return p.Addr().Is4() && p.Bits() >= MinRoutedBits
+}
+
+func comparePrefix(a, b netip.Prefix) int {
+	if c := a.Addr().Compare(b.Addr()); c != 0 {
+		return c
+	}
+	return a.Bits() - b.Bits()
 }
 
 // Plan son los cambios a aplicar en la interfaz.
@@ -112,7 +155,7 @@ func Diff(desired, observed map[string]Peer) Plan {
 
 func normalizeObserved(o Peer) Peer {
 	ips := slices.Clone(o.AllowedIPs)
-	slices.SortFunc(ips, func(a, b netip.Prefix) int { return a.Addr().Compare(b.Addr()) })
+	slices.SortFunc(ips, comparePrefix)
 	o.AllowedIPs = ips
 	return o
 }

@@ -110,6 +110,19 @@ type SwitchValues struct {
 	// SFlow: añadir la configuración de sFlow (solo vrp).
 	SFlow        bool
 	SamplingRate int
+	// Via: camino vía router del sitio (nil = modo directo por la red de
+	// gestión). PollerAddress y CollectorAddress son entonces la IP de
+	// servicios del hub y el colector, alcanzados por el túnel del router.
+	Via *SwitchVia
+}
+
+// SwitchVia describe el camino de un switch vía router (ADR-0032).
+type SwitchVia struct {
+	RouterName string
+	// Transport del túnel del router: wireguard | ipsec | gre.
+	Transport string
+	// HorusAddress: dirección Horus del switch (NAT 1:1 en el router).
+	HorusAddress netip.Addr
 }
 
 // SwitchConfig es la configuración generada para pegar (o, en SwOS, los
@@ -155,9 +168,16 @@ func BuildSwitchConfig(v SwitchValues) (SwitchConfig, error) {
 			Description: "IP de origen con la que Horus consulta SNMP (HORUS_DEVICES_DIRECT_POLLER_ADDRESS no está configurada)."})
 	}
 	out.Notes = append(out.Notes,
-		"Switch de MONITOREO: Horus solo lee (SNMP de solo lectura). Nunca escribe en el switch, nunca lo usa para crear clientes ni para atribuir tráfico.",
-		"Modo directo por la red de gestión del ISP: Horus consulta "+v.ManagementAddress.Unmap().String()+" y solo marca el switch como verificado cuando responde con ESTA credencial en esa dirección.",
-	)
+		"Switch de MONITOREO: Horus solo lee (SNMP de solo lectura). Nunca escribe en el switch, nunca lo usa para crear clientes ni para atribuir tráfico.")
+	if v.Via != nil {
+		out.Notes = append(out.Notes,
+			"Vía el router "+sanitizeComment(v.Via.RouterName)+" por su túnel "+v.Via.Transport+": Horus consulta la dirección Horus "+v.Via.HorusAddress.Unmap().String()+
+				" y el router la traduce (NAT 1:1) a "+v.ManagementAddress.Unmap().String()+". Pegue también la configuración del router. El switch queda verificado cuando responde con ESTA credencial por ese camino.",
+			"Las consultas SNMP llegan al switch desde "+poller+" (la red de servicios de Horus) y el switch debe poder responder a esa IP a través del router (su puerta de enlace de gestión o una ruta estática).")
+	} else {
+		out.Notes = append(out.Notes,
+			"Modo directo por la red de gestión del ISP: Horus consulta "+v.ManagementAddress.Unmap().String()+" y solo marca el switch como verificado cuando responde con ESTA credencial en esa dirección.")
+	}
 	switch v.Platform {
 	case PlatformRouterOS:
 		if !vrpUserRe.MatchString(v.SNMPUser) || !vrpSecretRe.MatchString(v.SNMPAuthPass) || !vrpSecretRe.MatchString(v.SNMPPrivPass) {
@@ -271,6 +291,9 @@ func vrpSwitchSFlow(out *SwitchConfig, v SwitchValues) string {
 	} else {
 		out.Placeholders = append(out.Placeholders, VRPPlaceholder{Key: VRPPlaceholderCollector,
 			Description: "IP del colector de flujos de Horus por la red de gestión (HORUS_DEVICES_DIRECT_COLLECTOR_ADDRESS no está configurada)."})
+	}
+	if v.Via != nil {
+		out.Notes = append(out.Notes, "sFlow va al colector de Horus por el túnel del router: el router traduce el origen a la dirección Horus del switch, que es su identidad de exportador (nunca la IP privada).")
 	}
 	port := v.CollectorPort
 	if port <= 0 || port > 65535 {
