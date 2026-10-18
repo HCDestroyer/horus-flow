@@ -18,12 +18,13 @@ type LinkState struct {
 	RxPackets uint64
 }
 
-// Binding liga la /32 de un router a la interfaz por la que debe llegar
-// (antisuplantación: lo que entra por hxfrm7 solo puede venir de la /32 del
-// túnel 7; la regla de iptables la pone horus-tunnel, el agente mantiene el
-// conjunto).
+// Binding liga la /32 de un router (o una dirección Horus de un equipo
+// alcanzado a través de él, ADR-0032) a la interfaz por la que debe llegar
+// (antisuplantación: lo que entra por hxfrm7 solo puede venir de las
+// direcciones del túnel 7; la regla de iptables la pone horus-tunnel, el
+// agente mantiene el conjunto).
 type Binding struct {
-	Address   netip.Addr
+	Prefix    netip.Prefix
 	Interface string
 }
 
@@ -35,8 +36,10 @@ type Links interface {
 	List(ctx context.Context) ([]LinkState, error)
 	// Ensure crea o corrige la interfaz del túnel (XFRM con if_id = índice,
 	// o GRE con local/remoto/clave), la levanta con su MTU y deja la ruta
-	// /32 del router por ella (origen preferido: la IP de servicios del hub).
-	// No toca una interfaz que ya está como se pide (sin cortes).
+	// /32 del router por ella (origen preferido: la IP de servicios del hub),
+	// más una ruta por cada dirección enrutada (t.Routed), quitando las
+	// propias que sobren. No toca una interfaz que ya está como se pide (sin
+	// cortes).
 	Ensure(ctx context.Context, t domain.Tunnel) error
 	// Remove borra la interfaz (y con ella su ruta).
 	Remove(ctx context.Context, transport string, index uint32) error

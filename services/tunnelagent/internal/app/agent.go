@@ -102,7 +102,8 @@ func toDesired(req *tunnelv1.ApplyTunnelsRequest) []domain.DesiredTunnel {
 	for _, t := range req.GetTunnels() {
 		out = append(out, domain.DesiredTunnel{PeerID: t.GetPeerId(), TenantID: t.GetTenantId(), Transport: t.GetTransport(),
 			Index: t.GetIndex(), TunnelAddress: t.GetTunnelAddress(), HubAddress: t.GetHubTunnelAddress(), LocalAddress: t.GetLocalAddress(),
-			RemoteIP: t.GetRemoteAddress(), LocalID: t.GetLocalId(), RemoteID: t.GetRemoteId(), PSK: t.GetPsk(), MTU: t.GetMtu(), GREKey: t.GetGreKey()})
+			RemoteIP: t.GetRemoteAddress(), LocalID: t.GetLocalId(), RemoteID: t.GetRemoteId(), PSK: t.GetPsk(), MTU: t.GetMtu(), GREKey: t.GetGreKey(),
+			RoutedPrefixes: t.GetRoutedPrefixes()})
 	}
 	return out
 }
@@ -230,12 +231,22 @@ func grePeers(want map[uint32]domain.Tunnel) []netip.Addr {
 	return out
 }
 
+// bindings liga a cada interfaz su /32 de túnel y las direcciones Horus de
+// los equipos alcanzados por ese router (ADR-0032).
 func bindings(want map[uint32]domain.Tunnel) []Binding {
 	out := make([]Binding, 0, len(want))
 	for _, t := range want {
-		out = append(out, Binding{Address: t.TunnelAddress, Interface: t.Interface()})
+		out = append(out, Binding{Prefix: netip.PrefixFrom(t.TunnelAddress, 32), Interface: t.Interface()})
+		for _, r := range t.Routed {
+			out = append(out, Binding{Prefix: r, Interface: t.Interface()})
+		}
 	}
-	slices.SortFunc(out, func(x, y Binding) int { return x.Address.Compare(y.Address) })
+	slices.SortFunc(out, func(x, y Binding) int {
+		if c := x.Prefix.Addr().Compare(y.Prefix.Addr()); c != 0 {
+			return c
+		}
+		return x.Prefix.Bits() - y.Prefix.Bits()
+	})
 	return out
 }
 

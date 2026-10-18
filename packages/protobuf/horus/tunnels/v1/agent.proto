@@ -45,6 +45,11 @@ message DesiredTunnel {
   int32 mtu = 12;
   // gre: clave GRE (RFC 2890) del túnel; 0 = sin clave (RouterOS no la admite). Identifica el túnel, no es un secreto.
   uint32 gre_key = 13;
+  // Direcciones Horus de los equipos que se alcanzan a través de este router (switches vía router, ADR-0032):
+  // /32 o un bloque IPv4 canónico (/22 a /31) del pool de túneles. El router hace NAT 1:1 (netmap) entre cada
+  // dirección Horus y la IP privada del equipo; el hub solo enruta estas direcciones por la interfaz del túnel y
+  // las acepta como origen solo por ella (ipset horus-tunnel-src). Nunca IP privadas de los ISP.
+  repeated string routed_prefixes = 14;
 }
 
 // ApplyTunnelsRequest estado completo de los túneles IPsec/GRE del hub.
