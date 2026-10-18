@@ -27,6 +27,7 @@ import { ALL_TENANTS, type MockTenant } from './data'
 import { contains, parseCidr, parseIp } from './net'
 import { hash, iso, mockUuid, rng } from './random'
 import { mockReasons, mockScoring } from './scoring'
+import { applyTransport } from './tunnels'
 import {
   emptyDeviceState,
   mockState,
@@ -376,9 +377,14 @@ export function routersOf(
     const rand = spec.created ? rCreated : r
     const site = visible.get(spec.id)?.site ?? spec.site
     const id = spec.id
-    const pending = spec.pending
+    // Un cambio de transporte devuelve el router a «pendiente» hasta pegar la configuración nueva.
+    const transport = mockState.transports.get(id)
+    const pending = spec.pending || !!transport
+    const run = mockState.onboarding.get(id)
     const progress = pending
-      ? onboardingProgress(id, t, options.stepMs ?? 6000)
+      ? transport && (!run || run.scriptAt < transport.at)
+        ? ({ stage: 'pending_configuration', tokenState: 'none' } as OnboardingProgress)
+        : onboardingProgress(id, t, options.stepMs ?? 6000)
       : ({ stage: 'exporting', tokenState: 'used' } as OnboardingProgress)
     const exporting = progress.stage === 'exporting'
     const seededActive = !spec.created && site.role === 'active'
@@ -429,6 +435,9 @@ export function routersOf(
       tunnel_address: hasTunnel ? tunnel : null,
       connection_mode: 'wireguard',
       management_address: null,
+      protection_level: 'encrypted',
+      tunnel_remote_address: null,
+      tunnel_remote_id: null,
       wireguard_peer_id: mockUuid('0192e888', ti * 100 + spec.index + 1),
       warnings: lossy ? ['hardware_offload_suspected'] : [],
       credentials: [
@@ -473,6 +482,7 @@ export function routersOf(
       // configuración, el sondeador verifica SNMPv3 (snmp_verified) y luego llegan flujos (exporting).
       Object.assign(router, {
         connection_mode: 'direct',
+        protection_level: 'unencrypted_private',
         tunnel_address: null,
         wireguard_peer_id: null,
         routeros_version: null,
@@ -550,6 +560,8 @@ export function routersOf(
       public_key: hasTunnel ? `${btoaId(id)}=` : null,
       endpoint: hasTunnel ? `190.85.${ti}.${20 + spec.index}:13231` : null,
       persistent_keepalive_seconds: 25,
+      transport: 'wireguard',
+      tunnel: null,
       handshake_state: handshake,
       last_handshake_at:
         handshake === 'never'
@@ -571,6 +583,7 @@ export function routersOf(
             : null,
       },
     }
+    applyTransport(router, peer, progress, transport, t)
     return { site, router, exporter, peer, progress }
   }
 }

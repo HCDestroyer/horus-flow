@@ -108,7 +108,9 @@ collector_ports_private() {
 api_401() { [ "$(curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1/api/v1/system/status)" = 401 ]; }
 started_at() { docker inspect -f '{{.State.StartedAt}}' "$(svc_cid "$1")"; }
 no_project_containers() { [ -z "$(docker ps -aq --filter "label=com.docker.compose.project=$project")" ]; }
-no_ipfix_rules() { ! host_ipt -S DOCKER-USER | grep -q horus-ipfix-only-wg; }
+no_ipfix_rules() { ! host_ipt -S DOCKER-USER | grep -qE 'horus-ipfix-only-wg|horus-flows'; }
+# Cadena HORUS-FLOWS: los flujos solo pasan por wg0 (y, con --tunnels, por hxfrm+/hgre+).
+flows_chain_wg_only() { host_ipt -S HORUS-FLOWS | grep -q -- "-i $wg_if -j RETURN" && host_ipt -S HORUS-FLOWS | grep -q 'horus-flows-only-tunnels'; }
 dirs_empty() { local d; for d in "$opt" "$etc" "$data" "$store"; do [ ! -e "$d" ] || [ -z "$(ls -A "$d")" ] || return 1; done; }
 not_cmd() { ! "$@"; }
 
@@ -121,8 +123,9 @@ check "horus-installer check" hi check
 hc="$(host_cid)"
 check "horus-host healthy" wait_healthy "$hc" 60
 check "wg0 en el anfitrión con la IP del hub" wg_has_hub_ip
-check "regla DOCKER-USER: IPFIX/NetFlow solo por $wg_if" host_ipt -C DOCKER-USER ! -i "$wg_if" -p udp -m multiport --dports 4739,2055 -m comment --comment horus-ipfix-only-wg -j DROP
-check "regla INPUT: IPFIX/NetFlow solo por $wg_if" host_ipt -C INPUT ! -i "$wg_if" -p udp -m multiport --dports 4739,2055 -m comment --comment horus-ipfix-only-wg -j DROP
+check "regla DOCKER-USER: flujos a HORUS-FLOWS" host_ipt -C DOCKER-USER -p udp -m multiport --dports 4739,2055,6343 -m comment --comment horus-flows -j HORUS-FLOWS
+check "regla INPUT: flujos a HORUS-FLOWS" host_ipt -C INPUT -p udp -m multiport --dports 4739,2055,6343 -m comment --comment horus-flows -j HORUS-FLOWS
+check "HORUS-FLOWS: solo por $wg_if (sin --tunnels)" flows_chain_wg_only
 check "crontab de backups cargado en horus-host" crontab_loaded
 check "UDP 4739/2055 publicados solo en la IP del hub (no 0.0.0.0)" collector_ports_private
 
@@ -162,7 +165,7 @@ if [ "${TEST_KEEP:-0}" != 1 ]; then
   check "uninstall --purge --yes" hi uninstall --purge --yes
   check "sin contenedores del proyecto" no_project_containers
   check "sin wg0" not_cmd ip link show "$wg_if"
-  check "sin reglas horus-ipfix-only-wg" no_ipfix_rules
+  check "sin reglas horus-flows" no_ipfix_rules
   check "directorios vacíos" dirs_empty
 fi
 

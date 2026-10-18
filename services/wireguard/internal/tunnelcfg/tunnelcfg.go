@@ -31,10 +31,9 @@ const (
 
 // Marcadores que completa el administrador.
 const (
-	PlaceholderHubAddress    = "{HORUS_HUB_PUBLIC_IP}"
-	PlaceholderRouterAddress = "{IP_PUBLICA_DEL_ROUTER}"
-	PlaceholderWANInterface  = "{INTERFAZ_WAN}"
-	PlaceholderNetStream     = "{INTERFAZ_NETSTREAM}"
+	PlaceholderHubAddress   = "{HORUS_HUB_PUBLIC_IP}"
+	PlaceholderWANInterface = "{INTERFAZ_WAN}"
+	PlaceholderNetStream    = "{INTERFAZ_NETSTREAM}"
 )
 
 // Valores por defecto.
@@ -236,17 +235,6 @@ func hubOr(v Values, c *Config) string {
 			Description: "IPv4 pública del servidor Horus (HORUS_TUNNEL_HUB_ADDRESS no está configurada en el servidor)."})
 	}
 	return PlaceholderHubAddress
-}
-
-func remoteOr(v Values, c *Config) string {
-	if v.RemoteAddress.IsValid() {
-		return v.RemoteAddress.String()
-	}
-	if !hasPlaceholder(c, PlaceholderRouterAddress) {
-		c.Placeholders = append(c.Placeholders, Placeholder{Key: PlaceholderRouterAddress,
-			Description: "IPv4 de la WAN del router (con IP dinámica o tras NAT, la que tenga la interfaz)."})
-	}
-	return PlaceholderRouterAddress
 }
 
 func hasPlaceholder(c *Config, k string) bool {

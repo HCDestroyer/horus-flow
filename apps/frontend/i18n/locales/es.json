@@ -1200,7 +1200,21 @@
     "wallUplink": "Enlace de subida · últimas 6 h",
     "wallInterfaces": "Interfaces físicas",
     "noSnmpAccess": "Sin permiso para ver las métricas SNMP de este router (snmp.read).",
-    "lastFlow": "último flujo"
+    "lastFlow": "último flujo",
+    "tunnelAlive": {
+      "ipsec": "IKE SA activa",
+      "gre": "Túnel GRE recibiendo"
+    },
+    "tunnelStale": {
+      "ipsec": "IKE SA caída",
+      "gre": "Sin paquetes GRE recientes"
+    },
+    "tunnelNever": {
+      "ipsec": "Sin IKE SA todavía",
+      "gre": "Sin paquetes GRE todavía"
+    },
+    "lastRekey": "último rekey",
+    "lastPacket": "último paquete"
   },
   "onboarding": {
     "stepN": "Paso {n}",
@@ -1256,7 +1270,7 @@
     },
     "direct": {
       "warningTitle": "Modo directo: sin túnel WireGuard",
-      "warningBody": "Huawei VRP no admite WireGuard. Horus consultará SNMP y recibirá NetStream directamente desde la dirección de gestión del router. Ese camino lo aseguras tú: VRF de gestión, una VPN de sitio existente o un relé MikroTik/Linux en el sitio. Nunca expongas SNMP a Internet. El túnel para Huawei está pendiente de decisión de producto.",
+      "warningBody": "Huawei VRP no admite WireGuard. En modo directo Horus consulta SNMP y recibe NetStream directamente desde la dirección de gestión del router, sin cifrado: ese camino lo aseguras tú (VRF de gestión o una VPN de sitio existente). Nunca expongas SNMP a Internet. Si el equipo admite IPsec, cambia el transporte a IPsec IKEv2 (cifrado).",
       "allowList": "Horus solo acepta flujos con IP de origen {ip} y solo después de verificar la credencial SNMPv3 en esa dirección.",
       "generate": {
         "title": "Generar configuración VRP",
@@ -2797,7 +2811,7 @@
       "managementAddress": "Dirección de gestión",
       "managementAddressHelp": "IP de origen del router tal y como la ve Horus (SNMP y NetStream). Opcional ahora: se puede indicar al generar la configuración.",
       "managementAddressInvalid": "Escribe una IP unicast (sin loopback, link-local ni multicast).",
-      "createdDescriptionDirect": "Siguiente paso: generar la configuración VRP (modo directo, sin túnel) y pegarla en el router.",
+      "createdDescriptionDirect": "Siguiente paso: elegir el transporte (IPsec IKEv2 recomendado; GRE o modo directo si el equipo no tiene IPsec) y pegar la configuración VRP que genera Horus.",
       "continueToConfig": "Continuar con la configuración",
       "huaweiModelPlaceholder": "NE40E-X8A"
     },
@@ -2829,9 +2843,9 @@
       "label": "Fabricante",
       "mikrotik": "MikroTik (RouterOS 7)",
       "huawei": "Huawei (VRP)",
-      "help": "MikroTik se conecta por un túnel WireGuard. Huawei VRP no tiene WireGuard: se conecta en modo directo.",
+      "help": "MikroTik se conecta por un túnel WireGuard (o IPsec/GRE). Huawei VRP no tiene WireGuard: IPsec IKEv2 (recomendado), GRE o modo directo; se elige en Transporte.",
       "directBadge": "Modo directo",
-      "directHint": "Sin túnel WireGuard: SNMP y NetStream viajan por el camino que asegura el operador."
+      "directHint": "Sin túnel WireGuard ni cifrado: SNMP y NetStream viajan por el camino que asegura el operador. Si el equipo admite IPsec, elige IPsec en Transporte."
     }
   },
   "credentials": {
@@ -4124,6 +4138,162 @@
       "changed": {
         "title": "La huella TLS del router cambió",
         "body": "El router presenta un certificado distinto del confirmado: las lecturas por la API están detenidas."
+      }
+    }
+  },
+  "transport": {
+    "title": "Transporte con Horus",
+    "change": "Cambiar transporte",
+    "choose": "Transporte",
+    "recommended": "recomendado",
+    "mode": {
+      "wireguard": "WireGuard",
+      "ipsec": "IPsec IKEv2",
+      "gre": "GRE",
+      "direct": "Directo"
+    },
+    "modeHelp": {
+      "wireguard": "Túnel cifrado iniciado por el router (MikroTik). La opción por defecto.",
+      "ipsec": "Estándar RFC 7296, cifrado. Huawei, Cisco, Juniper, FortiGate, MikroTik… Necesita IPsec en el equipo (en NE40E suele requerir tarjeta de servicio).",
+      "gre": "Estándar RFC 2784, SIN cifrado. Respaldo universal para equipos sin IPsec: úsalo por un camino privado.",
+      "direct": "Sin túnel ni cifrado: SNMP y flujos por el camino que aseguras tú (VRF de gestión, VPN existente)."
+    },
+    "protection": {
+      "encrypted": "Cifrado",
+      "unencrypted_private": "Sin cifrar · camino privado",
+      "unencrypted_internet": "SIN CIFRAR por Internet",
+      "short": {
+        "encrypted": "Cifrado",
+        "unencrypted_private": "Sin cifrar (privado)",
+        "unencrypted_internet": "Sin cifrar (Internet)"
+      },
+      "hint": {
+        "encrypted": "Gestión y flujos viajan cifrados (WireGuard o IPsec) con identidad criptográfica del router.",
+        "unencrypted_private": "Sin cifrado, por un camino que un administrador declaró privado (MPLS L3VPN, VRF de gestión, fibra propia).",
+        "unencrypted_internet": "Sin cifrado por Internet, confirmado por un administrador: SNMP y flujos se pueden leer y suplantar en el camino."
+      }
+    },
+    "path": {
+      "legend": "¿Por dónde viajan la gestión y los flujos?",
+      "private": "Camino privado",
+      "privateHelp": "MPLS L3VPN, VRF de gestión o fibra propia entre el router y Horus.",
+      "internet": "Internet",
+      "internetHelp": "Cualquier tramo por Internet o por redes de terceros."
+    },
+    "remoteAddress": "IP pública del router",
+    "remoteAddressHelpGre": "IPv4 fija de la WAN del router: el hub solo acepta GRE desde esa IP.",
+    "remoteAddressHelpIpsec": "Opcional si el router tiene IP dinámica o está tras NAT (entonces indica su identidad).",
+    "remoteId": "Identidad IKE del router",
+    "remoteIdHelp": "IP, nombre DNS, usuario{'@'}dominio o keyid:ID. Por defecto, su IP pública.",
+    "resulting": "Nivel de protección resultante:",
+    "confirmTitle": "Gestión y flujos viajarán SIN CIFRAR por Internet",
+    "confirmBody": "Cualquiera en el camino podrá leer SNMP y los flujos, y suplantar al router. Úsalo solo si el equipo no admite IPsec y no hay un camino privado. Queda registrado en la auditoría y se mostrará un aviso permanente.",
+    "confirmLabel": "Entiendo el riesgo y confirmo el transporte sin cifrar por Internet",
+    "internetWarningTitle": "Transporte sin cifrar por Internet",
+    "internetWarningBody": "Confirmado por un administrador. SNMP y flujos se pueden leer y suplantar en el camino: pasa a IPsec en cuanto el equipo lo permita.",
+    "suggestion": "Recomendado para este fabricante: {mode}.",
+    "afterChange": "Tras el cambio el router vuelve a «pendiente de configuración»: pega la configuración nueva. La IP de túnel se conserva entre WireGuard, IPsec y GRE.",
+    "save": "Aplicar transporte",
+    "saved": "Transporte actualizado",
+    "reauth": "Cambiar el transporte del router es una acción sensible: confirma tu identidad para continuar.",
+    "noPermission": "Pide a quien administra el ISP que cambie el transporte (permiso de credenciales de routers).",
+    "errors": {
+      "addressRequired": "GRE necesita la IPv4 pública fija del router.",
+      "addressInvalid": "IPv4 pública del router (p. ej. 198.51.100.7).",
+      "idInvalid": "IP, nombre DNS, usuario{'@'}dominio o keyid:ID, sin espacios.",
+      "idRequired": "Indica la IP pública del router o su identidad IKE.",
+      "confirmRequired": "Confirma explícitamente el transporte sin cifrar por Internet.",
+      "inUse": "Otro router ya usa esa IP pública (GRE) o esa identidad IKE (IPsec)."
+    }
+  },
+  "tunnelOnboarding": {
+    "greWarningTitle": "GRE no cifra",
+    "greWarningBody": "SNMP y flujos viajan en claro dentro del túnel. Horus solo acepta GRE de la IP pública registrada y solo atribuye tráfico con la IP de túnel del router, pero el contenido no está protegido.",
+    "generate": {
+      "title": {
+        "ipsec": "Generar configuración IPsec IKEv2",
+        "gre": "Generar configuración GRE"
+      },
+      "body": {
+        "ipsec": "Horus genera una clave precompartida (PSK) nueva, credenciales SNMP de solo lectura y la configuración para tu equipo.",
+        "gre": "Horus genera credenciales SNMP de solo lectura y la configuración del túnel GRE para tu equipo."
+      },
+      "action": "Generar configuración",
+      "regenerate": {
+        "ipsec": "Regenerar (rota la PSK y la credencial SNMP)",
+        "gre": "Regenerar (rota la credencial SNMP)"
+      },
+      "reauth": "Generar la configuración crea secretos nuevos: confirma tu identidad para continuar.",
+      "reauthNeeded": "Confirma tu identidad para generar la configuración (pulsa de nuevo «Generar configuración»).",
+      "disabled": "El servidor Horus no tiene habilitado {mode}: quien administra la plataforma debe activarlo (instalador --tunnels) y abrir sus puertos.",
+      "onceTitle": "Solo se muestra una vez",
+      "onceBody": {
+        "ipsec": "Contiene la PSK y las contraseñas SNMP. Cópiala o descárgala ahora; si la pierdes, regénerala (la anterior deja de valer y el túnel cae hasta pegar la nueva).",
+        "gre": "Contiene las contraseñas SNMP. Cópiala o descárgala ahora; si la pierdes, regénerala (la anterior deja de valer)."
+      },
+      "noPermission": "Pide a quien administra el ISP que genere la configuración (permiso de WireGuard y túneles)."
+    },
+    "tunnelAddress": "IP de túnel del router",
+    "hub": "Hub de Horus",
+    "hubId": "Identidad IKE del hub",
+    "routerId": "Identidad IKE del router",
+    "greKey": "Clave GRE",
+    "psk": "Clave precompartida (PSK)",
+    "notes": "Antes de pegar",
+    "placeholders": "Valores que completas tú",
+    "paste": {
+      "title": {
+        "ipsec": "Pegar en el router y levantar el túnel",
+        "gre": "Pegar en el router y levantar el túnel"
+      },
+      "body": {
+        "ipsec": "Pega la configuración en el router. El router inicia la IKE con el hub; con NAT en el camino se usa UDP 4500 automáticamente.",
+        "gre": "Pega la configuración en el router. El túnel se da por levantado con el primer paquete que llega al hub por él."
+      },
+      "waiting": {
+        "ipsec": "Esperando la IKE SA del router…",
+        "gre": "Esperando el primer paquete por el túnel GRE…"
+      },
+      "up": {
+        "ipsec": "IKE SA establecida: el túnel IPsec está arriba",
+        "gre": "Llegan paquetes por el túnel GRE"
+      }
+    },
+    "status": {
+      "state": "Estado",
+      "lastRekey": "Último rekey",
+      "lastPacket": "Último paquete",
+      "error": "Error del hub"
+    },
+    "states": {
+      "established": "IKE SA establecida",
+      "connecting": "Negociando",
+      "down": "Sin SA",
+      "up": "Interfaz arriba",
+      "none": "Sin reporte del hub todavía"
+    },
+    "verify": {
+      "title": {
+        "ipsec": "Verificación",
+        "gre": "Verificación"
+      },
+      "tunnel": "Túnel arriba",
+      "flow": "Primer flujo recibido por el túnel",
+      "customers": "Primeros clientes descubiertos",
+      "stuck": "¿No avanza? Qué revisar",
+      "check": {
+        "ipsec": {
+          "ports": "Que el router alcance el hub por UDP 500 y 4500 (y ESP si no hay NAT).",
+          "identity": "Identidades IKE: la del router y la del hub deben coincidir exactamente con las de la configuración.",
+          "proposals": "Propuestas: AES-256 con SHA-256 y grupo 14 (MODP-2048) o ECP-384; nada de SHA-1 ni 3DES.",
+          "mtu": "MTU 1400 y MSS 1360 en el túnel; con PPPoE o MPLS, menos."
+        },
+        "gre": {
+          "ports": "Que el router alcance el hub por GRE (protocolo 47) desde su IP pública registrada (sin NAT: GRE no atraviesa NAT).",
+          "identity": "Origen del túnel = la IP pública registrada en Horus; destino = la IP del hub.",
+          "proposals": "Clave GRE: la de la configuración en Huawei/Linux; sin clave en MikroTik.",
+          "mtu": "MTU 1400 y MSS 1360 en el túnel; con PPPoE o MPLS, menos."
+        }
       }
     }
   }

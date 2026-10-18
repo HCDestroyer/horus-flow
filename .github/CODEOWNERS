@@ -64,6 +64,7 @@
 # (area:security): aprobación de la persona obligatoria.
 /services/wireguard/                @hcdestroyer
 /services/wgagent/                  @hcdestroyer
+/services/tunnelagent/              @hcdestroyer
 
 # Agente: FLOW
 /services/collector/                @hcdestroyer

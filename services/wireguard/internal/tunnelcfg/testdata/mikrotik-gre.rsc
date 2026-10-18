@@ -9,7 +9,7 @@
 # 1) Túnel GRE hacia el hub (sin clave: RouterOS no la admite; el hub solo acepta GRE de esta IP pública).
 #    Keepalive desactivado: el hub Linux no responde keepalives de GRE.
 /interface gre add name=horus-gre local-address=198.51.100.7 remote-address=203.0.113.10 mtu=1400 \
-    keepalive=0s,0 clamp-tcp-mss=yes allow-fast-path=no comment="horus"
+    !keepalive clamp-tcp-mss=yes allow-fast-path=no comment="horus"
 /ip address add address=10.255.0.17/32 network=10.255.0.1 interface=horus-gre comment="horus"
 /ip route add dst-address=10.255.0.0/24 gateway=horus-gre comment="horus"
 

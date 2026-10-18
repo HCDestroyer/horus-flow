@@ -3792,6 +3792,71 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/routers/{router_id}/transport": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Transporte con el que el router se conecta a Horus (WireGuard, IPsec IKEv2, GRE o directo) y su nivel de protección
+         * @description Decisión del PO del 2026-10-17 (docs/tunnels.md, ADR-0031): cada router usa el mejor transporte estándar que admite.
+         *     MikroTik: `wireguard` | `ipsec` | `gre`. Huawei VRP: `ipsec` | `gre` | `direct`. Otro → `422 CONNECTION_MODE_NOT_SUPPORTED`.
+         *
+         *     - `ipsec` (IKEv2 route-based, cifra): `tunnel_remote_id` (IPv4, nombre DNS, usuario@dominio o `keyid:<id>`) y/o
+         *       `tunnel_remote_address` (IPv4 pública; si no hay identidad, la identidad es esa IP). Sin ninguna → 422.
+         *     - `gre` (RFC 2784, **no cifra**): `tunnel_remote_address` obligatoria (el hub solo acepta GRE de esa IP) y `path`.
+         *     - `direct` (sin túnel, no cifra): `path`.
+         *     - `path`: `private` (MPLS L3VPN, VRF de gestión, fibra propia → `unencrypted_private`) o `internet`
+         *       (→ `unencrypted_internet`, exige `confirm_unencrypted_internet: true`; si no, `422
+         *       UNENCRYPTED_TRANSPORT_CONFIRMATION_REQUIRED`). Queda auditado (`devices.router.transport_changed` con el nivel y
+         *       la confirmación) y la consola muestra un aviso permanente.
+         *
+         *     Cambiar el transporte, la IP pública o la identidad devuelve el router a `pending_configuration` (hay que pegar la
+         *     configuración nueva: script WireGuard, `POST /routers/{router_id}/tunnel-config` o alta directa); la IP de túnel
+         *     (identidad del exportador) se conserva entre transportes con túnel. IP pública (GRE) o identidad IKE (IPsec) en uso
+         *     por otro router → `409 TUNNEL_REMOTE_IN_USE`. Idempotente: el mismo cuerpo no cambia nada.
+         */
+        put: operations["setRouterTransport"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/routers/{router_id}/tunnel-config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Configuración IPsec IKEv2 o GRE para pegar en el router (PSK y credenciales nuevas, una sola vez)
+         * @description Para routers con `connection_mode` `ipsec` o `gre` (docs/tunnels.md, ADR-0031). Asegura el túnel del router (IP /32
+         *     de la IPAM de plataforma = identidad del exportador; se conserva al cambiar de transporte), emite credenciales SNMPv3
+         *     nuevas (y el usuario de la API en MikroTik) y, en IPsec, una **PSK nueva** de 48 caracteres; todo invalida lo
+         *     anterior, se guarda cifrado y aparece **solo en esta respuesta** (`Cache-Control: no-store`). Devuelve la
+         *     configuración del fabricante (RouterOS 7 o Huawei VRP) y un ejemplo genérico Linux/strongSwan; Horus nunca escribe
+         *     en el router. Hub sin el transporte habilitado o sin IP pública → `409 TUNNEL_TRANSPORT_DISABLED`; router con
+         *     WireGuard o directo → `422 CONNECTION_MODE_MISMATCH`. Auditado (`wireguard.tunnel_config.created`).
+         */
+        post: operations["createTunnelConfig"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/routers/status": {
         parameters: {
             query?: never;
@@ -5195,7 +5260,7 @@ export interface components {
          * @description Código estable UPPER_SNAKE_CASE (= `ErrorInfo.reason` de gRPC). **Enum abierto**: se listan los
          *     conocidos en v0; el cliente trata un código desconocido según el `status` HTTP.
          */
-        ErrorCode: ("VALIDATION_FAILED" | "UNAUTHENTICATED" | "TOKEN_EXPIRED" | "SESSION_REVOKED" | "PERMISSION_DENIED" | "ORIGIN_NOT_ALLOWED" | "MFA_REQUIRED" | "MFA_ENROLLMENT_REQUIRED" | "REAUTH_REQUIRED" | "NOT_FOUND" | "ALREADY_EXISTS" | "CONFLICT" | "PRECONDITION_FAILED" | "PRECONDITION_REQUIRED" | "IDEMPOTENCY_KEY_REUSED" | "IDEMPOTENCY_IN_PROGRESS" | "RATE_LIMITED" | "TENANT_RATE_LIMITED" | "INTERNAL" | "SERVICE_UNAVAILABLE" | "ANALYTICS_UNAVAILABLE" | "TIMEOUT" | "INVALID_CREDENTIALS" | "INVALID_CURSOR" | "INVALID_FILTER" | "INVALID_SORT_FIELD" | "TIME_RANGE_TOO_LARGE" | "TENANT_NOT_FOUND" | "TENANT_MISMATCH" | "TENANT_SUSPENDED" | "TOKEN_SCOPE_INVALID" | "KIOSK_FORBIDDEN" | "ROUTER_NOT_FOUND" | "ROUTER_PRIMARY_EXISTS" | "ROUTEROS_VERSION_UNSUPPORTED" | "ROUTER_UNREACHABLE" | "ROUTER_TLS_FINGERPRINT_CHANGED" | "ROUTER_TLS_FINGERPRINT_UNCONFIRMED" | "ROUTER_TLS_FINGERPRINT_MISMATCH" | "ROUTER_VENDOR_NOT_SUPPORTED" | "MANAGEMENT_ADDRESS_IN_USE" | "SITE_NOT_FOUND" | "SITE_NOT_EMPTY" | "PEER_ALREADY_REVOKED" | "WIREGUARD_IP_POOL_EXHAUSTED" | "WIREGUARD_PUBLIC_KEY_IN_USE" | "ENROLLMENT_TOKEN_INVALID" | "CUSTOMER_NOT_FOUND" | "CUSTOMER_KIND_LOCKED" | "CLIENT_PREFIX_OVERLAP" | "CLIENT_PREFIX_NOT_FOUND" | "ASN_RULE_NOT_FOUND" | "FINDING_NOT_FOUND" | "FINDING_STATE_INVALID" | "REPORT_NOT_FOUND" | "REPORT_NOT_READY" | "REPORT_EXPIRED" | "REPORT_DEFINITION_NOT_FOUND" | "DASHBOARD_NOT_FOUND" | "DASHBOARD_READ_ONLY" | "WIDGET_TYPE_NOT_ALLOWED" | "WIDGET_TYPE_UNKNOWN" | "WIDGET_CONFIG_INVALID" | "KIOSK_ENROLLMENT_CODE_INVALID" | "NOTIFICATION_CHANNEL_NOT_FOUND" | "NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE" | "NOTIFICATION_CHANNEL_UNREACHABLE" | "NOTIFICATION_CHANNEL_AUTH_FAILED" | "NOTIFICATION_CHANNEL_CREDENTIALS_MISSING" | "LIBRENMS_CHANNEL_REQUIRED" | "LIBRENMS_NOT_PROVISIONED" | "LIBRENMS_DEVICE_NOT_OWNED" | "NOTIFICATION_TELEGRAM_WEBHOOK_ACTIVE" | "NOTIFICATION_TELEGRAM_LINK_CODE_INVALID" | "NOTIFICATION_TELEGRAM_BOT_NOT_CONFIGURED" | "STORAGE_TARGET_UNREACHABLE" | "REPUTATION_SOURCE_NOT_FOUND" | "REPUTATION_SOURCE_READ_ONLY" | "REPUTATION_SOURCE_URL_NOT_ALLOWED" | "ROLE_NOT_FOUND" | "ROLE_READ_ONLY" | "ROLE_IN_USE" | "LAST_PLATFORM_ADMIN" | "WIREGUARD_HUB_NOT_FOUND" | "WIREGUARD_POOL_NOT_FOUND" | "WIREGUARD_POOL_OVERLAP" | "WIREGUARD_POOL_INVALID" | "WIREGUARD_POOL_IN_USE" | "REMOTE_DESTINATION_NOT_FOUND" | "REMOTE_DESTINATION_NOT_READY" | "REMOTE_DESTINATION_SYNC_RUNNING" | "API_TOKEN_NOT_FOUND" | "INTEGRATION_NOT_CONFIGURED" | "INTEGRATION_UNAVAILABLE") | string;
+        ErrorCode: ("VALIDATION_FAILED" | "UNAUTHENTICATED" | "TOKEN_EXPIRED" | "SESSION_REVOKED" | "PERMISSION_DENIED" | "ORIGIN_NOT_ALLOWED" | "MFA_REQUIRED" | "MFA_ENROLLMENT_REQUIRED" | "REAUTH_REQUIRED" | "NOT_FOUND" | "ALREADY_EXISTS" | "CONFLICT" | "PRECONDITION_FAILED" | "PRECONDITION_REQUIRED" | "IDEMPOTENCY_KEY_REUSED" | "IDEMPOTENCY_IN_PROGRESS" | "RATE_LIMITED" | "TENANT_RATE_LIMITED" | "INTERNAL" | "SERVICE_UNAVAILABLE" | "ANALYTICS_UNAVAILABLE" | "TIMEOUT" | "INVALID_CREDENTIALS" | "INVALID_CURSOR" | "INVALID_FILTER" | "INVALID_SORT_FIELD" | "TIME_RANGE_TOO_LARGE" | "TENANT_NOT_FOUND" | "TENANT_MISMATCH" | "TENANT_SUSPENDED" | "TOKEN_SCOPE_INVALID" | "KIOSK_FORBIDDEN" | "ROUTER_NOT_FOUND" | "ROUTER_PRIMARY_EXISTS" | "ROUTEROS_VERSION_UNSUPPORTED" | "ROUTER_UNREACHABLE" | "ROUTER_TLS_FINGERPRINT_CHANGED" | "ROUTER_TLS_FINGERPRINT_UNCONFIRMED" | "ROUTER_TLS_FINGERPRINT_MISMATCH" | "ROUTER_VENDOR_NOT_SUPPORTED" | "MANAGEMENT_ADDRESS_IN_USE" | "CONNECTION_MODE_NOT_SUPPORTED" | "CONNECTION_MODE_MISMATCH" | "UNENCRYPTED_TRANSPORT_CONFIRMATION_REQUIRED" | "TUNNEL_REMOTE_IN_USE" | "TUNNEL_TRANSPORT_DISABLED" | "SITE_NOT_FOUND" | "SITE_NOT_EMPTY" | "PEER_ALREADY_REVOKED" | "WIREGUARD_IP_POOL_EXHAUSTED" | "WIREGUARD_PUBLIC_KEY_IN_USE" | "ENROLLMENT_TOKEN_INVALID" | "CUSTOMER_NOT_FOUND" | "CUSTOMER_KIND_LOCKED" | "CLIENT_PREFIX_OVERLAP" | "CLIENT_PREFIX_NOT_FOUND" | "ASN_RULE_NOT_FOUND" | "FINDING_NOT_FOUND" | "FINDING_STATE_INVALID" | "REPORT_NOT_FOUND" | "REPORT_NOT_READY" | "REPORT_EXPIRED" | "REPORT_DEFINITION_NOT_FOUND" | "DASHBOARD_NOT_FOUND" | "DASHBOARD_READ_ONLY" | "WIDGET_TYPE_NOT_ALLOWED" | "WIDGET_TYPE_UNKNOWN" | "WIDGET_CONFIG_INVALID" | "KIOSK_ENROLLMENT_CODE_INVALID" | "NOTIFICATION_CHANNEL_NOT_FOUND" | "NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE" | "NOTIFICATION_CHANNEL_UNREACHABLE" | "NOTIFICATION_CHANNEL_AUTH_FAILED" | "NOTIFICATION_CHANNEL_CREDENTIALS_MISSING" | "LIBRENMS_CHANNEL_REQUIRED" | "LIBRENMS_NOT_PROVISIONED" | "LIBRENMS_DEVICE_NOT_OWNED" | "NOTIFICATION_TELEGRAM_WEBHOOK_ACTIVE" | "NOTIFICATION_TELEGRAM_LINK_CODE_INVALID" | "NOTIFICATION_TELEGRAM_BOT_NOT_CONFIGURED" | "STORAGE_TARGET_UNREACHABLE" | "REPUTATION_SOURCE_NOT_FOUND" | "REPUTATION_SOURCE_READ_ONLY" | "REPUTATION_SOURCE_URL_NOT_ALLOWED" | "ROLE_NOT_FOUND" | "ROLE_READ_ONLY" | "ROLE_IN_USE" | "LAST_PLATFORM_ADMIN" | "WIREGUARD_HUB_NOT_FOUND" | "WIREGUARD_POOL_NOT_FOUND" | "WIREGUARD_POOL_OVERLAP" | "WIREGUARD_POOL_INVALID" | "WIREGUARD_POOL_IN_USE" | "REMOTE_DESTINATION_NOT_FOUND" | "REMOTE_DESTINATION_NOT_READY" | "REMOTE_DESTINATION_SYNC_RUNNING" | "API_TOKEN_NOT_FOUND" | "INTEGRATION_NOT_CONFIGURED" | "INTEGRATION_UNAVAILABLE") | string;
         /** @description Evidencia agregada según kind (nunca payloads; nunca la IP del cliente). Campos conocidos; otros permitidos. */
         Evidence: {
             bps_peak?: number;
@@ -6213,6 +6278,13 @@ export interface components {
             server_id: components["schemas"]["Uuid"];
             /** @enum {string} */
             status: "awaiting_enrollment" | "pending_handshake" | "active" | "revoked";
+            /**
+             * @description Transporte del túnel (docs/tunnels.md). La /32 sale de la misma IPAM en los tres.
+             * @enum {string}
+             */
+            transport: "wireguard" | "ipsec" | "gre";
+            /** @description Estado IPsec/GRE observado por tunnel-agent (null en WireGuard). */
+            tunnel: components["schemas"]["TunnelStatus"] | null;
             tx_bytes?: components["schemas"]["Uint64String"];
         };
         PermissionCatalog: {
@@ -6768,12 +6840,14 @@ export interface components {
             /** @enum {string} */
             admin_state: "active" | "maintenance" | "decommissioned";
             /**
-             * @description `wireguard`: túnel router → hub de Horus (MikroTik). `direct`: sin túnel; el camino lo asegura el operador
-             *     (VRF de gestión, VPN de sitio existente o relé MikroTik/Linux) y el colector filtra por IP de origen
-             *     (docs/vendors/huawei.md §5). Lo fija `vendor`.
+             * @description Transporte con Horus (docs/tunnels.md, ADR-0031). `wireguard`: túnel WireGuard router → hub (MikroTik).
+             *     `ipsec`: IPsec IKEv2 route-based (RFC 7296; MikroTik, Huawei y cualquier equipo con IKEv2). `gre`: GRE
+             *     (RFC 2784) **sin cifrado**, respaldo universal. `direct`: sin túnel; el camino lo asegura el operador y el
+             *     colector filtra por la dirección de gestión verificada (docs/vendors/huawei.md §5). Al alta lo fija `vendor`
+             *     (MikroTik → wireguard, Huawei → direct); se cambia con `PUT /routers/{router_id}/transport`.
              * @enum {string}
              */
-            connection_mode: "wireguard" | "direct";
+            connection_mode: "wireguard" | "ipsec" | "gre" | "direct";
             credentials?: components["schemas"]["CredentialStatus"][];
             /**
              * @description Pasos del asistente (I1-19): `pending_configuration` → `key_received` (clave pública enrolada)
@@ -6784,11 +6858,28 @@ export interface components {
              * @enum {string}
              */
             onboarding_state: "pending_configuration" | "key_received" | "tunnel_up" | "snmp_verified" | "exporting";
+            /**
+             * @description `encrypted` (wireguard, ipsec). `unencrypted_private`: gre/direct por un camino que el administrador declaró
+             *     privado (MPLS L3VPN, VRF de gestión, fibra propia). `unencrypted_internet`: gre/direct por Internet,
+             *     confirmado explícitamente por un administrador (aviso permanente en la consola).
+             * @enum {string}
+             */
+            protection_level: "encrypted" | "unencrypted_private" | "unencrypted_internet";
             routeros_version_detected?: string | null;
             /** @description false si la versión (detectada o declarada) es < 7.12 (D15); null si se desconoce. */
             routeros_version_supported: boolean | null;
-            /** @description IP /32 de túnel WireGuard asignada por la IPAM de plataforma = identidad del exportador (null en modo directo). */
+            /** @description IP /32 de túnel (WireGuard, IPsec o GRE) asignada por la IPAM de plataforma = identidad del exportador (null en modo directo). */
             tunnel_address: string | null;
+            /**
+             * @description ipsec/gre — IPv4 pública del router (origen de IKE/GRE; obligatoria en gre).
+             * @example 198.51.100.7
+             */
+            tunnel_remote_address: string | null;
+            /**
+             * @description ipsec — identidad IKE del router (IPv4, nombre DNS, usuario@dominio o `keyid:<id>`).
+             * @example rt-centro.isp.example
+             */
+            tunnel_remote_id: string | null;
             warnings: ("routeros_version_unsupported" | "traffic_flow_target_drift" | "hardware_offload_suspected")[];
             wireguard_peer_id?: components["schemas"]["Uuid"] | null;
         };
@@ -6923,6 +7014,11 @@ export interface components {
          */
         RouterStateReason: string;
         RouterStatus: {
+            /**
+             * @description Transporte del router con Horus (docs/tunnels.md). Ausente en filas anteriores al campo.
+             * @enum {string}
+             */
+            connection_mode?: "wireguard" | "ipsec" | "gre" | "direct";
             device: components["schemas"]["RouterDeviceSample"];
             interfaces_total: number | null;
             interfaces_up: number | null;
@@ -6931,6 +7027,11 @@ export interface components {
             last_observed_at: components["schemas"]["Timestamp"] | null;
             name: string;
             observed_state: components["schemas"]["RouterObservedState"] | null;
+            /**
+             * @description Nivel de protección del transporte; el NOC marca los que no cifran.
+             * @enum {string}
+             */
+            protection_level?: "encrypted" | "unencrypted_private" | "unencrypted_internet";
             reason: components["schemas"]["RouterStateReason"] | null;
             router_id: components["schemas"]["Uuid"];
             signals: components["schemas"]["RouterSignals"];
@@ -6997,6 +7098,31 @@ export interface components {
             router_id: components["schemas"]["Uuid"];
             /** @enum {string} */
             status: "not_captured" | "pending_confirmation" | "confirmed" | "changed";
+        };
+        RouterTransportInput: {
+            /**
+             * @description gre/direct con `path=internet` — el administrador acepta que SNMP y flujos viajen sin cifrar por Internet.
+             * @default false
+             */
+            confirm_unencrypted_internet?: boolean;
+            /** @enum {string} */
+            connection_mode: "wireguard" | "ipsec" | "gre" | "direct";
+            /**
+             * @description gre/direct — camino por el que viajan gestión y flujos (obligatorio sin cifrado).
+             * @enum {string|null}
+             */
+            path?: "private" | "internet" | null;
+            /**
+             * @description ipsec (opcional) / gre (obligatoria) — IPv4 pública del router.
+             * @example 198.51.100.7
+             */
+            tunnel_remote_address?: string | null;
+            /**
+             * @description ipsec — identidad IKE del router (por defecto, su IP pública).
+             * @example rt-centro.isp.example
+             * @example keyid:rt-centro
+             */
+            tunnel_remote_id?: string | null;
         };
         /** @description Interfaz que resume el tráfico del router (la de más subida hacia fuera; `flow_role` upstream si está marcado). */
         RouterUplink: {
@@ -7501,6 +7627,60 @@ export interface components {
             })[];
             to: components["schemas"]["Timestamp"];
             total: components["schemas"]["TrafficSplit"];
+        };
+        TunnelConfig: {
+            configs: components["schemas"]["TunnelRouterConfig"][];
+            gre_key: number | null;
+            /** @description IPv4 pública del hub (destino de IKE/GRE). */
+            hub_address: string | null;
+            /** @description ipsec: identidad IKE del hub. */
+            hub_id: string | null;
+            /** @enum {string} */
+            protection_level: "encrypted" | "unencrypted_private" | "unencrypted_internet";
+            /** @description ipsec: clave precompartida nueva (48 caracteres). Solo en esta respuesta; generar otra la sustituye. */
+            psk: string | null;
+            remote_address: string | null;
+            remote_id: string | null;
+            router_id: components["schemas"]["Uuid"];
+            snmp_user: string;
+            /** @enum {string} */
+            transport: "ipsec" | "gre";
+            /** @example 10.255.0.17/32 */
+            tunnel_address: string;
+            warnings: string[];
+        };
+        TunnelRouterConfig: {
+            /** @description Comandos para pegar (contiene la PSK y las contraseñas). */
+            config: string;
+            /** @enum {string} */
+            language: "routeros" | "vrp" | "shell";
+            notes: string[];
+            placeholders: {
+                description: string;
+                key: string;
+            }[];
+            /** @enum {string} */
+            platform: "routeros" | "vrp" | "strongswan";
+            title: string;
+            warnings: string[];
+        };
+        TunnelStatus: {
+            /** @description Último error del agente al aplicar el túnel (sin secretos). */
+            error: string | null;
+            /** @description gre: clave GRE (null = sin clave, RouterOS). */
+            gre_key: number | null;
+            /** @description gre: último paquete recibido del router. */
+            last_packet_at: components["schemas"]["Timestamp"] | null;
+            last_rekey_at: components["schemas"]["Timestamp"] | null;
+            /** @description IPv4 pública del router. */
+            remote_address: string | null;
+            /** @description Identidad IKE del router. */
+            remote_id: string | null;
+            /**
+             * @description ipsec: estado de la IKE SA; gre: interfaz del hub (up/down). null = aún sin reporte.
+             * @enum {string|null}
+             */
+            state: "established" | "connecting" | "down" | "up" | null;
         };
         /** @description Contador que puede superar 2^53, serializado como string decimal. */
         Uint64String: string;
@@ -14466,6 +14646,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RouterTlsFingerprint"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
+        };
+    };
+    setRouterTransport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RouterTransportInput"];
+            };
+        };
+        responses: {
+            /** @description Router con el transporte aplicado. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Router"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
+        };
+    };
+    createTunnelConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /** @example pool.ntp.org */
+                    ntp_server?: string | null;
+                    /** @description Muestreo de NetStream (Huawei; 1000 por defecto). */
+                    sampling_rate?: number | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Configuración generada (`Cache-Control no-store`). */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TunnelConfig"];
                 };
             };
             401: components["responses"]["Unauthorized"];

@@ -19879,6 +19879,21 @@ components:
           oneOf:
             - $ref: '#/components/schemas/Timestamp'
             - type: 'null'
+        connection_mode:
+          type: string
+          enum:
+            - wireguard
+            - ipsec
+            - gre
+            - direct
+          description: Transporte del router con Horus (docs/tunnels.md). Ausente en filas anteriores al campo.
+        protection_level:
+          type: string
+          enum:
+            - encrypted
+            - unencrypted_private
+            - unencrypted_internet
+          description: Nivel de protección del transporte; el NOC marca los que no cifran.
     PollerHealth:
       type: object
       required:

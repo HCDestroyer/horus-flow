@@ -78,6 +78,12 @@
 #   --smtp-host H --smtp-port 587 --smtp-from EMAIL --smtp-user U --smtp-tls starttls|tls|none
 #   --smtp-password-file F       canal mínimo de alertas por correo (D13); opcional
 #   --confirm-bundle             marca el paquete offline como guardado fuera del servidor
+#   --tunnels LISTA              transportes adicionales del hub para routers sin WireGuard (docs/tunnels.md):
+#                                ipsec (IKEv2, abre UDP 500/4500 y ESP), gre (sin cifrado, solo desde las IP
+#                                públicas registradas), ipsec,gre o none (por defecto: solo WireGuard)
+#   --tunnel-hub-address IP      IPv4 pública del hub para IPsec/GRE (por defecto --public-ip)
+#   --direct-flow-sources CIDRS  orígenes de flujos en modo directo (Huawei sin túnel) que el cortafuegos deja pasar
+#                                además de los túneles; el colector solo acepta los verificados por SNMPv3
 #   --skip-firewall --skip-tunnel --skip-systemd --skip-backup --force (ignora requisitos no críticos)
 #   --yes                        no pregunta (usa opciones, respuestas guardadas o valores por defecto)
 #   --runtime host|docker        host (por defecto): túnel, cortafuegos y timers en el propio servidor;
@@ -106,7 +112,7 @@ unset _v
 action=install
 opt_yes=0 opt_force=0 opt_purge=0 skip_fw=0 skip_tunnel=0 skip_systemd=0 skip_backup=0 confirm_bundle=0
 declare -A opt=()
-usage() { sed -n '2,88p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,95p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 need_arg() { [ "$#" -ge 2 ] && [ -n "$2" ] || { echo "install.sh: $1 necesita un valor" >&2; exit 2; }; }
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -116,7 +122,7 @@ while [ "$#" -gt 0 ]; do
       --smtp-host | --smtp-port | --smtp-from | --smtp-user | --smtp-tls | --smtp-password-file | --backup-metrics-port | --backup-keep-full | \
       --image-source | --registry | --registry-user | --registry-token-file | --channel | --auto-update | --update-window | \
       --update-source | --web-image | --postgres-image | --size | --tls | --public-url | --trusted-proxies | --http-bind | --wg-endpoint | \
-      --runtime | --installer-image)
+      --runtime | --installer-image | --tunnels | --tunnel-hub-address | --direct-flow-sources)
       need_arg "$@"; opt[${1#--}]="$2"; shift 2 ;;
     --acme-staging) opt[acme-staging]=1; shift ;;
     --no-update-check) opt[update-check]=false; shift ;;
@@ -178,6 +184,7 @@ docker_mode() { [ "$runtime" = docker ]; }
 if docker_mode && [ -n "$root" ]; then echo "install.sh: --runtime docker no admite --root" >&2; exit 2; fi
 # Contenedor horus-host del proyecto (docker): túnel, cortafuegos y crons.
 host_cid() { docker ps -q --filter "label=com.docker.compose.project=$project" --filter "label=com.docker.compose.service=horus-host" 2>/dev/null | head -1; }
+compose_cid() { docker ps -q --filter "label=com.docker.compose.project=$project" --filter "label=com.docker.compose.service=$1" 2>/dev/null | head -1; }
 
 c_ok=$'\033[32m' c_warn=$'\033[33m' c_err=$'\033[31m' c_off=$'\033[0m'
 [ -t 1 ] || { c_ok=""; c_warn=""; c_err=""; c_off=""; }
@@ -288,12 +295,19 @@ check_requirements() {
     elif command -v wireguard-go >/dev/null 2>&1 && [ -c /dev/net/tun ]; then warn "sin módulo WireGuard del kernel: se usará wireguard-go (más CPU)"
     else fail "sin WireGuard: instala el kernel con el módulo o wireguard-go (apt install wireguard-tools wireguard-go)"; fi
   fi
+  if [ "$(get tunnels none)" != none ] && [ -n "$(get tunnels none)" ] && ! docker_mode; then
+    command -v ipset >/dev/null 2>&1 && ok "ipset disponible (túneles IPsec/GRE)" \
+      || fail "falta ipset para los túneles IPsec/GRE (apt install ipset; bootstrap-debian.sh lo instala)"
+  fi
   if project_running; then
     ok "Horus ya está instalado (proyecto $project): no se comprueban sus puertos"
   else
     local p
     # 18081/tcp: admin de horus-wg-agent (red del host, solo 127.0.0.1).
-    for p in "tcp:$http_port" "tcp:$https_port" "udp:$(get wg-port 51820)" "tcp:18081"; do
+    local ports=("tcp:$http_port" "tcp:$https_port" "udp:$(get wg-port 51820)" "tcp:18081")
+    # IPsec (--tunnels ipsec): charon en la red del host escucha en UDP 500 y 4500.
+    [[ ",$(get tunnels none)," != *",ipsec,"* ]] || ports+=("udp:500" "udp:4500")
+    for p in "${ports[@]}"; do
       if port_busy "${p%%:*}" "${p#*:}"; then fail "puerto ${p#*:}/${p%%:*} ocupado"; else ok "puerto ${p#*:}/${p%%:*} libre"; fi
     done
   fi
@@ -336,6 +350,34 @@ check_docker_runtime() {
   else warn "módulo WireGuard no cargado en el anfitrión: horus-host intentará cargarlo al crear $wg_if y, si no puede, usará wireguard-go (más CPU; en el anfitrión: modprobe wireguard)"; fi
 }
 
+# --- Transportes IPsec/GRE (docs/tunnels.md, ADR-0031) ------------------------------------------
+# tunnels: "" (solo WireGuard) | ipsec | gre | ipsec,gre. Nunca se abre nada por defecto.
+configure_tunnels() {
+  local t list="" x
+  t="$(get tunnels none)"
+  IFS=, read -r -a _tl <<<"${t// /}"
+  for x in "${_tl[@]}"; do
+    case "$x" in
+      "" | none) ;;
+      ipsec | gre) [[ ",$list," == *",$x,"* ]] || list="${list:+$list,}$x" ;;
+      *) die "--tunnels inválido: $t (ipsec, gre, ipsec,gre o none)" ;;
+    esac
+  done
+  tunnels="$list"
+  tunnel_hub_address=""
+  if [ -n "$tunnels" ]; then
+    tunnel_hub_address="$(get tunnel-hub-address "${public_ip:-}")"
+    [[ "$tunnel_hub_address" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] \
+      || die "IPsec/GRE necesitan la IPv4 pública del hub: --tunnel-hub-address IP (o --public-ip)"
+  fi
+  direct_flow_sources="$(get direct-flow-sources "")"
+  if [ -n "$direct_flow_sources" ]; then
+    IFS=, read -r -a _ds <<<"${direct_flow_sources// /}"
+    for x in "${_ds[@]}"; do valid_cidr "$x" || [[ "$x" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || die "--direct-flow-sources: CIDR inválido: $x"; done
+  fi
+}
+tunnel_enabled() { [[ ",${tunnels:-}," == *",$1,"* ]]; }
+
 # --- Configuración (preguntas) --------------------------------------------------------------------
 configure() {
   say "Configuración"
@@ -357,6 +399,7 @@ configure() {
   [[ "$admin_email" =~ ^[^@[:space:]]+@[^@[:space:]]+$ ]] || die "email inválido: $admin_email"
   http_port="$(get http-port 80)"; https_port="$(get https-port 443)"
   wg_port="$(get wg-port 51820)"; wg_if="$(get wg-interface wg0)"
+  configure_tunnels
   docker_subnet="$(get docker-subnet 172.31.250.0/24)"
   valid_cidr "$docker_subnet" || die "CIDR inválido: $docker_subnet"
   grpc_bind="$(int2ip $(($(ip2int "${docker_subnet%/*}") + 1)))"
@@ -374,6 +417,7 @@ configure() {
   fi
   ok "acceso $access_mode → $public_base_url (TLS $tls_mode)"
   ok "túneles $tunnel_cidr, hub/colector $collector_ip en $wg_if, WireGuard UDP $wg_port en $wg_endpoint"
+  if [ -n "$tunnels" ]; then ok "transportes adicionales: $tunnels (hub $tunnel_hub_address; docs/tunnels.md)"; fi
   ok "superadmin $admin_email; datos en $data_dir, backups en $store_dir"
   ok "versión $horus_version; imágenes: $image_source_desc; canal $channel, actualización automática $auto_update"
 }
@@ -462,7 +506,7 @@ configure_size() {
 # Árbol de esta versión: el repositorio clonado o un paquete de release (VERSION + images.lock;
 # el offline trae además images/horus-images.tar). images.lock: VARIABLE ETIQUETA DIGEST por
 # línea (HORUS_IMAGE ghcr.io/…/horus:1.2.3 sha256:…).
-img_vars=(HORUS_IMAGE HORUS_WEB_IMAGE HORUS_POSTGRES_IMAGE HORUS_CLICKHOUSE_IMAGE HORUS_NATS_IMAGE
+img_vars=(HORUS_IMAGE HORUS_WEB_IMAGE HORUS_POSTGRES_IMAGE HORUS_IPSEC_IMAGE HORUS_CLICKHOUSE_IMAGE HORUS_NATS_IMAGE
   HORUS_VALKEY_IMAGE HORUS_TRAEFIK_IMAGE HORUS_BUSYBOX_IMAGE)
 declare -A img=()
 tree_version() { if [ -s "$1/VERSION" ]; then tr -d ' \r\n' <"$1/VERSION"; else echo 0.0.0-dev; fi; }
@@ -585,6 +629,7 @@ configure_images() {
       img[HORUS_IMAGE]="$(get image horus:local)"
       img[HORUS_WEB_IMAGE]="$(get web-image horus-web:local)"
       img[HORUS_POSTGRES_IMAGE]="$(get postgres-image horus-postgres:18.6-pgbackrest2.59.3)"
+      img[HORUS_IPSEC_IMAGE]="$(get ipsec-image horus-ipsec:local)"
       image_source_desc="locales (${img[HORUS_IMAGE]}, ${img[HORUS_WEB_IMAGE]})"
       ;;
     *) die "--image-source inválido: $image_source (ghcr | bundle:RUTA | local)" ;;
@@ -592,6 +637,9 @@ configure_images() {
   image="${img[HORUS_IMAGE]:?images.lock sin HORUS_IMAGE}"
   [ -n "${img[HORUS_WEB_IMAGE]:-}" ] || die "falta la imagen horus-web (images.lock o --web-image)"
   [ -n "${img[HORUS_POSTGRES_IMAGE]:-}" ] || img[HORUS_POSTGRES_IMAGE]=horus-postgres:18.6-pgbackrest2.59.3
+  # horus-ipsec (demonio IKEv2, docs/tunnels.md): solo se usa con --tunnels ipsec; árboles anteriores sin él
+  # la construyen en local.
+  [ -n "${img[HORUS_IPSEC_IMAGE]:-}" ] || img[HORUS_IPSEC_IMAGE]=horus-ipsec:local
   configure_installer_image
 }
 
@@ -652,7 +700,9 @@ save_conf() {
       update-check "$update_check" web-image "${img[HORUS_WEB_IMAGE]}" postgres-image "${img[HORUS_POSTGRES_IMAGE]}" \
       version "$horus_version" tls "$tls_choice" public-url "$([ "$tls_choice" = external ] && echo "$public_base_url")" \
       trusted-proxies "$trusted_proxies" http-bind "$([ "$tls_choice" = external ] && echo "$http_bind_addr:$http_port")" \
-      wg-endpoint "$(get wg-endpoint "")" size "$size" runtime "$runtime" installer-image "$installer_image"
+      wg-endpoint "$(get wg-endpoint "")" size "$size" runtime "$runtime" installer-image "$installer_image" \
+      tunnels "${tunnels:-none}" tunnel-hub-address "${tunnel_hub_address:-}" direct-flow-sources "${direct_flow_sources:-}" \
+      ipsec-image "${img[HORUS_IPSEC_IMAGE]:-}"
     [ -z "${opt[acme-staging]:-${saved[acme-staging]:-}}" ] || echo "acme-staging=1"
   } >"$conf_file"
   chmod 0644 "$conf_file"
@@ -774,7 +824,7 @@ gen_grpc_pki() {
     created_secrets+=(grpc/ca.crt)
   fi
   local n
-  for n in wireguard wg-agent; do
+  for n in wireguard wg-agent tunnel-agent; do
     [ -s "$g/$n.crt" ] && continue
     openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -subj "/CN=$n" \
       -keyout "$g/$n.key" -out "$g/$n.csr" 2>/dev/null
@@ -784,7 +834,7 @@ gen_grpc_pki() {
     rm -f "$g/$n.csr" "$g/$n.ext"
     created_secrets+=("grpc/$n.crt")
   done
-  chmod 0644 "$g"/*.crt "$g"/wireguard.key "$g"/wg-agent.key
+  chmod 0644 "$g"/*.crt "$g"/wireguard.key "$g"/wg-agent.key "$g"/tunnel-agent.key
   chmod 0600 "$g/ca.key"
 }
 
@@ -935,6 +985,7 @@ EOF
 # Lo que necesita una instalación de su árbol de versión (sin imágenes). Es también el contenido
 # de un paquete de release (scripts/release/build-release.sh lee esta lista).
 release_paths=(VERSION images.lock deployments/compose/compose.prod.yaml deployments/images/postgres/Dockerfile
+  deployments/images/strongswan/Dockerfile deployments/images/strongswan/charon-horus.conf deployments/images/strongswan/entrypoint.sh
   infrastructure/traefik/prod/horus.acme.yml.tmpl infrastructure/traefik/prod/horus.ip.yml.tmpl
   infrastructure/traefik/prod/horus.external.yml.tmpl
   infrastructure/nats/nats.prod.conf infrastructure/nats/kv.yaml infrastructure/backup/clickhouse-backups.xml
@@ -976,7 +1027,8 @@ forwarded_trusted_ips() {
 render_files() {
   say "Archivos de la instalación ($install_dir)"
   install -m 0644 "$repo_root/deployments/compose/compose.prod.yaml" "$install_dir/compose.yaml"
-  install -d -m 0755 "$config_dir/traefik/dynamic" "$config_dir/nats" "$config_dir/backup" "$config_dir/clickhouse" "$config_dir/images/postgres"
+  install -d -m 0755 "$config_dir/traefik/dynamic" "$config_dir/nats" "$config_dir/backup" "$config_dir/clickhouse" "$config_dir/images/postgres" \
+    "$config_dir/images/strongswan"
   local tmpl="$repo_root/infrastructure/traefik/prod/horus.acme.yml.tmpl"
   [ "$tls_mode" = self_signed ] && tmpl="$repo_root/infrastructure/traefik/prod/horus.ip.yml.tmpl"
   [ "$tls_mode" = external ] && tmpl="$repo_root/infrastructure/traefik/prod/horus.external.yml.tmpl"
@@ -987,6 +1039,9 @@ render_files() {
   install -m 0644 "$repo_root/infrastructure/backup/clickhouse-backups.xml" "$repo_root/infrastructure/backup/httpd.conf" "$config_dir/backup/"
   install -m 0644 "$repo_root/infrastructure/clickhouse/horus-logs.xml" "$config_dir/clickhouse/horus-logs.xml"
   install -m 0644 "$repo_root/deployments/images/postgres/Dockerfile" "$config_dir/images/postgres/Dockerfile"
+  install -m 0644 "$repo_root/deployments/images/strongswan/Dockerfile" "$repo_root/deployments/images/strongswan/charon-horus.conf" \
+    "$config_dir/images/strongswan/"
+  install -m 0755 "$repo_root/deployments/images/strongswan/entrypoint.sh" "$config_dir/images/strongswan/entrypoint.sh"
   install -m 0755 "$repo_root/scripts/backup/horus-backup.sh" "$install_dir/bin/horus-backup"
   copy_release
   ln -sfn ../release/scripts/install.sh "$install_dir/bin/install.sh"
@@ -1040,6 +1095,9 @@ HORUS_WG_HUB_PUBLIC_KEY=$(cat "$secrets_dir/wg_hub_public_key")
 HORUS_WG_TUNNEL_CIDRS=$tunnel_cidr
 HORUS_WG_SERVICES_CIDR=$services_cidr
 HORUS_COLLECTOR_IP=$collector_ip
+HORUS_TUNNEL_TRANSPORTS=${tunnels:-}
+HORUS_TUNNEL_HUB_ADDRESS=${tunnel_hub_address:-}
+HORUS_TUNNELAGENT_ADDR=$([ -n "${tunnels:-}" ] && echo "$grpc_bind:9096")
 HORUS_DOCKER_SUBNET=$docker_subnet
 HORUS_GRPC_BIND=$grpc_bind
 HORUS_TLM_FLOWS_MAX_BYTES=$tlm_max_bytes
@@ -1060,9 +1118,15 @@ HORUS_BACKUP_CH_KEEP_FULL=$(backup_keep_full)
 HORUS_INSTALL_DIR=$install_dir
 HORUS_ETC_DIR=$etc_dir
 EOF
+  # Perfiles de compose.prod.yaml: docker (horus-host: túnel, cortafuegos y backups), tunnels
+  # (tunnel-agent: IPsec/GRE) e ipsec (horus-ipsec: demonio IKEv2).
+  local profiles=""
+  docker_mode && profiles="docker"
+  [ -z "${tunnels:-}" ] || profiles="${profiles:+$profiles,}tunnels"
+  ! tunnel_enabled ipsec || profiles="$profiles,ipsec"
+  [ -z "$profiles" ] || printf 'COMPOSE_PROFILES=%s\n' "$profiles" >>"$env_file"
   if docker_mode; then
-    # Perfil "docker" de compose.prod.yaml: contenedor horus-host (túnel, cortafuegos y backups).
-    printf 'COMPOSE_PROFILES=docker\nHORUS_INSTALLER_IMAGE=%s\n' "$installer_image" >>"$env_file"
+    printf 'HORUS_INSTALLER_IMAGE=%s\n' "$installer_image" >>"$env_file"
     write_host_crontab
   fi
   chmod 0644 "$env_file"
@@ -1117,6 +1181,8 @@ ensure_images() {
     ghcr)
       registry_login
       for v in HORUS_IMAGE HORUS_WEB_IMAGE HORUS_POSTGRES_IMAGE; do verify_signature "${img[$v]}"; done
+      # horus-ipsec está expuesto a Internet (UDP 500/4500): firmada como las propias.
+      if tunnel_enabled ipsec && [ "${img[HORUS_IPSEC_IMAGE]}" != horus-ipsec:local ]; then verify_signature "${img[HORUS_IPSEC_IMAGE]}"; fi
       # horus-host corre con el socket de Docker y NET_ADMIN: su imagen también debe estar firmada.
       ! docker_mode || verify_signature "$installer_image"
       for v in "${img_vars[@]}"; do
@@ -1151,6 +1217,9 @@ ensure_images() {
       image_local "${img[HORUS_POSTGRES_IMAGE]}" "$config_dir/images/postgres/Dockerfile" "$config_dir/images/postgres"
       ;;
   esac
+  if tunnel_enabled ipsec && ! docker image inspect "${img[HORUS_IPSEC_IMAGE]}" >/dev/null 2>&1; then
+    image_local "${img[HORUS_IPSEC_IMAGE]}" "$config_dir/images/strongswan/Dockerfile" "$config_dir/images/strongswan"
+  fi
 }
 
 # image_local <imagen> <Dockerfile> <contexto>: presente, descargable o construida aquí.
@@ -1268,16 +1337,73 @@ case "\${1:-up}" in
     ip link set $wg_if up
     ip route replace $tunnel_cidr dev $wg_if
 EOF
+  if [ -n "${tunnels:-}" ]; then
+    cat <<EOF
+    # Túneles IPsec/GRE (docs/tunnels.md): tunnel-agent crea hxfrm<n>/hgre<n> y mantiene los conjuntos; aquí
+    # se cargan los módulos (si el contenedor no puede, el kernel los carga al crear las interfaces) y se crean
+    # los conjuntos antes que las reglas que los citan.
+    modprobe -q xfrm_interface 2>/dev/null || true
+    modprobe -q ip_gre 2>/dev/null || true
+    ipset create -exist horus-tunnel-src hash:net,iface
+    ipset create -exist horus-gre-peers hash:ip
+EOF
+  fi
   if [ "$skip_fw" = 0 ]; then
     cat <<EOF
-    # IPFIX (4739) y NetFlow v9 (2055) solo desde el túnel: cualquier otra interfaz se descarta
-    # antes de llegar al contenedor del colector (DOCKER-USER) y al host (INPUT).
+    # Flujos (IPFIX 4739, NetFlow v9 2055, sFlow 6343) SOLO por los túneles ($wg_if${tunnels:+, hxfrm+/hgre+}) o desde los
+    # orígenes directos declarados (--direct-flow-sources); el resto se descarta antes de llegar al contenedor del
+    # colector (DOCKER-USER) y al host (INPUT). Nunca público por defecto.
+    iptables -N HORUS-FLOWS 2>/dev/null || iptables -F HORUS-FLOWS
+    iptables -A HORUS-FLOWS -i $wg_if -j RETURN
+EOF
+    ! tunnel_enabled ipsec || printf '    iptables -A HORUS-FLOWS -i hxfrm+ -j RETURN\n'
+    ! tunnel_enabled gre || printf '    iptables -A HORUS-FLOWS -i hgre+ -j RETURN\n'
+    local src
+    IFS=, read -r -a _dfs <<<"${direct_flow_sources:-}"
+    for src in "${_dfs[@]}"; do [ -z "$src" ] || printf '    iptables -A HORUS-FLOWS -s %s -j RETURN\n' "$src"; done
+    cat <<EOF
+    iptables -A HORUS-FLOWS -m comment --comment horus-flows-only-tunnels -j DROP
     for chain in DOCKER-USER INPUT; do
       iptables -N \$chain 2>/dev/null || true
-      iptables -C \$chain ! -i $wg_if -p udp -m multiport --dports 4739,2055 -m comment --comment horus-ipfix-only-wg -j DROP 2>/dev/null \\
-        || iptables -I \$chain ! -i $wg_if -p udp -m multiport --dports 4739,2055 -m comment --comment horus-ipfix-only-wg -j DROP
+      # Regla de versiones anteriores (solo $wg_if, sin sFlow).
+      while iptables -D \$chain ! -i $wg_if -p udp -m multiport --dports 4739,2055 -m comment --comment horus-ipfix-only-wg -j DROP 2>/dev/null; do :; done
+      iptables -C \$chain -p udp -m multiport --dports 4739,2055,6343 -m comment --comment horus-flows -j HORUS-FLOWS 2>/dev/null \\
+        || iptables -I \$chain -p udp -m multiport --dports 4739,2055,6343 -m comment --comment horus-flows -j HORUS-FLOWS
     done
 EOF
+    if [ -n "${tunnels:-}" ]; then
+      cat <<EOF
+    # Antisuplantación: lo que entra por hxfrm<n>/hgre<n> solo puede venir de la /32 de ESE túnel (conjunto
+    # horus-tunnel-src, ligaduras IP,interfaz que mantiene tunnel-agent): ni otro router ni un rango ajeno.
+    iptables -N HORUS-TUNNEL-SRC 2>/dev/null || iptables -F HORUS-TUNNEL-SRC
+    iptables -A HORUS-TUNNEL-SRC -m set --match-set horus-tunnel-src src,src -j RETURN
+    iptables -A HORUS-TUNNEL-SRC -m comment --comment horus-tunnel-antispoof -j DROP
+    for chain in DOCKER-USER INPUT; do
+      for i in hxfrm+ hgre+; do
+        iptables -C \$chain -i \$i -m comment --comment horus-tunnel-src -j HORUS-TUNNEL-SRC 2>/dev/null \\
+          || iptables -I \$chain -i \$i -m comment --comment horus-tunnel-src -j HORUS-TUNNEL-SRC
+      done
+    done
+EOF
+    fi
+    if tunnel_enabled ipsec; then
+      cat <<EOF
+    # IPsec IKEv2: IKE (UDP 500), NAT-T (UDP 4500) y ESP abiertos (el router puede tener IP dinámica: charon lo
+    # identifica por su identidad IKE y su PSK).
+    iptables -C INPUT -p udp -m multiport --dports 500,4500 -m comment --comment horus-ipsec -j ACCEPT 2>/dev/null \\
+      || iptables -I INPUT -p udp -m multiport --dports 500,4500 -m comment --comment horus-ipsec -j ACCEPT
+    iptables -C INPUT -p esp -m comment --comment horus-ipsec -j ACCEPT 2>/dev/null || iptables -I INPUT -p esp -m comment --comment horus-ipsec -j ACCEPT
+EOF
+    fi
+    if tunnel_enabled gre; then
+      cat <<EOF
+    # GRE (proto 47) solo desde las IP públicas registradas (conjunto horus-gre-peers de tunnel-agent).
+    iptables -C INPUT -p gre -m set ! --match-set horus-gre-peers src -m comment --comment horus-gre -j DROP 2>/dev/null \\
+      || iptables -I INPUT -p gre -m set ! --match-set horus-gre-peers src -m comment --comment horus-gre -j DROP
+    iptables -C INPUT -p gre -m set --match-set horus-gre-peers src -m comment --comment horus-gre -j ACCEPT 2>/dev/null \\
+      || iptables -I INPUT -p gre -m set --match-set horus-gre-peers src -m comment --comment horus-gre -j ACCEPT
+EOF
+    fi
   fi
   if [ "$skip_fw" = 0 ] && [ "$tls_mode" = external ]; then
     local c
@@ -1302,8 +1428,12 @@ EOF
   down)
     for chain in DOCKER-USER INPUT; do
       while iptables -D \$chain ! -i $wg_if -p udp -m multiport --dports 4739,2055 -m comment --comment horus-ipfix-only-wg -j DROP 2>/dev/null; do :; done
-      iptables -S \$chain 2>/dev/null | grep -- '--comment horus-proxy-only' | sed 's/^-A /-D /' | while read -r r; do eval "iptables \$r" 2>/dev/null || true; done
+      iptables -S \$chain 2>/dev/null | grep -E -- '--comment (horus-proxy-only|horus-flows|horus-tunnel-src|horus-ipsec|horus-gre)( |\$)' \\
+        | sed 's/^-A /-D /' | while read -r r; do eval "iptables \$r" 2>/dev/null || true; done
     done
+    for c in HORUS-FLOWS HORUS-TUNNEL-SRC; do iptables -F \$c 2>/dev/null || true; iptables -X \$c 2>/dev/null || true; done
+    ipset destroy horus-tunnel-src 2>/dev/null || true
+    ipset destroy horus-gre-peers 2>/dev/null || true
     ip link del $wg_if 2>/dev/null || true
     pkill -f "wireguard-go $wg_if" 2>/dev/null || true
     rm -f /var/run/wireguard/$wg_if.sock
@@ -1330,7 +1460,12 @@ setup_tunnel() {
     "$install_dir/bin/horus-tunnel" up
   fi
   ok "$wg_if con $collector_ip/${services_cidr#*/}, ruta $tunnel_cidr"
-  [ "$skip_fw" = 1 ] && warn "--skip-firewall: el UDP 4739/2055 no se filtra por interfaz" || ok "UDP 4739/2055 solo por $wg_if (DOCKER-USER e INPUT)"
+  [ "$skip_fw" = 1 ] && warn "--skip-firewall: el UDP de flujos no se filtra por interfaz" \
+    || ok "UDP 4739/2055/6343 solo por $wg_if${tunnels:+, hxfrm+/hgre+}${direct_flow_sources:+ y desde $direct_flow_sources} (DOCKER-USER e INPUT)"
+  if [ -n "${tunnels:-}" ] && [ "$skip_fw" = 0 ]; then
+    ! tunnel_enabled ipsec || ok "IPsec: UDP 500/4500 y ESP abiertos (ábrelos también en el cortafuegos del proveedor)"
+    ! tunnel_enabled gre || ok "GRE (proto 47) solo desde las IP públicas registradas (ipset horus-gre-peers)"
+  fi
 }
 
 # --- systemd / cron ------------------------------------------------------------------------------
@@ -1608,8 +1743,15 @@ do_check() {
   if docker_mode; then
     [ -n "$(host_cid)" ] && ok "horus-host en marcha (túnel, cortafuegos y backups programados)" || fail "horus-host no está en marcha"
   fi
-  netx iptables -C DOCKER-USER ! -i "$HORUS_WG_INTERFACE" -p udp -m multiport --dports 4739,2055 -m comment --comment horus-ipfix-only-wg -j DROP 2>/dev/null \
-    && ok "IPFIX/NetFlow filtrado: solo por $HORUS_WG_INTERFACE" || warn "sin regla DOCKER-USER para IPFIX (¿--skip-firewall?)"
+  netx iptables -C DOCKER-USER -p udp -m multiport --dports 4739,2055,6343 -m comment --comment horus-flows -j HORUS-FLOWS 2>/dev/null \
+    && ok "IPFIX/NetFlow/sFlow filtrado: solo por los túneles ($HORUS_WG_INTERFACE${HORUS_TUNNEL_TRANSPORTS:+, $HORUS_TUNNEL_TRANSPORTS})" \
+    || warn "sin regla DOCKER-USER para los flujos (¿--skip-firewall?)"
+  if [ -n "${HORUS_TUNNEL_TRANSPORTS:-}" ]; then
+    netx ipset list -n 2>/dev/null | grep -qx horus-tunnel-src && ok "ipset horus-tunnel-src (antisuplantación de los túneles IPsec/GRE)" \
+      || fail "falta el ipset horus-tunnel-src (horus-tunnel up)"
+    [ -n "$(compose_cid horus-tunnel-agent)" ] && ok "horus-tunnel-agent en marcha" || fail "horus-tunnel-agent no está en marcha"
+    [[ ",$HORUS_TUNNEL_TRANSPORTS," != *",ipsec,"* ]] || { [ -n "$(compose_cid horus-ipsec)" ] && ok "horus-ipsec (IKEv2) en marcha" || fail "horus-ipsec no está en marcha"; }
+  fi
   say "TLS ($HORUS_TLS_MODE)"
   if [ "$HORUS_TLS_MODE" = self_signed ]; then
     local end; end="$(openssl x509 -in "$HORUS_TLS_DIR/public.crt" -noout -enddate | cut -d= -f2)"
@@ -1674,7 +1816,7 @@ do_uninstall() {
       -v "$install_dir/bin:$install_dir/bin:ro" --entrypoint "$install_dir/bin/horus-tunnel" "$ii" down; then
       ok "interfaz WireGuard y reglas de cortafuegos eliminadas"
     else
-      warn "no se pudo quitar ${saved[wg-interface]:-wg0} ni las reglas horus-ipfix-only-wg (sin la imagen del instalador)"
+      warn "no se pudo quitar ${saved[wg-interface]:-wg0} ni las reglas horus-flows (sin la imagen del instalador)"
     fi
   fi
   if [ -f "$install_dir/compose.yaml" ] && [ -f "$env_file" ]; then

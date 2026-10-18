@@ -101,7 +101,7 @@ func (e *Engine) status(r *router, now time.Time, healthy bool) api.RouterStatus
 	}
 	out := api.RouterStatus{RouterID: r.RouterID, SiteID: r.SiteID, Name: r.Name, SiteName: r.SiteName, Status: eff,
 		ObservedState: observed, Reason: reason, Since: since, LastObservedAt: st.LastObservedAt, Signals: sig, Device: dev,
-		Thresholds: st.Thresholds, LastFlowAt: st.ExporterLastFlowAt}
+		Thresholds: st.Thresholds, LastFlowAt: st.ExporterLastFlowAt, ConnectionMode: r.ConnectionMode, ProtectionLevel: r.ProtectionLevel}
 	if out.Thresholds == nil {
 		out.Thresholds = []api.ThresholdHit{}
 	}

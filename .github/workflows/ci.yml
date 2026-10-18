@@ -105,6 +105,7 @@ jobs:
         run: |
           docker run --rm -i "$HADOLINT_IMAGE" hadolint - < Dockerfile
           docker run --rm -i "$HADOLINT_IMAGE" hadolint - < deployments/images/installer/Dockerfile
+          docker run --rm -i "$HADOLINT_IMAGE" hadolint - < deployments/images/strongswan/Dockerfile
       - name: shellcheck
         run: |
           mapfile -t scripts < <(git ls-files '*.sh')
@@ -124,6 +125,9 @@ jobs:
           # Con el perfil docker (horus-host, install.sh --runtime docker) y el stack de Portainer/TrueNAS.
           docker compose --project-directory deployments/compose -f deployments/compose/compose.prod.yaml \
             --env-file deployments/compose/prod.env.example --profile docker config --quiet
+          # Con los túneles IPsec/GRE (install.sh --tunnels ipsec,gre; docs/tunnels.md).
+          docker compose --project-directory deployments/compose -f deployments/compose/compose.prod.yaml \
+            --env-file deployments/compose/prod.env.example --profile tunnels --profile ipsec config --quiet
           docker compose -f deployments/compose/compose.stack.yaml \
             --env-file deployments/compose/stack.env.example config --quiet
 

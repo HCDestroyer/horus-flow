@@ -253,7 +253,7 @@ var securityStateLabel = map[string]string{"clean": "limpio", "suspected": "sosp
 var severityLabel = map[string]string{"info": "informativa", "low": "baja", "medium": "media", "high": "alta", "critical": "crítica"}
 
 var routerReasonText = map[string]string{
-	"tunnel_down":                 "Sin respuesta y sin handshake del túnel WireGuard.",
+	"tunnel_down":                 "Sin respuesta y sin túnel activo (WireGuard, IPsec o GRE).",
 	"host_unreachable_via_tunnel": "El túnel está activo pero el router no responde a ping ni a SNMP.",
 	"snmp_unreachable":            "Responde a ping pero no a SNMP.",
 	"snmp_auth_failed":            "Responde a ping pero rechaza la credencial SNMP.",

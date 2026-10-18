@@ -132,3 +132,44 @@ func TestRejectsUnsafeValues(t *testing.T) {
 		t.Errorf("gre sin IP pública: %v", err)
 	}
 }
+
+// TestEmitLab escribe las configuraciones RouterOS del laboratorio CHR
+// (scripts/lab/tunnels.sh) en HORUS_TUNNELCFG_EMIT_DIR: hub 198.18.0.1,
+// router 198.18.0.2 (WAN del CHR), identidad fqdn:horus-lab-chr.lab.
+func TestEmitLab(t *testing.T) {
+	dir := os.Getenv("HORUS_TUNNELCFG_EMIT_DIR")
+	if dir == "" {
+		t.Skip("HORUS_TUNNELCFG_EMIT_DIR sin definir (scripts/lab/tunnels.sh)")
+	}
+	for _, transport := range []string{tunnelcfg.TransportIPsec, tunnelcfg.TransportGRE} {
+		v := values(transport, "mikrotik")
+		v.HubAddress, v.HubID = netip.MustParseAddr("198.18.0.1"), "198.18.0.1"
+		v.RemoteAddress, v.CollectorIP = netip.MustParseAddr("198.18.0.2"), netip.MustParseAddr("10.255.0.1")
+		v.NTPServer = ""
+		if transport == tunnelcfg.TransportIPsec {
+			v.RemoteID, v.PSK = "horus-lab-chr.lab", os.Getenv("HORUS_TUNNELCFG_PSK")
+		}
+		cfgs, err := tunnelcfg.Build(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, transport+".rsc"), []byte(cfgs[0].Config), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		// El bloque «Deshacer» sin comentar, para probarlo también.
+		var undo []string
+		in := false
+		for _, l := range strings.Split(cfgs[0].Config, "\n") {
+			if strings.HasPrefix(l, "# ----- Deshacer") {
+				in = true
+				continue
+			}
+			if in && strings.HasPrefix(l, "# /") {
+				undo = append(undo, strings.TrimPrefix(l, "# "))
+			}
+		}
+		if err := os.WriteFile(filepath.Join(dir, transport+"-undo.rsc"), []byte(strings.Join(undo, "\n")+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

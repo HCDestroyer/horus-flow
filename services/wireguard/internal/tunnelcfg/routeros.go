@@ -52,7 +52,7 @@ func routerOS(v Values) Config {
 		b.w("# 1) Túnel GRE hacia el hub (sin clave: RouterOS no la admite; el hub solo acepta GRE de esta IP pública).")
 		b.w("#    Keepalive desactivado: el hub Linux no responde keepalives de GRE.")
 		b.w("/interface gre add name=horus-gre local-address=%s remote-address=%s mtu=%d \\", v.RemoteAddress, hub, v.MTU)
-		b.w("    keepalive=0s,0 clamp-tcp-mss=yes allow-fast-path=no comment=\"horus\"")
+		b.w("    !keepalive clamp-tcp-mss=yes allow-fast-path=no comment=\"horus\"")
 		b.w("/ip address add address=%s/32 network=%s interface=horus-gre comment=\"horus\"", tun, v.CollectorIP)
 		b.w("/ip route add dst-address=%s gateway=horus-gre comment=\"horus\"", svc)
 		b.w("")
