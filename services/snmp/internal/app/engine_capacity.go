@@ -36,6 +36,9 @@ type RouterSnapshot struct {
 	// REST (mikrotik) o NQA por SNMP (huawei).
 	Vendor     string
 	Interfaces []IfaceSnapshot
+	// Switch: switch de monitoreo (sus uplinks son los elegidos; sin sondas
+	// netwatch/NQA).
+	Switch bool
 }
 
 // Snapshot devuelve los routers objetivo (todos los tenants) con sus
@@ -48,14 +51,14 @@ func (e *Engine) Snapshot(now time.Time) []RouterSnapshot {
 		r.mu.Lock()
 		st := e.status(r, now, healthy)
 		rs := RouterSnapshot{TenantID: r.TenantID, SiteID: r.SiteID, RouterID: r.RouterID, Name: r.Name, SiteName: r.SiteName,
-			Status: st.Status, Vendor: r.Vendor}
+			Status: st.Status, Vendor: r.Vendor, Switch: r.Switch}
 		if st.Reason != nil {
 			rs.Reason = *st.Reason
 		}
 		for i := range r.st.Interfaces {
 			x := &r.st.Interfaces[i]
 			is := IfaceSnapshot{InterfaceID: x.InterfaceID, Name: x.Name, Alias: x.Alias, SpeedBps: x.SpeedBps, OperStatus: x.OperStatus,
-				AutoUplink: r.st.UplinkIfIndex != 0 && x.IfIndex == r.st.UplinkIfIndex, Monitored: x.Monitored}
+				AutoUplink: r.st.isUplink(x, r.Switch), Monitored: x.Monitored}
 			if x.Sample != nil {
 				is.RxBps, is.TxBps = x.Sample.RxBps, x.Sample.TxBps
 				at := x.Sample.SampledAt

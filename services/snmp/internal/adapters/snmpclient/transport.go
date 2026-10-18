@@ -31,8 +31,13 @@ type Transport interface {
 }
 
 // Credential es la credencial SNMPv3 (authPriv; sin priv si PrivProtocol
-// está vacío).
+// está vacío) o, con Version "2c", una comunidad SNMP v2c (switches SwOS,
+// que no tienen SNMPv3: sin cifrado ni autenticación fuerte; solo en la red
+// de gestión).
 type Credential struct {
+	// Version: "3" (o vacío) | "2c".
+	Version      string
+	Community    string
 	Username     string
 	AuthProtocol string // sha1 | sha256 | md5
 	AuthPassword string
@@ -61,6 +66,9 @@ type GoSNMP struct {
 
 // Dial implementa Dialer.
 func (d GoSNMP) Dial(ctx context.Context, target netip.Addr, cred Credential) (Transport, error) {
+	if cred.Version == "2c" {
+		return d.dialV2c(ctx, target, cred)
+	}
 	auth, err := authProtocol(cred.AuthProtocol)
 	if err != nil {
 		return nil, err
@@ -90,6 +98,29 @@ func (d GoSNMP) Dial(ctx context.Context, target netip.Addr, cred Credential) (T
 			PrivacyProtocol: priv, PrivacyPassphrase: cred.PrivPassword,
 		},
 	}
+	if err := g.Connect(); err != nil {
+		return nil, fmt.Errorf("snmp: connect: %w", err)
+	}
+	return &session{g: g}, nil
+}
+
+// dialV2c abre una sesión SNMP v2c (comunidad). Un agente v2c ignora en
+// silencio una comunidad incorrecta: el fallo se ve como timeout, nunca como
+// ErrAuth.
+func (d GoSNMP) dialV2c(ctx context.Context, target netip.Addr, cred Credential) (Transport, error) {
+	if cred.Community == "" {
+		return nil, errors.New("snmp: empty community")
+	}
+	port := d.Port
+	if port == 0 {
+		port = 161
+	}
+	timeout := d.Timeout
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	g := &gosnmp.GoSNMP{Target: target.Unmap().String(), Port: port, Transport: "udp", Version: gosnmp.Version2c,
+		Community: cred.Community, Timeout: timeout, Retries: d.Retries, MaxOids: 30, MaxRepetitions: 10, Context: ctx}
 	if err := g.Connect(); err != nil {
 		return nil, fmt.Errorf("snmp: connect: %w", err)
 	}

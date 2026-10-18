@@ -487,3 +487,101 @@ RFC y especificaciones: RFC 2863 (IF-MIB), RFC 6933 (ENTITY-MIB v4), RFC 2790 (H
 RFC 4560 (DISMAN-PING-MIB), RFC 2578 §7.7 (índices de tabla), RFC 3414 (USM), RFC 3826 (AES en USM),
 RFC 7860 (HMAC-SHA-2 en USM), RFC 3954 (NetFlow v9), RFC 7011/7012 (IPFIX), RFC 5477 (PSAMP),
 sFlow v5 — <https://sflow.org/sflow_version_5.txt>, RFC 7296 (IKEv2), RFC 4301 (IPsec).
+
+## 11. Switches de la serie S
+
+> Estado: **implementado contra documentación, fixtures sintéticos** (S5735, VRP V200R021). Modelo de datos,
+> reglas de solo monitoreo y API comunes con MikroTik en [`mikrotik.md` §13](mikrotik.md#13-switches-de-monitoreo-crs-con-routeros-7-y-swos).
+
+### 11.1 Alta (modo directo)
+
+`device_type=switch`, `switch_platform=vrp` (fija `vendor=huawei`). `POST /routers/{id}/switch-onboarding`
+genera una credencial SNMPv3 SHA-256 + AES-128 de solo lectura y la configuración (PENDIENTE DE VALIDACIÓN EN
+EQUIPO REAL):
+
+```
+system-view
+acl number 2991
+ description horus-snmp-ro
+ rule 5 permit source <HORUS_POLLER_IP> 0
+ rule 10 deny
+ quit
+snmp-agent
+snmp-agent sys-info version v3
+snmp-agent mib-view included horus-ro 1.3.6.1.2.1.1      (system; ídem .2, .31, .47, LLDP 1.0.8802.1.1.2 y 1.3.6.1.4.1.2011.5.25.31)
+snmp-agent group v3 horus-ro privacy read-view horus-ro acl 2991
+snmp-agent usm-user v3 horus-<id> group horus-ro
+snmp-agent usm-user v3 horus-<id> authentication-mode sha2-256   (VRP pide la contraseña dos veces)
+snmp-agent usm-user v3 horus-<id> privacy-mode aes128
+snmp-agent usm-user v3 horus-<id> acl 2991
+return
+```
+
+La ACL usa el número 2991 (el alta directa de routers usa 2990) para no chocar si conviven. La vista añade
+LLDP-MIB a la de los routers. Versiones antiguas sin `sha2-256`: usar `sha` (nota en la configuración).
+
+### 11.2 CPU, memoria y temperatura
+
+Mismo adaptador que los routers VRP (§3): HUAWEI-ENTITY-EXTENT-MIB `hwEntityStateTable` por
+`entPhysicalIndex`, tarjetas `entPhysicalClass = module(9)`. En la serie S fija la única tarjeta con CPU es la
+MPU (`MPU Board 0`, índice típico 67108873 en la «MIB Example» de S1700/S2720/S5700/S6700 V200R019C10); en un
+*stack* la MPU de reserva se descarta por `hwEntityStandbyStatus`. El modelo sale de la primera línea de
+`sysDescr` (`S5735-L48T4X-A1`).
+
+### 11.3 Puertos, LLDP y flaps
+
+IF-MIB con los nombres de VRP (`GigabitEthernet0/0/1`, `XGigabitEthernet0/0/1`, `Eth-Trunk1`; nunca `MEth`,
+`Vlanif`, `NULL`, `InLoopBack`). LLDP-MIB estándar (`lldp enable` en la vista de sistema si no está activo); el
+puerto local se traduce por `lldpLocPortId` (subtipo interfaceName) o, si no casa, por `lldpLocPortNum = ifIndex`.
+Elección de puertos, uplinks, flaps y alertas como en MikroTik (`mikrotik.md` §13.3).
+
+### 11.4 sFlow (opcional, fuente secundaria)
+
+Con `sflow=true` (o `PATCH sflow_enabled`) la alta añade (guías de configuración sFlow de S2720/S5700/S6700
+V200R019C10 y S1720/S2700/S5700/S6720 V200R011C10–V200R012):
+
+```
+system-view
+sflow agent ip <dirección de gestión>
+sflow collector 1 ip <HORUS_COLLECTOR_IP> udp-port <puerto> description horus
+interface <PUERTO_SFLOW>
+ sflow flow-sampling collector 1
+ sflow flow-sampling rate 4096
+ sflow flow-sampling inbound
+ quit
+return
+```
+
+- **Solo muestreo de entrada** en cada puerto: cada paquete se muestrea una vez, en el puerto por el que entra al
+  switch (sin doble conteo dentro del switch). Sin *counter sampling*: los contadores los lee Horus por SNMP.
+- Huawei recomienda **no más de 8 puertos** con muestreo; tasa entre 256 y 65535 (máximo del chip ENP), 4096 por
+  defecto. En V200R011 y anteriores el comando es `sflow sampling …` en lugar de `sflow flow-sampling …`.
+- El agente es la dirección de gestión verificada: el colector solo acepta sFlow de esa IP y lo marca como
+  **exportador secundario** (nunca suma a clientes ni nodos; [`traffic-model.md` §13](../traffic-model.md#13-switches-sflow-como-fuente-secundaria)).
+  El decodificador sFlow v5 es el de §7.3; el colector lo reconoce en cualquiera de sus puertos (6343 si se
+  escucha, `HORUS_COLLECTOR_LISTEN`).
+
+### 11.5 Lista de validación con un equipo real
+
+1. Pegar la configuración de §11.1 en un S5735 (o eNSP con S5700): `display snmp-agent usm-user` y
+   `snmpwalk -v3 -l authPriv -a SHA-256 -x AES` desde el sondeador.
+2. Comparar `hwEntityStateTable` y `entPhysicalTable` con el fixture sintético; sustituirlo por la captura real.
+3. `display lldp neighbor brief` frente a `lldpRemTable`; comprobar la traducción del puerto local.
+4. sFlow: `display sflow configuration`, recibir muestras en el colector (`horus_collector_datagrams_total{version="sflow5"}`),
+   verificar que solo crece `flows.switch_samples` y no `flows.flows_raw`.
+
+### 11.6 Fuentes
+
+- «Configuring sFlow» y «Configuring an sFlow Sampling Mode», S2720/S5700/S6700 V200R019C10 —
+  <https://support.huawei.com/enterprise/en/doc/EDOC1100127059/a98f8c1a/configuring-sflow> ·
+  <https://support.huawei.com/enterprise/en/doc/EDOC1100127059/4781ed36/configuring-an-sflow-sampling-mode>
+- «Example for Configuring sFlow», S1720/S2700/S5700/S6720 V200R011C10 —
+  <https://support.huawei.com/enterprise/en/doc/EDOC1000178174/d73ef0a7/example-for-configuring-sflow> ·
+  V200R012 — <https://support.huawei.com/enterprise/en/doc/EDOC1100038345/4781ed36/configuring-an-sflow-sampling-mode>
+- Licencias y límites de sFlow (S1720GW/GWR/X con licencia) —
+  <https://support.huawei.com/enterprise/en/doc/EDOC1000141939/735d1ff0/licensing-requirements-and-limitations-for-sflow>
+- «MIB Example» (HUAWEI-ENTITY-EXTENT-MIB en la serie S), S1700/S2720/S5700/S6700 V200R019C10 —
+  <https://support.huawei.com/enterprise/en/doc/EDOC1100127036/e704d4b7/mib-example>
+- `snmp-agent usm-user` — <https://support.huawei.com/enterprise/en/doc/EDOC1100096312/72d3e0f1/snmp-agent-usm-user>
+- Acceso: igual que §10, support.huawei.com se consultó a través del índice del buscador (la página es una SPA
+  que no se puede leer sin navegador desde el entorno de trabajo).

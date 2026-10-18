@@ -109,6 +109,10 @@ func (d *DirectOnboarding) Create(ctx context.Context, routerID uuid.UUID, in Di
 	if err != nil || !siteAllowed(p, PermCredentialsWrite, r.SiteID) {
 		return nil, apperr.NotFound(domain.CodeRouterNotFound)
 	}
+	if r.IsSwitch() {
+		return nil, apperr.New(apperr.KindInvalid, domain.CodeSwitchNotSupported,
+			"Los switches tienen su propio alta: POST /routers/{id}/switch-onboarding.")
+	}
 	if connectionModeOf(r) != domain.ConnectionDirect {
 		return nil, apperr.New(apperr.KindInvalid, domain.CodeVendorNotSupported,
 			"El alta directa es para routers sin WireGuard (Huawei VRP); los MikroTik usan el script de alta con túnel.")

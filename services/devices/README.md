@@ -56,6 +56,19 @@ métricas y eventos publicados/consumidos cuando el módulo tenga implementació
   `devices.router.transport_changed`. La PSK IPsec es la credencial `ipsec_psk` (envelope, KEK de devices) que gestiona
   `api.TunnelSecrets` para `wireguard`. Detalle: [`docs/tunnels.md`](../../docs/tunnels.md).
 
+## Switches de monitoreo (docs/vendors/mikrotik.md §13, huawei.md §11)
+
+- Un switch es una fila de `devices.router` con `device_type = switch`, `switch_platform` (`routeros` | `swos` |
+  `vrp`) y `sflow_enabled`: nunca principal, siempre `direct` por la red de gestión (`unencrypted_private`), sin
+  túnel, transporte ni API REST de RouterOS (CHECK `ck_router__switch`). `GET /routers` devuelve solo routers salvo
+  `device_type=switch|all`.
+- `POST /routers/{id}/switch-onboarding` (`devices.credentials.write`, re-autenticación, auditoría
+  `devices.switch_onboarding.created`): fija la dirección de gestión (mismas reglas que el alta directa), emite la
+  credencial (`IssueSwitchCredentials`: SNMPv3 SHA1/AES, SHA-256/AES-128 o comunidad v2c `snmp_v2c`) y genera la
+  configuración (`domain.BuildSwitchConfig`). `RevealSNMPCredential` devuelve `Version: "2c"` + `Community` para SwOS.
+- Eventos `horus.devices.router.*` con `device_type`, `switch_platform`, `sflow_enabled`; flowinv convierte un switch
+  verificado con sFlow en exportador **secundario**.
+
 ## Alta de routers e importación del MikroTik (I1-01, I1-02, I1-28)
 
 - `api/onboarding.go` (`devices.Onboarding` en `module.Services`): lo usa `wireguard` para leer routers, proyectar el túnel

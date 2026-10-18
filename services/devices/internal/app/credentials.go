@@ -119,6 +119,9 @@ func (c *Credentials) Statuses(ctx context.Context, routerID uuid.UUID) ([]Crede
 	for _, kind := range CredentialKinds {
 		st := CredentialStatus{Kind: kind}
 		cred, err := c.store.GetCredential(ctx, t, routerID, credentialPathKinds[kind])
+		if kind == "snmp" && errors.Is(err, domain.ErrNotFound) && r.IsSwitch() {
+			cred, err = c.store.GetCredential(ctx, t, routerID, domain.CredentialSNMPv2c) // SwOS: comunidad v2c
+		}
 		switch {
 		case errors.Is(err, domain.ErrNotFound):
 		case err != nil:
@@ -152,6 +155,10 @@ func (c *Credentials) PutCredential(ctx context.Context, routerID uuid.UUID, kin
 		if err := routerOSOnly(r); err != nil {
 			return nil, err
 		}
+	}
+	if r.IsSwitch() && r.SwitchPlatform != nil && domain.SNMPv2cOnly(*r.SwitchPlatform) {
+		return nil, apperr.New(apperr.KindInvalid, domain.CodeSwitchNotSupported,
+			"Un switch SwOS usa la comunidad v2c que genera Horus: regenérela con POST /routers/{id}/switch-onboarding.")
 	}
 	cred, secret, fpChange, err := c.parse(ctx, t, routerID, dbKind, fields)
 	if err != nil {

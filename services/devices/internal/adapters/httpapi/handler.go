@@ -210,7 +210,16 @@ func routerJSON(x *domain.Router) map[string]any {
 		"connection_mode": connectionMode(x), "management_address": x.ManagementAddress,
 		"protection_level": domain.ProtectionOf(connectionMode(x), x.ProtectionLevel), "tunnel_remote_address": x.TunnelRemoteAddress,
 		"tunnel_remote_id": x.TunnelRemoteID, "warnings": x.Warnings(), "credentials": []any{},
+		"device_type": deviceType(x), "switch_platform": x.SwitchPlatform, "sflow_enabled": x.SFlowEnabled,
 	}
+}
+
+// deviceType: router en filas anteriores al campo.
+func deviceType(x *domain.Router) string {
+	if x.DeviceType == "" {
+		return domain.DeviceTypeRouter
+	}
+	return x.DeviceType
 }
 
 // connectionMode: el guardado o, en filas anteriores al campo, wireguard

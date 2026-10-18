@@ -50,8 +50,10 @@ type ListQuery struct {
 	SiteIDs         []uuid.UUID
 	OnboardingState string
 	IsPrimary       *bool
-	Role            string
-	SiteID          uuid.UUID
+	// DeviceType: router | switch; vacío = todos.
+	DeviceType string
+	Role       string
+	SiteID     uuid.UUID
 }
 
 // Events construye los eventos de un cambio con el estado final.

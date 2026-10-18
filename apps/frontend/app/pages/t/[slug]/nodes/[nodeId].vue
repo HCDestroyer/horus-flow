@@ -266,6 +266,8 @@ useHead({ title: () => site.value?.name ?? t('nav.items.nodes') })
         </UCard>
       </section>
 
+      <NodeSwitchesCard :site-id="site.id" />
+
       <PrefixesPanel
         :site-id="site.id"
         :router-id="primary?.id ?? null"

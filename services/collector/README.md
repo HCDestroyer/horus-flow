@@ -49,6 +49,13 @@
 `collector.Replay` reproduce capturas (pcap, pcapng, hfsim) conservando la IP de origen: test
 dorado (`tests/flows`), laboratorio y fixtures del simulador.
 
+### Exportadores secundarios (switches)
+
+Un switch con sFlow verificado (`flowinv.Exporter.Secondary`) se identifica por su dirección de gestión como un
+exportador directo, pero sus lotes salen por `horus.telemetry.flows.secondary.<id>` (tipo
+`horus.flows.secondary_batch.received`), nunca por `horus.telemetry.flows.batch.>`: no llegan a `flows_raw` ni a la
+atribución. No aparecen en la vista de exportadores.
+
 ## Variables
 
 | Variable | Defecto | Uso |

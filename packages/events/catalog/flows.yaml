@@ -25,6 +25,26 @@ events:
   since: I1
   example: examples/horus.flows.batch.received.json
   notes: 'Pre-NAT: con NAT en el router principal (D12) la IP de cliente es la privada en ambos sentidos.'
+- type: horus.flows.secondary_batch.received
+  subject: horus.telemetry.flows.secondary.{router_id}
+  tenant_scope: tenant
+  stream: TLM_FLOWS
+  family: telemetry
+  encoding: protobuf
+  schema: horus.events.flows.v1.FlowBatch
+  schema_version: 1
+  producer: flows
+  consumers:
+  - flows
+  websocket_topics: []
+  pii: true
+  pii_fields:
+  - records.src_ip
+  - records.dst_ip
+  status: stable
+  since: I3
+  example: examples/horus.flows.secondary_batch.received.json
+  notes: 'Muestras sFlow de un switch (exportador SECUNDARIO, docs/traffic-model.md §13). Mismo cuerpo que batch.received en otro subject: el durable flows-ingester (horus.telemetry.flows.batch.>) nunca lo recibe; lo consume flows-switch-samples → flows.switch_samples. Nunca entra en flows_raw, la atribución ni el descubrimiento de clientes (sin doble conteo con el router).'
 - type: horus.flows.client.first_seen
   subject: horus.flows.client.first_seen.{realm_id}
   tenant_scope: tenant

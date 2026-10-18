@@ -438,6 +438,9 @@ export function routersOf(
       protection_level: 'encrypted',
       tunnel_remote_address: null,
       tunnel_remote_id: null,
+      device_type: 'router',
+      switch_platform: null,
+      sflow_enabled: false,
       wireguard_peer_id: mockUuid('0192e888', ti * 100 + spec.index + 1),
       warnings: lossy ? ['hardware_offload_suspected'] : [],
       credentials: [

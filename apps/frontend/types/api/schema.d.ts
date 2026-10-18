@@ -3720,6 +3720,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/routers/{router_id}/switch-onboarding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Alta de un switch (modo directo) — credencial SNMP nueva y configuración para pegar
+         * @description Solo `device_type=switch` (un router → `422 DEVICE_NOT_A_SWITCH`). Fija la dirección de gestión del switch (misma
+         *     regla que el modo directo de Huawei: única en la plataforma una vez verificada, nunca una IP de Horus), emite una
+         *     credencial SNMP de solo lectura nueva — SNMPv3 SHA1/AES en RouterOS (lo que admite `/snmp community`), SNMPv3
+         *     SHA-256/AES-128 en la serie S de Huawei o una **comunidad v2c** en SwOS (solo v1/v2c: aviso de menor seguridad) —,
+         *     cifrada en reposo y **solo en esta respuesta** en claro, y devuelve lo que pega el operador: RouterOS
+         *     (`/snmp community` con `addresses` del sondeador), VRP serie S (ACL + `mib-view` + `usm-user v3`) o los pasos de la
+         *     web de SwOS. Con `sflow=true` (solo `vrp`) activa la fuente secundaria y añade la configuración sFlow (agente =
+         *     dirección de gestión, muestreo solo de entrada). Horus nunca escribe en el switch; queda `snmp_verified` cuando el
+         *     sondeador responde con esa credencial en esa dirección.
+         */
+        post: operations["createSwitchOnboarding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/routers/{router_id}/tls-fingerprint": {
         parameters: {
             query?: never;
@@ -4055,6 +4085,111 @@ export interface paths {
          *     exige `customers.read`. El rango va en el cuerpo (nunca IP en la URL). Fuente: flows.unattributed_1h (30 días).
          */
         post: operations["queryUnattributedAddresses"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/switches/{router_id}/flows/top": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Top de IP y protocolos por puerto a partir del sFlow del switch (fuente secundaria)
+         * @description Lee `flows.switch_samples`: las muestras sFlow del switch (`sflow_enabled`), que **nunca** se suman al tráfico de
+         *     clientes ni de nodos (salen de los flujos del router) ni crean clientes (docs/traffic-model.md §13). Bytes y
+         *     paquetes escalados por la tasa de muestreo. Las IP solo viajan en la respuesta, nunca en la URL. Sin ClickHouse
+         *     → 503.
+         */
+        get: operations["getSwitchFlowTop"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/switches/{router_id}/neighbors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Vecinos LLDP del switch (solo lectura)
+         * @description LLDP-MIB (`lldpRemTable`, `lldpRemManAddrTable`) y, si no publica filas, la tabla de vecinos de MIKROTIK-MIB
+         *     (`mtxrNeighborTable`, `source=mndp`). `known_device` es el router o switch de Horus reconocido por nombre de
+         *     sistema o dirección de gestión. SwOS no tiene LLDP (lista vacía).
+         */
+        get: operations["listSwitchNeighbors"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/switches/{router_id}/ports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Puertos del switch con su elección, última muestra, flaps y vecino LLDP
+         * @description Puertos físicos y agregados del último descubrimiento IF-MIB (nombre, ifAlias, velocidad, estado administrativo y
+         *     operativo), si se sondean (`monitored`, máximo `max_ports` por switch) y si son de subida (`uplink`), el uplink
+         *     sugerido (`suggested_uplink`: su vecino LLDP es un router o switch de Horus), los cambios de estado de la última
+         *     hora y del día y la última muestra (tráfico, utilización, errores, descartes). Sin elección del operador
+         *     (`selection.configured=false`) rige la de por defecto: uplinks sugeridos + puertos con descripción.
+         */
+        get: operations["listSwitchPorts"];
+        /**
+         * Elige los puertos a monitorear y marca los uplinks
+         * @description Sustituye la elección: los puertos listados se sondean cada intervalo (máximo 64: cardinalidad de las series) y
+         *     `uplink=true` los marca de subida (entran en el análisis de capacidad y avisan si caen o se vuelven inestables).
+         *     Un puerto que no existe en el último descubrimiento → 422. Con `If-Match` (ETag de GET) una edición concurrente
+         *     → 412. Se aplica en caliente.
+         */
+        put: operations["putSwitchPorts"];
+        post?: never;
+        /** Vuelve a la elección de puertos por defecto */
+        delete: operations["resetSwitchPorts"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/switches/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Estado efectivo y resumen de puertos de cada switch (lista «Switches» por nodo)
+         * @description Una fila por switch de monitoreo (`device_type=switch`) con el mismo estado efectivo que los routers (ICMP + SNMP
+         *     por la dirección de gestión) y el resumen de puertos: monitoreados, uplinks (caídos), puertos inestables (≥ 4
+         *     cambios de estado en la última hora) y vecinos LLDP. `/routers/status` no incluye switches. Apto para kioscos.
+         */
+        get: operations["listSwitchStatus"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -4747,6 +4882,8 @@ export interface components {
             label: string;
         };
         CapacityRouterBrief: {
+            /** @enum {string} */
+            device_type?: "router" | "switch";
             name: string;
             /** @description Por qué no se leen sus sondas netwatch (null = se leen o no hay intento). */
             probes_error: string | null;
@@ -4826,6 +4963,11 @@ export interface components {
             conditions: components["schemas"]["UplinkCondition"][];
             configured: boolean;
             contracted_bps: number | null;
+            /**
+             * @description `switch`: uplink de un switch (elegido por el operador en la ficha del switch; `auto_detected=true`).
+             * @enum {string}
+             */
+            device_type?: "router" | "switch";
             diagnosis: components["schemas"]["UplinkDiagnosis"];
             forecast: components["schemas"]["CapacityForecastSummary"] | null;
             interface_id: components["schemas"]["Uuid"];
@@ -5260,7 +5402,7 @@ export interface components {
          * @description Código estable UPPER_SNAKE_CASE (= `ErrorInfo.reason` de gRPC). **Enum abierto**: se listan los
          *     conocidos en v0; el cliente trata un código desconocido según el `status` HTTP.
          */
-        ErrorCode: ("VALIDATION_FAILED" | "UNAUTHENTICATED" | "TOKEN_EXPIRED" | "SESSION_REVOKED" | "PERMISSION_DENIED" | "ORIGIN_NOT_ALLOWED" | "MFA_REQUIRED" | "MFA_ENROLLMENT_REQUIRED" | "REAUTH_REQUIRED" | "NOT_FOUND" | "ALREADY_EXISTS" | "CONFLICT" | "PRECONDITION_FAILED" | "PRECONDITION_REQUIRED" | "IDEMPOTENCY_KEY_REUSED" | "IDEMPOTENCY_IN_PROGRESS" | "RATE_LIMITED" | "TENANT_RATE_LIMITED" | "INTERNAL" | "SERVICE_UNAVAILABLE" | "ANALYTICS_UNAVAILABLE" | "TIMEOUT" | "INVALID_CREDENTIALS" | "INVALID_CURSOR" | "INVALID_FILTER" | "INVALID_SORT_FIELD" | "TIME_RANGE_TOO_LARGE" | "TENANT_NOT_FOUND" | "TENANT_MISMATCH" | "TENANT_SUSPENDED" | "TOKEN_SCOPE_INVALID" | "KIOSK_FORBIDDEN" | "ROUTER_NOT_FOUND" | "ROUTER_PRIMARY_EXISTS" | "ROUTEROS_VERSION_UNSUPPORTED" | "ROUTER_UNREACHABLE" | "ROUTER_TLS_FINGERPRINT_CHANGED" | "ROUTER_TLS_FINGERPRINT_UNCONFIRMED" | "ROUTER_TLS_FINGERPRINT_MISMATCH" | "ROUTER_VENDOR_NOT_SUPPORTED" | "MANAGEMENT_ADDRESS_IN_USE" | "CONNECTION_MODE_NOT_SUPPORTED" | "CONNECTION_MODE_MISMATCH" | "UNENCRYPTED_TRANSPORT_CONFIRMATION_REQUIRED" | "TUNNEL_REMOTE_IN_USE" | "TUNNEL_TRANSPORT_DISABLED" | "SITE_NOT_FOUND" | "SITE_NOT_EMPTY" | "PEER_ALREADY_REVOKED" | "WIREGUARD_IP_POOL_EXHAUSTED" | "WIREGUARD_PUBLIC_KEY_IN_USE" | "ENROLLMENT_TOKEN_INVALID" | "CUSTOMER_NOT_FOUND" | "CUSTOMER_KIND_LOCKED" | "CLIENT_PREFIX_OVERLAP" | "CLIENT_PREFIX_NOT_FOUND" | "ASN_RULE_NOT_FOUND" | "FINDING_NOT_FOUND" | "FINDING_STATE_INVALID" | "REPORT_NOT_FOUND" | "REPORT_NOT_READY" | "REPORT_EXPIRED" | "REPORT_DEFINITION_NOT_FOUND" | "DASHBOARD_NOT_FOUND" | "DASHBOARD_READ_ONLY" | "WIDGET_TYPE_NOT_ALLOWED" | "WIDGET_TYPE_UNKNOWN" | "WIDGET_CONFIG_INVALID" | "KIOSK_ENROLLMENT_CODE_INVALID" | "NOTIFICATION_CHANNEL_NOT_FOUND" | "NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE" | "NOTIFICATION_CHANNEL_UNREACHABLE" | "NOTIFICATION_CHANNEL_AUTH_FAILED" | "NOTIFICATION_CHANNEL_CREDENTIALS_MISSING" | "LIBRENMS_CHANNEL_REQUIRED" | "LIBRENMS_NOT_PROVISIONED" | "LIBRENMS_DEVICE_NOT_OWNED" | "NOTIFICATION_TELEGRAM_WEBHOOK_ACTIVE" | "NOTIFICATION_TELEGRAM_LINK_CODE_INVALID" | "NOTIFICATION_TELEGRAM_BOT_NOT_CONFIGURED" | "STORAGE_TARGET_UNREACHABLE" | "REPUTATION_SOURCE_NOT_FOUND" | "REPUTATION_SOURCE_READ_ONLY" | "REPUTATION_SOURCE_URL_NOT_ALLOWED" | "ROLE_NOT_FOUND" | "ROLE_READ_ONLY" | "ROLE_IN_USE" | "LAST_PLATFORM_ADMIN" | "WIREGUARD_HUB_NOT_FOUND" | "WIREGUARD_POOL_NOT_FOUND" | "WIREGUARD_POOL_OVERLAP" | "WIREGUARD_POOL_INVALID" | "WIREGUARD_POOL_IN_USE" | "REMOTE_DESTINATION_NOT_FOUND" | "REMOTE_DESTINATION_NOT_READY" | "REMOTE_DESTINATION_SYNC_RUNNING" | "API_TOKEN_NOT_FOUND" | "INTEGRATION_NOT_CONFIGURED" | "INTEGRATION_UNAVAILABLE") | string;
+        ErrorCode: ("VALIDATION_FAILED" | "UNAUTHENTICATED" | "TOKEN_EXPIRED" | "SESSION_REVOKED" | "PERMISSION_DENIED" | "ORIGIN_NOT_ALLOWED" | "MFA_REQUIRED" | "MFA_ENROLLMENT_REQUIRED" | "REAUTH_REQUIRED" | "NOT_FOUND" | "ALREADY_EXISTS" | "CONFLICT" | "PRECONDITION_FAILED" | "PRECONDITION_REQUIRED" | "IDEMPOTENCY_KEY_REUSED" | "IDEMPOTENCY_IN_PROGRESS" | "RATE_LIMITED" | "TENANT_RATE_LIMITED" | "INTERNAL" | "SERVICE_UNAVAILABLE" | "ANALYTICS_UNAVAILABLE" | "TIMEOUT" | "INVALID_CREDENTIALS" | "INVALID_CURSOR" | "INVALID_FILTER" | "INVALID_SORT_FIELD" | "TIME_RANGE_TOO_LARGE" | "TENANT_NOT_FOUND" | "TENANT_MISMATCH" | "TENANT_SUSPENDED" | "TOKEN_SCOPE_INVALID" | "KIOSK_FORBIDDEN" | "ROUTER_NOT_FOUND" | "ROUTER_PRIMARY_EXISTS" | "ROUTEROS_VERSION_UNSUPPORTED" | "ROUTER_UNREACHABLE" | "ROUTER_TLS_FINGERPRINT_CHANGED" | "ROUTER_TLS_FINGERPRINT_UNCONFIRMED" | "ROUTER_TLS_FINGERPRINT_MISMATCH" | "ROUTER_VENDOR_NOT_SUPPORTED" | "MANAGEMENT_ADDRESS_IN_USE" | "CONNECTION_MODE_NOT_SUPPORTED" | "CONNECTION_MODE_MISMATCH" | "UNENCRYPTED_TRANSPORT_CONFIRMATION_REQUIRED" | "TUNNEL_REMOTE_IN_USE" | "TUNNEL_TRANSPORT_DISABLED" | "DEVICE_NOT_A_SWITCH" | "SWITCH_NOT_SUPPORTED" | "SWITCH_NOT_FOUND" | "SFLOW_NOT_SUPPORTED" | "SITE_NOT_FOUND" | "SITE_NOT_EMPTY" | "PEER_ALREADY_REVOKED" | "WIREGUARD_IP_POOL_EXHAUSTED" | "WIREGUARD_PUBLIC_KEY_IN_USE" | "ENROLLMENT_TOKEN_INVALID" | "CUSTOMER_NOT_FOUND" | "CUSTOMER_KIND_LOCKED" | "CLIENT_PREFIX_OVERLAP" | "CLIENT_PREFIX_NOT_FOUND" | "ASN_RULE_NOT_FOUND" | "FINDING_NOT_FOUND" | "FINDING_STATE_INVALID" | "REPORT_NOT_FOUND" | "REPORT_NOT_READY" | "REPORT_EXPIRED" | "REPORT_DEFINITION_NOT_FOUND" | "DASHBOARD_NOT_FOUND" | "DASHBOARD_READ_ONLY" | "WIDGET_TYPE_NOT_ALLOWED" | "WIDGET_TYPE_UNKNOWN" | "WIDGET_CONFIG_INVALID" | "KIOSK_ENROLLMENT_CODE_INVALID" | "NOTIFICATION_CHANNEL_NOT_FOUND" | "NOTIFICATION_CHANNEL_KIND_NOT_AVAILABLE" | "NOTIFICATION_CHANNEL_UNREACHABLE" | "NOTIFICATION_CHANNEL_AUTH_FAILED" | "NOTIFICATION_CHANNEL_CREDENTIALS_MISSING" | "LIBRENMS_CHANNEL_REQUIRED" | "LIBRENMS_NOT_PROVISIONED" | "LIBRENMS_DEVICE_NOT_OWNED" | "NOTIFICATION_TELEGRAM_WEBHOOK_ACTIVE" | "NOTIFICATION_TELEGRAM_LINK_CODE_INVALID" | "NOTIFICATION_TELEGRAM_BOT_NOT_CONFIGURED" | "STORAGE_TARGET_UNREACHABLE" | "REPUTATION_SOURCE_NOT_FOUND" | "REPUTATION_SOURCE_READ_ONLY" | "REPUTATION_SOURCE_URL_NOT_ALLOWED" | "ROLE_NOT_FOUND" | "ROLE_READ_ONLY" | "ROLE_IN_USE" | "LAST_PLATFORM_ADMIN" | "WIREGUARD_HUB_NOT_FOUND" | "WIREGUARD_POOL_NOT_FOUND" | "WIREGUARD_POOL_OVERLAP" | "WIREGUARD_POOL_INVALID" | "WIREGUARD_POOL_IN_USE" | "REMOTE_DESTINATION_NOT_FOUND" | "REMOTE_DESTINATION_NOT_READY" | "REMOTE_DESTINATION_SYNC_RUNNING" | "API_TOKEN_NOT_FOUND" | "INTEGRATION_NOT_CONFIGURED" | "INTEGRATION_UNAVAILABLE") | string;
         /** @description Evidencia agregada según kind (nunca payloads; nunca la IP del cliente). Campos conocidos; otros permitidos. */
         Evidence: {
             bps_peak?: number;
@@ -6868,6 +7010,8 @@ export interface components {
             routeros_version_detected?: string | null;
             /** @description false si la versión (detectada o declarada) es < 7.12 (D15); null si se desconoce. */
             routeros_version_supported: boolean | null;
+            /** @description Switch con sFlow activo (fuente secundaria); siempre false en routers. */
+            sflow_enabled: boolean;
             /** @description IP /32 de túnel (WireGuard, IPsec o GRE) asignada por la IPAM de plataforma = identidad del exportador (null en modo directo). */
             tunnel_address: string | null;
             /**
@@ -6920,6 +7064,15 @@ export interface components {
          */
         RouterEffectiveStatus: "online" | "warning" | "critical" | "degraded" | "offline" | "stale" | "unknown" | "maintenance";
         RouterInput: {
+            /**
+             * @description `switch`: switch de **monitoreo** (docs/vendors/mikrotik.md §13, huawei.md §11). Misma tabla que los routers
+             *     (estado, credencial SNMP cifrada, modo directo y verificación) pero nunca es router principal ni exportador
+             *     primario, nunca crea clientes ni entra en la atribución. Siempre `connection_mode=direct` por la red de
+             *     gestión (`protection_level=unencrypted_private`). No se puede cambiar después del alta.
+             * @default router
+             * @enum {string}
+             */
+            device_type?: "router" | "switch";
             display_name?: string | null;
             /** @default true */
             is_primary?: boolean;
@@ -6939,6 +7092,12 @@ export interface components {
             /** @description Declarada por el admin (D15: solo RouterOS 7.x; solo `vendor=mikrotik`). Se sobrescribe con la detectada. */
             routeros_version?: string | null;
             site_id: components["schemas"]["Uuid"];
+            /**
+             * @description Solo switches (obligatoria): `routeros` (MikroTik CRS con RouterOS 7, SNMPv3), `swos` (MikroTik SwOS, solo
+             *     SNMP v1/v2c: comunidad en claro, solo en la red de gestión) o `vrp` (Huawei serie S). Fija `vendor`.
+             * @enum {string|null}
+             */
+            switch_platform?: "routeros" | "swos" | "vrp" | null;
             tags?: string[];
             /**
              * @description Fabricante (roadmap I6, adaptadores por fabricante). `mikrotik`: RouterOS 7 con túnel WireGuard
@@ -6984,6 +7143,12 @@ export interface components {
             model?: string | null;
             name?: string;
             routeros_version?: string | null;
+            /**
+             * @description Solo switches con sFlow (`switch_platform=vrp`): el colector acepta sus muestras como fuente **secundaria**
+             *     (top por puerto en la ficha del switch; nunca suman al tráfico de clientes ni de nodos). Otra plataforma →
+             *     `422 SFLOW_NOT_SUPPORTED`.
+             */
+            sflow_enabled?: boolean;
             tags?: string[];
         };
         /** @description Las señales que sostienen el estado; `unknown` mientras no haya observación. */
@@ -6998,7 +7163,7 @@ export interface components {
             wireguard: "ok" | "stale" | "never" | "unknown";
         };
         /**
-         * @description Enum abierto (events.md §8.4).
+         * @description Enum abierto (events.md §8.4). `interface_flapping` solo en switches (uplink inestable).
          * @example ok
          * @example cpu_high
          * @example memory_high
@@ -7009,6 +7174,7 @@ export interface components {
          * @example host_unreachable_via_tunnel
          * @example exporter_silent
          * @example interface_down
+         * @example interface_flapping
          * @example psu_failed
          * @example fan_failed
          */
@@ -7020,6 +7186,11 @@ export interface components {
              */
             connection_mode?: "wireguard" | "ipsec" | "gre" | "direct";
             device: components["schemas"]["RouterDeviceSample"];
+            /**
+             * @description `switch` en las filas de switches (GET /switches/status); ausente en los routers.
+             * @enum {string}
+             */
+            device_type?: "switch";
             interfaces_total: number | null;
             interfaces_up: number | null;
             /** @description Último flujo recibido del exportador de flujos del router (estado del collector leído en el último sondeo; null = nunca). */
@@ -7364,6 +7535,136 @@ export interface components {
             values: {
                 [key: string]: number | string | boolean | null | Record<string, unknown>;
             };
+        };
+        SwitchFlowTop: {
+            /** @enum {string} */
+            by: "src_ip" | "dst_ip" | "protocol";
+            data: {
+                bytes: string;
+                /** @description IP (src_ip/dst_ip) o «protocolo/puerto» (protocol, p. ej. 6/443). */
+                key: string;
+                packets: string;
+            }[];
+            from: components["schemas"]["Timestamp"];
+            if_index: number | null;
+            router_id: components["schemas"]["Uuid"];
+            samples: string;
+            sflow_enabled: boolean;
+            /**
+             * @description Siempre fuente secundaria (no suma a clientes ni nodos).
+             * @enum {string}
+             */
+            source: "secondary";
+            to: components["schemas"]["Timestamp"];
+            /** @description Entero decimal (UInt64). */
+            total_bytes: string;
+        };
+        SwitchNeighbor: {
+            /** @example 48:8F:5A:11:22:33 */
+            chassis_id: string;
+            /** @description Router o switch de Horus que es el vecino. */
+            known_device: string | null;
+            /** @description ifIndex del puerto local (0 si no se pudo traducir). */
+            local_if_index: number;
+            local_port: string;
+            mgmt_address: string | null;
+            platform: string | null;
+            port_desc: string;
+            /** @example sfp-sfpplus1 */
+            port_id: string;
+            /** @enum {string} */
+            source: "lldp" | "mndp";
+            /** @example rt-core-1 */
+            sys_name: string;
+        };
+        SwitchOnboarding: {
+            /** @description Configuración o pasos a aplicar. Contiene la credencial SNMP en claro (se muestra una sola vez). */
+            config: string;
+            /**
+             * @description `routeros` (script /snmp), `vrp` (CLI serie S) o `swos_web` (pasos de la interfaz web de SwOS).
+             * @enum {string}
+             */
+            language: "routeros" | "vrp" | "swos_web";
+            management_address: string;
+            notes: string[];
+            placeholders: {
+                description: string;
+                /** @example {PUERTO_SFLOW} */
+                key: string;
+            }[];
+            /** @enum {string} */
+            platform: "routeros" | "swos" | "vrp";
+            router_id: components["schemas"]["Uuid"];
+            sampling_rate: number | null;
+            /** @description Configuración sFlow de la serie S (solo con `sflow=true`). */
+            sflow_config: string | null;
+            sflow_enabled: boolean;
+            /** @description Usuario SNMPv3 (null con v2c; la contraseña o la comunidad solo van en `config`). */
+            snmp_user: string | null;
+            /** @enum {string} */
+            snmp_version: "3" | "2c";
+            warnings: string[];
+        };
+        SwitchPort: {
+            admin_up: boolean | null;
+            alias: string | null;
+            flaps_1h: number;
+            flaps_24h: number;
+            if_index: number;
+            interface_id: components["schemas"]["Uuid"];
+            last_change_at: components["schemas"]["NullableTimestamp"];
+            monitored: boolean;
+            /**
+             * @example XGigabitEthernet0/0/1
+             * @example sfp-sfpplus1
+             * @example Port3
+             */
+            name: string;
+            neighbors: components["schemas"]["SwitchNeighbor"][];
+            oper_status: components["schemas"]["InterfaceOperStatus"] | null;
+            sample: components["schemas"]["InterfaceSample"] | null;
+            speed_bps: number | null;
+            suggested_uplink: boolean;
+            type: string;
+            uplink: boolean;
+        };
+        SwitchPorts: {
+            data: components["schemas"]["SwitchPort"][];
+            discovered_at: components["schemas"]["NullableTimestamp"];
+            interval_seconds: number;
+            /** @example 64 */
+            max_ports: number;
+            monitored_count: number;
+            neighbors_at: components["schemas"]["NullableTimestamp"];
+            /** @enum {string} */
+            platform: "routeros" | "swos" | "vrp";
+            router_id: components["schemas"]["Uuid"];
+            selection: {
+                /** @description false = elección por defecto. */
+                configured: boolean;
+                updated_at: components["schemas"]["NullableTimestamp"];
+                updated_by: string | null;
+                version: number | null;
+            };
+        };
+        SwitchPortSelectionInput: {
+            ports: {
+                /** @description ifName del puerto. */
+                name: string;
+                /** @default false */
+                uplink?: boolean;
+            }[];
+        };
+        SwitchStatus: components["schemas"]["RouterStatus"] & {
+            neighbors_count: number;
+            /** @enum {string} */
+            platform: "routeros" | "swos" | "vrp";
+            /** @description Puertos con ≥ 4 cambios de estado operativo en la última hora. */
+            ports_flapping: number;
+            ports_monitored: number;
+            sflow_enabled: boolean;
+            uplinks: number;
+            uplinks_down: number;
         };
         SystemStatus: {
             capabilities: {
@@ -14106,6 +14407,11 @@ export interface operations {
             query?: {
                 /** @description Cursor opaco (`page.next_cursor`); ligado a filtros, orden y `tid`. Ajeno → `400 INVALID_CURSOR`. */
                 cursor?: components["parameters"]["Cursor"];
+                /**
+                 * @description Tipo de equipo: `router` (por defecto: el listado de routers no incluye switches), `switch` (switches de
+                 *     monitoreo) o `all`.
+                 */
+                device_type?: "router" | "switch" | "all";
                 /** @description Solo en colecciones administrativas pequeñas; ignorado en las grandes. */
                 include_total?: components["parameters"]["IncludeTotal"];
                 is_primary?: boolean;
@@ -14558,6 +14864,47 @@ export interface operations {
             409: components["responses"]["Conflict"];
             422: components["responses"]["UnprocessableEntity"];
             428: components["responses"]["PreconditionRequired"];
+        };
+    };
+    createSwitchOnboarding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * @description IP de gestión del switch (obligatoria si aún no la tiene).
+                     * @example 10.20.0.5
+                     */
+                    management_address?: string | null;
+                    /** @description Muestreo sFlow (1 de cada N; 4096 por defecto). */
+                    sampling_rate?: number | null;
+                    /** @description true activa sFlow (solo vrp) y añade su configuración; false lo desactiva; null no cambia. */
+                    sflow?: boolean | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Configuración generada (`Cache-Control no-store`). */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SwitchOnboarding"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
         };
     };
     getRouterTlsFingerprint: {
@@ -15202,6 +15549,185 @@ export interface operations {
             404: components["responses"]["NotFound"];
             422: components["responses"]["UnprocessableEntity"];
             503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    getSwitchFlowTop: {
+        parameters: {
+            query?: {
+                by?: "src_ip" | "dst_ip" | "protocol";
+                /** @description Puerto de entrada (ifIndex); 0 o ausente = todo el switch. */
+                if_index?: number;
+                limit?: number;
+                window_minutes?: number;
+            };
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Top. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SwitchFlowTop"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    listSwitchNeighbors: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Vecinos. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["SwitchNeighbor"][];
+                        discovered_at: components["schemas"]["NullableTimestamp"];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listSwitchPorts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Puertos. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SwitchPorts"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    putSwitchPorts: {
+        parameters: {
+            query?: never;
+            header?: {
+                "If-Match"?: string;
+            };
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SwitchPortSelectionInput"];
+            };
+        };
+        responses: {
+            /** @description Elección guardada. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SwitchPorts"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["UnprocessableEntity"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    resetSwitchPorts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                router_id: components["parameters"]["RouterId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Puertos con la elección por defecto. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SwitchPorts"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    listSwitchStatus: {
+        parameters: {
+            query?: {
+                /** @description Filtro por nodo (multivalor por comas). */
+                site_id?: components["parameters"]["SiteIdFilter"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Switches con su estado. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["SwitchStatus"][];
+                        meta: {
+                            generated_at: components["schemas"]["Timestamp"];
+                            poller: components["schemas"]["PollerHealth"];
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     getSystemStatus: {

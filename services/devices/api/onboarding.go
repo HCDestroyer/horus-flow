@@ -59,7 +59,23 @@ type RouterInfo struct {
 	// ManagementAddress: en modo directo, la IP de origen del router tal y
 	// como la ve Horus (destino del sondeo SNMP e identidad del exportador).
 	ManagementAddress *netip.Addr
+	// DeviceType: router | switch. Un switch es solo de monitoreo: nunca
+	// exportador primario, nunca crea clientes ni entra en la atribución.
+	DeviceType string
+	// SwitchPlatform: routeros | swos | vrp (solo switches; swos = SNMP v2c).
+	SwitchPlatform string
+	// SFlowEnabled: el switch exporta sFlow (fuente secundaria).
+	SFlowEnabled bool
 }
+
+// Tipos de equipo (devices.router.device_type) y plataformas de switch.
+const (
+	DeviceTypeRouter = "router"
+	DeviceTypeSwitch = "switch"
+	PlatformRouterOS = "routeros"
+	PlatformSwOS     = "swos"
+	PlatformVRP      = "vrp"
+)
 
 // Fabricantes (devices.router.vendor).
 const (
@@ -152,10 +168,15 @@ type Onboarding interface {
 	IssueCredentials(ctx context.Context, tenant, routerID uuid.UUID) (OnboardingCredentials, error)
 }
 
-// SNMPCredential es la credencial SNMPv3 de solo lectura de un router, en
-// claro solo en memoria (kind `snmp_v3` de devices.credential, descifrada con
-// la KEK de devices). AuthProtocol: sha1 | sha256; PrivProtocol: aes128.
+// SNMPCredential es la credencial SNMP de solo lectura de un equipo, en claro
+// solo en memoria (kind `snmp_v3` de devices.credential, descifrada con la KEK
+// de devices). AuthProtocol: sha1 | sha256; PrivProtocol: aes128. Un switch
+// SwOS (solo v1/v2c) tiene en su lugar una comunidad (kind `snmp_v2c`):
+// Version = "2c" y Community; el resto vacío.
 type SNMPCredential struct {
+	// Version: "3" (por defecto si vacío) | "2c".
+	Version      string
+	Community    string
 	Username     string
 	AuthProtocol string
 	AuthPassword string

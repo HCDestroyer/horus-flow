@@ -30,6 +30,9 @@ type persisted struct {
 	ICMP        icmpState  `json:"icmp"`
 	// ExporterLastFlowAt es el último flujo del exportador (estado del collector).
 	ExporterLastFlowAt *time.Time `json:"exporter_last_flow_at,omitempty"`
+	// Switches: vecinos LLDP del último descubrimiento.
+	Neighbors   []neighborState `json:"neighbors,omitempty"`
+	NeighborsAt *time.Time      `json:"neighbors_at,omitempty"`
 }
 
 type icmpState struct {
@@ -55,6 +58,20 @@ type ifState struct {
 	Prev        *domain.Counters `json:"prev"`
 	Sample      *ifSample        `json:"sample"`
 	AvgTxBps    *float64         `json:"avg_tx_bps"`
+	// Switches: puerto de subida elegido (o sugerido), cambios de estado
+	// operativo de las últimas 24 h y el último.
+	Uplink       bool        `json:"uplink,omitempty"`
+	Flaps        []time.Time `json:"flaps,omitempty"`
+	LastChangeAt *time.Time  `json:"last_change_at,omitempty"`
+}
+
+// isUplink indica si la interfaz es de subida: en un switch, las elegidas
+// por el operador (pueden ser varias); en un router, la detectada.
+func (s *persisted) isUplink(x *ifState, sw bool) bool {
+	if sw {
+		return x.Uplink && x.Monitored
+	}
+	return s.UplinkIfIndex != 0 && x.IfIndex == s.UplinkIfIndex
 }
 
 // ifSample es la última muestra (InterfaceSample + crudos para depuración).
@@ -102,6 +119,9 @@ func (e *Engine) status(r *router, now time.Time, healthy bool) api.RouterStatus
 	out := api.RouterStatus{RouterID: r.RouterID, SiteID: r.SiteID, Name: r.Name, SiteName: r.SiteName, Status: eff,
 		ObservedState: observed, Reason: reason, Since: since, LastObservedAt: st.LastObservedAt, Signals: sig, Device: dev,
 		Thresholds: st.Thresholds, LastFlowAt: st.ExporterLastFlowAt, ConnectionMode: r.ConnectionMode, ProtectionLevel: r.ProtectionLevel}
+	if r.Switch {
+		out.DeviceType = deviceTypeSwitch
+	}
 	if out.Thresholds == nil {
 		out.Thresholds = []api.ThresholdHit{}
 	}
@@ -140,7 +160,7 @@ func (e *Engine) live(r *router, now time.Time, healthy bool) *api.RouterLiveMet
 			continue
 		}
 		s := x.Sample.InterfaceSample
-		s.Uplink = x.IfIndex == r.st.UplinkIfIndex && r.st.UplinkIfIndex != 0
+		s.Uplink = r.st.isUplink(x, r.Switch)
 		out.Interfaces = append(out.Interfaces, s)
 	}
 	return out
@@ -157,7 +177,7 @@ func (e *Engine) interfaces(r *router) *api.RouterInterfaces {
 		}
 		out.Data = append(out.Data, api.RouterInterface{ID: x.InterfaceID, IfIndex: x.IfIndex, Name: x.Name, Alias: alias,
 			Type: domain.IfTypeName(x.Type), SpeedBps: x.SpeedBps, Monitored: x.Monitored,
-			Uplink: x.IfIndex == r.st.UplinkIfIndex && r.st.UplinkIfIndex != 0, OperStatus: x.OperStatus, AdminUp: x.AdminUp,
+			Uplink: r.st.isUplink(x, r.Switch), OperStatus: x.OperStatus, AdminUp: x.AdminUp,
 			LastSeenAt: x.LastSeenAt})
 	}
 	return out

@@ -570,3 +570,37 @@ Alineado con [ADR-0024](adr/0024-deteccion-de-botnets-como-objetivo-principal.md
 | Agente A | Dueño del cliente (`devices`) y del descubrimiento (ingester de `flows`); emparejamiento de NAT en el ingester; ADR de botnets (alcance de `detection`). |
 | Agente D | Historias: prefijos por nodo + modo descubrimiento, importación de pools del MikroTik, widgets de seguridad para el modo NOC, cola de hallazgos, cambio de tipo manual. |
 | FLOW / laboratorio (IPv6, §4.8) | Decodificar la plantilla IPv6 (ICMPv6 por IE 178/179, sin NAT); filtros de §4.8.3 en el ingester; truncado a `ipv6_client_len`; `unattributed_1h` por /64; fixture IPFIX con registros IPv6 reales (la captura del PO tiene 0); validar en CHR con DHCPv6-PD por PPPoE ([`vendors/mikrotik.md` §11.8](vendors/mikrotik.md)). |
+
+## 13. Switches: sFlow como fuente secundaria
+
+Un switch con sFlow (Huawei serie S; RouterOS y SwOS no tienen sFlow, ver
+[`vendors/mikrotik.md` §13.5](vendors/mikrotik.md#135-flujos-sin-sflow-en-routeros)) ve **otra vez** el tráfico que el
+router principal del nodo ya exporta. Si sus muestras entraran en `flows.flows_raw` el tráfico de clientes y de nodos
+se contaría dos veces y el modo descubrimiento podría crear clientes a partir de un switch. Diseño (sin doble conteo
+por construcción, no por filtros en las consultas):
+
+```
+switch (sFlow v5, agente = dirección de gestión verificada)
+   │
+collector ── flowinv: exportador Secondary (device_type=switch, sflow_enabled, snmp_verified)
+   │   lotes FlowBatch en horus.telemetry.flows.secondary.<switch_id>   (tipo horus.flows.secondary_batch.received)
+   │   — el durable flows-ingester filtra horus.telemetry.flows.batch.> y NUNCA los recibe
+   ▼
+durable flows-switch-samples (rol ingester) ── flows.switch_samples (MergeTree, TTL 7 días, row policy p_tenant)
+   │   sin atribución, enriquecimiento ni descubrimiento; bytes/paquetes × tasa de muestreo
+   ▼
+GET /switches/{id}/flows/top (rol snmp, horus_tenant_reader) — solo la ficha del switch
+```
+
+- **Tabla aparte, no una columna `source_role`**: `flows.switch_samples` no es origen de ninguna vista materializada
+  (customer_*, site_*, attribution_5m, security…), así que los agregados existentes no cambian aunque alguien olvide
+  un filtro. La prueba de integración `TestSwitchTop` comprueba que ninguna MV depende de ella y
+  `TestSwitchSamplesEndToEnd` (JetStream + ClickHouse reales) que un lote secundario llega a `switch_samples` y no a
+  `flows_raw` ni al durable de `flows-ingester`.
+- Defensa en profundidad: el procesador de `flows_raw` rechaza (DLQ) un lote cuyo exportador es secundario aunque
+  llegara por el subject primario; el consumidor secundario rechaza un lote de un router primario.
+- Un switch **nunca es exportador primario**: sin sFlow activo o sin verificar no es exportador; queda fuera de la
+  vista de exportadores de flujos (`GET /flow-exporters`) y de la cobertura.
+- Muestreo solo de entrada en cada puerto (cada paquete se cuenta una vez dentro del switch). El top por puerto filtra
+  por `input_if_index`.
+- Las IP de clientes solo viajan en el cuerpo de la respuesta, nunca en la URL; retención corta (diagnóstico).

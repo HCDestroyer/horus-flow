@@ -56,7 +56,7 @@ func loadWalk(t *testing.T, name string) *fake {
 			vars[oid] = n
 		case "STRING":
 			vars[oid] = strings.Trim(val, `"`)
-		case "OID":
+		case "OID", "IpAddress": // gosnmp entrega IpAddress como texto (convert: fmt.Sprint)
 			vars[oid] = val
 		case "Hex-STRING": // octetos en bruto (InetAddress), como los entrega convert
 			var b []byte

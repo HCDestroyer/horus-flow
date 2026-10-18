@@ -38,6 +38,12 @@ Tests: `go test ./services/ingester/...` (estáticos) y, con el compose levantad
 `dim` y los usuarios/roles `horus_*` del ClickHouse de destino; otro servidor con
 `HORUS_CH_TEST_DSN` + `HORUS_CH_TEST_PASSWORD_FILE`).
 
+## Muestras de switches (fuente secundaria; docs/traffic-model.md §13)
+
+Durable `flows-switch-samples` sobre `horus.telemetry.flows.secondary.>` (TLM_FLOWS): cada lote se escribe en
+`flows.switch_samples` (un INSERT por lote, `insert_deduplication_token = batch_id`) sin atribución, enriquecimiento
+ni descubrimiento. El procesador de `flows_raw` rechaza (DLQ) lotes de exportadores secundarios.
+
 ## Ingesta de flujos (I1-04, I1-05, I1-07, I1-09)
 
 Con `HORUS_NATS_URL` el rol consume `TLM_FLOWS` (durable `flows-ingester`) y por cada lote:

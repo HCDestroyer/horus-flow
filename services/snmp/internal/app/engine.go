@@ -117,14 +117,22 @@ type Options struct {
 	// Thresholds carga los umbrales propios de cada ISP (opcional: sin
 	// PostgreSQL rigen los de la instalación).
 	Thresholds ThresholdLoader
-	Metrics    prometheus.Registerer
-	Logger     *slog.Logger
-	Now        func() time.Time
+	// Ports carga la elección de puertos de los switches (opcional: sin
+	// PostgreSQL rige la de por defecto).
+	Ports   PortSelectionLoader
+	Metrics prometheus.Registerer
+	Logger  *slog.Logger
+	Now     func() time.Time
 }
 
 // ThresholdLoader devuelve los umbrales propios de todos los ISP.
 type ThresholdLoader interface {
 	LoadAll(ctx context.Context) (map[uuid.UUID]domain.ThresholdValues, error)
+}
+
+// PortSelectionLoader devuelve la elección de puertos de todos los switches.
+type PortSelectionLoader interface {
+	LoadPortSelections(ctx context.Context) (map[uuid.UUID]domain.PortSelection, error)
 }
 
 // Engine es el sondeador.
@@ -151,6 +159,12 @@ type Engine struct {
 	// r.mu tomado y e.mu se toma antes que r.mu en otros caminos.
 	thMu     sync.RWMutex
 	tenantTh map[uuid.UUID]domain.ThresholdValues
+	// Switches: elección de puertos guardada (por router_id) y equipos de
+	// Horus por ISP para reconocer vecinos LLDP. Mutex propio (se leen con
+	// r.mu tomado).
+	swMu    sync.RWMutex
+	portSel map[uuid.UUID]domain.PortSelection
+	known   map[uuid.UUID][]domain.KnownDevice
 }
 
 // New crea el sondeador.
@@ -197,6 +211,9 @@ func (e *Engine) Attach(o Options) {
 	if o.Thresholds != nil {
 		e.o.Thresholds = o.Thresholds
 	}
+	if o.Ports != nil {
+		e.o.Ports = o.Ports
+	}
 	if o.Pinger != nil {
 		e.o.Pinger = o.Pinger
 	}
@@ -223,6 +240,7 @@ func (e *Engine) Start(ctx context.Context) error {
 			e.log.InfoContext(ctx, "snmp: router state restored", "routers", len(saved))
 		}
 	}
+	e.reloadPortSelections(ctx)
 	e.refreshTargets(ctx)
 	e.reloadThresholds(ctx)
 	return nil
@@ -332,6 +350,7 @@ func (e *Engine) targetsLoop(ctx context.Context) {
 		case <-t.C:
 		case <-e.refresh:
 		}
+		e.reloadPortSelections(ctx)
 		e.refreshTargets(ctx)
 		e.reloadThresholds(ctx)
 	}
@@ -421,6 +440,19 @@ func (e *Engine) refreshTargets(ctx context.Context) {
 		inv = e.o.Inv.Load()
 	}
 	seen := map[uuid.UUID]bool{}
+	known := map[uuid.UUID][]domain.KnownDevice{}
+	for _, ri := range list {
+		k := domain.KnownDevice{Name: ri.Name}
+		for _, a := range []*netip.Addr{ri.TunnelAddress, ri.ManagementAddress} {
+			if a != nil && a.IsValid() {
+				k.Addrs = append(k.Addrs, a.Unmap())
+			}
+		}
+		known[ri.TenantID] = append(known[ri.TenantID], k)
+	}
+	e.swMu.Lock()
+	e.known = known
+	e.swMu.Unlock()
 	e.mu.Lock()
 	for _, ri := range list {
 		addr, ok := pollAddress(ri)
@@ -430,7 +462,8 @@ func (e *Engine) refreshTargets(ctx context.Context) {
 		seen[ri.ID] = true
 		t := Target{RouterID: ri.ID, TenantID: ri.TenantID, SiteID: ri.SiteID, Name: ri.Name, Tunnel: addr,
 			Vendor: snmpclient.ForVendor(ri.Vendor).Vendor(), Direct: ri.ConnectionMode == devapi.ConnectionDirect,
-			OnboardingState: ri.OnboardingState, ConnectionMode: ri.ConnectionMode, ProtectionLevel: ri.ProtectionLevel}
+			OnboardingState: ri.OnboardingState, ConnectionMode: ri.ConnectionMode, ProtectionLevel: ri.ProtectionLevel,
+			Switch: ri.DeviceType == devapi.DeviceTypeSwitch, Platform: ri.SwitchPlatform, SFlow: ri.SFlowEnabled}
 		if inv != nil {
 			if x, ok := inv.Router(ri.ID); ok {
 				if x.Name != "" {
@@ -516,6 +549,13 @@ type Target struct {
 	ProtectionLevel string
 	// Upstream: ifIndex marcados upstream en el inventario.
 	Upstream []int
+	// Switch: switch de monitoreo (devices.router.device_type = switch):
+	// puertos elegidos por el operador, uplinks marcados, vecinos LLDP y
+	// flaps. Platform: routeros | swos | vrp. SFlow: exporta sFlow
+	// (fuente secundaria).
+	Switch   bool
+	Platform string
+	SFlow    bool
 }
 
 // router es el estado en memoria de un objetivo.
@@ -552,4 +592,67 @@ func compareID(a, b uuid.UUID) int {
 		return 1
 	}
 	return 0
+}
+
+// reloadPortSelections recarga las elecciones de puertos de los switches.
+func (e *Engine) reloadPortSelections(ctx context.Context) {
+	e.mu.RLock()
+	src := e.o.Ports
+	e.mu.RUnlock()
+	if src == nil {
+		return
+	}
+	m, err := src.LoadPortSelections(ctx)
+	if err != nil {
+		e.log.WarnContext(ctx, "snmp: switch port selections not reloaded (previous kept)", "error", err)
+		return
+	}
+	e.swMu.Lock()
+	e.portSel = m
+	e.swMu.Unlock()
+}
+
+// SetPortSelection aplica en caliente la elección de puertos de un switch
+// (nil = vuelve a la de por defecto) y la vuelca en su estado.
+func (e *Engine) SetPortSelection(routerID uuid.UUID, sel *domain.PortSelection) {
+	e.swMu.Lock()
+	if e.portSel == nil {
+		e.portSel = map[uuid.UUID]domain.PortSelection{}
+	}
+	if sel == nil {
+		delete(e.portSel, routerID)
+	} else {
+		e.portSel[routerID] = *sel
+	}
+	e.swMu.Unlock()
+	e.mu.RLock()
+	r := e.routers[routerID]
+	e.mu.RUnlock()
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	if r.Switch {
+		e.applyPortChoices(r)
+	}
+	r.mu.Unlock()
+}
+
+func (e *Engine) portSelection(id uuid.UUID) (domain.PortSelection, bool) {
+	e.swMu.RLock()
+	defer e.swMu.RUnlock()
+	p, ok := e.portSel[id]
+	return p, ok
+}
+
+func (e *Engine) knownDevices(tenant uuid.UUID, selfName string) []domain.KnownDevice {
+	e.swMu.RLock()
+	defer e.swMu.RUnlock()
+	out := make([]domain.KnownDevice, 0, len(e.known[tenant]))
+	for _, k := range e.known[tenant] {
+		if k.Name != selfName {
+			out = append(out, k)
+		}
+	}
+	return out
 }

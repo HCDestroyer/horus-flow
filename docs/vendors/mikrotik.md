@@ -1048,3 +1048,115 @@ No verificable en CHR (queda para un equipo físico): `mtxrGaugeTable` y OIDs fi
 `mtxrSerialNumber`, offload por hardware (§2.7), PPPoE con interfaces dinámicas (segundo CHR, §8.2)
 y la versión exacta en la que aparece `name` en los peers de WireGuard (entre 7.13 y 7.23.8; Horus
 usa la plantilla long-term desde 7.18, `LongTermMinor`).
+
+## 13. Switches de monitoreo (CRS con RouterOS 7 y SwOS)
+
+> Decisión del PO (18/10/2026): «¿puedo agregar un switch con SNMP para ver el tráfico?» → sí, en **modo
+> directo**, fabricantes MikroTik y Huawei (serie S en [`huawei.md` §11](huawei.md#11-switches-de-la-serie-s)).
+> Estado: **implementado**; RouterOS **validado contra el CHR 7.23.8** (SNMPv3 y LLDP-MIB), SwOS **sintético**.
+
+### 13.1 Modelo de datos: una fila más de `devices.router`
+
+Un switch es una fila de `devices.router` con `device_type = 'switch'` (no una entidad nueva). Se eligió así
+porque reutiliza sin copiar: el estado de alta y la verificación (`pending_configuration → snmp_verified`), la
+credencial SNMP cifrada (`devices.credential`, envelope encryption, write-only), el modo directo con su
+dirección de gestión **única en la plataforma una vez verificada** y nunca de Horus, los eventos
+`horus.devices.router.*` (con `device_type`), el sondeo del rol `snmp`, las series `snmp.interface_*` y el
+análisis de capacidad. Una entidad aparte habría duplicado todo eso (tablas, RLS, eventos, proyecciones) para
+ganar poco. Las reglas que lo hacen **solo de monitoreo** están en la base de datos (CHECK
+`ck_router__switch`, migración `20261018201716`) y en el código:
+
+| Regla | Dónde |
+| --- | --- |
+| Nunca router principal (`is_primary = false`) | CHECK + `applyRouter` (`422 NOT_APPLICABLE`) |
+| Siempre `connection_mode = direct`, `protection_level = unencrypted_private` (red de gestión), sin túnel | CHECK; `PUT /transport` → `422 SWITCH_NOT_SUPPORTED`; wireguard no le asigna IP |
+| `switch_platform` (`routeros` \| `swos` \| `vrp`) obligatoria y coherente con `vendor` | CHECK |
+| Sin API REST de RouterOS (huella TLS, importación de prefijos, netwatch) | `routerOSOnly` → `422 SWITCH_NOT_SUPPORTED`; sin sondas netwatch/NQA |
+| Nunca exportador primario, nunca crea clientes ni entra en la atribución | `flowinv` (exportador `Secondary`), collector, ingester ([`traffic-model.md` §13](../traffic-model.md#13-switches-sflow-como-fuente-secundaria)) |
+| El listado de routers no cambia | `GET /routers` filtra `device_type=router` por defecto; `/routers/status` y el widget de routers excluyen switches |
+
+### 13.2 Alta: `POST /routers` + `POST /routers/{id}/switch-onboarding`
+
+Asistente «Agregar switch» (consola › Switches): nodo, nombre y sistema; después la ficha del switch abre el
+asistente de conexión (dirección de gestión → credencial nueva, mostrada una sola vez → verificación SNMP en
+vivo). Horus **nunca escribe** en el switch: lo pega el operador.
+
+**CRS3xx/CRS5xx con RouterOS 7** — SNMPv3 authPriv (`SHA1` + `AES`: los que admite `/snmp community`, ver
+§3.1) de solo lectura y limitado a la IP del sondeador (`addresses`). Generado por `BuildSwitchConfig` y
+**pegado tal cual en el CHR 7.23.8** del laboratorio (vía `/rest/execute`): crea la comunidad con
+`security=private`, `read-access=yes`, `write-access=no`, `addresses=<poller>/32`; `snmpget -v3 -a SHA -x AES`
+desde el sondeador responde.
+
+```
+/snmp community add name=horus-<id> security=private \
+    authentication-protocol=SHA1 authentication-password="<auth>" \
+    encryption-protocol=AES encryption-password="<priv>" \
+    addresses=<HORUS_POLLER_IP> read-access=yes write-access=no comment="horus"
+/snmp set enabled=yes
+```
+
+**SwOS (CSS/CRS con SwOS)** — la documentación oficial de SwOS dice que solo admite **SNMP v1 y v2c**
+(IF-MIB, SNMPv2-MIB, BRIDGE-MIB y MIKROTIK-MIB solo para salud, PoE y SFP; sin traps ni escritura) y que **LLDP
+no está soportado**. Horus genera una **comunidad v2c aleatoria** (32 caracteres, `devices.credential` kind
+`snmp_v2c`, cifrada como las demás) y devuelve los pasos de la interfaz web (pestaña SNMP: Community; pestaña
+System: *Allow From* = la red de gestión). La consola avisa en el alta y en la conexión de que la comunidad viaja
+**en claro** y de que el switch debe estar en la red de gestión, aislada de clientes e Internet. La prueba de
+control es la misma (responde con ESA comunidad en ESA dirección), con la seguridad menor de v2c.
+
+### 13.3 Puertos monitoreados
+
+- Descubrimiento IF-MIB cada hora (nombre, `ifAlias`, `ifHighSpeed`, estado administrativo y operativo).
+- El operador elige los puertos (`PUT /switches/{id}/ports`, máximo **64** por switch para acotar la
+  cardinalidad de `snmp.interface_*`) y marca los de subida. Sin elección rige la **por defecto**: puertos con
+  vecino LLDP que es un equipo de Horus (subida sugerida) + puertos con descripción, hasta 64.
+- Por puerto: bps rx/tx, utilización, errores y descartes del intervalo (contadores HC de IF-MIB), estado y
+  **flaps** (cambios de `ifOperStatus` en 1 h y 24 h). Los uplinks entran en el análisis de capacidad (p95, horas
+  por encima de 70/85 %, lleno vs. con fallos, pronóstico) y en la salud del nodo. Alertas por el camino
+  existente snmp → alerts: `horus.snmp.interface.oper_status_changed` solo de **uplinks** (con `device_type`),
+  `router.state_changed` con razón `interface_down` o **`interface_flapping`** (≥ 4 cambios en una hora) y la
+  saturación de `uplink.condition_changed`.
+- Salud: CRS con RouterOS usa el adaptador MikroTik (HOST-RESOURCES-MIB + MIKROTIK-MIB). SwOS usa el
+  adaptador `SwOS`: sin CPU ni memoria (null, sin error), temperatura/voltaje de MIKROTIK-MIB si los publica.
+
+### 13.4 Vecinos (LLDP) en solo lectura
+
+`snmpclient.ReadNeighbors` lee **LLDP-MIB** (`lldpRemTable` 1.0.8802.1.1.2.1.4.1.1: sysName, portId,
+portDesc, chassisId; `lldpRemManAddrTable` para la IP de gestión; `lldpLocPortTable` para traducir el puerto
+local al ifIndex por nombre) y, si no hay filas, la tabla de vecinos de **MIKROTIK-MIB**
+(`mtxrNeighborTable` 1.3.6.1.4.1.14988.1.1.11.1.1: IP, MAC, plataforma, identidad, ifIndex).
+
+**Validado en el CHR 7.23.8**: aunque la página SNMP de RouterOS no lista LLDP-MIB entre sus MIB, RouterOS
+7.23.8 **sí la publica** (`lldpLocPortTable` con `ether1…`, y un vecino LLDP inyectado por el laboratorio aparece en
+`lldpRemTable` con `lldpRemChassisId` **como texto** `48:8F:5A:…`, no en octetos, y su IP en
+`lldpRemManAddrTable`), y el mismo vecino aparece en `mtxrNeighborTable`. Fixture real:
+`services/snmp/internal/adapters/snmpclient/testdata/chr-7.23.8-switch-lldp.snmpwalk`. `/ip neighbor
+discovery-settings` trae `protocol=cdp,lldp,mndp` por defecto. El vecino cuyo nombre (sin dominio) o IP de
+gestión coincide con un router o switch de Horus del mismo ISP se marca como equipo conocido y su puerto se
+sugiere como uplink.
+
+### 13.5 Flujos: sin sFlow en RouterOS
+
+RouterOS **no tiene sFlow**: Traffic Flow exporta NetFlow v1/v5/v9 e IPFIX (página «Traffic Flow») y la página
+de funciones del chip de switch de CRS3xx/CRS5xx no menciona sFlow; además, en un CRS Traffic Flow solo ve el
+tráfico que pasa por la CPU, no el conmutado por el chip. Por eso Horus **no ofrece** flujos para switches
+MikroTik (`sflow_enabled` → `422 SFLOW_NOT_SUPPORTED`) y SwOS no exporta flujos. El top por puerto queda para la
+serie S de Huawei (fuente secundaria). El CHR no tiene chip de switch: el comportamiento del chip no se puede
+validar en el laboratorio.
+
+### 13.6 Limitaciones
+
+- SwOS: solo v2c (en claro), sin LLDP, sin CPU/memoria; fixture **sintético** (`swos-css326-synthetic.snmpwalk`).
+- Los CRS reales no se probaron: el CHR valida la sintaxis de `/snmp community`, SNMPv3 y LLDP-MIB, pero no el
+  chip de switch (contadores de puertos conmutados por hardware vía IF-MIB: esperado, no comprobado).
+
+### 13.7 Fuentes
+
+- SNMP en RouterOS (propiedades de `/snmp community`, MIB usadas) —
+  <https://help.mikrotik.com/docs/display/ROS/SNMP>
+- Traffic Flow (NetFlow v1/v5/v9, IPFIX; sin sFlow) —
+  <https://help.mikrotik.com/docs/spaces/ROS/pages/21102653/Traffic+Flow>
+- Funciones del chip de switch CRS3xx/CRS5xx/CCR2116/CCR2216 —
+  <https://help.mikrotik.com/docs/spaces/ROS/pages/30474317/CRS3xx+CRS5xx+CCR2116+CCR2216+switch+chip+features>
+- SwOS para CRS3xx/CSS3xx (SNMP v1/v2c, MIB, *Allow From*, «LLDP is not supported») —
+  <https://help.mikrotik.com/docs/spaces/SWOS/pages/76415036/CRS3xx+and+CSS3xx+series+Manual>
+- LLDP-MIB: IEEE 802.1AB-2005 (`lldpRemTable`, `lldpRemManAddrTable`, `lldpLocPortTable`).

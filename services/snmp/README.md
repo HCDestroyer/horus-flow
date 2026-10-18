@@ -137,6 +137,20 @@ Análisis de enlaces de subida, salud del nodo y pronóstico de capacidad para e
   `/capacity/uplinks/{interface_id}` (GET/PUT con If-Match/DELETE), `/capacity/settings`, `/capacity/traffic-split`,
   `/routers/{router_id}/netwatch-snippet`. Expone `api.ServiceCapacity` (salud por nodo) al widget `site_health`.
 
+## Switches (I3)
+
+- Los switches son objetivos del mismo sondeador (`Target.Switch`, adaptador `snmpclient.ForDevice`: SwOS sin
+  CPU/memoria). Elección de puertos guardada (`snmp.switch_port_selection`, `snmp.switch_port`; `pgstore`) o por
+  defecto (`domain.DefaultPortSelection`: uplinks sugeridos por LLDP + puertos con descripción, máx. 64), aplicada en
+  caliente (`Engine.SetPortSelection`) y recargada cada minuto.
+- Vecinos `snmpclient.ReadNeighbors` (LLDP-MIB; respaldo `mtxrNeighborTable`) en cada descubrimiento; vecino conocido
+  = router/switch de Horus del ISP por nombre o IP.
+- Flaps por puerto (24 h); avisos `interface_down` / `interface_flapping` (≥ 4 cambios/h) solo en uplinks;
+  `oper_status_changed` solo de uplinks (con `device_type`).
+- API: `GET /switches/status`, `GET|PUT|DELETE /switches/{id}/ports`, `GET /switches/{id}/neighbors`,
+  `GET /switches/{id}/flows/top` (lee `flows.switch_samples`, fuente secundaria). `/routers/status` excluye switches.
+- Capacidad: los uplinks de los switches entran como enlaces (`device_type: switch`); sin sondas netwatch/NQA.
+
 ## Variables de entorno
 
 | Variable | Defecto | Qué hace |

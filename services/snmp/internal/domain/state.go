@@ -80,6 +80,8 @@ func reasonFor(hits []api.ThresholdHit, level string) (string, bool) {
 			return api.ReasonTemperatureHigh, true
 		case "interface_down":
 			return api.ReasonInterfaceDown, true
+		case "interface_flapping":
+			return api.ReasonInterfaceFlapping, true
 		}
 	}
 	return "", false

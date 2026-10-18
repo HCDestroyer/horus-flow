@@ -98,6 +98,9 @@ func (c *Capacity) collectProbes(ctx context.Context) {
 	var wg sync.WaitGroup
 	for i := range routers {
 		r := routers[i]
+		if r.Switch {
+			continue // los switches no tienen sondas netwatch/NQA
+		}
 		nqa := r.Vendor == snmpclient.VendorHuawei
 		if (!nqa && !hasReader) || (nqa && c.o.Engine == nil) {
 			continue

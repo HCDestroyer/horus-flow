@@ -158,6 +158,10 @@ type ingester struct {
 	writer   *chadapter.Writer
 	cons     jetstream.Consumer
 	consumer *app.Consumer
+	// switches consume las muestras sFlow de switches (fuente secundaria,
+	// durable flows-switch-samples) y las escribe en flows.switch_samples.
+	switchCons jetstream.Consumer
+	switches   *app.SwitchSampleConsumer
 	// enrich se fija en wire(); GET /classification/status lo consulta.
 	enrich atomic.Pointer[app.Enrichment]
 	loops  []func(ctx context.Context)
@@ -236,6 +240,12 @@ func (m *ingester) Start(ctx context.Context) error {
 	m.consumer = &app.Consumer{Paused: m.pause.PausedString, Proc: proc, Ins: w, Workers: m.cfg.Workers, M: m.metrics, Log: m.log, Ledger: led,
 		Group: app.GroupOptions{Rows: m.cfg.InsertRows, Wait: m.cfg.InsertWait, Flushers: m.cfg.InsertFlushers},
 		DLQ:   func(ctx context.Context, msg *nats.Msg) error { _, err := js.PublishMsg(ctx, msg); return err }}
+	if sc, err := js.CreateOrUpdateConsumer(ctx, flowbus.StreamTelemetry, flowbus.SwitchSamplesConsumerConfig()); err == nil {
+		m.switchCons = sc
+		m.switches = &app.SwitchSampleConsumer{Inv: m.inv, Ins: w, Paused: m.pause.PausedString, Log: m.log}
+	} else {
+		m.log.WarnContext(ctx, "switch samples consumer unavailable: switch sFlow not stored", "durable", flowbus.ConsumerSwitchSamples, "error", err)
+	}
 	consName := cons.CachedInfo().Name
 	buf := app.NewBufferMonitor(m.deps.Metrics, func(ctx context.Context) (app.BufferState, error) {
 		return telemetryBufferState(ctx, js, consName)
@@ -305,6 +315,15 @@ func (m *ingester) Run(ctx context.Context) error {
 		go func() {
 			defer wg.Done()
 			l(ctx)
+		}()
+	}
+	if m.switches != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := m.switches.Run(ctx, m.switchCons); err != nil {
+				m.log.WarnContext(ctx, "switch samples consumer stopped", "error", err)
+			}
 		}()
 	}
 	err := m.consumer.Run(ctx, m.cons)

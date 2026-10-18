@@ -313,6 +313,9 @@ CREATE TABLE devices.router (
                         CHECK (protection_level IN ('encrypted', 'unencrypted_private', 'unencrypted_internet')), -- ADR-0031
   tunnel_remote_address inet,                  -- ipsec/gre: IPv4 pública del router (gre obligatoria)
   tunnel_remote_id     text,                   -- ipsec: identidad IKE del router
+  device_type          text NOT NULL DEFAULT 'router' CHECK (device_type IN ('router', 'switch')), -- switch = solo monitoreo
+  switch_platform      text,                   -- switches: routeros | swos | vrp
+  sflow_enabled        boolean NOT NULL DEFAULT false, -- switch con sFlow = fuente secundaria (traffic-model.md §13)
   flow_export_enabled  boolean NOT NULL DEFAULT true,
   tags                 text[] NOT NULL DEFAULT '{}',
   metadata             jsonb NOT NULL DEFAULT '{}',
@@ -322,8 +325,15 @@ CREATE TABLE devices.router (
   version              integer NOT NULL DEFAULT 1,
   UNIQUE (tenant_id, id),
   FOREIGN KEY (tenant_id, site_id) REFERENCES devices.site (tenant_id, id),
-  CONSTRAINT ck_router__vendor_connection_mode CHECK ((vendor = 'mikrotik' AND connection_mode IN ('wireguard', 'ipsec', 'gre'))
-    OR (vendor = 'huawei' AND connection_mode IN ('ipsec', 'gre', 'direct'))),
+  CONSTRAINT ck_router__vendor_connection_mode CHECK ((device_type = 'switch' AND connection_mode = 'direct')
+    OR (device_type = 'router' AND vendor = 'mikrotik' AND connection_mode IN ('wireguard', 'ipsec', 'gre'))
+    OR (device_type = 'router' AND vendor = 'huawei' AND connection_mode IN ('ipsec', 'gre', 'direct'))),
+  -- Un switch nunca es principal, va por la red de gestión (camino privado) y su plataforma fija el fabricante.
+  CONSTRAINT ck_router__switch CHECK ((device_type = 'router' AND switch_platform IS NULL AND NOT sflow_enabled)
+    OR (device_type = 'switch' AND switch_platform IS NOT NULL AND NOT is_primary AND protection_level = 'unencrypted_private'
+        AND tunnel_address IS NULL AND routeros_version IS NULL
+        AND ((switch_platform IN ('routeros', 'swos') AND vendor = 'mikrotik' AND NOT sflow_enabled)
+          OR (switch_platform = 'vrp' AND vendor = 'huawei')))),
   CONSTRAINT ck_router__protection_level CHECK ((connection_mode IN ('wireguard', 'ipsec')) = (protection_level = 'encrypted'))
 );
 CREATE UNIQUE INDEX ux_router__primary_per_site ON devices.router (tenant_id, site_id) WHERE is_primary AND deleted_at IS NULL;
@@ -335,6 +345,7 @@ CREATE UNIQUE INDEX ux_router__management_address ON devices.router (management_
 -- GRE: el hub distingue los túneles por IP remota; IPsec: charon elige la conexión por identidad (únicas en la plataforma).
 CREATE UNIQUE INDEX ux_router__gre_remote_address ON devices.router (tunnel_remote_address) WHERE deleted_at IS NULL AND connection_mode = 'gre';
 CREATE UNIQUE INDEX ux_router__ipsec_remote_id ON devices.router (tunnel_remote_id) WHERE deleted_at IS NULL AND connection_mode = 'ipsec';
+CREATE INDEX ix_router__site_device_type ON devices.router (tenant_id, site_id, device_type) WHERE deleted_at IS NULL;
 
 CREATE TABLE devices.interface (
   id               uuid NOT NULL PRIMARY KEY,
@@ -361,7 +372,7 @@ CREATE TABLE devices.credential (          -- envelope encryption; ninguna API d
   id                uuid NOT NULL PRIMARY KEY,
   tenant_id         uuid NOT NULL,
   router_id         uuid NOT NULL,
-  kind              text NOT NULL CHECK (kind IN ('snmp_v3', 'routeros_api', 'ipsec_psk')),
+  kind              text NOT NULL CHECK (kind IN ('snmp_v3', 'snmp_v2c', 'routeros_api', 'ipsec_psk')), -- snmp_v2c: comunidad de un switch SwOS
   username          text NOT NULL,
   secret_ciphertext bytea,
   dek_wrapped       bytea,

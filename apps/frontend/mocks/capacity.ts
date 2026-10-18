@@ -1,3 +1,4 @@
+import { switchesOf, switchPorts, switchStatus } from './switches'
 import type {
   CapacityEgress,
   CapacityForecast,
@@ -654,6 +655,46 @@ export function capacityOverview(
   }
   for (const seed of seeds)
     bySite.get(seed.sr.item.site.id)?.uplinks.push(uplinkView(seed, st, now, days))
+  // Uplinks de los switches (elegidos por el operador): mismo análisis, device_type switch.
+  for (const sw of switchesOf(tenant, now)) {
+    const site = bySite.get(sw.router.site_id)
+    const base = site?.uplinks.find((u) => u.device_type !== 'switch')
+    if (!site || !base) continue
+    site.routers.push({
+      router_id: sw.router.id,
+      name: sw.router.name,
+      status: switchStatus(tenant, sw, now).status,
+      probes_error: null,
+      device_type: 'switch',
+    })
+    for (const port of switchPorts(sw, now).data.filter((x) => x.uplink && x.sample)) {
+      const util = Math.max(port.sample!.utilization_rx ?? 0, port.sample!.utilization_tx ?? 0)
+      site.uplinks.push({
+        ...base,
+        interface_id: port.interface_id,
+        router_id: sw.router.id,
+        router_name: sw.router.name,
+        interface_name: port.name,
+        label: port.alias ?? port.name,
+        configured: false,
+        auto_detected: true,
+        provider: null,
+        kind: null,
+        international_egress: false,
+        contracted_bps: null,
+        speed_bps: port.speed_bps,
+        capacity_bps: port.speed_bps,
+        capacity_source: 'port_speed',
+        rx_bps: port.sample!.rx_bps,
+        tx_bps: port.sample!.tx_bps,
+        utilization: util,
+        probe: null,
+        conditions: [],
+        version: 0,
+        device_type: 'switch',
+      })
+    }
+  }
   const data = [...bySite.values()].map((s) => ({
     ...s,
     health: siteHealth(

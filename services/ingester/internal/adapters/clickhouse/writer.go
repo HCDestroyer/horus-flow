@@ -76,3 +76,27 @@ func (w *Writer) Insert(ctx context.Context, batchID string, rows []app.Row) err
 	}
 	return nil
 }
+
+// InsertSwitchSamples escribe las muestras sFlow de un switch (fuente
+// secundaria) en flows.switch_samples, tabla sin vistas dependientes. Mismo
+// token de deduplicación por lote que flows_raw.
+func (w *Writer) InsertSwitchSamples(ctx context.Context, batchID string, rows []app.SwitchSample) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	ctx = ch.Context(ctx, ch.WithSettings(ch.Settings{"insert_deduplication_token": batchID, "insert_deduplicate": 1}))
+	b, err := w.conn.PrepareBatch(ctx, "INSERT INTO flows.switch_samples ("+strings.Join(app.SwitchSampleColumns, ", ")+")")
+	if err != nil {
+		return fmt.Errorf("prepare insert: %w", err)
+	}
+	for i := range rows {
+		if err := b.Append(app.SwitchSampleValues(&rows[i])...); err != nil {
+			_ = b.Abort()
+			return fmt.Errorf("append switch sample: %w", err)
+		}
+	}
+	if err := b.Send(); err != nil {
+		return fmt.Errorf("insert switch_samples: %w", err)
+	}
+	return nil
+}

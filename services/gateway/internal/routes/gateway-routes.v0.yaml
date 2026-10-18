@@ -873,6 +873,14 @@ modules:
       scope: tenant
       methods:
         POST: sites.update
+    - prefix: /api/v1/routers/{router_id}/switch-onboarding
+      scope: tenant
+      methods:
+        POST: devices.credentials.write
+      reauth:
+        - POST
+      audited:
+        - POST
     - prefix: /api/v1/routers/{router_id}/tls-fingerprint
       scope: tenant
       methods:
@@ -1122,6 +1130,31 @@ modules:
         - POST
       audited:
         - POST
+    - prefix: /api/v1/switches/status
+      scope: tenant
+      methods:
+        GET: devices.read
+      principals:
+        - user
+        - api_token
+        - kiosk
+    - prefix: /api/v1/switches/{router_id}/flows/top
+      scope: tenant
+      methods:
+        GET: snmp.read
+    - prefix: /api/v1/switches/{router_id}/neighbors
+      scope: tenant
+      methods:
+        GET: devices.read
+    - prefix: /api/v1/switches/{router_id}/ports
+      scope: tenant
+      methods:
+        GET: devices.read
+        PUT: snmp.manage
+        DELETE: snmp.manage
+      audited:
+        - PUT
+        - DELETE
   wireguard:
     - prefix: /api/v1/enroll/wireguard
       scope: public

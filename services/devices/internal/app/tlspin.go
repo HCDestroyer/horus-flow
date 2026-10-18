@@ -131,6 +131,10 @@ func (s *TLSPins) routerCred(ctx context.Context, perm string, routerID uuid.UUI
 // routerOSOnly: la API REST de RouterOS (huella TLS, importación de
 // prefijos, netwatch) solo existe en MikroTik.
 func routerOSOnly(r *domain.Router) error {
+	if r.IsSwitch() {
+		return apperr.New(apperr.KindInvalid, domain.CodeSwitchNotSupported,
+			"Los switches se leen solo por SNMP: Horus no usa la API REST de RouterOS en ellos.")
+	}
 	if r.Vendor != "" && r.Vendor != domain.VendorMikroTik {
 		return apperr.New(apperr.KindInvalid, domain.CodeVendorNotSupported,
 			"Solo los routers MikroTik tienen API REST de RouterOS (Huawei VRP se lee solo por SNMP).")
