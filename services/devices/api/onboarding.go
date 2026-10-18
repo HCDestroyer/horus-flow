@@ -45,9 +45,17 @@ type RouterInfo struct {
 	TunnelAddress   *netip.Addr
 	// Vendor: mikrotik | huawei.
 	Vendor string
-	// ConnectionMode: wireguard (túnel al hub de Horus) | direct (sin
-	// túnel; el camino lo asegura el operador: docs/vendors/huawei.md §5).
+	// ConnectionMode: wireguard | ipsec | gre (túnel al hub de Horus; la IP
+	// de túnel sale de la IPAM de wireguard) | direct (sin túnel; el camino
+	// lo asegura el operador: docs/tunnels.md, docs/vendors/huawei.md §5).
 	ConnectionMode string
+	// ProtectionLevel: encrypted | unencrypted_private | unencrypted_internet.
+	ProtectionLevel string
+	// TunnelRemoteAddress: IP pública del router (ipsec opcional, gre obligatoria).
+	TunnelRemoteAddress *netip.Addr
+	// TunnelRemoteID: identidad IKE del router (ipsec): IP, FQDN,
+	// usuario@FQDN o keyid:<id>.
+	TunnelRemoteID string
 	// ManagementAddress: en modo directo, la IP de origen del router tal y
 	// como la ve Horus (destino del sondeo SNMP e identidad del exportador).
 	ManagementAddress *netip.Addr
@@ -62,8 +70,43 @@ const (
 // Modos de conexión con Horus (devices.router.connection_mode).
 const (
 	ConnectionWireGuard = "wireguard"
+	ConnectionIPsec     = "ipsec"
+	ConnectionGRE       = "gre"
 	ConnectionDirect    = "direct"
 )
+
+// Niveles de protección (devices.router.protection_level).
+const (
+	ProtectionEncrypted           = "encrypted"
+	ProtectionUnencryptedPrivate  = "unencrypted_private"
+	ProtectionUnencryptedInternet = "unencrypted_internet"
+)
+
+// HasTunnel indica si el modo usa un túnel con el hub (wireguard, ipsec o
+// gre): la IP de túnel es la identidad del exportador.
+func HasTunnel(mode string) bool {
+	return mode == ConnectionWireGuard || mode == ConnectionIPsec || mode == ConnectionGRE
+}
+
+// ServiceTunnelSecrets → TunnelSecrets (lo usa wireguard para los túneles
+// IPsec y para las credenciales SNMP de los routers con IPsec/GRE).
+const ServiceTunnelSecrets = "devices.TunnelSecrets"
+
+// TunnelSecrets emite y revela los secretos de los túneles IPsec/GRE: la PSK
+// IKEv2 de cada router (kind ipsec_psk de devices.credential, cifrada con la
+// KEK de devices; solo se muestra en claro al generarla) y la credencial
+// SNMPv3 de los routers sin API REST (Huawei).
+type TunnelSecrets interface {
+	// IssueTunnelPSK genera una PSK nueva (invalida la anterior) y la
+	// devuelve en claro una sola vez.
+	IssueTunnelPSK(ctx context.Context, tenant, routerID uuid.UUID) (string, error)
+	// RevealTunnelPSK descifra la PSK vigente para el agente del hub
+	// (ErrNoCredential si nunca se emitió). Nunca se devuelve por HTTP.
+	RevealTunnelPSK(ctx context.Context, tenant, routerID uuid.UUID) (string, error)
+	// IssueSNMPCredentials genera solo la credencial SNMPv3 (SHA-256 +
+	// AES-128) de un router sin API REST.
+	IssueSNMPCredentials(ctx context.Context, tenant, routerID uuid.UUID) (OnboardingCredentials, error)
+}
 
 // Estados de alta (devices.router.onboarding_state).
 const (

@@ -128,6 +128,10 @@ type RouterStatus struct {
 	// LastFlowAt es el último flujo recibido del exportador del router
 	// (estado del collector leído en el último sondeo; nil = nunca).
 	LastFlowAt *time.Time `json:"last_flow_at"`
+	// ConnectionMode y ProtectionLevel del router (docs/tunnels.md): el NOC
+	// marca los transportes sin cifrado.
+	ConnectionMode  string `json:"connection_mode,omitempty"`
+	ProtectionLevel string `json:"protection_level,omitempty"`
 }
 
 // PollerHealth es meta.poller de GET /routers/status.

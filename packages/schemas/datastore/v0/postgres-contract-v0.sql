@@ -305,10 +305,14 @@ CREATE TABLE devices.router (
   routeros_version     text CHECK (routeros_version ~ '^7\.[0-9]+(\.[0-9]+)?$'),   -- D15: solo RouterOS 7.x
   routeros_version_detected text,
   routeros_version_supported boolean,          -- false si < 7.12 (aviso, no bloqueo del registro)
-  tunnel_address       inet,                   -- /32 de túnel = identidad del exportador (la asigna wireguard)
+  tunnel_address       inet,                   -- /32 de túnel = identidad del exportador (la asigna wireguard; wireguard, ipsec y gre)
   mgmt_wireguard_peer_id uuid,                 -- sin FK: wireguard
-  connection_mode      text NOT NULL DEFAULT 'wireguard' CHECK (connection_mode IN ('wireguard', 'direct')), -- huawei = direct
+  connection_mode      text NOT NULL DEFAULT 'wireguard' CHECK (connection_mode IN ('wireguard', 'ipsec', 'gre', 'direct')), -- docs/tunnels.md
   management_address   inet,                   -- modo directo: IP de origen vista por Horus (docs/vendors/huawei.md §5)
+  protection_level     text NOT NULL DEFAULT 'encrypted'
+                        CHECK (protection_level IN ('encrypted', 'unencrypted_private', 'unencrypted_internet')), -- ADR-0031
+  tunnel_remote_address inet,                  -- ipsec/gre: IPv4 pública del router (gre obligatoria)
+  tunnel_remote_id     text,                   -- ipsec: identidad IKE del router
   flow_export_enabled  boolean NOT NULL DEFAULT true,
   tags                 text[] NOT NULL DEFAULT '{}',
   metadata             jsonb NOT NULL DEFAULT '{}',
@@ -317,7 +321,10 @@ CREATE TABLE devices.router (
   deleted_at           timestamptz,
   version              integer NOT NULL DEFAULT 1,
   UNIQUE (tenant_id, id),
-  FOREIGN KEY (tenant_id, site_id) REFERENCES devices.site (tenant_id, id)
+  FOREIGN KEY (tenant_id, site_id) REFERENCES devices.site (tenant_id, id),
+  CONSTRAINT ck_router__vendor_connection_mode CHECK ((vendor = 'mikrotik' AND connection_mode IN ('wireguard', 'ipsec', 'gre'))
+    OR (vendor = 'huawei' AND connection_mode IN ('ipsec', 'gre', 'direct'))),
+  CONSTRAINT ck_router__protection_level CHECK ((connection_mode IN ('wireguard', 'ipsec')) = (protection_level = 'encrypted'))
 );
 CREATE UNIQUE INDEX ux_router__primary_per_site ON devices.router (tenant_id, site_id) WHERE is_primary AND deleted_at IS NULL;
 CREATE UNIQUE INDEX ux_router__tenant_hostname ON devices.router (tenant_id, hostname) WHERE deleted_at IS NULL;
@@ -325,6 +332,9 @@ CREATE UNIQUE INDEX ux_router__tunnel_address ON devices.router (tunnel_address)
 -- La dirección de gestión es única en la plataforma solo una vez verificada (prueba de control por SNMPv3).
 CREATE UNIQUE INDEX ux_router__management_address ON devices.router (management_address)
   WHERE deleted_at IS NULL AND management_address IS NOT NULL AND onboarding_state IN ('snmp_verified', 'exporting');
+-- GRE: el hub distingue los túneles por IP remota; IPsec: charon elige la conexión por identidad (únicas en la plataforma).
+CREATE UNIQUE INDEX ux_router__gre_remote_address ON devices.router (tunnel_remote_address) WHERE deleted_at IS NULL AND connection_mode = 'gre';
+CREATE UNIQUE INDEX ux_router__ipsec_remote_id ON devices.router (tunnel_remote_id) WHERE deleted_at IS NULL AND connection_mode = 'ipsec';
 
 CREATE TABLE devices.interface (
   id               uuid NOT NULL PRIMARY KEY,
@@ -351,7 +361,7 @@ CREATE TABLE devices.credential (          -- envelope encryption; ninguna API d
   id                uuid NOT NULL PRIMARY KEY,
   tenant_id         uuid NOT NULL,
   router_id         uuid NOT NULL,
-  kind              text NOT NULL CHECK (kind IN ('snmp_v3', 'routeros_api')),
+  kind              text NOT NULL CHECK (kind IN ('snmp_v3', 'routeros_api', 'ipsec_psk')),
   username          text NOT NULL,
   secret_ciphertext bytea,
   dek_wrapped       bytea,

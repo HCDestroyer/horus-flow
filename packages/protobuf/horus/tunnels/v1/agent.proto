@@ -1,0 +1,99 @@
+syntax = "proto3";
+
+// Control ↔ agente de túneles IPsec IKEv2 y GRE del hub (rol tunnel-agent, contenedor con CAP_NET_ADMIN y red
+// del anfitrión; docs/tunnels.md, ADR-0031). Mismo modelo que horus.wireguard.v1: estado completo + versión,
+// idempotente; el agente es fail-static (nunca borra túneles por un fallo del control).
+package horus.tunnels.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// TunnelAgentService lo implementa tunnel-agent; solo lo llama svc:wireguard (mTLS obligatorio).
+service TunnelAgentService {
+  rpc ApplyTunnels(ApplyTunnelsRequest) returns (ApplyTunnelsResponse);
+}
+
+// TunnelControlService lo implementa wireguard; tunnel-agent reporta el estado observado cada 15 s.
+service TunnelControlService {
+  rpc ReportTunnelStatus(ReportTunnelStatusRequest) returns (ReportTunnelStatusResponse);
+}
+
+// DesiredTunnel túnel que debe existir en el hub. La PSK solo viaja en este mensaje (mTLS) y el agente solo la
+// guarda en memoria del demonio IKE (vici load-shared); nunca en disco ni en registros.
+message DesiredTunnel {
+  string peer_id = 1;
+  string tenant_id = 2;
+  // ipsec | gre
+  string transport = 3;
+  // Índice del túnel en el hub (> 0): if_id de la interfaz XFRM (ipsec); nombre de la interfaz hxfrm<index> /
+  // hgre<index>.
+  uint32 index = 4;
+  // /32 de túnel del router (identidad del exportador).
+  string tunnel_address = 5;
+  // IP de servicios del hub por la que el router alcanza Horus (origen de SNMP hacia el router).
+  string hub_tunnel_address = 6;
+  // IP pública del hub (origen GRE; dirección local IKE). Vacía en ipsec = cualquiera (%any).
+  string local_address = 7;
+  // IP pública del router. Obligatoria en gre; vacía en ipsec = cualquiera (router tras NAT o con IP dinámica,
+  // identificado solo por remote_id).
+  string remote_address = 8;
+  // ipsec: identidad IKE local (del hub) y remota (del router): IP, FQDN o KeyID.
+  string local_id = 9;
+  string remote_id = 10;
+  // ipsec: clave precompartida (≥ 32 caracteres).
+  string psk = 11;
+  // MTU de la interfaz del hub.
+  int32 mtu = 12;
+  // gre: clave GRE (RFC 2890) del túnel; 0 = sin clave (RouterOS no la admite). Identifica el túnel, no es un secreto.
+  uint32 gre_key = 13;
+}
+
+// ApplyTunnelsRequest estado completo de los túneles IPsec/GRE del hub.
+message ApplyTunnelsRequest {
+  string hub_id = 1;
+  int64 desired_version = 2;
+  repeated DesiredTunnel tunnels = 3;
+}
+
+// ApplyTunnelsResponse versión aplicada.
+message ApplyTunnelsResponse {
+  int64 applied_version = 1;
+  int32 tunnels_added = 2;
+  int32 tunnels_removed = 3;
+}
+
+// ObservedTunnel estado observado de un túnel.
+message ObservedTunnel {
+  string peer_id = 1;
+  // ipsec | gre
+  string transport = 2;
+  // ipsec: estado de la IKE SA (established | connecting | down). gre: up | down (interfaz).
+  string state = 3;
+  // ipsec: IKE SA y CHILD SA instaladas. gre: paquetes recibidos en los últimos 180 s.
+  bool alive = 4;
+  // ipsec: establecimiento de la IKE SA actual y último rekey (IKE o CHILD).
+  optional google.protobuf.Timestamp established_at = 5;
+  optional google.protobuf.Timestamp last_rekey_at = 6;
+  // gre: último paquete recibido observado por el agente (contadores de la interfaz).
+  optional google.protobuf.Timestamp last_packet_at = 7;
+  // ipsec: dirección remota IKE observada (IP:puerto, refleja NAT-T).
+  optional string endpoint = 8;
+  uint64 rx_bytes = 9;
+  uint64 tx_bytes = 10;
+  // Último error del agente al aplicar este túnel (sin secretos).
+  optional string error = 11;
+}
+
+// ReportTunnelStatusRequest reporte periódico del agente.
+message ReportTunnelStatusRequest {
+  string hub_id = 1;
+  int64 applied_version = 2;
+  google.protobuf.Timestamp observed_at = 3;
+  // El demonio IKE responde por vici (false = no se infiere nada de los túneles ipsec).
+  bool ike_daemon_up = 4;
+  repeated ObservedTunnel tunnels = 5;
+}
+
+// ReportTunnelStatusResponse indica si el agente debe pedir el estado deseado de nuevo.
+message ReportTunnelStatusResponse {
+  int64 desired_version = 1;
+}

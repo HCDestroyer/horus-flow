@@ -116,6 +116,8 @@ jobs:
           build horus Dockerfile .
           build horus-web apps/frontend/Dockerfile .
           build horus-postgres deployments/images/postgres/Dockerfile deployments/images/postgres
+          # horus-ipsec: demonio IKEv2 del hub de túneles IPsec (docs/tunnels.md, ADR-0031).
+          build horus-ipsec deployments/images/strongswan/Dockerfile deployments/images/strongswan
           # horus-installer (instalación solo con Docker, docs/install-docker.md): lleva el árbol de
           # la versión con el images.lock de las tres imágenes de arriba y las de terceros (fijadas
           # por digest); su propio digest lo añade build-release.sh al images.lock de la release.

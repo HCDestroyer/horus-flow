@@ -47,6 +47,15 @@ métricas y eventos publicados/consumidos cuando el módulo tenga implementació
   por ASN). Publica `horus.devices.asn_rule.created|updated|deleted` por el outbox; flows (ingester) las aplica al tráfico
   nuevo como `local_override` y analytics las usa en las etiquetas de los tops. Permisos `settings.read` / `settings.manage`.
 
+## Transporte y nivel de protección (ADR-0031)
+
+- `connection_mode`: `wireguard` | `ipsec` | `gre` | `direct` (MikroTik: los tres primeros; Huawei: los tres últimos).
+- `protection_level`: `encrypted` | `unencrypted_private` | `unencrypted_internet` (migración: los directos existentes → `unencrypted_private`).
+- `PUT /routers/{id}/transport` (`devices.credentials.write`, reauth ≤ 5 min): `tunnel_remote_address`, `tunnel_remote_id`, `path`;
+  sin cifrado por Internet exige `confirm_unencrypted_internet` (`422 UNENCRYPTED_TRANSPORT_CONFIRMATION_REQUIRED`); auditado
+  `devices.router.transport_changed`. La PSK IPsec es la credencial `ipsec_psk` (envelope, KEK de devices) que gestiona
+  `api.TunnelSecrets` para `wireguard`. Detalle: [`docs/tunnels.md`](../../docs/tunnels.md).
+
 ## Alta de routers e importación del MikroTik (I1-01, I1-02, I1-28)
 
 - `api/onboarding.go` (`devices.Onboarding` en `module.Services`): lo usa `wireguard` para leer routers, proyectar el túnel

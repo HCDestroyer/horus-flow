@@ -34,7 +34,8 @@ func RouterEventData(r *domain.Router, changed []string) map[string]any {
 		"is_primary": r.IsPrimary, "vendor": r.Vendor, "model": r.Model, "routeros_version": r.RouterOSVersion,
 		"routeros_version_supported": r.RouterOSVersionOK, "admin_state": r.AdminState, "onboarding_state": r.OnboardingState,
 		"tunnel_address": tunnelCIDR(r.TunnelAddress), "connection_mode": connectionModeOf(r),
-		"management_address": tunnelCIDR(r.ManagementAddress), "tags": r.Tags, "created_at": r.CreatedAt.UTC().Format(outbox.TimeFormat),
+		"management_address": tunnelCIDR(r.ManagementAddress), "protection_level": domain.ProtectionOf(connectionModeOf(r), r.ProtectionLevel),
+		"tunnel_remote_address": r.TunnelRemoteAddress, "tunnel_remote_id": r.TunnelRemoteID, "tags": r.Tags, "created_at": r.CreatedAt.UTC().Format(outbox.TimeFormat),
 		"updated_at": r.UpdatedAt.UTC().Format(outbox.TimeFormat), "deleted_at": tsOrNil(r.DeletedAt), "changed_fields": changed,
 	}
 }

@@ -292,13 +292,15 @@ func (s *Store) DeleteSite(ctx context.Context, t pgdb.TenantID, id uuid.UUID, e
 
 const routerCols = `r.id, r.tenant_id, r.site_id, r.hostname, r.display_name, r.vendor, r.model, r.is_primary, r.admin_state,
 	r.onboarding_state, r.routeros_version, r.routeros_version_detected, r.routeros_version_supported, host(r.tunnel_address),
-	r.mgmt_wireguard_peer_id, r.tags, r.created_at, r.updated_at, r.deleted_at, r.version, r.connection_mode, host(r.management_address)`
+	r.mgmt_wireguard_peer_id, r.tags, r.created_at, r.updated_at, r.deleted_at, r.version, r.connection_mode, host(r.management_address),
+	r.protection_level, host(r.tunnel_remote_address), r.tunnel_remote_id`
 
 func scanRouter(row pgx.Row) (*domain.Router, error) {
 	var r domain.Router
 	err := row.Scan(&r.ID, &r.TenantID, &r.SiteID, &r.Hostname, &r.DisplayName, &r.Vendor, &r.Model, &r.IsPrimary, &r.AdminState,
 		&r.OnboardingState, &r.RouterOSVersion, &r.RouterOSVersionDetected, &r.RouterOSVersionOK, &r.TunnelAddress,
-		&r.WireguardPeerID, &r.Tags, &r.CreatedAt, &r.UpdatedAt, &r.DeletedAt, &r.Version, &r.ConnectionMode, &r.ManagementAddress)
+		&r.WireguardPeerID, &r.Tags, &r.CreatedAt, &r.UpdatedAt, &r.DeletedAt, &r.Version, &r.ConnectionMode, &r.ManagementAddress,
+		&r.ProtectionLevel, &r.TunnelRemoteAddress, &r.TunnelRemoteID)
 	if err != nil {
 		return nil, notFound(err)
 	}
@@ -383,6 +385,8 @@ func routerErr(err error) error {
 		return app.ErrHostnameTaken
 	case code == pgdb.SQLStateUniqueViolation && constraint == "ux_router__management_address":
 		return app.ErrManagementAddressTaken
+	case code == pgdb.SQLStateUniqueViolation && (constraint == "ux_router__gre_remote_address" || constraint == "ux_router__ipsec_remote_id"):
+		return app.ErrTunnelRemoteTaken
 	case code == pgdb.SQLStateForeignKey:
 		return app.ErrRefNotFound
 	}
@@ -398,6 +402,11 @@ func connectionMode(r *domain.Router) string {
 	return r.ConnectionMode
 }
 
+// protectionLevel: la columna es NOT NULL; sin valor, el del modo.
+func protectionLevel(r *domain.Router) string {
+	return domain.ProtectionOf(connectionMode(r), r.ProtectionLevel)
+}
+
 // CreateRouter implementa app.Store.
 func (s *Store) CreateRouter(ctx context.Context, t pgdb.TenantID, r *domain.Router, ev app.Events[domain.Router]) error {
 	return s.db.TenantTx(ctx, t, func(tx pgx.Tx) error {
@@ -406,10 +415,10 @@ func (s *Store) CreateRouter(ctx context.Context, t pgdb.TenantID, r *domain.Rou
 		}
 		_, err := tx.Exec(ctx, `INSERT INTO devices.router (id, tenant_id, site_id, hostname, display_name, vendor, model, is_primary,
 				admin_state, onboarding_state, routeros_version, routeros_version_supported, tags, created_at, updated_at, version,
-				connection_mode, management_address)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14, 1, $15, $16::inet)`,
+				connection_mode, management_address, protection_level)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14, 1, $15, $16::inet, $17)`,
 			r.ID, t.UUID(), r.SiteID, r.Hostname, r.DisplayName, r.Vendor, r.Model, r.IsPrimary, r.AdminState, r.OnboardingState,
-			r.RouterOSVersion, r.RouterOSVersionOK, r.Tags, r.CreatedAt, connectionMode(r), r.ManagementAddress)
+			r.RouterOSVersion, r.RouterOSVersionOK, r.Tags, r.CreatedAt, connectionMode(r), r.ManagementAddress, protectionLevel(r))
 		if err != nil {
 			return routerErr(err)
 		}

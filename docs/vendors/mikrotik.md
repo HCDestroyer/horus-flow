@@ -30,6 +30,7 @@
 | API | **REST** (`https://<ip-túnel>/rest`) para lecturas puntuales; **API binaria TLS (8729)** para tablas grandes y sondeo periódico. Usuario `horus-ro` con política mínima y `address=` restringida. **Horus no escribe en el router en v1** (Q9 opción i). | A, D |
 | WireGuard | El router es **iniciador** hacia el hub de Horus (`persistent-keepalive=25s`), clave generada **en el router** (Q9 opción b), `allowed-address` = solo la red de servicios de Horus. | A, D |
 | Onboarding | Un script RouterOS con placeholders (§7) que Horus genera por nodo. | D |
+| Otros transportes | WireGuard sigue siendo el camino por defecto (sin cambios). Si la política del ISP lo exige, **IPsec IKEv2** o **GRE** al hub de Horus con configuración generada y validada en CHR 7.12 y 7.23.8 (§5.3, [`tunnels.md`](../tunnels.md)). | A, D |
 | IPv6 | Mismo `/ip traffic-flow` y mismo target; plantilla IPFIX IPv6 real (259, 34 campos) **sin campos NAT**. Cliente IPv6 = **prefijo delegado** (`ipv6_client_len` 48/56/60/64, sugerido desde `/ipv6 pool prefix-length`). NAT66 no soportado en v1. Detalle en §11. | B, D |
 | Laboratorio | CHR en QEMU/KVM (licencia free: 1 Mbps de subida por interfaz, suficiente para pruebas funcionales) + capturas IPFIX grabadas como *fixtures* para CI (§8). | D, todos |
 
@@ -458,6 +459,22 @@ Por qué el túnel sirve para **gestión y flujos**:
 
 La opción B convierte el alta en "un solo pegado", pero exige un endpoint público de Horus (decisión
 para el Agente A / ADR-0022). Con cualquiera de las dos, la **clave privada nunca sale del router**.
+
+
+### 5.3 IPsec IKEv2 y GRE (opcionales)
+
+WireGuard no cambia y sigue siendo la sugerencia del asistente. Si el ISP necesita otro transporte
+(`PUT /routers/{id}/transport`), Horus genera la configuración RouterOS 7 (`POST /routers/{id}/tunnel-config`):
+
+- **IPsec**: `/ip ipsec profile` (AES-256, SHA-256, ECP-384, DPD 30 s), `proposal` (AES-256-GCM, PFS
+  ECP-384), `peer` (IKEv2 hacia el hub), `identity` con la PSK del router (mostrada una vez) y `policy`
+  hacia la red de servicios de Horus con la IP de túnel como origen. Referencia:
+  [IPsec](https://help.mikrotik.com/docs/spaces/ROS/pages/11993097/IPsec).
+- **GRE**: `/interface gre` con `!keepalive` (el hub Linux no responde keepalives GRE; RouterOS rechaza
+  `keepalive=0s,0`), `clamp-tcp-mss=yes`, MTU 1400. **Sin cifrado**: nivel de protección y confirmación si
+  va por Internet. Referencia: [GRE](https://help.mikrotik.com/docs/spaces/ROS/pages/24805521/GRE).
+- Validado en **CHR 7.12 y 7.23.8** (`scripts/lab/tunnels.sh`): importación sin errores, IKE SA establecida
+  contra charon (IKE AES-CBC-256/SHA-256/ECP-384, ESP AES-GCM-256) y bloques de deshacer limpios.
 
 ---
 

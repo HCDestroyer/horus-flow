@@ -19,8 +19,10 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/problem"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
 	devapi "github.com/hcdestroyer/horus-flow/services/devices/api"
+	tunapi "github.com/hcdestroyer/horus-flow/services/tunnelagent/api"
 	wgapi "github.com/hcdestroyer/horus-flow/services/wgagent/api"
 	"github.com/hcdestroyer/horus-flow/services/wireguard/internal/domain"
+	"github.com/hcdestroyer/horus-flow/services/wireguard/internal/tunnelcfg"
 )
 
 // Options configura el servicio.
@@ -31,6 +33,12 @@ type Options struct {
 	Devices func() (devapi.Onboarding, bool)
 	Agent   func() (wgapi.Agent, bool)
 	Audit   func() (authapi.AuditRecorder, bool)
+	// TunnelAgent es tunnel-agent (IPsec/GRE, en proceso o por gRPC) y
+	// TunnelSecrets, las PSK y credenciales SNMP de devices.
+	TunnelAgent   func() (tunapi.Agent, bool)
+	TunnelSecrets func() (devapi.TunnelSecrets, bool)
+	// Tunnels son los ajustes de IPsec/GRE del hub (HORUS_TUNNEL_*).
+	Tunnels TunnelHub
 	// Hub de plataforma (ID, nombre, endpoint, puerto, red de servicios, rangos).
 	Hub Hub
 	// HubPublicKey resuelve la clave pública del hub (configuración o agente local).
@@ -57,6 +65,9 @@ type Service struct {
 	// agentZeroNoted evita repetir el evento de plataforma mientras el
 	// agente siga sin estado aplicado.
 	agentZeroNoted bool
+	// Lo mismo para tunnel-agent.
+	lastTunnelPush  int64
+	tunnelZeroNoted bool
 }
 
 // New crea el servicio.
@@ -84,6 +95,9 @@ func New(o Options) *Service {
 	}
 	if o.CacheEntries == "" {
 		o.CacheEntries = "256k"
+	}
+	if o.Tunnels.MTU == 0 {
+		o.Tunnels.MTU = tunnelcfg.DefaultMTU
 	}
 	return &Service{o: o, kick: make(chan struct{}, 1)}
 }
@@ -138,7 +152,15 @@ func PeerEventData(p *domain.Peer, changed []string) map[string]any {
 		"status": p.Status, "public_key": p.PublicKey, "address": p.AllowedIP(), "allowed_ips": []string{p.AllowedIP()},
 		"persistent_keepalive_seconds": p.Keepalive, "enrolled_from_ip": from, "enrolled_at": ts(p.EnrolledAt),
 		"activated_at": ts(p.ActivatedAt), "reason": p.RevokedReason, "created_at": ts(&p.CreatedAt), "changed_fields": changed,
+		"transport": transportName(p),
 	}
+}
+
+func transportName(p *domain.Peer) string {
+	if p.Transport == "" {
+		return domain.TransportWireGuard
+	}
+	return p.Transport
 }
 
 func peerEvent(typ string, p *domain.Peer, actor outbox.Actor, at time.Time, data any) outbox.Event {
@@ -214,17 +236,33 @@ func (s *Service) devices() (devapi.Onboarding, error) {
 	return d, nil
 }
 
-// EnsurePeer asigna la IP de túnel del router si aún no tiene peer
+// EnsurePeer asigna la IP de túnel del router si aún no tiene túnel
 // (consumo de horus.devices.router.created; idempotente) y la proyecta en
-// el router.
+// el router. Si el router cambió de transporte (wireguard ↔ ipsec ↔ gre) o
+// de IP pública/identidad IKE, revoca el túnel vivo y crea el nuevo con la
+// MISMA /32: la identidad del exportador no cambia.
 func (s *Service) EnsurePeer(ctx context.Context, r devapi.RouterInfo) (*domain.Peer, error) {
 	t := pgdb.TenantID(r.TenantID)
 	p, err := s.o.Store.ActivePeer(ctx, t, r.ID)
+	var preferred netip.Addr
+	if err == nil && !peerMatches(p, r) {
+		now := s.now()
+		preferred = p.Address
+		err = s.o.Store.RevokePeer(ctx, t, p.ID, "transport_changed", now, func(v *domain.Peer) []outbox.Event {
+			return []outbox.Event{peerEvent("horus.wireguard.peer.revoked", v, svcActor, now, PeerEventData(v, []string{"status"}))}
+		})
+		if err != nil && !errors.Is(err, domain.ErrNotFound) {
+			return nil, fmt.Errorf("replace tunnel: %w", err)
+		}
+		s.Kick()
+		err = domain.ErrNotFound
+	}
 	if errors.Is(err, domain.ErrNotFound) {
 		now := s.now()
-		p = &domain.Peer{ID: uuid.Must(uuid.NewV7()), TenantID: r.TenantID, ServerID: s.o.Hub.ID, RouterID: r.ID,
-			Status: domain.StatusAwaitingEnrollment, HandshakeState: domain.HandshakeNever, Keepalive: domain.Keepalive,
-			CreatedAt: now, UpdatedAt: now, Version: 1}
+		p, err = s.newTunnelPeer(r, preferred, now)
+		if err != nil {
+			return nil, err
+		}
 		err = s.o.Store.CreatePeer(ctx, t, p, func(v *domain.Peer) []outbox.Event {
 			return []outbox.Event{peerEvent("horus.wireguard.peer.created", v, svcActor, now, PeerEventData(v, nil))}
 		})
@@ -238,7 +276,7 @@ func (s *Service) EnsurePeer(ctx context.Context, r devapi.RouterInfo) (*domain.
 	if r.TunnelAddress == nil || *r.TunnelAddress != p.Address {
 		if d, ok := s.o.Devices(); ok {
 			if err := d.SetTunnel(ctx, r.TenantID, r.ID, devapi.TunnelUpdate{PeerID: p.ID, Address: p.Address,
-				OnboardingState: onboardingFor(p.Status)}); err != nil && !errors.Is(err, devapi.ErrRouterNotFound) {
+				OnboardingState: onboardingForPeer(p)}); err != nil && !errors.Is(err, devapi.ErrRouterNotFound) {
 				return p, fmt.Errorf("project tunnel: %w", err)
 			}
 		}
@@ -273,8 +311,8 @@ func (s *Service) Reconcile(ctx context.Context) error {
 	}
 	live := make(map[string]bool, len(routers))
 	for _, r := range routers {
-		if r.ConnectionMode == devapi.ConnectionDirect {
-			continue // modo directo (Huawei VRP): sin túnel ni IP del pool; un peer previo se revoca
+		if r.ConnectionMode != "" && !devapi.HasTunnel(r.ConnectionMode) {
+			continue // modo directo: sin túnel ni IP del pool; un túnel previo se revoca
 		}
 		live[routerKey(r.TenantID, r.ID)] = true
 		if _, err := s.EnsurePeer(ctx, r); err != nil {
@@ -343,6 +381,9 @@ func (s *Service) Run(ctx context.Context, every time.Duration) error {
 		}
 		if err := s.Push(ctx, false); err != nil && ctx.Err() == nil {
 			s.o.Logger.WarnContext(ctx, "wireguard push failed (agent keeps its peers)", slog.Any("error", err))
+		}
+		if err := s.PushTunnels(ctx, false); err != nil && ctx.Err() == nil {
+			s.o.Logger.WarnContext(ctx, "tunnel push failed (tunnel-agent keeps its tunnels)", slog.Any("error", err))
 		}
 		select {
 		case <-ctx.Done():

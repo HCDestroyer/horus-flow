@@ -9248,6 +9248,126 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+  /routers/{router_id}/transport:
+    parameters:
+      - $ref: '#/components/parameters/RouterId'
+    put:
+      tags:
+        - routers
+      operationId: setRouterTransport
+      summary: Transporte con el que el router se conecta a Horus (WireGuard, IPsec IKEv2, GRE o directo) y su nivel de protección
+      description: |
+        Decisión del PO del 2026-10-17 (docs/tunnels.md, ADR-0031): cada router usa el mejor transporte estándar que admite.
+        MikroTik: `wireguard` | `ipsec` | `gre`. Huawei VRP: `ipsec` | `gre` | `direct`. Otro → `422 CONNECTION_MODE_NOT_SUPPORTED`.
+
+        - `ipsec` (IKEv2 route-based, cifra): `tunnel_remote_id` (IPv4, nombre DNS, usuario@dominio o `keyid:<id>`) y/o
+          `tunnel_remote_address` (IPv4 pública; si no hay identidad, la identidad es esa IP). Sin ninguna → 422.
+        - `gre` (RFC 2784, **no cifra**): `tunnel_remote_address` obligatoria (el hub solo acepta GRE de esa IP) y `path`.
+        - `direct` (sin túnel, no cifra): `path`.
+        - `path`: `private` (MPLS L3VPN, VRF de gestión, fibra propia → `unencrypted_private`) o `internet`
+          (→ `unencrypted_internet`, exige `confirm_unencrypted_internet: true`; si no, `422
+          UNENCRYPTED_TRANSPORT_CONFIRMATION_REQUIRED`). Queda auditado (`devices.router.transport_changed` con el nivel y
+          la confirmación) y la consola muestra un aviso permanente.
+
+        Cambiar el transporte, la IP pública o la identidad devuelve el router a `pending_configuration` (hay que pegar la
+        configuración nueva: script WireGuard, `POST /routers/{router_id}/tunnel-config` o alta directa); la IP de túnel
+        (identidad del exportador) se conserva entre transportes con túnel. IP pública (GRE) o identidad IKE (IPsec) en uso
+        por otro router → `409 TUNNEL_REMOTE_IN_USE`. Idempotente: el mismo cuerpo no cambia nada.
+      x-module: devices
+      x-scope: tenant
+      x-permission: devices.credentials.write
+      x-reauth: true
+      x-audited: true
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RouterTransportInput'
+      responses:
+        '200':
+          description: Router con el transporte aplicado.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Router'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /routers/{router_id}/tunnel-config:
+    parameters:
+      - $ref: '#/components/parameters/RouterId'
+    post:
+      tags:
+        - onboarding
+      operationId: createTunnelConfig
+      summary: Configuración IPsec IKEv2 o GRE para pegar en el router (PSK y credenciales nuevas, una sola vez)
+      description: |
+        Para routers con `connection_mode` `ipsec` o `gre` (docs/tunnels.md, ADR-0031). Asegura el túnel del router (IP /32
+        de la IPAM de plataforma = identidad del exportador; se conserva al cambiar de transporte), emite credenciales SNMPv3
+        nuevas (y el usuario de la API en MikroTik) y, en IPsec, una **PSK nueva** de 48 caracteres; todo invalida lo
+        anterior, se guarda cifrado y aparece **solo en esta respuesta** (`Cache-Control: no-store`). Devuelve la
+        configuración del fabricante (RouterOS 7 o Huawei VRP) y un ejemplo genérico Linux/strongSwan; Horus nunca escribe
+        en el router. Hub sin el transporte habilitado o sin IP pública → `409 TUNNEL_TRANSPORT_DISABLED`; router con
+        WireGuard o directo → `422 CONNECTION_MODE_MISMATCH`. Auditado (`wireguard.tunnel_config.created`).
+      x-module: wireguard
+      x-scope: tenant
+      x-permission: wireguard.write
+      x-reauth: true
+      x-audited: true
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                ntp_server:
+                  type:
+                    - string
+                    - 'null'
+                  examples:
+                    - pool.ntp.org
+                sampling_rate:
+                  type:
+                    - integer
+                    - 'null'
+                  minimum: 1
+                  maximum: 65535
+                  description: Muestreo de NetStream (Huawei; 1000 por defecto).
+      responses:
+        '201':
+          description: Configuración generada (`Cache-Control no-store`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TunnelConfig'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
   /security/summary:
     get:
       tags:
@@ -10217,6 +10337,11 @@ components:
             - ROUTER_TLS_FINGERPRINT_MISMATCH
             - ROUTER_VENDOR_NOT_SUPPORTED
             - MANAGEMENT_ADDRESS_IN_USE
+            - CONNECTION_MODE_NOT_SUPPORTED
+            - CONNECTION_MODE_MISMATCH
+            - UNENCRYPTED_TRANSPORT_CONFIRMATION_REQUIRED
+            - TUNNEL_REMOTE_IN_USE
+            - TUNNEL_TRANSPORT_DISABLED
             - SITE_NOT_FOUND
             - SITE_NOT_EMPTY
             - PEER_ALREADY_REVOKED
@@ -19372,6 +19497,9 @@ components:
             - warnings
             - connection_mode
             - management_address
+            - protection_level
+            - tunnel_remote_address
+            - tunnel_remote_id
           properties:
             admin_state:
               type: string
@@ -19397,11 +19525,39 @@ components:
               type: string
               enum:
                 - wireguard
+                - ipsec
+                - gre
                 - direct
               description: |
-                `wireguard`: túnel router → hub de Horus (MikroTik). `direct`: sin túnel; el camino lo asegura el operador
-                (VRF de gestión, VPN de sitio existente o relé MikroTik/Linux) y el colector filtra por IP de origen
-                (docs/vendors/huawei.md §5). Lo fija `vendor`.
+                Transporte con Horus (docs/tunnels.md, ADR-0031). `wireguard`: túnel WireGuard router → hub (MikroTik).
+                `ipsec`: IPsec IKEv2 route-based (RFC 7296; MikroTik, Huawei y cualquier equipo con IKEv2). `gre`: GRE
+                (RFC 2784) **sin cifrado**, respaldo universal. `direct`: sin túnel; el camino lo asegura el operador y el
+                colector filtra por la dirección de gestión verificada (docs/vendors/huawei.md §5). Al alta lo fija `vendor`
+                (MikroTik → wireguard, Huawei → direct); se cambia con `PUT /routers/{router_id}/transport`.
+            protection_level:
+              type: string
+              enum:
+                - encrypted
+                - unencrypted_private
+                - unencrypted_internet
+              description: |
+                `encrypted` (wireguard, ipsec). `unencrypted_private`: gre/direct por un camino que el administrador declaró
+                privado (MPLS L3VPN, VRF de gestión, fibra propia). `unencrypted_internet`: gre/direct por Internet,
+                confirmado explícitamente por un administrador (aviso permanente en la consola).
+            tunnel_remote_address:
+              type:
+                - string
+                - 'null'
+              description: ipsec/gre — IPv4 pública del router (origen de IKE/GRE; obligatoria en gre).
+              examples:
+                - 198.51.100.7
+            tunnel_remote_id:
+              type:
+                - string
+                - 'null'
+              description: ipsec — identidad IKE del router (IPv4, nombre DNS, usuario@dominio o `keyid:<id>`).
+              examples:
+                - rt-centro.isp.example
             routeros_version_detected:
               type:
                 - string
@@ -19415,7 +19571,7 @@ components:
               type:
                 - string
                 - 'null'
-              description: IP /32 de túnel WireGuard asignada por la IPAM de plataforma = identidad del exportador (null en modo directo).
+              description: IP /32 de túnel (WireGuard, IPsec o GRE) asignada por la IPAM de plataforma = identidad del exportador (null en modo directo).
             wireguard_peer_id:
               oneOf:
                 - $ref: '#/components/schemas/Uuid'
@@ -19723,6 +19879,21 @@ components:
           oneOf:
             - $ref: '#/components/schemas/Timestamp'
             - type: 'null'
+        connection_mode:
+          type: string
+          enum:
+            - wireguard
+            - ipsec
+            - gre
+            - direct
+          description: Transporte del router con Horus (docs/tunnels.md). Ausente en filas anteriores al campo.
+        protection_level:
+          type: string
+          enum:
+            - encrypted
+            - unencrypted_private
+            - unencrypted_internet
+          description: Nivel de protección del transporte; el NOC marca los que no cifran.
     PollerHealth:
       type: object
       required:
@@ -20279,6 +20450,167 @@ components:
             - string
             - 'null'
           format: date-time
+    RouterTransportInput:
+      type: object
+      additionalProperties: false
+      required:
+        - connection_mode
+      properties:
+        connection_mode:
+          type: string
+          enum:
+            - wireguard
+            - ipsec
+            - gre
+            - direct
+        tunnel_remote_address:
+          type:
+            - string
+            - 'null'
+          description: ipsec (opcional) / gre (obligatoria) — IPv4 pública del router.
+          examples:
+            - 198.51.100.7
+        tunnel_remote_id:
+          type:
+            - string
+            - 'null'
+          maxLength: 253
+          description: ipsec — identidad IKE del router (por defecto, su IP pública).
+          examples:
+            - rt-centro.isp.example
+            - keyid:rt-centro
+        path:
+          type:
+            - string
+            - 'null'
+          enum:
+            - private
+            - internet
+            - null
+          description: gre/direct — camino por el que viajan gestión y flujos (obligatorio sin cifrado).
+        confirm_unencrypted_internet:
+          type: boolean
+          default: false
+          description: gre/direct con `path=internet` — el administrador acepta que SNMP y flujos viajen sin cifrar por Internet.
+    TunnelRouterConfig:
+      type: object
+      required:
+        - platform
+        - language
+        - title
+        - config
+        - notes
+        - placeholders
+        - warnings
+      properties:
+        platform:
+          type: string
+          enum:
+            - routeros
+            - vrp
+            - strongswan
+        language:
+          type: string
+          enum:
+            - routeros
+            - vrp
+            - shell
+        title:
+          type: string
+        config:
+          type: string
+          description: Comandos para pegar (contiene la PSK y las contraseñas).
+        notes:
+          type: array
+          items:
+            type: string
+        placeholders:
+          type: array
+          items:
+            type: object
+            required:
+              - key
+              - description
+            properties:
+              key:
+                type: string
+              description:
+                type: string
+        warnings:
+          type: array
+          items:
+            type: string
+    TunnelConfig:
+      type: object
+      required:
+        - router_id
+        - transport
+        - protection_level
+        - tunnel_address
+        - hub_address
+        - hub_id
+        - remote_address
+        - remote_id
+        - psk
+        - gre_key
+        - snmp_user
+        - configs
+        - warnings
+      properties:
+        router_id:
+          $ref: '#/components/schemas/Uuid'
+        transport:
+          type: string
+          enum:
+            - ipsec
+            - gre
+        protection_level:
+          type: string
+          enum:
+            - encrypted
+            - unencrypted_private
+            - unencrypted_internet
+        tunnel_address:
+          type: string
+          examples:
+            - 10.255.0.17/32
+        hub_address:
+          type:
+            - string
+            - 'null'
+          description: IPv4 pública del hub (destino de IKE/GRE).
+        hub_id:
+          type:
+            - string
+            - 'null'
+          description: 'ipsec: identidad IKE del hub.'
+        remote_address:
+          type:
+            - string
+            - 'null'
+        remote_id:
+          type:
+            - string
+            - 'null'
+        psk:
+          type:
+            - string
+            - 'null'
+          description: 'ipsec: clave precompartida nueva (48 caracteres). Solo en esta respuesta; generar otra la sustituye.'
+        gre_key:
+          type:
+            - integer
+            - 'null'
+        snmp_user:
+          type: string
+        configs:
+          type: array
+          items:
+            $ref: '#/components/schemas/TunnelRouterConfig'
+        warnings:
+          type: array
+          items:
+            type: string
     SecuritySummary:
       type: object
       required:
@@ -20643,6 +20975,57 @@ components:
               minimum: 1
               maximum: 12
           additionalProperties: false
+    TunnelStatus:
+      type: object
+      required:
+        - state
+        - last_rekey_at
+        - last_packet_at
+        - error
+        - remote_address
+        - remote_id
+        - gre_key
+      properties:
+        state:
+          type:
+            - string
+            - 'null'
+          enum:
+            - established
+            - connecting
+            - down
+            - up
+            - null
+          description: 'ipsec: estado de la IKE SA; gre: interfaz del hub (up/down). null = aún sin reporte.'
+        last_rekey_at:
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: 'null'
+        last_packet_at:
+          description: 'gre: último paquete recibido del router.'
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: 'null'
+        error:
+          type:
+            - string
+            - 'null'
+          description: Último error del agente al aplicar el túnel (sin secretos).
+        remote_address:
+          type:
+            - string
+            - 'null'
+          description: IPv4 pública del router.
+        remote_id:
+          type:
+            - string
+            - 'null'
+          description: Identidad IKE del router.
+        gre_key:
+          type:
+            - integer
+            - 'null'
+          description: 'gre: clave GRE (null = sin clave, RouterOS).'
     Peer:
       allOf:
         - $ref: '#/components/schemas/TenantScopedResource'
@@ -20656,6 +21039,8 @@ components:
             - public_key
             - last_handshake_at
             - enrollment
+            - transport
+            - tunnel
           properties:
             server_id:
               $ref: '#/components/schemas/Uuid'
@@ -20700,6 +21085,18 @@ components:
               type: integer
               examples:
                 - 25
+            transport:
+              type: string
+              enum:
+                - wireguard
+                - ipsec
+                - gre
+              description: Transporte del túnel (docs/tunnels.md). La /32 sale de la misma IPAM en los tres.
+            tunnel:
+              description: Estado IPsec/GRE observado por tunnel-agent (null en WireGuard).
+              oneOf:
+                - $ref: '#/components/schemas/TunnelStatus'
+                - type: 'null'
             enrollment:
               type: object
               required:

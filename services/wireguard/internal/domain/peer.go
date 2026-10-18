@@ -57,7 +57,15 @@ const MaxTokenFailures = 5
 // ErrNotFound lo devuelve el repositorio cuando no hay fila en el tenant.
 var ErrNotFound = errors.New("wireguard: not found")
 
-// Peer es el túnel de un router.
+// Transportes del túnel de un router (docs/tunnels.md). wireguard lo aplica
+// wg-agent; ipsec y gre, tunnel-agent. La /32 sale de la misma IPAM.
+const (
+	TransportWireGuard = "wireguard"
+	TransportIPsec     = "ipsec"
+	TransportGRE       = "gre"
+)
+
+// Peer es el túnel de un router (cualquier transporte).
 type Peer struct {
 	ID              uuid.UUID
 	TenantID        uuid.UUID
@@ -82,6 +90,34 @@ type Peer struct {
 	Version         int
 	// Token vigente más reciente (para la vista Peer.enrollment).
 	Token *Token
+
+	// Transport: wireguard | ipsec | gre.
+	Transport string
+	// TunnelIndex: índice en el hub (if_id XFRM, interfaz hxfrm<n>/hgre<n>);
+	// solo ipsec/gre, único entre túneles vivos.
+	TunnelIndex *int64
+	// GREKey: clave GRE (0 = sin clave: RouterOS no la admite).
+	GREKey int64
+	// RemoteAddress: IP pública del router (ipsec opcional, gre obligatoria).
+	RemoteAddress *netip.Addr
+	// RemoteID: identidad IKE del router (ipsec).
+	RemoteID *string
+	// Estado observado por tunnel-agent: estado de la IKE SA
+	// (established|connecting|down) o de la interfaz GRE (up|down), último
+	// rekey (ipsec), último paquete recibido (gre) y último error al aplicar.
+	TunnelState  *string
+	LastRekeyAt  *time.Time
+	LastPacketAt *time.Time
+	TunnelError  *string
+}
+
+// GREKeyFromIndex pide al crear el túnel GRE que su clave sea su índice en
+// el hub (VRP y Linux admiten clave; RouterOS no: clave 0).
+const GREKeyFromIndex = -1
+
+// IsTunnelAgent indica si el túnel lo aplica tunnel-agent (ipsec o gre).
+func (p *Peer) IsTunnelAgent() bool {
+	return p.Transport == TransportIPsec || p.Transport == TransportGRE
 }
 
 // AllowedIP es la /32 del peer en el hub.

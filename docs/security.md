@@ -195,6 +195,23 @@ llamadas de `wireguard`.
 | D | Inundación del puerto UDP de WireGuard | WireGuard es silencioso ante paquetes no autenticados (cookies anti-DoS integradas); rate limit nftables | 4 |
 | E | Contenedor con `NET_ADMIN` usado para pivotar | `wireguard-agent` es el **único** contenedor con `NET_ADMIN` (sin otras capacidades, sin acceso a PostgreSQL ni a la KEK); `wireguard` corre sin privilegios; el agente no expone API pública (solo gRPC mTLS desde `wireguard`); el frontend jamás ejecuta comandos (vision §Sprint 4) | 4 |
 
+### 3.6.1 IPsec IKEv2 y GRE (`tunnel-agent` + `horus-ipsec`, [ADR-0031](adr/0031-hub-de-tuneles-ipsec-gre.md))
+
+Rol hermano de `wireguard-agent`, solo presente con `install.sh --tunnels`. `tunnel-agent`: red del host,
+`cap_drop: ALL` + `NET_ADMIN`, sistema de archivos de solo lectura, sin acceso a PostgreSQL ni a KEK;
+solo expone gRPC mTLS (`horus.tunnels.v1`) a `wireguard`. `horus-ipsec` (charon): queda como usuario
+`ipsec` con `CAP_NET_ADMIN`, sin configuración ni secretos en disco; el socket vici (0770, grupo 1430)
+solo lo comparte con `tunnel-agent`. Detalle en [`tunnels.md`](tunnels.md).
+
+| STRIDE | Amenaza | Control |
+|--------|---------|---------|
+| S | Router falso negocia IKE | PSK aleatoria **por router** (48 caracteres) + identidad IKE registrada; `unique=replace`; propuestas solo AES-256-GCM o AES-256/SHA-2 con ECP-384/MODP-2048 y PFS |
+| S | Suplantar la IP de túnel de otro router | Interfaz XFRM/GRE por router; `ipset horus-tunnel-src` (`hash:net,iface`) solo deja entrar por `hxfrm<n>`/`hgre<n>` la /32 de ese router |
+| S/I | GRE es texto claro y sin autenticación | Nivel `unencrypted_*` visible; por Internet exige confirmación + re-autenticación, se audita (`devices.router.transport_changed`) e insignia persistente; protocolo 47 solo desde `horus-gre-peers` (IP pública registrada) y origen del túnel fijado |
+| I | Fuga de la PSK | Credencial `ipsec_psk` con *envelope encryption* (KEK de `devices`), de solo escritura, mostrada una vez (`Cache-Control: no-store`, re-autenticación ≤ 5 min); solo se descifra para empujarla por mTLS y vive en memoria de charon; nunca en logs ni auditoría |
+| D | Inundación de IKE | Cookies IKEv2 de charon; UDP 500/4500 y ESP solo abiertos con `--tunnels ipsec` |
+| E | Pivotar desde un contenedor con `NET_ADMIN` | Igual que wg-agent: sin otras capacidades salvo las que charon suelta tras arrancar; sin API pública; sin secretos en disco |
+
 ### 3.7 Bases de datos y bus (PostgreSQL, ClickHouse, Valkey, NATS)
 
 | STRIDE | Amenaza | Control | Sprint |
@@ -911,6 +928,9 @@ Controles comunes:
 3. **Puertos de entrada** (solo desde prefijos de gestión, filtrado nftables en el host):
    NetFlow v5/v9 `UDP 2055`, IPFIX `UDP 4739`, sFlow `UDP 6343`, traps SNMP `UDP 162`
    (si se usan), WireGuard `UDP 51820`.
+   Con `--tunnels ipsec`: IKE `UDP 500/4500` y ESP; con `--tunnels gre`: protocolo 47 solo desde
+   las IP públicas registradas. Flujos y SNMP solo desde `wg0`, `hxfrm+`, `hgre+` o direcciones
+   directas verificadas ([`tunnels.md`](tunnels.md) §7).
 4. **Validación de origen:** el colector solo acepta exportadores registrados en el inventario
    (IP + ID de dominio de observación) **y lo asocia a su tenant**; los desconocidos se descartan
    y generan `horus.flows.exporter.unassigned` (tenant `platform`, con rate limit) para que el

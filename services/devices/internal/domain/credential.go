@@ -10,6 +10,9 @@ import (
 const (
 	CredentialSNMPv3      = "snmp_v3"
 	CredentialRouterOSAPI = "routeros_api"
+	// CredentialIPsecPSK es la clave precompartida IKEv2 del túnel IPsec del
+	// router (docs/tunnels.md §4.3).
+	CredentialIPsecPSK = "ipsec_psk"
 )
 
 // Credential es una credencial de router cifrada (envelope encryption).

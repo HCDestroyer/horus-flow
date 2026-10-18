@@ -361,6 +361,12 @@ services:
       HORUS_PUBLIC_TLS_CERT_FILE: /etc/horus/tls/public.crt
       HORUS_WIREGUARD_GRPC_ADDR: ":9094"
       HORUS_WGAGENT_ADDR: ${HORUS_GRPC_BIND:?falta HORUS_GRPC_BIND}:9095
+      # Túneles IPsec IKEv2 y GRE (docs/tunnels.md, ADR-0031): transportes habilitados (vacío = solo
+      # WireGuard), IPv4 pública del hub y TunnelAgentService de horus-tunnel-agent (perfil tunnels).
+      HORUS_TUNNEL_TRANSPORTS: ${HORUS_TUNNEL_TRANSPORTS:-}
+      HORUS_TUNNEL_HUB_ADDRESS: ${HORUS_TUNNEL_HUB_ADDRESS:-}
+      HORUS_IPSEC_LOCAL_ID: ${HORUS_IPSEC_LOCAL_ID:-}
+      HORUS_TUNNELAGENT_ADDR: ${HORUS_TUNNELAGENT_ADDR:-}
       HORUS_TLS_CERT_FILE: /run/secrets/grpc_wireguard_crt
       HORUS_TLS_KEY_FILE: /run/secrets/grpc_wireguard_key
       GOMEMLIMIT: 1800MiB
@@ -502,6 +508,70 @@ services:
   # Interfaz web (SPA estática, apps/frontend/Dockerfile): Traefik le envía todo lo que no es
   # /api ni /ws. Sin root, solo lectura, sin secretos ni acceso a las bases.
   # ------------------------------------------------------------------------------------------
+  # ------------------------------------------------------------------------------------------
+  # Túneles IPsec IKEv2 y GRE (perfiles tunnels e ipsec; install.sh --tunnels; docs/tunnels.md,
+  # ADR-0031). Dos contenedores con privilegios separados, ninguno con PostgreSQL ni KEK:
+  #   horus-tunnel-agent: imagen horus, rol tunnel-agent. NET_ADMIN en la red del host para las
+  #     interfaces XFRM/GRE, sus rutas /32 y los ipset del cortafuegos; habla con wireguard por
+  #     gRPC mTLS y con charon por el socket vici (grupo 1430). No escucha en Internet.
+  #   horus-ipsec: solo charon (strongSwan), expuesto en UDP 500/4500. Arranca como root y queda
+  #     como usuario ipsec con CAP_NET_ADMIN (SETUID/SETGID/CHOWN/SETPCAP solo para ese cambio);
+  #     sin certificados gRPC ni configuración en disco: conexiones y PSK llegan por vici y solo
+  #     viven en su memoria.
+  # ------------------------------------------------------------------------------------------
+  horus-tunnel-agent:
+    <<: *hardening
+    profiles: [tunnels]
+    image: *horus-image
+    read_only: true
+    # uid 0 SOLO para que NET_ADMIN sea efectiva (como wg-agent); grupo 1430 = socket vici.
+    user: "0:0"
+    group_add: ["1430"]
+    network_mode: host
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN]
+    environment:
+      HORUS_ENV: prod
+      HORUS_LOG_LEVEL: ${HORUS_LOG_LEVEL:-info}
+      HORUS_LOG_FORMAT: json
+      HORUS_ROLES: tunnel-agent
+      HORUS_PROCESS: horus-tunnel-agent
+      HORUS_ADMIN_ADDR: 127.0.0.1:${HORUS_TUNNELAGENT_ADMIN_PORT:-18082}
+      HORUS_WG_HUB_ID: ${HORUS_WG_HUB_ID}
+      HORUS_TUNNELAGENT_DRIVER: kernel
+      HORUS_TUNNELAGENT_VICI_SOCKET: /run/horus-ipsec/charon.vici
+      HORUS_TUNNELAGENT_UNDERLAY_INTERFACE: ${HORUS_TUNNELAGENT_UNDERLAY_INTERFACE:-}
+      HORUS_TUNNELAGENT_GRPC_ADDR: ${HORUS_GRPC_BIND}:9096
+      HORUS_WIREGUARD_GRPC_ADDR_REMOTE: ${HORUS_GRPC_BIND}:9094
+      GRPC_TLS_MODE: mtls
+      HORUS_TLS_CA_FILE: /run/secrets/grpc_ca
+      HORUS_TLS_CERT_FILE: /run/secrets/grpc_tunnelagent_crt
+      HORUS_TLS_KEY_FILE: /run/secrets/grpc_tunnelagent_key
+      GOMEMLIMIT: 100MiB
+    secrets: [grpc_ca, grpc_tunnelagent_crt, grpc_tunnelagent_key]
+    volumes:
+      - horus-ipsec-run:/run/horus-ipsec
+    depends_on:
+      horus-app:
+        condition: service_started
+    mem_limit: 128m
+    healthcheck: *horus-healthcheck
+
+  horus-ipsec:
+    <<: *hardening
+    profiles: [ipsec]
+    image: ${HORUS_IPSEC_IMAGE:-horus-ipsec:local}
+    read_only: true
+    network_mode: host
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN, NET_BIND_SERVICE, SETUID, SETGID, CHOWN, SETPCAP]
+    tmpfs:
+      - /var/run:size=1m
+      - /tmp:size=1m
+    volumes:
+      - horus-ipsec-run:/run/horus-ipsec
+    mem_limit: 128m
+
   horus-web:
     <<: *hardening
     image: ${HORUS_WEB_IMAGE:?falta HORUS_WEB_IMAGE}
@@ -581,6 +651,15 @@ services:
       retries: 3
       start_period: 30s
 
+volumes:
+  # Socket vici de charon (horus-ipsec ↔ horus-tunnel-agent): en memoria del host, nunca en disco.
+  horus-ipsec-run:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=1m,mode=0770
+
 networks:
   horus:
     driver: bridge
@@ -650,3 +729,7 @@ secrets:
     file: ${HORUS_SECRETS_DIR}/grpc/wg-agent.crt
   grpc_wgagent_key:
     file: ${HORUS_SECRETS_DIR}/grpc/wg-agent.key
+  grpc_tunnelagent_crt:
+    file: ${HORUS_SECRETS_DIR}/grpc/tunnel-agent.crt
+  grpc_tunnelagent_key:
+    file: ${HORUS_SECRETS_DIR}/grpc/tunnel-agent.key

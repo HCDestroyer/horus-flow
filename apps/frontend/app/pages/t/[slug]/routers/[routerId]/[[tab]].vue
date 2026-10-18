@@ -12,9 +12,11 @@ import { CPU_THRESHOLDS, TEMP_THRESHOLDS } from '~/utils/router-health'
  * CPU / memoria / temperatura / uptime en vivo (`router.{id}.metrics`), "Sondear ahora"
  * (`POST /routers/{id}/poll`, `devices.update`), pestañas Métricas e Interfaces y el modo
  * mural de un solo router (`?scale=wall`, `RouterWall`).
- * Huawei VRP (`connection_mode = direct`, docs/vendors/huawei.md): sin túnel WireGuard, la
- * pestaña Conexión es el alta directa (`DirectOnboardingWizard`) y no hay huella TLS, script de
- * desinstalación RouterOS ni importación de prefijos por la API REST.
+ * Transporte por router (docs/tunnels.md): WireGuard (`OnboardingWizard`), IPsec IKEv2 o GRE
+ * (`TunnelOnboardingWizard`) o directo (`DirectOnboardingWizard`), elegido en `TransportPanel`;
+ * el nivel de protección va siempre en la cabecera (`ProtectionBadge`, aviso permanente sin
+ * cifrado por Internet). Huawei VRP: sin huella TLS, script de desinstalación RouterOS ni
+ * importación de prefijos por la API REST.
  */
 const { t, te } = useI18n()
 const route = useRoute()
@@ -158,7 +160,24 @@ onBeforeUnmount(() => {
 
 // MikroTik (túnel WireGuard + API REST) frente a Huawei en modo directo (solo SNMP y NetStream).
 const direct = computed(() => rt.value?.connection_mode === 'direct')
+const tunnelMode = computed(
+  () => rt.value?.connection_mode === 'ipsec' || rt.value?.connection_mode === 'gre',
+)
+// Estado del túnel del transporte actual (el peer de otro transporte no cuenta).
+const tunnelPeer = computed(() =>
+  peer.value && peer.value.transport === (rt.value?.connection_mode ?? 'wireguard')
+    ? peer.value
+    : null,
+)
+function onTransportChanged() {
+  clearNuxtData((key) => /:(peer|routers|exporter)/.test(key))
+  refreshAll()
+}
 const routerOS = computed(() => (rt.value?.vendor ?? 'mikrotik') === 'mikrotik')
+// El script inverso RouterOS es del alta WireGuard; IPsec/GRE traen su bloque «Deshacer».
+const wgScript = computed(
+  () => routerOS.value && (rt.value?.connection_mode ?? 'wireguard') === 'wireguard',
+)
 
 const activeCustomers = computed(
   () => stats.value?.by_site.find((s) => s.site_id === rt.value?.site_id)?.active ?? 0,
@@ -258,7 +277,7 @@ function showUninstallFromDelete() {
 }
 
 const more = computed<DropdownMenuItem[]>(() => [
-  ...(can('wireguard.write') && routerOS.value
+  ...(can('wireguard.write') && wgScript.value
     ? [{ label: t('router.uninstall'), icon: 'i-lucide-file-x-2', onSelect: openUninstall }]
     : []),
   ...(can('devices.delete')
@@ -438,6 +457,11 @@ useHead({ title: () => rt.value?.name ?? t('router.title') })
             >
               <RelativeTime :at="exporter.state_since" :prefix="t('router.since')" />
             </span>
+            <ProtectionBadge
+              :level="rt.protection_level"
+              :mode="rt.connection_mode"
+              data-testid="router-protection"
+            />
             <UBadge
               v-if="direct"
               color="neutral"
@@ -447,6 +471,29 @@ useHead({ title: () => rt.value?.name ?? t('router.title') })
               :title="t('devices.vendor.directHint')"
               data-testid="router-direct-badge"
             />
+            <span
+              v-else-if="tunnelMode"
+              class="text-muted text-sm"
+              data-testid="router-tunnel-state"
+            >
+              {{
+                tunnelPeer?.handshake_state === 'ok'
+                  ? t(`router.tunnelAlive.${rt.connection_mode}`)
+                  : tunnelPeer?.handshake_state === 'stale'
+                    ? t(`router.tunnelStale.${rt.connection_mode}`)
+                    : t(`router.tunnelNever.${rt.connection_mode}`)
+              }}
+              <RelativeTime
+                v-if="tunnelPeer?.tunnel?.last_rekey_at"
+                :at="tunnelPeer.tunnel.last_rekey_at"
+                :prefix="t('router.lastRekey')"
+              />
+              <RelativeTime
+                v-else-if="tunnelPeer?.tunnel?.last_packet_at"
+                :at="tunnelPeer.tunnel.last_packet_at"
+                :prefix="t('router.lastPacket')"
+              />
+            </span>
             <span v-else class="text-muted text-sm">
               {{ peer?.last_handshake_at ? t('router.handshake') : t('router.noHandshake') }}
               <RelativeTime v-if="peer?.last_handshake_at" :at="peer.last_handshake_at" />
@@ -511,9 +558,20 @@ useHead({ title: () => rt.value?.name ?? t('router.title') })
           :description="t('devices.router.unsupportedBody')"
           data-testid="router-unsupported-banner"
         />
+        <TransportPanel :router="rt" @changed="onTransportChanged" />
         <DirectOnboardingWizard
           v-if="direct"
           :router="rt"
+          :exporter="exporter ?? null"
+          :active-customers="activeCustomers"
+          :discovery="site?.discovery_mode ?? false"
+          @refresh="refreshAll"
+        />
+        <TunnelOnboardingWizard
+          v-else-if="tunnelMode"
+          :key="`tunnel-${rt.connection_mode}`"
+          :router="rt"
+          :peer="tunnelPeer"
           :exporter="exporter ?? null"
           :active-customers="activeCustomers"
           :discovery="site?.discovery_mode ?? false"
@@ -616,7 +674,7 @@ useHead({ title: () => rt.value?.name ?? t('router.title') })
         @confirm="remove"
       >
         <UAlert
-          v-if="routerOS && rt.onboarding_state !== 'pending_configuration'"
+          v-if="wgScript && rt.onboarding_state !== 'pending_configuration'"
           color="warning"
           variant="subtle"
           icon="i-lucide-file-x-2"

@@ -158,6 +158,15 @@ const sparkSeries = computed(() =>
       :since="row.since"
       :class="wall ? 'w-label' : 'text-sm'"
     />
+    <!-- Transporte sin cifrado (docs/tunnels.md): aviso permanente también en el NOC. -->
+    <ProtectionBadge
+      v-if="row.protection_level && row.protection_level !== 'encrypted'"
+      :level="row.protection_level"
+      :mode="row.connection_mode ?? null"
+      compact
+      class="self-start"
+      :class="wall ? 'w-meta' : ''"
+    />
 
     <ul
       class="flex flex-wrap gap-[0.4em]"

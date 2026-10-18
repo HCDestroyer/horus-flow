@@ -94,7 +94,7 @@ flock -n 9 || die "ya hay otro bootstrap-debian.sh en marcha"
 # --- 2. Paquetes ----------------------------------------------------------------------------------
 export DEBIAN_FRONTEND=noninteractive
 apt_get() { apt-get -q -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold "$@"; }
-base_pkgs=(ca-certificates curl gpg jq age wireguard-tools iptables iproute2 openssl util-linux procps kmod tar gzip)
+base_pkgs=(ca-certificates curl gpg jq age wireguard-tools iptables ipset iproute2 openssl util-linux procps kmod tar gzip)
 docker_pkgs=(docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin)
 
 docker_repo() {

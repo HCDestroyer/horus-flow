@@ -889,6 +889,14 @@ modules:
         - POST
       audited:
         - POST
+    - prefix: /api/v1/routers/{router_id}/transport
+      scope: tenant
+      methods:
+        PUT: devices.credentials.write
+      reauth:
+        - PUT
+      audited:
+        - PUT
     - prefix: /api/v1/sites
       scope: tenant
       methods:
@@ -1159,6 +1167,14 @@ modules:
       reauth:
         - POST
       idempotency_key_required:
+        - POST
+    - prefix: /api/v1/routers/{router_id}/tunnel-config
+      scope: tenant
+      methods:
+        POST: wireguard.write
+      reauth:
+        - POST
+      audited:
         - POST
     - prefix: /api/v1/wireguard/enrollment-tokens/{token_id}/revoke
       scope: tenant

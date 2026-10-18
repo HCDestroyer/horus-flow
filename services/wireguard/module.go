@@ -1,9 +1,11 @@
 // Package wireguard es el módulo del rol wireguard de `horus` (ADR-0025,
-// docs/services.md): IPAM de túneles de plataforma, un peer por router con su
-// /32 (identidad del exportador), script RouterOS de alta con token de
-// enrolamiento de un uso y script inverso, enrolamiento público de la clave
+// docs/services.md): IPAM de túneles de plataforma, un túnel por router con
+// su /32 (identidad del exportador) y transporte WireGuard, IPsec IKEv2 o
+// GRE (ADR-0031, docs/tunnels.md), script RouterOS de alta con token de
+// enrolamiento de un uso y script inverso, configuración IPsec/GRE para
+// pegar (POST /routers/{id}/tunnel-config), enrolamiento público de la clave
 // pública (POST /api/v1/enroll/wireguard), estado deseado del hub hacia
-// wg-agent y estado observado (handshakes).
+// wg-agent y tunnel-agent y estado observado (handshakes, SA, paquetes).
 //
 // Dependencias en proceso (module.Services): devices (routers, proyección
 // del túnel y credenciales), auth (validador de tokens y auditoría) y, si
@@ -19,6 +21,7 @@ import (
 	"log/slog"
 	"net/netip"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 
@@ -35,6 +38,8 @@ import (
 	"github.com/hcdestroyer/horus-flow/packages/go/platformoverview"
 	authapi "github.com/hcdestroyer/horus-flow/services/auth/api"
 	devapi "github.com/hcdestroyer/horus-flow/services/devices/api"
+	tunapi "github.com/hcdestroyer/horus-flow/services/tunnelagent/api"
+	"github.com/hcdestroyer/horus-flow/services/tunnelagent/api/tunnelv1"
 	wgapi "github.com/hcdestroyer/horus-flow/services/wgagent/api"
 	"github.com/hcdestroyer/horus-flow/services/wgagent/api/agentv1"
 	"github.com/hcdestroyer/horus-flow/services/wireguard/internal/adapters/grpcapi"
@@ -60,8 +65,9 @@ type mod struct {
 	tls      grpcx.TLSConfig
 	dev      bool
 
-	agentMu sync.RWMutex
-	agent   wgapi.Agent
+	agentMu     sync.RWMutex
+	agent       wgapi.Agent
+	tunnelAgent tunapi.Agent
 }
 
 // Register construye el módulo del rol wireguard (firma module.Factory).
@@ -97,6 +103,10 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 	if err != nil {
 		return nil, err
 	}
+	tunnels, err := tunnelsFromConfig(cfg, dev)
+	if err != nil {
+		return nil, err
+	}
 	base, accessMode, err := access(cfg, dev)
 	if err != nil {
 		return nil, err
@@ -124,11 +134,20 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		Audit: func() (authapi.AuditRecorder, bool) {
 			return module.Lookup[authapi.AuditRecorder](deps.Services, authapi.ServiceAudit)
 		},
-		Hub: hub, HubPublicKey: m.hubPublicKey, CollectorIP: collector, PublicBaseURL: base, AccessMode: accessMode,
+		TunnelAgent: m.lookupTunnelAgent,
+		TunnelSecrets: func() (devapi.TunnelSecrets, bool) {
+			return module.Lookup[devapi.TunnelSecrets](deps.Services, devapi.ServiceTunnelSecrets)
+		},
+		Tunnels: tunnels,
+		Hub:     hub, HubPublicKey: m.hubPublicKey, CollectorIP: collector, PublicBaseURL: base, AccessMode: accessMode,
 		CACertPEM: caPEM, NTPServer: cfg.NTPServer, CacheEntries: cfg.CacheEntries, Logger: logger,
 	})
 	if deps.Services != nil {
 		if err := deps.Services.Provide(wgapi.ServiceControl, m.svc); err != nil {
+			db.Close()
+			return nil, err
+		}
+		if err := deps.Services.Provide(tunapi.ServiceControl, tunapi.Control(m.svc)); err != nil {
 			db.Close()
 			return nil, err
 		}
@@ -177,6 +196,56 @@ func hubFromConfig(cfg modcfg.Config) (app.Hub, netip.Addr, error) {
 		ServicesCIDR: services, Pools: pools}, collector, nil
 }
 
+// tunnelsFromConfig lee HORUS_TUNNEL_* (IPsec/GRE). Sin transportes
+// habilitados, POST /routers/{id}/tunnel-config responde 409
+// TUNNEL_TRANSPORT_DISABLED (nunca se abre nada por defecto).
+func tunnelsFromConfig(cfg modcfg.Config, dev bool) (app.TunnelHub, error) {
+	h := app.TunnelHub{MTU: cfg.TunnelMTU, LocalID: strings.TrimSpace(cfg.IPsecLocalID)}
+	for _, t := range cfg.TunnelTransports {
+		switch t = strings.TrimSpace(t); t {
+		case "":
+		case "ipsec", "gre":
+			if !slices.Contains(h.Transports, t) {
+				h.Transports = append(h.Transports, t)
+			}
+		default:
+			return h, fmt.Errorf("wireguard: HORUS_TUNNEL_TRANSPORTS: unknown transport %q (ipsec, gre)", t)
+		}
+	}
+	if v := strings.TrimSpace(cfg.TunnelHubAddress); v != "" {
+		a, err := netip.ParseAddr(v)
+		if err != nil || !a.Is4() || a.IsPrivate() && !dev || a.IsLoopback() || a.IsUnspecified() {
+			return h, errors.New("wireguard: HORUS_TUNNEL_HUB_ADDRESS must be the hub public IPv4 address")
+		}
+		h.Address = a
+	}
+	if len(h.Transports) > 0 && !h.Address.IsValid() {
+		return h, errors.New("wireguard: HORUS_TUNNEL_HUB_ADDRESS is required when HORUS_TUNNEL_TRANSPORTS is set")
+	}
+	if h.LocalID != "" && !validIKEID(h.LocalID) {
+		return h, errors.New("wireguard: HORUS_IPSEC_LOCAL_ID must be an IPv4 address or a DNS name")
+	}
+	if h.MTU < 1280 || h.MTU > 1500 {
+		return h, errors.New("wireguard: HORUS_TUNNEL_MTU must be between 1280 and 1500")
+	}
+	return h, nil
+}
+
+func validIKEID(s string) bool {
+	if a, err := netip.ParseAddr(s); err == nil {
+		return a.Is4()
+	}
+	if len(s) > 253 || !strings.Contains(s, ".") {
+		return false
+	}
+	for _, r := range s {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '.' && r != '-' {
+			return false
+		}
+	}
+	return true
+}
+
 // access resuelve HORUS_PUBLIC_BASE_URL y el modo de acceso (D19: IP literal → ip_only).
 func access(cfg modcfg.Config, dev bool) (string, string, error) {
 	base := strings.TrimRight(cfg.PublicBaseURL, "/")
@@ -209,6 +278,15 @@ func (m *mod) lookupAgent() (wgapi.Agent, bool) {
 	return m.agent, m.agent != nil
 }
 
+func (m *mod) lookupTunnelAgent() (tunapi.Agent, bool) {
+	if a, ok := module.Lookup[tunapi.Agent](m.services, tunapi.ServiceAgent); ok {
+		return a, true
+	}
+	m.agentMu.RLock()
+	defer m.agentMu.RUnlock()
+	return m.tunnelAgent, m.tunnelAgent != nil
+}
+
 func (m *mod) hubPublicKey() string {
 	if m.cfg.HubPubKey != "" {
 		return m.cfg.HubPubKey
@@ -238,7 +316,11 @@ func (m *mod) Start(ctx context.Context) error {
 func (m *mod) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
 	errc := make(chan error, 1)
-	if _, local := module.Lookup[wgapi.Agent](m.services, wgapi.ServiceAgent); !local {
+	_, wgLocal := module.Lookup[wgapi.Agent](m.services, wgapi.ServiceAgent)
+	_, tunLocal := module.Lookup[tunapi.Agent](m.services, tunapi.ServiceAgent)
+	if !wgLocal || !tunLocal {
+		// Algún agente está en otro contenedor: se sirven ControlService y
+		// TunnelControlService (mismo puerto y mTLS).
 		s, err := grpcx.NewServer(m.tls, m.logger)
 		switch {
 		case err != nil && !m.dev:
@@ -247,6 +329,7 @@ func (m *mod) Run(ctx context.Context) error {
 			m.logger.WarnContext(ctx, "wireguard: no mTLS material (dev): ControlService not served", slog.String("error", err.Error()))
 		default:
 			grpcapi.Register(s, m.svc)
+			grpcapi.RegisterTunnels(s, m.svc)
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -255,16 +338,29 @@ func (m *mod) Run(ctx context.Context) error {
 				}
 			}()
 		}
-		if m.cfg.AgentAddr != "" {
-			conn, err := grpcx.Dial(m.cfg.AgentAddr, m.tls)
-			if err != nil {
-				return err
-			}
-			defer func() { _ = conn.Close() }()
-			m.agentMu.Lock()
-			m.agent = grpcapi.Agent{C: agentv1.NewAgentServiceClient(conn)}
-			m.agentMu.Unlock()
+	}
+	if !wgLocal && m.cfg.AgentAddr != "" {
+		conn, err := grpcx.Dial(m.cfg.AgentAddr, m.tls)
+		if err != nil {
+			return err
 		}
+		defer func() { _ = conn.Close() }()
+		m.agentMu.Lock()
+		m.agent = grpcapi.Agent{C: agentv1.NewAgentServiceClient(conn)}
+		m.agentMu.Unlock()
+	}
+	if !tunLocal && m.cfg.TunnelAgentAddr != "" {
+		// tunnel-agent tiene su propio certificado (nombre «tunnel-agent»).
+		tls := m.tls
+		tls.ServerName = "tunnel-agent"
+		conn, err := grpcx.Dial(m.cfg.TunnelAgentAddr, tls)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = conn.Close() }()
+		m.agentMu.Lock()
+		m.tunnelAgent = grpcapi.TunnelAgent{C: tunnelv1.NewTunnelAgentServiceClient(conn)}
+		m.agentMu.Unlock()
 	}
 	runErr := m.svc.Run(ctx, m.cfg.ReconcileEvery)
 	wg.Wait()

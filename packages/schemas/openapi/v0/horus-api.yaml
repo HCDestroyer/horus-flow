@@ -439,6 +439,10 @@ paths:
     $ref: ./devices.yaml#/paths/~1routers~1{router_id}~1tls-fingerprint~1capture
   /routers/{router_id}/tls-fingerprint/confirm:
     $ref: ./devices.yaml#/paths/~1routers~1{router_id}~1tls-fingerprint~1confirm
+  /routers/{router_id}/transport:
+    $ref: ./devices.yaml#/paths/~1routers~1{router_id}~1transport
+  /routers/{router_id}/tunnel-config:
+    $ref: ./wireguard.yaml#/paths/~1routers~1{router_id}~1tunnel-config
   /security/summary:
     $ref: ./detection.yaml#/paths/~1security~1summary
   /sites:

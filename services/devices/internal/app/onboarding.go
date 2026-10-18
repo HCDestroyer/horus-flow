@@ -53,11 +53,21 @@ var (
 	_ devapi.Onboarding           = (*Onboarding)(nil)
 	_ devapi.SNMPCredentialReader = (*Onboarding)(nil)
 	_ devapi.DirectVerifier       = (*Onboarding)(nil)
+	_ devapi.TunnelSecrets        = (*Onboarding)(nil)
 )
 
 func routerInfo(r *domain.Router) devapi.RouterInfo {
 	info := devapi.RouterInfo{ID: r.ID, TenantID: r.TenantID, SiteID: r.SiteID, Name: r.Hostname,
-		RouterOSVersion: r.RouterOSVersion, OnboardingState: r.OnboardingState, Vendor: r.Vendor, ConnectionMode: connectionModeOf(r)}
+		RouterOSVersion: r.RouterOSVersion, OnboardingState: r.OnboardingState, Vendor: r.Vendor, ConnectionMode: connectionModeOf(r),
+		ProtectionLevel: domain.ProtectionOf(connectionModeOf(r), r.ProtectionLevel)}
+	if r.TunnelRemoteAddress != nil {
+		if a, err := netip.ParseAddr(*r.TunnelRemoteAddress); err == nil {
+			info.TunnelRemoteAddress = &a
+		}
+	}
+	if r.TunnelRemoteID != nil {
+		info.TunnelRemoteID = *r.TunnelRemoteID
+	}
 	if info.Vendor == "" {
 		info.Vendor = domain.VendorMikroTik
 	}
@@ -372,4 +382,56 @@ func (o *Onboarding) APICredential(ctx context.Context, t pgdb.TenantID, routerI
 		return nil, "", fmt.Errorf("devices: open credential: %w", err)
 	}
 	return c, string(pt), nil
+}
+
+// pskLen: 48 caracteres del alfabeto sin ambigüedades (~280 bits); el
+// agente del hub exige ≥ 32 (RFC 7296 §2.15).
+const pskLen = 48
+
+// IssueTunnelPSK implementa api.TunnelSecrets.
+func (o *Onboarding) IssueTunnelPSK(ctx context.Context, tenant, routerID uuid.UUID) (string, error) {
+	t := pgdb.TenantID(tenant)
+	if _, err := o.store.GetRouter(ctx, t, routerID); err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return "", devapi.ErrRouterNotFound
+		}
+		return "", err
+	}
+	psk, err := password(pskLen)
+	if err != nil {
+		return "", err
+	}
+	ct, dek, err := o.sealer.Seal([]byte(psk), CredentialAAD(tenant, routerID, domain.CredentialIPsecPSK))
+	if err != nil {
+		return "", err
+	}
+	if err := o.store.PutCredentials(ctx, t, routerID, []domain.Credential{{ID: uuid.Must(uuid.NewV7()), RouterID: routerID,
+		Kind: domain.CredentialIPsecPSK, Username: "ike", Ciphertext: ct, DEKWrapped: dek, KEKID: o.sealer.KEKID()}}); err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return "", devapi.ErrRouterNotFound
+		}
+		return "", err
+	}
+	return psk, nil
+}
+
+// RevealTunnelPSK implementa api.TunnelSecrets.
+func (o *Onboarding) RevealTunnelPSK(ctx context.Context, tenant, routerID uuid.UUID) (string, error) {
+	c, err := o.store.GetCredential(ctx, pgdb.TenantID(tenant), routerID, domain.CredentialIPsecPSK)
+	if errors.Is(err, domain.ErrNotFound) {
+		return "", devapi.ErrNoCredential
+	}
+	if err != nil {
+		return "", err
+	}
+	pt, err := o.sealer.Open(c.Ciphertext, c.DEKWrapped, CredentialAAD(tenant, routerID, c.Kind))
+	if err != nil {
+		return "", fmt.Errorf("devices: open credential: %w", err)
+	}
+	return string(pt), nil
+}
+
+// IssueSNMPCredentials implementa api.TunnelSecrets (Huawei con túnel).
+func (o *Onboarding) IssueSNMPCredentials(ctx context.Context, tenant, routerID uuid.UUID) (devapi.OnboardingCredentials, error) {
+	return o.IssueDirectCredentials(ctx, tenant, routerID)
 }

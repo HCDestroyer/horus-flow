@@ -20,6 +20,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/services/jobs"
 	"github.com/hcdestroyer/horus-flow/services/snmp"
 	"github.com/hcdestroyer/horus-flow/services/traffic"
+	"github.com/hcdestroyer/horus-flow/services/tunnelagent"
 	"github.com/hcdestroyer/horus-flow/services/wgagent"
 	"github.com/hcdestroyer/horus-flow/services/wireguard"
 	// new-module.sh:imports
@@ -51,6 +52,7 @@ var roleCatalog = []roleSpec{
 	{name: jobs.Role, factory: jobs.Register},
 	{name: collector.Role, factory: collector.Register},
 	{name: wgagent.Role, factory: wgagent.Register},
+	{name: tunnelagent.Role, factory: tunnelagent.Register},
 	{name: assist.Role, factory: assist.Register},
 	{name: example.Role, factory: example.Register, hidden: true},
 	// new-module.sh:roles

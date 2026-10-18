@@ -12,7 +12,7 @@
 #                                    imágenes del compose, fijadas por digest) para servidores sin
 #                                    salida a GHCR (--image-source bundle:…)
 #   --own-images-only                paquete de ACTUALIZACIÓN ligero: solo horus, horus-web,
-#                                    horus-postgres y horus-installer (las de terceros deben estar ya cargadas)
+#                                    horus-postgres, horus-ipsec y horus-installer (las de terceros deben estar ya cargadas)
 #   bootstrap-debian.sh              el comando único de docs/install-debian.md
 #   compose.stack.yaml               stack de Portainer/Proxmox/TrueNAS (docs/install-docker.md) con la
 #   stack.env.example                imagen horus-installer fijada por digest (la de images.lock)
@@ -22,7 +22,8 @@
 # --source registry (CI): las imágenes propias ya están en el registro (<registry>/horus,
 #   horus-web, horus-postgres y horus-installer con la etiqueta <v>); se fijan por el digest del
 #   índice multiarch.
-# --source local (pruebas): imágenes locales HORUS_IMAGE, HORUS_WEB_IMAGE, HORUS_POSTGRES_IMAGE y,
+# --source local (pruebas): imágenes locales HORUS_IMAGE, HORUS_WEB_IMAGE, HORUS_POSTGRES_IMAGE, opcional
+#   HORUS_IPSEC_IMAGE y,
 #   si está definida, HORUS_INSTALLER_IMAGE (variables de entorno) y las de terceros ya presentes;
 #   el digest es el ID local.
 # --no-installer: sin horus-installer en images.lock (release.yml, para el images.lock que lleva
@@ -67,7 +68,7 @@ third_party() { # VARIABLE ref@digest de las imágenes de terceros del compose
 lock="$out/images.lock"
 {
   echo "# images.lock de Horus Flow $version: VARIABLE ETIQUETA DIGEST (install.sh --image-source ghcr|bundle)."
-  pairs=("HORUS_IMAGE horus" "HORUS_WEB_IMAGE horus-web" "HORUS_POSTGRES_IMAGE horus-postgres")
+  pairs=("HORUS_IMAGE horus" "HORUS_WEB_IMAGE horus-web" "HORUS_POSTGRES_IMAGE horus-postgres" "HORUS_IPSEC_IMAGE horus-ipsec")
   if [ "$with_installer" = 1 ] && { [ "$source" = registry ] || [ -n "${HORUS_INSTALLER_IMAGE:-}" ]; }; then
     pairs+=("HORUS_INSTALLER_IMAGE horus-installer")
   fi
@@ -78,6 +79,8 @@ lock="$out/images.lock"
       dig="$(docker buildx imagetools inspect "$ref" --format '{{json .Manifest}}' | jq -r .digest)"
       [ -n "$dig" ] && [ "$dig" != null ] || { echo "build-release.sh: sin digest para $ref" >&2; exit 1; }
     else
+      # horus-ipsec es opcional en local: sin ella, install.sh la construye con el Dockerfile del árbol.
+      if [ "$1" = HORUS_IPSEC_IMAGE ] && [ -z "${HORUS_IPSEC_IMAGE:-}" ]; then continue; fi
       ref="${!1:?falta la variable $1 (imagen local)}"
       dig="$(docker image inspect "$ref" --format '{{.Id}}')"
     fi
@@ -106,7 +109,7 @@ targz "$out/horus-$version-installer.tar.gz"
 log "horus-$version-installer.tar.gz"
 
 # --- Paquetes offline por arquitectura -------------------------------------------------------------
-own_image() { case "$1" in HORUS_IMAGE | HORUS_WEB_IMAGE | HORUS_POSTGRES_IMAGE | HORUS_INSTALLER_IMAGE) return 0 ;; esac; return 1; }
+own_image() { case "$1" in HORUS_IMAGE | HORUS_WEB_IMAGE | HORUS_POSTGRES_IMAGE | HORUS_IPSEC_IMAGE | HORUS_INSTALLER_IMAGE) return 0 ;; esac; return 1; }
 if [ "$bundle" = 1 ]; then
   save_platform=()
   # Con el almacén de imágenes de containerd, save necesita --platform (guarda solo esa arquitectura).

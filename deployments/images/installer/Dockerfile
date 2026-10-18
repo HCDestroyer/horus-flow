@@ -36,12 +36,13 @@ LABEL org.opencontainers.image.title="horus-installer" \
 SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
 
 # Herramientas que usan install.sh, horus-backup y horus-ctl (GNU coreutils/findutils, flock, ss),
-# el cliente de Docker con compose v2, WireGuard (wg y wireguard-go), iptables nft y legacy, age y
+# el cliente de Docker con compose v2, WireGuard (wg y wireguard-go), iptables nft y legacy, ipset
+# (conjuntos de los túneles IPsec/GRE, docs/tunnels.md), age y
 # supercronic (backups programados en horus-host).
 # hadolint ignore=DL3018
 RUN apk add --no-cache \
       age bash ca-certificates coreutils curl diffutils docker-cli docker-cli-compose findutils \
-      gawk iproute2 iptables iptables-legacy jq openssl procps-ng sed supercronic tar tini \
+      gawk iproute2 ipset iptables iptables-legacy jq openssl procps-ng sed supercronic tar tini \
       tzdata util-linux wireguard-go wireguard-tools-wg \
     && case "${TARGETARCH}" in \
          amd64) sum="${COSIGN_SHA256_AMD64}" ;; \

@@ -430,7 +430,7 @@ func (e *Engine) refreshTargets(ctx context.Context) {
 		seen[ri.ID] = true
 		t := Target{RouterID: ri.ID, TenantID: ri.TenantID, SiteID: ri.SiteID, Name: ri.Name, Tunnel: addr,
 			Vendor: snmpclient.ForVendor(ri.Vendor).Vendor(), Direct: ri.ConnectionMode == devapi.ConnectionDirect,
-			OnboardingState: ri.OnboardingState}
+			OnboardingState: ri.OnboardingState, ConnectionMode: ri.ConnectionMode, ProtectionLevel: ri.ProtectionLevel}
 		if inv != nil {
 			if x, ok := inv.Router(ri.ID); ok {
 				if x.Name != "" {
@@ -510,6 +510,10 @@ type Target struct {
 	Direct bool
 	// OnboardingState del router (devices).
 	OnboardingState string
+	// ConnectionMode (wireguard | ipsec | gre | direct) y ProtectionLevel
+	// (encrypted | unencrypted_private | unencrypted_internet; docs/tunnels.md).
+	ConnectionMode  string
+	ProtectionLevel string
 	// Upstream: ifIndex marcados upstream en el inventario.
 	Upstream []int
 }

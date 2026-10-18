@@ -41,10 +41,18 @@ func errUnsupported() error {
 // docs/vendors/huawei.md §5).
 const CodeVendorNotSupported = "ROUTER_VENDOR_NOT_SUPPORTED"
 
+// CodeConnectionModeMismatch: la operación es de otro transporte (p. ej. el
+// script WireGuard para un MikroTik que se conecta por IPsec).
+const CodeConnectionModeMismatch = "CONNECTION_MODE_MISMATCH"
+
 func checkWireGuardVendor(r devapi.RouterInfo) error {
-	if r.ConnectionMode == devapi.ConnectionDirect || (r.Vendor != "" && r.Vendor != devapi.VendorMikroTik) {
+	if r.Vendor != "" && r.Vendor != devapi.VendorMikroTik {
 		return apperr.New(apperr.KindInvalid, CodeVendorNotSupported,
-			"El túnel WireGuard y el script RouterOS solo existen para MikroTik; este router se conecta en modo directo.")
+			"El túnel WireGuard y el script RouterOS solo existen para MikroTik.")
+	}
+	if r.ConnectionMode != "" && r.ConnectionMode != devapi.ConnectionWireGuard {
+		return apperr.New(apperr.KindInvalid, CodeConnectionModeMismatch,
+			"Este router no usa WireGuard (transporte "+r.ConnectionMode+"): genere su configuración de túnel o cambie el transporte.")
 	}
 	return nil
 }

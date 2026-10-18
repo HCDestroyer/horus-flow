@@ -37,6 +37,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/services/detection"
 	"github.com/hcdestroyer/horus-flow/services/devices"
 	"github.com/hcdestroyer/horus-flow/services/gateway"
+	"github.com/hcdestroyer/horus-flow/services/tunnelagent"
 	"github.com/hcdestroyer/horus-flow/services/wgagent"
 	"github.com/hcdestroyer/horus-flow/services/wireguard"
 )
@@ -50,10 +51,11 @@ const (
 // app es el binario horus en proceso con los roles auth, devices, detection y gateway
 // (el mismo cableado que services/cmd/horus) sobre una base vacía.
 type app struct {
-	t     *testing.T
-	srv   *httptest.Server
-	admin *pgxpool.Pool
-	mux   *httpx.Mux
+	t        *testing.T
+	srv      *httptest.Server
+	admin    *pgxpool.Pool
+	mux      *httpx.Mux
+	services *module.Services
 }
 
 func startApp(t *testing.T) *app {
@@ -87,6 +89,9 @@ func startAppWith(t *testing.T, more []roleFactory, extra ...string) *app {
 		// Reconciliación periódica desactivada en la práctica: el túnel se asigna
 		// al pedir el script (síncrono) y las versiones de los routers no cambian solas.
 		"HORUS_WIREGUARD_RECONCILE_EVERY=1h", "HORUS_WGAGENT_REPORT_EVERY=200ms",
+		// tunnel-agent en proceso en memoria (IPsec/GRE; docs/tunnels.md) con los dos transportes habilitados.
+		"HORUS_TUNNELAGENT_DRIVER=memory", "HORUS_TUNNELAGENT_REPORT_EVERY=200ms", "HORUS_TUNNEL_TRANSPORTS=ipsec,gre",
+		"HORUS_TUNNEL_HUB_ADDRESS=203.0.113.10",
 		// Almacén local de reportes (rol reporting) y datos de los demás roles.
 		"HORUS_DATA_DIR=" + t.TempDir(),
 	}
@@ -97,7 +102,7 @@ func startAppWith(t *testing.T, more []roleFactory, extra ...string) *app {
 	hreg := health.NewRegistry(health.Options{Service: "test"})
 	var mods []module.Module
 	roles := []roleFactory{{auth.Role, auth.Register}, {devices.Role, devices.Register}, {wireguard.Role, wireguard.Register},
-		{wgagent.Role, wgagent.Register}, {detection.Role, detection.Register}, {alerts.Role, alerts.Register}, {analytics.Role, registerDashboards},
+		{wgagent.Role, wgagent.Register}, {tunnelagent.Role, tunnelagent.Register}, {detection.Role, detection.Register}, {alerts.Role, alerts.Register}, {analytics.Role, registerDashboards},
 		{analytics.RoleReporting, analytics.RegisterReporting}}
 	roles = append(roles, more...)
 	roles = append(roles, roleFactory{gateway.Role, gateway.Register})
@@ -135,7 +140,7 @@ func startAppWith(t *testing.T, more []roleFactory, extra ...string) *app {
 		}
 		admin.Close()
 	})
-	return &app{t: t, srv: srv, admin: admin, mux: mux}
+	return &app{t: t, srv: srv, admin: admin, mux: mux, services: services}
 }
 
 // resp es una respuesta decodificada.

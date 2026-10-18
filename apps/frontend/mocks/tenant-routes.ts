@@ -50,7 +50,8 @@ import {
 import { contains, parseCidr, parseIp } from './net'
 import { hash, iso, mockUuid, rng } from './random'
 import { mockScoring, mockScoringDetail, mockScoringSeries } from './scoring'
-import { mockState } from './state'
+import { mockState, type TransportOverride } from './state'
+import { tunnelConfig } from './tunnels'
 import { widgetData } from './widget-data'
 import {
   analyticsDown as analyticsUnavailable,
@@ -824,6 +825,105 @@ function inventoryRoutes(ctx: TenantRouteContext): Response | undefined {
     return json(directOnboarding(item, address, body.sampling_rate ?? 1000), 201, {
       'Cache-Control': 'no-store',
     })
+  }
+  if (match(ctx, 'PUT', '/routers/{id}/transport')) {
+    if (!ctx.can('devices.credentials.write')) return forbidden()
+    if (ctx.reauthRequired) {
+      return problem(403, 'REAUTH_REQUIRED', 'Vuelve a identificarte para cambiar el transporte')
+    }
+    const body = ctx.body as {
+      connection_mode?: string
+      tunnel_remote_address?: string | null
+      tunnel_remote_id?: string | null
+      path?: string | null
+      confirm_unencrypted_internet?: boolean
+    }
+    const mode = body.connection_mode as TransportOverride['mode']
+    const allowed =
+      item.router.vendor === 'huawei' ? ['ipsec', 'gre', 'direct'] : ['wireguard', 'ipsec', 'gre']
+    if (!allowed.includes(mode)) {
+      return problem(
+        422,
+        'CONNECTION_MODE_NOT_SUPPORTED',
+        'Este fabricante no admite ese transporte.',
+      )
+    }
+    const address = body.tunnel_remote_address?.trim() || null
+    let id = body.tunnel_remote_id?.trim() || null
+    if (mode === 'gre' && !address) {
+      return validation(
+        'tunnel_remote_address',
+        'GRE necesita la IPv4 pública del router.',
+        'REQUIRED',
+      )
+    }
+    if (mode === 'ipsec') {
+      id = id ?? address
+      if (!id) return validation('tunnel_remote_id', 'Indique la identidad IKE.', 'REQUIRED')
+    }
+    const encrypted = mode === 'wireguard' || mode === 'ipsec'
+    if (!encrypted && body.path !== 'private' && body.path !== 'internet') {
+      return validation('path', 'Declare el camino: private o internet.', 'REQUIRED')
+    }
+    const level: TransportOverride['level'] = encrypted
+      ? 'encrypted'
+      : body.path === 'private'
+        ? 'unencrypted_private'
+        : 'unencrypted_internet'
+    if (level === 'unencrypted_internet' && !body.confirm_unencrypted_internet) {
+      return problem(
+        422,
+        'UNENCRYPTED_TRANSPORT_CONFIRMATION_REQUIRED',
+        'Gestión y flujos viajarían sin cifrar por Internet: confirme explícitamente.',
+      )
+    }
+    const taken = routers().find(
+      (r) =>
+        r.router.id !== item.router.id &&
+        ((mode === 'gre' &&
+          r.router.connection_mode === 'gre' &&
+          r.router.tunnel_remote_address === address) ||
+          (mode === 'ipsec' &&
+            r.router.connection_mode === 'ipsec' &&
+            r.router.tunnel_remote_id === id)),
+    )
+    if (taken)
+      return problem(409, 'TUNNEL_REMOTE_IN_USE', 'Otro router ya usa esa IP pública o identidad.')
+    const cur = mockState.transports.get(item.router.id)
+    const same =
+      (cur?.mode ?? item.router.connection_mode) === mode &&
+      (cur?.level ?? item.router.protection_level) === level &&
+      (cur?.remoteAddress ?? item.router.tunnel_remote_address) ===
+        (mode === 'ipsec' || mode === 'gre' ? address : null) &&
+      (cur?.remoteId ?? item.router.tunnel_remote_id) === (mode === 'ipsec' ? id : null)
+    if (!same) {
+      mockState.transports.set(item.router.id, {
+        mode,
+        level,
+        remoteAddress: mode === 'ipsec' || mode === 'gre' ? address : null,
+        remoteId: mode === 'ipsec' ? id : null,
+        at: now.getTime(),
+      })
+      mockState.onboarding.delete(item.router.id)
+    }
+    const next = routers().find((r) => r.router.id === item.router.id)!
+    return json(next.router, 200, etag(next.router.version))
+  }
+  if (match(ctx, 'POST', '/routers/{id}/tunnel-config')) {
+    if (!ctx.can('wireguard.write')) return forbidden()
+    if (ctx.reauthRequired) {
+      return problem(403, 'REAUTH_REQUIRED', 'Vuelve a identificarte para generar la configuración')
+    }
+    const transport = mockState.transports.get(item.router.id)
+    if (!transport || (transport.mode !== 'ipsec' && transport.mode !== 'gre')) {
+      return problem(422, 'CONNECTION_MODE_MISMATCH', 'Este router no usa IPsec ni GRE.')
+    }
+    mockState.onboarding.set(item.router.id, {
+      scriptAt: now.getTime(),
+      tokenId: mockUuid('0193e200', hash(item.router.id + now.getTime())),
+      expiresAt: now.getTime() + 24 * 3_600_000,
+    })
+    return json(tunnelConfig(item, transport, now.getTime()), 201, { 'Cache-Control': 'no-store' })
   }
   if (match(ctx, 'POST', '/routers/{id}/deprovisioning-script')) {
     if (!ctx.can('wireguard.write')) return forbidden()

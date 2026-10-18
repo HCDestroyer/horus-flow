@@ -54,6 +54,16 @@ export interface OnboardingRun {
   revokedAt?: number
 }
 
+/** Transporte elegido para un router (`PUT /routers/{id}/transport`, docs/tunnels.md). */
+export interface TransportOverride {
+  mode: 'wireguard' | 'ipsec' | 'gre' | 'direct'
+  level: 'encrypted' | 'unencrypted_private' | 'unencrypted_internet'
+  remoteAddress: string | null
+  remoteId: string | null
+  /** Instante del cambio (ms): la configuración anterior deja de valer. */
+  at: number
+}
+
 /** Campos editables de un nodo (`SiteInput`) guardados por la API simulada. */
 export interface SiteFields {
   name: string
@@ -154,6 +164,8 @@ export const mockState = {
   kindConflictServed: new Set<string>(),
   prefixes: new Map<string, ClientPrefix[]>(),
   onboarding: new Map<string, OnboardingRun>(),
+  /** Transporte de cada router (sin entrada = el del fabricante). */
+  transports: new Map<string, TransportOverride>(),
   channels: new Map<string, NotificationChannel[]>(),
   deliveries: new Map<string, NotificationDelivery[]>(),
   /** Integración con LibreNMS por ISP (`mocks/librenms.ts`). */
@@ -205,6 +217,7 @@ export function resetMockState() {
   mockState.kindConflictServed.clear()
   mockState.prefixes.clear()
   mockState.onboarding.clear()
+  mockState.transports.clear()
   mockState.channels.clear()
   mockState.deliveries.clear()
   mockState.librenms.clear()

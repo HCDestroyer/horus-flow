@@ -135,8 +135,14 @@ En el router o cortafuegos que hay delante del servidor, redirige a la IP del se
 | **443** | TCP | la web y la API (HTTPS) | sí (salvo modo proxy: lo abre tu proxy) |
 | **80** | TCP | redirige a HTTPS y certificados de Let's Encrypt | en modos dominio/subdominio |
 | **51820** | **UDP** | túnel WireGuard de los routers | **sí, siempre**, directo al servidor |
+| **500, 4500** | **UDP** | IPsec IKEv2 (NAT-T) de los routers | solo con `--tunnels ipsec` |
+| ESP (protocolo IP 50) | IP | IPsec sin NAT en el camino | solo con `--tunnels ipsec` |
+| GRE (protocolo IP 47) | IP | túneles GRE (sin cifrar) | solo con `--tunnels gre`; el servidor solo lo acepta de las IP públicas registradas |
 
 - Los flujos (IPFIX/NetFlow, UDP 4739 y 2055) **no** se abren a Internet: llegan **dentro** del túnel.
+- Routers sin WireGuard (Huawei VRP): `--tunnels ipsec,gre --tunnel-hub-address <IP pública>` activa el hub
+  IPsec/GRE ([`tunnels.md`](tunnels.md)); `--direct-flow-sources CIDR,...` deja pasar flujos de routers en modo
+  directo. Sin esas opciones no se abre nada más.
 - El instalador ya filtra el resto en el propio servidor.
 
 ## 6. Primer acceso del superadministrador (con TOTP)

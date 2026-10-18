@@ -45,6 +45,7 @@ Las **fusiones de dominio** del Sprint 0 se mantienen como módulos:
 | **Mínimo** (un servidor; desarrollo, demo, producción hasta escala S de [architecture.md §9](architecture.md#9-límites-de-escala-esperados)) | `horus-app` | `gateway, auth, devices, wireguard, snmp, traffic, detection, alerts, analytics, reporting, ingester, jobs, assist` |
 | | `horus-collector` | `collector` |
 | | `horus-wg-agent` | `wg-agent` (host network, `CAP_NET_ADMIN`) |
+| | `horus-tunnel-agent`, `horus-ipsec` (opcionales, `--tunnels`) | `tunnel-agent` (host network, `CAP_NET_ADMIN`) + charon de strongSwan ([`tunnels.md`](tunnels.md)) |
 | **Estándar** (dos hosts, escala M) | `horus-core` | `gateway, auth, devices, wireguard, snmp, traffic, alerts` |
 | | `horus-data` | `ingester, analytics, reporting, detection, jobs` |
 | | `horus-collector`, `horus-wg-agent` | igual |
@@ -159,8 +160,9 @@ NATS KV); **Sharded** = N instancias con *leases*.
 | Publica | `wireguard.peer.created/enrolled/activated/revoked`, `wireguard.peer.handshake_stale/recovered`, `wireguard.hub.status_changed`, `wireguard.audit.recorded`. |
 | Consume | `devices.router.created/deleted` (prepara/limpia peer; nunca borra sin acción explícita). |
 | **wg-agent** | Aplica el estado deseado en el kernel (netlink), lee handshakes cada 15 s, **fail-static** (nunca borra peers por no contactar al control), persiste el último estado aplicado, aplica reglas nftables que **impiden tráfico entre peers**. Singleton por hub, host network, `CAP_NET_ADMIN`. |
-| Incremento | 2 |
-| Estado | Control **stateless**; agente **singleton por hub**. |
+| **tunnel-agent** | Rol hermano para IPsec IKEv2 y GRE ([ADR-0031](adr/0031-hub-de-tuneles-ipsec-gre.md)): recibe de `wireguard` el estado deseado completo (`horus.tunnels.v1.TunnelAgentService.ApplyTunnels`, gRPC mTLS), crea interfaces XFRM (`if_id` por router) y GRE (clave por router), rutas /32 y conjuntos ipset; carga conexiones y PSK en charon por vici; informa IKE SA/rekey/último paquete GRE (`ReportTunnelStatus`). Fail-static, singleton por hub. Los túneles de cualquier transporte son peers de `wireguard` con su campo `transport` y comparten pool de IP de túnel y eventos. |
+| Incremento | 2 (IPsec/GRE: I6) |
+| Estado | Control **stateless**; agentes **singleton por hub**. |
 
 ### snmp
 

@@ -509,6 +509,56 @@ paths:
         '404': { $ref: './common.yaml#/components/responses/NotFound' }
         '409': { $ref: './common.yaml#/components/responses/Conflict' }
         '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
+  /routers/{router_id}/transport:
+    parameters:
+      - $ref: '#/components/parameters/RouterId'
+    put:
+      tags: [routers]
+      operationId: setRouterTransport
+      summary: Transporte con el que el router se conecta a Horus (WireGuard, IPsec IKEv2, GRE o directo) y su nivel de protección
+      description: |
+        Decisión del PO del 2026-10-17 (docs/tunnels.md, ADR-0031): cada router usa el mejor transporte estándar que admite.
+        MikroTik: `wireguard` | `ipsec` | `gre`. Huawei VRP: `ipsec` | `gre` | `direct`. Otro → `422 CONNECTION_MODE_NOT_SUPPORTED`.
+
+        - `ipsec` (IKEv2 route-based, cifra): `tunnel_remote_id` (IPv4, nombre DNS, usuario@dominio o `keyid:<id>`) y/o
+          `tunnel_remote_address` (IPv4 pública; si no hay identidad, la identidad es esa IP). Sin ninguna → 422.
+        - `gre` (RFC 2784, **no cifra**): `tunnel_remote_address` obligatoria (el hub solo acepta GRE de esa IP) y `path`.
+        - `direct` (sin túnel, no cifra): `path`.
+        - `path`: `private` (MPLS L3VPN, VRF de gestión, fibra propia → `unencrypted_private`) o `internet`
+          (→ `unencrypted_internet`, exige `confirm_unencrypted_internet: true`; si no, `422
+          UNENCRYPTED_TRANSPORT_CONFIRMATION_REQUIRED`). Queda auditado (`devices.router.transport_changed` con el nivel y
+          la confirmación) y la consola muestra un aviso permanente.
+
+        Cambiar el transporte, la IP pública o la identidad devuelve el router a `pending_configuration` (hay que pegar la
+        configuración nueva: script WireGuard, `POST /routers/{router_id}/tunnel-config` o alta directa); la IP de túnel
+        (identidad del exportador) se conserva entre transportes con túnel. IP pública (GRE) o identidad IKE (IPsec) en uso
+        por otro router → `409 TUNNEL_REMOTE_IN_USE`. Idempotente: el mismo cuerpo no cambia nada.
+      x-module: devices
+      x-scope: tenant
+      x-permission: devices.credentials.write
+      x-reauth: true
+      x-audited: true
+      x-increment: I3
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RouterTransportInput' }
+      responses:
+        '200':
+          description: Router con el transporte aplicado.
+          headers:
+            ETag: { $ref: './common.yaml#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Router' }
+        '401': { $ref: './common.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './common.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './common.yaml#/components/responses/NotFound' }
+        '409': { $ref: './common.yaml#/components/responses/Conflict' }
+        '422': { $ref: './common.yaml#/components/responses/UnprocessableEntity' }
   /routers/{router_id}/prefix-import-preview:
     parameters:
       - $ref: '#/components/parameters/RouterId'
@@ -1905,7 +1955,8 @@ components:
         - $ref: './common.yaml#/components/schemas/TenantScopedResource'
         - $ref: '#/components/schemas/RouterInput'
         - type: object
-          required: [admin_state, onboarding_state, routeros_version_supported, tunnel_address, warnings, connection_mode, management_address]
+          required: [admin_state, onboarding_state, routeros_version_supported, tunnel_address, warnings, connection_mode, management_address,
+            protection_level, tunnel_remote_address, tunnel_remote_id]
           properties:
             admin_state: { type: string, enum: [active, maintenance, decommissioned] }
             onboarding_state:
@@ -1919,18 +1970,35 @@ components:
               enum: [pending_configuration, key_received, tunnel_up, snmp_verified, exporting]
             connection_mode:
               type: string
-              enum: [wireguard, direct]
+              enum: [wireguard, ipsec, gre, direct]
               description: |
-                `wireguard`: túnel router → hub de Horus (MikroTik). `direct`: sin túnel; el camino lo asegura el operador
-                (VRF de gestión, VPN de sitio existente o relé MikroTik/Linux) y el colector filtra por IP de origen
-                (docs/vendors/huawei.md §5). Lo fija `vendor`.
+                Transporte con Horus (docs/tunnels.md, ADR-0031). `wireguard`: túnel WireGuard router → hub (MikroTik).
+                `ipsec`: IPsec IKEv2 route-based (RFC 7296; MikroTik, Huawei y cualquier equipo con IKEv2). `gre`: GRE
+                (RFC 2784) **sin cifrado**, respaldo universal. `direct`: sin túnel; el camino lo asegura el operador y el
+                colector filtra por la dirección de gestión verificada (docs/vendors/huawei.md §5). Al alta lo fija `vendor`
+                (MikroTik → wireguard, Huawei → direct); se cambia con `PUT /routers/{router_id}/transport`.
+            protection_level:
+              type: string
+              enum: [encrypted, unencrypted_private, unencrypted_internet]
+              description: |
+                `encrypted` (wireguard, ipsec). `unencrypted_private`: gre/direct por un camino que el administrador declaró
+                privado (MPLS L3VPN, VRF de gestión, fibra propia). `unencrypted_internet`: gre/direct por Internet,
+                confirmado explícitamente por un administrador (aviso permanente en la consola).
+            tunnel_remote_address:
+              type: [string, 'null']
+              description: ipsec/gre — IPv4 pública del router (origen de IKE/GRE; obligatoria en gre).
+              examples: ['198.51.100.7']
+            tunnel_remote_id:
+              type: [string, 'null']
+              description: ipsec — identidad IKE del router (IPv4, nombre DNS, usuario@dominio o `keyid:<id>`).
+              examples: [rt-centro.isp.example]
             routeros_version_detected: { type: [string, 'null'] }
             routeros_version_supported:
               type: [boolean, 'null']
               description: false si la versión (detectada o declarada) es < 7.12 (D15); null si se desconoce.
             tunnel_address:
               type: [string, 'null']
-              description: IP /32 de túnel WireGuard asignada por la IPAM de plataforma = identidad del exportador (null en modo directo).
+              description: IP /32 de túnel (WireGuard, IPsec o GRE) asignada por la IPAM de plataforma = identidad del exportador (null en modo directo).
             wireguard_peer_id:
               oneOf:
                 - $ref: './common.yaml#/components/schemas/Uuid'
@@ -1941,6 +2009,29 @@ components:
             credentials:
               type: array
               items: { $ref: '#/components/schemas/CredentialStatus' }
+    RouterTransportInput:
+      type: object
+      additionalProperties: false
+      required: [connection_mode]
+      properties:
+        connection_mode: { type: string, enum: [wireguard, ipsec, gre, direct] }
+        tunnel_remote_address:
+          type: [string, 'null']
+          description: ipsec (opcional) / gre (obligatoria) — IPv4 pública del router.
+          examples: ['198.51.100.7']
+        tunnel_remote_id:
+          type: [string, 'null']
+          maxLength: 253
+          description: ipsec — identidad IKE del router (por defecto, su IP pública).
+          examples: [rt-centro.isp.example, 'keyid:rt-centro']
+        path:
+          type: [string, 'null']
+          enum: [private, internet, null]
+          description: gre/direct — camino por el que viajan gestión y flujos (obligatorio sin cifrado).
+        confirm_unencrypted_internet:
+          type: boolean
+          default: false
+          description: gre/direct con `path=internet` — el administrador acepta que SNMP y flujos viajen sin cifrar por Internet.
     DirectOnboarding:
       type: object
       required: [router_id, vendor, language, management_address, collector_address, collector_port, snmp_user, sampling_rate, config, notes, placeholders, warnings]

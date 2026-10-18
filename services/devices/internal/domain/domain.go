@@ -78,15 +78,21 @@ type Router struct {
 	RouterOSVersionOK       *bool
 	TunnelAddress           *string
 	WireguardPeerID         *uuid.UUID
-	// ConnectionMode: wireguard | direct (sin túnel; Huawei).
+	// ConnectionMode: wireguard | ipsec | gre | direct (docs/tunnels.md).
 	ConnectionMode string
 	// ManagementAddress: IP de origen del router vista por Horus (modo directo).
 	ManagementAddress *string
-	Tags              []string
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-	DeletedAt         *time.Time
-	Version           int
+	// ProtectionLevel: encrypted | unencrypted_private | unencrypted_internet.
+	ProtectionLevel string
+	// TunnelRemoteAddress: IP pública del router (ipsec opcional, gre obligatoria).
+	TunnelRemoteAddress *string
+	// TunnelRemoteID: identidad IKE del router (ipsec).
+	TunnelRemoteID *string
+	Tags           []string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	DeletedAt      *time.Time
+	Version        int
 }
 
 // Warnings devuelve los avisos del router.

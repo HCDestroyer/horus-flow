@@ -24,7 +24,7 @@
 | SNMP Huawei | CPU/memoria/temperatura por tarjeta con HUAWEI-ENTITY-EXTENT-MIB `hwEntityStateTable` (índice `entPhysicalIndex`), tarjetas por `entPhysicalClass = module(9)`, sistema = **MPU activa** (`hwEntityStandbyStatus`). Interfaces IF-MIB HC con nombres VRP (subinterfaces `GE0/1/0.100`, `Eth-Trunk`, `Vlanif`). | Implementado, fixtures sintéticos |
 | Pérdida/latencia por enlace | Pruebas **NQA ICMP** que configura el operador; Horus las **lee** por SNMP: DISMAN-PING-MIB (RFC 4560) y, si no, NQA-MIB (`nqaResultsTable`). Mismo modelo de sonda que netwatch (`source = router_nqa`). | Implementado, pendiente de validación |
 | Flujos | NetStream v9 (por defecto) o IPFIX con el decodificador existente (+ IE de muestreo 50 y 309/310; IE de empresa de Huawei ignorados). **Decodificador sFlow v5** nuevo (muestras con cabecera, tasa por muestra). | Implementado, fixtures sintéticos + fuzzing |
-| Conexión | VRP **no tiene WireGuard**. Modo **directo** (`connection_mode = direct`) sin túnel, con aviso claro: el camino lo asegura el operador. El colector acepta flujos solo de la **dirección de gestión verificada** por SNMPv3. La tecnología de túnel para Huawei es **decisión abierta del PO** (§5.4). | Implementado (modo directo) |
+| Conexión | VRP **no tiene WireGuard**. **Decisión del PO (18/10/2026): IPsec IKEv2 route-based** a un hub strongSwan de Horus como camino estándar y **GRE** como alternativa sin cifrado (con nivel de protección y confirmación si va por Internet); el **modo directo** se mantiene. Detalle en [`tunnels.md`](../tunnels.md) y [ADR-0031](../adr/0031-hub-de-tuneles-ipsec-gre.md) (§5.4). | IPsec/GRE implementados; configuración VRP pendiente de validación en equipo real |
 | Configuración del router | Horus **genera** la configuración VRP (SNMPv3 + vista, NetStream, NQA); **la pega el operador**. Horus nunca escribe en el router. | Implementado, pendiente de validación |
 
 ---
@@ -196,14 +196,15 @@ DISMAN-PING-MIB (1.3.6.1.2.1.80) y NQA-MIB (1.3.6.1.4.1.2011.5.25.111).
 
 ---
 
-## 5. Conexión con Horus sin WireGuard
+## 5. Conexión con Horus sin WireGuard (IPsec, GRE o directo)
 
 ### 5.1 Por qué no hay túnel
 
 El camino MikroTik lleva gestión (SNMP, REST) y flujos por un túnel WireGuard iniciado por el router, y la
 IP de túnel es la identidad del exportador ([ADR-0022](../adr/0022-mikrotik-routeros-v7-primer-fabricante.md)).
-**VRP no implementa WireGuard.** Elegir otra tecnología de túnel es una decisión de arquitectura del PO
-(§5.4), así que no se implementa ninguna: se entrega el **modo directo**.
+**VRP no implementa WireGuard.** El PO decidió (§5.4) **IPsec IKEv2** como camino estándar y **GRE** como
+alternativa; el **modo directo** sigue disponible. Los tres comparten el modelo: la IP de túnel (IPsec, GRE)
+o la dirección de gestión verificada (directo) es la identidad del exportador.
 
 ### 5.2 Modo directo (implementado)
 
@@ -242,7 +243,7 @@ Por eso:
 Riesgo residual: la suplantación de IP de origen UDP por un tercero que esté en el camino. Por eso el camino
 tiene que ser privado (VRF/VPN/relé); con WireGuard o IPsec la identidad sería criptográfica (§5.4).
 
-### 5.4 Decisión abierta: túnel para Huawei
+### 5.4 Decisión: túnel para Huawei (IPsec IKEv2 + GRE)
 
 | Opción | Cómo | A favor | En contra |
 | --- | --- | --- | --- |
@@ -251,12 +252,23 @@ tiene que ser privado (VRF/VPN/relé); con WireGuard o IPsec la identidad sería
 | **C. Relé en el sitio (MikroTik/Linux con WireGuard)** | El Huawei exporta NetStream y responde SNMP hacia un equipo del sitio que sí tiene túnel WireGuard con Horus (SNAT/relé UDP). | Reutiliza el hub WireGuard y el modelo actual; sirve para cualquier fabricante; no exige tarjetas de servicio. | Un equipo más por sitio (punto de fallo); la IP de origen pasa a ser la del relé (hay que mapear relé → router, o un relé por router); NAT de SNMP. |
 | **D. VRF de gestión / directo con ACL** (implementado) | Sin túnel: el camino privado lo pone el operador; allow-list por IP de origen + verificación SNMPv3. | Cero software nuevo; vale cuando el ISP ya tiene red de gestión o VPN con el datacenter de Horus. | Identidad por IP (suplantable en el camino); depende de la red del operador; no sirve si Horus está en Internet sin VPN. |
 
-**Recomendación (pendiente de decisión del PO):** **A (IPsec IKEv2 route-based a un hub strongSwan)** como
-camino estándar para Huawei — es la única opción nativa en VRP con identidad criptográfica y conserva el
-modelo de identidad del exportador sin tocar el colector —, con **C (relé)** como alternativa para equipos sin
-IPsec (NE40E sin tarjeta de servicio) y **D** mientras tanto. Antes de implementarla: validar IKEv2 con el
-equipo objetivo (o eNSP), decidir PKI vs PSK por router y si el hub strongSwan vive en el mismo rol que
-wg-agent. Queda registrada como pregunta abierta en [Q22](../open-questions/architecture.md#q22).
+**Decisión del PO (18/10/2026, [ADR-0031](../adr/0031-hub-de-tuneles-ipsec-gre.md)): A + GRE.**
+
+- **IPsec IKEv2 route-based** (`connection_mode = ipsec`) es el camino estándar y la sugerencia del asistente
+  para Huawei: interfaz `Tunnel` con `tunnel-protocol ipsec` y perfil IKEv2 en VRP; hub strongSwan
+  (charon por vici) con una interfaz XFRM por router (`if_id`), PSK propia por router (cifrada, mostrada
+  una vez) y la IP de túnel en una `LoopBack` como origen de NetStream y SNMP. Suite IKE conservadora
+  (AES-256, SHA2-256, grupo 14) que casa con la propuesta de respaldo del hub.
+- **GRE** (`connection_mode = gre`) para equipos sin IPsec (NE40E sin tarjeta de servicio): clave por
+  router, origen fijado a la IP pública registrada. **Sin cifrado**: nivel `unencrypted_private` o, por
+  Internet, `unencrypted_internet` con confirmación, re-autenticación, auditoría e insignia persistente.
+- **Directo** (D) se conserva; **relé** (C) y **GRE sobre IPsec** (B) quedan descartados.
+- PKI (certificados por router) queda como evolución; esta entrega usa PSK.
+- La configuración VRP generada (`POST /routers/{id}/tunnel-config`) sigue la documentación oficial de
+  Huawei y está **pendiente de validación en equipo real o eNSP** (§9). En VRP V5 (AR) la interfaz se
+  llama `Tunnel0/0/<n>` y algunos comandos cambian.
+
+Operación, puertos y diagnóstico: [`tunnels.md`](../tunnels.md).
 
 ---
 
