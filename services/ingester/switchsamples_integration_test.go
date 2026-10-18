@@ -86,7 +86,7 @@ func TestSwitchSamplesEndToEnd(t *testing.T) {
 		t.Fatalf("switch_samples: %d %d %v", n, bytes, err)
 	}
 	var raw uint64
-	if err := admin.QueryRowContext(ctx, `SELECT count() FROM flows.flows_raw`).Scan(&raw); err != nil || raw != 0 {
+	if err := admin.QueryRowContext(ctx, `SELECT count() FROM flows.flows_raw WHERE tenant_id = ?`, tenant).Scan(&raw); err != nil || raw != 0 {
 		t.Fatalf("flows_raw con muestras de switch: %d %v", raw, err)
 	}
 	primAfter, err := prim.Info(ctx)

@@ -74,7 +74,7 @@ func TestSwitchTop(t *testing.T) {
 		t.Fatalf("vistas sobre switch_samples: %d %v", mv, err)
 	}
 	var site5m uint64
-	if err := admin.QueryRowContext(ctx, `SELECT count() FROM flows.site_5m`).Scan(&site5m); err != nil || site5m != 0 {
+	if err := admin.QueryRowContext(ctx, `SELECT count() FROM flows.site_5m WHERE tenant_id IN (?, ?)`, tenantA, tenantB).Scan(&site5m); err != nil || site5m != 0 {
 		t.Fatalf("site_5m alimentado por muestras de switch: %d %v", site5m, err)
 	}
 }
