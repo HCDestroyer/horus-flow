@@ -68,10 +68,11 @@ type SiteHealth struct {
 
 // rank ordena por gravedad (unknown solo gana si no hay nada más).
 var healthRank = map[string]int{api.StatusUnknown: 0, api.StatusOnline: 1, api.StatusWarning: 2, api.StatusDegraded: 3,
-	api.StatusCritical: 4, api.StatusOffline: 5}
+	api.StatusUnreachable: 3, api.StatusCritical: 4, api.StatusOffline: 5}
 
 var healthLabel = map[string]string{api.StatusOnline: "Sano", api.StatusWarning: "Aviso", api.StatusDegraded: "Degradado",
-	api.StatusCritical: "Crítico", api.StatusOffline: "Fuera de servicio", api.StatusUnknown: "Sin datos"}
+	api.StatusCritical: "Crítico", api.StatusOffline: "Fuera de servicio", api.StatusUnknown: "Sin datos",
+	api.StatusUnreachable: "Inalcanzable"}
 
 // HealthLabel devuelve el nombre en español de un estado de salud.
 func HealthLabel(status string) string { return healthLabel[status] }

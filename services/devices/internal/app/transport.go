@@ -165,6 +165,16 @@ func (s *Transport) Set(ctx context.Context, routerID uuid.UUID, in TransportInp
 			"Gestión (SNMP) y flujos viajarían SIN CIFRAR por Internet: cualquiera en el camino puede leerlos o suplantar al router. "+
 				"Confirme explícitamente (confirm_unencrypted_internet) o elija WireGuard/IPsec.")
 	}
+	if vs, ok := s.store.(ViaStore); ok && !domain.HasTunnel(mode) {
+		n, err := vs.CountViaDevices(ctx, t, r.ID)
+		if err != nil {
+			return nil, err
+		}
+		if n > 0 {
+			return nil, apperr.Conflict(domain.CodeRouterHasViaSwitches,
+				"Este router lleva switches vía router y el modo directo no tiene túnel: páselos a otro router antes de cambiar el transporte.")
+		}
+	}
 	before := struct{ mode, level string }{connectionModeOf(r), domain.ProtectionOf(connectionModeOf(r), r.ProtectionLevel)}
 	now := s.now().UTC()
 	var changed []string

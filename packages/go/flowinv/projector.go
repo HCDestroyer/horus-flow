@@ -79,6 +79,10 @@ type routerData struct {
 	// como exportador secundario.
 	DeviceType   string `json:"device_type"`
 	SFlowEnabled bool   `json:"sflow_enabled"`
+	// Vía router (ADR-0032): dirección Horus del switch (única en la
+	// plataforma; el router del sitio la traduce a la IP privada). Es su
+	// identidad de exportador; la IP privada (management_address) nunca lo es.
+	ViaAddress *string `json:"via_address"`
 }
 
 type prefixData struct {
@@ -164,17 +168,29 @@ func (p *Projector) Apply(body []byte) (bool, error) {
 				rs.e.TunnelIP = a
 			}
 		}
-		if !rs.e.TunnelIP.IsValid() && d.ConnectionMode == "direct" && d.ManagementAddress != nil &&
-			(d.OnboardingState == "snmp_verified" || d.OnboardingState == "exporting") {
+		verified := d.OnboardingState == "snmp_verified" || d.OnboardingState == "exporting"
+		if !rs.e.TunnelIP.IsValid() && d.ConnectionMode == "direct" && d.ManagementAddress != nil && verified {
 			if a, err := netip.ParseAddr(strings.Split(*d.ManagementAddress, "/")[0]); err == nil {
 				rs.e.TunnelIP, rs.e.Direct = a.Unmap(), true
 			}
 		}
+		viaOK := false
+		if d.ConnectionMode == "via_router" {
+			// Vía router: solo la dirección Horus verificada (prueba de control
+			// por SNMP a través del router); nunca la IP privada.
+			rs.e.TunnelIP, rs.e.Direct = netip.Addr{}, false
+			if d.ViaAddress != nil && verified {
+				if a, err := netip.ParseAddr(strings.Split(*d.ViaAddress, "/")[0]); err == nil {
+					rs.e.TunnelIP, viaOK = a.Unmap(), true
+				}
+			}
+		}
 		if d.DeviceType == "switch" {
 			// Un switch nunca es exportador primario: con sFlow activo y
-			// verificado es secundario; si no, no es exportador.
+			// verificado (directo o vía router) es secundario; si no, no es
+			// exportador.
 			rs.e.Secondary = true
-			if !d.SFlowEnabled || !rs.e.Direct {
+			if !d.SFlowEnabled || !(rs.e.Direct || viaOK) {
 				rs.e.TunnelIP, rs.e.Direct = netip.Addr{}, false
 			}
 		}

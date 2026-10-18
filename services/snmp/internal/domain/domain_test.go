@@ -39,6 +39,9 @@ func TestCandidate(t *testing.T) {
 		{"memoria critical", Observation{Signals: sig("ok", "ok", "ok"), Hits: []api.ThresholdHit{{Metric: "memory_percent", Level: "critical"}}}, api.StatusCritical, api.ReasonMemoryHigh},
 		{"uplink caído", Observation{Signals: sig("ok", "ok", "ok"), UplinkDown: true}, api.StatusWarning, api.ReasonInterfaceDown},
 		{"exportador silencioso solo si todo lo demás bien", Observation{Signals: api.Signals{ICMP: "ok", SNMP: "ok", WireGuard: "ok", Exporter: &silent}}, api.StatusWarning, api.ReasonExporterSilent},
+		{"vía router: túnel del router caído y SNMP ✗", Observation{Signals: sig("unknown", "fail", "unknown"), ViaTunnelDown: true}, api.StatusUnreachable, api.ReasonViaRouterTunnelDown},
+		{"vía router: túnel del router caído sin observación SNMP", Observation{Signals: sig("unknown", "unknown", "unknown"), ViaTunnelDown: true}, api.StatusUnreachable, api.ReasonViaRouterTunnelDown},
+		{"vía router: SNMP ✓ aunque el túnel se vea caído", Observation{Signals: sig("unknown", "ok", "unknown"), ViaTunnelDown: true}, api.StatusOnline, api.ReasonOK},
 		{"exportador silencioso no tapa degraded", Observation{Signals: api.Signals{ICMP: "ok", SNMP: "fail", WireGuard: "ok", Exporter: &silent}}, api.StatusDegraded, api.ReasonSNMPUnreachable},
 	}
 	for _, c := range cases {

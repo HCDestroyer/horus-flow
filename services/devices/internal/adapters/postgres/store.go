@@ -293,14 +293,16 @@ func (s *Store) DeleteSite(ctx context.Context, t pgdb.TenantID, id uuid.UUID, e
 const routerCols = `r.id, r.tenant_id, r.site_id, r.hostname, r.display_name, r.vendor, r.model, r.is_primary, r.admin_state,
 	r.onboarding_state, r.routeros_version, r.routeros_version_detected, r.routeros_version_supported, host(r.tunnel_address),
 	r.mgmt_wireguard_peer_id, r.tags, r.created_at, r.updated_at, r.deleted_at, r.version, r.connection_mode, host(r.management_address),
-	r.protection_level, host(r.tunnel_remote_address), r.tunnel_remote_id, r.device_type, r.switch_platform, r.sflow_enabled`
+	r.protection_level, host(r.tunnel_remote_address), r.tunnel_remote_id, r.device_type, r.switch_platform, r.sflow_enabled,
+	r.via_router_id, host(r.via_address)`
 
 func scanRouter(row pgx.Row) (*domain.Router, error) {
 	var r domain.Router
 	err := row.Scan(&r.ID, &r.TenantID, &r.SiteID, &r.Hostname, &r.DisplayName, &r.Vendor, &r.Model, &r.IsPrimary, &r.AdminState,
 		&r.OnboardingState, &r.RouterOSVersion, &r.RouterOSVersionDetected, &r.RouterOSVersionOK, &r.TunnelAddress,
 		&r.WireguardPeerID, &r.Tags, &r.CreatedAt, &r.UpdatedAt, &r.DeletedAt, &r.Version, &r.ConnectionMode, &r.ManagementAddress,
-		&r.ProtectionLevel, &r.TunnelRemoteAddress, &r.TunnelRemoteID, &r.DeviceType, &r.SwitchPlatform, &r.SFlowEnabled)
+		&r.ProtectionLevel, &r.TunnelRemoteAddress, &r.TunnelRemoteID, &r.DeviceType, &r.SwitchPlatform, &r.SFlowEnabled,
+		&r.ViaRouterID, &r.ViaAddress)
 	if err != nil {
 		return nil, notFound(err)
 	}
@@ -325,6 +327,9 @@ func routerWhere(t pgdb.TenantID, q app.ListQuery) *where {
 	}
 	if q.DeviceType != "" {
 		w.add("r.device_type = ?", q.DeviceType)
+	}
+	if q.ViaRouterID != nil {
+		w.add("r.via_router_id = ?", *q.ViaRouterID)
 	}
 	if q.Sites != nil {
 		w.add("r.site_id = ANY(?)", q.Sites)
@@ -386,8 +391,11 @@ func routerErr(err error) error {
 		return app.ErrPrimaryExists
 	case code == pgdb.SQLStateUniqueViolation && constraint == "ux_router__tenant_hostname":
 		return app.ErrHostnameTaken
-	case code == pgdb.SQLStateUniqueViolation && constraint == "ux_router__management_address":
+	case code == pgdb.SQLStateUniqueViolation && (constraint == "ux_router__management_address" ||
+		constraint == "ux_router__management_address_direct" || constraint == "ux_router__management_address_via"):
 		return app.ErrManagementAddressTaken
+	case code == pgdb.SQLStateUniqueViolation && constraint == "ux_router__via_address":
+		return app.ErrViaAddressTaken
 	case code == pgdb.SQLStateUniqueViolation && (constraint == "ux_router__gre_remote_address" || constraint == "ux_router__ipsec_remote_id"):
 		return app.ErrTunnelRemoteTaken
 	case code == pgdb.SQLStateForeignKey:

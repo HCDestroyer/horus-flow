@@ -31,6 +31,11 @@ var (
 	// ErrTunnelRemoteTaken: otro router usa esa IP pública (gre) o esa
 	// identidad IKE (ipsec).
 	ErrTunnelRemoteTaken = errors.New("devices: tunnel remote taken")
+	// ErrViaAddressTaken: la dirección Horus ya es de otro equipo (no debería
+	// ocurrir: la asigna la IPAM de wireguard).
+	ErrViaAddressTaken = errors.New("devices: via address taken")
+	// ErrSubnetOverlap: la red de gestión se solapa con otra del router.
+	ErrSubnetOverlap = errors.New("devices: management subnet overlaps")
 )
 
 // ListQuery es un listado keyset.
@@ -52,8 +57,27 @@ type ListQuery struct {
 	IsPrimary       *bool
 	// DeviceType: router | switch; vacío = todos.
 	DeviceType string
+	// ViaRouterID: solo los equipos alcanzados vía ese router (ADR-0032).
+	ViaRouterID *uuid.UUID
 	Role       string
 	SiteID     uuid.UUID
+}
+
+// ViaStore es la parte del repositorio de los switches vía router y de las
+// redes de gestión declaradas en los routers del sitio (ADR-0032).
+type ViaStore interface {
+	// CountViaDevices cuenta los equipos vivos alcanzados vía el router.
+	CountViaDevices(ctx context.Context, t pgdb.TenantID, routerID uuid.UUID) (int, error)
+	ListManagementSubnets(ctx context.Context, t pgdb.TenantID, routerID uuid.UUID) ([]domain.ManagementSubnet, error)
+	// CreateManagementSubnet: ErrSubnetOverlap si se solapa con otra del router.
+	CreateManagementSubnet(ctx context.Context, t pgdb.TenantID, s *domain.ManagementSubnet) error
+	// DeleteManagementSubnet: domain.ErrNotFound si no es de ese router.
+	DeleteManagementSubnet(ctx context.Context, t pgdb.TenantID, routerID, id uuid.UUID) error
+	// ManagementSubnetFor devuelve la red declarada del router que contiene
+	// addr (domain.ErrNotFound si ninguna).
+	ManagementSubnetFor(ctx context.Context, t pgdb.TenantID, routerID uuid.UUID, addr netip.Addr) (*domain.ManagementSubnet, error)
+	// ViaDevicesIn cuenta los equipos vivos vía el router con IP en p.
+	ViaDevicesIn(ctx context.Context, t pgdb.TenantID, routerID uuid.UUID, p netip.Prefix) (int, error)
 }
 
 // Events construye los eventos de un cambio con el estado final.

@@ -25,6 +25,10 @@ const (
 	StatusStale       = "stale"
 	StatusUnknown     = "unknown"
 	StatusMaintenance = "maintenance"
+	// StatusUnreachable: un switch vía router no se alcanza porque el túnel
+	// de su router del sitio está caído (razón via_router_tunnel_down,
+	// ADR-0032): no es un fallo del switch.
+	StatusUnreachable = "unreachable"
 )
 
 // Razones del estado observado (enum abierto RouterStateReason).
@@ -46,6 +50,7 @@ const (
 	ReasonFanFailed            = "fan_failed"
 	ReasonNoCredentials        = "no_snmp_credentials"
 	ReasonNoTunnel             = "no_tunnel"
+	ReasonViaRouterTunnelDown  = "via_router_tunnel_down"
 	StatusOrderProblemsFirst   = "status" // orden por defecto de la lista
 	StatusOrderByName          = "name"
 	StatusOrderByCPU           = "cpu"

@@ -211,7 +211,16 @@ func routerJSON(x *domain.Router) map[string]any {
 		"protection_level": domain.ProtectionOf(connectionMode(x), x.ProtectionLevel), "tunnel_remote_address": x.TunnelRemoteAddress,
 		"tunnel_remote_id": x.TunnelRemoteID, "warnings": x.Warnings(), "credentials": []any{},
 		"device_type": deviceType(x), "switch_platform": x.SwitchPlatform, "sflow_enabled": x.SFlowEnabled,
+		"via_router_id": x.ViaRouterID, "via_address": x.ViaAddress, "via_router": viaRouterJSON(x.ViaRouter),
 	}
+}
+
+// viaRouterJSON resume el router del sitio de un switch vía router.
+func viaRouterJSON(v *domain.RouterRef) any {
+	if v == nil {
+		return nil
+	}
+	return map[string]any{"id": v.ID, "name": v.Name, "connection_mode": v.ConnectionMode, "protection_level": v.ProtectionLevel}
 }
 
 // deviceType: router en filas anteriores al campo.
