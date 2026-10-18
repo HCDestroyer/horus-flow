@@ -8,7 +8,9 @@ import (
 
 // Tipos de credencial (devices.credential.kind).
 const (
-	CredentialSNMPv3      = "snmp_v3"
+	CredentialSNMPv3 = "snmp_v3"
+	// CredentialSNMPv2c es la comunidad v2c de un switch SwOS (solo v1/v2c).
+	CredentialSNMPv2c     = "snmp_v2c"
 	CredentialRouterOSAPI = "routeros_api"
 	// CredentialIPsecPSK es la clave precompartida IKEv2 del túnel IPsec del
 	// router (docs/tunnels.md §4.3).

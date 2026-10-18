@@ -101,3 +101,44 @@ func TestDirectExporterSFlow(t *testing.T) {
 		t.Fatal("etiqueta de versión")
 	}
 }
+
+// Switch con sFlow = exportador SECUNDARIO: sus muestras salen por horus.telemetry.flows.secondary.<id> y
+// NUNCA por horus.telemetry.flows.batch.> (el durable del ingester que alimenta flows_raw, la atribución y los
+// clientes): sin doble conteo con los flujos del router (docs/traffic-model.md §13).
+func TestSecondaryExporterNeverReachesFlowsRaw(t *testing.T) {
+	s, err := flowinv.Parse([]byte(directInventoryYAML + "    secondary: true\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	inv := flowinv.NewStore(s)
+	sink := &fakeSink{}
+	m := NewMetrics(nil)
+	e := NewEngine(EngineOptions{Workers: 1, QueueDatagrams: 64, BatchMaxRecords: 500, BatchMaxAge: time.Second, BufferBytes: 1 << 20,
+		PendingTTL: time.Second, CollectorID: "test", State: StateOptions{SilentAfter: 2 * time.Minute, LossThreshold: 0.01,
+			LossWindow: 5 * time.Minute, ClockSkew: 30 * time.Second, Interval: time.Hour}}, inv, sink, nil, m, slog.New(slog.DiscardHandler))
+	w := NewWorker(inv, e.Batcher, e.States, m, time.Second)
+	src := netip.AddrPortFrom(netip.MustParseAddr("198.51.100.20"), 6343)
+	now := time.Now()
+	w.Handle(Datagram{Src: src, Payload: sflowNATDatagram(1), At: now})
+	e.Batcher.Flush(now, true)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { e.Pub.Run(ctx, time.Second); close(done) }()
+	deadline := time.Now().Add(5 * time.Second)
+	for n, _ := e.Pub.Pending(); n > 0 && time.Now().Before(deadline); n, _ = e.Pub.Pending() {
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	<-done
+	if n := len(sink.bySubjectPrefix(flowbus.SubjectBatchPrefix)); n != 0 {
+		t.Fatalf("muestras del switch publicadas como lote primario: %d", n)
+	}
+	sec := sink.bySubjectPrefix(flowbus.SubjectSecondaryPrefix)
+	if len(sec) != 1 || sec[0].Header.Get(flowbus.HeaderType) != flowbus.TypeSecondaryBatchReceived {
+		t.Fatalf("lote secundario: %d", len(sec))
+	}
+	fb, err := flowpb.UnmarshalFlowBatch(sec[0].Data)
+	if err != nil || len(fb.Records) != 1 || fb.Records[0].InputIfIndex != 5 {
+		t.Fatalf("registros: %+v %v", fb, err)
+	}
+}

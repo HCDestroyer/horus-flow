@@ -207,6 +207,9 @@ func (w *Worker) post(j *dgram) {
 type openBatch struct {
 	fb     flowpb.FlowBatch
 	opened time.Time
+	// secondary: exportador secundario (switch con sFlow): el lote va a
+	// horus.telemetry.flows.secondary.<id>, nunca a flows_raw.
+	secondary bool
 }
 
 // Batcher agrupa registros por router en lotes de ≤ MaxRecords o ≤ MaxAge.
@@ -232,7 +235,7 @@ func (b *Batcher) Add(exp *flowinv.Exporter, recs []flowpb.FlowRecord, at time.T
 	for len(recs) > 0 {
 		ob := b.open[exp.RouterID]
 		if ob == nil {
-			ob = &openBatch{opened: at, fb: flowpb.FlowBatch{
+			ob = &openBatch{opened: at, secondary: exp.Secondary, fb: flowpb.FlowBatch{
 				CollectorID: b.CollectorID, TenantID: exp.TenantID.String(), RouterID: exp.RouterID.String(),
 				ExporterIP: exp.TunnelIP.Unmap(), SamplingRate: 1, ReceivedFrom: at,
 				Records: make([]flowpb.FlowRecord, 0, b.MaxRecords)}}
@@ -279,8 +282,12 @@ func (b *Batcher) emit(ob *openBatch) {
 	for i := range fb.Records {
 		fb.Records[i].BatchID = fb.BatchID
 	}
+	subject, typ := flowbus.SubjectBatchPrefix+fb.RouterID, flowbus.TypeBatchReceived
+	if ob.secondary {
+		subject, typ = flowbus.SubjectSecondaryPrefix+fb.RouterID, flowbus.TypeSecondaryBatchReceived
+	}
 	msg := flowbus.Telemetry{
-		Subject: flowbus.SubjectBatchPrefix + fb.RouterID, Type: flowbus.TypeBatchReceived,
+		Subject: subject, Type: typ,
 		Source: "horus/flows/collector", TenantID: fb.TenantID, MsgID: fb.BatchID,
 		ContentType: flowpb.ContentTypeFlowBatch, Time: fb.ReceivedTo, Body: fb.Marshal(),
 	}.Msg()

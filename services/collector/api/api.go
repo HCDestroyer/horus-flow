@@ -115,6 +115,9 @@ func Exporters(ctx context.Context, inv *flowinv.Snapshot, st States, tenant uui
 		if e.TenantID != tenant || (len(sites) > 0 && !slices.Contains(sites, e.SiteID)) {
 			continue
 		}
+		if e.Secondary {
+			continue // switch con sFlow: fuente secundaria, fuera de los exportadores de flujos (se ve en su ficha)
+		}
 		var fe *FlowExporter
 		if st != nil {
 			var err error

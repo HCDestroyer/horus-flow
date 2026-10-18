@@ -293,14 +293,14 @@ func (s *Store) DeleteSite(ctx context.Context, t pgdb.TenantID, id uuid.UUID, e
 const routerCols = `r.id, r.tenant_id, r.site_id, r.hostname, r.display_name, r.vendor, r.model, r.is_primary, r.admin_state,
 	r.onboarding_state, r.routeros_version, r.routeros_version_detected, r.routeros_version_supported, host(r.tunnel_address),
 	r.mgmt_wireguard_peer_id, r.tags, r.created_at, r.updated_at, r.deleted_at, r.version, r.connection_mode, host(r.management_address),
-	r.protection_level, host(r.tunnel_remote_address), r.tunnel_remote_id`
+	r.protection_level, host(r.tunnel_remote_address), r.tunnel_remote_id, r.device_type, r.switch_platform, r.sflow_enabled`
 
 func scanRouter(row pgx.Row) (*domain.Router, error) {
 	var r domain.Router
 	err := row.Scan(&r.ID, &r.TenantID, &r.SiteID, &r.Hostname, &r.DisplayName, &r.Vendor, &r.Model, &r.IsPrimary, &r.AdminState,
 		&r.OnboardingState, &r.RouterOSVersion, &r.RouterOSVersionDetected, &r.RouterOSVersionOK, &r.TunnelAddress,
 		&r.WireguardPeerID, &r.Tags, &r.CreatedAt, &r.UpdatedAt, &r.DeletedAt, &r.Version, &r.ConnectionMode, &r.ManagementAddress,
-		&r.ProtectionLevel, &r.TunnelRemoteAddress, &r.TunnelRemoteID)
+		&r.ProtectionLevel, &r.TunnelRemoteAddress, &r.TunnelRemoteID, &r.DeviceType, &r.SwitchPlatform, &r.SFlowEnabled)
 	if err != nil {
 		return nil, notFound(err)
 	}
@@ -322,6 +322,9 @@ func routerWhere(t pgdb.TenantID, q app.ListQuery) *where {
 	}
 	if q.IsPrimary != nil {
 		w.add("r.is_primary = ?", *q.IsPrimary)
+	}
+	if q.DeviceType != "" {
+		w.add("r.device_type = ?", q.DeviceType)
 	}
 	if q.Sites != nil {
 		w.add("r.site_id = ANY(?)", q.Sites)
@@ -402,6 +405,14 @@ func connectionMode(r *domain.Router) string {
 	return r.ConnectionMode
 }
 
+// deviceType: la columna es NOT NULL; sin valor, router.
+func deviceType(r *domain.Router) string {
+	if r.DeviceType == "" {
+		return domain.DeviceTypeRouter
+	}
+	return r.DeviceType
+}
+
 // protectionLevel: la columna es NOT NULL; sin valor, el del modo.
 func protectionLevel(r *domain.Router) string {
 	return domain.ProtectionOf(connectionMode(r), r.ProtectionLevel)
@@ -415,10 +426,11 @@ func (s *Store) CreateRouter(ctx context.Context, t pgdb.TenantID, r *domain.Rou
 		}
 		_, err := tx.Exec(ctx, `INSERT INTO devices.router (id, tenant_id, site_id, hostname, display_name, vendor, model, is_primary,
 				admin_state, onboarding_state, routeros_version, routeros_version_supported, tags, created_at, updated_at, version,
-				connection_mode, management_address, protection_level)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14, 1, $15, $16::inet, $17)`,
+				connection_mode, management_address, protection_level, device_type, switch_platform, sflow_enabled)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14, 1, $15, $16::inet, $17, $18, $19, $20)`,
 			r.ID, t.UUID(), r.SiteID, r.Hostname, r.DisplayName, r.Vendor, r.Model, r.IsPrimary, r.AdminState, r.OnboardingState,
-			r.RouterOSVersion, r.RouterOSVersionOK, r.Tags, r.CreatedAt, connectionMode(r), r.ManagementAddress, protectionLevel(r))
+			r.RouterOSVersion, r.RouterOSVersionOK, r.Tags, r.CreatedAt, connectionMode(r), r.ManagementAddress, protectionLevel(r),
+			deviceType(r), r.SwitchPlatform, r.SFlowEnabled)
 		if err != nil {
 			return routerErr(err)
 		}
@@ -431,10 +443,10 @@ func (s *Store) UpdateRouter(ctx context.Context, t pgdb.TenantID, r *domain.Rou
 	return s.db.TenantTx(ctx, t, func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx, `UPDATE devices.router SET hostname = $4, display_name = $5, model = $6, routeros_version = $7,
 				routeros_version_supported = $8, admin_state = $9, tags = $10, updated_at = $11, management_address = $12::inet,
-				onboarding_state = $13, version = version + 1
+				onboarding_state = $13, sflow_enabled = $14, version = version + 1
 			WHERE tenant_id = $1 AND id = $2 AND version = $3 AND deleted_at IS NULL RETURNING version`,
 			t.UUID(), r.ID, expect, r.Hostname, r.DisplayName, r.Model, r.RouterOSVersion, r.RouterOSVersionOK, r.AdminState, r.Tags, r.UpdatedAt,
-			r.ManagementAddress, r.OnboardingState).Scan(&r.Version)
+			r.ManagementAddress, r.OnboardingState, r.SFlowEnabled).Scan(&r.Version)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return app.ErrVersionChanged
 		}

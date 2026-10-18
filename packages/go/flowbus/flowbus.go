@@ -42,10 +42,20 @@ const (
 	TypeExporterRecovered    = "horus.flows.exporter.recovered"
 	TypeExporterStateChanged = "horus.flows.exporter.state_changed"
 	TypeCollectorDataGap     = "horus.flows.collector.data_gap"
+	// TypeSecondaryBatchReceived: lote de muestras de un exportador
+	// SECUNDARIO (switch con sFlow). Mismo cuerpo FlowBatch, otro subject:
+	// el durable flows-ingester (filtro horus.telemetry.flows.batch.>) nunca
+	// lo recibe, así que no entra en flows_raw, la atribución ni los clientes.
+	TypeSecondaryBatchReceived = "horus.flows.secondary_batch.received"
 
 	SubjectBatchPrefix    = "horus.telemetry.flows.batch."
 	SubjectActivityPrefix = "horus.telemetry.flows.client_activity."
 	SubjectSummaryPrefix  = "horus.telemetry.flows.summary."
+	// SubjectSecondaryPrefix: lotes de exportadores secundarios (switches).
+	SubjectSecondaryPrefix = "horus.telemetry.flows.secondary."
+	// ConsumerSwitchSamples: durable que escribe las muestras de switches en
+	// flows.switch_samples (tabla aparte, fuera de todos los agregados).
+	ConsumerSwitchSamples = "flows-switch-samples"
 	StreamTelemetry       = "TLM_FLOWS"
 	StreamEvents          = "FLOWS_EVENTS"
 	StreamDevices         = "DEVICES_EVENTS"
@@ -226,6 +236,17 @@ func EnsureStreams(ctx context.Context, js jetstream.JetStream, tlmMaxBytes int6
 		}
 	}
 	return nil
+}
+
+// SwitchSamplesConsumerConfig es el durable de las muestras de switches
+// (fuente secundaria): solo horus.telemetry.flows.secondary.>.
+func SwitchSamplesConsumerConfig() jetstream.ConsumerConfig {
+	return jetstream.ConsumerConfig{
+		Durable: ConsumerSwitchSamples, FilterSubjects: []string{SubjectSecondaryPrefix + ">"},
+		AckPolicy: jetstream.AckExplicitPolicy, AckWait: 60 * time.Second, MaxDeliver: -1,
+		MaxAckPending: 1000, DeliverPolicy: jetstream.DeliverAllPolicy,
+		BackOff: []time.Duration{5 * time.Second, 30 * time.Second, 2 * time.Minute, 5 * time.Minute},
+	}
 }
 
 // IngesterConsumerConfig es la configuración del durable flows-ingester

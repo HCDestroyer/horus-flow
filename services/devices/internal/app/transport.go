@@ -99,6 +99,10 @@ func (s *Transport) Set(ctx context.Context, routerID uuid.UUID, in TransportInp
 	if err != nil || !siteAllowed(p, PermCredentialsWrite, r.SiteID) {
 		return nil, apperr.NotFound(domain.CodeRouterNotFound)
 	}
+	if r.IsSwitch() {
+		return nil, apperr.New(apperr.KindInvalid, domain.CodeSwitchNotSupported,
+			"Un switch va siempre en modo directo por la red de gestión: no tiene túnel ni transporte configurable.")
+	}
 	mode := strings.TrimSpace(in.ConnectionMode)
 	f := &fieldErrs{}
 	if !slices.Contains(domain.ConnectionModes, mode) {

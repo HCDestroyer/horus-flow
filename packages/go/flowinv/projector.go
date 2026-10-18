@@ -75,6 +75,10 @@ type routerData struct {
 	ConnectionMode    string  `json:"connection_mode"`
 	ManagementAddress *string `json:"management_address"`
 	OnboardingState   string  `json:"onboarding_state"`
+	// Switches (device_type switch): solo con sFlow activo y verificados,
+	// como exportador secundario.
+	DeviceType   string `json:"device_type"`
+	SFlowEnabled bool   `json:"sflow_enabled"`
 }
 
 type prefixData struct {
@@ -164,6 +168,14 @@ func (p *Projector) Apply(body []byte) (bool, error) {
 			(d.OnboardingState == "snmp_verified" || d.OnboardingState == "exporting") {
 			if a, err := netip.ParseAddr(strings.Split(*d.ManagementAddress, "/")[0]); err == nil {
 				rs.e.TunnelIP, rs.e.Direct = a.Unmap(), true
+			}
+		}
+		if d.DeviceType == "switch" {
+			// Un switch nunca es exportador primario: con sFlow activo y
+			// verificado es secundario; si no, no es exportador.
+			rs.e.Secondary = true
+			if !d.SFlowEnabled || !rs.e.Direct {
+				rs.e.TunnelIP, rs.e.Direct = netip.Addr{}, false
 			}
 		}
 		p.routers[d.ID] = rs

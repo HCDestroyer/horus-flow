@@ -56,3 +56,48 @@ func TestProjectorDirectExporters(t *testing.T) {
 		t.Fatalf("MikroTik: %+v", e)
 	}
 }
+
+// Switches: nunca exportador primario. Solo con sFlow activo y verificados son exportador SECUNDARIO
+// (docs/traffic-model.md §13); sin sFlow o sin verificar no son exportador.
+func TestProjectorSwitchSecondary(t *testing.T) {
+	t.Parallel()
+	tenant, site, sw := uuid.New(), uuid.New(), uuid.New()
+	p := NewProjector(NewStore(nil), Data{}, nil)
+	ip := netip.MustParseAddr("10.20.0.5")
+	apply := func(v int, state string, sflow bool) {
+		t.Helper()
+		if _, err := p.Apply(event(t, "horus.devices.router.updated", tenant, v, map[string]any{"id": sw, "site_id": site, "name": "sw1",
+			"admin_state": "active", "tunnel_address": nil, "connection_mode": "direct", "management_address": "10.20.0.5/32",
+			"onboarding_state": state, "device_type": "switch", "sflow_enabled": sflow})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	find := func() (Exporter, bool) {
+		for _, e := range p.Data().Exporters {
+			if e.TunnelIP == ip {
+				return e, true
+			}
+		}
+		return Exporter{}, false
+	}
+	apply(1, "snmp_verified", false)
+	if _, ok := find(); ok {
+		t.Fatal("switch sin sFlow aceptado como exportador")
+	}
+	apply(2, "pending_configuration", true)
+	if _, ok := find(); ok {
+		t.Fatal("switch sin verificar aceptado como exportador")
+	}
+	apply(3, "snmp_verified", true)
+	e, ok := find()
+	if !ok || !e.Secondary || !e.Direct || e.RouterID != sw {
+		t.Fatalf("switch con sFlow: %+v %v", e, ok)
+	}
+	snap, err := New(p.Data())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if x, ok := snap.Exporter(ip); !ok || !x.Secondary {
+		t.Fatalf("snapshot: %+v", x)
+	}
+}

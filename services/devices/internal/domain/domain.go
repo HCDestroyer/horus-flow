@@ -61,7 +61,8 @@ type Site struct {
 // DiscoveryMode: sin prefijos el tráfico cuenta para el nodo, no crea clientes.
 func (s *Site) DiscoveryMode() bool { return s.PrefixCount == 0 }
 
-// Router es un router registrado (MikroTik RouterOS o Huawei VRP).
+// Router es un equipo registrado (MikroTik RouterOS o Huawei VRP): un router
+// o, con DeviceType = switch, un switch de monitoreo (switch.go).
 type Router struct {
 	ID                      uuid.UUID
 	TenantID                uuid.UUID
@@ -88,11 +89,17 @@ type Router struct {
 	TunnelRemoteAddress *string
 	// TunnelRemoteID: identidad IKE del router (ipsec).
 	TunnelRemoteID *string
-	Tags           []string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	DeletedAt      *time.Time
-	Version        int
+	// DeviceType: router | switch (switch.go). Un switch es solo de monitoreo.
+	DeviceType string
+	// SwitchPlatform: routeros | swos | vrp (solo switches).
+	SwitchPlatform *string
+	// SFlowEnabled: el switch exporta sFlow (fuente secundaria; solo vrp).
+	SFlowEnabled bool
+	Tags         []string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	DeletedAt    *time.Time
+	Version      int
 }
 
 // Warnings devuelve los avisos del router.

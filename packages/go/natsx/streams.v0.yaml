@@ -49,6 +49,7 @@ consumers_i1:
   - { ephemeral: ingester-known-clients, stream: DEVICES_EVENTS, filter: ['horus.devices.customer.>', 'horus.devices.client_prefix.>', 'horus.devices.realm.>'], module: flows, snapshot: flows_state }
   - { durable: devices-client-first-seen, stream: FLOWS_EVENTS, filter: ['horus.flows.client.first_seen.>'], module: devices }
   - { durable: devices-client-activity, stream: TLM_FLOWS, filter: ['horus.telemetry.flows.client_activity.>'], module: devices }
+  - { durable: flows-switch-samples, stream: TLM_FLOWS, filter: ['horus.telemetry.flows.secondary.>'], module: flows, note: 'muestras sFlow de switches (fuente secundaria) → flows.switch_samples; nunca flows_raw (traffic-model.md §13)' }
   - { durable: flows-snapshots, streams: [TRAFFIC_EVENTS, DETECTION_EVENTS], filter: ['horus.traffic.catalog.published.>', 'horus.detection.reputation.snapshot_published.>'], module: flows }
   - { durable: detection-customers, stream: DEVICES_EVENTS, filter: ['horus.devices.customer.>'], module: detection }
   - { durable: devices-customer-detection, stream: DETECTION_EVENTS, filter: ['horus.detection.customer.security_state_changed.>', 'horus.detection.customer.kind_suggested.>'], module: devices }

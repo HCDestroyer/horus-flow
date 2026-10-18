@@ -71,7 +71,13 @@ type Exporter struct {
 	TunnelIP netip.Addr `yaml:"tunnel_ip" json:"tunnel_ip"`
 	// Direct: exportador sin túnel (Huawei VRP). Sus flujos no se filtran por
 	// la IP de túnel (la dirección de gestión puede ser la del NAT).
-	Direct     bool        `yaml:"direct,omitempty" json:"direct,omitempty"`
+	Direct bool `yaml:"direct,omitempty" json:"direct,omitempty"`
+	// Secondary: exportador SECUNDARIO (switch con sFlow; docs/traffic-model.md
+	// §13). Sus muestras nunca llegan a flows_raw ni a la atribución: el
+	// collector las publica en horus.telemetry.flows.secondary.<id> y solo
+	// alimentan el top por puerto de la ficha del switch. Nunca crea clientes
+	// ni suma al tráfico de clientes o nodos (que sale del router).
+	Secondary  bool        `yaml:"secondary,omitempty" json:"secondary,omitempty"`
 	AdminState string      `yaml:"admin_state" json:"admin_state"`
 	Interfaces []Interface `yaml:"interfaces" json:"interfaces"`
 	// MaxFlowsPerSecond es la cuota del tenant (0 = sin límite).

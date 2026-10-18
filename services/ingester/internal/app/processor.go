@@ -65,6 +65,11 @@ func (p *Processor) Rows(fb *flowpb.FlowBatch, headerTenant string) ([]Row, erro
 		// El tenant lo fija el exportador; nunca se acepta otro (§4.2).
 		return nil, fmt.Errorf("%w: router %s belongs to another tenant", ErrPermanent, router)
 	}
+	if exp.Secondary {
+		// Switch con sFlow (fuente secundaria): nunca entra en flows_raw, la
+		// atribución ni el descubrimiento de clientes (docs/traffic-model.md §13).
+		return nil, fmt.Errorf("%w: exporter %s is a secondary source (switch)", ErrPermanent, router)
+	}
 	e := Exporter{TenantID: tenant, SiteID: exp.SiteID, RouterID: router}
 	received := fb.ReceivedTo
 	if received.IsZero() {

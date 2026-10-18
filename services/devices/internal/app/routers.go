@@ -20,8 +20,9 @@ import (
 
 var (
 	routerCreateFields = []string{"site_id", "name", "display_name", "is_primary", "vendor", "model", "routeros_version", "tags",
-		"management_address"}
-	routerPatchFields = []string{"name", "display_name", "model", "routeros_version", "admin_state", "tags", "management_address"}
+		"management_address", "device_type", "switch_platform"}
+	routerPatchFields = []string{"name", "display_name", "model", "routeros_version", "admin_state", "tags", "management_address",
+		"sflow_enabled"}
 )
 
 // RouterEventData es el payload horus.events.devices.v1.Router.
@@ -35,7 +36,8 @@ func RouterEventData(r *domain.Router, changed []string) map[string]any {
 		"routeros_version_supported": r.RouterOSVersionOK, "admin_state": r.AdminState, "onboarding_state": r.OnboardingState,
 		"tunnel_address": tunnelCIDR(r.TunnelAddress), "connection_mode": connectionModeOf(r),
 		"management_address": tunnelCIDR(r.ManagementAddress), "protection_level": domain.ProtectionOf(connectionModeOf(r), r.ProtectionLevel),
-		"tunnel_remote_address": r.TunnelRemoteAddress, "tunnel_remote_id": r.TunnelRemoteID, "tags": r.Tags, "created_at": r.CreatedAt.UTC().Format(outbox.TimeFormat),
+		"tunnel_remote_address": r.TunnelRemoteAddress, "tunnel_remote_id": r.TunnelRemoteID, "device_type": deviceTypeOf(r),
+		"switch_platform": r.SwitchPlatform, "sflow_enabled": r.SFlowEnabled, "tags": r.Tags, "created_at": r.CreatedAt.UTC().Format(outbox.TimeFormat),
 		"updated_at": r.UpdatedAt.UTC().Format(outbox.TimeFormat), "deleted_at": tsOrNil(r.DeletedAt), "changed_fields": changed,
 	}
 }
@@ -51,6 +53,14 @@ func tunnelCIDR(a *string) *string {
 	}
 	v := *a + bits
 	return &v
+}
+
+// deviceTypeOf: router para las filas anteriores al campo.
+func deviceTypeOf(r *domain.Router) string {
+	if r.DeviceType == "" {
+		return domain.DeviceTypeRouter
+	}
+	return r.DeviceType
 }
 
 // connectionModeOf: wireguard para los routers anteriores al campo.
@@ -76,7 +86,7 @@ func applyManagementAddress(f *fieldErrs, r *domain.Router, fields Fields) {
 		return
 	}
 	if v != nil && connectionModeOf(r) != domain.ConnectionDirect {
-		f.add("management_address", "NOT_APPLICABLE", "Solo los routers en modo directo (Huawei) tienen dirección de gestión.")
+		f.add("management_address", "NOT_APPLICABLE", "Solo los equipos en modo directo (Huawei, switches) tienen dirección de gestión.")
 		return
 	}
 	var next *string
@@ -95,6 +105,60 @@ func applyManagementAddress(f *fieldErrs, r *domain.Router, fields Fields) {
 			r.OnboardingState = devapi.OnboardingPending
 		}
 	}
+}
+
+// applyDeviceType fija el tipo de equipo al crearlo (inmutable después). Un
+// switch va siempre en modo directo por la red de gestión (camino privado),
+// nunca es principal y su plataforma decide el fabricante.
+func applyDeviceType(f *fieldErrs, r *domain.Router, fields Fields) {
+	r.DeviceType = domain.DeviceTypeRouter
+	if v, ok := f.enum(fields, "device_type", domain.DeviceTypes); ok {
+		r.DeviceType = v
+	}
+	if !r.IsSwitch() {
+		if raw, ok := fields["switch_platform"]; ok && !isNull(raw) {
+			f.add("switch_platform", "NOT_APPLICABLE", "switch_platform solo aplica a switches.")
+		}
+		r.ConnectionMode = domain.ConnectionModeFor(r.Vendor)
+		return
+	}
+	p, ok := f.enum(fields, "switch_platform", domain.SwitchPlatforms)
+	if !ok {
+		if _, sent := fields["switch_platform"]; !sent {
+			f.add("switch_platform", "REQUIRED", "Indique el sistema del switch: routeros (CRS con RouterOS 7), swos o vrp (Huawei serie S).")
+		}
+		return
+	}
+	vendor := domain.VendorForPlatform(p)
+	if _, sent := fields["vendor"]; sent && r.Vendor != vendor {
+		f.add("vendor", "INVALID_VALUE", "El fabricante no corresponde a la plataforma del switch ("+p+" → "+vendor+").")
+	}
+	r.SwitchPlatform, r.Vendor = &p, vendor
+	r.IsPrimary = false
+	r.ConnectionMode, r.ProtectionLevel = domain.ConnectionDirect, domain.ProtectionUnencryptedPrivate
+}
+
+// applySFlow activa o desactiva la exportación sFlow de un switch (fuente
+// secundaria; solo plataformas con sFlow).
+func applySFlow(f *fieldErrs, r *domain.Router, fields Fields) {
+	raw, ok := fields["sflow_enabled"]
+	if !ok {
+		return
+	}
+	var b bool
+	if json.Unmarshal(raw, &b) != nil {
+		f.add("sflow_enabled", "INVALID_TYPE", "Debe ser booleano.")
+		return
+	}
+	if !r.IsSwitch() {
+		f.add("sflow_enabled", "NOT_APPLICABLE", "sflow_enabled solo aplica a switches (los routers exportan sus flujos como fuente primaria).")
+		return
+	}
+	if b && (r.SwitchPlatform == nil || !domain.SFlowSupported(*r.SwitchPlatform)) {
+		f.add("sflow_enabled", domain.CodeSFlowNotSupported, "Solo los switches Huawei serie S exportan sFlow (RouterOS y SwOS no lo tienen).")
+		return
+	}
+	r.SFlowEnabled = b
 }
 
 func applyRouter(f *fieldErrs, r *domain.Router, fields Fields, create bool) {
@@ -121,9 +185,10 @@ func applyRouter(f *fieldErrs, r *domain.Router, fields Fields, create bool) {
 		r.Vendor = v
 	}
 	if create {
-		r.ConnectionMode = domain.ConnectionModeFor(r.Vendor)
+		applyDeviceType(f, r, fields)
 	}
 	applyManagementAddress(f, r, fields)
+	applySFlow(f, r, fields)
 	if v, ok := f.enum(fields, "admin_state", domain.AdminStates); ok {
 		r.AdminState = v
 	}
@@ -132,9 +197,16 @@ func applyRouter(f *fieldErrs, r *domain.Router, fields Fields, create bool) {
 		if json.Unmarshal(raw, &b) != nil {
 			f.add("is_primary", "INVALID_TYPE", "Debe ser booleano.")
 		}
-		r.IsPrimary = b
+		if b && r.IsSwitch() {
+			f.add("is_primary", "NOT_APPLICABLE", "Un switch es solo de monitoreo: nunca es el router principal del nodo.")
+		}
+		r.IsPrimary = b && !r.IsSwitch()
 	}
 	if v, ok := f.str(fields, "routeros_version", 32, true); ok {
+		if v != nil && r.IsSwitch() {
+			f.add("routeros_version", "NOT_APPLICABLE", "routeros_version solo aplica a routers MikroTik.")
+			return
+		}
 		if v != nil && r.Vendor != domain.VendorMikroTik {
 			f.add("routeros_version", "NOT_APPLICABLE", "routeros_version solo aplica a MikroTik.")
 			return
@@ -161,9 +233,20 @@ func (s *Service) ListRouters(ctx context.Context, qv url.Values) (*Page[domain.
 	if err != nil {
 		return nil, err
 	}
-	lq, req, fk, err := s.listQuery(t, qv, qv.Get("site_id"), qv.Get("onboarding_state"), qv.Get("is_primary"))
+	lq, req, fk, err := s.listQuery(t, qv, qv.Get("site_id"), qv.Get("onboarding_state"), qv.Get("is_primary"), qv.Get("device_type"))
 	if err != nil {
 		return nil, err
+	}
+	// device_type: router por defecto (el listado de routers no cambia con
+	// los switches); switch o all.
+	switch dt := qv.Get("device_type"); dt {
+	case "", domain.DeviceTypeRouter:
+		lq.DeviceType = domain.DeviceTypeRouter
+	case domain.DeviceTypeSwitch:
+		lq.DeviceType = domain.DeviceTypeSwitch
+	case "all":
+	default:
+		return nil, apperr.New(apperr.KindBadRequest, problem.CodeInvalidFilter, "device_type: router, switch o all")
 	}
 	if lq.SiteIDs, err = parseUUIDList("site_id", qv.Get("site_id")); err != nil {
 		return nil, err

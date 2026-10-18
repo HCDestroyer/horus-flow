@@ -59,7 +59,10 @@ var (
 func routerInfo(r *domain.Router) devapi.RouterInfo {
 	info := devapi.RouterInfo{ID: r.ID, TenantID: r.TenantID, SiteID: r.SiteID, Name: r.Hostname,
 		RouterOSVersion: r.RouterOSVersion, OnboardingState: r.OnboardingState, Vendor: r.Vendor, ConnectionMode: connectionModeOf(r),
-		ProtectionLevel: domain.ProtectionOf(connectionModeOf(r), r.ProtectionLevel)}
+		ProtectionLevel: domain.ProtectionOf(connectionModeOf(r), r.ProtectionLevel), DeviceType: deviceTypeOf(r), SFlowEnabled: r.SFlowEnabled}
+	if r.SwitchPlatform != nil {
+		info.SwitchPlatform = *r.SwitchPlatform
+	}
 	if r.TunnelRemoteAddress != nil {
 		if a, err := netip.ParseAddr(*r.TunnelRemoteAddress); err == nil {
 			info.TunnelRemoteAddress = &a
@@ -353,6 +356,10 @@ func (o *Onboarding) RevealSNMPCredential(ctx context.Context, tenant, routerID 
 	}
 	c, err := o.store.GetCredential(ctx, t, routerID, domain.CredentialSNMPv3)
 	if errors.Is(err, domain.ErrNotFound) {
+		// Switch SwOS: comunidad v2c (sin SNMPv3).
+		c, err = o.store.GetCredential(ctx, t, routerID, domain.CredentialSNMPv2c)
+	}
+	if errors.Is(err, domain.ErrNotFound) {
 		return devapi.SNMPCredential{}, devapi.ErrNoCredential
 	}
 	if err != nil {
@@ -362,11 +369,14 @@ func (o *Onboarding) RevealSNMPCredential(ctx context.Context, tenant, routerID 
 	if err != nil {
 		return devapi.SNMPCredential{}, fmt.Errorf("devices: open credential: %w", err)
 	}
+	if c.Kind == domain.CredentialSNMPv2c {
+		return devapi.SNMPCredential{Version: "2c", Community: string(pt)}, nil
+	}
 	var s snmpSecret
 	if err := json.Unmarshal(pt, &s); err != nil {
 		return devapi.SNMPCredential{}, fmt.Errorf("devices: snmp credential: %w", err)
 	}
-	return devapi.SNMPCredential{Username: c.Username, AuthProtocol: s.AuthProtocol, AuthPassword: s.AuthPassword,
+	return devapi.SNMPCredential{Version: "3", Username: c.Username, AuthProtocol: s.AuthProtocol, AuthPassword: s.AuthPassword,
 		PrivProtocol: s.PrivProtocol, PrivPassword: s.PrivPassword}, nil
 }
 
@@ -429,6 +439,48 @@ func (o *Onboarding) RevealTunnelPSK(ctx context.Context, tenant, routerID uuid.
 		return "", fmt.Errorf("devices: open credential: %w", err)
 	}
 	return string(pt), nil
+}
+
+// communityLen: comunidad v2c de 32 caracteres del alfabeto sin ambigüedades
+// (~180 bits). Viaja en claro (v2c): solo en la red de gestión.
+const communityLen = 32
+
+// IssueSwitchCredentials genera la credencial SNMP de un switch según su
+// plataforma: SNMPv3 SHA1+AES (RouterOS: lo que admite /snmp community),
+// SHA-256+AES-128 (Huawei serie S) o una comunidad v2c (SwOS). Invalida la
+// anterior; se guarda cifrada y se devuelve en claro una sola vez.
+func (o *Onboarding) IssueSwitchCredentials(ctx context.Context, tenant, routerID uuid.UUID, platform string) (devapi.OnboardingCredentials, string, error) {
+	switch platform {
+	case domain.PlatformRouterOS:
+		c, err := o.issue(ctx, tenant, routerID, "sha1", false)
+		return c, "", err
+	case domain.PlatformVRP:
+		c, err := o.issue(ctx, tenant, routerID, "sha256", false)
+		return c, "", err
+	}
+	t := pgdb.TenantID(tenant)
+	if _, err := o.store.GetRouter(ctx, t, routerID); err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return devapi.OnboardingCredentials{}, "", devapi.ErrRouterNotFound
+		}
+		return devapi.OnboardingCredentials{}, "", err
+	}
+	community, err := password(communityLen)
+	if err != nil {
+		return devapi.OnboardingCredentials{}, "", err
+	}
+	ct, dek, err := o.sealer.Seal([]byte(community), CredentialAAD(tenant, routerID, domain.CredentialSNMPv2c))
+	if err != nil {
+		return devapi.OnboardingCredentials{}, "", err
+	}
+	if err := o.store.PutCredentials(ctx, t, routerID, []domain.Credential{{ID: uuid.Must(uuid.NewV7()), RouterID: routerID,
+		Kind: domain.CredentialSNMPv2c, Username: "community", Ciphertext: ct, DEKWrapped: dek, KEKID: o.sealer.KEKID()}}); err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return devapi.OnboardingCredentials{}, "", devapi.ErrRouterNotFound
+		}
+		return devapi.OnboardingCredentials{}, "", err
+	}
+	return devapi.OnboardingCredentials{}, community, nil
 }
 
 // IssueSNMPCredentials implementa api.TunnelSecrets (Huawei con túnel).
