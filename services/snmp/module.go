@@ -136,7 +136,7 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		}
 		m.db = db
 		st := pgstore.New(db)
-		thStore, m.opts.Thresholds = st, st
+		thStore, m.opts.Thresholds, m.opts.Ports = st, st, st
 	} else {
 		log.WarnContext(ctx, "snmp: HORUS_POSTGRES_DSN not set: installation thresholds for every ISP (not editable from the console)")
 	}
@@ -170,6 +170,9 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 			httpapi.NewCapacity(m.capacity, authz.NewGuard(v), func() (authapi.AuditRecorder, bool) {
 				return module.Lookup[authapi.AuditRecorder](deps.Services, authapi.ServiceAudit)
 			}, deniedTargets(cfg), log).Mount(deps.Routes)
+			httpapi.NewSwitches(m.switches(), authz.NewGuard(v), func() (authapi.AuditRecorder, bool) {
+				return module.Lookup[authapi.AuditRecorder](deps.Services, authapi.ServiceAudit)
+			}, log).Mount(deps.Routes)
 		} else {
 			log.WarnContext(ctx, "snmp: no token verifier (auth not local, HORUS_JWT_PUBLIC_KEYS unset): routers API not served")
 		}
@@ -274,6 +277,20 @@ func (m *mod) setupCapacity() {
 		opts.Pinger = m.pinger
 	}
 	m.capacity = app.NewCapacity(opts)
+}
+
+// switches prepara las operaciones de la API de switches: elección de puertos
+// (PostgreSQL) y top de muestras sFlow (ClickHouse, el mismo adaptador que la
+// capacidad).
+func (m *mod) switches() *app.Switches {
+	s := &app.Switches{Engine: m.engine, Flows: func() (app.SwitchFlows, bool) {
+		f, ok := m.capacity.Series().(app.SwitchFlows)
+		return f, ok && f != nil
+	}}
+	if m.db != nil {
+		s.Repo = pgstore.New(m.db)
+	}
+	return s
 }
 
 // tenantDirectory devuelve zona horaria y país de los ISP (auth, en el

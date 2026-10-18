@@ -29,16 +29,19 @@ const (
 
 // Razones del estado observado (enum abierto RouterStateReason).
 const (
-	ReasonOK                   = "ok"
-	ReasonCPUHigh              = "cpu_high"
-	ReasonMemoryHigh           = "memory_high"
-	ReasonTemperatureHigh      = "temperature_high"
-	ReasonSNMPUnreachable      = "snmp_unreachable"
-	ReasonSNMPAuthFailed       = "snmp_auth_failed"
-	ReasonTunnelDown           = "tunnel_down"
-	ReasonHostUnreachable      = "host_unreachable_via_tunnel"
-	ReasonExporterSilent       = "exporter_silent"
-	ReasonInterfaceDown        = "interface_down"
+	ReasonOK              = "ok"
+	ReasonCPUHigh         = "cpu_high"
+	ReasonMemoryHigh      = "memory_high"
+	ReasonTemperatureHigh = "temperature_high"
+	ReasonSNMPUnreachable = "snmp_unreachable"
+	ReasonSNMPAuthFailed  = "snmp_auth_failed"
+	ReasonTunnelDown      = "tunnel_down"
+	ReasonHostUnreachable = "host_unreachable_via_tunnel"
+	ReasonExporterSilent  = "exporter_silent"
+	ReasonInterfaceDown   = "interface_down"
+	// ReasonInterfaceFlapping: un puerto de subida de un switch cambió de
+	// estado operativo FlapThreshold veces o más en la última hora.
+	ReasonInterfaceFlapping    = "interface_flapping"
 	ReasonPSUFailed            = "psu_failed"
 	ReasonFanFailed            = "fan_failed"
 	ReasonNoCredentials        = "no_snmp_credentials"
@@ -132,6 +135,9 @@ type RouterStatus struct {
 	// marca los transportes sin cifrado.
 	ConnectionMode  string `json:"connection_mode,omitempty"`
 	ProtectionLevel string `json:"protection_level,omitempty"`
+	// DeviceType: "switch" en los switches (vacío = router: el JSON de los
+	// routers no cambia).
+	DeviceType string `json:"device_type,omitempty"`
 }
 
 // PollerHealth es meta.poller de GET /routers/status.
@@ -240,4 +246,84 @@ var InterfaceNamespace = uuid.MustParse("0192f2a0-5e8c-7b31-9d4a-6c1e2f3a4b5c")
 // InterfaceID deriva el interface_id estable de una interfaz.
 func InterfaceID(routerID uuid.UUID, ifName string) uuid.UUID {
 	return uuid.NewSHA1(uuid.NewSHA1(InterfaceNamespace, routerID[:]), []byte(ifName))
+}
+
+// SwitchStatus es la fila de GET /switches/status: el estado del switch como
+// el de un router (RouterStatus, device_type = switch) más su plataforma y
+// el resumen de puertos.
+type SwitchStatus struct {
+	RouterStatus
+	// Platform: routeros | swos | vrp.
+	Platform       string `json:"platform"`
+	SFlowEnabled   bool   `json:"sflow_enabled"`
+	PortsMonitored int    `json:"ports_monitored"`
+	Uplinks        int    `json:"uplinks"`
+	UplinksDown    int    `json:"uplinks_down"`
+	PortsFlapping  int    `json:"ports_flapping"`
+	NeighborsCount int    `json:"neighbors_count"`
+}
+
+// SwitchNeighbor es un vecino LLDP (o de la tabla de vecinos de MikroTik)
+// visto en un puerto del switch.
+type SwitchNeighbor struct {
+	LocalIfIndex int     `json:"local_if_index"`
+	LocalPort    string  `json:"local_port"`
+	SysName      string  `json:"sys_name"`
+	PortID       string  `json:"port_id"`
+	PortDesc     string  `json:"port_desc"`
+	ChassisID    string  `json:"chassis_id"`
+	MgmtAddress  *string `json:"mgmt_address"`
+	Platform     *string `json:"platform"`
+	// Source: lldp | mndp.
+	Source string `json:"source"`
+	// KnownDevice: nombre del router o switch de Horus que es el vecino.
+	KnownDevice *string `json:"known_device"`
+}
+
+// SwitchNeighbors es GET /switches/{id}/neighbors.
+type SwitchNeighbors struct {
+	Data         []SwitchNeighbor `json:"data"`
+	DiscoveredAt *time.Time       `json:"discovered_at"`
+}
+
+// SwitchPort es un puerto del switch con su elección y su última muestra.
+type SwitchPort struct {
+	InterfaceID     uuid.UUID        `json:"interface_id"`
+	IfIndex         int              `json:"if_index"`
+	Name            string           `json:"name"`
+	Alias           *string          `json:"alias"`
+	Type            string           `json:"type"`
+	SpeedBps        *int64           `json:"speed_bps"`
+	AdminUp         *bool            `json:"admin_up"`
+	OperStatus      *string          `json:"oper_status"`
+	Monitored       bool             `json:"monitored"`
+	Uplink          bool             `json:"uplink"`
+	SuggestedUplink bool             `json:"suggested_uplink"`
+	Flaps1h         int              `json:"flaps_1h"`
+	Flaps24h        int              `json:"flaps_24h"`
+	LastChangeAt    *time.Time       `json:"last_change_at"`
+	Sample          *InterfaceSample `json:"sample"`
+	Neighbors       []SwitchNeighbor `json:"neighbors"`
+}
+
+// PortSelectionMeta dice si la elección es la del operador (configured) o la
+// de por defecto, y su versión (ETag de PUT).
+type PortSelectionMeta struct {
+	Configured bool       `json:"configured"`
+	Version    *int       `json:"version"`
+	UpdatedAt  *time.Time `json:"updated_at"`
+	UpdatedBy  *string    `json:"updated_by"`
+}
+
+// SwitchPorts es GET /switches/{id}/ports.
+type SwitchPorts struct {
+	RouterID        uuid.UUID         `json:"router_id"`
+	Platform        string            `json:"platform"`
+	IntervalSeconds int               `json:"interval_seconds"`
+	MaxPorts        int               `json:"max_ports"`
+	MonitoredCount  int               `json:"monitored_count"`
+	Selection       PortSelectionMeta `json:"selection"`
+	DiscoveredAt    *time.Time        `json:"discovered_at"`
+	NeighborsAt     *time.Time        `json:"neighbors_at"`
+	Data            []SwitchPort      `json:"data"`
 }

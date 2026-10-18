@@ -94,10 +94,14 @@ func (e *Engine) pollOne(ctx context.Context, r *router, at time.Time, cycle uin
 		res     snmpclient.Resources
 		health  *snmpclient.Health
 		disc    []snmpclient.Discovered
+		nbs     []snmpclient.Neighbor
 		ctrs    []snmpclient.Counters
 		snmpErr error
 	)
 	r.mu.Lock()
+	if r.Switch {
+		e.applyPortChoices(r) // la elección pudo cambiar desde el último ciclo
+	}
 	needDisc := r.st.DiscoveredAt == nil || start.Sub(*r.st.DiscoveredAt) >= e.o.Config.DiscoveryInterval
 	needHealth := r.st.HealthAt == nil || start.Sub(*r.st.HealthAt) >= e.o.Config.HealthInterval || manual
 	monitored := make([]int, 0, len(r.st.Interfaces))
@@ -107,7 +111,8 @@ func (e *Engine) pollOne(ctx context.Context, r *router, at time.Time, cycle uin
 		}
 	}
 	tunnel := r.Tunnel
-	vendor := snmpclient.ForVendor(r.Vendor)
+	vendor := snmpclient.ForDevice(r.Vendor, r.Platform)
+	target := r.Target
 	r.mu.Unlock()
 	if cred != nil {
 		snmpErr = func() error {
@@ -129,9 +134,24 @@ func (e *Engine) pollOne(ctx context.Context, r *router, at time.Time, cycle uin
 					return err
 				}
 				monitored = monitored[:0]
-				for _, d := range disc {
-					if vendor.Monitored(d.Type, d.Name) {
-						monitored = append(monitored, d.IfIndex)
+				if target.Switch {
+					// Vecinos LLDP en solo lectura; sin LLDP (SwOS) o con un
+					// fallo de la tabla, el sondeo sigue sin vecinos.
+					if nbs, err = snmpclient.ReadNeighbors(pctx, t, disc); err != nil {
+						e.log.WarnContext(ctx, "snmp: switch neighbors not read", "router_id", target.RouterID, "error", err)
+						nbs = nil
+					}
+					ch := e.switchChoices(target, discCandidates(disc, nbs, e.knownDevices(target.TenantID, target.Name)))
+					for _, d := range disc {
+						if ch[d.Name].Monitored {
+							monitored = append(monitored, d.IfIndex)
+						}
+					}
+				} else {
+					for _, d := range disc {
+						if vendor.Monitored(d.Type, d.Name) {
+							monitored = append(monitored, d.IfIndex)
+						}
 					}
 				}
 			}
@@ -180,7 +200,7 @@ func (e *Engine) pollOne(ctx context.Context, r *router, at time.Time, cycle uin
 		e.m.polls.WithLabelValues(vendor.Vendor(), "ok").Inc()
 	}
 	if snmpSignal == api.SignalOK {
-		events = append(events, e.applySNMP(r, at, dur, sys, res, health, disc, ctrs)...)
+		events = append(events, e.applySNMP(r, at, dur, sys, res, health, disc, nbs, ctrs)...)
 		st.LastSNMPOKAt = &at
 	}
 	verify := snmpSignal == api.SignalOK && r.Direct && r.OnboardingState == devapi.OnboardingPending && start.Sub(r.verifyAt) >= verifyRetry
@@ -207,7 +227,13 @@ func (e *Engine) pollOne(ctx context.Context, r *router, at time.Time, cycle uin
 		st.Streaks = domain.Streaks{}
 	}
 	uplinkDown := false
-	if up := st.iface(st.UplinkIfIndex); up != nil && up.OperStatus != nil && *up.OperStatus != api.OperUp && snmpSignal == api.SignalOK {
+	if r.Switch {
+		if snmpSignal == api.SignalOK {
+			var sh []api.ThresholdHit
+			sh, uplinkDown = switchUplinkHits(st, at)
+			hits = append(hits, sh...)
+		}
+	} else if up := st.iface(st.UplinkIfIndex); up != nil && up.OperStatus != nil && *up.OperStatus != api.OperUp && snmpSignal == api.SignalOK {
 		uplinkDown = true
 		hits = append(hits, api.ThresholdHit{Metric: "interface_down", Level: "warning", Value: 0, Threshold: 1, InterfaceName: str(up.Name)})
 	}
@@ -226,7 +252,7 @@ func (e *Engine) pollOne(ctx context.Context, r *router, at time.Time, cycle uin
 		events = append(events, Event{Type: TypeStateChanged, Entity: r.RouterID.String(), TenantID: &r.TenantID, AggregateType: "router",
 			Version: st.Machine.Version, At: at, Data: map[string]any{"router_id": r.RouterID, "site_id": r.SiteID, "version": st.Machine.Version,
 				"previous_state": previous, "state": tr.State, "reason": tr.Reason, "signals": sig, "changed_at": at.UTC().Format(time.RFC3339),
-				"router_name": r.Name, "site_name": r.SiteName, "thresholds": hits}})
+				"router_name": r.Name, "site_name": r.SiteName, "thresholds": hits, "device_type": deviceTypeOf(r.Target)}})
 		e.log.InfoContext(ctx, "snmp: router state changed", "router_id", r.RouterID, "previous", prev, "state", tr.State, "reason", tr.Reason)
 	}
 	// Telemetría y filas ClickHouse (siempre: un ciclo sin SNMP también es una muestra).
@@ -312,14 +338,14 @@ func (e *Engine) credential(ctx context.Context, r *router, now time.Time) (*snm
 		return nil, true
 	}
 	r.noCred = false
-	r.cred = &snmpclient.Credential{Username: c.Username, AuthProtocol: c.AuthProtocol, AuthPassword: c.AuthPassword,
+	r.cred = &snmpclient.Credential{Version: c.Version, Community: c.Community, Username: c.Username, AuthProtocol: c.AuthProtocol, AuthPassword: c.AuthPassword,
 		PrivProtocol: c.PrivProtocol, PrivPassword: c.PrivPassword}
 	return r.cred, false
 }
 
 // applySNMP vuelca una lectura SNMP correcta en el estado (r.mu tomado).
 func (e *Engine) applySNMP(r *router, at time.Time, dur time.Duration, sys snmpclient.System, res snmpclient.Resources,
-	health *snmpclient.Health, disc []snmpclient.Discovered, ctrs []snmpclient.Counters) []Event {
+	health *snmpclient.Health, disc []snmpclient.Discovered, nbs []snmpclient.Neighbor, ctrs []snmpclient.Counters) []Event {
 	st := &r.st
 	var events []Event
 	d := &st.Device
@@ -366,7 +392,7 @@ func (e *Engine) applySNMP(r *router, at time.Time, dur time.Duration, sys snmpc
 		st.HealthAt = &at
 	}
 	if disc != nil {
-		events = append(events, e.applyDiscovery(r, at, disc)...)
+		events = append(events, e.applyDiscovery(r, at, disc, nbs)...)
 	}
 	// Contadores → tasas.
 	for _, c := range ctrs {
@@ -384,11 +410,17 @@ func (e *Engine) applySNMP(r *router, at time.Time, dur time.Duration, sys snmpc
 		x.LastSeenAt = &at
 		if c.OperStatus != nil {
 			name := domain.OperStatusName(*c.OperStatus)
-			if x.OperStatus != nil && *x.OperStatus != name {
+			if x.OperStatus != nil && *x.OperStatus != name && r.Switch {
+				x.Flaps = domain.AddFlap(x.Flaps, at)
+				x.LastChangeAt = &at
+			}
+			// En un switch solo los puertos de subida avisan al caer
+			// (los de acceso registran sus flaps sin generar alertas).
+			if x.OperStatus != nil && *x.OperStatus != name && (!r.Switch || x.Uplink) {
 				events = append(events, Event{Type: TypeOperStatusChanged, Entity: x.InterfaceID.String(), TenantID: &r.TenantID,
 					AggregateType: "interface", At: at, Data: map[string]any{"interface_id": x.InterfaceID, "router_id": r.RouterID,
 						"if_index": x.IfIndex, "name": x.Name, "previous": *x.OperStatus, "current": name, "observed_at": at.UTC().Format(time.RFC3339),
-						"site_id": r.SiteID, "router_name": r.Name, "uplink": st.UplinkIfIndex != 0 && x.IfIndex == st.UplinkIfIndex}})
+						"site_id": r.SiteID, "router_name": r.Name, "uplink": st.isUplink(x, r.Switch), "device_type": deviceTypeOf(r.Target)}})
 			}
 			x.OperStatus = &name
 		}
@@ -410,6 +442,10 @@ func (e *Engine) applySNMP(r *router, at time.Time, dur time.Duration, sys snmpc
 		x.Sample = s
 	}
 	// Uplink.
+	if r.Switch {
+		st.UplinkIfIndex = switchPrimaryUplink(st)
+		return events
+	}
 	cands := make([]domain.UplinkCandidate, 0, len(st.Interfaces))
 	for _, x := range st.Interfaces {
 		if !x.Monitored {
@@ -429,7 +465,7 @@ func (e *Engine) applySNMP(r *router, at time.Time, dur time.Duration, sys snmpc
 }
 
 // applyDiscovery fusiona el inventario IF-MIB con el conocido (r.mu tomado).
-func (e *Engine) applyDiscovery(r *router, at time.Time, disc []snmpclient.Discovered) []Event {
+func (e *Engine) applyDiscovery(r *router, at time.Time, disc []snmpclient.Discovered, nbs []snmpclient.Neighbor) []Event {
 	st := &r.st
 	known := map[int]*ifState{}
 	for i := range st.Interfaces {
@@ -460,6 +496,14 @@ func (e *Engine) applyDiscovery(r *router, at time.Time, disc []snmpclient.Disco
 	}
 	st.Interfaces = next
 	st.DiscoveredAt = &at
+	if r.Switch {
+		st.Neighbors = neighborStates(nbs, e.knownDevices(r.TenantID, r.Name))
+		st.NeighborsAt = &at
+		e.applyPortChoices(r)
+		for i := range payload {
+			payload[i]["monitored"] = st.Interfaces[i].Monitored
+		}
+	}
 	if payload == nil {
 		payload = []map[string]any{}
 	}
@@ -512,7 +556,7 @@ func (e *Engine) telemetry(r *router, at time.Time, dur time.Duration, snmpOK bo
 		x := &st.Interfaces[i]
 		if x.Monitored && x.Sample != nil && x.Sample.SampledAt.Equal(at) {
 			s := *x.Sample
-			s.Uplink = x.IfIndex == st.UplinkIfIndex && st.UplinkIfIndex != 0
+			s.Uplink = st.isUplink(x, r.Switch)
 			ifs = append(ifs, s)
 		}
 	}

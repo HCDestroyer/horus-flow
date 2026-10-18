@@ -42,15 +42,19 @@ var statusRank = map[string]int{api.StatusCritical: 0, api.StatusOffline: 1, api
 // SortProblemsFirst ordena por estado (critical, offline, degraded, warning,
 // stale, unknown, online) y luego por nombre (sin distinguir mayúsculas).
 func SortProblemsFirst(rows []api.RouterStatus) {
-	sort.SliceStable(rows, func(i, j int) bool {
-		ri, rj := statusRank[rows[i].Status], statusRank[rows[j].Status]
-		if ri != rj {
-			return ri < rj
-		}
-		ni, nj := strings.ToLower(rows[i].Name), strings.ToLower(rows[j].Name)
-		if ni != nj {
-			return ni < nj
-		}
-		return rows[i].RouterID.String() < rows[j].RouterID.String()
-	})
+	sort.SliceStable(rows, func(i, j int) bool { return StatusLess(rows[i], rows[j]) })
+}
+
+// StatusLess es el orden de SortProblemsFirst (problemas primero, después
+// por nombre).
+func StatusLess(a, b api.RouterStatus) bool {
+	ra, rb := statusRank[a.Status], statusRank[b.Status]
+	if ra != rb {
+		return ra < rb
+	}
+	na, nb := strings.ToLower(a.Name), strings.ToLower(b.Name)
+	if na != nb {
+		return na < nb
+	}
+	return a.RouterID.String() < b.RouterID.String()
 }

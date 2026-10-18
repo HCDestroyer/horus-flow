@@ -179,6 +179,9 @@ func (c *Capacity) SetSeries(s CapacitySeries) {
 	c.mu.Unlock()
 }
 
+// Series devuelve el adaptador ClickHouse (nil sin ClickHouse).
+func (c *Capacity) Series() CapacitySeries { return c.series() }
+
 func (c *Capacity) series() CapacitySeries {
 	c.mu.RLock()
 	defer c.mu.RUnlock()

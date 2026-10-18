@@ -561,7 +561,7 @@ func (c *Capacity) NetwatchSnippet(ctx context.Context, tenant uuid.UUID, sites 
 			r = &routers[i]
 		}
 	}
-	if r == nil || !siteAllowed(sites, r.SiteID) {
+	if r == nil || r.Switch || !siteAllowed(sites, r.SiteID) {
 		return nil, ErrUplinkNotFound
 	}
 	var ups []domain.SnippetUplink

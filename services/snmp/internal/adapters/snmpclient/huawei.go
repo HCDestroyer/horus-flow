@@ -72,11 +72,19 @@ func ParseHuaweiModel(sysDescr string) string {
 		}
 		return f[1]
 	}
+	// Serie S: la primera línea es el modelo completo ("S5735-L48T4X-A1").
+	if lines := splitLines(sysDescr); len(lines) > 0 && hwSwitchModelRe.MatchString(strings.TrimSpace(lines[0])) {
+		return strings.TrimSpace(lines[0])
+	}
 	if m := vrpVersionRe.FindStringSubmatch(sysDescr); m != nil {
 		return m[2]
 	}
 	return ""
 }
+
+// hwSwitchModelRe reconoce un modelo de switch Huawei en la primera línea de
+// sysDescr (S5735-L48T4X-A1, S6730-H24X6C, CE6881-48S6CQ…).
+var hwSwitchModelRe = regexp.MustCompile(`^(S|CE|CX)[0-9]{3,4}[A-Z0-9-]*$`)
 
 // ParseVRPVersion devuelve la versión de software de VRP de sysDescr
 // ("V800R011C10SPC100"; "" si no se reconoce).

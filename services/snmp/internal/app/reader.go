@@ -21,13 +21,18 @@ var (
 // ErrRateLimited: ya se pidió un sondeo manual de ese router hace < 10 s.
 var ErrRateLimited = errors.New("snmp: poll already requested")
 
-// Health devuelve meta.poller para un tenant.
+// Health devuelve meta.poller para un tenant (objetivos: sus routers).
 func (e *Engine) Health(tenant uuid.UUID, now time.Time) api.PollerHealth {
+	return e.health(tenant, now, false)
+}
+
+// health cuenta como objetivos los routers o (sw) los switches del tenant.
+func (e *Engine) health(tenant uuid.UUID, now time.Time, sw bool) api.PollerHealth {
 	e.mu.RLock()
 	last := e.lastCycle
 	targets := 0
 	for _, r := range e.routers {
-		if r.TenantID == tenant {
+		if r.TenantID == tenant && r.Switch == sw {
 			targets++
 		}
 	}
@@ -42,7 +47,8 @@ func (e *Engine) List(_ context.Context, tenant uuid.UUID, sites []uuid.UUID) ([
 	h := e.Health(tenant, now)
 	out := []api.RouterStatus{}
 	for _, r := range e.snapshot() {
-		if r.TenantID != tenant || (len(sites) > 0 && !slices.Contains(sites, r.SiteID)) {
+		// Los switches tienen su lista (ListSwitches): la de routers no cambia.
+		if r.TenantID != tenant || r.Switch || (len(sites) > 0 && !slices.Contains(sites, r.SiteID)) {
 			continue
 		}
 		r.mu.Lock()
