@@ -754,6 +754,30 @@ Google o Meta) y qué revisar; la capacidad `classification` aparece en el estad
   con la insignia de salud, la razón, el peor p95, enlaces caídos y el mes de upgrade si hay planificación; en mural
   una sola línea por nodo y las que no caben se ocultan enteras (`v-fit-rows`).
 
+### 8.6 bis Switches (I3, devices + rol snmp)
+
+Sección **Switches** (grupo Operación, `devices.read`; `pages/t/[slug]/switches`):
+
+- **Lista** por nodo (filtro `?site=` en la URL): inventario `GET /routers?device_type=switch` unido a
+  `GET /switches/status` — estado (`RouterStatusBadge`: icono + texto + color; «Pendiente de verificar» antes de la
+  verificación SNMP), sistema (icono + texto), puertos monitoreados, uplinks con insignia de caídos, puertos
+  inestables, sFlow y CPU/temperatura (null = «—», nunca cero). «Agregar switch» (`devices.create`) abre
+  `AddSwitchModal`: nodo, nombre y sistema en `URadioGroup` tipo tarjeta; SwOS muestra el aviso de SNMP v1/v2c en claro.
+- **Ficha** (`switches/[switchId]`): estado, salud (CPU, memoria, temperatura, encendido, modelo, firmware; en SwOS
+  la nota de MIB limitadas), asistente de conexión `SwitchOnboarding` mientras no está verificado o con `?onboard=1`
+  (dirección de gestión, sFlow solo en la serie S, credencial mostrada una sola vez con `CodeBlock`, verificación en
+  vivo cada 3 s), `SwitchPortsTable` (estado, tráfico rx/tx, utilización con `UProgress`, tendencia en vivo con
+  `Sparkline` a partir de las lecturas sucesivas de `/ports`, errores · descartes, cambios 1 h/24 h, vecino LLDP con
+  enlace si es un equipo de Horus, insignias «Subida» y «Subida sugerida»; con `snmp.manage`, modo «Elegir puertos»:
+  monitorear `UCheckbox`, subida `USwitch`, máximo 64, `If-Match` y «Volver a la elección por defecto»), vecinos LLDP
+  y `SwitchFlowTop` (top por puerto del sFlow con el aviso permanente de **fuente secundaria**; sin sFlow o en una
+  plataforma sin sFlow, explica por qué no hay datos).
+- **Integraciones**: la ficha del nodo muestra sus switches (`NodeSwitchesCard`) y la capacidad marca los uplinks de
+  switches con la insignia «Switch» (`UplinksTable`). Las alertas reutilizan las categorías de routers.
+- API simulada: `mocks/switches.ts` (dos switches de partida en el primer nodo; verificación simulada a los 3 s,
+  `horus.mock.switchVerifyMs`). Pruebas: `tests/unit/mock-switches.test.ts`, `tests/e2e/switches.spec.ts`
+  (`--grep @switches`, axe sin violaciones serias).
+
 ### 8.6 Reportes (I3, rol reporting)
 
 - Sección **Gestión › Reportes** (`/t/:slug/reports`, `reports.read` con alcance de todo el ISP; `pages/t/[slug]/reports/index.vue`).

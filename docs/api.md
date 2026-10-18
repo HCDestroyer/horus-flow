@@ -556,6 +556,28 @@ en español. Horus no escribe en routers.
 | `GET /capacity/traffic-split` | `snmp` | Volumen remoto local / internacional / sin clasificar por nodo y por día (`flows.site_1d`, días UTC; lo que va a la lista local por prefijos, de `flows.site_remote_net_1d`, pasa a local: `local_by_prefix_bytes`), con el país y su origen (`settings`, `tenant`, `none`). `site_id`, `days` (1–90, 30). | `snmp.read` |
 | `GET /routers/{id}/netwatch-snippet` | `snmp` | Script RouterOS de sondas `/tool netwatch` (ICMP, sin scripts, `comment="horus-uplink;…"`) a la puerta de enlace de cada enlace (`{GATEWAY_n}`: el usuario la completa en la consola; nunca viaja en la URL) y a 1.1.1.1 / 8.8.8.8; `probes_found` y `probes_error` de la última lectura. | `snmp.manage` |
 
+### 2.5 ter Switches de monitoreo (`devices` + rol `snmp`, I3)
+
+Detalle en [`vendors/mikrotik.md` §13](vendors/mikrotik.md#13-switches-de-monitoreo-crs-con-routeros-7-y-swos) y
+[`vendors/huawei.md` §11](vendors/huawei.md#11-switches-de-la-serie-s). Un switch es un `Router` con
+`device_type=switch`: mismo CRUD (`/routers`), solo de monitoreo, siempre en modo directo. Horus no escribe en
+switches.
+
+| Método y ruta | Servicio | Descripción | Permiso |
+| --- | --- | --- | --- |
+| `POST /routers` (`device_type: switch`, `switch_platform`) · `GET /routers?device_type=switch\|all` | `devices` | Alta del switch (nunca principal: `is_primary=true` → 422) y listados; sin `device_type` el listado devuelve solo routers. `PATCH sflow_enabled` (solo `vrp`; si no `422 SFLOW_NOT_SUPPORTED`). | `devices.create` / `devices.read` / `devices.update` |
+| `POST /routers/{id}/switch-onboarding` | `devices` | Dirección de gestión + credencial SNMP nueva (v3 o comunidad v2c en SwOS; **solo en esta respuesta**, `Cache-Control: no-store`) + configuración para pegar (`language`: `routeros`, `vrp`, `swos_web`) y, con `sflow=true` (solo `vrp`), `sflow_config`. Un router → `422 DEVICE_NOT_A_SWITCH`; dirección de Horus → 422; dirección verificada de otro equipo → `MANAGEMENT_ADDRESS_IN_USE` al verificar. Re-autenticación y auditoría. | `devices.credentials.write` |
+| `GET /switches/status` | `snmp` | Estado efectivo (como `/routers/status`, `device_type: switch`) + `platform`, `ports_monitored`, `uplinks`, `uplinks_down`, `ports_flapping`, `neighbors_count`. `site_id`. Kiosco permitido. | `devices.read` |
+| `GET /switches/{id}/ports` | `snmp` | Puertos (IF-MIB) con `monitored`, `uplink`, `suggested_uplink`, `flaps_1h/24h`, última muestra y vecinos LLDP; `selection` (por defecto o guardada, `version` = ETag), `max_ports` (64). | `devices.read` |
+| `PUT /switches/{id}/ports` · `DELETE` | `snmp` | Sustituye la elección (`ports: [{name, uplink}]`, máx. 64; puerto inexistente → 422; `If-Match` → 412) o vuelve a la de por defecto. Auditado. | `snmp.manage` |
+| `GET /switches/{id}/neighbors` | `snmp` | Vecinos LLDP (`source=lldp`) o de `mtxrNeighborTable` (`mndp`), con `known_device`. | `devices.read` |
+| `GET /switches/{id}/flows/top` | `snmp` | Top por `src_ip`, `dst_ip` o `protocol` (`if_index`, `window_minutes` 5–10080, `limit` 1–50) de `flows.switch_samples`: **fuente secundaria** (`source: secondary`), nunca suma a clientes ni nodos. Sin ClickHouse → 503. | `snmp.read` |
+
+Además: `GET /capacity/overview` incluye los uplinks de los switches (`device_type: switch`) y los switches en
+`routers[]` de cada nodo (salud del nodo); `/routers/status` y el widget de routers **no** incluyen switches.
+`GET /routers/{id}/metrics/live`, `/interfaces` y `/analytics/routers/{id}/interfaces/metrics` funcionan con el id de
+un switch.
+
 ### 2.6 Estado del router: un solo conjunto de valores
 
 Se unifican los estados de [`architecture.md`](./architecture.md) §10.2–§10.4 (`online/degraded/offline/stale`) y los del

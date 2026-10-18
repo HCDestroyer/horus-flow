@@ -373,6 +373,13 @@ Convención: **Dep.** son dependencias duras. Los riesgos se puntúan Probabilid
 
 ### I6 — Más fabricantes (M por fabricante)
 
+> **Switches de monitoreo (18/10/2026, decisión del PO):** switches MikroTik (CRS con RouterOS 7, SwOS) y Huawei
+> serie S en **modo directo**, solo de monitoreo: puertos elegidos, uplinks en la capacidad, vecinos LLDP, flaps y
+> sFlow de la serie S como fuente secundaria que nunca suma a clientes ni nodos
+> ([`vendors/mikrotik.md` §13](vendors/mikrotik.md#13-switches-de-monitoreo-crs-con-routeros-7-y-swos),
+> [`vendors/huawei.md` §11](vendors/huawei.md#11-switches-de-la-serie-s), [`traffic-model.md` §13](traffic-model.md#13-switches-sflow-como-fuente-secundaria)).
+> RouterOS validado en el CHR 7.23.8 (SNMPv3, LLDP-MIB); SwOS y la serie S, pendientes de equipo real.
+
 - Adaptadores Cisco, Huawei, Juniper (SNMP, flujos, API si aplica) y sFlow, cada uno con
   simulador o capturas reales y equipo de laboratorio aportado por la persona.
 - **Avance (Huawei VRP y sFlow):** estructura de adaptadores por `router.vendor` (núcleo estándar

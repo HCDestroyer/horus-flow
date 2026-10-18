@@ -881,6 +881,23 @@ TTL bucket + INTERVAL 2 DAY RECOMPRESS CODEC(ZSTD(6)), bucket + INTERVAL 30 DAY 
 
 ---
 
+### 6.7 Switches de monitoreo (I3/I6)
+
+- **PostgreSQL `devices.router`**: un switch es una fila con `device_type = 'switch'`, `switch_platform`
+  (`routeros` | `swos` | `vrp`) y `sflow_enabled` (migración `20261018201716_devices_switches.sql`). Decisión: misma
+  tabla que los routers para reutilizar estado, credencial cifrada, modo directo con dirección de gestión única y
+  verificación SNMP, eventos y sondeo; las reglas de solo monitoreo son CHECK (`ck_router__switch`: nunca principal,
+  directo por camino privado, sin túnel, plataforma coherente con `vendor`, sFlow solo en `vrp`). Índice
+  `ix_router__site_device_type`. `devices.credential.kind` admite `snmp_v2c` (comunidad de SwOS).
+- **PostgreSQL `snmp.switch_port_selection` / `snmp.switch_port`**: elección de puertos por switch (versión para
+  If-Match, autor) y un registro por puerto elegido (`uplink`); RLS forzada por tenant; el sondeador las carga con el
+  rol de plataforma (migración `20261018203737_snmp_switch_ports.sql`).
+- **ClickHouse `flows.switch_samples`**: muestras sFlow de switches (fuente secundaria), sin vistas dependientes,
+  `ORDER BY (tenant_id, switch_id, input_if_index, ts)`, TTL 7 días, row policies `p_tenant`/`p_platform` como el resto
+  de `flows.*`; escritor único el rol ingester (`horus_ingester_role`). Ver [`traffic-model.md` §13](traffic-model.md#13-switches-sflow-como-fuente-secundaria).
+- Las métricas de los puertos van a las tablas de siempre (`snmp.interface_metrics/5m/1h`) con `router_id` = id del
+  switch: como mucho 64 puertos por switch.
+
 ## 7. Retención (resumen; política completa en [`storage.md` §5](storage.md))
 
 | Dato | Granularidad | ClickHouse (defecto) | Archivo local |
