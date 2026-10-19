@@ -29,7 +29,7 @@
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
-cd "$repo_root"
+cd "$repo_root" || exit 1
 
 out_dir="$repo_root/bin/accept-i0"
 rm -rf "$out_dir"/*.log "$out_dir"/notes "$out_dir"/compose-logs.txt 2>/dev/null || true
@@ -104,6 +104,8 @@ step() {
   done
   printf '\n\033[1m==> [%s] %s (%s)\033[0m\n' "$id" "$desc" "$story"
   start="$(date +%s)"
+  # El paso corre en una subshell a propósito: skip() sale con 77 sin terminar el runner.
+  # shellcheck disable=SC2030
   ( export ACCEPT_NOTE_FILE="$note_file"; "$fn" ) >"$out_dir/$id.log" 2>&1
   rc=$?
   note="$(cat "$note_file" 2>/dev/null || true)"
@@ -122,7 +124,9 @@ step() {
   fi
 }
 
+# shellcheck disable=SC2031 # ACCEPT_NOTE_FILE lo exporta la subshell de run_step.
 skip() { printf '%s' "$1" >"$ACCEPT_NOTE_FILE"; exit 77; }
+# shellcheck disable=SC2031
 note() { printf '%s' "$1" >"$ACCEPT_NOTE_FILE"; }
 
 # --- Pasos -------------------------------------------------------------------------------------
@@ -225,6 +229,7 @@ s_migrations() {
     $MAKE --no-print-directory migrate-ch || rc=1
   echo "--- ClickHouse: tablas del esquema v0"
   local tables
+  # shellcheck disable=SC2016 # $CLICKHOUSE_USER se expande dentro del contenedor.
   tables="$("${compose[@]}" exec -T clickhouse sh -c \
     'clickhouse-client --user "$CLICKHOUSE_USER" --password "$(cat /run/secrets/clickhouse_password)" -q "SELECT database || '"'"'.'"'"' || name FROM system.tables WHERE database IN ('"'"'flows'"'"','"'"'dim'"'"') ORDER BY 1"')" || rc=1
   printf '%s\n' "$tables"

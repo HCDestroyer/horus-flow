@@ -48,7 +48,7 @@ wait_until() { # wait_until <segundos> <descripción> <comando...>
     die "tiempo agotado esperando $what"
 }
 
-psql_super() { docker exec -i "$PREFIX-pg" psql -v ON_ERROR_STOP=1 -X -q -o /dev/null -U postgres "$@" 2>&1 | grep -v NOTICE || true; }
+psql_super() { docker exec -i "$PREFIX-pg" psql -v ON_ERROR_STOP=1 -X -q -o /dev/null -U postgres 2>&1 | grep -v NOTICE || true; }
 
 # ------------------------------------------------------------------------------- contenedores
 containers_up() {
@@ -110,6 +110,7 @@ pidfile() { echo "$WORK/$1.pid"; }
 start_proc() { # start_proc <nombre> <dir> <archivo env> <comando...>
     local name=$1 dir=$2 envfile=$3; shift 3
     stop_proc "$name"
+    # shellcheck source=/dev/null
     (cd "$dir" && set -a && . "$envfile" && set +a && exec setsid "$@" >"$WORK/$name.log" 2>&1 </dev/null) &
     echo $! >"$(pidfile "$name")"
 }
@@ -239,11 +240,13 @@ up() {
     log "compilando horus y ch-migrate"
     (cd "$ROOT" && go build -o "$WORK/bin/horus" ./services/cmd/horus && go build -o "$WORK/bin/ch-migrate" ./services/ingester/cmd/ch-migrate)
     log "esquema ClickHouse"
+    # shellcheck source=/dev/null
     (set -a && . "$WORK/horus.env" && set +a && "$WORK/bin/ch-migrate" >"$WORK/ch-migrate.log" 2>&1) || { tail -20 "$WORK/ch-migrate.log"; die "ch-migrate falló"; }
     log "Horus"
     start_horus
     log "ArgosISP: dependencias, migraciones, seed"
     [ -d "$ARGOS_DIR/node_modules" ] || (cd "$ARGOS_DIR" && pnpm install --frozen-lockfile >"$WORK/pnpm.log" 2>&1)
+    # shellcheck source=/dev/null
     (cd "$ARGOS_DIR/apps/api" && set -a && . "$WORK/argos.env" && set +a &&
         node ace migration:run --force >"$WORK/argos-migrate.log" 2>&1 && node ace db:seed >>"$WORK/argos-migrate.log" 2>&1) ||
         { tail -30 "$WORK/argos-migrate.log"; die "migraciones de ArgosISP fallaron"; }
@@ -263,7 +266,7 @@ down() {
     stop_all
     if [ "${E2E_KEEP:-0}" != 1 ]; then
         docker rm -f "$PREFIX-pg" "$PREFIX-ch" "$PREFIX-nats" "$PREFIX-valkey" >/dev/null 2>&1 || true
-        rm -rf "$WORK/horus-data" "$WORK/bin"
+        rm -rf "${WORK:?}/horus-data" "${WORK:?}/bin"
     fi
 }
 

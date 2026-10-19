@@ -1,46 +1,68 @@
 # Auto-merge de PRs (historia I0-03; D7, team.md §5.2).
 #
-# Activa el auto-merge en cada PR no borrador de una rama de este repositorio. GitHub lo
-# fusiona (o lo mete en la merge queue, si está activa) SOLO cuando se cumplen las reglas de
-# `main`: checks requeridos en verde (ci-ok, dod, scope-guard, agent-review, persona-gate) y las
-# revisiones exigidas. Por eso un PR normal entra solo con CI verde + agent-review, y uno con
-# contract:* / area:security / area:sensitive espera a la persona (persona-gate).
+# Fusiona (squash) un PR no borrador de una rama de este repositorio SOLO cuando el check
+# `ci-ok` (resumen del workflow `ci`) terminó en verde sobre su último commit. Antes se usaba
+# `gh pr merge --auto`, que delega la espera en las reglas de protección de la rama base; la rama
+# de trabajo no tiene reglas, así que GitHub fusionaba al abrir el PR sin esperar al CI (PR #12).
 #
-# Excluye PRs con la etiqueta `no-automerge`. Token: AUTOMERGE_TOKEN (GitHub App o PAT con
-# contents+pull-requests de escritura) si existe; si no, GITHUB_TOKEN. Con GITHUB_TOKEN el push
-# resultante a `main` no dispara otros workflows (limitación de GitHub): ver .github/README.md.
+# - Espera a `ci-ok` del commit exacto; si acaba en rojo, cancelado u omitido, el PR se queda
+#   abierto. Un push nuevo cancela la espera anterior (concurrency) y empieza otra.
+# - `--match-head-commit` evita fusionar un commit más nuevo que el probado.
+# - Excluye borradores y PRs con la etiqueta `no-automerge` (para revisarlo a mano).
+# - persona-gate y agent-review (pr-gates) no bloquean: piden un revisor distinto del autor y los
+#   PRs se abren con la cuenta de la persona; su control es la etiqueta no-automerge.
+#
+# Token: AUTOMERGE_TOKEN (GitHub App o PAT con contents+pull-requests de escritura) si existe; si
+# no, GITHUB_TOKEN. Con GITHUB_TOKEN el push resultante no dispara otros workflows (limitación de
+# GitHub): ver .github/README.md.
 
 name: auto-merge
 
 on:
   pull_request:
-    types: [opened, reopened, ready_for_review]
+    types: [opened, reopened, ready_for_review, synchronize, labeled, unlabeled]
 
 permissions:
   contents: read
 
+concurrency:
+  group: auto-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
-  enable:
-    name: enable-auto-merge
+  merge:
+    name: merge-on-green-ci
     if: >-
       github.event.pull_request.draft == false &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       !contains(github.event.pull_request.labels.*.name, 'no-automerge')
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    # El job ci tarda ~16 min; margen para colas de runners.
+    timeout-minutes: 60
     permissions:
       contents: write
       pull-requests: write
+      checks: read
     steps:
-      - name: gh pr merge --auto
+      - name: esperar ci-ok y fusionar
         env:
           GH_TOKEN: ${{ secrets.AUTOMERGE_TOKEN || github.token }}
-          PR_URL: ${{ github.event.pull_request.html_url }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           MERGE_QUEUE: ${{ vars.MERGE_QUEUE }}
         run: |
+          while :; do
+            state=$(gh api "repos/$REPO/commits/$HEAD_SHA/check-runs?check_name=ci-ok" \
+              --jq '[.check_runs[] | "\(.status) \(.conclusion)"] | sort | last // "pending"' || echo pending)
+            case "$state" in
+              "completed success") break ;;
+              completed*) echo "ci-ok terminó en '${state#completed }'; el PR #$PR queda abierto"; exit 0 ;;
+            esac
+            sleep 30
+          done
           if [ "$MERGE_QUEUE" = "true" ]; then
-            # Con merge queue el método (squash) lo fija la regla de la cola.
-            gh pr merge --auto "$PR_URL"
+            gh pr merge --repo "$REPO" "$PR" --auto --match-head-commit "$HEAD_SHA"
           else
-            gh pr merge --auto --squash "$PR_URL"
+            gh pr merge --repo "$REPO" "$PR" --squash --match-head-commit "$HEAD_SHA"
           fi

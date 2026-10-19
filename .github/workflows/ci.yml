@@ -108,7 +108,8 @@ jobs:
           docker run --rm -i "$HADOLINT_IMAGE" hadolint - < deployments/images/strongswan/Dockerfile
       - name: shellcheck
         run: |
-          mapfile -t scripts < <(git ls-files '*.sh')
+          # testdata/: salidas de ejemplo con marcadores ({INTERFAZ_WAN}), no scripts ejecutables.
+          mapfile -t scripts < <(git ls-files '*.sh' ':!:**/testdata/**')
           if [ "${#scripts[@]}" -gt 0 ]; then
             docker run --rm -v "$PWD:/mnt" -w /mnt "$SHELLCHECK_IMAGE" "${scripts[@]}"
           fi
@@ -313,7 +314,14 @@ jobs:
       - name: smoke de la imagen (no-root, arranca)
         run: |
           test "$(docker image inspect horus:ci --format '{{.Config.User}}')" = "65532:65532"
-          docker run --rm -e HORUS_ROLES=collector horus:ci
+          # El colector no termina: se comprueba que sigue vivo a los 10 s y que arrancó.
+          cid=$(docker run -d -e HORUS_ROLES=collector horus:ci)
+          sleep 10
+          docker logs "$cid" >/tmp/horus-image-smoke.log 2>&1
+          running=$(docker inspect -f '{{.State.Running}}' "$cid")
+          docker rm -f "$cid" >/dev/null
+          grep -q '"horus starting"' /tmp/horus-image-smoke.log && [ "$running" = true ] \
+            || { cat /tmp/horus-image-smoke.log; exit 1; }
       - name: trivy image (HIGH/CRITICAL)
         run: |
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "$TRIVY_IMAGE" image --no-progress \
