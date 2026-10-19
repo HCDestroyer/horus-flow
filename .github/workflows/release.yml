@@ -205,6 +205,9 @@ jobs:
             [ "$PRERELEASE" = false ] || gh release edit "$TAG" --prerelease
           else
             flags=(--generate-notes --verify-tag)
+            # Notas escritas a mano (qué se agregó, mejoró o resolvió) si existen; GitHub añade
+            # debajo la lista de PRs.
+            [ ! -f "docs/releases/${TAG}.md" ] || flags+=(--notes-file "docs/releases/${TAG}.md")
             [ "$PRERELEASE" = false ] || flags+=(--prerelease)
             gh release create "$TAG" "${flags[@]}" --title "Horus Flow ${TAG}" dist/*
           fi
