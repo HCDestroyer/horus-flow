@@ -6,6 +6,8 @@ import type { FlowExporter, Peer, Router } from '~~/types/api'
  * 1. Generar script: requisitos visibles; "Copiar" y "Descargar .rsc"; contraseñas y token
  *    de enrolamiento (un uso, 24 h) se muestran una sola vez; "Regenerar" y "Revocar token".
  * 2. Pegar en el router: el script envía la clave sola; la UI pasa a "Clave recibida".
+ *    Alta manual (instalación sin el 443 publicado): el script no llama a Horus y muestra la
+ *    clave pública; la persona la pega aquí (`POST /wireguard/enrollment-tokens/{id}/enroll`).
  * 3. Verificación: clave → handshake → primer flujo → primeros clientes, marcados en vivo
  *    (sondeo cada 3 s mientras no termina; el WebSocket `wireguard.peers` lo sustituirá).
  * Horus no escribe en el router: el script lo pega el técnico. Generarlo es `x-reauth`: si el
@@ -33,6 +35,14 @@ const tokenId = ref<string | null>(null)
 const tokenExpires = ref<string | null>(null)
 const generating = ref(false)
 const genError = shallowRef<unknown>(null)
+// Alta manual: el router no llega al HTTPS de Horus (443 sin publicar).
+const manual = ref(false)
+const scriptManual = ref(false)
+const manualOpen = ref(false)
+const pubKey = ref('')
+const enrolling = ref(false)
+const enrollError = ref<string | null>(null)
+const WG_KEY = /^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw480]=$/
 
 const ORDER = ['pending_configuration', 'key_received', 'tunnel_up', 'exporting'] as const
 const stage = computed(() =>
@@ -49,7 +59,7 @@ async function requestScript() {
       path: { router_id: props.router.id },
       header: { 'Idempotency-Key': idempotencyKey() },
     },
-    body: {},
+    body: { enrollment: manual.value ? 'manual' : 'fetch' },
     parseAs: 'text',
   })
   if (!res.response.ok) {
@@ -73,6 +83,8 @@ async function generate() {
   try {
     const res = await withReauth(requestScript, t('onboarding.generate.reauth'))
     script.value = res.data as unknown as string
+    scriptManual.value = manual.value
+    manualOpen.value = manual.value
     tokenId.value = res.response.headers.get('X-Horus-Enrollment-Token-Id')
     tokenExpires.value = res.response.headers.get('X-Horus-Enrollment-Token-Expires-At')
     emit('refresh')
@@ -106,6 +118,51 @@ async function revoke() {
     emit('refresh')
   } catch (e) {
     toast.add({ title: t(describeError(e).messageKey), color: 'error' })
+  }
+}
+
+const pendingTokenId = computed(() =>
+  stage.value === 0 && (script.value || tokenState.value === 'pending')
+    ? (tokenId.value ?? props.peer?.enrollment.token_id ?? null)
+    : null,
+)
+
+async function enrollManual() {
+  const id = pendingTokenId.value
+  // Se acepta la línea completa que imprime el router (HORUS_ROUTER_PUBKEY=…).
+  const key = pubKey.value.trim().replace(/^HORUS_ROUTER_PUBKEY=/, '')
+  enrollError.value = null
+  if (!WG_KEY.test(key)) {
+    enrollError.value = t('onboarding.paste.manualInvalid')
+    return
+  }
+  if (!id) return
+  enrolling.value = true
+  try {
+    await unwrap(
+      $api.POST('/wireguard/enrollment-tokens/{token_id}/enroll', {
+        params: { path: { token_id: id } },
+        body: { public_key: key },
+      }),
+    )
+    pubKey.value = ''
+    toast.add({
+      title: t('onboarding.paste.manualDone'),
+      icon: 'i-lucide-key-round',
+      color: 'success',
+    })
+    emit('refresh')
+  } catch (e) {
+    enrollError.value =
+      e instanceof ApiError && e.code === 'ENROLLMENT_TOKEN_INVALID'
+        ? t('onboarding.paste.manualTokenInvalid')
+        : e instanceof ApiError && e.code === 'WIREGUARD_PUBLIC_KEY_IN_USE'
+          ? t('onboarding.paste.manualKeyInUse')
+          : e instanceof ApiError && e.code === 'VALIDATION_FAILED'
+            ? t('onboarding.paste.manualInvalid')
+            : t(describeError(e).messageKey)
+  } finally {
+    enrolling.value = false
   }
 }
 
@@ -253,6 +310,13 @@ onBeforeUnmount(() => clearInterval(timer))
                 data-testid="generate-blocked"
               />
               <ErrorState v-else-if="genError" :error="genError" @retry="generate" />
+              <USwitch
+                v-if="canWrite && stage === 0"
+                v-model="manual"
+                :label="t('onboarding.generate.manualLabel')"
+                :description="t('onboarding.generate.manualHelp')"
+                data-testid="manual-enroll"
+              />
               <div v-if="canWrite && stage === 0" class="flex flex-wrap gap-2">
                 <UButton
                   :icon="script ? 'i-lucide-refresh-cw' : 'i-lucide-file-code-2'"
@@ -284,7 +348,9 @@ onBeforeUnmount(() => clearInterval(timer))
 
             <!-- Paso 2: pegar en el router -->
             <template v-else-if="step.key === 'paste'">
-              <p class="text-default text-sm">{{ t('onboarding.paste.body') }}</p>
+              <p class="text-default text-sm">
+                {{ scriptManual ? t('onboarding.paste.manualBody') : t('onboarding.paste.body') }}
+              </p>
               <p
                 v-if="stage > 0"
                 class="text-success flex items-center gap-1.5 text-sm font-medium"
@@ -314,6 +380,63 @@ onBeforeUnmount(() => clearInterval(timer))
                   />
                 </template>
               </UAlert>
+              <template v-else-if="canWrite && pendingTokenId">
+                <UCollapsible
+                  v-model:open="manualOpen"
+                  class="flex flex-col gap-2"
+                  data-testid="manual-key"
+                >
+                  <UButton
+                    v-if="!scriptManual"
+                    color="neutral"
+                    variant="link"
+                    size="sm"
+                    icon="i-lucide-key-round"
+                    :label="t('onboarding.paste.manualToggle')"
+                    class="self-start px-0"
+                  />
+                  <template #content>
+                    <form
+                      class="flex flex-col gap-2 sm:flex-row sm:items-end"
+                      @submit.prevent="enrollManual"
+                    >
+                      <UFormField
+                        :label="t('onboarding.paste.manualField')"
+                        :help="t('onboarding.paste.manualFieldHelp')"
+                        :error="enrollError ?? undefined"
+                        class="min-w-0 flex-1"
+                      >
+                        <UInput
+                          v-model="pubKey"
+                          class="w-full font-mono"
+                          autocomplete="off"
+                          spellcheck="false"
+                          data-testid="manual-key-input"
+                        />
+                      </UFormField>
+                      <UButton
+                        type="submit"
+                        icon="i-lucide-check"
+                        :loading="enrolling"
+                        :label="t('onboarding.paste.manualSubmit')"
+                        data-testid="manual-key-submit"
+                      />
+                    </form>
+                  </template>
+                </UCollapsible>
+                <p
+                  v-if="!scriptManual"
+                  class="text-muted flex items-center gap-1.5 text-sm"
+                  role="status"
+                >
+                  <UIcon
+                    name="i-lucide-loader-circle"
+                    class="size-4 animate-spin motion-reduce:animate-none"
+                    aria-hidden="true"
+                  />
+                  {{ t('onboarding.paste.waiting') }}
+                </p>
+              </template>
               <p
                 v-else-if="step.state === 'current'"
                 class="text-muted flex items-center gap-1.5 text-sm"

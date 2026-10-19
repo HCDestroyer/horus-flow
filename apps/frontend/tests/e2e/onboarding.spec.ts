@@ -58,6 +58,38 @@ test.describe('router y onboarding @onboarding', () => {
     await expect(page.getByTestId('router-last-flow')).toContainText('último flujo hace')
   })
 
+  test('alta manual: el script no llama a Horus y la clave se pega en el panel', async ({
+    page,
+  }) => {
+    await page.addInitScript(() =>
+      window.localStorage.setItem('horus.mock.onboardingStepMs', '2500'),
+    )
+    await loginAsAdmin(page)
+    await page.goto(`${PENDING}/connection`)
+    await page.getByRole('switch', { name: /Alta manual/ }).click()
+    await page.getByTestId('generate-script').click()
+    const script = page.getByTestId('provisioning-script')
+    await expect(script).toContainText('HORUS_ROUTER_PUBKEY=')
+    await expect(script).not.toContainText('/tool fetch')
+
+    const input = page.getByTestId('manual-key-input')
+    await expect(input).toBeVisible()
+    await input.fill('no-es-una-clave')
+    await page.getByTestId('manual-key-submit').click()
+    await expect(page.getByTestId('manual-key')).toContainText('No es una clave pública WireGuard')
+    // Sin el envío del router no avanza solo.
+    await page.waitForTimeout(3000)
+    await expect(page.getByTestId('key-received')).toHaveCount(0)
+
+    await input.fill('HORUS_ROUTER_PUBKEY=yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=')
+    await page.getByTestId('manual-key-submit').click()
+    await expect(page.getByTestId('key-received')).toBeVisible({ timeout: 15_000 })
+    await expect(page.locator('[data-check="tunnel"]')).toHaveAttribute('data-done', 'true', {
+      timeout: 15_000,
+    })
+    expect(await seriousViolations(page)).toEqual([])
+  })
+
   test('si el token caduca, se ofrece regenerarlo', async ({ page }) => {
     await page.addInitScript(() => {
       window.localStorage.setItem('horus.mock.onboardingStepMs', '60000')

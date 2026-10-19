@@ -481,6 +481,8 @@ paths:
     $ref: ./analytics.yaml#/paths/~1widget-data~1preview
   /widget-types:
     $ref: ./analytics.yaml#/paths/~1widget-types
+  /wireguard/enrollment-tokens/{token_id}/enroll:
+    $ref: ./wireguard.yaml#/paths/~1wireguard~1enrollment-tokens~1{token_id}~1enroll
   /wireguard/enrollment-tokens/{token_id}/revoke:
     $ref: ./wireguard.yaml#/paths/~1wireguard~1enrollment-tokens~1{token_id}~1revoke
   /wireguard/peers:

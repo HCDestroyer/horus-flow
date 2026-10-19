@@ -155,6 +155,35 @@ func TestOnboardingIPOnlyImportsCertificate(t *testing.T) {
 	golden(t, "onboarding-7.12-ip_only.rsc", s)
 }
 
+// Alta manual (instalación sin el 443 publicado): el script no llama a Horus
+// ni importa su certificado, no lleva el token y muestra la clave pública.
+func TestOnboardingManualEnroll(t *testing.T) {
+	t.Parallel()
+	for _, tpl := range []string{Template712, TemplateLongTerm} {
+		v := values(tpl)
+		v.ManualEnroll, v.AccessMode, v.CACertPEM, v.Token, v.EnrollURL = true, "ip_only", testCA, "", ""
+		s, err := Onboarding(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m := placeholderRe.FindString(s); m != "" {
+			t.Fatalf("placeholder sin resolver: %q", m)
+		}
+		for _, bad := range []string{"/tool fetch", "/api/v1/enroll", "horus-ca", "token\\\":", "check-certificate=no", "private-key="} {
+			if strings.Contains(s, bad) {
+				t.Errorf("el alta manual no debe llevar %q", bad)
+			}
+		}
+		for _, must := range []string{`:put ("HORUS_ROUTER_PUBKEY=" . $pk)`, "Registrar clave pública", "group=horus-ro", "version=ipfix",
+			"allowed-address=10.255.0.0/24", "address=10.255.3.17/32"} {
+			if !strings.Contains(s, must) {
+				t.Errorf("falta %q", must)
+			}
+		}
+		golden(t, "onboarding-"+tpl+"-manual.rsc", s)
+	}
+}
+
 func TestDeprovisioningGolden(t *testing.T) {
 	t.Parallel()
 	s, err := Deprovisioning(DeprovisionValues{RouterID: "0192e333-0000-7000-8000-000000000033", RouterName: "rt-centro",

@@ -748,6 +748,29 @@ function inventoryRoutes(ctx: TenantRouteContext): Response | undefined {
       ),
     )
   }
+  if ((p = match(ctx, 'POST', '/wireguard/enrollment-tokens/{id}/enroll'))) {
+    if (!ctx.can('wireguard.write')) return forbidden()
+    const run = [...mockState.onboarding.values()].find((r) => r.tokenId === p!.id)
+    const key = typeof ctx.body.public_key === 'string' ? ctx.body.public_key.trim() : ''
+    if (!/^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw480]=$/.test(key)) {
+      return problem(
+        422,
+        'VALIDATION_FAILED',
+        'Clave pública WireGuard (44 caracteres base64).',
+        {},
+        {
+          errors: [
+            { field: 'public_key', code: 'INVALID_FORMAT', message: 'Clave pública WireGuard.' },
+          ],
+        },
+      )
+    }
+    if (!run || run.revokedAt || run.keyAt || run.expiresAt <= now.getTime()) {
+      return problem(400, 'ENROLLMENT_TOKEN_INVALID', 'Token de enrolamiento no válido')
+    }
+    run.keyAt = now.getTime()
+    return json({ peer_status: 'pending_handshake' }, 202)
+  }
   if ((p = match(ctx, 'POST', '/wireguard/enrollment-tokens/{id}/revoke'))) {
     const run = [...mockState.onboarding.values()].find((r) => r.tokenId === p!.id)
     if (!run) return notFound()
@@ -783,9 +806,15 @@ function inventoryRoutes(ctx: TenantRouteContext): Response | undefined {
     const ttl = readEnrollTtl()
     const expiresAt = now.getTime() + ttl
     // Regenerar invalida el token anterior.
-    mockState.onboarding.set(item.router.id, { scriptAt: now.getTime(), tokenId, expiresAt })
+    const manual = ctx.body?.enrollment === 'manual'
+    mockState.onboarding.set(item.router.id, {
+      scriptAt: now.getTime(),
+      tokenId,
+      expiresAt,
+      manual,
+    })
     const token = `hfe_${randomHex(32)}`
-    return text(provisioningScript(tenant, item, token, 'horus.fibranorte.example'), 201, {
+    return text(provisioningScript(tenant, item, token, 'horus.fibranorte.example', manual), 201, {
       'X-Horus-Enrollment-Token-Id': tokenId,
       'X-Horus-Enrollment-Token-Expires-At': iso(expiresAt),
     })

@@ -4310,6 +4310,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/wireguard/enrollment-tokens/{token_id}/enroll": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Alta manual — registra la clave pública que la persona copió del router
+         * @description Para el script generado con `enrollment: manual` (el router no llega al HTTPS de Horus). Mismas reglas que
+         *     `/enroll/wireguard`: token pendiente del ISP (el de la cabecera `X-Horus-Enrollment-Token-Id`), de un uso, TTL
+         *     24 h, 5 fallos lo invalidan; usado, caducado, revocado o desconocido → `ENROLLMENT_TOKEN_INVALID`. Clave ya
+         *     registrada → `409 WIREGUARD_PUBLIC_KEY_IN_USE`. Auditado con la persona como actor.
+         */
+        post: operations["enrollWireguardManual"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/wireguard/enrollment-tokens/{token_id}/revoke": {
         parameters: {
             query?: never;
@@ -15077,6 +15102,15 @@ export interface operations {
         requestBody?: {
             content: {
                 "application/json": {
+                    /**
+                     * @description `fetch`: el router envía su clave pública a `/enroll/wireguard` con el token (necesita llegar al
+                     *     HTTPS de Horus). `manual`: el script no se conecta a Horus ni lleva el token; muestra la clave
+                     *     pública (`HORUS_ROUTER_PUBKEY=`) para pegarla con `POST /wireguard/enrollment-tokens/{token_id}/enroll`.
+                     *     Para instalaciones sin el 443 publicado: en el borde solo queda el UDP de WireGuard.
+                     * @default fetch
+                     * @enum {string|null}
+                     */
+                    enrollment?: "fetch" | "manual" | null;
                     /** @example pool.ntp.org */
                     ntp_server?: string | null;
                     routeros_version?: string | null;
@@ -16048,6 +16082,43 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    enrollWireguardManual: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Clave pública WireGuard del router (44 caracteres base64; se ignoran espacios alrededor). */
+                    public_key: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Clave registrada; el agente añade el peer en segundos. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        peer_status: "pending_handshake";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
         };
     };
     revokeEnrollmentToken: {

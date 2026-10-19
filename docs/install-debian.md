@@ -145,12 +145,30 @@ En el router o cortafuegos que hay delante del servidor, redirige a la IP del se
   directo. Sin esas opciones no se abre nada más.
 - El instalador ya filtra el resto en el propio servidor.
 
-### 5.1. Publicar el 443 sin dejar el panel a la vista de Internet
+### 5.1. Servidor con IP privada: sin publicar el 443
 
 Los routers solo usan el **443 una vez**, al darse de alta: el script de RouterOS registra su clave
 en `/api/v1/enroll/wireguard` con un token de un solo uso. Después todo va por el túnel (UDP 51820).
-Si redirigiste el 443 con un dst-nat, cualquiera puede ver la pantalla de acceso del panel. Para
-evitarlo, limita el panel a tus IPs con `--panel-allow`:
+
+**Recomendado: no publicar el 443.** En el router de borde reenvía **solo el UDP 51820**. WireGuard no
+responde a nadie que no tenga una clave registrada, así que desde Internet el servidor no muestra
+ningún servicio. Tú entras al panel desde la LAN o por tu VPN, y los routers se dan de alta con el
+**alta manual**:
+
+1. En la ficha del router (paso «Generar script»), activa **Alta manual (el router no llega al HTTPS
+   de Horus)** y genera el script. El script no se conecta a Horus ni lleva el token.
+2. Pégalo en el router. Al terminar muestra `HORUS_ROUTER_PUBKEY=…`, la clave **pública** del router
+   (la privada nunca sale del router).
+3. Pega esa línea en el campo **Clave pública del router** del paso 2 y pulsa **Registrar clave**
+   (antes de 24 h). El túnel se activa en segundos.
+
+```
+/ip firewall nat
+add chain=dstnat in-interface-list=WAN protocol=udp dst-port=51820 action=dst-nat to-addresses=<IP del servidor>
+```
+
+**Si necesitas el panel desde fuera** y no tienes VPN, publica también el 443 y limita el panel a tus
+IPs con `--panel-allow`:
 
 ```bash
 sudo bash scripts/install.sh --panel-allow 190.0.2.10,192.168.88.0/24
