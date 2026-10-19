@@ -145,6 +145,38 @@ En el router o cortafuegos que hay delante del servidor, redirige a la IP del se
   directo. Sin esas opciones no se abre nada más.
 - El instalador ya filtra el resto en el propio servidor.
 
+### 5.1. Publicar el 443 sin dejar el panel a la vista de Internet
+
+Los routers solo usan el **443 una vez**, al darse de alta: el script de RouterOS registra su clave
+en `/api/v1/enroll/wireguard` con un token de un solo uso. Después todo va por el túnel (UDP 51820).
+Si redirigiste el 443 con un dst-nat, cualquiera puede ver la pantalla de acceso del panel. Para
+evitarlo, limita el panel a tus IPs con `--panel-allow`:
+
+```bash
+sudo bash scripts/install.sh --panel-allow 190.0.2.10,192.168.88.0/24
+```
+
+- El panel, la API y el tiempo real (`/ws`) solo responden a esas IPs o redes. Las demás reciben `403`.
+- El alta de routers (`/api/v1/enroll/`) y el túnel WireGuard siguen abiertos para todos, así que un
+  router nuevo se da de alta desde cualquier sitio sin tocar el NAT.
+- Incluye la red de tu oficina o la LAN desde la que entras, y la IP del servidor de ArgosISP si lo
+  conectas (consulta la API de Horus).
+- Se guarda en `/etc/horus/install.conf` y se respeta al actualizar. Vuelve a ejecutar el instalador
+  con otra lista para cambiarla, o con `--panel-allow any` para quitar la restricción.
+- No aplica con `--tls external`: en ese modo limita el acceso en tu proxy.
+
+**Comprueba que el router de delante no oculta la IP real.** La lista funciona con la IP de origen
+de cada conexión. Si el router hace `masquerade` (src-nat) también del tráfico que entra por el
+dst-nat, todas las conexiones llegan con la IP del router y la lista no sirve. En MikroTik basta con
+dos reglas de dst-nat y un `masquerade` solo para la salida:
+
+```
+/ip firewall nat
+add chain=dstnat in-interface-list=WAN protocol=udp dst-port=51820 action=dst-nat to-addresses=<IP del servidor>
+add chain=dstnat in-interface-list=WAN protocol=tcp dst-port=443 action=dst-nat to-addresses=<IP del servidor>
+add chain=srcnat out-interface-list=WAN action=masquerade
+```
+
 ## 6. Primer acceso del superadministrador (con TOTP)
 
 1. Abre la URL que mostró el instalador (por ejemplo `https://203.0.113.10`).
