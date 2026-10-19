@@ -5,3 +5,9 @@
 95b6626f775b33afbc503fd58eee1a9d0860fb0c:services/alerts/internal/notify/webhook_test.go:generic-api-key:95
 95b6626f775b33afbc503fd58eee1a9d0860fb0c:services/alerts/internal/notify/webhook_test.go:generic-api-key:144
 95b6626f775b33afbc503fd58eee1a9d0860fb0c:services/alerts/internal/notify/webhook_test.go:generic-api-key:148
+# Claves fijas del laboratorio e2e-argos en su primer commit; desde el siguiente se generan al vuelo.
+efbb8019449c825eacd1c2cb39d533299035534a:tests/e2e-argos/helpers_test.go:generic-api-key:318
+efbb8019449c825eacd1c2cb39d533299035534a:tests/e2e-argos/run.sh:generic-api-key:176
+efbb8019449c825eacd1c2cb39d533299035534a:tests/e2e-argos/run.sh:generic-api-key:184
+efbb8019449c825eacd1c2cb39d533299035534a:tests/e2e-argos/run.sh:generic-api-key:190
+efbb8019449c825eacd1c2cb39d533299035534a:tests/e2e-argos/e2e_test.go:generic-api-key:194

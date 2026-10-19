@@ -51,6 +51,21 @@ func TestWidgetData(t *testing.T) {
 			direction: "download", client: netip.MustParseAddr("10.20.0.1"), bytes: 75_000_000, packets: 10})
 	}
 	e.insert(rows)
+	// new_today depende de la hora: cerca de la medianoche UTC parte de las
+	// filas sembradas cae en el día anterior. Se calcula lo esperado igual que
+	// el widget (primer día visto por cliente ≥ hoy).
+	first := map[netip.Addr]time.Time{}
+	for _, r := range rows {
+		if f, ok := first[r.client]; !ok || r.ts.Before(f) {
+			first[r.client] = r.ts
+		}
+	}
+	wantNew := 0.0
+	for _, f := range first {
+		if !f.Before(now.Truncate(24 * time.Hour)) {
+			wantNew++
+		}
+	}
 	p := provider(t, e)
 	ctx := context.Background()
 	if len(p.Types()) != 10 {
@@ -86,7 +101,7 @@ func TestWidgetData(t *testing.T) {
 		t.Fatal(err)
 	}
 	vals = asJSON(t, d)["data"].(map[string]any)["values"].(map[string]any)
-	if vals["active"] != 1.0 || vals["total"] != 15.0 || vals["new_today"] != 15.0 {
+	if vals["active"] != 1.0 || vals["total"] != 15.0 || vals["new_today"] != wantNew {
 		t.Fatalf("customers_active %v", vals)
 	}
 
