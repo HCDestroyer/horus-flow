@@ -1,0 +1,2 @@
+# Sigue los `# shellcheck source=...` declarados (p. ej. lab.env de scripts/lab).
+external-sources=true

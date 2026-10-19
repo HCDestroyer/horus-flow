@@ -108,7 +108,8 @@ jobs:
           docker run --rm -i "$HADOLINT_IMAGE" hadolint - < deployments/images/strongswan/Dockerfile
       - name: shellcheck
         run: |
-          mapfile -t scripts < <(git ls-files '*.sh')
+          # testdata/: salidas de ejemplo con marcadores ({INTERFAZ_WAN}), no scripts ejecutables.
+          mapfile -t scripts < <(git ls-files '*.sh' ':!:**/testdata/**')
           if [ "${#scripts[@]}" -gt 0 ]; then
             docker run --rm -v "$PWD:/mnt" -w /mnt "$SHELLCHECK_IMAGE" "${scripts[@]}"
           fi
