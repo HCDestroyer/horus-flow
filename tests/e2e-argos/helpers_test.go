@@ -315,7 +315,8 @@ func signedHeaders(secret, id string, at time.Time, body []byte) map[string]stri
 
 // ---------------------------------------------------------------- Horus
 
-const horusUserPassword = "clave-e2e-de-laboratorio-1"
+// horusUserPassword se genera en cada corrida (nada fijo en el repositorio).
+var horusUserPassword = "e2e-" + rand.Text()
 
 // totp calcula códigos TOTP sin repetir paso (Horus rechaza un paso ya usado).
 type totp struct {

@@ -191,7 +191,7 @@ func (w *world) linkFromArgos(t *testing.T) {
 		return map[string]any{"codigo": code(link), "sistema": "horus", "base_url": w.c.HorusURL,
 			"token": "hf_pat_" + strings.Repeat("e2eFalso0", 5),
 			"webhook": map[string]any{"url": w.c.HorusURL + "/api/v1/integrations/argosisp/webhook/00000000-0000-7000-8000-000000000001",
-				"secreto": "whsec_secreto-de-prueba-e2e-0001"}}
+				"secreto": "whsec_" + strings.Repeat("e2e0", 8)}}
 	}
 	canjear := func(b map[string]any) resp { return a.do("POST", "/integraciones/horus/conexion/canjear", "", b) }
 

@@ -167,13 +167,15 @@ HORUS_ALERTS_WEBHOOK_ALLOW_PRIVATE=true
 HORUS_INTEGRATIONS_SWEEP_EVERY=15s
 EOF
     cat "$WORK/keks" >>"$WORK/horus.env"
+    # Claves de laboratorio generadas en cada corrida: nada fijo en el repositorio.
+    internal_token=$(openssl rand -hex 24)
     cat >"$WORK/argos.env" <<EOF
 NODE_ENV=development
 TZ=UTC
 PORT=$ARGOS_PORT
 HOST=$BIND
 LOG_LEVEL=info
-APP_KEY=e2e-clave-de-laboratorio-no-secreta-32
+APP_KEY=$(openssl rand -hex 16)
 DB_HOST=$BIND
 DB_PORT=$PG_PORT
 DB_USER=argosisp
@@ -181,13 +183,12 @@ DB_PASSWORD=argosisp
 DB_DATABASE=argosisp
 REDIS_HOST=$BIND
 REDIS_PORT=$VALKEY_PORT
-REDIS_PASSWORD=
 COLAS_PREFIJO=argose2e
 EVENTOS_STREAM=argose2e:eventos
 AAA_REDIS_PREFIJO=argose2e:aaa:user:
-INTERNAL_TOKEN=token-interno-de-desarrollo
-AAA_INTERNAL_TOKEN=token-interno-de-desarrollo
-AAA_PPP_KEY=Y2xhdmUtZGUtZGVzYXJyb2xsby1hYWEtcHBwLTMyYnk=
+INTERNAL_TOKEN=$internal_token
+AAA_INTERNAL_TOKEN=$internal_token
+AAA_PPP_KEY=$(openssl rand -base64 32)
 API_PUBLIC_URL=http://$BIND:$ARGOS_PORT
 API_INTERNAL_URL=http://$BIND:$ARGOS_PORT/api/v1/
 PANEL_URL_PUBLICA=http://$BIND:13000

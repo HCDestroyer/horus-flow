@@ -35,7 +35,7 @@ el enlace indicado, como exige la GPL. Lo mismo vale para los paquetes GPL de Al
 modificar en la imagen horus-installer (wireguard-tools, iptables, bash, coreutils…), que los
 scripts del instalador ejecutan como programas independientes.
 
-## Módulos Go enlazados en el binario `horus` (73)
+## Módulos Go enlazados en el binario `horus` (76)
 
 | Módulo | Versión | Licencia |
 | --- | --- | --- |
@@ -90,10 +90,13 @@ scripts del instalador ejecutan como programas independientes.
 | `github.com/sethvargo/go-retry` | v0.4.0 | Apache-2.0 |
 | `github.com/shopspring/decimal` | v1.4.0 | MIT |
 | `github.com/standard-webhooks/standard-webhooks/libraries` | v0.0.1 | MIT |
+| `github.com/strongswan/govici` | v0.8.2 | MIT |
 | `github.com/tidwall/gjson` | v1.18.0 | MIT |
 | `github.com/tidwall/match` | v1.1.1 | MIT |
 | `github.com/tidwall/pretty` | v1.2.1 | MIT |
 | `github.com/tidwall/sjson` | v1.2.5 | MIT |
+| `github.com/vishvananda/netlink` | v1.3.1 | Apache-2.0 |
+| `github.com/vishvananda/netns` | v0.0.5 | Apache-2.0 |
 | `github.com/yosida95/uritemplate/v3` | v3.0.2 | BSD-3-Clause |
 | `go.opentelemetry.io/otel` | v1.46.0 | Apache-2.0 |
 | `go.opentelemetry.io/otel/trace` | v1.46.0 | Apache-2.0 |

@@ -149,6 +149,7 @@
 # Agente: INT
 /tests/                             @hcdestroyer
 /docs/                              @hcdestroyer
+/videos/                            @hcdestroyer
 
 # Agente: INT
 # [SENSIBLE] Decisiones de arquitectura y del PO: aprobación de la persona obligatoria.
