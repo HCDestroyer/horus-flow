@@ -111,14 +111,24 @@ func TestSpoolWhileBusDown(t *testing.T) {
 	}
 	sink.setFail(false)
 	wantOrder(t, waitBatches(t, sink, 200), 0, 200)
+	// El último lote del spool se publica antes de que el publicador vea el spool vacío y
+	// vuelva a memoria: hasta entonces un lote nuevo también va al spool (y se contaría
+	// como reenviado). Se espera a que salga del modo spool.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		r.p.mu.Lock()
+		spooling := r.p.spooling
+		r.p.mu.Unlock()
+		if !spooling {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("still spooling after the spool drained")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 	r.p.Enqueue(batchMsg(200), 10)
 	wantOrder(t, waitBatches(t, sink, 201), 0, 201)
-	r.p.mu.Lock()
-	spooling := r.p.spooling
-	r.p.mu.Unlock()
-	if spooling {
-		t.Fatal("still spooling after the spool drained")
-	}
 	if testutil.ToFloat64(r.m.SpoolReplayed) != 200 {
 		t.Fatalf("replayed = %v", testutil.ToFloat64(r.m.SpoolReplayed))
 	}
