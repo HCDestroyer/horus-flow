@@ -84,6 +84,11 @@ const shots = [
   ['deteccion', `${T}/admin/detection`, 2500],
   ['kioscos', `${T}/admin/kiosks`, 2500],
   ['ia', `${T}/admin/ai`, 2500],
+  ['asn', `${T}/admin/asn`, 2500],
+  ['plataforma-isps', '/platform/isps', 2500],
+  ['plataforma-sistema', '/platform/system', 3000],
+  ['plataforma-wireguard', '/platform/wireguard', 2500],
+  ['plataforma-reputacion', '/platform/reputation', 2500],
 ]
 for (const [name, url, wait] of shots) {
   try { await go(url, name, wait) } catch (e) { console.log('FALLO', name, e.message) }

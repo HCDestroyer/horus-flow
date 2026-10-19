@@ -21,6 +21,7 @@
   .win { position: absolute; overflow: hidden; border-radius: 16px; background: var(--muted);
          border: 1px solid var(--border); box-shadow: 0 30px 80px rgb(0 0 0 / 0.55), 0 0 0 1px rgb(255 255 255 / 0.03) inset; }
   .win.tv { border: 14px solid #05080a; border-radius: 22px; box-shadow: 0 30px 90px rgb(0 0 0 / 0.6), 0 0 0 2px #1a2029; }
+  .win.phone { border: 12px solid #05080a; border-radius: 52px; box-shadow: 0 30px 90px rgb(0 0 0 / 0.6), 0 0 0 2px #232a33; }
   .win img { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
   .chip { position: absolute; display: flex; align-items: center; gap: 12px; padding: 10px 18px 10px 12px;
           border-radius: 999px; background: rgb(16 21 27 / 0.78); border: 1px solid rgb(255 255 255 / 0.08);
@@ -55,13 +56,17 @@
 <script>
 const LOGO = '<svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#0f766e"/><path d="M5 16c3-5.2 6.8-7.8 11-7.8S24 10.8 27 16c-3 5.2-6.8 7.8-11 7.8S8 21.2 5 16Z" stroke="#fff" stroke-width="2" stroke-linejoin="round"/><circle cx="16" cy="16" r="3.6" fill="#fff"/></svg>'
 const IMG_AR = 16 / 9
+const ARGOS_LOGO = '<svg viewBox="0 0 64 64" fill="none" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#0f766e"/><g transform="translate(8 8.09) scale(0.75)" stroke="#fff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 42 C14.5 27 49.5 27 59 42 C49.5 57 14.5 57 5 42 Z"/><circle cx="32" cy="42" r="6.4"/><circle cx="32" cy="42" r="1.2"/><path d="M22.75 25.98 A18.5 18.5 0 0 1 41.25 25.98"/><path d="M19.12 20.57 A25 25 0 0 1 44.88 20.57"/><path d="M15.31 15.29 A31.5 31.5 0 0 1 48.69 15.29"/></g></svg>'
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v))
 const lerp = (a, b, k) => a + (b - a) * k
 const easeIO = (k) => (k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2)
 // Resorte sin rebote (crítico) normalizado a ~0,6 s.
 const spring = (k) => (k <= 0 ? 0 : k >= 1 ? 1 : 1 - (1 + 8 * k) * Math.exp(-8 * k))
 const el = (tag, cls, parent, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; parent && parent.appendChild(e); return e }
-const brandHTML = (name = 'Flow') => `${LOGO}<b>Horus</b><span>${name}</span>`
+const horusHTML = (name = 'Flow') => `${LOGO}<b>Horus</b><span>${name}</span>`
+const argosHTML = () => `${ARGOS_LOGO}<b>ArgosIsp</b>`
+// Marca del video (Horus Flow o ArgosIsp; cada producto con su logo y nombre, mismo color de marca).
+const brandHTML = (name) => (CFG && CFG.brand === 'argos' ? argosHTML() : horusHTML(name || 'Flow'))
 
 let CFG, L, stage, built = []
 
@@ -116,8 +121,13 @@ window.setup = async (cfg) => {
 
 function buildShot(b, sc, loads) {
   const w = L.win
-  b.win = el('div', 'win' + (sc.frame === 'tv' ? ' tv' : ''), b.root)
-  Object.assign(b.win.style, { left: w.x + 'px', top: w.y + 'px', width: w.w + 'px', height: w.h + 'px' })
+  b.win = el('div', 'win' + (sc.frame === 'tv' ? ' tv' : sc.frame === 'phone' ? ' phone' : ''), b.root)
+  let g = w
+  if (sc.frame === 'phone') {  // pantalla de teléfono 390×844 centrada
+    const ph = L.v ? 1150 : 880, pw = Math.round(ph * 390 / 844)
+    g = { x: Math.round((L.W - pw) / 2), y: L.v ? 250 : 110, w: pw, h: ph }
+  }
+  Object.assign(b.win.style, { left: g.x + 'px', top: g.y + 'px', width: g.w + 'px', height: g.h + 'px' })
   b.img = el('img', '', b.win); b.img.src = CFG.assets + sc.img + '.png'
   loads.push(b.img)
   b.chip = el('div', 'chip', b.root, `<i class="dot"></i>${sc.label || ''}`)
@@ -156,7 +166,7 @@ function buildText(b, sc) {
   const brand = add(el('div', 'brand', c, brandHTML(CFG.product || 'Flow')), 0); brand.style.fontSize = L.brand + 'px'
   brand.style.marginBottom = (L.v ? 80 : 56) + 'px'
   if (sc.kind === 'outro' && CFG.partner) {
-    brand.innerHTML = brandHTML(CFG.product || 'Flow') + `<span style="margin:0 0.4em;color:var(--primary)">+</span><b>${CFG.partner}</b>`
+    brand.innerHTML = horusHTML('Flow') + `<span style="margin:0 0.4em;color:var(--primary)">+</span>` + argosHTML()
   }
   if (sc.eyebrow) { const e = add(el('div', 'eyebrow', c, sc.eyebrow), 0.08); e.style.fontSize = L.eyebrow + 'px'; e.style.marginBottom = '22px' }
   const t = add(el('div', 'title', c, sc.title), 0.14); t.style.fontSize = (sc.kind === 'outro' ? L.title * 1.05 : L.title) + 'px'
@@ -168,18 +178,18 @@ function buildText(b, sc) {
 }
 
 /** Recorte de la captura [x, y, w] → rectángulo con el aspecto de la ventana. */
-function cropRect(r, aspect) {
+function cropRect(r, aspect, ar = IMG_AR) {
   let [x, y, w] = r
-  // En vertical, un encuadre muy cerrado corta las frases: ancho mínimo, mismo centro.
-  if (aspect < 1 && w < 0.42) { const c = x + w / 2, cy = y + (w * IMG_AR) / aspect / 2; w = 0.42; x = c - w / 2; y = cy - (w * IMG_AR) / aspect / 2 }
-  let h = (w * IMG_AR) / aspect // altura normalizada
-  if (h > 1) { h = 1; const nw = aspect / IMG_AR; x += (w - nw) / 2; w = nw }
+  // En vertical, un encuadre muy cerrado corta las frases: ancho mínimo, mismo centro (solo capturas apaisadas).
+  if (aspect < 1 && ar > 1 && w < 0.42) { const c = x + w / 2, cy = y + (w * ar) / aspect / 2; w = 0.42; x = c - w / 2; y = cy - (w * ar) / aspect / 2 }
+  let h = (w * ar) / aspect // altura normalizada
+  if (h > 1) { h = 1; const nw = aspect / ar; x += (w - nw) / 2; w = nw }
   x = clamp(x, 0, 1 - w); y = clamp(y, 0, 1 - h)
   return { x, y, w, h }
 }
 
-function pathAt(path, k, aspect) {
-  const rs = path.map((r) => cropRect(r, aspect))
+function pathAt(path, k, aspect, ar = IMG_AR) {
+  const rs = path.map((r) => cropRect(r, aspect, ar))
   if (rs.length === 1) return rs[0]
   const seg = Math.min(rs.length - 2, Math.floor(k * (rs.length - 1)))
   const kk = easeIO(clamp(k * (rs.length - 1) - seg, 0, 1))
@@ -187,9 +197,9 @@ function pathAt(path, k, aspect) {
   return { x: lerp(a.x, b.x, kk), y: lerp(a.y, b.y, kk), w: lerp(a.w, b.w, kk), h: lerp(a.h, b.h, kk) }
 }
 
-function placeImg(img, win, rect) {
+function placeImg(img, win, rect, ar = IMG_AR) {
   const ww = win.clientWidth, wh = win.clientHeight
-  const dispW = ww / rect.w, dispH = dispW / IMG_AR
+  const dispW = ww / rect.w, dispH = dispW / ar
   img.style.width = dispW + 'px'; img.style.height = dispH + 'px'
   img.style.transform = `translate(${-rect.x * dispW}px, ${-rect.y * dispH}px)`
   return { dispW, dispH, ox: -rect.x * dispW, oy: -rect.y * dispH }
@@ -222,9 +232,10 @@ window.renderAt = (T) => {
     if (b.sc.kind === 'shot') {
       anyShot = anyShot || op > 0.5
       const k = clamp(t / dur, 0, 1)
-      const aspect = L.win.w / L.win.h
-      const rect = pathAt(b.path, k, aspect)
-      const g = placeImg(b.img, b.win, rect)
+      const aspect = b.win.clientWidth / b.win.clientHeight
+      const ar = b.img.naturalWidth / b.img.naturalHeight || IMG_AR
+      const rect = pathAt(b.path, k, aspect, ar)
+      const g = placeImg(b.img, b.win, rect, ar)
       b.win.style.transform = `translateY(${(1 - sIn) * 26}px) scale(${0.975 + 0.025 * sIn})`
       b.chip.style.opacity = sIn; b.chip.style.transform = `translateY(${(1 - sIn) * 12}px)`
       for (const { h, box, lab } of b.his) {
@@ -272,10 +283,10 @@ window.renderAt = (T) => {
   built.mark.style.opacity = anyShot ? 1 : 0
   // La marca de la esquina dice de qué producto es la pantalla.
   const cur = built.filter((b) => b.sc.img && T >= b.sc.start && T < b.sc.start + b.sc.dur).at(-1)
-  const argos = cur && cur.sc.img.startsWith('argos/')
-  if (built.mark.dataset.argos !== String(!!argos)) {
-    built.mark.dataset.argos = String(!!argos)
-    built.mark.innerHTML = argos ? '<b>ArgosISP</b><span>· gestión del ISP</span>' : brandHTML(CFG.product || 'Flow')
+  const kind = cur ? (cur.sc.img.startsWith('argos/') ? 'argos' : 'horus') : (CFG.brand || 'horus')
+  if (built.mark.dataset.kind !== kind) {
+    built.mark.dataset.kind = kind
+    built.mark.innerHTML = kind === 'argos' ? argosHTML() : horusHTML('Flow')
   }
 }
 </script>

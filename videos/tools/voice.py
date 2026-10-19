@@ -97,8 +97,8 @@ class Engine:
             ref = os.path.join(ROOT, 'voice', 'ref-L.wav')
         return self.tts.generate(text=sp, prompt_wav_path=ref, prompt_text=ptext, cfg_value=cfgv, inference_timesteps=steps)
 
-    def say(self, voice, cfg, sp, text, takes=2, tries=4):
-        """Genera hasta `takes` tomas válidas (máx. `tries` intentos) y se queda con la más fluida."""
+    def say(self, voice, cfg, sp, text, takes=1, tries=3):
+        """Una toma por frase; solo se repite si no pasa el control (máx. `tries` intentos)."""
         good, best = [], None
         for k in range(tries):
             wav = self.gen(voice, cfg, sp)
@@ -106,7 +106,8 @@ class Engine:
             print('  toma', k + 1, 'ok' if ok else 'NO', json.dumps(info, ensure_ascii=False), flush=True)
             if ok:
                 good.append((info['fluidez'], wav))
-                if len(good) >= takes:
+                # Una toma muy fluida basta; si no, se busca otra y se elige la mejor.
+                if len(good) >= takes or info['fluidez'] >= 0.92:
                     break
             elif best is None or info['sim'] > best[0]:
                 best = (info['sim'], wav)

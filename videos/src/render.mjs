@@ -81,7 +81,7 @@ const browser = await chromium.launch({ args: ['--font-render-hinting=none'] })
 const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 1 })
 await page.goto(pathToFileURL(resolve(ROOT, 'src/compositor.html')).href)
 const cfg = { W, H, xf, assets: pathToFileURL(resolve(ROOT, 'build/shots')).href + '/', scenes,
-  product: 'Flow', partner: vid === 'integracion' ? 'ArgosISP' : null }
+  product: 'Flow', brand: story.brand || 'horus', partner: vid === 'integracion' ? 'ArgosISP' : null }
 await page.evaluate((c) => window.setup(c), cfg)
 
 if (preview) {
