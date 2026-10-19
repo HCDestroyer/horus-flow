@@ -23,7 +23,7 @@ LABEL org.opencontainers.image.title="horus-ipsec" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${REVISION}" \
       org.opencontainers.image.source="https://github.com/hcdestroyer/horus-flow" \
-      org.opencontainers.image.documentation="https://github.com/hcdestroyer/horus-flow/blob/main/docs/tunnels.md" \
+      org.opencontainers.image.documentation="https://github.com/hcdestroyer/horus-flow/blob/HEAD/docs/tunnels.md" \
       org.opencontainers.image.licenses="GPL-2.0-or-later"
 
 SHELL ["/bin/ash", "-eo", "pipefail", "-c"]

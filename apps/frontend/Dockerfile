@@ -34,10 +34,16 @@ RUN pnpm exec nuxt prepare && pnpm build
 # ---------------------------------------------------------------------------------------------
 FROM ${RUNTIME_IMAGE}
 ARG VERSION=dev
+ARG REVISION=unknown
+ARG CREATED=unknown
+# image.source vincula el paquete de GHCR con el repositorio (sin ella no aparece en «Packages»).
 LABEL org.opencontainers.image.title="horus-web" \
       org.opencontainers.image.licenses="LicenseRef-Proprietary" \
       org.opencontainers.image.description="Horus Flow: interfaz web (SPA estática)" \
-      org.opencontainers.image.version="${VERSION}"
+      org.opencontainers.image.source="https://github.com/hcdestroyer/horus-flow" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.created="${CREATED}"
 WORKDIR /app
 COPY --from=build /src/apps/frontend/scripts/serve-static.mjs ./serve-static.mjs
 COPY --from=build /src/apps/frontend/.output/public ./public
