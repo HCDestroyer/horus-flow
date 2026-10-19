@@ -7,6 +7,11 @@
 #   horus-ctl status                 versión, canal, URL, salud de cada servicio, backups y aviso
 #                                    de versión nueva
 #   horus-ctl logs [SERVICIO…] [-f] [-n LÍNEAS]   registros (todos o de horus-app, traefik…)
+#   horus-ctl start                  levanta Horus: túnel WireGuard (wg0) y cortafuegos, luego todos
+#                                    los servicios, y espera a que estén sanos. Es lo que se ejecuta al
+#                                    arrancar la máquina; úsalo si tras un reinicio algo quedó parado
+#   horus-ctl stop                   para todos los servicios (los datos se conservan)
+#   horus-ctl restart                stop + start (alias: reboot). No reinicia la máquina
 #   horus-ctl check                  comprobación completa (install.sh --check)
 #   horus-ctl check-update           consulta si hay versión nueva en el canal (stable | beta)
 #   horus-ctl upgrade [--to X.Y.Z | --bundle FICHERO.tar.gz] [--yes] [--patch-only] [--force]
@@ -53,7 +58,8 @@ say() { printf '==> %s\n' "$*"; }
 ok() { printf '  %sOK%s    %s\n' "$c_ok" "$c_off" "$*"; }
 warn() { printf '  %sAVISO%s %s\n' "$c_warn" "$c_off" "$*"; }
 die() { printf '%shorus-ctl: %s%s\n' "$c_err" "$*" "$c_off" >&2; exit 1; }
-usage() { sed -n '2,38p' "$self" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+# Ayuda: la cabecera de comentarios hasta la primera línea en blanco.
+usage() { awk 'NR == 1 { next } /^#/ { print; next } { exit }' "$self" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 cmd="${1:-help}"; [ "$#" -eq 0 ] || shift
 case "$cmd" in help | -h | --help) usage 0 ;; esac
@@ -216,6 +222,48 @@ health_wait() { # health_wait SEGUNDOS
   return 1
 }
 
+# --- Arranque y parada ------------------------------------------------------------------------------
+# Docker no reintenta un contenedor que falló al arrancar: si al encender la máquina wg0 aún no existe,
+# el colector (publicado en la IP del hub) queda parado. start crea primero el túnel y luego levanta
+# todo, así que también recupera una instalación que quedó a medias tras un reinicio.
+wait_docker() {
+  local i
+  docker info >/dev/null 2>&1 && return 0
+  # Sin systemd (WSL, contenedores) Docker no arranca solo con la máquina: se intenta una vez.
+  if [ ! -d /run/systemd/system ] && command -v service >/dev/null 2>&1; then service docker start >/dev/null 2>&1 || true; fi
+  for i in $(seq 1 60); do docker info >/dev/null 2>&1 && return 0; [ "$i" != 1 ] || say "Esperando al daemon de Docker"; sleep 2; done
+  die "el daemon de Docker no responde: arráncalo (systemctl start docker o service docker start)"
+}
+has_service() { "${compose[@]}" config --services 2>/dev/null | grep -qx "$1"; }
+do_start() {
+  take_lock
+  wait_docker
+  if has_service horus-host; then
+    # Modo solo Docker: horus-host crea wg0 y aplica el cortafuegos; el resto va después.
+    say "Túnel WireGuard ($HORUS_WG_INTERFACE) y cortafuegos (horus-host)"
+    "${compose[@]}" up -d --wait --wait-timeout 120 horus-host >/dev/null || die "horus-host no quedó sano: horus-ctl logs horus-host"
+  elif [ -x "$install_dir/bin/horus-tunnel" ]; then
+    say "Túnel WireGuard ($HORUS_WG_INTERFACE) y cortafuegos"
+    local created=0
+    ip link show "$HORUS_WG_INTERFACE" >/dev/null 2>&1 || created=1
+    "$install_dir/bin/horus-tunnel" up || die "no se pudo crear $HORUS_WG_INTERFACE ($install_dir/bin/horus-tunnel up)"
+    # wg0 nueva: wg-agent vuelve a poner clave, puerto y peers, y el colector se engancha a su IP
+    # (lo mismo que hace horus-host en el modo solo Docker).
+    [ "$created" = 0 ] || "${compose[@]}" restart horus-wg-agent horus-collector >/dev/null 2>&1 || true
+  fi
+  ok "túnel listo"
+  say "Servicios"
+  "${compose[@]}" up -d --wait --wait-timeout 600 || warn "algún servicio tardó o falló al arrancar; se comprueba el estado"
+  if health_wait 180; then ok "Horus Flow $(current_version) en marcha"; else die "hay servicios con problemas: sudo horus-ctl logs SERVICIO"; fi
+}
+do_stop() {
+  take_lock
+  wait_docker
+  say "Parando los servicios (los datos se conservan)"
+  "${compose[@]}" stop
+  ok "parado; para volver a levantarlo: sudo horus-ctl start"
+}
+
 # --- Estado ---------------------------------------------------------------------------------------
 do_status() {
   say "Horus Flow $(current_version) — canal ${HORUS_UPDATE_CHANNEL:-stable}"
@@ -233,7 +281,7 @@ do_status() {
     esac
   fi
   say "Servicios"
-  if health_report; then ok "todo sano"; else warn "hay servicios con problemas: sudo horus-ctl logs SERVICIO"; fi
+  if health_report; then ok "todo sano"; else warn "hay servicios con problemas: sudo horus-ctl start los levanta (detalles: sudo horus-ctl logs SERVICIO)"; fi
   say "Copias de seguridad"
   "$install_dir/bin/horus-backup" status 2>/dev/null | sed 's/^/  /' | head -20 || true
 }
@@ -625,6 +673,10 @@ do_uninstall() {
 case "$cmd" in
   status) do_status ;;
   logs) do_logs "$@" ;;
+  start) do_start ;;
+  stop) do_stop ;;
+  # reboot: alias de restart; reinicia Horus, no la máquina.
+  restart | reboot) do_stop; exec 9>&-; do_start ;;
   check) exec bash "$install_dir/release/scripts/install.sh" --check "${root_opt[@]}" --etc-dir "$etc_dir" ;;
   check-update) do_check_update ;;
   upgrade) do_upgrade "$@" ;;

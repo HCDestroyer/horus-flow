@@ -195,6 +195,8 @@ Todo se gestiona con una sola orden, `horus-ctl` (como root o con `sudo`):
 | --- | --- |
 | `horus-ctl status` | versión, URL, salud de cada servicio, copias y si hay versión nueva |
 | `horus-ctl logs` · `horus-ctl logs horus-app -f` | ver registros (todos, o de un servicio en directo) |
+| `horus-ctl start` | levanta Horus: túnel `wg0` y cortafuegos, luego todos los servicios, y espera a que estén sanos. Es lo que se hace al encender la máquina; úsalo si tras un reinicio algo quedó parado |
+| `horus-ctl stop` · `horus-ctl restart` (o `reboot`) | parar todos los servicios o reiniciarlos (los datos se conservan; no reinicia la máquina) |
 | `horus-ctl check` | comprobación completa (puertos, certificados, disco, copias) |
 | `horus-ctl check-update` | ¿hay versión nueva? |
 | `horus-ctl upgrade` | actualizar (apartado 8) |
@@ -474,6 +476,7 @@ nuevas; es normal sin Internet (`--no-update-check` lo silencia).
 | El navegador avisa del certificado | Normal en modo IP: comprueba la huella (`horus-ctl check`) y acepta. |
 | Let's Encrypt no emite el certificado | El dominio debe apuntar a este servidor y el **puerto 80** estar abierto desde Internet. |
 | Un servicio no está "sano" | `horus-ctl status` y `horus-ctl logs NOMBRE`. Suele ser falta de RAM o disco lleno. |
+| Tras reiniciar la máquina, Horus (o el colector) no arranca | `sudo horus-ctl start`. Con systemd lo hace `horus.service` al arrancar (`systemctl status horus-tunnel horus`). Sin systemd (WSL, algunos contenedores) lo hace `/etc/cron.d/horus-boot`, que necesita que cron y Docker arranquen con la máquina; en WSL activa systemd (`/etc/wsl.conf`: `[boot]` `systemd=true`, luego `wsl --shutdown`) y vuelve a lanzar el instalador. |
 | Disco lleno (≥ 85 %) | `horus-ctl check` lo marca. Amplía el disco o mueve las copias a otro (`--store-dir`). |
 | Proxmox/LXC: `cannot change permissions`, `emergency_ro` o "permisos insuficientes" al actualizar | El almacenamiento thin del host (`local-lvm`) está al 100 %: el disco del contenedor pasa a solo lectura aunque dentro `df` muestre espacio. En el host: `lvs pve/data`, `pct fstrim` en cada contenedor y `pct stop/fsck/start` del de Horus. Para que no vuelva: amplía el pool o reduce lo que guarda Horus en `/etc/horus/install.conf` (`backup-keep-full=1`, `tlm-max-bytes=` más bajo) y relanza `sudo /opt/horus/bin/install.sh --yes`. |
 | El router no conecta el túnel | El **UDP 51820** debe llegar directo al servidor (no por el proxy). `horus-ctl check` muestra si WireGuard escucha. |
