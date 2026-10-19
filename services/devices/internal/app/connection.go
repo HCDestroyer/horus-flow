@@ -42,7 +42,7 @@ const (
 // argosTemplatePermissions son los permisos de la plantilla ArgosISP de auth
 // (§1.1). Solo sirven para avisar antes de generar el enlace; auth vuelve a
 // comprobarlos al emitir el token en el canje.
-var argosTemplatePermissions = []string{"customers.read", "security.findings.read", "snmp.read", "sso.issue", "traffic.customer.read"}
+var argosTemplatePermissions = []string{"customers.read", "devices.read", "security.findings.read", "snmp.read", "sso.issue", "traffic.customer.read"}
 
 // ArgosPeer habla con ArgosISP fuera del resolvedor (canje del enlace y
 // tickets de autologin). Las salidas pasan por la guardia de egreso.

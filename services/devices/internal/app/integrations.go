@@ -801,7 +801,7 @@ func addAddr(s string, out map[netip.Addr]bool) {
 func (s *Integrations) affected(ctx context.Context, t pgdb.TenantID, ev argosEvent) ([]domain.Customer, error) {
 	byID := map[uuid.UUID]domain.Customer{}
 	switch ev.Evento {
-	case "asignacion.cambiada", "sesion.iniciada", "sesion.terminada", "servicio.estado_cambiado":
+	case "asignacion.cambiada", "sesion.iniciada", "sesion.terminada", "servicio.estado_cambiado", "servicio.config_cambiada":
 		if ev.Payload.ServicioID != nil {
 			cs, err := s.store.CustomersByExternal(ctx, t, ev.Payload.ServicioID, nil)
 			if err != nil {
@@ -851,7 +851,8 @@ func (s *Integrations) affected(ctx context.Context, t pgdb.TenantID, ev argosEv
 }
 
 // refreshCompany aplica la empresa que trae un webhook de un servicio
-// (empresa_id, contrato 1.2.0 §2.3) a sus identidades vigentes antes de
+// (empresa_id, contrato 1.2.0 §2.3; servicio.config_cambiada desde 1.7.0,
+// cuando el servicio pasa a otra empresa) a sus identidades vigentes antes de
 // re-resolver: si ArgosISP no responde o el respaldo no informa la empresa,
 // la identidad ya muestra la empresa correcta (el nombre llega con la
 // próxima resolución por lotes).
@@ -861,7 +862,7 @@ func (s *Integrations) refreshCompany(ctx context.Context, t pgdb.TenantID, ev a
 		return nil
 	}
 	switch ev.Evento {
-	case "asignacion.cambiada", "sesion.iniciada", "sesion.terminada", "servicio.estado_cambiado":
+	case "asignacion.cambiada", "sesion.iniciada", "sesion.terminada", "servicio.estado_cambiado", "servicio.config_cambiada":
 	default:
 		return nil
 	}

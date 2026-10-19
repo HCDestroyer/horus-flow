@@ -4591,6 +4591,7 @@ export interface components {
              * @example sesion.terminada
              * @example cliente.actualizado
              * @example servicio.estado_cambiado
+             * @example servicio.config_cambiada
              */
             evento: string;
             id: string;

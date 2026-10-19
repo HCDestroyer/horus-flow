@@ -157,6 +157,37 @@ func TestCompanyStoredAndRefreshed(t *testing.T) {
 	}
 }
 
+// Contrato 1.7.0 §2.3: servicio.config_cambiada (plan o empresa del servicio)
+// re-resuelve las identidades vigentes del servicio y aplica la empresa nueva
+// aunque ArgosISP no responda.
+func TestServiceConfigChangedWebhook(t *testing.T) {
+	t.Parallel()
+	f := newIntFixture(t)
+	tt := pgdb.TenantID(f.tenant)
+	a := f.addCustomer("100.64.1.20", nil, nil)
+	f.res.res["100.64.1.20"] = companyRes(812, ptr[int64](2), "Fibra Sur")
+	if err := f.svc.ResolveCustomers(context.Background(), tt, []domain.Customer{*a}); err != nil {
+		t.Fatal(err)
+	}
+	r := companyRes(812, ptr[int64](5), "Fibra Norte")
+	r.Plan = ptr("Fibra 200")
+	f.res.res["100.64.1.20"] = r
+	calls := f.res.calls
+	*f.now = f.now.Add(time.Minute)
+	f.store.pending = []ArgosWebhook{{TenantID: f.tenant, ID: "argos-evt-77", Event: "servicio.config_cambiada",
+		Payload: []byte(`{"id":"argos-evt-77","evento":"servicio.config_cambiada","payload":{"servicio_id":812,"empresa_id":5,"campos":["empresa","plan"]}}`)}}
+	if err := f.svc.ProcessWebhooks(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if f.res.calls != calls+1 {
+		t.Fatalf("servicio.config_cambiada no re-resolvió el servicio (%d llamadas)", f.res.calls-calls)
+	}
+	cur := f.store.idents[len(f.store.idents)-1]
+	if cur.ValidTo != nil || *cur.ExternalCompanyID != 5 || *cur.CompanyName != "Fibra Norte" || cur.Plan == nil || *cur.Plan != "Fibra 200" {
+		t.Fatalf("identidad tras servicio.config_cambiada = %+v", cur)
+	}
+}
+
 func isKind(err error, k apperr.Kind) bool {
 	ae, ok := apperr.As(err)
 	return ok && ae.Kind == k

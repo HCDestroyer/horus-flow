@@ -339,6 +339,9 @@ func (s *Integrations) parseArgosTicket(status int, raw []byte, err error) (*SSO
 		return nil, gw("rechazó el token del conector (¿tiene el alcance sso.emitir?).")
 	case status == 404:
 		return nil, gw("no tiene ese recurso o no ofrece autologin.")
+	case status == 409:
+		// Contrato 1.7.0: el destino rechaza tickets con su conector apagado.
+		return nil, gw("tiene apagado el conector con Horus: actívelo en ArgosISP.")
 	case status != 200 && status != 201:
 		return nil, gw("respondió HTTP " + strconv.Itoa(status) + ".")
 	}

@@ -140,7 +140,7 @@ func TestAPITokenCreateValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !domain.LooksLikeAPIToken(res.Raw) || len(res.Token.Permissions) != 5 || *res.Token.Template != "argosisp" {
+	if !domain.LooksLikeAPIToken(res.Raw) || len(res.Token.Permissions) != 6 || *res.Token.Template != "argosisp" {
 		t.Fatalf("token = %+v", res.Token)
 	}
 	if !res.Token.ExpiresAt.Equal(f.now.Add(domain.APITokenDefaultTTL)) {

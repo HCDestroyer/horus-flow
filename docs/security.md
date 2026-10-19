@@ -505,8 +505,8 @@ Navegador ──Authorization: Bearer <access JWT>──► Traefik ──► ap
   req/min por token. Alta y revocación auditadas (`auth.api_token.created|revoked`); las acciones
   hechas con un token quedan en la auditoría con `via=api_token` y `api_token_id` (en `changes`) y en
   el sobre de eventos (`actor.via`, `actor.api_token_id`). Plantilla **ArgosISP** (código de conexión):
-  `customers.read`, `traffic.customer.read`, `security.findings.read`, `snmp.read` y `sso.issue`
-  (tickets de autologin, §5.4 bis).
+  `customers.read`, `traffic.customer.read`, `security.findings.read`, `snmp.read`, `devices.read`
+  (solo `GET /routers/status`, contrato ArgosISP 1.7.0) y `sso.issue` (tickets de autologin, §5.4 bis).
 - **Credenciales de integraciones salientes (ADR-0030):** el token `atk_…` de ArgosISP y los secretos
   de webhooks (receptor de ArgosISP en devices, canal `webhook` de alerts) son write-only, cifrados
   con la KEK del módulo (sobre con DEK) y nunca se devuelven. Los destinos salientes configurados por un

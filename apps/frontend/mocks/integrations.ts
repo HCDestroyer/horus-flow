@@ -68,6 +68,7 @@ const ARGOS_TEMPLATE: ApiTokenTemplate = {
     'Código de conexión para ArgosISP: clientes, consumo, seguridad, salud de la red y autologin hacia Horus.',
   permissions: [
     'customers.read',
+    'devices.read',
     'security.findings.read',
     'snmp.read',
     'sso.issue',
