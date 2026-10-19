@@ -31,7 +31,7 @@ LABEL org.opencontainers.image.title="horus-installer" \
       org.opencontainers.image.revision="${REVISION}" \
       org.opencontainers.image.created="${CREATED}" \
       org.opencontainers.image.source="https://github.com/hcdestroyer/horus-flow" \
-      org.opencontainers.image.documentation="https://github.com/hcdestroyer/horus-flow/blob/main/docs/install-docker.md"
+      org.opencontainers.image.documentation="https://github.com/hcdestroyer/horus-flow/blob/HEAD/docs/install-docker.md"
 
 SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
 
