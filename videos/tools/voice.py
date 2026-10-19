@@ -9,10 +9,12 @@ import argparse, hashlib, json, os, re, subprocess, sys
 import soundfile as sf
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# Todas las referencias leen la misma frase. A: mujer, español neutro · B: hombre, español neutro ·
-# P1–P3: mujer de Medellín, acento paisa (voces creadas por descripción, no de una persona real).
-REF_TEXT = {v: 'Horus Flow ve cada flujo de tu red. Detecta botnets y ataques en segundos, y te avisa cuándo ampliar tus enlaces.'
-            for v in ('A', 'B', 'P1', 'P2', 'P3')}
+# Voces creadas por descripción (ninguna es de una persona real). Género verificado con un clasificador:
+# A: hombre, neutro · B: mujer, neutro · P1, P2: hombre · P3: mujer ·
+# serena, alegre, cercana: mujer de Medellín, acento paisa (tools/design-voice.py).
+_BASE = 'Horus Flow ve cada flujo de tu red. Detecta botnets y ataques en segundos, y te avisa cuándo ampliar tus enlaces.'
+REF_TEXT = {v: _BASE for v in ('A', 'B', 'P1', 'P2', 'P3')}
+REF_TEXT.update({v: 'Mirá, pues: ' + _BASE for v in ('serena', 'alegre', 'cercana')})
 # Solo para la voz: cómo se pronuncian siglas y nombres (los subtítulos usan el texto original).
 SAY = [
     (r'\bsFlow\b', 'ese flow'), (r'\bDDoS\b', 'de dos'), (r'\bIPv4\b', 'I P ve cuatro'), (r'\bIPv6\b', 'I P ve seis'),
