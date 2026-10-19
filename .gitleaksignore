@@ -11,3 +11,8 @@ efbb8019449c825eacd1c2cb39d533299035534a:tests/e2e-argos/run.sh:generic-api-key:
 efbb8019449c825eacd1c2cb39d533299035534a:tests/e2e-argos/run.sh:generic-api-key:184
 efbb8019449c825eacd1c2cb39d533299035534a:tests/e2e-argos/run.sh:generic-api-key:190
 efbb8019449c825eacd1c2cb39d533299035534a:tests/e2e-argos/e2e_test.go:generic-api-key:194
+e80a93da83dfb27a2b2055893df60985e7fd17de:tests/e2e-argos/helpers_test.go:generic-api-key:318
+e80a93da83dfb27a2b2055893df60985e7fd17de:tests/e2e-argos/run.sh:generic-api-key:176
+e80a93da83dfb27a2b2055893df60985e7fd17de:tests/e2e-argos/run.sh:generic-api-key:184
+e80a93da83dfb27a2b2055893df60985e7fd17de:tests/e2e-argos/run.sh:generic-api-key:190
+e80a93da83dfb27a2b2055893df60985e7fd17de:tests/e2e-argos/e2e_test.go:generic-api-key:194
