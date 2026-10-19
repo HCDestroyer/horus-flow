@@ -68,8 +68,9 @@ func TestIntersectPermissions(t *testing.T) {
 func TestArgosTemplate(t *testing.T) {
 	t.Parallel()
 	tpl, ok := APITokenTemplateByKey("argosisp")
-	// Desde el contrato ArgosISP 1.2.0 incluye sso.issue (autologin hacia Horus, §1.5).
-	if !ok || len(tpl.Permissions) != 5 || !slices.Contains(tpl.Permissions, "sso.issue") {
+	// Desde el contrato ArgosISP 1.2.0 incluye sso.issue (autologin hacia Horus, §1.5) y desde
+	// 1.7.0 devices.read (GET /routers/status, §3.3).
+	if !ok || len(tpl.Permissions) != 6 || !slices.Contains(tpl.Permissions, "sso.issue") || !slices.Contains(tpl.Permissions, "devices.read") {
 		t.Fatalf("plantilla %v", tpl)
 	}
 }

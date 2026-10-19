@@ -24,7 +24,9 @@ métricas y eventos publicados/consumidos cuando el módulo tenga implementació
   `snmp.RouterStatus`, `analytics.ServingRouter` (router de los flujos más recientes del cliente; si no hay, el principal
   con `source = primary_router`) y `flows.LastFlow` (último flujo del exportador).
 - **Multiempresa** (contrato 1.2.0): la identidad guarda la empresa del servicio (`external_company_id`,
-  `company_name`, `company_nit`); un webhook de servicio con `empresa_id` la refresca.
+  `company_name`, `company_nit`); un webhook de servicio con `empresa_id` la refresca, también
+  `servicio.config_cambiada` (contrato 1.7.0: cambio de plan o de empresa del servicio, que además re-resuelve).
+  Prueba de extremo a extremo con ArgosISP real: [`tests/e2e-argos`](../../tests/e2e-argos/README.md).
 - **Enlace de conexión** (contrato §1.4, H10; `internal/app/connection.go`, `internal/adapters/argos/peer.go`):
   `POST /integrations/argosisp/connection-links` (código de un uso, 15 min, solo SHA-256 en
   `devices.argosisp_connection_link`), canje público `POST /integrations/argosisp/conexion/canjear` (idempotente
@@ -68,6 +70,14 @@ métricas y eventos publicados/consumidos cuando el módulo tenga implementació
   configuración (`domain.BuildSwitchConfig`). `RevealSNMPCredential` devuelve `Version: "2c"` + `Community` para SwOS.
 - Eventos `horus.devices.router.*` con `device_type`, `switch_platform`, `sflow_enabled`; flowinv convierte un switch
   verificado con sFlow en exportador **secundario**.
+- **Vía router del sitio** (ADR-0032, docs/tunnels.md §10): `connection_mode = via_router` con `via_router_id`
+  (router del ISP con túnel) y `via_address` (dirección Horus que proyecta wireguard por `devapi.ViaProjector`).
+  `switch-onboarding` acepta `connection_mode`/`via_router_id`, pide a wireguard el camino (`wireguard/api.ViaPaths`,
+  en proceso; 503 si no es local) y devuelve `path` y `router_config`. La verificación (`VerifyDirect`) vale solo en la
+  dirección Horus. `management_address` es única por ISP (directo, verificados) y por (ISP, router, IP) vía router.
+  Redes de gestión por router: `GET|POST /routers/{id}/management-subnets`, `DELETE …/{subnet_id}` (`devices.update`,
+  auditado; 409 `MANAGEMENT_SUBNET_OVERLAP|IN_USE`). Un router con switches vía él no se da de baja ni pasa a
+  `direct` (409 `ROUTER_HAS_VIA_SWITCHES`).
 
 ## Alta de routers e importación del MikroTik (I1-01, I1-02, I1-28)
 

@@ -62,6 +62,8 @@ type DirectOnboarding struct {
 	audit    func() (authapi.AuditRecorder, bool)
 	logger   *slog.Logger
 	now      func() time.Time
+	// via: modo vía router (redes de gestión y hub de túneles), opcional.
+	via *viaDeps
 }
 
 // NewDirectOnboarding crea el servicio.

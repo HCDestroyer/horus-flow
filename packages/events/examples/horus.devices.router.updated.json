@@ -38,6 +38,8 @@
     "device_type": "router",
     "switch_platform": null,
     "sflow_enabled": false,
+    "via_router_id": null,
+    "via_address": null,
     "tags": [
       "core"
     ],

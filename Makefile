@@ -182,6 +182,10 @@ test-analytics: ## Analytics: API de tráfico, propuestas y datos de widgets con
 	HORUS_CH_NOFILE=$${HORUS_CH_NOFILE:-16384} $(GO) test -race -count=1 -tags integration $(if $(SUITE),-run '$(SUITE)') \
 		./services/analytics/... ./services/traffic/...
 
+.PHONY: e2e-argos
+e2e-argos: ## E2E con ArgosISP real: Horus nativo + API y workers de Argos (ARGOS_DIR=<checkout de argos-isp>; E2E_KEEP=1 conserva los contenedores)
+	ARGOS_DIR="$(ARGOS_DIR)" bash tests/e2e-argos/run.sh $(if $(E2E_STEP),$(E2E_STEP),all)
+
 .PHONY: test-flows-golden
 test-flows-golden: ## Test dorado: captura real MikroTik por collector + ingester contra ClickHouse
 	HORUS_CH_NOFILE=$${HORUS_CH_NOFILE:-16384} $(GO) test -count=1 -tags integration -run TestGoldenRealMikroTik -v ./tests/flows/

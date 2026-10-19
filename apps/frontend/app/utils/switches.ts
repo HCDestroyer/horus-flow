@@ -1,4 +1,5 @@
-import type { SwitchPort } from '~~/types/api'
+import type { Router, SwitchPort } from '~~/types/api'
+import type { ProtectionLevel } from '~/utils/transport'
 
 /**
  * Switches de monitoreo (docs/vendors/mikrotik.md §13, huawei.md §11): plataformas, límites y
@@ -64,4 +65,30 @@ export function selectionBody(choice: Record<string, { monitored: boolean; uplin
     .filter(([, c]) => c.monitored)
     .map(([name, c]) => ({ name, uplink: c.uplink }))
   return { ports, tooMany: ports.length > MAX_SWITCH_PORTS }
+}
+
+/** Camino de un switch vía router del sitio (ADR-0032), de la respuesta del alta o de la ficha. */
+export interface ViaPath {
+  router_id: string
+  router_name: string
+  transport: string
+  protection_level: ProtectionLevel
+  horus_address: string | null
+  block?: string | null
+}
+
+/** Camino de la ficha de un switch (`via_router` + `via_address`); null en modo directo. */
+export function viaPathOf(
+  r: Pick<Router, 'connection_mode' | 'via_router' | 'via_router_id' | 'via_address'>,
+): ViaPath | null {
+  // Sin el resumen del router (no se pudo leer) no se inventa transporte ni protección.
+  if (r.connection_mode !== 'via_router' || !r.via_router) return null
+  return {
+    router_id: r.via_router.id,
+    router_name: r.via_router.name,
+    transport: r.via_router.connection_mode,
+    protection_level: r.via_router.protection_level,
+    horus_address: r.via_address,
+    block: null,
+  }
 }

@@ -66,6 +66,13 @@ type RouterInfo struct {
 	SwitchPlatform string
 	// SFlowEnabled: el switch exporta sFlow (fuente secundaria).
 	SFlowEnabled bool
+	// ViaRouterID: con ConnectionMode via_router, el router del sitio (con
+	// túnel) por el que Horus alcanza al equipo (ADR-0032).
+	ViaRouterID *uuid.UUID
+	// ViaAddress: dirección Horus del equipo vía router (IPAM de túneles; el
+	// router hace NAT 1:1 con ManagementAddress). Destino del sondeo SNMP e
+	// identidad del exportador sFlow; nunca la IP privada.
+	ViaAddress *netip.Addr
 }
 
 // Tipos de equipo (devices.router.device_type) y plataformas de switch.
@@ -89,6 +96,10 @@ const (
 	ConnectionIPsec     = "ipsec"
 	ConnectionGRE       = "gre"
 	ConnectionDirect    = "direct"
+	// ConnectionViaRouter: equipo de monitoreo (switch) con IP de gestión
+	// privada alcanzado a través del túnel de un router del sitio, con NAT
+	// 1:1 en ese router hacia su dirección Horus (ADR-0032). Sin túnel propio.
+	ConnectionViaRouter = "via_router"
 )
 
 // Niveles de protección (devices.router.protection_level).
@@ -102,6 +113,14 @@ const (
 // gre): la IP de túnel es la identidad del exportador.
 func HasTunnel(mode string) bool {
 	return mode == ConnectionWireGuard || mode == ConnectionIPsec || mode == ConnectionGRE
+}
+
+// ViaProjector proyecta en el equipo la dirección Horus que le asignó
+// wireguard (equivale a consumir el cambio de la asignación). Solo la fija si
+// el equipo sigue yendo vía ese router con esa IP privada; publica
+// horus.devices.router.updated. Lo implementa el mismo Onboarding.
+type ViaProjector interface {
+	SetViaAddress(ctx context.Context, tenant, deviceID, routerID uuid.UUID, target, address netip.Addr) error
 }
 
 // ServiceTunnelSecrets → TunnelSecrets (lo usa wireguard para los túneles

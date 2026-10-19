@@ -39,7 +39,7 @@ func desiredRequest(hub uuid.UUID, version int64, peers []domain.Peer) *agentv1.
 			continue
 		}
 		req.Peers = append(req.Peers, &agentv1.DesiredPeer{PeerId: p.ID.String(), TenantId: p.TenantID.String(), PublicKey: *p.PublicKey,
-			AllowedIps: []string{p.AllowedIP()}, PersistentKeepaliveSeconds: int32(p.Keepalive)}) //nolint:gosec // 25 s
+			AllowedIps: p.AllowedIPs(), PersistentKeepaliveSeconds: int32(p.Keepalive)}) //nolint:gosec // 25 s
 	}
 	return req
 }

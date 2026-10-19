@@ -23,7 +23,7 @@ func TestIssueIntegrationToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	stored := f.store.tokens[len(f.store.tokens)-1]
-	if !domain.LooksLikeAPIToken(tok.Raw) || stored.ID != tok.ID || len(stored.Permissions) != 5 || stored.UserID != f.user ||
+	if !domain.LooksLikeAPIToken(tok.Raw) || stored.ID != tok.ID || len(stored.Permissions) != 6 || stored.UserID != f.user ||
 		string(stored.Hash) == tok.Raw {
 		t.Fatalf("token = %+v", stored)
 	}

@@ -93,11 +93,22 @@ func (d *fakeDialer) Dial(_ context.Context, target netip.Addr, cred snmpclient.
 type fakePinger struct {
 	mu   sync.Mutex
 	down map[netip.Addr]bool
+	seen map[netip.Addr]int
+}
+
+func (p *fakePinger) count(a netip.Addr) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.seen[a]
 }
 
 func (p *fakePinger) Ping(_ context.Context, addr netip.Addr, probes int, _ time.Duration) (icmp.Result, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.seen == nil {
+		p.seen = map[netip.Addr]int{}
+	}
+	p.seen[addr]++
 	if p.down[addr] {
 		return icmp.Result{Sent: probes}, nil
 	}

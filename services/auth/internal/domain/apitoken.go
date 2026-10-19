@@ -98,12 +98,13 @@ type APITokenTemplate struct {
 // APITokenTemplates son las plantillas disponibles. "argosisp" es el código
 // de conexión para ArgosISP (docs/integrations/argosisp.md §1.1): consulta
 // 360 por IP (customers.read), consumo (traffic.customer.read), hallazgos y
-// estado de seguridad (security.findings.read), salud de la red (snmp.read)
-// y, desde el contrato 1.2.0, tickets de autologin hacia Horus (sso.issue,
-// §1.5).
+// estado de seguridad (security.findings.read), salud de la red (snmp.read
+// para GET /infra-services y, desde el contrato 1.7.0, devices.read para
+// GET /routers/status, §3.3) y, desde el contrato 1.2.0, tickets de
+// autologin hacia Horus (sso.issue, §1.5).
 var APITokenTemplates = []APITokenTemplate{
 	{Key: "argosisp", Name: "ArgosISP", Description: "Código de conexión para ArgosISP: clientes, consumo, seguridad, salud de la red y autologin hacia Horus.",
-		Permissions: []string{"customers.read", "security.findings.read", "snmp.read", "sso.issue", "traffic.customer.read"}},
+		Permissions: []string{"customers.read", "devices.read", "security.findings.read", "snmp.read", "sso.issue", "traffic.customer.read"}},
 }
 
 // APITokenTemplateByKey devuelve una plantilla por clave.

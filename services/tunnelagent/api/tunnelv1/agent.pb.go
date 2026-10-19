@@ -54,9 +54,14 @@ type DesiredTunnel struct {
 	// MTU de la interfaz del hub.
 	Mtu int32 `protobuf:"varint,12,opt,name=mtu,proto3" json:"mtu,omitempty"`
 	// gre: clave GRE (RFC 2890) del túnel; 0 = sin clave (RouterOS no la admite). Identifica el túnel, no es un secreto.
-	GreKey        uint32 `protobuf:"varint,13,opt,name=gre_key,json=greKey,proto3" json:"gre_key,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	GreKey uint32 `protobuf:"varint,13,opt,name=gre_key,json=greKey,proto3" json:"gre_key,omitempty"`
+	// Direcciones Horus de los equipos que se alcanzan a través de este router (switches vía router, ADR-0032):
+	// /32 o un bloque IPv4 canónico (/22 a /31) del pool de túneles. El router hace NAT 1:1 (netmap) entre cada
+	// dirección Horus y la IP privada del equipo; el hub solo enruta estas direcciones por la interfaz del túnel y
+	// las acepta como origen solo por ella (ipset horus-tunnel-src). Nunca IP privadas de los ISP.
+	RoutedPrefixes []string `protobuf:"bytes,14,rep,name=routed_prefixes,json=routedPrefixes,proto3" json:"routed_prefixes,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *DesiredTunnel) Reset() {
@@ -178,6 +183,13 @@ func (x *DesiredTunnel) GetGreKey() uint32 {
 		return x.GreKey
 	}
 	return 0
+}
+
+func (x *DesiredTunnel) GetRoutedPrefixes() []string {
+	if x != nil {
+		return x.RoutedPrefixes
+	}
+	return nil
 }
 
 // ApplyTunnelsRequest estado completo de los túneles IPsec/GRE del hub.
@@ -561,7 +573,7 @@ var File_horus_tunnels_v1_agent_proto protoreflect.FileDescriptor
 
 const file_horus_tunnels_v1_agent_proto_rawDesc = "" +
 	"\n" +
-	"\x1chorus/tunnels/v1/agent.proto\x12\x10horus.tunnels.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x8f\x03\n" +
+	"\x1chorus/tunnels/v1/agent.proto\x12\x10horus.tunnels.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xb8\x03\n" +
 	"\rDesiredTunnel\x12\x17\n" +
 	"\apeer_id\x18\x01 \x01(\tR\x06peerId\x12\x1b\n" +
 	"\ttenant_id\x18\x02 \x01(\tR\btenantId\x12\x1c\n" +
@@ -576,7 +588,8 @@ const file_horus_tunnels_v1_agent_proto_rawDesc = "" +
 	" \x01(\tR\bremoteId\x12\x10\n" +
 	"\x03psk\x18\v \x01(\tR\x03psk\x12\x10\n" +
 	"\x03mtu\x18\f \x01(\x05R\x03mtu\x12\x17\n" +
-	"\agre_key\x18\r \x01(\rR\x06greKey\"\x90\x01\n" +
+	"\agre_key\x18\r \x01(\rR\x06greKey\x12'\n" +
+	"\x0frouted_prefixes\x18\x0e \x03(\tR\x0eroutedPrefixes\"\x90\x01\n" +
 	"\x13ApplyTunnelsRequest\x12\x15\n" +
 	"\x06hub_id\x18\x01 \x01(\tR\x05hubId\x12'\n" +
 	"\x0fdesired_version\x18\x02 \x01(\x03R\x0edesiredVersion\x129\n" +

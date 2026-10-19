@@ -185,14 +185,36 @@ func (x *Host) Ensure(_ context.Context, t domain.Tunnel) error {
 			return fmt.Errorf("up %s: %w", t.Interface(), err)
 		}
 	}
-	dst := &net.IPNet{IP: ip(t.TunnelAddress), Mask: net.CIDRMask(32, 32)}
-	r := &netlink.Route{LinkIndex: cur.Attrs().Index, Dst: dst, Src: ip(t.HubAddress), Scope: netlink.SCOPE_LINK, Protocol: RouteProtocol}
-	if err := x.h.RouteReplace(r); err != nil {
-		// Sin la IP de servicios en el host (wg0 aún sin dirección) la ruta
-		// va sin origen preferido.
-		r.Src = nil
-		if err2 := x.h.RouteReplace(r); err2 != nil {
-			return fmt.Errorf("route %s dev %s: %w", dst, t.Interface(), err)
+	// La /32 del router y las direcciones Horus de los equipos alcanzados a
+	// través de él (switches vía router, ADR-0032).
+	routes4 := append([]netip.Prefix{netip.PrefixFrom(t.TunnelAddress, 32)}, t.Routed...)
+	keep := map[string]bool{}
+	for _, p := range routes4 {
+		dst := &net.IPNet{IP: ip(p.Addr()), Mask: net.CIDRMask(p.Bits(), 32)}
+		keep[dst.String()] = true
+		r := &netlink.Route{LinkIndex: cur.Attrs().Index, Dst: dst, Src: ip(t.HubAddress), Scope: netlink.SCOPE_LINK, Protocol: RouteProtocol}
+		if err := x.h.RouteReplace(r); err != nil {
+			// Sin la IP de servicios en el host (wg0 aún sin dirección) la ruta
+			// va sin origen preferido.
+			r.Src = nil
+			if err2 := x.h.RouteReplace(r); err2 != nil {
+				return fmt.Errorf("route %s dev %s: %w", dst, t.Interface(), err)
+			}
+		}
+	}
+	// Rutas propias (protocolo del agente) que ya no se piden por esta
+	// interfaz: un switch dado de baja o pasado a otro router.
+	routes, err := x.h.RouteListFiltered(netlink.FAMILY_V4, &netlink.Route{LinkIndex: cur.Attrs().Index, Protocol: RouteProtocol},
+		netlink.RT_FILTER_OIF|netlink.RT_FILTER_PROTOCOL)
+	if err != nil {
+		return fmt.Errorf("route list dev %s: %w", t.Interface(), err)
+	}
+	for i := range routes {
+		if routes[i].Dst == nil || keep[routes[i].Dst.String()] {
+			continue
+		}
+		if err := x.h.RouteDel(&routes[i]); err != nil && !errors.Is(err, unix.ESRCH) {
+			return fmt.Errorf("delete route %s dev %s: %w", routes[i].Dst, t.Interface(), err)
 		}
 	}
 	return nil
@@ -240,10 +262,22 @@ func (x *Host) SyncFilters(_ context.Context, peers []netip.Addr, bindings []app
 	}
 	wantSrc := map[string]*netlink.IPSetEntry{}
 	for _, b := range bindings {
-		wantSrc[b.Address.String()+","+b.Interface] = &netlink.IPSetEntry{IP: ip(b.Address), CIDR: 32, IFace: b.Interface, Replace: true}
+		wantSrc[b.Prefix.String()+","+b.Interface] = &netlink.IPSetEntry{IP: ip(b.Prefix.Addr()), CIDR: uint8(b.Prefix.Bits()), //nolint:gosec // 0-32
+			IFace: b.Interface, Replace: true}
 	}
 	return errors.Join(x.syncSet(x.o.GRESet, wantPeers, func(e netlink.IPSetEntry) string { return e.IP.String() }),
-		x.syncSet(x.o.SourceSet, wantSrc, func(e netlink.IPSetEntry) string { return e.IP.String() + "," + e.IFace }))
+		x.syncSet(x.o.SourceSet, wantSrc, srcKey))
+}
+
+// srcKey es la clave de una entrada hash:net,iface (prefijo,interfaz); el
+// kernel devuelve CIDR 0 para las /32 en algunas versiones.
+func srcKey(e netlink.IPSetEntry) string {
+	bits := int(e.CIDR)
+	if bits == 0 {
+		bits = 32
+	}
+	a, _ := netip.AddrFromSlice(e.IP.To4())
+	return netip.PrefixFrom(a, bits).String() + "," + e.IFace
 }
 
 func (x *Host) syncSet(name string, want map[string]*netlink.IPSetEntry, key func(netlink.IPSetEntry) string) error {

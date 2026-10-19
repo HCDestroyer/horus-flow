@@ -94,13 +94,31 @@ func TestDirectRouterPostgres(t *testing.T) {
 		t.Fatalf("verificado: %+v %v", info, err)
 	}
 
-	// Otro ISP con un Huawei que declara la MISMA dirección: puede guardarla (pendiente), pero no verificarla.
+	// La dirección es única POR ISP (ADR-0032): otro ISP con la misma dirección la guarda y, si responde con SU
+	// credencial (prueba de control), la verifica; el inventario de flujos deja fuera una dirección directa repetida
+	// entre ISP (flowinv). Dentro del mismo ISP, la segunda verificación choca.
 	tC, other := newRouter(domain.VendorHuawei)
 	if err := set(tC, other.ID, mgmt); err != nil {
 		t.Fatalf("dirección pendiente duplicada: %v", err)
 	}
-	if err := on.VerifyDirect(ctx, tC.UUID(), other.ID, netip.MustParseAddr(mgmt)); !errors.Is(err, devapi.ErrManagementAddressTaken) {
-		t.Fatalf("la dirección verificada es única en la plataforma: %v", err)
+	if err := on.VerifyDirect(ctx, tC.UUID(), other.ID, netip.MustParseAddr(mgmt)); err != nil {
+		t.Fatalf("la misma dirección en otro ISP: %v", err)
+	}
+	same, err := store.GetRouter(ctx, tA, hw.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dup := &domain.Router{ID: uuid.Must(uuid.NewV7()), TenantID: tA.UUID(), SiteID: same.SiteID, Hostname: "hw-dup", Vendor: domain.VendorHuawei,
+		ConnectionMode: domain.ConnectionDirect, ProtectionLevel: domain.ProtectionUnencryptedPrivate, AdminState: "active",
+		OnboardingState: devapi.OnboardingPending, Tags: []string{}, CreatedAt: same.CreatedAt, UpdatedAt: same.CreatedAt, Version: 1}
+	if err := store.CreateRouter(ctx, tA, dup, none); err != nil {
+		t.Fatal(err)
+	}
+	if err := set(tA, dup.ID, mgmt); err != nil {
+		t.Fatal(err)
+	}
+	if err := on.VerifyDirect(ctx, tA.UUID(), dup.ID, netip.MustParseAddr(mgmt)); !errors.Is(err, devapi.ErrManagementAddressTaken) {
+		t.Fatalf("la dirección verificada es única en el ISP: %v", err)
 	}
 	// Un MikroTik no admite dirección de gestión (CHECK de la migración).
 	if err := set(tB, mk.ID, "198.51.100.30"); err == nil {

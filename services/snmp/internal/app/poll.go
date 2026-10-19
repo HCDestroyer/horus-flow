@@ -114,6 +114,7 @@ func (e *Engine) pollOne(ctx context.Context, r *router, at time.Time, cycle uin
 	vendor := snmpclient.ForDevice(r.Vendor, r.Platform)
 	target := r.Target
 	r.mu.Unlock()
+	viaDown := e.viaTunnelDown(target)
 	if cred != nil {
 		snmpErr = func() error {
 			pctx, cancel := context.WithTimeout(ctx, 4*e.o.Config.Timeout*time.Duration(e.o.Config.Retries+1)+10*time.Second)
@@ -203,7 +204,10 @@ func (e *Engine) pollOne(ctx context.Context, r *router, at time.Time, cycle uin
 		events = append(events, e.applySNMP(r, at, dur, sys, res, health, disc, nbs, ctrs)...)
 		st.LastSNMPOKAt = &at
 	}
-	verify := snmpSignal == api.SignalOK && r.Direct && r.OnboardingState == devapi.OnboardingPending && start.Sub(r.verifyAt) >= verifyRetry
+	// Prueba de control de los equipos sin túnel propio (modo directo o vía
+	// router): SNMP con SU credencial en su dirección de sondeo.
+	verify := snmpSignal == api.SignalOK && (r.Direct || r.ViaRouterID != nil) && r.OnboardingState == devapi.OnboardingPending &&
+		start.Sub(r.verifyAt) >= verifyRetry
 	if verify {
 		r.verifyAt = start
 	}
@@ -240,7 +244,8 @@ func (e *Engine) pollOne(ctx context.Context, r *router, at time.Time, cycle uin
 	if hits == nil {
 		hits = []api.ThresholdHit{}
 	}
-	state, reason := domain.Candidate(domain.Observation{Signals: sig, Hits: hits, UplinkDown: uplinkDown, NoCredentials: noCred})
+	state, reason := domain.Candidate(domain.Observation{Signals: sig, Hits: hits, UplinkDown: uplinkDown, NoCredentials: noCred,
+		ViaTunnelDown: viaDown})
 	prev := st.Machine.State
 	tr := st.Machine.Observe(state, reason, at)
 	st.Signals, st.Thresholds, st.LastObservedAt = sig, hits, &at
@@ -653,6 +658,14 @@ func (e *Engine) runICMP(ctx context.Context) {
 	routers := e.snapshot()
 	var wg sync.WaitGroup
 	for _, r := range routers {
+		r.mu.Lock()
+		via := r.ViaRouterID != nil
+		r.mu.Unlock()
+		if via {
+			// Un switch vía router solo admite SNMP por el router (el
+			// cortafuegos que pega el operador descarta el ping): sin ICMP.
+			continue
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -726,7 +739,8 @@ func (e *Engine) updateGauges(now time.Time) {
 			stale++
 		}
 	}
-	for _, s := range []string{api.StatusOnline, api.StatusWarning, api.StatusCritical, api.StatusDegraded, api.StatusOffline, api.StatusStale, api.StatusUnknown} {
+	for _, s := range []string{api.StatusOnline, api.StatusWarning, api.StatusCritical, api.StatusDegraded, api.StatusOffline, api.StatusStale, api.StatusUnknown,
+		api.StatusUnreachable} {
 		e.m.routers.WithLabelValues(s).Set(float64(counts[s]))
 	}
 	e.m.stale.Set(float64(stale))

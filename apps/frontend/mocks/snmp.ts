@@ -300,6 +300,7 @@ const round3 = (n: number) => Math.round(n * 1000) / 1000
 const STATUS_ORDER: Record<RouterEffectiveStatus, number> = {
   critical: 0,
   offline: 1,
+  unreachable: 2,
   degraded: 2,
   warning: 3,
   stale: 4,

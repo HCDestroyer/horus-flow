@@ -897,6 +897,19 @@ TTL bucket + INTERVAL 2 DAY RECOMPRESS CODEC(ZSTD(6)), bucket + INTERVAL 30 DAY 
   de `flows.*`; escritor único el rol ingester (`horus_ingester_role`). Ver [`traffic-model.md` §13](traffic-model.md#13-switches-sflow-como-fuente-secundaria).
 - Las métricas de los puertos van a las tablas de siempre (`snmp.interface_metrics/5m/1h`) con `router_id` = id del
   switch: como mucho 64 puertos por switch.
+- **Switches vía router** ([ADR-0032](adr/0032-switches-via-router-direccion-horus-y-nat-1-1.md), migración
+  `20261018222025_devices_via_router.sql`): `connection_mode = 'via_router'` (solo switches) con `via_router_id` (FK
+  compuesta al router del sitio del MISMO tenant; nunca él mismo) y `via_address` (dirección Horus /32, única en la
+  plataforma: `ux_router__via_address`). `management_address` deja de ser única en toda la plataforma: única por ISP
+  en modo directo entre verificados (`ux_router__management_address_direct`) y por (ISP, router, IP) vía router
+  (`ux_router__management_address_via`). **`devices.management_subnet`**: redes de gestión declaradas por router
+  (/22–/30 IPv4), `EXCLUDE` sin solapes por (tenant, router), RLS forzada.
+- **`wireguard.via_mapping`** (migración `20261018221221_wireguard_via_router.sql`, RLS): dirección o bloque Horus de
+  cada switch o red declarada (`kind device|subnet`, `target` = IP privada o red, `mapped` = dirección/bloque Horus,
+  `parent_id` para un switch dentro de un bloque). Sale de la misma IPAM que las IP de túnel:
+  `wireguard.ip_allocation` pertenece a un peer **o** a un `via_mapping` (`via_mapping_id`, CHECK de dueño único), con
+  la misma unicidad global y cuarentena de 24 h. Unicidad: una dirección viva por switch, la IP privada no se repite
+  por (tenant, router) y las direcciones/bloques de primer nivel no se solapan en la plataforma (`EXCLUDE`).
 
 ## 7. Retención (resumen; política completa en [`storage.md` §5](storage.md))
 

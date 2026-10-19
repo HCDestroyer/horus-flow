@@ -96,7 +96,8 @@ async function save() {
           $api.PUT('/routers/{router_id}/transport', {
             params: { path: { router_id: props.router.id } },
             body: {
-              connection_mode: mode.value,
+              // Un router nunca va «vía router» (solo los switches; ADR-0032).
+              connection_mode: mode.value as Exclude<ConnectionMode, 'via_router'>,
               tunnel_remote_address: tunnel ? remoteAddress.value.trim() || null : null,
               tunnel_remote_id: mode.value === 'ipsec' ? remoteId.value.trim() || null : null,
               path: encrypted.value ? null : path.value,
