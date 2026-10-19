@@ -127,7 +127,7 @@ services:
   # ------------------------------------------------------------------------------------------
   clickhouse:
     <<: *hardening
-    image: ${HORUS_CLICKHOUSE_IMAGE:-clickhouse/clickhouse-server:26.8.20.9@sha256:9b61e3c635c04ad5bb521eb4f6e61ce7585b5580814e51c25bb9e8292ce43364}
+    image: ${HORUS_CLICKHOUSE_IMAGE:-clickhouse/clickhouse-server:26.9.19.9@sha256:bdb5c911a23d92fd364e246ab20b5a0a485f00112f3663fa626b083fb46c146b}
     environment:
       CLICKHOUSE_DB: ${HORUS_CH_DB:-horus}
       CLICKHOUSE_USER: ${HORUS_CH_USER:-horus}

@@ -84,7 +84,7 @@ services:
   # ------------------------------------------------------------------------------------------
   clickhouse:
     <<: *hardening
-    image: clickhouse/clickhouse-server:26.8.20.9
+    image: clickhouse/clickhouse-server:26.9.19.9
     environment:
       CLICKHOUSE_DB: ${HORUS_CH_DB:?falta HORUS_CH_DB en deployments/compose/.env (ver .env.example)}
       CLICKHOUSE_USER: ${HORUS_CH_USER:?falta HORUS_CH_USER en deployments/compose/.env (ver .env.example)}
