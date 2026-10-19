@@ -21,18 +21,25 @@ VOICES = {
     'P3': {'mode': 'continuation', 'text': _BASE, 'gender': 'female'},
     **{v: {'mode': 'continuation', 'text': 'Mirá, pues: ' + _BASE, 'gender': 'female'} for v in ('serena', 'alegre', 'cercana')},
     # L: timbre de A con acento latinoamericano neutro (ref-L sale de tools/latam-voice.py), locución profesional.
-    'L': {'mode': 'reference', 'gender': 'male',
-          'style': 'Professional Latin American Spanish voice-over announcer, neutral accent with seseo, '
-                   'natural, confident and warm, smooth steady pace'},
+    'L': {'mode': 'full', 'gender': 'male', 'steps': 20, 'cfg': 2.0,
+          'text': 'Hola. Con Horus Flow ves cada flujo de tu red, en cualquier zona y a cualquier hora. '
+                  'Si el equipo de un cliente empieza a hacer cosas raras, lo sabes en minutos, y sabes qué hacer.'},
 }
+# L2: igual que L pero solo continuación (sin referencia de timbre aparte); para comparar fluidez.
+VOICES['L2'] = {**VOICES['L'], 'mode': 'continuation', 'text': None}
 # Solo para la voz: cómo se pronuncian siglas y nombres (los subtítulos usan el texto original).
 SAY = [
-    (r'\bsFlow\b', 'ese flow'), (r'\bDDoS\b', 'de dos'), (r'\bIPv4\b', 'I P ve cuatro'), (r'\bIPv6\b', 'I P ve seis'),
-    (r'\bArgosISP\b', 'Argos I S P'), (r'\bISP\b', 'I S P'), (r'\bIPFIX\b', 'I P fix'), (r'\bIP\b', 'I P'),
-    (r'\bNOC\b', 'noc'), (r'\bSSH\b', 'ese ese hache'), (r'\bRouterOS\b', 'Router O S'), (r'\bPPPoE\b', 'pe pe pe o e'),
-    (r'\bMikroTik\b', 'Mikrotik'), (r'\bWinbox\b', 'Uinbox'), (r'\bWireGuard\b', 'Uaier Gard'), (r'\bTelegram\b', 'Télegram'),
-    (r'\bdashboards?\b', lambda m: 'dashbord' + ('s' if m.group(0).endswith('s') else '')),
-    (r'\bhandshake\b', 'jandsheik'), (r'\bbotnets?\b', lambda m: 'bótnet' + ('s' if m.group(0).endswith('s') else '')),
+    # Pistas de pronunciación como las diría un locutor latinoamericano, con la tilde donde va el acento.
+    (r'\bHorus Flow\b', 'Órus Flou'), (r'\bHorus\b', 'Órus'), (r'\bArgosISP\b', 'Árgos i-ese-pe'),
+    (r'\bNetFlow\b', 'Net-flou'), (r'\bsFlow\b', 'ese-flou'), (r'\bIPFIX\b', 'i-pe-fix'),
+    (r'\bDDoS\b', 'dedós'), (r'\bIPv4\b', 'i-pe-ve cuatro'), (r'\bIPv6\b', 'i-pe-ve seis'),
+    (r'\bISP\b', 'i-ese-pe'), (r'\bIP\b', 'i-pe'), (r'\bNOC\b', 'nok'), (r'\bSSH\b', 'ese-ese-ache'),
+    (r'\bRouterOS\b', 'Ráuter O-ese'), (r'\brouters?\b', lambda m: 'ráuter' + ('s' if m.group(0).endswith('s') else '')),
+    (r'\bRouter\b', 'Ráuter'), (r'\bPPPoE\b', 'pe-pe-pe-o-e'), (r'\bMikroTik\b', 'Míkrotik'),
+    (r'\bHuawei\b', 'Juawéi'), (r'\bWinbox\b', 'Uínbox'), (r'\bWireGuard\b', 'Guáyer-gard'),
+    (r'\bTelegram\b', 'Télegram'), (r'\bdashboards?\b', lambda m: 'dáshbord' + ('s' if m.group(0).endswith('s') else '')),
+    (r'\bbotnets?\b', lambda m: 'bótnet' + ('s' if m.group(0).endswith('s') else '')), (r'\bscript\b', 'escrípt'),
+    (r'\.rsc\b', ' punto erre-ese-ce'),
 ]
 
 def spoken(text):
@@ -63,31 +70,50 @@ class Engine:
     def check(self, wav, text, gender):
         sr = self.tts.tts_model.sample_rate
         y = self.librosa.resample(wav.astype('float32'), orig_sr=sr, target_sr=16000)
-        heard = ' '.join(s.text.strip() for s in self.stt.transcribe(y, language='es')[0])
+        segs = list(self.stt.transcribe(y, language='es', word_timestamps=True)[0])
+        heard = ' '.join(s.text.strip() for s in segs)
         sim = difflib.SequenceMatcher(None, norm(text), norm(heard)).ratio()
+        # Fluidez: confianza media de Whisper por palabra (baja si hay sílabas trabadas o mal acentuadas).
+        probs = [w.probability for s in segs for w in (s.words or [])]
+        flu = sum(probs) / len(probs) if probs else 0.0
         with self.torch.no_grad():
             p = self.gm(**self.gfe(y, sampling_rate=16000, return_tensors='pt')).logits.softmax(-1)[0]
         g = {self.gm.config.id2label[i]: float(p[i]) for i in range(len(p))}
         pace = (len(wav) / sr) / max(1, len(text))  # segundos por carácter
         ok = sim >= 0.8 and g.get(gender, 0) >= 0.9 and pace <= 0.095
-        return ok, {'sim': round(sim, 2), gender: round(g.get(gender, 0), 3), 'seg_por_car': round(pace, 3), 'oido': heard}
+        return ok, {'sim': round(sim, 2), 'fluidez': round(flu, 3), gender: round(g.get(gender, 0), 3),
+                    'seg_por_car': round(pace, 3), 'oido': heard}
 
-    def say(self, voice, cfg, sp, text, tries=3):
+    def gen(self, voice, cfg, sp):
         ref = os.path.join(ROOT, 'voice', f'ref-{voice}.wav')
-        best = None
+        steps, cfgv = cfg.get('steps', 10), cfg.get('cfg', 2.0)
+        if cfg['mode'] == 'reference':
+            return self.tts.generate(text=f"({cfg['style']}){sp}", reference_wav_path=ref, cfg_value=cfgv, inference_timesteps=steps)
+        if cfg['mode'] == 'full':  # timbre (referencia) + prosodia y acento (continuación)
+            return self.tts.generate(text=sp, reference_wav_path=ref, prompt_wav_path=ref, prompt_text=spoken(cfg['text']),
+                                     cfg_value=cfgv, inference_timesteps=steps)
+        ptext = cfg['text'] if cfg.get('text') else spoken(VOICES['L']['text'])
+        if voice == 'L2':
+            ref = os.path.join(ROOT, 'voice', 'ref-L.wav')
+        return self.tts.generate(text=sp, prompt_wav_path=ref, prompt_text=ptext, cfg_value=cfgv, inference_timesteps=steps)
+
+    def say(self, voice, cfg, sp, text, takes=2, tries=4):
+        """Genera hasta `takes` tomas válidas (máx. `tries` intentos) y se queda con la más fluida."""
+        good, best = [], None
         for k in range(tries):
-            if cfg['mode'] == 'reference':
-                wav = self.tts.generate(text=f"({cfg['style']}){sp}", reference_wav_path=ref, cfg_value=2.0, inference_timesteps=12)
-            else:
-                wav = self.tts.generate(text=sp, prompt_wav_path=ref, prompt_text=cfg['text'], cfg_value=2.0, inference_timesteps=10)
+            wav = self.gen(voice, cfg, sp)
             ok, info = self.check(wav, text, cfg['gender'])
-            print('  intento', k + 1, 'ok' if ok else 'NO', json.dumps(info, ensure_ascii=False), flush=True)
+            print('  toma', k + 1, 'ok' if ok else 'NO', json.dumps(info, ensure_ascii=False), flush=True)
             if ok:
-                return wav
-            if best is None or info['sim'] > best[1]['sim']:
-                best = (wav, info)
-        print('  AVISO: ningún intento pasó el control; se usa el más inteligible', flush=True)
-        return best[0]
+                good.append((info['fluidez'], wav))
+                if len(good) >= takes:
+                    break
+            elif best is None or info['sim'] > best[0]:
+                best = (info['sim'], wav)
+        if good:
+            return max(good, key=lambda x: x[0])[1]
+        print('  AVISO: ninguna toma pasó el control; se usa la más inteligible', flush=True)
+        return best[1]
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument('video'); ap.add_argument('--voice', default='L')
