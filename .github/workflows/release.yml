@@ -199,10 +199,14 @@ jobs:
           PRERELEASE: ${{ needs.images.outputs.prerelease }}
         run: |
           # La release puede existir ya (creada desde la web, que es lo que crea la etiqueta): en ese
-          # caso se adjuntan los artefactos y se conserva su texto.
+          # caso se adjuntan los artefactos y se conserva su texto (si está vacío, el de docs/releases).
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/* --clobber
             [ "$PRERELEASE" = false ] || gh release edit "$TAG" --prerelease
+            # Creada desde la web sin descripción: se pone la de docs/releases/<tag>.md.
+            if [ -f "docs/releases/${TAG}.md" ] && [ -z "$(gh release view "$TAG" --json body --jq '.body | gsub("\\s"; "")')" ]; then
+              gh release edit "$TAG" --notes-file "docs/releases/${TAG}.md"
+            fi
           else
             flags=(--generate-notes --verify-tag)
             # Notas escritas a mano (qué se agregó, mejoró o resolvió) si existen; GitHub añade
