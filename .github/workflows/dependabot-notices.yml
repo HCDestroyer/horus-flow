@@ -1,0 +1,70 @@
+# Regenera THIRD_PARTY_NOTICES.md en las PR de Dependabot.
+#
+# Una actualización de dependencias deja el archivo desactualizado y `licenses-check` falla
+# siempre. Este job lo regenera con el mismo script (make third-party-notices) y lo sube a la
+# rama de la PR con AUTOMERGE_TOKEN, que tiene que existir también como secreto de Dependabot:
+# con GITHUB_TOKEN el push no dispararía el CI de nuevo y Dependabot solo recibe un token de
+# lectura. Sin ese secreto el job no hace nada y la PR se queda en rojo para revisarla a mano.
+
+name: dependabot-notices
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependabot-notices-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  notices:
+    name: regenerar THIRD_PARTY_NOTICES.md
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      HAS_TOKEN: ${{ secrets.AUTOMERGE_TOKEN != '' }}
+    steps:
+      - name: sin AUTOMERGE_TOKEN no se puede subir el cambio
+        if: env.HAS_TOKEN != 'true'
+        run: echo "::warning::Falta el secreto de Dependabot AUTOMERGE_TOKEN; THIRD_PARTY_NOTICES.md no se regenera."
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.HAS_TOKEN == 'true'
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: env.HAS_TOKEN == 'true'
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        if: env.HAS_TOKEN == 'true'
+        with:
+          package_json_file: apps/frontend/package.json
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: env.HAS_TOKEN == 'true'
+        with:
+          node-version: lts/*
+      - name: regenerar y subir si cambió
+        if: env.HAS_TOKEN == 'true'
+        env:
+          TOKEN: ${{ secrets.AUTOMERGE_TOKEN }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          (cd apps/frontend && pnpm install --frozen-lockfile)
+          make third-party-notices
+          if git diff --quiet -- THIRD_PARTY_NOTICES.md; then
+            echo "THIRD_PARTY_NOTICES.md ya estaba al día"; exit 0
+          fi
+          git config user.name "horus-deps-bot"
+          git config user.email "horus-deps-bot@users.noreply.github.com"
+          git add THIRD_PARTY_NOTICES.md
+          git commit -m "chore(deps): regenerar THIRD_PARTY_NOTICES.md"
+          git push "https://x-access-token:${TOKEN}@github.com/${REPO}.git" "HEAD:${BRANCH}"

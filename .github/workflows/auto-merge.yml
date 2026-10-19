@@ -9,8 +9,10 @@
 #   abierto. Un push nuevo cancela la espera anterior (concurrency) y empieza otra.
 # - `--match-head-commit` evita fusionar un commit más nuevo que el probado.
 # - Excluye borradores y PRs con la etiqueta `no-automerge` (para revisarlo a mano).
-# - persona-gate y agent-review (pr-gates) no bloquean: piden un revisor distinto del autor y los
-#   PRs se abren con la cuenta de la persona; su control es la etiqueta no-automerge.
+# - PR de la cuenta bot de los agentes (cualquier autor que no sea el dueño ni Dependabot):
+#   además del CI espera agent-review y persona-gate en verde, es decir, la aprobación de la
+#   persona. Una revisión enviada vuelve a lanzar este job.
+# - PR del dueño: solo el CI (nadie puede aprobar su propio PR). PR de Dependabot: solo el CI.
 #
 # Token: AUTOMERGE_TOKEN (GitHub App o PAT con contents+pull-requests de escritura) si existe; si
 # no, GITHUB_TOKEN. Con GITHUB_TOKEN el push resultante no dispara otros workflows (limitación de
@@ -21,6 +23,9 @@ name: auto-merge
 on:
   pull_request:
     types: [opened, reopened, ready_for_review, synchronize, labeled, unlabeled]
+  # Una aprobación vuelve a evaluar agent-review/persona-gate (pr-gates) en las PR que lo exigen.
+  pull_request_review:
+    types: [submitted, dismissed]
 
 permissions:
   contents: read
@@ -51,6 +56,9 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           MERGE_QUEUE: ${{ vars.MERGE_QUEUE }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          OWNER: ${{ github.repository_owner }}
+          EVENT: ${{ github.event_name }}
         run: |
           while :; do
             state=$(gh api "repos/$REPO/commits/$HEAD_SHA/check-runs?check_name=ci-ok" \
@@ -61,6 +69,25 @@ jobs:
             esac
             sleep 30
           done
+          # PR de una cuenta distinta del dueño y de Dependabot (p. ej. la cuenta bot de los agentes):
+          # además del CI espera la aprobación de la persona (agent-review y persona-gate en verde).
+          # Las PR del dueño no pueden pasar esas puertas (nadie aprueba su propio PR) y las de
+          # Dependabot entran solo con el CI.
+          if [ "$AUTHOR" != "$OWNER" ] && [ "$AUTHOR" != "dependabot[bot]" ]; then
+            # Tras una revisión, pr-gates se vuelve a ejecutar: margen para que aparezca su check nuevo.
+            [ "$EVENT" != pull_request_review ] || sleep 45
+            for gate in agent-review persona-gate; do
+              while :; do
+                state=$(gh api "repos/$REPO/commits/$HEAD_SHA/check-runs?check_name=$gate" \
+                  --jq '.check_runs | sort_by(.started_at) | last | if . == null then "pending" else "\(.status) \(.conclusion)" end' || echo pending)
+                case "$state" in
+                  "completed success" | "completed skipped") break ;;
+                  completed*) echo "$gate sin aprobar ('${state#completed }'); el PR #$PR espera la revisión"; exit 0 ;;
+                esac
+                sleep 20
+              done
+            done
+          fi
           if [ "$MERGE_QUEUE" = "true" ]; then
             gh pr merge --repo "$REPO" "$PR" --auto --match-head-commit "$HEAD_SHA"
           else

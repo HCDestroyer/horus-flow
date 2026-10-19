@@ -45,6 +45,9 @@ type Spooler interface {
 // queda en memoria es siempre más antiguo que lo del spool, y se publica
 // antes. Lleno, el spool descarta lo más antiguo y lo cuenta.
 type Publisher struct {
+	// idleHook (solo pruebas) se llama con la cola vacía, justo antes de esperar.
+	idleHook func()
+
 	sink        Sink
 	maxBytes    int64
 	collectorID string
@@ -295,8 +298,16 @@ func (p *Publisher) Run(ctx context.Context, drain time.Duration) {
 		}
 		msg, n, fromSpool := p.next()
 		if msg == nil {
+			if p.idleHook != nil {
+				p.idleHook()
+			}
 			select {
 			case <-ctx.Done():
+				// Un lote encolado justo antes de cancelar compite con ctx.Done en este select
+				// (Go elige al azar): se vuelve a mirar la cola para vaciarla durante drain.
+				if n, _ := p.Pending(); n > 0 {
+					continue
+				}
 				p.closeSpool()
 				return
 			case <-p.wake:
