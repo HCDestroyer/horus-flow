@@ -12,7 +12,7 @@ cambios de esta carpeta.
 | --- | --- |
 | `workflows/ci.yml` | `changes` → `lint` → `unit` (matriz por módulo) → `integration` → `contracts` → `security` → `build` (+ `frontend`, `compose-smoke`) → `dod` → `ci-ok`. Solo sobre lo afectado. |
 | `workflows/pr-gates.yml` | `label` (etiquetador), `scope-guard`, `agent-review`, `persona-gate`. |
-| `workflows/auto-merge.yml` | Activa el auto-merge en cada PR no borrador de una rama del repo. |
+| `workflows/auto-merge.yml` | Fusiona (squash) cada PR no borrador de una rama del repo cuando `ci-ok` está en verde en su último commit; con la etiqueta `no-automerge` no actúa. |
 | `labeler.yml` | Etiquetas por ruta: `area:security`, `area:sensitive`, `contract:*` y las informativas. |
 | `pull_request_template.md` | Plantilla de PR (sin casillas de DoD: las comprueba `dod`). |
 | `agent-review.md` | Lista fija del agente revisor. |
