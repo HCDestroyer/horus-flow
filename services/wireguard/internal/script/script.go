@@ -83,6 +83,11 @@ type Values struct {
 	CacheEntries string
 	AccessMode   string
 	CACertPEM    string // vacío con ACME (certificado de confianza pública)
+	// ManualEnroll: el script no hace /tool fetch al HTTPS de Horus ni importa
+	// su certificado; muestra la clave pública para pegarla en la consola
+	// (POST /wireguard/enrollment-tokens/{id}/enroll). Para instalaciones sin
+	// el 443 publicado: en el borde solo queda el UDP de WireGuard.
+	ManualEnroll bool
 }
 
 var (
@@ -129,8 +134,10 @@ func (v *Values) validate() error {
 	check(userRe.MatchString(v.APIUser) && userRe.MatchString(v.SNMPUser), "users")
 	check(secretRe.MatchString(v.APIPassword) && secretRe.MatchString(v.SNMPAuthPass) && secretRe.MatchString(v.SNMPPrivPass), "passwords")
 	check(host(v.NTPServer), "ntp server")
-	check(urlRe.MatchString(v.EnrollURL), "enroll url")
-	check(tokenRe.MatchString(v.Token), "token")
+	if !v.ManualEnroll {
+		check(urlRe.MatchString(v.EnrollURL), "enroll url")
+		check(tokenRe.MatchString(v.Token), "token")
+	}
 	check(cacheRe.MatchString(v.CacheEntries), "cache entries")
 	if v.CACertPEM != "" {
 		check(strings.HasPrefix(strings.TrimSpace(v.CACertPEM), "-----BEGIN CERTIFICATE-----"), "ca certificate")

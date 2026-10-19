@@ -52,6 +52,9 @@ export interface OnboardingRun {
   tokenId: string
   expiresAt: number
   revokedAt?: number
+  /** Alta manual: el router no envía la clave; la pega la persona (keyAt). */
+  manual?: boolean
+  keyAt?: number
 }
 
 /** Transporte elegido para un router (`PUT /routers/{id}/transport`, docs/tunnels.md). */

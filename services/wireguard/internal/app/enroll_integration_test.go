@@ -186,3 +186,66 @@ func TestRevokeToken(t *testing.T) {
 		t.Fatalf("revocar dos veces: %v", err)
 	}
 }
+
+// Alta manual (instalación sin el 443 publicado): el script no se conecta a
+// Horus ni lleva el token; la persona pega la clave con sesión y
+// wireguard.write. Mismas reglas del token: de un uso, del ISP, 5 fallos.
+func TestManualEnrollment(t *testing.T) {
+	t.Parallel()
+	e := setup(t)
+	tenant := uuid.Must(uuid.NewV7())
+	r := e.dev.add(tenant, uuid.Must(uuid.NewV7()), "7.16.1")
+	uctx := userCtx(tenant, "wireguard.write", "wireguard.read")
+
+	bad := "otro"
+	if _, err := e.svc.CreateProvisioningScript(uctx, r.ID, app.ProvisioningInput{Enrollment: &bad}); code(err) != "VALIDATION_FAILED" {
+		t.Fatalf("modo inválido: %v", err)
+	}
+	manual := app.EnrollmentManual
+	res, err := e.svc.CreateProvisioningScript(uctx, r.ID, app.ProvisioningInput{Enrollment: &manual})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(res.Script, "/tool fetch") || strings.Contains(res.Script, `\"token\"`) || strings.Contains(res.Script, "/api/v1/enroll") ||
+		!strings.Contains(res.Script, "HORUS_ROUTER_PUBKEY=") {
+		t.Fatal("el script manual llama a Horus, lleva el token o no muestra la clave")
+	}
+
+	in := app.EnrollManualInput{PublicKey: "  " + key(7) + "\n", IP: netip.MustParseAddr("192.168.88.10")}
+	if err := e.svc.EnrollManual(userCtx(tenant, "wireguard.read"), res.TokenID, in); code(err) != "PERMISSION_DENIED" {
+		t.Fatalf("sin wireguard.write: %v", err)
+	}
+	if err := e.svc.EnrollManual(userCtx(uuid.Must(uuid.NewV7()), "wireguard.write"), res.TokenID, in); code(err) != domain.CodeTokenInvalid {
+		t.Fatalf("token de otro ISP: %v", err)
+	}
+	if err := e.svc.EnrollManual(uctx, uuid.Must(uuid.NewV7()), in); code(err) != domain.CodeTokenInvalid {
+		t.Fatalf("token inexistente: %v", err)
+	}
+	if err := e.svc.EnrollManual(uctx, res.TokenID, app.EnrollManualInput{PublicKey: "no-es-una-clave"}); code(err) != "VALIDATION_FAILED" {
+		t.Fatalf("clave inválida: %v", err)
+	}
+	if err := e.svc.EnrollManual(uctx, res.TokenID, in); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.svc.Push(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	if peers := e.agent.peers(); len(peers) != 1 || peers[0].GetPublicKey() != key(7) {
+		t.Fatalf("estado deseado = %v", peers)
+	}
+	if e.dev.tunnels[r.ID].OnboardingState != devapi.OnboardingKeyReceived {
+		t.Fatal("alta manual no proyectada en el router")
+	}
+	var found bool
+	for _, a := range e.audit.entries {
+		if a.Action == "wireguard.peer.enrolled" && a.ActorType == "user" && a.Changes["enrollment"] == app.EnrollmentManual {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("alta manual sin auditar con la persona como actor")
+	}
+	if err := e.svc.EnrollManual(uctx, res.TokenID, app.EnrollManualInput{PublicKey: key(8)}); code(err) != domain.CodeTokenInvalid {
+		t.Fatalf("token reutilizado: %v", err)
+	}
+}
