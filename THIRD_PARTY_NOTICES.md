@@ -116,7 +116,7 @@ scripts del instalador ejecutan como programas independientes.
 | `google.golang.org/protobuf` | v1.36.12 | BSD-3-Clause |
 | `gopkg.in/yaml.v3` | v3.0.1 | Apache-2.0 |
 
-## Dependencias de producción del frontend (841)
+## Dependencias de producción del frontend (836)
 
 Paquetes npm incluidos en la interfaz web generada. Los marcados con † solo se usan al
 compilar y no se distribuyen en el producto.
@@ -213,8 +213,6 @@ compilar y no se distribuyen en el producto.
 | `@jridgewell/trace-mapping` | 0.3.31 | MIT |
 | `@keyv/bigmap` | 1.3.1 | MIT |
 | `@keyv/serialize` | 1.1.1 | MIT |
-| `@kwsites/file-exists` | 1.1.1 | MIT |
-| `@kwsites/promise-deferred` | 1.1.1 | MIT |
 | `@mapbox/node-pre-gyp` | 2.0.3 | BSD-3-Clause |
 | `@miyaneee/rollup-plugin-json5` | 1.2.0 | MIT |
 | `@napi-rs/lzma-linux-x64-gnu` | 1.5.1 | MIT |
@@ -223,9 +221,10 @@ compilar y no se distribuyen en el producto.
 | `@nodelib/fs.walk` | 1.2.8 | MIT |
 | `@nuxt/cli` | 4.0.1 | MIT |
 | `@nuxt/devalue` | 2.0.2 | MIT |
-| `@nuxt/devtools` | 3.4.2 | MIT |
+| `@nuxt/devtools` | 3.4.4 | MIT |
 | `@nuxt/devtools-kit` | 3.4.2 | MIT |
-| `@nuxt/devtools-wizard` | 3.4.2 | MIT |
+| `@nuxt/devtools-kit` | 3.4.4 | MIT |
+| `@nuxt/devtools-wizard` | 3.4.4 | MIT |
 | `@nuxt/fonts` | 0.14.0 | MIT |
 | `@nuxt/icon` | 2.5.1 | MIT |
 | `@nuxt/kit` | 4.6.0 | MIT |
@@ -265,8 +264,6 @@ compilar y no se distribuyen en el producto.
 | `@rollup/pluginutils` | 5.4.0 | MIT |
 | `@rollup/rollup-linux-x64-gnu` | 4.64.2 | MIT |
 | `@rollup/rollup-linux-x64-musl` | 4.64.2 | MIT |
-| `@simple-git/args-pathspec` | 1.0.4 | MIT |
-| `@simple-git/argv-parser` | 1.1.1 | MIT |
 | `@sindresorhus/is` | 7.2.0 | MIT |
 | `@sindresorhus/merge-streams` | 4.0.0 | MIT |
 | `@speed-highlight/core` | 1.2.24 | CC0-1.0 |
@@ -474,7 +471,7 @@ compilar y no se distribuyen en el producto.
 | `detect-libc` | 2.1.2 | Apache-2.0 |
 | `devalue` | 5.9.4 | MIT |
 | `devalue` | 6.0.2 | MIT |
-| `diff` | 8.0.4 | BSD-3-Clause |
+| `diff` | 9.0.0 | BSD-3-Clause |
 | `dom-serializer` | 2.0.0 | MIT |
 | `domelementtype` | 2.3.0 | BSD-2-Clause |
 | `domhandler` | 5.0.3 | BSD-2-Clause |
@@ -593,7 +590,7 @@ compilar y no se distribuyen en el producto.
 | `ieee754` | 1.2.1 | BSD-3-Clause |
 | `ignore` | 5.3.2 | MIT |
 | `ignore` | 7.0.12 | MIT |
-| `image-meta` | 0.2.2 | MIT |
+| `image-meta` | 0.3.0 | MIT |
 | `import-meta-resolve` | 4.2.0 | MIT |
 | `impound` | 1.2.0 | MIT |
 | `imurmurhash` | 0.1.4 | MIT |
@@ -702,7 +699,6 @@ compilar y no se distribuyen en el producto.
 | `nth-check` | 2.1.1 | BSD-2-Clause |
 | `nuxt` | 4.6.1 | MIT |
 | `nuxt-define` | 1.0.0 | MIT |
-| `nypm` | 0.6.10 | MIT |
 | `object-identity` | 0.2.3 | MIT |
 | `obug` | 2.2.1 | MIT |
 | `obug` | 3.0.0 | MIT |
@@ -831,7 +827,6 @@ compilar y no se distribuyen en el producto.
 | `shell-quote` | 1.12.0 | MIT |
 | `signal-exit` | 3.0.7 | ISC |
 | `signal-exit` | 4.1.0 | ISC |
-| `simple-git` | 3.36.0 | MIT |
 | `sirv` | 3.0.2 | MIT |
 | `sisteransi` | 1.0.5 | MIT |
 | `slash` | 5.1.0 | MIT |

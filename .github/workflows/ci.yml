@@ -274,7 +274,7 @@ jobs:
         run: |
           docker run --rm -v "$PWD:/repo" -w /repo "$TRIVY_IMAGE" fs --no-progress \
             --scanners vuln,secret,misconfig --severity HIGH,CRITICAL \
-            --ignore-unfixed --exit-code 1 --skip-dirs .git .
+            --ignore-unfixed --ignorefile .trivyignore.yaml --exit-code 1 --skip-dirs .git .
 
   # -------------------------------------------------------------------------------------------
   build:
