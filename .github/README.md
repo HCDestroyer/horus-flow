@@ -12,7 +12,9 @@ cambios de esta carpeta.
 | --- | --- |
 | `workflows/ci.yml` | `changes` → `lint` → `unit` (matriz por módulo) → `integration` → `contracts` → `security` → `build` (+ `frontend`, `compose-smoke`) → `dod` → `ci-ok`. Solo sobre lo afectado. |
 | `workflows/pr-gates.yml` | `label` (etiquetador), `scope-guard`, `agent-review`, `persona-gate`. |
-| `workflows/auto-merge.yml` | Fusiona (squash) cada PR no borrador de una rama del repo cuando `ci-ok` está en verde en su último commit; con la etiqueta `no-automerge` no actúa. |
+| `workflows/auto-merge.yml` | Fusiona (squash) cada PR no borrador de una rama del repo cuando `ci-ok` está en verde en su último commit. Las PR de la cuenta bot esperan además la aprobación de la persona (`agent-review` y `persona-gate`); las del dueño y las de Dependabot, solo el CI. Con la etiqueta `no-automerge` no actúa. |
+| `workflows/dependabot-notices.yml` | En las PR de Dependabot regenera `THIRD_PARTY_NOTICES.md` y lo sube con `AUTOMERGE_TOKEN`. |
+| `dependabot.yml` | Actualizaciones semanales (lunes 06:00 Guatemala): Go, npm del frontend y de contratos, imágenes de compose y acciones. |
 | `labeler.yml` | Etiquetas por ruta: `area:security`, `area:sensitive`, `contract:*` y las informativas. |
 | `pull_request_template.md` | Plantilla de PR (sin casillas de DoD: las comprueba `dod`). |
 | `agent-review.md` | Lista fija del agente revisor. |
@@ -90,6 +92,25 @@ y aplica exactamente esto:
 los workflows de `push` a `main` del merge resultante (limitación documentada de GitHub). Hoy solo
 `ci.yml` escucha `push` a `main`; cuando llegue `release.yml` (release-please) el secreto pasa a
 ser necesario.
+
+### Cuenta bot de los agentes
+
+Los agentes (Claude Code) abren sus PR con una cuenta bot para que la persona pueda aprobarlas:
+nadie puede aprobar su propio PR, así que con la cuenta de la persona `agent-review` y
+`persona-gate` no pasarían nunca. Puesta en marcha (una vez):
+
+1. Crear una cuenta de GitHub para el bot (p. ej. `horus-flow-bot`, una cuenta de máquina por
+   persona) e invitarla al repositorio con permiso **Write**.
+2. Con esa cuenta, crear un token fino solo para este repositorio con *Contents*,
+   *Pull requests* y *Workflows* de lectura y escritura.
+3. Guardarlo como `AUTOMERGE_TOKEN` en **Settings → Secrets and variables → Actions** y también en
+   **… → Dependabot** (las PR de Dependabot solo ven los secretos de Dependabot).
+4. Dárselo al entorno de los agentes como variable de entorno `HORUS_BOT_TOKEN` (en Claude Code:
+   menú del entorno → Edit → secretos/variables). Nunca se pega en un chat.
+5. Activar en **Settings → Code security** las alertas y actualizaciones de seguridad de Dependabot.
+
+Con eso: las PR del bot entran solas cuando el CI está en verde **y** la persona las aprobó; las de
+Dependabot entran con el CI en verde; las de la persona, con el CI en verde.
 
 ### Limitaciones conocidas y decisiones
 
