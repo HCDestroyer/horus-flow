@@ -494,7 +494,7 @@ func (c *Capacity) buildOverview(ctx context.Context, tenant uuid.UUID, days int
 	return ov, nil
 }
 
-var healthOrderRank = map[string]int{api.StatusOffline: 5, api.StatusCritical: 4, api.StatusDegraded: 3, api.StatusWarning: 2,
+var healthOrderRank = map[string]int{api.StatusOffline: 5, api.StatusCritical: 4, api.StatusUnreachable: 3, api.StatusDegraded: 3, api.StatusWarning: 2,
 	api.StatusUnknown: 1, api.StatusOnline: 0}
 
 func healthOrder(s string) int { return healthOrderRank[s] }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/hcdestroyer/horus-flow/packages/go/apperr"
 	"github.com/hcdestroyer/horus-flow/packages/go/outbox"
+	"github.com/hcdestroyer/horus-flow/packages/go/pgdb"
 	"github.com/hcdestroyer/horus-flow/packages/go/problem"
 	devapi "github.com/hcdestroyer/horus-flow/services/devices/api"
 	"github.com/hcdestroyer/horus-flow/services/devices/internal/domain"
@@ -37,9 +38,17 @@ func RouterEventData(r *domain.Router, changed []string) map[string]any {
 		"tunnel_address": tunnelCIDR(r.TunnelAddress), "connection_mode": connectionModeOf(r),
 		"management_address": tunnelCIDR(r.ManagementAddress), "protection_level": domain.ProtectionOf(connectionModeOf(r), r.ProtectionLevel),
 		"tunnel_remote_address": r.TunnelRemoteAddress, "tunnel_remote_id": r.TunnelRemoteID, "device_type": deviceTypeOf(r),
-		"switch_platform": r.SwitchPlatform, "sflow_enabled": r.SFlowEnabled, "tags": r.Tags, "created_at": r.CreatedAt.UTC().Format(outbox.TimeFormat),
+		"switch_platform": r.SwitchPlatform, "sflow_enabled": r.SFlowEnabled, "via_router_id": uuidOrNil(r.ViaRouterID),
+		"via_address": tunnelCIDR(r.ViaAddress), "tags": r.Tags, "created_at": r.CreatedAt.UTC().Format(outbox.TimeFormat),
 		"updated_at": r.UpdatedAt.UTC().Format(outbox.TimeFormat), "deleted_at": tsOrNil(r.DeletedAt), "changed_fields": changed,
 	}
+}
+
+func uuidOrNil(id *uuid.UUID) any {
+	if id == nil {
+		return nil
+	}
+	return id.String()
 }
 
 // tunnelCIDR expresa la IP de túnel como /32 (/128) en los eventos.
@@ -83,6 +92,11 @@ func applyManagementAddress(f *fieldErrs, r *domain.Router, fields Fields) {
 	var v *string
 	if json.Unmarshal(raw, &v) != nil {
 		f.add("management_address", "INVALID_TYPE", "Debe ser una IP o null.")
+		return
+	}
+	if connectionModeOf(r) == domain.ConnectionViaRouter {
+		f.add("management_address", "NOT_APPLICABLE",
+			"Un switch vía router cambia su IP de gestión con su alta (POST /routers/{id}/switch-onboarding): el router del sitio necesita su configuración nueva.")
 		return
 	}
 	if v != nil && connectionModeOf(r) != domain.ConnectionDirect {
@@ -233,7 +247,8 @@ func (s *Service) ListRouters(ctx context.Context, qv url.Values) (*Page[domain.
 	if err != nil {
 		return nil, err
 	}
-	lq, req, fk, err := s.listQuery(t, qv, qv.Get("site_id"), qv.Get("onboarding_state"), qv.Get("is_primary"), qv.Get("device_type"))
+	lq, req, fk, err := s.listQuery(t, qv, qv.Get("site_id"), qv.Get("onboarding_state"), qv.Get("is_primary"), qv.Get("device_type"),
+		qv.Get("via_router_id"))
 	if err != nil {
 		return nil, err
 	}
@@ -252,6 +267,13 @@ func (s *Service) ListRouters(ctx context.Context, qv url.Values) (*Page[domain.
 		return nil, err
 	}
 	lq.OnboardingState = qv.Get("onboarding_state")
+	if v := qv.Get("via_router_id"); v != "" {
+		id, err := uuid.Parse(v)
+		if err != nil {
+			return nil, apperr.New(apperr.KindBadRequest, problem.CodeInvalidFilter, "via_router_id: UUID")
+		}
+		lq.ViaRouterID = &id
+	}
 	if v := qv.Get("is_primary"); v != "" {
 		b, err := strconv.ParseBool(v)
 		if err != nil {
@@ -267,6 +289,7 @@ func (s *Service) ListRouters(ctx context.Context, qv url.Values) (*Page[domain.
 	page := finish(s, t, lq, req, fk, rows, func(x domain.Router) (string, uuid.UUID) {
 		return sortKeyOf(lq.SortCol, x.Hostname, x.CreatedAt), x.ID
 	})
+	s.enrichVia(ctx, t, page.Data)
 	if req.IncludeTotal {
 		lq.AfterKey = ""
 		n, err := s.store.CountRouters(ctx, t, lq)
@@ -292,7 +315,37 @@ func (s *Service) routerInScope(ctx context.Context, perm string, id uuid.UUID) 
 
 // GetRouter devuelve un router.
 func (s *Service) GetRouter(ctx context.Context, id uuid.UUID) (*domain.Router, error) {
-	return s.routerInScope(ctx, "devices.read", id)
+	r, err := s.routerInScope(ctx, "devices.read", id)
+	if err != nil {
+		return nil, err
+	}
+	_, t, _ := scope(ctx, "devices.read")
+	rs := []domain.Router{*r}
+	s.enrichVia(ctx, t, rs)
+	return &rs[0], nil
+}
+
+// enrichVia añade a los switches vía router el resumen de su router del
+// sitio (nombre, transporte y nivel de protección del túnel). Un router que
+// ya no se puede leer deja el resumen vacío (la referencia sigue en
+// via_router_id).
+func (s *Service) enrichVia(ctx context.Context, t pgdb.TenantID, rows []domain.Router) {
+	cache := map[uuid.UUID]*domain.RouterRef{}
+	for i := range rows {
+		id := rows[i].ViaRouterID
+		if id == nil {
+			continue
+		}
+		ref, ok := cache[*id]
+		if !ok {
+			if v, err := s.store.GetRouter(ctx, t, *id); err == nil {
+				ref = &domain.RouterRef{ID: v.ID, Name: v.Hostname, ConnectionMode: connectionModeOf(v),
+					ProtectionLevel: domain.ProtectionOf(connectionModeOf(v), v.ProtectionLevel)}
+			}
+			cache[*id] = ref
+		}
+		rows[i].ViaRouter = ref
+	}
 }
 
 // CreateRouter registra un router "Pendiente de configurar" y publica
@@ -362,7 +415,9 @@ func (s *Service) UpdateRouter(ctx context.Context, id uuid.UUID, ifMatch int, f
 	if err != nil {
 		return nil, mapStoreErr(err, domain.CodeRouterNotFound)
 	}
-	return r, nil
+	rs := []domain.Router{*r}
+	s.enrichVia(ctx, t, rs)
+	return &rs[0], nil
 }
 
 // DeleteRouter da de baja un router.
@@ -374,6 +429,16 @@ func (s *Service) DeleteRouter(ctx context.Context, id uuid.UUID, ifMatch int) e
 	p, t, _ := scope(ctx, "devices.delete")
 	if ifMatch != r.Version {
 		return apperr.PreconditionFailed(r)
+	}
+	if vs, ok := s.store.(ViaStore); ok && !r.IsSwitch() {
+		n, err := vs.CountViaDevices(ctx, t, r.ID)
+		if err != nil {
+			return err
+		}
+		if n > 0 {
+			return apperr.Conflict(domain.CodeRouterHasViaSwitches,
+				"Este router lleva switches vía router: páselos a otro router o a modo directo antes de darlo de baja.")
+		}
 	}
 	now := s.ts()
 	err = s.store.DeleteRouter(ctx, t, id, ifMatch, func(v *domain.Router) []outbox.Event {

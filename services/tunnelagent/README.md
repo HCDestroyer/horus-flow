@@ -37,3 +37,9 @@
 
 - `go test ./services/tunnelagent/...` (dominio, app, gRPC, memdev).
 - `go test -tags ipsec ./services/tunnelagent/internal/adapters/vici/` con un charon real (lo lanza `tests/tunnels/ipsec-e2e.sh`).
+
+## Direcciones enrutadas (switches vía router, ADR-0032)
+
+`DesiredTunnel.routed_prefixes`: direcciones Horus (/32 o bloque /22–/31) de los equipos alcanzados por el router.
+El agente las enruta por `hxfrm<n>`/`hgre<n>` (protocolo 105; quita las suyas que sobran) y las liga a esa interfaz
+en `horus-tunnel-src` (antisuplantación). Sin solapes entre túneles ni con la /32 de otro router o el hub.

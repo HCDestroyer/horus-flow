@@ -869,6 +869,19 @@ modules:
         - POST
       audited:
         - POST
+    - prefix: /api/v1/routers/{router_id}/management-subnets
+      scope: tenant
+      methods:
+        GET: devices.read
+        POST: devices.update
+      audited:
+        - POST
+    - prefix: /api/v1/routers/{router_id}/management-subnets/{subnet_id}
+      scope: tenant
+      methods:
+        DELETE: devices.update
+      audited:
+        - DELETE
     - prefix: /api/v1/routers/{router_id}/prefix-import-preview
       scope: tenant
       methods:

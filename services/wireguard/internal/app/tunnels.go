@@ -187,7 +187,8 @@ func (s *Service) tunnelRequest(ctx context.Context, version int64, peers []doma
 		}
 		dt := &tunnelv1.DesiredTunnel{PeerId: p.ID.String(), TenantId: p.TenantID.String(), Transport: p.Transport,
 			Index: uint32(*p.TunnelIndex), TunnelAddress: p.AllowedIP(), HubTunnelAddress: s.o.CollectorIP.String(), //nolint:gosec // acotado arriba
-			Mtu: int32(hub.MTU), GreKey: uint32(p.GREKey)} //nolint:gosec // MTU 1280-1500 y clave ≤ 2^32-1 (CHECK)
+			Mtu: int32(hub.MTU), GreKey: uint32(p.GREKey), //nolint:gosec // MTU 1280-1500 y clave ≤ 2^32-1 (CHECK)
+			RoutedPrefixes: p.RoutedPrefixes()}
 		if hub.Address.IsValid() {
 			dt.LocalAddress = hub.Address.String()
 		}

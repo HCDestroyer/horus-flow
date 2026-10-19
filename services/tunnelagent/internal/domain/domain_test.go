@@ -131,3 +131,40 @@ func TestDiff(t *testing.T) {
 		t.Fatalf("tras reinicio = %+v", p)
 	}
 }
+
+// Switches vía router (ADR-0032): un túnel lleva las direcciones Horus de los
+// equipos alcanzados por ese router; nunca solapadas entre túneles ni con la
+// /32 de otro router o la IP de servicios del hub.
+func TestNormalizeRouted(t *testing.T) {
+	t.Parallel()
+	a := gre(1, "10.255.1.2", "198.51.100.7")
+	a.RoutedPrefixes = []string{"10.255.2.0/28", "10.255.1.40/32"}
+	b := ipsec(2, "10.255.1.3", "rt-2.example.net")
+	b.RoutedPrefixes = []string{"10.255.1.41"}
+	got, err := domain.Normalize([]domain.DesiredTunnel{a, b})
+	if err != nil || len(got[1].Routed) != 2 || got[1].Routed[0].String() != "10.255.1.40/32" || got[2].Routed[0].String() != "10.255.1.41/32" {
+		t.Fatalf("normalize = %+v, %v", got, err)
+	}
+	if fp := domain.Fingerprint(got[1], ""); !strings.HasSuffix(fp, "10.255.1.40/32,10.255.2.0/28") {
+		t.Fatalf("huella sin direcciones enrutadas: %s", fp)
+	}
+	cases := map[string][]string{
+		"bloque enorme":       {"10.255.0.0/16"},
+		"no canónico":         {"10.255.2.1/28"},
+		"ipv6":                {"fd00::1/128"},
+		"contiene otra /32":   {"10.255.1.0/30"},
+		"contiene el hub":     {"10.255.0.0/24"},
+		"solapa con el otro":  {"10.255.1.41/32"},
+		"basura":              {"no-es-ip"},
+		"multicast":           {"224.0.0.1/32"},
+		"solapa en el mismo":  {"10.255.3.0/28", "10.255.3.8/32"},
+		"loopback como único": {"127.0.0.1"},
+	}
+	for name, routed := range cases {
+		x := a
+		x.RoutedPrefixes = routed
+		if _, err := domain.Normalize([]domain.DesiredTunnel{x, b}); !errors.Is(err, domain.ErrInvalidState) {
+			t.Errorf("%s: aceptado (%v)", name, err)
+		}
+	}
+}

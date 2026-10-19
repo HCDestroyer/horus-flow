@@ -626,23 +626,10 @@ func (s *Store) CreatePeer(ctx context.Context, t pgdb.TenantID, p *domain.Peer,
 		}
 		rows.Close()
 		for _, pl := range pools {
-			used := map[netip.Addr]bool{}
-			urows, err := tx.Query(ctx, `SELECT host(address) FROM wireguard.ip_allocation
-				WHERE pool_id = $1 AND (released_at IS NULL OR released_at > $2)`, pl.id, p.CreatedAt.Add(-Quarantine))
+			used, err := usedAddrs(ctx, tx, pl.id, p.CreatedAt.Add(-Quarantine))
 			if err != nil {
 				return err
 			}
-			for urows.Next() {
-				var a string
-				if err := urows.Scan(&a); err != nil {
-					urows.Close()
-					return err
-				}
-				if ad, err := netip.ParseAddr(a); err == nil {
-					used[ad] = true
-				}
-			}
-			urows.Close()
 			addr, err := domain.NextFree(pl.cidr, svc, used)
 			if errors.Is(err, domain.ErrPoolExhausted) {
 				continue
@@ -838,8 +825,10 @@ func (s *Store) DesiredState(ctx context.Context, hubID uuid.UUID) (int64, []dom
 		if err != nil {
 			return err
 		}
-		peers, err = collectPeers(rows)
-		return err
+		if peers, err = collectPeers(rows); err != nil {
+			return err
+		}
+		return attachRouted(ctx, tx, hubID, peers)
 	})
 	return version, peers, err
 }
@@ -983,8 +972,10 @@ func (s *Store) TunnelDesiredState(ctx context.Context, hubID uuid.UUID) (int64,
 		if err != nil {
 			return err
 		}
-		peers, err = collectPeers(rows)
-		return err
+		if peers, err = collectPeers(rows); err != nil {
+			return err
+		}
+		return attachRouted(ctx, tx, hubID, peers)
 	})
 	return version, peers, err
 }

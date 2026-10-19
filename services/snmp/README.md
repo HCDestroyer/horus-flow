@@ -151,6 +151,11 @@ Análisis de enlaces de subida, salud del nodo y pronóstico de capacidad para e
   `GET /switches/{id}/flows/top` (lee `flows.switch_samples`, fuente secundaria). `/routers/status` excluye switches.
 - Capacidad: los uplinks de los switches entran como enlaces (`device_type: switch`); sin sondas netwatch/NQA.
 
+- **Vía router** (ADR-0032): el objetivo es la dirección Horus (`via_address`, nunca la IP privada), sin ICMP (el
+  router solo deja pasar SNMP); la prueba de control (`VerifyDirect`) va por esa dirección. Si el túnel del router del
+  sitio está caído (señal del túnel del router `stale`/`never`, o el router no es objetivo), el candidato es
+  `unreachable` / `via_router_tunnel_down`.
+
 ## Variables de entorno
 
 | Variable | Defecto | Qué hace |

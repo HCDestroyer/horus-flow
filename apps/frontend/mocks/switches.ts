@@ -1,5 +1,6 @@
 import type {
   InterfaceSample,
+  ManagementSubnet,
   Router,
   SwitchFlowTop,
   SwitchNeighbor,
@@ -10,7 +11,7 @@ import type {
 } from '~~/types/api'
 import type { MockTenant } from './data'
 import { forbidden, ifMatch, json, notFound, paginate, problem, randomHex } from './http'
-import { findSite, sitesOf } from './inventory'
+import { findSite, routersOf, sitesOf } from './inventory'
 import { hash, iso, mockUuid, rng } from './random'
 import type { TenantRouteContext } from './tenant-routes'
 
@@ -22,6 +23,12 @@ import type { TenantRouteContext } from './tenant-routes'
  * La verificación SNMP se simula: el switch pasa a `snmp_verified` 3 s después del alta.
  *
  * Simulación (localStorage): `horus.mock.switchVerifyMs` cambia esos 3 s.
+ *
+ * Vía router (ADR-0032): el alta con `connection_mode=via_router` exige un router del ISP con túnel
+ * (wireguard | ipsec | gre), asigna una dirección Horus (10.255.200.x, nunca la IP privada) y
+ * devuelve la configuración del router del sitio; la misma IP privada no se repite por router.
+ * Redes de gestión por router en memoria. `horus.mock.viaTunnelDown = 1` simula el túnel del
+ * router caído: el switch queda `unreachable / via_router_tunnel_down`.
  */
 
 type Platform = 'routeros' | 'swos' | 'vrp'
@@ -49,6 +56,16 @@ interface MockSwitch {
 
 const MAX_PORTS = 64
 const store = new Map<string, MockSwitch[]>()
+const subnetStore = new Map<string, ManagementSubnet[]>()
+let viaSeq = 0
+
+function viaTunnelDown() {
+  try {
+    return globalThis.localStorage?.getItem('horus.mock.viaTunnelDown') === '1'
+  } catch {
+    return false
+  }
+}
 
 function verifyMs() {
   try {
@@ -196,6 +213,9 @@ function newRouter(
     device_type: 'switch',
     switch_platform: platform,
     sflow_enabled: sflow,
+    via_router_id: null,
+    via_address: null,
+    via_router: null,
   }
 }
 
@@ -383,20 +403,25 @@ export function switchStatus(tenant: MockTenant, s: MockSwitch, now: Date): Swit
   const flapping = monitored.filter((p) => p.flaps_1h >= 4)
   const verified = s.router.onboarding_state !== 'pending_configuration'
   const swos = s.platform === 'swos'
+  const unreachable = verified && s.router.connection_mode === 'via_router' && viaTunnelDown()
   const status = !verified
     ? 'unknown'
-    : down
-      ? 'warning'
-      : flapping.some((p) => p.uplink)
+    : unreachable
+      ? 'unreachable'
+      : down
         ? 'warning'
-        : 'online'
+        : flapping.some((p) => p.uplink)
+          ? 'warning'
+          : 'online'
   const reason = !verified
     ? null
-    : down
-      ? 'interface_down'
-      : status === 'warning'
-        ? 'interface_flapping'
-        : 'ok'
+    : unreachable
+      ? 'via_router_tunnel_down'
+      : down
+        ? 'interface_down'
+        : status === 'warning'
+          ? 'interface_flapping'
+          : 'ok'
   const t = now.getTime()
   const up = uplinks[0]
   return {
@@ -405,13 +430,17 @@ export function switchStatus(tenant: MockTenant, s: MockSwitch, now: Date): Swit
     name: s.router.name,
     site_name: site?.name ?? '',
     status,
-    observed_state: verified ? (status === 'warning' ? 'warning' : 'online') : null,
+    observed_state: verified
+      ? status === 'warning' || status === 'unreachable'
+        ? status
+        : 'online'
+      : null,
     reason,
     since: verified ? iso(t - 6 * 3_600_000) : null,
     last_observed_at: verified ? iso(t - 20_000) : null,
     signals: {
-      icmp: verified ? 'ok' : 'unknown',
-      snmp: verified ? 'ok' : 'unknown',
+      icmp: verified && s.router.connection_mode !== 'via_router' ? 'ok' : 'unknown',
+      snmp: verified && !unreachable ? 'ok' : 'unknown',
       wireguard: 'unknown',
       exporter: s.router.sflow_enabled ? 'exporting' : null,
     },
@@ -444,7 +473,7 @@ export function switchStatus(tenant: MockTenant, s: MockSwitch, now: Date): Swit
     interfaces_total: verified ? monitored.length : null,
     thresholds: [],
     last_flow_at: s.router.sflow_enabled ? iso(t - 30_000) : null,
-    connection_mode: 'direct',
+    connection_mode: s.router.connection_mode,
     protection_level: 'unencrypted_private',
     device_type: 'switch',
     platform: s.platform,
@@ -462,6 +491,7 @@ function onboardingFor(
   mgmt: string,
   sflow: boolean,
   rate: number,
+  via: Router | null = null,
 ): SwitchOnboarding {
   const user = `horus-${s.router.id.slice(-8)}`
   const auth = randomHex(24)
@@ -492,7 +522,57 @@ function onboardingFor(
     notes.push(
       'sFlow del switch = fuente SECUNDARIA: nunca suma al tráfico de clientes ni de nodos.',
     )
+  const horus = s.router.via_address
+  const transport = (via?.connection_mode ?? 'wireguard') as 'wireguard' | 'ipsec' | 'gre'
+  const tag = `horus-via ${s.router.id}`
+  const inIf =
+    transport === 'ipsec'
+      ? 'ipsec-policy=in,ipsec '
+      : `in-interface=${transport === 'gre' ? 'horus-gre' : 'wg-horus'} `
+  const routerConfig =
+    via && horus
+      ? {
+          language: (via.vendor === 'huawei' ? 'vrp' : 'routeros') as 'vrp' | 'routeros',
+          title: `Switch vía router · ${transport}`,
+          config:
+            via.vendor === 'huawei'
+              ? `system-view\ninterface Tunnel10\n nat static global ${horus} inside ${mgmt}\n traffic-filter inbound acl 3991\n quit\nreturn\n`
+              : `# ===== Horus Flow · switch vía router · RouterOS v7 =====\n/ip firewall nat remove [find where comment="${tag}"]\n/ip firewall nat add chain=dstnat ${inIf}dst-address=${horus} action=netmap to-addresses=${mgmt} comment="${tag}"\n/ip firewall nat add chain=srcnat src-address=${mgmt} dst-address=10.255.0.0/24 action=netmap to-addresses=${horus} comment="${tag}"\n/ip firewall filter add chain=forward ${inIf}src-address=10.255.0.0/24 dst-address=${mgmt} protocol=udp dst-port=161 action=accept comment="${tag}"\n/ip firewall filter add chain=forward ${inIf}dst-address=${mgmt} action=drop comment="${tag}"\n# Deshacer: /ip firewall filter remove [find where comment="${tag}"]\n`,
+          notes: [
+            `Dirección Horus del switch: ${horus}. Horus nunca usa la IP privada ${mgmt} como identidad.`,
+          ],
+          warnings:
+            transport === 'gre'
+              ? [
+                  'El túnel de este router es GRE (SIN CIFRADO): el sFlow del switch viaja en claro.',
+                ]
+              : [],
+        }
+      : null
+  if (via) {
+    config = config.replaceAll('{HORUS_POLLER_IP}', '10.255.0.1')
+    notes.push(
+      `Vía el router ${via.name} por su túnel ${transport}: Horus consulta ${horus} y el router lo traduce a ${mgmt}.`,
+    )
+  }
   return {
+    connection_mode: via ? 'via_router' : 'direct',
+    path:
+      via && horus
+        ? {
+            router_id: via.id,
+            router_name: via.name,
+            transport,
+            protection_level: via.protection_level,
+            horus_address: horus,
+            block: null,
+            poller_address: '10.255.0.1',
+            collector_address: '10.255.0.1',
+            collector_port: 6343,
+            tunnel_status: 'active',
+          }
+        : null,
+    router_config: routerConfig,
     router_id: s.router.id,
     platform: s.platform,
     language,
@@ -504,9 +584,9 @@ function onboardingFor(
     config,
     sflow_config: sflowConfig,
     notes,
-    placeholders: [
-      { key: '{HORUS_POLLER_IP}', description: 'IP de origen del sondeo SNMP de Horus.' },
-    ],
+    placeholders: via
+      ? []
+      : [{ key: '{HORUS_POLLER_IP}', description: 'IP de origen del sondeo SNMP de Horus.' }],
     warnings,
   }
 }
@@ -534,10 +614,12 @@ export function switchRoutes(ctx: TenantRouteContext): Response | undefined {
   if (ctx.method === 'GET' && path === '/routers' && dt === 'switch') {
     if (!ctx.can('devices.read')) return forbidden()
     const sites = ctx.url.searchParams.get('site_id')?.split(',').filter(Boolean)
+    const via = ctx.url.searchParams.get('via_router_id')
     return json(
       paginate(
         list()
           .filter((s) => !sites?.length || sites.includes(s.router.site_id))
+          .filter((s) => !via || s.router.via_router_id === via)
           .map((s) => s.router),
         ctx.url,
       ),
@@ -588,6 +670,45 @@ export function switchRoutes(ctx: TenantRouteContext): Response | undefined {
     list().push(sw)
     return json(sw.router, 201, { ETag: '"1"' })
   }
+  const sm = path.match(/^\/routers\/([^/]+)\/management-subnets(?:\/([^/]+))?$/)
+  if (sm) {
+    const rid = sm[1]!
+    if (find(rid))
+      return problem(422, 'SWITCH_NOT_SUPPORTED', 'Las redes se declaran en el router.')
+    if (!routersOf(tenant, now).some((r) => r.router.id === rid)) return notFound()
+    const subs = subnetStore.get(rid) ?? []
+    if (ctx.method === 'GET' && !sm[2]) {
+      if (!ctx.can('devices.read')) return forbidden()
+      return json({ data: subs })
+    }
+    if (!ctx.can('devices.update')) return forbidden()
+    if (ctx.method === 'POST' && !sm[2]) {
+      const prefix = String((ctx.body as { prefix?: string }).prefix ?? '').trim()
+      const mm = prefix.match(/^(10|172|192)\.(\d+)\.(\d+)\.(\d+)\/(\d+)$/)
+      const bits = mm ? Number(mm[5]) : 0
+      if (!mm || bits < 22 || bits > 30)
+        return validation('prefix', 'INVALID_VALUE', 'Red IPv4 privada de /22 a /30.')
+      if (subs.some((x) => x.prefix === prefix))
+        return problem(409, 'MANAGEMENT_SUBNET_OVERLAP', 'Se solapa con otra red del router.')
+      const sub: ManagementSubnet = {
+        id: mockUuid('0194a5d0', hash(rid + prefix)),
+        router_id: rid,
+        prefix,
+        created_at: iso(now.getTime()),
+      }
+      subnetStore.set(rid, [...subs, sub])
+      return json(sub, 201)
+    }
+    if (ctx.method === 'DELETE' && sm[2]) {
+      if (!subs.some((x) => x.id === sm[2])) return notFound()
+      subnetStore.set(
+        rid,
+        subs.filter((x) => x.id !== sm[2]),
+      )
+      return new Response(null, { status: 204 })
+    }
+    return
+  }
   let m = path.match(/^\/routers\/([^/]+)(\/switch-onboarding)?$/)
   if (m) {
     const s = find(m[1]!)
@@ -603,8 +724,29 @@ export function switchRoutes(ctx: TenantRouteContext): Response | undefined {
         )
       const b = ctx.body as {
         management_address?: string | null
+        connection_mode?: 'direct' | 'via_router' | null
+        via_router_id?: string | null
         sflow?: boolean | null
         sampling_rate?: number | null
+      }
+      const mode = b.connection_mode ?? s.router.connection_mode
+      let via: Router | null = null
+      if (mode === 'via_router') {
+        const vid = b.via_router_id ?? s.router.via_router_id
+        if (!vid)
+          return validation('via_router_id', 'REQUIRED', 'Elija el router del sitio del switch.')
+        via =
+          routersOf(tenant, now)
+            .map((r) => r.router)
+            .find(
+              (r) => r.id === vid && ['wireguard', 'ipsec', 'gre'].includes(r.connection_mode),
+            ) ?? null
+        if (!via)
+          return validation(
+            'via_router_id',
+            'VIA_ROUTER_INVALID',
+            'Elija un router del mismo ISP con túnel activo con Horus.',
+          )
       }
       const mgmt = b.management_address ?? s.router.management_address
       if (!mgmt)
@@ -625,10 +767,36 @@ export function switchRoutes(ctx: TenantRouteContext): Response | undefined {
       const rate = b.sampling_rate ?? 4096
       if (rate < 256 || rate > 65535)
         return validation('sampling_rate', 'INVALID_VALUE', 'Entre 256 y 65535.')
+      if (
+        via &&
+        list().some(
+          (o) =>
+            o !== s && o.router.via_router_id === via!.id && o.router.management_address === mgmt,
+        )
+      )
+        return problem(
+          409,
+          'MANAGEMENT_ADDRESS_IN_USE',
+          'Otro switch ya usa esa IP por este router.',
+        )
       const sflow = b.sflow ?? s.router.sflow_enabled
-      const changed = mgmt !== s.router.management_address
+      const changed =
+        mgmt !== s.router.management_address ||
+        mode !== s.router.connection_mode ||
+        (via?.id ?? null) !== s.router.via_router_id
       s.router = {
         ...s.router,
+        connection_mode: mode,
+        via_router_id: via?.id ?? null,
+        via_address: via ? (s.router.via_address ?? `10.255.200.${(viaSeq++ % 250) + 2}`) : null,
+        via_router: via
+          ? {
+              id: via.id,
+              name: via.name,
+              connection_mode: via.connection_mode as 'wireguard' | 'ipsec' | 'gre',
+              protection_level: via.protection_level,
+            }
+          : null,
         management_address: mgmt,
         sflow_enabled: sflow,
         version: s.router.version + 1,
@@ -637,7 +805,7 @@ export function switchRoutes(ctx: TenantRouteContext): Response | undefined {
       }
       if (changed || s.router.onboarding_state === 'pending_configuration')
         s.verifyAt = now.getTime() + verifyMs()
-      return json(onboardingFor(s, mgmt, sflow, rate), 201, { 'Cache-Control': 'no-store' })
+      return json(onboardingFor(s, mgmt, sflow, rate, via), 201, { 'Cache-Control': 'no-store' })
     }
     if (!s) return
     if (ctx.method === 'GET') return json(s.router, 200, { ETag: `"${s.router.version}"` })
@@ -767,5 +935,7 @@ export function switchRoutes(ctx: TenantRouteContext): Response | undefined {
 
 /** Vacía los switches simulados (pruebas). */
 export function resetSwitchMocks() {
+  subnetStore.clear()
+  viaSeq = 0
   store.clear()
 }

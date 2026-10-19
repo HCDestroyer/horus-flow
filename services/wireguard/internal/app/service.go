@@ -328,6 +328,9 @@ func (s *Service) Reconcile(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if err := s.reconcileVia(ctx, d, routers); err != nil {
+		s.o.Logger.WarnContext(ctx, "via-router reconcile failed", slog.Any("error", err))
+	}
 	for i := range peers {
 		p := &peers[i]
 		if live[routerKey(p.TenantID, p.RouterID)] {

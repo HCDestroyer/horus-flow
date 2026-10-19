@@ -47,6 +47,7 @@ import (
 	"github.com/hcdestroyer/horus-flow/services/devices/internal/domain"
 	"github.com/hcdestroyer/horus-flow/services/devices/migrations"
 	snmpapi "github.com/hcdestroyer/horus-flow/services/snmp/api"
+	viaapi "github.com/hcdestroyer/horus-flow/services/wireguard/api"
 )
 
 // Role es el nombre del rol en HORUS_ROLES: nodos, routers, realms, credenciales y clientes.
@@ -250,8 +251,13 @@ func Register(ctx context.Context, deps module.Deps) (module.Module, error) {
 		direct := app.NewDirectOnboarding(store, onboarding, app.DirectSettings{CollectorAddress: collector, CollectorPort: port,
 			PollerAddress: poller, NTPServer: ntp, Deny: deny}, func() (authapi.AuditRecorder, bool) {
 			return module.Lookup[authapi.AuditRecorder](deps.Services, authapi.ServiceAudit)
-		}, logger, nil)
+		}, logger, nil).WithVia(store, func() (viaapi.ViaPaths, bool) {
+			return module.Lookup[viaapi.ViaPaths](deps.Services, viaapi.ServiceViaPaths)
+		})
 		httpapi.NewDirect(direct, guard, logger).Mount(deps.Routes)
+		httpapi.NewSubnets(app.NewSubnets(store, deny, func() (authapi.AuditRecorder, bool) {
+			return module.Lookup[authapi.AuditRecorder](deps.Services, authapi.ServiceAudit)
+		}, logger, nil), guard, logger).Mount(deps.Routes)
 		transport := app.NewTransport(store, deny, func() (authapi.AuditRecorder, bool) {
 			return module.Lookup[authapi.AuditRecorder](deps.Services, authapi.ServiceAudit)
 		}, logger, nil)

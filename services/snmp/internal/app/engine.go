@@ -423,6 +423,27 @@ func (e *Engine) SetWireGuard(tenant, id uuid.UUID, signal string, at time.Time)
 	r.mu.Unlock()
 }
 
+// viaTunnelDown indica si el túnel del router del sitio de un switch vía
+// router está caído o nunca subió (el router no es objetivo de sondeo hasta
+// tener el túnel arriba, ni del mismo ISP: entonces cuenta como caído).
+func (e *Engine) viaTunnelDown(t Target) bool {
+	if t.ViaRouterID == nil {
+		return false
+	}
+	e.mu.RLock()
+	via := e.routers[*t.ViaRouterID]
+	e.mu.RUnlock()
+	if via == nil {
+		return true
+	}
+	via.mu.Lock()
+	defer via.mu.Unlock()
+	if via.TenantID != t.TenantID {
+		return true
+	}
+	return via.st.WireGuard == api.SignalStale || via.st.WireGuard == api.SignalNever
+}
+
 // refreshTargets lista los routers con túnel y alta avanzada y sincroniza el mapa.
 func (e *Engine) refreshTargets(ctx context.Context) {
 	dev, ok := e.o.Devices()
@@ -464,6 +485,10 @@ func (e *Engine) refreshTargets(ctx context.Context) {
 			Vendor: snmpclient.ForVendor(ri.Vendor).Vendor(), Direct: ri.ConnectionMode == devapi.ConnectionDirect,
 			OnboardingState: ri.OnboardingState, ConnectionMode: ri.ConnectionMode, ProtectionLevel: ri.ProtectionLevel,
 			Switch: ri.DeviceType == devapi.DeviceTypeSwitch, Platform: ri.SwitchPlatform, SFlow: ri.SFlowEnabled}
+		if ri.ConnectionMode == devapi.ConnectionViaRouter && ri.ViaRouterID != nil {
+			id := *ri.ViaRouterID
+			t.ViaRouterID = &id
+		}
 		if inv != nil {
 			if x, ok := inv.Router(ri.ID); ok {
 				if x.Name != "" {
@@ -512,6 +537,14 @@ func (e *Engine) refreshTargets(ctx context.Context) {
 // declarada en modo directo (Huawei VRP, sin túnel; docs/vendors/huawei.md
 // §5), en cuanto existe.
 func pollAddress(ri devapi.RouterInfo) (netip.Addr, bool) {
+	if ri.ConnectionMode == devapi.ConnectionViaRouter {
+		// Vía router: la dirección Horus (el router la traduce a la IP
+		// privada); nunca la IP privada, que puede repetirse entre ISP.
+		if ri.ViaAddress == nil || !ri.ViaAddress.IsValid() || ri.ViaRouterID == nil {
+			return netip.Addr{}, false
+		}
+		return ri.ViaAddress.Unmap(), true
+	}
 	if ri.ConnectionMode == devapi.ConnectionDirect {
 		if ri.ManagementAddress == nil || !ri.ManagementAddress.IsValid() {
 			return netip.Addr{}, false
@@ -556,6 +589,9 @@ type Target struct {
 	Switch   bool
 	Platform string
 	SFlow    bool
+	// ViaRouterID: switch vía router (ADR-0032): Tunnel es su dirección
+	// Horus y su alcance depende del túnel de ese router.
+	ViaRouterID *uuid.UUID
 }
 
 // router es el estado en memoria de un objetivo.

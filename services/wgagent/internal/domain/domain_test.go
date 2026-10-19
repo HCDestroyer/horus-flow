@@ -31,6 +31,42 @@ func TestNormalize(t *testing.T) {
 	}
 }
 
+// Switches vía router (ADR-0032): el peer del router lleva, además de su /32
+// de túnel, las direcciones Horus de los equipos que alcanza (una /32 o un
+// bloque de una red de gestión). Nunca dos peers con prefijos solapados:
+// WireGuard elige el peer por destino y un solape cruzaría ISPs.
+func TestNormalizeViaRouter(t *testing.T) {
+	t.Parallel()
+	got, err := Normalize([]DesiredPeer{
+		{PeerID: "a", PublicKey: k1, AllowedIPs: []string{"10.255.1.2/32", "10.255.1.40/32", "10.255.2.0/28"}},
+		{PeerID: "b", PublicKey: k2, AllowedIPs: []string{"10.255.1.3/32", "10.255.1.41/32"}},
+	})
+	if err != nil || len(got[k1].AllowedIPs) != 3 || got[k1].AllowedIPs[2] != netip.MustParsePrefix("10.255.2.0/28") {
+		t.Fatalf("normalize = %v, %v", got, err)
+	}
+	bad := [][]DesiredPeer{
+		// Solo un bloque: falta la /32 de túnel.
+		{{PeerID: "a", PublicKey: k1, AllowedIPs: []string{"10.255.2.0/28"}}},
+		// Bloque demasiado grande o no canónico.
+		{{PeerID: "a", PublicKey: k1, AllowedIPs: []string{"10.255.1.2/32", "10.254.0.0/16"}}},
+		{{PeerID: "a", PublicKey: k1, AllowedIPs: []string{"10.255.1.2/32", "10.255.2.1/28"}}},
+		// El bloque de un router se solapa con la /32 de otro.
+		{{PeerID: "a", PublicKey: k1, AllowedIPs: []string{"10.255.1.2/32", "10.255.2.0/28"}},
+			{PeerID: "b", PublicKey: k2, AllowedIPs: []string{"10.255.2.5/32"}}},
+		// La misma dirección Horus en dos routers.
+		{{PeerID: "a", PublicKey: k1, AllowedIPs: []string{"10.255.1.2/32", "10.255.1.40/32"}},
+			{PeerID: "b", PublicKey: k2, AllowedIPs: []string{"10.255.1.3/32", "10.255.1.40/32"}}},
+		// Una IP privada de un ISP nunca llega aquí, pero aunque llegara repetida, se rechaza.
+		{{PeerID: "a", PublicKey: k1, AllowedIPs: []string{"10.255.1.2/32", "192.168.88.2/32"}},
+			{PeerID: "b", PublicKey: k2, AllowedIPs: []string{"10.255.1.3/32", "192.168.88.2/32"}}},
+	}
+	for i, b := range bad {
+		if _, err := Normalize(b); !errors.Is(err, ErrInvalidState) {
+			t.Errorf("caso %d aceptado: %v", i, err)
+		}
+	}
+}
+
 func TestDiff(t *testing.T) {
 	t.Parallel()
 	ip := func(s string) []netip.Prefix { return []netip.Prefix{netip.MustParsePrefix(s)} }

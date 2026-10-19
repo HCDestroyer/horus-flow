@@ -53,6 +53,34 @@ func greT(idx uint32, addr, remote string) *tunnelv1.DesiredTunnel {
 		HubTunnelAddress: "10.255.0.1", LocalAddress: "203.0.113.1", RemoteAddress: remote, GreKey: idx}
 }
 
+// Switches vía router (ADR-0032): las direcciones Horus de los equipos se
+// ligan a la interfaz del router (antisuplantación) y un cambio en la lista
+// reaplica el túnel.
+func TestApplyTunnelsRouted(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	host, ike := memdev.NewHost(), memdev.NewIKE()
+	a := app.New(app.Options{Links: host, IKE: ike})
+	g := greT(2, "10.255.1.3", "198.51.100.7")
+	g.RoutedPrefixes = []string{"10.255.1.40/32"}
+	if _, err := a.ApplyTunnels(ctx, desired(1, ipsecT(1, "10.255.1.2"), g)); err != nil {
+		t.Fatal(err)
+	}
+	if len(host.Bindings) != 3 || host.Bindings[2].Prefix.String() != "10.255.1.40/32" || host.Bindings[2].Interface != "hgre2" ||
+		len(host.Links["hgre2"].Routed) != 1 {
+		t.Fatalf("ligaduras = %v, túnel = %+v", host.Bindings, host.Links["hgre2"])
+	}
+	g.RoutedPrefixes = []string{"10.255.1.40/32", "10.255.2.0/28"}
+	r, err := a.ApplyTunnels(ctx, desired(2, ipsecT(1, "10.255.1.2"), g))
+	if err != nil || r.GetTunnelsAdded() != 1 || len(host.Links["hgre2"].Routed) != 2 || len(host.Bindings) != 4 {
+		t.Fatalf("cambio de direcciones = %v %v, ligaduras %v", r, err, host.Bindings)
+	}
+	g.RoutedPrefixes = nil
+	if _, err := a.ApplyTunnels(ctx, desired(3, ipsecT(1, "10.255.1.2"), g)); err != nil || len(host.Bindings) != 2 {
+		t.Fatalf("baja del switch = %v, ligaduras %v", err, host.Bindings)
+	}
+}
+
 func TestApplyTunnels(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

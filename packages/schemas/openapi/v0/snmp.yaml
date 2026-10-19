@@ -1084,15 +1084,20 @@ components:
               packets: { type: string }
     RouterEffectiveStatus:
       type: string
-      description: Estado efectivo (api.md §2.6). `stale` = la observación es vieja o el sondeador no late; `unknown` = nunca observado.
-      enum: [online, warning, critical, degraded, offline, stale, unknown, maintenance]
+      description: |
+        Estado efectivo (api.md §2.6). `stale` = la observación es vieja o el sondeador no late; `unknown` = nunca observado;
+        `unreachable` = switch vía router con el túnel de su router del sitio caído (ADR-0032).
+      enum: [online, warning, critical, degraded, offline, unreachable, stale, unknown, maintenance]
     RouterObservedState:
       type: string
-      enum: [online, warning, critical, degraded, offline]
+      description: '`unreachable` solo en switches vía router (ADR-0032) cuyo router del sitio tiene el túnel caído (razón `via_router_tunnel_down`): no es un fallo del switch.'
+      enum: [online, warning, critical, degraded, offline, unreachable]
     RouterStateReason:
       type: string
-      description: Enum abierto (events.md §8.4). `interface_flapping` solo en switches (uplink inestable).
-      examples: [ok, cpu_high, memory_high, temperature_high, snmp_unreachable, snmp_auth_failed, tunnel_down, host_unreachable_via_tunnel, exporter_silent, interface_down, interface_flapping, psu_failed, fan_failed]
+      description: |
+        Enum abierto (events.md §8.4). `interface_flapping` solo en switches (uplink inestable). `via_router_tunnel_down`:
+        switch vía router cuyo router del sitio tiene el túnel caído (estado `unreachable`).
+      examples: [ok, cpu_high, memory_high, temperature_high, snmp_unreachable, snmp_auth_failed, tunnel_down, host_unreachable_via_tunnel, exporter_silent, interface_down, interface_flapping, psu_failed, fan_failed, via_router_tunnel_down]
     RouterSignals:
       type: object
       description: Las señales que sostienen el estado; `unknown` mientras no haya observación.
@@ -1207,7 +1212,7 @@ components:
             - type: 'null'
         connection_mode:
           type: string
-          enum: [wireguard, ipsec, gre, direct]
+          enum: [wireguard, ipsec, gre, direct, via_router]
           description: Transporte del router con Horus (docs/tunnels.md). Ausente en filas anteriores al campo.
         protection_level:
           type: string

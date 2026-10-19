@@ -50,12 +50,28 @@ func (h *DirectHandler) createSwitch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	jsonapi.Write(w, http.StatusCreated, map[string]any{
+	body := map[string]any{
 		"router_id": res.RouterID, "platform": res.Platform, "language": res.Language, "snmp_version": res.SNMPVersion,
 		"management_address": res.ManagementAddress, "snmp_user": res.SNMPUser, "sflow_enabled": res.SFlowEnabled,
 		"sampling_rate": res.SamplingRate, "config": res.Config, "sflow_config": res.SFlowConfig, "notes": res.Notes,
-		"placeholders": res.Placeholders, "warnings": res.Warnings,
-	})
+		"placeholders": res.Placeholders, "warnings": res.Warnings, "connection_mode": res.ConnectionMode, "path": nil, "router_config": nil,
+	}
+	if x := res.Path; x != nil {
+		body["path"] = map[string]any{"router_id": x.RouterID, "router_name": x.RouterName, "transport": x.Transport,
+			"protection_level": x.ProtectionLevel, "horus_address": x.HorusAddress, "block": x.Block, "poller_address": x.PollerAddress,
+			"collector_address": x.CollectorAddress, "collector_port": x.CollectorPort, "tunnel_status": x.TunnelStatus}
+	}
+	if c := res.RouterConfig; c != nil {
+		notes, warnings := c.Notes, c.Warnings
+		if notes == nil {
+			notes = []string{}
+		}
+		if warnings == nil {
+			warnings = []string{}
+		}
+		body["router_config"] = map[string]any{"language": c.Language, "title": c.Title, "config": c.Config, "notes": notes, "warnings": warnings}
+	}
+	jsonapi.Write(w, http.StatusCreated, body)
 }
 
 // create es POST /routers/{id}/direct-onboarding (re-autenticación: emite
