@@ -45,7 +45,9 @@ SAY = [
 def spoken(text):
     for pat, rep in SAY:
         text = re.sub(pat, rep, text)
-    return text
+    # Una frase que continúa la anterior ("y te avisa…") empieza en minúscula; al modelo se le da con
+    # mayúscula, porque si no a veces vocaliza algo al inicio (se oía como "punto").
+    return text[:1].upper() + text[1:]
 
 def norm(s):
     """Letras sin tildes ni 'h' ni espacios: compara texto y transcripción sin castigar siglas ni la h muda."""
@@ -80,8 +82,9 @@ class Engine:
             p = self.gm(**self.gfe(y, sampling_rate=16000, return_tensors='pt')).logits.softmax(-1)[0]
         g = {self.gm.config.id2label[i]: float(p[i]) for i in range(len(p))}
         pace = (len(wav) / sr) / max(1, len(text))  # segundos por carácter
-        ok = sim >= 0.8 and g.get(gender, 0) >= 0.9 and pace <= 0.095
-        return ok, {'sim': round(sim, 2), 'fluidez': round(flu, 3), gender: round(g.get(gender, 0), 3),
+        extra = len(norm(heard)) / max(1, len(norm(text)))  # palabras de más (p. ej. "punto" al inicio)
+        ok = sim >= 0.8 and extra <= 1.08 and g.get(gender, 0) >= 0.9 and pace <= 0.095
+        return ok, {'sim': round(sim, 2), 'extra': round(extra, 2), 'fluidez': round(flu, 3), gender: round(g.get(gender, 0), 3),
                     'seg_por_car': round(pace, 3), 'oido': heard}
 
     def gen(self, voice, cfg, sp):
