@@ -242,6 +242,10 @@ Los mismos que en Debian ([`install-debian.md`](install-debian.md) §5):
 | ESP (proto 50) / GRE (proto 47) | IP | IPsec sin NAT / GRE | solo con `--tunnels ipsec` / `--tunnels gre` |
 
 Los flujos (IPFIX/NetFlow, UDP 4739 y 2055) **nunca** se abren: solo entran por el túnel.
+
+Para publicar el 443 sin dejar el panel a la vista de Internet, añade `--panel-allow <IPs o redes>` al
+`install`: el panel y la API solo responden a esas IPs, y el alta de routers y el túnel siguen
+abiertos para todos (detalles en [`install-debian.md`](install-debian.md) §5.1).
 Con `--tunnels` el contenedor `horus-host` aplica las mismas reglas que Debian (flujos solo por `wg0`,
 `hxfrm+`, `hgre+` o `--direct-flow-sources`) y se añaden `horus-tunnel-agent` y `horus-ipsec`
 ([`tunnels.md`](tunnels.md) §7). El anfitrión necesita `ipset` y los módulos `xfrm_interface` e `ip_gre`.

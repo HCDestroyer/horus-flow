@@ -14,6 +14,15 @@ http:
     horus-api:
       entryPoints: [websecure]
       rule: "PathPrefix(`/api`) || PathPrefix(`/ws`)"
+      middlewares: [panel-allow, security-headers, api-ratelimit]
+      service: horus-gateway
+      tls: {}
+    # Alta de routers (token de un solo uso): fuera de panel-allow para que un router nuevo pueda
+    # registrarse desde cualquier IP aunque el panel esté limitado (install.sh --panel-allow).
+    horus-enroll:
+      entryPoints: [websecure]
+      rule: "PathPrefix(`/api/v1/enroll/`)"
+      priority: 1000
       middlewares: [security-headers, api-ratelimit]
       service: horus-gateway
       tls: {}
@@ -23,6 +32,7 @@ http:
       entryPoints: [websecure]
       rule: "PathPrefix(`/`)"
       priority: 1
+      middlewares: [panel-allow]
       service: horus-web
       tls: {}
 

@@ -43,6 +43,10 @@
 #   --http-bind IP:PUERTO        (external) dónde escucha Traefik en HTTP (127.0.0.1:8080; la IP de la
 #                                LAN si el proxy está en otra máquina)
 #   --wg-endpoint HOST           nombre o IP a la que los routers envían el UDP de WireGuard
+#   --panel-allow CIDR[,…]|any   IPs o redes desde las que se abre el panel y la API (HTTPS). El alta de
+#                                routers (/api/v1/enroll/, con token de un solo uso) y el túnel WireGuard
+#                                siguen abiertos para todos. Para publicar el 443 con un dst-nat sin dejar
+#                                el panel a la vista de Internet. any (por defecto): sin restricción
 #   --size small|medium|large    perfil (docs/install-debian.md §1): small ≤ 300 clientes (4 vCPU, 8 GB),
 #                                medium ≈ 2 000 (8 vCPU, 16 GB), large ≈ 10 000 (8 vCPU, 32 GB, 500 GB NVMe);
 #                                memoria de ClickHouse/PostgreSQL, cola del collector y reserva de NATS.
@@ -121,7 +125,7 @@ while [ "$#" -gt 0 ]; do
       --https-port | --wg-port | --wg-interface | --docker-subnet | --tlm-max-bytes | --bundle-recipient | --bundle-out | \
       --smtp-host | --smtp-port | --smtp-from | --smtp-user | --smtp-tls | --smtp-password-file | --backup-metrics-port | --backup-keep-full | \
       --image-source | --registry | --registry-user | --registry-token-file | --channel | --auto-update | --update-window | \
-      --update-source | --web-image | --postgres-image | --size | --tls | --public-url | --trusted-proxies | --http-bind | --wg-endpoint | \
+      --update-source | --web-image | --postgres-image | --size | --tls | --public-url | --trusted-proxies | --http-bind | --wg-endpoint | --panel-allow | \
       --runtime | --installer-image | --tunnels | --tunnel-hub-address | --direct-flow-sources)
       need_arg "$@"; opt[${1#--}]="$2"; shift 2 ;;
     --acme-staging) opt[acme-staging]=1; shift ;;
@@ -403,6 +407,7 @@ configure() {
   docker_subnet="$(get docker-subnet 172.31.250.0/24)"
   valid_cidr "$docker_subnet" || die "CIDR inválido: $docker_subnet"
   grpc_bind="$(int2ip $(($(ip2int "${docker_subnet%/*}") + 1)))"
+  configure_panel_allow
   configure_size
   configure_images
   configure_updates
@@ -418,8 +423,55 @@ configure() {
   ok "acceso $access_mode → $public_base_url (TLS $tls_mode)"
   ok "túneles $tunnel_cidr, hub/colector $collector_ip en $wg_if, WireGuard UDP $wg_port en $wg_endpoint"
   if [ -n "$tunnels" ]; then ok "transportes adicionales: $tunnels (hub $tunnel_hub_address; docs/tunnels.md)"; fi
+  if [ -n "$panel_allow" ]; then ok "panel y API solo desde $panel_allow (alta de routers y túnel abiertos a todos)"; fi
   ok "superadmin $admin_email; datos en $data_dir, backups en $store_dir"
   ok "versión $horus_version; imágenes: $image_source_desc; canal $channel, actualización automática $auto_update"
+}
+
+# Acceso al panel por IP de origen (--panel-allow). Traefik aplica la lista con ipAllowList a la web,
+# la API y /ws; /api/v1/enroll/ (alta de routers, token de un solo uso) queda fuera para que un router
+# nuevo pueda registrarse desde cualquier sitio. Siempre se añaden loopback y la red del compose: las
+# comprobaciones del propio servidor llegan desde ahí. Con --tls external la restricción va en el proxy.
+configure_panel_allow() {
+  local raw c norm=()
+  raw="$(get panel-allow any)"; raw="${raw// /}"
+  panel_allow=""
+  case "$raw" in "" | any) return 0 ;; esac
+  [ "$tls_choice" != external ] || die "--panel-allow no aplica con --tls external: limita el acceso en tu proxy inverso"
+  IFS=, read -r -a _pa <<<"$raw"
+  for c in "${_pa[@]}"; do
+    [ -n "$c" ] || continue
+    [[ "$c" == */* ]] || c="$c/32"
+    valid_cidr "$c" || die "CIDR inválido en --panel-allow: $c"
+    IFS=. read -r -a _o <<<"${c%/*}"
+    [ "${_o[0]}" -le 255 ] && [ "${_o[1]}" -le 255 ] && [ "${_o[2]}" -le 255 ] && [ "${_o[3]}" -le 255 ] ||
+      die "IP inválida en --panel-allow: $c"
+    [ "$c" != 0.0.0.0/0 ] || die "--panel-allow 0.0.0.0/0 no restringe nada; usa --panel-allow any"
+    norm+=("$(cidr_network "$c")")
+  done
+  [ "${#norm[@]}" -gt 0 ] || die "--panel-allow sin ninguna IP o red válida"
+  panel_allow="$(IFS=,; echo "${norm[*]}")"
+}
+
+# panel-access.yml: middleware panel-allow que usan las rutas de la web y la API (plantillas de
+# infrastructure/traefik/prod). Sin --panel-allow deja pasar a todos (IPv4 e IPv6).
+render_panel_access() {
+  local f="$config_dir/traefik/dynamic/panel-access.yml" c
+  {
+    echo "# Generado por scripts/install.sh (--panel-allow). No editar: se reescribe en cada ejecución."
+    echo "http:"
+    echo "  middlewares:"
+    echo "    panel-allow:"
+    echo "      ipAllowList:"
+    echo "        sourceRange:"
+    if [ -z "$panel_allow" ]; then
+      echo '          - "0.0.0.0/0"'
+      echo '          - "::/0"'
+    else
+      for c in 127.0.0.1/32 "$docker_subnet" ${panel_allow//,/ }; do printf '          - "%s"\n' "$c"; done
+    fi
+  } >"$f"
+  chmod 0644 "$f"
 }
 
 # Modos de Traefik con TLS propio (D19): domain/subdomain (Let's Encrypt) o ip (autogenerado).
@@ -700,7 +752,7 @@ save_conf() {
       update-check "$update_check" web-image "${img[HORUS_WEB_IMAGE]}" postgres-image "${img[HORUS_POSTGRES_IMAGE]}" \
       version "$horus_version" tls "$tls_choice" public-url "$([ "$tls_choice" = external ] && echo "$public_base_url")" \
       trusted-proxies "$trusted_proxies" http-bind "$([ "$tls_choice" = external ] && echo "$http_bind_addr:$http_port")" \
-      wg-endpoint "$(get wg-endpoint "")" size "$size" runtime "$runtime" installer-image "$installer_image" \
+      wg-endpoint "$(get wg-endpoint "")" panel-allow "${panel_allow:-any}" size "$size" runtime "$runtime" installer-image "$installer_image" \
       tunnels "${tunnels:-none}" tunnel-hub-address "${tunnel_hub_address:-}" direct-flow-sources "${direct_flow_sources:-}" \
       ipsec-image "${img[HORUS_IPSEC_IMAGE]:-}"
     [ -z "${opt[acme-staging]:-${saved[acme-staging]:-}}" ] || echo "acme-staging=1"
@@ -1033,6 +1085,7 @@ render_files() {
   [ "$tls_mode" = self_signed ] && tmpl="$repo_root/infrastructure/traefik/prod/horus.ip.yml.tmpl"
   [ "$tls_mode" = external ] && tmpl="$repo_root/infrastructure/traefik/prod/horus.external.yml.tmpl"
   sed "s/@HORUS_HOST@/$public_host/g" "$tmpl" >"$config_dir/traefik/dynamic/horus.yml"
+  render_panel_access
   install -m 0644 "$repo_root/infrastructure/nats/nats.prod.conf" "$config_dir/nats/nats.prod.conf"
   install -m 0644 "$repo_root/infrastructure/nats/kv.yaml" "$config_dir/nats/kv.yaml"
   install -m 0644 "$repo_root/packages/events/streams/streams.yaml" "$config_dir/nats/streams.yaml"
@@ -1646,6 +1699,11 @@ summary() {
     echo "  Certificado:    Let's Encrypt para $domain (se emite en la primera petición HTTPS)"
   fi
   echo "  WireGuard:      UDP $wg_port en $public_host; hub/colector $collector_ip; túneles $tunnel_cidr"
+  if [ -n "$panel_allow" ]; then
+    echo "  Panel:          solo desde $panel_allow; el alta de routers (/api/v1/enroll/) y el túnel siguen abiertos"
+  else
+    echo "  Panel:          abierto a cualquier IP que llegue al puerto $https_port (restríngelo con --panel-allow)"
+  fi
   echo "  Superadmin:     $admin_email (el primer login exige cambiar la contraseña y activar TOTP)"
   [ -z "${generated_admin_password:-}" ] || echo "                  contraseña inicial generada: $generated_admin_password  (anótala; no se volverá a mostrar)"
   if [ -n "${bundle_file:-}" ]; then
