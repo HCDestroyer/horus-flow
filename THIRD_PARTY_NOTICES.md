@@ -62,7 +62,7 @@ scripts del instalador ejecutan como programas independientes.
 | `github.com/invopop/jsonschema` | v0.14.0 | MIT |
 | `github.com/jackc/pgpassfile` | v1.0.0 | MIT |
 | `github.com/jackc/pgservicefile` | v0.0.0-20240606120523-5a60cdf6a761 | MIT |
-| `github.com/jackc/pgx/v5` | v5.7.6 | MIT |
+| `github.com/jackc/pgx/v5` | v5.9.2 | MIT |
 | `github.com/jackc/puddle/v2` | v2.2.2 | MIT |
 | `github.com/josharian/native` | v1.1.0 | MIT |
 | `github.com/klauspost/compress` | v1.19.1 | Apache-2.0 |
@@ -73,8 +73,8 @@ scripts del instalador ejecutan como programas independientes.
 | `github.com/mfridman/interpolate` | v0.0.2 | MIT |
 | `github.com/modelcontextprotocol/go-sdk` | v1.8.0 | Apache-2.0 |
 | `github.com/munnerz/goautoneg` | v0.0.0-20191010083416-a7dc8b61c822 | BSD-3-Clause |
-| `github.com/nats-io/nats.go` | v1.47.0 | Apache-2.0 |
-| `github.com/nats-io/nkeys` | v0.4.11 | Apache-2.0 |
+| `github.com/nats-io/nats.go` | v1.49.0 | Apache-2.0 |
+| `github.com/nats-io/nkeys` | v0.4.15 | Apache-2.0 |
 | `github.com/nats-io/nuid` | v1.0.1 | Apache-2.0 |
 | `github.com/paulmach/orb` | v0.13.0 | MIT |
 | `github.com/pb33f/ordered-map/v2` | v2.3.1 | Apache-2.0 |
@@ -104,7 +104,7 @@ scripts del instalador ejecutan como programas independientes.
 | `go.yaml.in/yaml/v3` | v3.0.5 | Apache-2.0 |
 | `go.yaml.in/yaml/v4` | v4.0.0-rc.2 | Apache-2.0 |
 | `golang.org/x/crypto` | v0.57.0 | BSD-3-Clause |
-| `golang.org/x/net` | v0.59.0 | BSD-3-Clause |
+| `golang.org/x/net` | v0.60.0 | BSD-3-Clause |
 | `golang.org/x/oauth2` | v0.36.0 | BSD-3-Clause |
 | `golang.org/x/sync` | v0.23.0 | BSD-3-Clause |
 | `golang.org/x/sys` | v0.48.0 | BSD-3-Clause |
