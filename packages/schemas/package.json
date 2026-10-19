@@ -10,7 +10,7 @@
     "generate": "node tools/contracts-check.mjs --write"
   },
   "devDependencies": {
-    "@redocly/cli": "1.34.21",
+    "@redocly/cli": "2.64.1",
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",
     "yaml": "2.9.1"
