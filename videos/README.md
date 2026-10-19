@@ -39,7 +39,7 @@ cd apps/web && NUXT_PUBLIC_USE_FIXTURES=true pnpm exec nuxt build && PORT=3150 N
 # 3. Capturas
 node videos/capture/horus.mjs && node videos/capture/argos.mjs
 # 4. Voz (venv con torch CPU + voxcpm>=2.0.3) y música
-python videos/tools/voice.py all --voice A
+python videos/tools/voice.py all --voice L
 python3 videos/tools/music.py demo 90 --bpm 96 --energy 0.8
 # 5. Video
 node videos/src/render.mjs demo 16x9

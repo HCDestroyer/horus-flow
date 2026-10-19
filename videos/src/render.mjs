@@ -15,7 +15,7 @@ const { chromium } = require('@playwright/test')
 const args = process.argv.slice(2)
 const opt = (k, d) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : d }
 const [vid, fmt = '16x9'] = args
-const voice = opt('--voice', 'A')
+const voice = opt('--voice', 'L')
 const fps = Number(opt('--fps', 30))
 const preview = opt('--preview', null)
 const story = stories[vid]
