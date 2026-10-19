@@ -185,7 +185,7 @@ Detalle en [`docs/security.md`](docs/security.md). Para reportar una vulnerabili
 
 ## Desarrollo
 
-Requisitos: Go 1.26 (toolchain `go1.26.8`), GNU Make, Docker con compose v2, Node 22 y pnpm para
+Requisitos: Go 1.26 (toolchain `go1.26.9`), GNU Make, Docker con compose v2, Node 22 y pnpm para
 el frontend.
 
 ```bash
