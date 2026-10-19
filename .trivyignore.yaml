@@ -1,0 +1,21 @@
+# Excepciones de Trivy, siempre acotadas por ruta y con motivo (ci.yml: --ignorefile).
+misconfigurations:
+  - id: DS-0002
+    paths:
+      - deployments/images/installer/Dockerfile
+    statement: >-
+      horus-installer maneja el socket de Docker y las rutas del anfitrión (install.sh
+      --runtime docker); necesita root dentro del contenedor (docs/install-docker.md).
+  - id: DS-0002
+    paths:
+      - deployments/images/strongswan/Dockerfile
+    statement: >-
+      charon (strongSwan) crea SA de XFRM y escucha IKE en 500/4500; necesita root y
+      NET_ADMIN (docs/tunnels.md).
+  - id: DS-0002
+    paths:
+      - tests/install/debian/Dockerfile.apt
+      - tests/install/debian/Dockerfile.sandbox
+    statement: >-
+      Imágenes de prueba que simulan un Debian con systemd para ejecutar install.sh como
+      root; nunca se publican.
