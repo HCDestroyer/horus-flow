@@ -249,6 +249,12 @@ want 6 && check "upgrade --bundle 0.9.1 (backup previo, SHA256SUMS, healthcheck)
 want 6 && check "versión 0.9.1 y sana" bash -c "[ \"\$(docker exec $name horus-ctl version)\" = 0.9.1 ]"
 want 6 && check "horus-app corre la imagen de 0.9.1 (horus:test-install-b)" bash -c "[ \"\$(docker exec $name docker inspect -f '{{.Config.Image}}' horus-horus-app-1)\" = horus:test-install-b ]"
 want 6 && check "sana tras actualizar" health
+# Reinicio justo después de actualizar (instalaciones que solo se actualizan desde la primera versión):
+# las units reescritas por la versión nueva levantan túnel, colector y todo lo demás.
+if want 6; then docker restart -t 60 "$name" >/dev/null; ip="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$name")"; fi
+want 6 && check "reinicio tras actualizar: horus.service activo y todo sano" reboot_ok
+want 6 && check "reinicio tras actualizar: wg0 presente y colector en marcha" bash -c \
+  "docker exec $name ip link show wg0 >/dev/null && [ \"\$(docker exec $name docker inspect -f '{{.State.Running}}' horus-horus-collector-1)\" = true ]"
 set +e
 rc=3
 if want 6; then
