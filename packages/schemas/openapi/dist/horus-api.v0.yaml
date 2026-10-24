@@ -10522,8 +10522,8 @@ paths:
       description: |
         Para el script generado con `enrollment: manual` (el router no llega al HTTPS de Horus). Mismas reglas que
         `/enroll/wireguard`: token pendiente del ISP (el de la cabecera `X-Horus-Enrollment-Token-Id`), de un uso, TTL
-        24 h, 5 fallos lo invalidan; usado, caducado, revocado o desconocido → `ENROLLMENT_TOKEN_INVALID`. Clave ya
-        registrada → `409 WIREGUARD_PUBLIC_KEY_IN_USE`. Auditado con la persona como actor.
+        24 h, 5 fallos lo invalidan; usado, caducado o revocado → `ENROLLMENT_TOKEN_INVALID`; de otro ISP o inexistente
+        → `404`. Clave ya registrada → `409 WIREGUARD_PUBLIC_KEY_IN_USE`. Auditado con la persona como actor.
       x-module: wireguard
       x-scope: tenant
       x-permission: wireguard.write
@@ -10566,6 +10566,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
         '422':

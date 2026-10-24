@@ -47,6 +47,7 @@ func cases() map[string]tenanttest.Case {
 		"createProvisioningScript":   {Kind: tenanttest.ByID, Body: map[string]any{"routeros_version": "7.16"}},
 		"createDeprovisioningScript": {Kind: tenanttest.ByID},
 		"revokeEnrollmentToken":      {Kind: tenanttest.ByID},
+		"enrollWireguardManual":      {Kind: tenanttest.ByID, Body: map[string]any{"public_key": "yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk="}},
 		// devices: importación del MikroTik (I1-28, CORE)
 		"previewRouterPrefixImport": {Kind: tenanttest.ByID},
 		// devices: huella TLS del router confirmada por un administrador
