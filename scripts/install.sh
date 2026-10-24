@@ -1561,6 +1561,9 @@ Wants=horus-tunnel.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
+# wg0 antes que el compose aunque horus-tunnel.service haya fallado o arrancado tarde: Docker no
+# reintenta el colector si su IP (la del hub) no existía al arrancar. Idempotente.
+$( [ "$skip_tunnel" = 1 ] || printf 'ExecStartPre=-%s/bin/horus-tunnel up' "$install_dir")
 ExecStart=$dc up -d --wait --wait-timeout 600
 ExecStop=$dc stop
 TimeoutStartSec=900
@@ -1647,7 +1650,16 @@ setup_schedules() {
 10 5 * * * root $install_dir/bin/horus-backup check-ttl >>/var/log/horus-backup.log 2>&1
 */5 * * * * root $install_dir/bin/horus-backup metrics >/dev/null 2>&1
 EOF
-    warn "sin systemd: backups programados en /etc/cron.d/horus-backup; el arranque tras reiniciar depende de restart: unless-stopped y de ejecutar $install_dir/bin/horus-tunnel up"
+    # Arranque tras reiniciar: wg0 primero y luego el compose (Docker no reintenta el colector si
+    # la IP del hub no existía al arrancar). Necesita que cron arranque con la máquina.
+    cat >/etc/cron.d/horus-boot <<EOF
+# Horus Flow — arranque al encender la máquina (sin systemd). Generado por install.sh.
+@reboot root sleep 15; $install_dir/bin/horus-ctl start >>/var/log/horus-boot.log 2>&1
+EOF
+    warn "sin systemd: backups en /etc/cron.d/horus-backup y arranque al encender en /etc/cron.d/horus-boot (horus-ctl start); necesitan que cron y Docker arranquen con la máquina"
+    if grep -qi microsoft /proc/sys/kernel/osrelease 2>/dev/null; then
+      warn "WSL sin systemd: ni cron ni Docker arrancan solos. Activa systemd (en /etc/wsl.conf: [boot] systemd=true), ejecuta 'wsl --shutdown' en Windows y vuelve a lanzar el instalador; mientras tanto, tras cada reinicio: sudo horus-ctl start"
+    fi
   else
     warn "units de systemd escritas en $(unit_dir) pero NO activadas (--root/--skip-systemd o sin systemd)"
   fi
@@ -1900,7 +1912,7 @@ do_uninstall() {
   rm -f "$u"/horus.service "$u"/horus-tunnel.service "$u"/horus-backup-*.service "$u"/horus-backup-*.timer \
     "$u"/horus-autoupdate.service "$u"/horus-autoupdate.timer "$(sysctl_file)"
   if [ -z "$root" ]; then
-    rm -f /etc/cron.d/horus-backup
+    rm -f /etc/cron.d/horus-backup /etc/cron.d/horus-boot
     [ "$(readlink /usr/local/sbin/horus-ctl 2>/dev/null)" = "$install_dir/bin/horus-ctl" ] && rm -f /usr/local/sbin/horus-ctl
   fi
   have_systemd && systemctl daemon-reload || true

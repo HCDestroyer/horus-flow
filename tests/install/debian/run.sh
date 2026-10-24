@@ -14,7 +14,8 @@
 #   3. bootstrap-debian.sh --bundle A --mode ip: todos los servicios sanos, UI (200) y API (401) en
 #      https://IP con el certificado autogenerado verificado por su huella; install.sh --check.
 #   4. Segunda ejecución: idempotente, secretos idénticos.
-#   5. "Reinicio": se reinicia el contenedor entero (systemd arranca docker, horus-tunnel y horus).
+#   5. "Reinicio": se reinicia el contenedor entero (systemd arranca docker, horus-tunnel y horus);
+#      horus-ctl start recupera wg0 y el colector parados, y horus-ctl reboot (restart) deja todo sano.
 #   6. horus-ctl upgrade --bundle B → 0.9.1 sano; horus-ctl upgrade --bundle C (rota) → vuelta
 #      atrás automática a 0.9.1 sana (código 3).
 #   7. horus-ctl uninstall (conserva datos) y reinstalación con los mismos secretos; uninstall --purge.
@@ -231,6 +232,15 @@ reboot_ok() {
   return 1
 }
 want 5 && check "tras reiniciar: horus.service activo y todo sano" reboot_ok
+# Lo que deja un arranque sin túnel: wg0 ausente y el colector parado (Docker no lo reintenta si la
+# IP del hub no existía). horus-ctl start lo recupera; restart (alias reboot) vuelve a dejarlo sano.
+want 5 && check "horus-ctl start recupera wg0 y el colector parados" bash -c \
+  "docker exec $name bash -c 'docker stop -t 5 horus-horus-collector-1 >/dev/null && ip link del wg0 && horus-ctl start' >'$out/ctl-start.log' 2>&1 \
+   && docker exec $name ip link show wg0 >/dev/null && [ \"\$(docker exec $name docker inspect -f '{{.State.Running}}' horus-horus-collector-1)\" = true ]"
+want 5 && check "wg0 recreada con clave y puerto (wg-agent reiniciado por horus-ctl start)" bash -c \
+  "docker exec $name bash -c 'command -v wg >/dev/null || exit 0; for i in \$(seq 1 30); do [ \"\$(wg show wg0 listen-port 2>/dev/null)\" = 51820 ] && exit 0; sleep 2; done; exit 1'"
+want 5 && check "horus-ctl reboot (alias de restart) y sano" bash -c "docker exec $name horus-ctl reboot >'$out/ctl-restart.log' 2>&1"
+want 5 && check "sano tras horus-ctl reboot" health
 
 # --- 6. Actualización y vuelta atrás --------------------------------------------------------------
 step "6. horus-ctl upgrade A→B y B→C (rota)"
@@ -239,6 +249,12 @@ want 6 && check "upgrade --bundle 0.9.1 (backup previo, SHA256SUMS, healthcheck)
 want 6 && check "versión 0.9.1 y sana" bash -c "[ \"\$(docker exec $name horus-ctl version)\" = 0.9.1 ]"
 want 6 && check "horus-app corre la imagen de 0.9.1 (horus:test-install-b)" bash -c "[ \"\$(docker exec $name docker inspect -f '{{.Config.Image}}' horus-horus-app-1)\" = horus:test-install-b ]"
 want 6 && check "sana tras actualizar" health
+# Reinicio justo después de actualizar (instalaciones que solo se actualizan desde la primera versión):
+# las units reescritas por la versión nueva levantan túnel, colector y todo lo demás.
+if want 6; then docker restart -t 60 "$name" >/dev/null; ip="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$name")"; fi
+want 6 && check "reinicio tras actualizar: horus.service activo y todo sano" reboot_ok
+want 6 && check "reinicio tras actualizar: wg0 presente y colector en marcha" bash -c \
+  "docker exec $name ip link show wg0 >/dev/null && [ \"\$(docker exec $name docker inspect -f '{{.State.Running}}' horus-horus-collector-1)\" = true ]"
 set +e
 rc=3
 if want 6; then

@@ -258,6 +258,7 @@ Con el atajo `horus-installer` del apartado 3:
 | --- | --- |
 | `horus-installer ctl status` | versión, URL, salud de cada servicio, copias y si hay versión nueva |
 | `horus-installer ctl logs` · `ctl logs horus-app -f` | registros |
+| `horus-installer ctl start` · `ctl stop` · `ctl restart` | levantar (túnel primero y luego los servicios, esperando a que estén sanos), parar o reiniciar Horus |
 | `horus-installer check` | comprobación completa (puertos, túnel, cortafuegos, certificado, disco, copias) |
 | `horus-installer backup status` · `backup run` · `backup verify` | copias (apartado 10) |
 | `horus-installer ctl restore` | restaurar copias |
@@ -373,6 +374,7 @@ completos (`/opt/horus`…), quedan vacíos en el anfitrión; bórralos con `rmd
 | `debe ejecutarse con --network host` | añade `--network host` al `docker run` (en un stack ya viene puesto) |
 | `no llego al daemon de Docker` | falta `-v /var/run/docker.sock:/var/run/docker.sock` |
 | `el anfitrión no tiene /dev/net/tun` | LXC de Proxmox: apartado 5; en otros: `modprobe tun` en el anfitrión |
+| tras reiniciar el anfitrión algo quedó parado | `horus-installer ctl start`; comprueba que Docker arranca con el anfitrión (`systemctl enable docker`) |
 | `módulo WireGuard no cargado` (aviso) | `modprobe wireguard` en el anfitrión, o déjalo: se usa wireguard-go |
 | `net.core.rmem_max = 4194304 en el anfitrión` (aviso) | ajuste del apartado 2 en el anfitrión |
 | horus-host `unhealthy` | `docker logs horus-horus-host-1`: suele ser `/dev/net/tun` o iptables del anfitrión |
