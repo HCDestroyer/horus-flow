@@ -717,6 +717,18 @@ func (s *Store) RevokeToken(ctx context.Context, t pgdb.TenantID, id uuid.UUID, 
 	})
 }
 
+// TokenHash implementa app.Store.
+func (s *Store) TokenHash(ctx context.Context, t pgdb.TenantID, id uuid.UUID) ([]byte, error) {
+	var hash []byte
+	err := s.db.TenantTx(ctx, t, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT token_hash FROM wireguard.enrollment_token WHERE tenant_id = $1 AND id = $2`, t.UUID(), id).Scan(&hash)
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, domain.ErrNotFound
+	}
+	return hash, err
+}
+
 var errFailed = errors.New("enroll failed")
 
 // Enroll implementa app.Store.

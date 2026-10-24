@@ -47,6 +47,7 @@ func (h *Handler) Mount(r *httpx.ServiceMux) {
 	r.Handle("POST /api/v1/routers/{router_id}/deprovisioning-script", h.guard.Tenant("wireguard.write", h.deprovisioning))
 	r.Handle("POST /api/v1/routers/{router_id}/tunnel-config", h.guard.Tenant("wireguard.write", h.tunnelConfig))
 	r.Handle("POST /api/v1/wireguard/enrollment-tokens/{token_id}/revoke", h.guard.Tenant("wireguard.write", h.revokeToken))
+	r.Handle("POST /api/v1/wireguard/enrollment-tokens/{token_id}/enroll", h.guard.Tenant("wireguard.write", h.enrollManual))
 	r.Handle("GET /api/v1/wireguard/peers", h.guard.Tenant("wireguard.read", h.listPeers))
 	r.Handle("GET /api/v1/wireguard/peers/{peer_id}", h.guard.Tenant("wireguard.read", h.getPeer))
 	r.Handle("GET /api/v1/platform/wireguard/hubs", h.guard.Platform("platform.status.read", h.listHubs))
@@ -173,6 +174,32 @@ func (h *Handler) enroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err := h.svc.Enroll(r.Context(), app.EnrollInput{Token: *in.Token, PublicKey: *in.PublicKey, IP: clientIP(r), UserAgent: r.UserAgent()})
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	jsonapi.Write(w, http.StatusAccepted, map[string]string{"peer_status": domain.StatusPendingHandshake})
+}
+
+// enrollManual: alta manual con sesión; la persona pega la clave pública que
+// mostró el script generado con enrollment=manual.
+func (h *Handler) enrollManual(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r, "token_id", problem.CodeNotFound)
+	if !ok {
+		return
+	}
+	var in struct {
+		PublicKey *string `json:"public_key"`
+	}
+	if !jsonapi.Decode(w, r, &in, true) {
+		return
+	}
+	if in.PublicKey == nil {
+		h.fail(w, r, apperr.Validation(apperr.Field("public_key", "REQUIRED", "Obligatorio.")))
+		return
+	}
+	err := h.svc.EnrollManual(r.Context(), id, app.EnrollManualInput{PublicKey: *in.PublicKey, IP: clientIP(r), UserAgent: r.UserAgent()})
 	if err != nil {
 		h.fail(w, r, err)
 		return

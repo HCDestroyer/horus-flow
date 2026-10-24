@@ -1245,10 +1245,21 @@
       "partWait": "Espera a que termine la firma del certificado (deja de mostrar \"progress\") antes de pegar la siguiente parte.",
       "reauth": "Generar el script crea contraseñas y un token de enrolamiento nuevos: confirma tu identidad para continuar.",
       "reauthNeeded": "Confirma tu identidad para generar el script (pulsa de nuevo \"Generar script\").",
-      "unsupported": "Este router tiene RouterOS anterior a 7.12: actualízalo (o corrige la versión en \"Editar router\") y vuelve a generar el script."
+      "unsupported": "Este router tiene RouterOS anterior a 7.12: actualízalo (o corrige la versión en \"Editar router\") y vuelve a generar el script.",
+      "manualLabel": "Alta manual (el router no llega al HTTPS de Horus)",
+      "manualHelp": "Para instalaciones sin el puerto 443 publicado: el script no se conecta a Horus ni lleva el token. Al final muestra la clave pública del router y tú la pegas aquí. En el borde solo hace falta el UDP de WireGuard."
     },
     "paste": {
       "title": "Pegar en el router",
+      "manualBody": "Pega el script en una terminal del router. Al terminar muestra una línea HORUS_ROUTER_PUBKEY=…: copia esa clave pública y pégala aquí (antes de que caduque el token).",
+      "manualToggle": "¿El router no pudo enviar su clave? Pégala aquí",
+      "manualField": "Clave pública del router",
+      "manualFieldHelp": "La que muestra el script (HORUS_ROUTER_PUBKEY=…). Puedes pegar la línea completa.",
+      "manualSubmit": "Registrar clave",
+      "manualDone": "Clave registrada: el túnel se activa en segundos",
+      "manualInvalid": "No es una clave pública WireGuard válida (44 caracteres terminados en =).",
+      "manualTokenInvalid": "El token de este script ya no sirve (caducado, revocado o usado): genera otro script.",
+      "manualKeyInUse": "Esa clave ya está registrada en otro router.",
       "body": "Pega el script en una terminal del router. Crea la clave WireGuard en el router y la envía sola a Horus con el token: no hay que copiar nada de vuelta.",
       "waiting": "Esperando la clave del router…",
       "received": "Clave recibida",

@@ -23,7 +23,17 @@ import (
 type ProvisioningInput struct {
 	RouterOSVersion *string `json:"routeros_version"`
 	NTPServer       *string `json:"ntp_server"`
+	// Enrollment: fetch (por defecto) — el router envía su clave pública al
+	// HTTPS de Horus con el token; manual — el script solo la muestra y se
+	// pega en la consola (instalaciones sin el 443 publicado).
+	Enrollment *string `json:"enrollment"`
 }
+
+// Modos de alta del script (ProvisioningInput.Enrollment).
+const (
+	EnrollmentFetch  = "fetch"
+	EnrollmentManual = "manual"
+)
 
 // Provisioning es el script generado con su token.
 type Provisioning struct {
@@ -74,6 +84,11 @@ func (s *Service) CreateProvisioningScript(ctx context.Context, routerID uuid.UU
 	if err != nil {
 		return nil, errUnsupported()
 	}
+	mode := strOr(in.Enrollment, EnrollmentFetch)
+	if mode != EnrollmentFetch && mode != EnrollmentManual {
+		return nil, apperr.Validation(apperr.Field("enrollment", "INVALID_VALUE", "fetch o manual."))
+	}
+	manual := mode == EnrollmentManual
 	ntp := strOr(in.NTPServer, s.o.NTPServer)
 	if len(ntp) > 253 || strings.ContainsAny(ntp, " \"';$[]{}\\") {
 		return nil, apperr.Validation(apperr.Field("ntp_server", "INVALID_VALUE", "Nombre DNS o IP."))
@@ -112,19 +127,23 @@ func (s *Service) CreateProvisioningScript(ctx context.Context, routerID uuid.UU
 	if err := s.o.Store.IssueToken(ctx, t, tok); err != nil {
 		return nil, err
 	}
+	enrollURL, scriptToken, caPEM := strings.TrimRight(s.o.PublicBaseURL, "/")+"/api/v1/enroll/wireguard", plain, s.o.CACertPEM
+	if manual { // el router no llama a Horus: ni URL, ni token, ni certificado en el script
+		enrollURL, scriptToken, caPEM = "", "", ""
+	}
 	text, err := script.Onboarding(script.Values{
 		Template: tpl, RouterID: r.ID.String(), RouterName: r.Name, RouterWGIP: peer.Address, HubPublicKey: hubKey,
 		WGEndpoint: hub.Endpoint, WGPort: hub.ListenPort, MTU: hub.MTU, Keepalive: hub.Keepalive,
 		ServicesCIDR: s.o.Hub.ServicesCIDR, CollectorIP: s.o.CollectorIP,
 		APIUser: creds.APIUser, APIPassword: creds.APIPassword, SNMPUser: creds.SNMPUser, SNMPAuthPass: creds.SNMPAuthPassword,
-		SNMPPrivPass: creds.SNMPPrivPassword, NTPServer: ntp, EnrollURL: strings.TrimRight(s.o.PublicBaseURL, "/") + "/api/v1/enroll/wireguard",
-		Token: plain, CacheEntries: s.o.CacheEntries, AccessMode: s.o.AccessMode, CACertPEM: s.o.CACertPEM,
+		SNMPPrivPass: creds.SNMPPrivPassword, NTPServer: ntp, EnrollURL: enrollURL,
+		Token: scriptToken, CacheEntries: s.o.CacheEntries, AccessMode: s.o.AccessMode, CACertPEM: caPEM, ManualEnroll: manual,
 	})
 	if err != nil {
 		return nil, err
 	}
 	s.audit(ctx, userAudit(p, t, "wireguard.provisioning_script.created", "router", r.ID.String(),
-		map[string]any{"enrollment_token_id": tok.ID.String(), "template": tpl, "credentials_rotated": true}))
+		map[string]any{"enrollment_token_id": tok.ID.String(), "template": tpl, "credentials_rotated": true, "enrollment": mode}))
 	return &Provisioning{Script: text, TokenID: tok.ID, TokenExpiresAt: tok.ExpiresAt}, nil
 }
 
@@ -185,11 +204,45 @@ func (s *Service) Enroll(ctx context.Context, in EnrollInput) error {
 	if l := len(in.Token); l < 43 || l > 64 {
 		return apperr.New(apperr.KindInvalid, domain.CodeTokenInvalid, "")
 	}
+	return s.enroll(ctx, domain.HashToken(in.Token), in, svcActor, nil)
+}
+
+// EnrollManualInput es el cuerpo de POST /wireguard/enrollment-tokens/{id}/enroll.
+type EnrollManualInput struct {
+	PublicKey string
+	IP        netip.Addr
+	UserAgent string
+}
+
+// EnrollManual registra la clave pública que la persona copió del router
+// (alta manual: el router no llega al HTTPS de Horus). Mismas reglas que
+// Enroll —token pendiente, de un uso, 5 fallos lo invalidan, clave única—,
+// pero con sesión y permiso wireguard.write en el ISP del token.
+func (s *Service) EnrollManual(ctx context.Context, tokenID uuid.UUID, in EnrollManualInput) error {
+	p, t, err := scope(ctx, "wireguard.write")
+	if err != nil {
+		return err
+	}
+	hash, err := s.o.Store.TokenHash(ctx, t, tokenID)
+	if errors.Is(err, domain.ErrNotFound) {
+		return apperr.New(apperr.KindInvalid, domain.CodeTokenInvalid, "")
+	}
+	if err != nil {
+		return err
+	}
+	actor := outbox.Actor{Type: p.Type, ID: p.Subject, ViaPlatform: p.ViaPlatform}
+	user := userAudit(p, t, "", "", "", nil)
+	return s.enroll(ctx, hash, EnrollInput{PublicKey: strings.TrimSpace(in.PublicKey), IP: in.IP, UserAgent: in.UserAgent}, actor, &user)
+}
+
+// enroll registra la clave con el token de hash dado. user es la entrada de
+// auditoría del usuario en el alta manual (nil: el router con su token).
+func (s *Service) enroll(ctx context.Context, hash []byte, in EnrollInput, actor outbox.Actor, user *authapi.AuditEntry) error {
 	now := s.now()
 	var tokID uuid.UUID
-	peer, err := s.o.Store.Enroll(ctx, domain.HashToken(in.Token), in.PublicKey, in.IP, now, func(p *domain.Peer, tok *domain.Token) []outbox.Event {
+	peer, err := s.o.Store.Enroll(ctx, hash, in.PublicKey, in.IP, now, func(p *domain.Peer, tok *domain.Token) []outbox.Event {
 		tokID = tok.ID
-		return []outbox.Event{peerEvent("horus.wireguard.peer.enrolled", p, outbox.Actor{Type: "service", ID: "svc:wireguard"}, now,
+		return []outbox.Event{peerEvent("horus.wireguard.peer.enrolled", p, actor, now,
 			PeerEventData(p, []string{"public_key", "status"}))}
 	})
 	switch {
@@ -202,9 +255,14 @@ func (s *Service) Enroll(ctx context.Context, in EnrollInput) error {
 	case err != nil:
 		return err
 	}
-	s.audit(ctx, authapi.AuditEntry{TenantID: peer.TenantID, ActorType: "system", ActorID: "enrollment_token:" + tokID.String(),
+	entry := authapi.AuditEntry{TenantID: peer.TenantID, ActorType: "system", ActorID: "enrollment_token:" + tokID.String(),
 		Action: "wireguard.peer.enrolled", ResourceType: "router", ResourceID: peer.RouterID.String(), Outcome: "success",
-		IP: in.IP.String(), UserAgent: in.UserAgent, Changes: map[string]any{"peer_id": peer.ID.String(), "public_key": *peer.PublicKey}})
+		IP: in.IP.String(), UserAgent: in.UserAgent, Changes: map[string]any{"peer_id": peer.ID.String(), "public_key": *peer.PublicKey}}
+	if user != nil { // alta manual: la hace una persona con sesión
+		entry.ActorType, entry.ActorID, entry.ViaPlatform = user.ActorType, user.ActorID, user.ViaPlatform
+		entry.Changes["enrollment"], entry.Changes["enrollment_token_id"] = EnrollmentManual, tokID.String()
+	}
+	s.audit(ctx, entry)
 	if d, ok := s.o.Devices(); ok {
 		if err := d.SetTunnel(ctx, peer.TenantID, peer.RouterID, devTunnel(peer)); err != nil {
 			s.o.Logger.WarnContext(ctx, "project enrollment on router failed", errAttr(err))

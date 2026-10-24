@@ -9248,6 +9248,20 @@ paths:
                     - 'null'
                   examples:
                     - pool.ntp.org
+                enrollment:
+                  type:
+                    - string
+                    - 'null'
+                  enum:
+                    - fetch
+                    - manual
+                    - null
+                  default: fetch
+                  description: |
+                    `fetch`: el router envía su clave pública a `/enroll/wireguard` con el token (necesita llegar al
+                    HTTPS de Horus). `manual`: el script no se conecta a Horus ni lleva el token; muestra la clave
+                    pública (`HORUS_ROUTER_PUBKEY=`) para pegarla con `POST /wireguard/enrollment-tokens/{token_id}/enroll`.
+                    Para instalaciones sin el 443 publicado: en el borde solo queda el UDP de WireGuard.
       responses:
         '201':
           description: Script (`text/plain`, `Cache-Control no-store`). Cabeceras con el token creado.
@@ -10493,6 +10507,69 @@ paths:
                       $ref: '#/components/schemas/widget-type.schema'
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /wireguard/enrollment-tokens/{token_id}/enroll:
+    parameters:
+      - name: token_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+    post:
+      tags:
+        - onboarding
+      operationId: enrollWireguardManual
+      summary: Alta manual — registra la clave pública que la persona copió del router
+      description: |
+        Para el script generado con `enrollment: manual` (el router no llega al HTTPS de Horus). Mismas reglas que
+        `/enroll/wireguard`: token pendiente del ISP (el de la cabecera `X-Horus-Enrollment-Token-Id`), de un uso, TTL
+        24 h, 5 fallos lo invalidan; usado, caducado, revocado o desconocido → `ENROLLMENT_TOKEN_INVALID`. Clave ya
+        registrada → `409 WIREGUARD_PUBLIC_KEY_IN_USE`. Auditado con la persona como actor.
+      x-module: wireguard
+      x-scope: tenant
+      x-permission: wireguard.write
+      x-audited: true
+      x-increment: I1
+      security:
+        - tenantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - public_key
+              properties:
+                public_key:
+                  type: string
+                  minLength: 44
+                  maxLength: 64
+                  description: Clave pública WireGuard del router (44 caracteres base64; se ignoran espacios alrededor).
+      responses:
+        '202':
+          description: Clave registrada; el agente añade el peer en segundos.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - peer_status
+                properties:
+                  peer_status:
+                    type: string
+                    enum:
+                      - pending_handshake
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
   /wireguard/enrollment-tokens/{token_id}/revoke:
     parameters:
       - name: token_id

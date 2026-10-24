@@ -323,7 +323,8 @@ export function onboardingProgress(
 ): OnboardingProgress {
   const run = mockState.onboarding.get(routerId)
   if (!run) return { stage: 'pending_configuration', tokenState: 'none' }
-  const keyAt = run.scriptAt + stepMs
+  // Alta manual: la clave llega cuando la persona la pega (POST …/enroll).
+  const keyAt = run.manual ? (run.keyAt ?? Number.POSITIVE_INFINITY) : run.scriptAt + stepMs
   const tokenDead = (run.revokedAt && run.revokedAt < keyAt) || run.expiresAt < keyAt
   if (tokenDead || now < keyAt) {
     const tokenState = run.revokedAt
@@ -608,6 +609,7 @@ export function provisioningScript(
   item: MockRouter,
   token: string,
   endpoint: string,
+  manual = false,
 ) {
   const tunnel = item.peer.address.replace('/32', '')
   return [
@@ -634,6 +636,21 @@ export function provisioningScript(
     `/ip traffic-flow set enabled=yes interfaces=all cache-entries=128k active-flow-timeout=1m inactive-flow-timeout=15s`,
     `/ip traffic-flow target add dst-address=10.255.0.1 port=4739 version=ipfix src-address=${tunnel}`,
     '',
+    ...(manual
+      ? [
+          '# 5) Alta manual: el router no llama a Horus; pega esta clave en Horus',
+          '{',
+          '    :local pub [/interface wireguard get [find name=wg-horus] public-key]',
+          '    :put ("HORUS_ROUTER_PUBKEY=" . $pub)',
+          '}',
+          '',
+        ]
+      : enrollFetch(endpoint, token)),
+  ].join('\n')
+}
+
+function enrollFetch(endpoint: string, token: string) {
+  return [
     '# 5) Enrolamiento',
     '{',
     '    :local pub [/interface wireguard get [find name=wg-horus] public-key]',
@@ -641,7 +658,7 @@ export function provisioningScript(
     '    :put "Horus: clave enviada. Vuelve a la ficha del router en Horus para ver el progreso."',
     '}',
     '',
-  ].join('\n')
+  ]
 }
 
 export function deprovisioningScript(item: MockRouter) {

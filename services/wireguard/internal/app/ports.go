@@ -176,6 +176,9 @@ type Store interface {
 	IssueToken(ctx context.Context, t pgdb.TenantID, tok *domain.Token) error
 	// RevokeToken revoca un token pendiente (domain.ErrNotFound si no hay).
 	RevokeToken(ctx context.Context, t pgdb.TenantID, id uuid.UUID, at time.Time) error
+	// TokenHash devuelve el hash de un token del ISP (domain.ErrNotFound si
+	// no existe); el alta manual lo usa para registrar la clave con Enroll.
+	TokenHash(ctx context.Context, t pgdb.TenantID, id uuid.UUID) ([]byte, error)
 	// Enroll consume el token de hash y registra publicKey en su peer
 	// (plataforma: la petición no trae tenant). ErrTokenInvalid sin
 	// distinguir el motivo; ErrKeyInUse/ErrBadKey cuentan como fallo del token.

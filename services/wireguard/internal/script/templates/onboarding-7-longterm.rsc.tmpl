@@ -1,9 +1,15 @@
 # ===== Horus Flow · onboarding de router · RouterOS v7 long-term (>= 7.18) · plantilla {{.Template}} =====
 # Router: {{.RouterName}} ({{.RouterID}})
 # Revise el script antes de pegarlo. Todo lo que crea lleva comment="horus" (salvo el destino de
-# Traffic Flow, que no admite comment) y se deshace con el script inverso. Contraseñas y token
+# Traffic Flow, que no admite comment) y se deshace con el script inverso.{{if not .ManualEnroll}} Contraseñas y token{{end}}
+{{- if .ManualEnroll}}
+# Las contraseñas se muestran UNA SOLA VEZ: guarde este archivo en un lugar seguro o bórrelo tras pegarlo.
+# Alta manual: el router NO se conecta al HTTPS de Horus. Al final muestra su clave pública;
+# péguela en Horus (Routers → el router → «Registrar clave pública») antes de 24 h.
+{{- else}}
 # de enrolamiento se muestran UNA SOLA VEZ: guarde este archivo en un lugar seguro o bórrelo tras
 # pegarlo. El token caduca a las 24 h y sirve una sola vez.
+{{- end}}
 # Horus no escribe en el router: solo lee por el túnel con el usuario de solo lectura.
 
 # 0) Hora (los timestamps de IPFIX dependen de NTP)
@@ -79,6 +85,16 @@
 /ip traffic-flow ipfix set sys-init-time=yes first-forwarded=yes last-forwarded=yes \
     src-mac-address=yes dst-mac-address=yes \
     nat-events=yes nat-src-address=yes nat-dst-address=yes nat-src-port=yes nat-dst-port=yes
+{{- if .ManualEnroll}}
+
+# 7) Alta manual: el router no llama a Horus. Copie la clave pública que se muestra abajo y péguela
+#    en Horus (Routers → el router → «Registrar clave pública»). El túnel se activa en segundos.
+{
+    :local pk [/interface wireguard get [find name=wg-horus] public-key]
+    :put ("HORUS_ROUTER_PUBKEY=" . $pk)
+    :put "HORUS: pegue esta clave publica en Horus para activar el tunel."
+}
+{{- else}}
 {{- if .CACertPEM}}
 
 # 7a) Certificado público de Horus ({{.AccessMode}}): se importa como confiable para que /tool fetch
@@ -99,6 +115,7 @@
         http-data=("{\"token\":\"{{.Token}}\",\"public_key\":\"" . $pk . "\"}") output=none
     :put "HORUS: clave publica enviada; el tunel se activa en segundos."
 }
+{{- end}}
 
 # 8) IPv6 (opcional, comentado). Traffic Flow exporta IPv4 e IPv6 con el mismo target.
 # /ipv6 settings print
