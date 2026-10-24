@@ -1222,6 +1222,12 @@ modules:
         - POST
       audited:
         - POST
+    - prefix: /api/v1/wireguard/enrollment-tokens/{token_id}/enroll
+      scope: tenant
+      methods:
+        POST: wireguard.write
+      audited:
+        - POST
     - prefix: /api/v1/wireguard/enrollment-tokens/{token_id}/revoke
       scope: tenant
       methods:

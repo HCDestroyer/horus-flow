@@ -889,7 +889,7 @@ compilar y no se distribuyen en el producto.
 | `uncrypto` | 0.1.3 | MIT |
 | `unctx` | 2.5.0 | MIT |
 | `unctx` | 3.0.1 | MIT |
-| `undici` | 8.11.2 | MIT |
+| `undici` | 8.12.2 | MIT |
 | `undici-types` | 8.9.0 | MIT |
 | `unenv` | 2.0.0-rc.24 | MIT |
 | `unhead` | 3.4.2 | MIT |
@@ -957,5 +957,5 @@ compilar y no se distribuyen en el producto.
 | `youch` | 4.1.1 | MIT |
 | `youch-core` | 0.3.3 | MIT |
 | `zip-stream` | 6.0.1 | MIT |
-| `zod` | 4.6.5 | MIT |
+| `zod` | 4.6.6 | MIT |
 | `zrender` | 6.1.0 | BSD-3-Clause |
