@@ -7,9 +7,9 @@
 #   docker build -t horus:dev --build-arg VERSION=$(git describe --tags --always) .
 #
 # Imágenes base fijadas por versión y digest. El toolchain es una versión de Go con soporte
-# (go.mod declara go 1.26 con toolchain go1.26.9): igual que GO_VERSION en CI.
+# (go.mod declara go 1.26 con toolchain go1.26.10): igual que GO_VERSION en CI.
 
-ARG GO_IMAGE=golang:1.26.9-bookworm@sha256:d9c68c2c51161e12fd77e4c6320687c9cd86e1af1e3ad6e6cd63ff970641453c
+ARG GO_IMAGE=golang:1.26.10-bookworm@sha256:632dff7351799a5a9954a48dc06670ade72ee44e8c351cdc0e5a57af2fea21af
 ARG RUNTIME_IMAGE=gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 
 # ---------------------------------------------------------------------------------------------
