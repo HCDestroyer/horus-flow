@@ -4325,8 +4325,8 @@ export interface paths {
          * Alta manual — registra la clave pública que la persona copió del router
          * @description Para el script generado con `enrollment: manual` (el router no llega al HTTPS de Horus). Mismas reglas que
          *     `/enroll/wireguard`: token pendiente del ISP (el de la cabecera `X-Horus-Enrollment-Token-Id`), de un uso, TTL
-         *     24 h, 5 fallos lo invalidan; usado, caducado, revocado o desconocido → `ENROLLMENT_TOKEN_INVALID`. Clave ya
-         *     registrada → `409 WIREGUARD_PUBLIC_KEY_IN_USE`. Auditado con la persona como actor.
+         *     24 h, 5 fallos lo invalidan; usado, caducado o revocado → `ENROLLMENT_TOKEN_INVALID`; de otro ISP o inexistente
+         *     → `404`. Clave ya registrada → `409 WIREGUARD_PUBLIC_KEY_IN_USE`. Auditado con la persona como actor.
          */
         post: operations["enrollWireguardManual"];
         delete?: never;
@@ -16117,6 +16117,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["UnprocessableEntity"];
         };

@@ -215,10 +215,10 @@ func TestManualEnrollment(t *testing.T) {
 	if err := e.svc.EnrollManual(userCtx(tenant, "wireguard.read"), res.TokenID, in); code(err) != "PERMISSION_DENIED" {
 		t.Fatalf("sin wireguard.write: %v", err)
 	}
-	if err := e.svc.EnrollManual(userCtx(uuid.Must(uuid.NewV7()), "wireguard.write"), res.TokenID, in); code(err) != domain.CodeTokenInvalid {
+	if err := e.svc.EnrollManual(userCtx(uuid.Must(uuid.NewV7()), "wireguard.write"), res.TokenID, in); code(err) != "NOT_FOUND" {
 		t.Fatalf("token de otro ISP: %v", err)
 	}
-	if err := e.svc.EnrollManual(uctx, uuid.Must(uuid.NewV7()), in); code(err) != domain.CodeTokenInvalid {
+	if err := e.svc.EnrollManual(uctx, uuid.Must(uuid.NewV7()), in); code(err) != "NOT_FOUND" {
 		t.Fatalf("token inexistente: %v", err)
 	}
 	if err := e.svc.EnrollManual(uctx, res.TokenID, app.EnrollManualInput{PublicKey: "no-es-una-clave"}); code(err) != "VALIDATION_FAILED" {

@@ -224,8 +224,8 @@ func (s *Service) EnrollManual(ctx context.Context, tokenID uuid.UUID, in Enroll
 		return err
 	}
 	hash, err := s.o.Store.TokenHash(ctx, t, tokenID)
-	if errors.Is(err, domain.ErrNotFound) {
-		return apperr.New(apperr.KindInvalid, domain.CodeTokenInvalid, "")
+	if errors.Is(err, domain.ErrNotFound) { // de otro ISP o inexistente: 404, como revocar
+		return apperr.NotFound(problem.CodeNotFound)
 	}
 	if err != nil {
 		return err
