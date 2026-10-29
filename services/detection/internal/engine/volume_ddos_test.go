@@ -133,3 +133,66 @@ func TestDDoSIgnoresTCPAcksOfDownloads(t *testing.T) {
 		t.Fatalf("víctima que apenas responde (10 %%): %d hallazgos", len(got))
 	}
 }
+
+func withFlags(flows []FlowRec, flags uint8) []FlowRec {
+	out := append([]FlowRec(nil), flows...)
+	for i := range out {
+		out[i].TCPFlags = flags
+	}
+	return out
+}
+
+// Los acuses TCP de una descarga (paquetes de 60 B, miles por segundo, una
+// conexión establecida) no son una ráfaga aunque la bajada no se vea: ruta
+// asimétrica, caché de CDN o NAT en otro equipo dejan al destino sin
+// "respuesta" visible (max_response_ratio no sirve) y en un solo sentido.
+func TestDDoSDownloadAcksWithoutVisibleDownload(t *testing.T) {
+	k := ClientKey{uuid.New(), netip.MustParseAddr("10.20.0.44")}
+	start := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
+	acks := withFlags(ddosFlows(k, start, 4000, 60, 1), 0x10|0x08) // ACK|PSH
+	if got := runDDoS(t, acks, start); len(got) != 0 {
+		t.Fatalf("acuses de una descarga generaron %d hallazgos: %v", len(got), got)
+	}
+	// Con muestreo 1:100 la conexión sigue siendo larga (2 400 paquetes observados por minuto).
+	sampled := withFlags(ddosFlows(k, start, 4000, 60, 100), 0x10)
+	if got := runDDoS(t, sampled, start); len(got) != 0 {
+		t.Fatalf("acuses muestreados generaron %d hallazgos", len(got))
+	}
+}
+
+// Una inundación SYN (sin ACK) sigue siendo hallazgo.
+func TestDDoSSynFloodStillDetected(t *testing.T) {
+	k := ClientKey{uuid.New(), netip.MustParseAddr("10.20.0.45")}
+	start := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
+	if got := runDDoS(t, withFlags(ddosFlows(k, start, 4000, 60, 1), 0x02), start); len(got) != 1 {
+		t.Fatalf("inundación SYN: %d hallazgos, se esperaba 1", len(got))
+	}
+}
+
+// Una inundación de ACK con puertos aleatorios deja registros de pocos paquetes
+// (aquí 10 por registro): no es una conexión establecida y sigue siendo hallazgo.
+// Con muestreo fuerte, un registro de un paquete observado tampoco cuenta como
+// sesión aunque el muestreo lo multiplique.
+func TestDDoSAckFloodShortRecordsStillDetected(t *testing.T) {
+	k := ClientKey{uuid.New(), netip.MustParseAddr("10.20.0.46")}
+	start := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
+	remote := netip.MustParseAddr("203.0.113.9")
+	var flows []FlowRec
+	for s := 0; s < 4*60; s++ {
+		ts := start.Add(time.Duration(s) * time.Second)
+		for i := 0; i < 300; i++ { // 300 registros/s × 10 paquetes = 3 000 pps
+			flows = append(flows, FlowRec{Key: k, Up: true, Remote: remote, RemotePort: 443, Protocol: 6, TCPFlags: 0x10,
+				Start: ts, End: ts.Add(500 * time.Millisecond), Bytes: 10 * 60, Packets: 10, Sampling: 1})
+		}
+	}
+	if got := runDDoS(t, flows, start); len(got) != 1 {
+		t.Fatalf("inundación ACK de registros cortos: %d hallazgos, se esperaba 1", len(got))
+	}
+	sampled := withFlags(ddosFlows(k, start, 4000, 60, 1), 0x10)
+	for i := range sampled { // un paquete observado por registro, multiplicado por 1:240 000
+		sampled[i].Sampling = uint32(sampled[i].Packets)
+	}
+	if got := runDDoS(t, sampled, start); len(got) != 1 {
+		t.Fatalf("registros de un paquete muestreado: %d hallazgos, se esperaba 1", len(got))
+	}
+}

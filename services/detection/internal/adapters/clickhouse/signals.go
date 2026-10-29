@@ -278,14 +278,14 @@ func (r *Reader) ClientFlows(ctx context.Context, tenant uuid.UUID, from, to tim
 	realms, ips := keyArgs(keys)
 	var out []engine.FlowRec
 	err := r.query(ctx, tenant, `SELECT realm_id, client_ip, direction = 'upload', remote_ip, remote_port, protocol, remote_asn,
-			flow_start, ts, bytes, packets, sampling_rate
+			flow_start, ts, bytes, packets, sampling_rate, tcp_flags
 		FROM flows.flows_raw WHERE tenant_id = ? AND ts >= ? AND ts < ? AND attribution_status = 'attributed'
 			AND direction IN ('upload', 'download') AND bytes >= ?`+byKeys+` LIMIT 500000`,
 		func(rows driver.Rows) error {
 			var f engine.FlowRec
 			var realm uuid.UUID
 			var ip netip.Addr
-			if err := rows.Scan(&realm, &ip, &f.Up, &f.Remote, &f.RemotePort, &f.Protocol, &f.ASN, &f.Start, &f.End, &f.Bytes, &f.Packets, &f.Sampling); err != nil {
+			if err := rows.Scan(&realm, &ip, &f.Up, &f.Remote, &f.RemotePort, &f.Protocol, &f.ASN, &f.Start, &f.End, &f.Bytes, &f.Packets, &f.Sampling, &f.TCPFlags); err != nil {
 				return err
 			}
 			f.Key, f.Remote, f.Start, f.End = key(realm, ip), f.Remote.Unmap(), utc(f.Start), utc(f.End)

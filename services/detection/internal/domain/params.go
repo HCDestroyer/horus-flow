@@ -123,6 +123,14 @@ type DDoSParams struct {
 	// cada uno o dos segmentos y una videollamada, tráfico de vuelta. 0 = sin
 	// esta vía (solo cuentan los paquetes pequeños).
 	MaxReturnPacketRatio float64 `json:"max_return_packet_ratio"`
+	// MaxEstablishedShare: un destino al que al menos esta proporción de los
+	// paquetes del cliente van en conexiones TCP ya establecidas y largas (bandera
+	// ACK y ≥ 20 paquetes observados por registro) es una sesión —los acuses de
+	// una descarga—, no un objetivo de inundación, aunque no se vea la bajada
+	// (rutas asimétricas, cachés de CDN, NAT en otro equipo). Una inundación SYN
+	// no lleva ACK y una de ACK o UDP abre miles de registros de pocos paquetes.
+	// 0 = sin filtro.
+	MaxEstablishedShare float64 `json:"max_established_share"`
 	// Amplificación: UDP saliente a 53, 123, 1900, 11211, 19.
 	AmpPorts      []uint16 `json:"amp_ports"`
 	AmpMinPPS     float64  `json:"amp_min_pps"`
@@ -194,7 +202,7 @@ func DefaultParams() Params {
 			ExcludePorts: []uint16{25}},
 		SMTP: SMTPParams{Enabled: true, Window: Duration(time.Hour), ResidentialServers: 20, CommercialServers: 200},
 		DDoS: DDoSParams{Enabled: true, Window: Duration(5 * time.Minute), MinPPS: 2000, MinMinutes: 2, MaxTargets: 3, MaxAvgPacketBytes: 400, MaxResponseRatio: 2, MaxReturnPacketRatio: 0.05,
-			AmpPorts: []uint16{53, 123, 1900, 11211, 19}, AmpMinPPS: 1000, AmpMinTargets: 20},
+			MaxEstablishedShare: 0.9, AmpPorts: []uint16{53, 123, 1900, 11211, 19}, AmpMinPPS: 1000, AmpMinTargets: 20},
 		Beacon: BeaconParams{Enabled: true, Window: Duration(24 * time.Hour), Interval: Duration(time.Hour),
 			MinSpan: Duration(6 * time.Hour), MinConns: 10, MaxCV: 0.2, MaxMeanBytes: 4096,
 			MinPeriod: Duration(30 * time.Second), MaxPeriod: Duration(time.Hour), ExcludePorts: []uint16{53, 123, 853}},

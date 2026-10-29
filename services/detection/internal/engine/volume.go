@@ -14,7 +14,7 @@ import (
 
 // Versiones de las reglas de volumen y periodicidad.
 const (
-	RuleDDoS      = "ddos-burst@3"
+	RuleDDoS      = "ddos-burst@4"
 	RuleAmp       = "ddos-amplification@1"
 	RuleSustained = "sustained-upload@1"
 	RuleBeacon    = "beaconing@1"
@@ -48,8 +48,11 @@ type minuteAgg struct {
 	// dstDownBytes / dstDownPkts: lo que cada remoto devolvió al cliente ese minuto (respuesta).
 	dstDownBytes map[netip.Addr]float64
 	dstDownPkts  map[netip.Addr]float64
-	ampPkts      map[uint16]float64
-	ampDsts      map[uint16]map[netip.Addr]bool
+	// dstSessionPkts: paquetes de subida en conexiones TCP establecidas y largas
+	// (acuses de una descarga), por destino.
+	dstSessionPkts map[netip.Addr]float64
+	ampPkts        map[uint16]float64
+	ampDsts        map[uint16]map[netip.Addr]bool
 }
 
 func byMinute(flows []FlowRec, amp []uint16) map[ClientKey]map[int64]*minuteAgg {
@@ -65,7 +68,7 @@ func byMinute(flows []FlowRec, amp []uint16) map[ClientKey]map[int64]*minuteAgg 
 			a := mm[m]
 			if a == nil {
 				a = &minuteAgg{dstPkts: map[netip.Addr]float64{}, dstBytes: map[netip.Addr]float64{},
-					dstDownBytes: map[netip.Addr]float64{}, dstDownPkts: map[netip.Addr]float64{}, ampPkts: map[uint16]float64{}, ampDsts: map[uint16]map[netip.Addr]bool{}}
+					dstDownBytes: map[netip.Addr]float64{}, dstDownPkts: map[netip.Addr]float64{}, dstSessionPkts: map[netip.Addr]float64{}, ampPkts: map[uint16]float64{}, ampDsts: map[uint16]map[netip.Addr]bool{}}
 				mm[m] = a
 			}
 			// bytes y packets ya vienen corregidos por el muestreo (el ingester los
@@ -79,6 +82,9 @@ func byMinute(flows []FlowRec, amp []uint16) map[ClientKey]map[int64]*minuteAgg 
 			a.upBytes += frac * float64(f.Bytes)
 			a.dstPkts[f.Remote] += frac * float64(f.Packets)
 			a.dstBytes[f.Remote] += frac * float64(f.Bytes)
+			if establishedSession(f) {
+				a.dstSessionPkts[f.Remote] += frac * float64(f.Packets)
+			}
 			if isAmp {
 				a.ampPkts[f.RemotePort] += frac * float64(f.Packets)
 				if a.ampDsts[f.RemotePort] == nil {
@@ -188,7 +194,7 @@ func detectDDoS(ctx context.Context, e *env) ([]domain.Candidate, error) {
 		targets := map[netip.Addr]float64{}
 		for _, m := range sortedMinutes(mm) {
 			a := mm[m]
-			top := topDests(floodTargets(a, p.MaxResponseRatio), p.MaxTargets)
+			top := topDests(floodTargets(a, p.MaxResponseRatio, p.MaxEstablishedShare), p.MaxTargets)
 			var pk, by, back float64
 			for _, t := range top {
 				pk += a.dstPkts[t]
@@ -242,13 +248,38 @@ func detectDDoS(ctx context.Context, e *env) ([]domain.Candidate, error) {
 // TCP de ~60 B por segundo hacia uno o dos servidores (el mismo patrón que una
 // inundación vista solo desde la subida), pero ese servidor devuelve decenas de
 // veces más bytes de los que recibe. Una víctima no.
-func floodTargets(a *minuteAgg, maxRatio float64) map[netip.Addr]float64 {
-	if maxRatio <= 0 {
+// sessionMinObserved: paquetes observados (antes de corregir el muestreo) a
+// partir de los cuales un registro TCP con ACK es una conexión larga.
+const sessionMinObserved = 20
+
+// establishedSession: registro de subida de una conexión TCP establecida y
+// larga (ACK y ≥ sessionMinObserved paquetes observados).
+// Los acuses de una descarga van así; una inundación SYN no lleva ACK y una
+// de ACK con puertos aleatorios deja registros de uno o dos paquetes.
+func establishedSession(f FlowRec) bool {
+	const ack = 0x10
+	if f.Protocol != 6 || f.TCPFlags&ack == 0 {
+		return false
+	}
+	s := uint64(f.Sampling)
+	if s == 0 {
+		s = 1
+	}
+	return f.Packets/s >= sessionMinObserved
+}
+
+func floodTargets(a *minuteAgg, maxRatio, maxEstablished float64) map[netip.Addr]float64 {
+	if maxRatio <= 0 && maxEstablished <= 0 {
 		return a.dstPkts
 	}
 	out := make(map[netip.Addr]float64, len(a.dstPkts))
 	for t, pk := range a.dstPkts {
-		if a.dstDownBytes[t] >= maxRatio*a.dstBytes[t] {
+		if maxRatio > 0 && a.dstDownBytes[t] >= maxRatio*a.dstBytes[t] {
+			continue
+		}
+		// Acuses de una descarga aunque la bajada no se vea (ruta asimétrica,
+		// caché de CDN, NAT en otro equipo): conexiones TCP establecidas y largas.
+		if maxEstablished > 0 && pk > 0 && a.dstSessionPkts[t] >= maxEstablished*pk {
 			continue
 		}
 		out[t] = pk
