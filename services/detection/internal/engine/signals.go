@@ -113,6 +113,9 @@ type FlowRec struct {
 	Bytes      uint64
 	Packets    uint64
 	Sampling   uint32
+	// TCPFlags: OR acumulado de las banderas TCP del registro (0 si no es TCP o
+	// el exportador no las envía).
+	TCPFlags uint8
 }
 
 // RepPair es un par cliente → IP remota con reputación (marca en ingesta) o

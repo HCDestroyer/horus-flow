@@ -3035,6 +3035,7 @@
       "max_avg_packet_bytes": "Tamaño medio de paquete (máximo, bytes)",
       "max_response_ratio": "Respuesta del destino que indica una sesión (veces lo enviado)",
       "max_return_packet_ratio": "Paquetes de vuelta por debajo de los cuales una subida con paquetes grandes es inundación (proporción)",
+      "max_established_share": "Proporción de paquetes en conexiones TCP establecidas que indica una sesión (acuses de una descarga)",
       "amp_ports": "Puertos de amplificación",
       "amp_min_pps": "Paquetes por segundo en amplificación",
       "amp_min_targets": "Destinos en amplificación (mínimo)",
