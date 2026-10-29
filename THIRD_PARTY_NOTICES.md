@@ -192,12 +192,12 @@ compilar y no se distribuyen en el producto.
 | `@internationalized/date` | 3.12.4 | Apache-2.0 |
 | `@internationalized/number` | 3.6.9 | Apache-2.0 |
 | `@intlify/bundle-utils` | 11.2.5 | MIT |
-| `@intlify/core` | 11.4.13 | MIT |
-| `@intlify/core-base` | 11.4.13 | MIT |
-| `@intlify/devtools-types` | 11.4.13 | MIT |
+| `@intlify/core` | 11.4.14 | MIT |
+| `@intlify/core-base` | 11.4.14 | MIT |
+| `@intlify/devtools-types` | 11.4.14 | MIT |
 | `@intlify/h3` | 0.7.4 | MIT |
-| `@intlify/message-compiler` | 11.4.13 | MIT |
-| `@intlify/shared` | 11.4.13 | MIT |
+| `@intlify/message-compiler` | 11.4.14 | MIT |
+| `@intlify/shared` | 11.4.14 | MIT |
 | `@intlify/unplugin-vue-i18n` | 11.2.5 | MIT |
 | `@intlify/utils` | 0.13.0 | MIT |
 | `@intlify/utils` | 0.14.1 | MIT |
@@ -929,7 +929,7 @@ compilar y no se distribuyen en el producto.
 | `vue-demi` | 0.14.10 | MIT |
 | `vue-devtools-stub` | 0.1.0 | MIT |
 | `vue-echarts` | 8.3.0 | MIT |
-| `vue-i18n` | 11.4.13 | MIT |
+| `vue-i18n` | 11.4.14 | MIT |
 | `vue-router` | 5.4.0 | MIT |
 | `vue-tsc` | 3.3.12 | MIT |
 | `w3c-keyname` | 2.2.8 | MIT |
